@@ -949,4 +949,43 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
       }
     });
   }
+
+  /// カーソル位置までスクロール
+  void scrollToCaret() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_verticalScrollController.hasClients) return;
+
+      final parsedLines = _cachedParsedLines;
+      if (parsedLines == null || parsedLines.isEmpty) return;
+
+      // カーソル行インデックスを計算（build内と同じロジック）
+      final int cursorLineIndex;
+      if (parsedLines.length >= widget.paneHeight) {
+        cursorLineIndex =
+            parsedLines.length - widget.paneHeight + widget.cursorY;
+      } else {
+        cursorLineIndex = widget.cursorY;
+      }
+
+      // カーソル行のスクロールオフセット
+      final targetOffset = cursorLineIndex * _lineHeight;
+
+      // ビューポート高さを考慮し、カーソル行が中央付近に来るよう調整
+      final viewportHeight =
+          _verticalScrollController.position.viewportDimension;
+      final centeredOffset =
+          targetOffset - (viewportHeight / 2) + (_lineHeight / 2);
+
+      // 有効範囲にクランプ
+      final maxExtent = _verticalScrollController.position.maxScrollExtent;
+      final clampedOffset = centeredOffset.clamp(0.0, maxExtent);
+
+      _verticalScrollController.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
 }

@@ -682,7 +682,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // 初回コンテンツ受信時に一番下へスクロール
     if (!_hasInitialScrolled && _pendingContent.isNotEmpty) {
       _hasInitialScrolled = true;
-      _scrollToBottom();
+      _scrollToCaret();
     }
   }
 
@@ -1008,21 +1008,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// 一番下までスクロール
+  /// キャレット位置にスクロール
   ///
-  /// レイアウト完了後に確実にスクロールするため、
-  /// 少し遅延を入れてからスクロールを実行する
-  void _scrollToBottom() {
-    // レイアウトが完了するまで少し待つ
+  /// パネル/ウィンドウ切り替え後の初回表示時に呼ばれ、
+  /// カーソル行が画面中央付近に来るようスクロールする
+  void _scrollToCaret() {
     Future.delayed(const Duration(milliseconds: 100), () {
       if (!mounted || _isDisposed) return;
-      if (_terminalScrollController.hasClients) {
-        _terminalScrollController.animateTo(
-          _terminalScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
+      _ansiTextViewKey.currentState?.scrollToCaret();
     });
   }
 

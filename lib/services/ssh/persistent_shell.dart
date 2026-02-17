@@ -12,11 +12,22 @@ class PersistentShell {
   final SSHClient _sshClient;
   SSHSession? _session;
 
-  /// コマンド開始検知用マーカー
-  static const String _startMarker = '###START_7f3d8a2b###';
+  /// マーカーのコアテキスト
+  static const String _markerId = '7f3d8a2b';
+
+  /// コマンド開始検知用マーカー（\x01プレフィックス/サフィックス付き）
+  ///
+  /// \x01（SOH制御文字）を含めることで、シェルのエコーバックテキスト内の
+  /// リテラル文字列（`\x01`=4文字）と区別する。
+  /// printfの実出力のみがバイト0x01を含むため、エコーバック内では一致しない。
+  static const String _startMarker = '\x01###START_$_markerId###\x01';
 
   /// コマンド終了検知用マーカー
-  static const String _endMarker = '###END_7f3d8a2b###';
+  static const String _endMarker = '\x01###END_$_markerId###\x01';
+
+  /// printf用のマーカー文字列（シェルコマンド内で使用）
+  static const String _printfStartMarker = r'\x01###START_' '$_markerId' r'###\x01';
+  static const String _printfEndMarker = r'\x01###END_' '$_markerId' r'###\x01';
 
   /// 出力バッファ
   final _outputBuffer = StringBuffer();
@@ -90,9 +101,12 @@ class PersistentShell {
     _pendingCommand = Completer<String>();
     _outputBuffer.clear();
 
-    // 開始マーカー + コマンド + 終了マーカーを送信
-    // これにより、エコーバックやプロンプトに関係なく正確に出力を抽出できる
-    final commandWithMarkers = 'echo "$_startMarker"; $command; echo "$_endMarker"\n';
+    // printfでマーカーを出力（\x01バイトを含む）
+    // echoではなくprintfを使用: シェルのエコーバック内ではリテラル'\x01'（4文字）が
+    // 表示されるが、printfの実出力はバイト0x01を含む。
+    // これによりエコーバック内のマーカーと実出力のマーカーを確実に区別できる。
+    final commandWithMarkers =
+        "printf '$_printfStartMarker\\n'; $command; printf '$_printfEndMarker\\n'\n";
     _session!.write(utf8.encode(commandWithMarkers));
 
     // タイムアウト付きで結果を待機
@@ -126,6 +140,10 @@ class PersistentShell {
       // 開始マーカーの次の行から終了マーカーの前までを抽出
       final startPos = startIndex + _startMarker.length;
       var result = content.substring(startPos, endIndex);
+
+      // PTYの出力変換で\r\nや\rが使われる場合があるため正規化
+      // 事実: macOS PTYではnewlines=0, CRs=19（\nが\rに変換されている）
+      result = result.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
       // 先頭と末尾の改行を削除
       if (result.startsWith('\n')) {

@@ -730,13 +730,19 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         isSpecialKey = true;
         tmuxKeyName = 'BSpace';
       } else if (key == LogicalKeyboardKey.delete) {
-        data = '\x1b[3~';
+        data = _getParamSequence(3, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'DC';
+        tmuxKeyName = _getModifiedTmuxKey('DC');
       } else if (key == LogicalKeyboardKey.tab) {
-        data = '\t';
+        if (_shiftPressed) {
+          data = '\x1b[Z';
+          tmuxKeyName = 'BTab';
+          _shiftPressed = false;
+        } else {
+          data = '\t';
+          tmuxKeyName = 'Tab';
+        }
         isSpecialKey = true;
-        tmuxKeyName = 'Tab';
       } else if (key == LogicalKeyboardKey.arrowUp) {
         data = _getArrowSequence('A');
         isSpecialKey = true;
@@ -754,69 +760,69 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         isSpecialKey = true;
         tmuxKeyName = _getArrowTmuxKey('Left');
       } else if (key == LogicalKeyboardKey.home) {
-        data = '\x1b[H';
+        data = _getFinalCharSequence('H');
         isSpecialKey = true;
-        tmuxKeyName = 'Home';
+        tmuxKeyName = _getModifiedTmuxKey('Home');
       } else if (key == LogicalKeyboardKey.end) {
-        data = '\x1b[F';
+        data = _getFinalCharSequence('F');
         isSpecialKey = true;
-        tmuxKeyName = 'End';
+        tmuxKeyName = _getModifiedTmuxKey('End');
       } else if (key == LogicalKeyboardKey.pageUp) {
-        data = '\x1b[5~';
+        data = _getParamSequence(5, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'PPage';
+        tmuxKeyName = _getModifiedTmuxKey('PPage');
       } else if (key == LogicalKeyboardKey.pageDown) {
-        data = '\x1b[6~';
+        data = _getParamSequence(6, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'NPage';
+        tmuxKeyName = _getModifiedTmuxKey('NPage');
       } else if (key == LogicalKeyboardKey.f1) {
-        data = '\x1bOP';
+        data = _getFKeySequence('P');
         isSpecialKey = true;
-        tmuxKeyName = 'F1';
+        tmuxKeyName = _getModifiedTmuxKey('F1');
       } else if (key == LogicalKeyboardKey.f2) {
-        data = '\x1bOQ';
+        data = _getFKeySequence('Q');
         isSpecialKey = true;
-        tmuxKeyName = 'F2';
+        tmuxKeyName = _getModifiedTmuxKey('F2');
       } else if (key == LogicalKeyboardKey.f3) {
-        data = '\x1bOR';
+        data = _getFKeySequence('R');
         isSpecialKey = true;
-        tmuxKeyName = 'F3';
+        tmuxKeyName = _getModifiedTmuxKey('F3');
       } else if (key == LogicalKeyboardKey.f4) {
-        data = '\x1bOS';
+        data = _getFKeySequence('S');
         isSpecialKey = true;
-        tmuxKeyName = 'F4';
+        tmuxKeyName = _getModifiedTmuxKey('F4');
       } else if (key == LogicalKeyboardKey.f5) {
-        data = '\x1b[15~';
+        data = _getParamSequence(15, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F5';
+        tmuxKeyName = _getModifiedTmuxKey('F5');
       } else if (key == LogicalKeyboardKey.f6) {
-        data = '\x1b[17~';
+        data = _getParamSequence(17, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F6';
+        tmuxKeyName = _getModifiedTmuxKey('F6');
       } else if (key == LogicalKeyboardKey.f7) {
-        data = '\x1b[18~';
+        data = _getParamSequence(18, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F7';
+        tmuxKeyName = _getModifiedTmuxKey('F7');
       } else if (key == LogicalKeyboardKey.f8) {
-        data = '\x1b[19~';
+        data = _getParamSequence(19, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F8';
+        tmuxKeyName = _getModifiedTmuxKey('F8');
       } else if (key == LogicalKeyboardKey.f9) {
-        data = '\x1b[20~';
+        data = _getParamSequence(20, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F9';
+        tmuxKeyName = _getModifiedTmuxKey('F9');
       } else if (key == LogicalKeyboardKey.f10) {
-        data = '\x1b[21~';
+        data = _getParamSequence(21, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F10';
+        tmuxKeyName = _getModifiedTmuxKey('F10');
       } else if (key == LogicalKeyboardKey.f11) {
-        data = '\x1b[23~';
+        data = _getParamSequence(23, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F11';
+        tmuxKeyName = _getModifiedTmuxKey('F11');
       } else if (key == LogicalKeyboardKey.f12) {
-        data = '\x1b[24~';
+        data = _getParamSequence(24, '~');
         isSpecialKey = true;
-        tmuxKeyName = 'F12';
+        tmuxKeyName = _getModifiedTmuxKey('F12');
       } else if (event.character != null && event.character!.isNotEmpty) {
         // 通常文字
         data = event.character!;
@@ -885,6 +891,47 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
       return 'M-$direction';
     }
     return direction;
+  }
+
+  /// 修飾子付きtmuxキー名を取得（汎用: Home/End/PPage/NPage/DC等）
+  /// 修飾子フラグを消費（リセット）する
+  String _getModifiedTmuxKey(String baseKey) {
+    if (_shiftPressed) {
+      _shiftPressed = false;
+      return 'S-$baseKey';
+    } else if (_ctrlPressed) {
+      _ctrlPressed = false;
+      return 'C-$baseKey';
+    } else if (_altPressed) {
+      _altPressed = false;
+      return 'M-$baseKey';
+    }
+    return baseKey;
+  }
+
+  /// 修飾子付きCSIシーケンス: 最終文字型（Home: \x1b[H, End: \x1b[F）
+  /// 修飾子あり: \x1b[1;{mod}{finalChar}
+  String _getFinalCharSequence(String finalChar) {
+    final mod = _shiftPressed ? 2 : _ctrlPressed ? 5 : _altPressed ? 3 : 0;
+    if (mod == 0) return '\x1b[$finalChar';
+    return '\x1b[1;$mod$finalChar';
+  }
+
+  /// 修飾子付きCSIシーケンス: パラメータ型（PageUp: \x1b[5~, Delete: \x1b[3~）
+  /// 修飾子あり: \x1b[{param};{mod}~
+  String _getParamSequence(int param, String suffix) {
+    final mod = _shiftPressed ? 2 : _ctrlPressed ? 5 : _altPressed ? 3 : 0;
+    if (mod == 0) return '\x1b[$param$suffix';
+    return '\x1b[$param;$mod$suffix';
+  }
+
+  /// F1-F4用シーケンス（SS3形式、修飾子ありならCSI形式に変換）
+  /// F1=P, F2=Q, F3=R, F4=S
+  /// 修飾子なし: \x1bO{code}, 修飾子あり: \x1b[1;{mod}{code}
+  String _getFKeySequence(String code) {
+    final mod = _shiftPressed ? 2 : _ctrlPressed ? 5 : _altPressed ? 3 : 0;
+    if (mod == 0) return '\x1bO$code';
+    return '\x1b[1;$mod$code';
   }
 
   // === 修飾キートグル（外部からの制御用） ===

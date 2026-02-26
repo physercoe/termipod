@@ -56,6 +56,11 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
   /// sentinel リセット中の再入防止フラグ
   bool _isResettingController = false;
 
+  /// 二重入力防止: _handleKeyEventで処理した最終時刻
+  /// iPad外付けキーボードではFlutter KeyEventとiOSテキスト入力が
+  /// 同一キーを二重に処理するため、タイムスタンプで抑制する
+  DateTime? _lastKeyEventHandledAt;
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +121,12 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
 
     // 実際のテキストがあれば送信
     if (actualText.isNotEmpty) {
+      // 外付けキーボードの二重入力防止: _handleKeyEventで処理済みならスキップ
+      if (_isRecentKeyEventHandled()) {
+        _resetToSentinel();
+        return;
+      }
+
       // CTRLボタンが押されている場合はCtrl+キーとして送信
       if (_ctrlPressed && actualText.length == 1 && RegExp(r'^[A-Za-z]$').hasMatch(actualText)) {
         if (widget.hapticFeedback) {
@@ -134,6 +145,9 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
 
   /// DirectInput: ソフトウェアキーボードのEnter（送信）で呼ばれる
   void _onDirectInputSubmitted(String value) {
+    // 外付けキーボードの二重入力防止: _handleKeyEventで処理済みならスキップ
+    if (_isRecentKeyEventHandled()) return;
+
     if (widget.hapticFeedback) {
       HapticFeedback.lightImpact();
     }
@@ -159,9 +173,88 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
     _isResettingController = false;
   }
 
-  /// キーイベントハンドラ（Enter/Backspace/Ctrl+キー等をキャプチャ）
+  /// 二重入力防止: _handleKeyEventで処理したことをマーク
+  void _markKeyEventHandled() {
+    _lastKeyEventHandledAt = DateTime.now();
+  }
+
+  /// 二重入力防止: 直近100ms以内に_handleKeyEventで処理されたか
+  bool _isRecentKeyEventHandled() {
+    if (_lastKeyEventHandledAt == null) return false;
+    return DateTime.now().difference(_lastKeyEventHandledAt!) <
+        const Duration(milliseconds: 100);
+  }
+
+  /// 外付けキーボードの修飾子を検出してtmux形式キー名に変換
+  String _applyHardwareModifiers(String baseKey) {
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    final isCtrl = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+    final isAlt = HardwareKeyboard.instance.isAltPressed;
+
+    // 特殊ケース: Shift+Tab → BTab
+    if (isShift && baseKey == 'Tab') return 'BTab';
+
+    final mods = <String>[];
+    if (isShift) mods.add('S');
+    if (isCtrl) mods.add('C');
+    if (isAlt) mods.add('M');
+    if (mods.isEmpty) return baseKey;
+    return '${mods.join('-')}-$baseKey';
+  }
+
+  /// 外付けキーボード → tmuxキー名マッピング
+  static final _hwSpecialKeyMap = <LogicalKeyboardKey, String>{
+    LogicalKeyboardKey.escape: 'Escape',
+    LogicalKeyboardKey.tab: 'Tab',
+    LogicalKeyboardKey.arrowUp: 'Up',
+    LogicalKeyboardKey.arrowDown: 'Down',
+    LogicalKeyboardKey.arrowLeft: 'Left',
+    LogicalKeyboardKey.arrowRight: 'Right',
+    LogicalKeyboardKey.home: 'Home',
+    LogicalKeyboardKey.end: 'End',
+    LogicalKeyboardKey.pageUp: 'PPage',
+    LogicalKeyboardKey.pageDown: 'NPage',
+    LogicalKeyboardKey.delete: 'DC',
+    LogicalKeyboardKey.f1: 'F1',
+    LogicalKeyboardKey.f2: 'F2',
+    LogicalKeyboardKey.f3: 'F3',
+    LogicalKeyboardKey.f4: 'F4',
+    LogicalKeyboardKey.f5: 'F5',
+    LogicalKeyboardKey.f6: 'F6',
+    LogicalKeyboardKey.f7: 'F7',
+    LogicalKeyboardKey.f8: 'F8',
+    LogicalKeyboardKey.f9: 'F9',
+    LogicalKeyboardKey.f10: 'F10',
+    LogicalKeyboardKey.f11: 'F11',
+    LogicalKeyboardKey.f12: 'F12',
+  };
+
+  /// 外付けキーボード用の特殊キー送信（デバウンス付き）
+  void _sendHwSpecialKey(String baseKey) {
+    _markKeyEventHandled();
+    if (widget.hapticFeedback) {
+      HapticFeedback.lightImpact();
+    }
+    widget.onSpecialKeyPressed(_applyHardwareModifiers(baseKey));
+    // 外付けキーボード使用時はソフトウェア修飾子トグルをリセット
+    _resetSoftwareModifiers();
+  }
+
+  /// ソフトウェア修飾子ボタンの状態をリセット
+  void _resetSoftwareModifiers() {
+    if (_shiftPressed || _ctrlPressed || _altPressed) {
+      setState(() {
+        _shiftPressed = false;
+        _ctrlPressed = false;
+        _altPressed = false;
+      });
+    }
+  }
+
+  /// キーイベントハンドラ（外付けキーボード用: 全特殊キーをキャプチャ）
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
 
@@ -170,52 +263,42 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
       return KeyEventResult.ignored;
     }
 
-    // Ctrl/Meta修飾キーの検出
+    final key = event.logicalKey;
+
+    // Ctrl/Meta + A-Z のショートカット処理
     final isCtrlPressed = HardwareKeyboard.instance.isControlPressed ||
         HardwareKeyboard.instance.isMetaPressed;
-
-    // Ctrl+キーのショートカット処理
     if (isCtrlPressed) {
-      final keyLabel = event.logicalKey.keyLabel;
-      // A-Z の単一キーの場合、Ctrl+キーとしてtmuxに送信
+      final keyLabel = key.keyLabel;
       if (keyLabel.length == 1 && RegExp(r'^[A-Za-z]$').hasMatch(keyLabel)) {
+        _markKeyEventHandled();
         if (widget.hapticFeedback) {
           HapticFeedback.lightImpact();
         }
-        // tmux形式: C-c, C-d など（小文字）
         widget.onSpecialKeyPressed('C-${keyLabel.toLowerCase()}');
+        _resetSoftwareModifiers();
         return KeyEventResult.handled;
       }
     }
 
     // Enterキー
-    if (event.logicalKey == LogicalKeyboardKey.enter ||
-        event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      _markKeyEventHandled();
       _sendDirectEnterAndClear();
+      _resetSoftwareModifiers();
       return KeyEventResult.handled;
     }
 
     // Backspaceキー: sentinelアプローチで_onDirectInputChangedにて処理
-    // フレームワークにsentinel削除を委譲することでiOS/iPadOSでも動作する
-    if (event.logicalKey == LogicalKeyboardKey.backspace) {
+    if (key == LogicalKeyboardKey.backspace) {
       return KeyEventResult.ignored;
     }
 
-    // Escapeキー
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      if (widget.hapticFeedback) {
-        HapticFeedback.lightImpact();
-      }
-      widget.onSpecialKeyPressed('Escape');
-      return KeyEventResult.handled;
-    }
-
-    // Tabキー
-    if (event.logicalKey == LogicalKeyboardKey.tab) {
-      if (widget.hapticFeedback) {
-        HapticFeedback.lightImpact();
-      }
-      widget.onSpecialKeyPressed('Tab');
+    // マップに登録された特殊キー（Escape/Tab/矢印/Nav/F1-F12）
+    final tmuxKey = _hwSpecialKeyMap[key];
+    if (tmuxKey != null) {
+      _sendHwSpecialKey(tmuxKey);
       return KeyEventResult.handled;
     }
 
@@ -397,10 +480,22 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           const SizedBox(width: 8),
           // DirectInputモードトグルボタン
           _buildDirectInputToggle(),
-          const SizedBox(width: 4),
-          // DirectInputモードが無効の場合のみInputボタンを表示
-          if (!widget.directInputEnabled)
+          // DirectInput有効時: 数字キー(1-4)を右寄せで表示
+          if (widget.directInputEnabled) ...[
+            const Spacer(),
+            _buildNumberKeyButton('1'),
+            const SizedBox(width: 2),
+            _buildNumberKeyButton('2'),
+            const SizedBox(width: 2),
+            _buildNumberKeyButton('3'),
+            const SizedBox(width: 2),
+            _buildNumberKeyButton('4'),
+          ],
+          // DirectInput無効時: Inputボタンを表示
+          if (!widget.directInputEnabled) ...[
+            const SizedBox(width: 4),
             Expanded(child: _buildInputButton()),
+          ],
         ],
       ),
     );
@@ -688,6 +783,39 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           icon,
           size: 16,
           color: colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
+  /// 数字キーボタン（DirectInput有効時に矢印キー行に表示）
+  Widget _buildNumberKeyButton(String label) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTapDown: (_) {
+        if (widget.hapticFeedback) {
+          HapticFeedback.lightImpact();
+        }
+      },
+      onTap: () => _sendLiteralKey(label),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
         ),
       ),
     );

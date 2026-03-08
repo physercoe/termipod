@@ -80,12 +80,20 @@ class TerminalScreen extends ConsumerStatefulWidget {
   /// 復元用: 最後に開いていたペインID
   final String? lastPaneId;
 
+  /// ディープリンク用: ウィンドウ名で指定（インデックスではなく名前で検索）
+  final String? deepLinkWindowName;
+
+  /// ディープリンク用: ペインインデックス
+  final int? deepLinkPaneIndex;
+
   const TerminalScreen({
     super.key,
     required this.connectionId,
     this.sessionName,
     this.lastWindowIndex,
     this.lastPaneId,
+    this.deepLinkWindowName,
+    this.deepLinkPaneIndex,
   });
 
   @override
@@ -394,8 +402,33 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // 6. アクティブセッション/ウィンドウ/ペインを設定
       ref.read(tmuxProvider.notifier).setActiveSession(sessionName);
 
-      // 6.1 保存されたウィンドウ/ペイン位置を復元
-      if (widget.lastWindowIndex != null) {
+      // 6.1 ディープリンクまたは保存されたウィンドウ/ペイン位置を復元
+      if (widget.deepLinkWindowName != null) {
+        // ディープリンク: ウィンドウ名で検索
+        final tmuxState = ref.read(tmuxProvider);
+        final session = tmuxState.activeSession;
+        if (session != null) {
+          final targetName = widget.deepLinkWindowName!;
+          // ウィンドウ名で検索（"index:name" 形式の名前部分にも対応）
+          TmuxWindow? window;
+          for (final w in session.windows) {
+            if (w.name == targetName || w.name.endsWith(':$targetName')) {
+              window = w;
+              break;
+            }
+          }
+          if (window != null) {
+            ref.read(tmuxProvider.notifier).setActiveWindow(window.index);
+
+            // ペインインデックスが指定されている場合
+            if (widget.deepLinkPaneIndex != null && widget.deepLinkPaneIndex! < window.panes.length) {
+              final pane = window.panes[widget.deepLinkPaneIndex!];
+              ref.read(tmuxProvider.notifier).setActivePane(pane.id);
+            }
+          }
+        }
+      } else if (widget.lastWindowIndex != null) {
+        // 通常の復元: インデックスで検索
         final tmuxState = ref.read(tmuxProvider);
         final session = tmuxState.activeSession;
         if (session != null) {
@@ -775,14 +808,27 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   @override
+  @override
+  void deactivate() {
+    // ref.readはdeactivateまでは安全（disposeでは_elementsから外れている）
+    final sshNotifier = ref.read(sshProvider.notifier);
+    sshNotifier.onReconnectSuccess = null;
+    sshNotifier.onDisconnectDetected = null;
+
+    // popUntil等で_disconnect()を経由せずにpopされた場合もSSHを切断
+    if (sshNotifier.checkConnection()) {
+      sshNotifier.disconnect();
+    }
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
     // まず_isDisposedをセットして非同期処理を停止
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     // WakeLockを無効化
     WakelockPlus.disable();
-    // 再接続成功コールバックをクリア
-    ref.read(sshProvider.notifier).onReconnectSuccess = null;
     // Riverpodサブスクリプションをキャンセル
     _sshSubscription?.close();
     _sshSubscription = null;

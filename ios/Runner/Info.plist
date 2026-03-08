@@ -45,6 +45,19 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.muxpod.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>muxpod</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>SSH接続情報への安全なアクセスのためにFace IDを使用します</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -48,6 +48,11 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
   /// 現在IME変換中かどうか
   bool _isComposing = false;
 
+  /// IME composing中の最新テキスト（iOS重複検出用）
+  /// iOSが自動確定時にcomposingテキストより長い確定テキストを返す場合、
+  /// composingテキストを正とし余分な重複を除去する
+  String? _lastComposingText;
+
   /// DirectInputモードでBackspace検出のためのsentinel文字（ゼロ幅スペース）
   /// iOS/iPadOSではTextField空の状態でBackspace押下時にKeyDownEventが
   /// 生成されないため、常にsentinelを保持して削除検出でBackspaceを検知する
@@ -105,12 +110,14 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
     _isComposing = value.composing.isValid && !value.composing.isCollapsed;
 
     if (_isComposing) {
-      // 変換中は送信しない
+      // 変換中: composingテキストを記録（iOS重複検出用）して送信しない
+      _lastComposingText = text.replaceAll(_sentinel, '');
       return;
     }
 
     // Sentinelが削除された = Backspaceが押された（iOS/iPadOS対応）
     if (text.isEmpty) {
+      _lastComposingText = null;
       _sendDirectBackspace();
       _resetToSentinel();
       return;
@@ -123,19 +130,30 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
     if (actualText.isNotEmpty) {
       // 外付けキーボードの二重入力防止: _handleKeyEventで処理済みならスキップ
       if (_isRecentKeyEventHandled()) {
+        _lastComposingText = null;
         _resetToSentinel();
         return;
       }
 
+      // iOS重複検出: 確定テキストがcomposingテキストより長く、
+      // composingテキストで始まる場合、iOSの重複挿入とみなしcomposingテキストを使用
+      String textToSend = actualText;
+      if (_lastComposingText != null &&
+          actualText.length > _lastComposingText!.length &&
+          actualText.startsWith(_lastComposingText!)) {
+        textToSend = _lastComposingText!;
+      }
+      _lastComposingText = null;
+
       // CTRLボタンが押されている場合はCtrl+キーとして送信
-      if (_ctrlPressed && actualText.length == 1 && RegExp(r'^[A-Za-z]$').hasMatch(actualText)) {
+      if (_ctrlPressed && textToSend.length == 1 && RegExp(r'^[A-Za-z]$').hasMatch(textToSend)) {
         if (widget.hapticFeedback) {
           HapticFeedback.lightImpact();
         }
-        widget.onSpecialKeyPressed('C-${actualText.toLowerCase()}');
+        widget.onSpecialKeyPressed('C-${textToSend.toLowerCase()}');
         setState(() => _ctrlPressed = false);
       } else {
-        widget.onKeyPressed(actualText);
+        widget.onKeyPressed(textToSend);
       }
 
       // 送信後にsentinelにリセット
@@ -164,13 +182,30 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
   }
 
   /// DirectInput: sentinelにリセット（Backspace検出用）
+  ///
+  /// _isResettingControllerの解除を次フレームまで遅延することで、
+  /// iOSプラットフォームがIME確定時に送る遅延テキスト更新を吸収する。
+  /// PostFrameCallbackでcontrollerが上書きされていれば再度sentinelにリセットする。
   void _resetToSentinel() {
     _isResettingController = true;
     _directInputController.value = TextEditingValue(
       text: _sentinel,
       selection: TextSelection.collapsed(offset: _sentinel.length),
     );
-    _isResettingController = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final currentValue = _directInputController.value;
+      final hasActiveComposing = currentValue.composing.isValid &&
+          !currentValue.composing.isCollapsed;
+      // composing進行中ならiOSの入力を尊重して再リセットしない
+      if (!hasActiveComposing && _directInputController.text != _sentinel) {
+        _directInputController.value = TextEditingValue(
+          text: _sentinel,
+          selection: TextSelection.collapsed(offset: _sentinel.length),
+        );
+      }
+      _isResettingController = false;
+    });
   }
 
   /// 二重入力防止: _handleKeyEventで処理したことをマーク

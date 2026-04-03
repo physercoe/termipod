@@ -23,6 +23,17 @@ class AppSettings {
   /// ペインナビゲーション方向の反転
   final bool invertPaneNavigation;
 
+  // --- 画像転送設定 ---
+  final String imageRemotePath;
+  final String imageOutputFormat;
+  final int imageJpegQuality;
+  final String imageResizePreset; // 'original'/'small'/'medium'/'large'/'custom'
+  final int imageMaxWidth;
+  final int imageMaxHeight;
+  final String imagePathFormat;
+  final bool imageAutoEnter;
+  final bool imageBracketedPaste;
+
   const AppSettings({
     this.darkMode = true,
     this.fontSize = 14.0,
@@ -37,6 +48,15 @@ class AppSettings {
     this.directInputEnabled = false,
     this.showTerminalCursor = true,
     this.invertPaneNavigation = false,
+    this.imageRemotePath = '/tmp/muxpod/',
+    this.imageOutputFormat = 'original',
+    this.imageJpegQuality = 85,
+    this.imageResizePreset = 'original',
+    this.imageMaxWidth = 1920,
+    this.imageMaxHeight = 1080,
+    this.imagePathFormat = '{path}',
+    this.imageAutoEnter = false,
+    this.imageBracketedPaste = false,
   });
 
   AppSettings copyWith({
@@ -53,6 +73,15 @@ class AppSettings {
     bool? directInputEnabled,
     bool? showTerminalCursor,
     bool? invertPaneNavigation,
+    String? imageRemotePath,
+    String? imageOutputFormat,
+    int? imageJpegQuality,
+    String? imageResizePreset,
+    int? imageMaxWidth,
+    int? imageMaxHeight,
+    String? imagePathFormat,
+    bool? imageAutoEnter,
+    bool? imageBracketedPaste,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -68,6 +97,15 @@ class AppSettings {
       directInputEnabled: directInputEnabled ?? this.directInputEnabled,
       showTerminalCursor: showTerminalCursor ?? this.showTerminalCursor,
       invertPaneNavigation: invertPaneNavigation ?? this.invertPaneNavigation,
+      imageRemotePath: imageRemotePath ?? this.imageRemotePath,
+      imageOutputFormat: imageOutputFormat ?? this.imageOutputFormat,
+      imageJpegQuality: imageJpegQuality ?? this.imageJpegQuality,
+      imageResizePreset: imageResizePreset ?? this.imageResizePreset,
+      imageMaxWidth: imageMaxWidth ?? this.imageMaxWidth,
+      imageMaxHeight: imageMaxHeight ?? this.imageMaxHeight,
+      imagePathFormat: imagePathFormat ?? this.imagePathFormat,
+      imageAutoEnter: imageAutoEnter ?? this.imageAutoEnter,
+      imageBracketedPaste: imageBracketedPaste ?? this.imageBracketedPaste,
     );
   }
 }
@@ -87,6 +125,15 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _directInputEnabledKey = 'settings_direct_input_enabled';
   static const String _showTerminalCursorKey = 'settings_show_terminal_cursor';
   static const String _invertPaneNavKey = 'settings_invert_pane_nav';
+  static const String _imageRemotePathKey = 'settings_image_remote_path';
+  static const String _imageOutputFormatKey = 'settings_image_output_format';
+  static const String _imageJpegQualityKey = 'settings_image_jpeg_quality';
+  static const String _imageResizePresetKey = 'settings_image_resize_preset';
+  static const String _imageMaxWidthKey = 'settings_image_max_width';
+  static const String _imageMaxHeightKey = 'settings_image_max_height';
+  static const String _imagePathFormatKey = 'settings_image_path_format';
+  static const String _imageAutoEnterKey = 'settings_image_auto_enter';
+  static const String _imageBracketedPasteKey = 'settings_image_bracketed_paste';
 
   @override
   AppSettings build() {
@@ -111,6 +158,15 @@ class SettingsNotifier extends Notifier<AppSettings> {
       directInputEnabled: prefs.getBool(_directInputEnabledKey) ?? false,
       showTerminalCursor: prefs.getBool(_showTerminalCursorKey) ?? true,
       invertPaneNavigation: prefs.getBool(_invertPaneNavKey) ?? false,
+      imageRemotePath: prefs.getString(_imageRemotePathKey) ?? '/tmp/muxpod/',
+      imageOutputFormat: prefs.getString(_imageOutputFormatKey) ?? 'original',
+      imageJpegQuality: prefs.getInt(_imageJpegQualityKey) ?? 85,
+      imageResizePreset: prefs.getString(_imageResizePresetKey) ?? 'original',
+      imageMaxWidth: prefs.getInt(_imageMaxWidthKey) ?? 1920,
+      imageMaxHeight: prefs.getInt(_imageMaxHeightKey) ?? 1080,
+      imagePathFormat: prefs.getString(_imagePathFormatKey) ?? '{path}',
+      imageAutoEnter: prefs.getBool(_imageAutoEnterKey) ?? false,
+      imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
     );
   }
 
@@ -208,6 +264,52 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setInvertPaneNavigation(bool value) async {
     state = state.copyWith(invertPaneNavigation: value);
     await _saveSetting(_invertPaneNavKey, value);
+  }
+
+  // --- 画像転送設定のsetter ---
+  Future<void> setImageRemotePath(String value) async {
+    state = state.copyWith(imageRemotePath: value);
+    await _saveSetting(_imageRemotePathKey, value);
+  }
+
+  Future<void> setImageOutputFormat(String value) async {
+    state = state.copyWith(imageOutputFormat: value);
+    await _saveSetting(_imageOutputFormatKey, value);
+  }
+
+  Future<void> setImageJpegQuality(int value) async {
+    state = state.copyWith(imageJpegQuality: value);
+    await _saveSetting(_imageJpegQualityKey, value);
+  }
+
+  Future<void> setImageResizePreset(String value) async {
+    state = state.copyWith(imageResizePreset: value);
+    await _saveSetting(_imageResizePresetKey, value);
+  }
+
+  Future<void> setImageMaxWidth(int value) async {
+    state = state.copyWith(imageMaxWidth: value);
+    await _saveSetting(_imageMaxWidthKey, value);
+  }
+
+  Future<void> setImageMaxHeight(int value) async {
+    state = state.copyWith(imageMaxHeight: value);
+    await _saveSetting(_imageMaxHeightKey, value);
+  }
+
+  Future<void> setImagePathFormat(String value) async {
+    state = state.copyWith(imagePathFormat: value);
+    await _saveSetting(_imagePathFormatKey, value);
+  }
+
+  Future<void> setImageAutoEnter(bool value) async {
+    state = state.copyWith(imageAutoEnter: value);
+    await _saveSetting(_imageAutoEnterKey, value);
+  }
+
+  Future<void> setImageBracketedPaste(bool value) async {
+    state = state.copyWith(imageBracketedPaste: value);
+    await _saveSetting(_imageBracketedPasteKey, value);
   }
 
   /// リロード

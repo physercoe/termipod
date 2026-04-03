@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
-import 'package:flutter_muxpod/widgets/active_list_tile.dart';
 import 'package:flutter_muxpod/widgets/tmux_tiles.dart';
 
 /// tmuxセッションツリー表示Widget
@@ -10,6 +9,9 @@ class SessionTree extends StatelessWidget {
   final String? selectedPaneId;
   final void Function(String paneId)? onPaneSelected;
   final void Function(String sessionName)? onSessionDoubleTap;
+  final void Function(TmuxPane pane)? onPaneResize;
+  final void Function(String paneId)? onPaneClose;
+  final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
 
   const SessionTree({
@@ -18,6 +20,9 @@ class SessionTree extends StatelessWidget {
     this.selectedPaneId,
     this.onPaneSelected,
     this.onSessionDoubleTap,
+    this.onPaneResize,
+    this.onPaneClose,
+    this.onWindowResize,
     this.onWindowClose,
   });
 
@@ -39,6 +44,9 @@ class SessionTree extends StatelessWidget {
           selectedPaneId: selectedPaneId,
           onPaneSelected: onPaneSelected,
           onSessionDoubleTap: onSessionDoubleTap,
+          onPaneResize: onPaneResize,
+          onPaneClose: onPaneClose,
+          onWindowResize: onWindowResize,
           onWindowClose: onWindowClose,
         );
       },
@@ -52,6 +60,9 @@ class _SessionTile extends StatefulWidget {
   final String? selectedPaneId;
   final void Function(String paneId)? onPaneSelected;
   final void Function(String sessionName)? onSessionDoubleTap;
+  final void Function(TmuxPane pane)? onPaneResize;
+  final void Function(String paneId)? onPaneClose;
+  final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
 
   const _SessionTile({
@@ -59,6 +70,9 @@ class _SessionTile extends StatefulWidget {
     this.selectedPaneId,
     this.onPaneSelected,
     this.onSessionDoubleTap,
+    this.onPaneResize,
+    this.onPaneClose,
+    this.onWindowResize,
     this.onWindowClose,
   });
 
@@ -101,6 +115,9 @@ class _SessionTileState extends State<_SessionTile> {
               isLastWindow: widget.session.windows.length == 1,
               selectedPaneId: widget.selectedPaneId,
               onPaneSelected: widget.onPaneSelected,
+              onPaneResize: widget.onPaneResize,
+              onPaneClose: widget.onPaneClose,
+              onWindowResize: widget.onWindowResize,
               onWindowClose: widget.onWindowClose,
             );
           }),
@@ -116,6 +133,9 @@ class _WindowTile extends StatefulWidget {
   final bool isLastWindow;
   final String? selectedPaneId;
   final void Function(String paneId)? onPaneSelected;
+  final void Function(TmuxPane pane)? onPaneResize;
+  final void Function(String paneId)? onPaneClose;
+  final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
 
   const _WindowTile({
@@ -124,6 +144,9 @@ class _WindowTile extends StatefulWidget {
     required this.isLastWindow,
     this.selectedPaneId,
     this.onPaneSelected,
+    this.onPaneResize,
+    this.onPaneClose,
+    this.onWindowResize,
     this.onWindowClose,
   });
 
@@ -150,6 +173,9 @@ class _WindowTileState extends State<_WindowTile> {
             window: widget.window,
             isActive: widget.window.active,
             onTap: () => setState(() => _isExpanded = !_isExpanded),
+            onResize: widget.onWindowResize != null
+                ? () => widget.onWindowResize!(widget.window)
+                : null,
             onClose: widget.onWindowClose != null
                 ? () => widget.onWindowClose?.call(
                       widget.sessionName,
@@ -167,21 +193,19 @@ class _WindowTileState extends State<_WindowTile> {
   }
 
   Widget _buildPaneNode(BuildContext context, TmuxPane pane) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isSelected = pane.id == widget.selectedPaneId;
-
     return Padding(
       padding: const EdgeInsets.only(left: 32),
-      child: ActiveListTile(
-        isActive: isSelected,
-        showLeftBar: false,
-        leading: Icon(
-          Icons.terminal,
-          color: pane.active ? colorScheme.tertiary : colorScheme.onSurface.withValues(alpha: 0.6),
-        ),
-        title: 'Pane ${pane.index}',
-        subtitle: '${pane.width}x${pane.height}',
+      child: TmuxPaneTile(
+        pane: pane,
+        paneTitle: pane.title ?? 'Pane ${pane.index}',
+        isActive: pane.id == widget.selectedPaneId,
         onTap: () => widget.onPaneSelected?.call(pane.id),
+        onResize: widget.onPaneResize != null
+            ? () => widget.onPaneResize!(pane)
+            : null,
+        onClose: widget.onPaneClose != null
+            ? () => widget.onPaneClose!(pane.id)
+            : null,
       ),
     );
   }

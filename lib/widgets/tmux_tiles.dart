@@ -41,6 +41,7 @@ class TmuxPaneTile extends StatelessWidget {
   final bool isActive;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onResize;
   final VoidCallback? onClose;
 
   const TmuxPaneTile({
@@ -50,6 +51,7 @@ class TmuxPaneTile extends StatelessWidget {
     required this.isActive,
     this.onTap,
     this.onLongPress,
+    this.onResize,
     this.onClose,
   });
 
@@ -92,7 +94,7 @@ class TmuxPaneTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (onClose != null)
+          if (onResize != null || onClose != null)
             PopupMenuButton<String>(
               icon: Icon(
                 Icons.more_vert,
@@ -101,20 +103,35 @@ class TmuxPaneTile extends StatelessWidget {
               ),
               padding: EdgeInsets.zero,
               itemBuilder: (menuContext) => [
-                PopupMenuItem(
-                  value: 'close',
-                  child: Row(
-                    children: [
-                      Icon(Icons.close, size: 18, color: DesignColors.error),
-                      const SizedBox(width: 8),
-                      Text('Close Pane',
-                          style: TextStyle(color: DesignColors.error)),
-                    ],
+                if (onResize != null)
+                  PopupMenuItem(
+                    value: 'resize',
+                    child: Row(
+                      children: [
+                        Icon(Icons.aspect_ratio, size: 18,
+                            color: colorScheme.onSurface),
+                        const SizedBox(width: 8),
+                        const Text('Resize Pane'),
+                      ],
+                    ),
                   ),
-                ),
+                if (onClose != null)
+                  PopupMenuItem(
+                    value: 'close',
+                    child: Row(
+                      children: [
+                        Icon(Icons.close, size: 18, color: DesignColors.error),
+                        const SizedBox(width: 8),
+                        Text('Close Pane',
+                            style: TextStyle(color: DesignColors.error)),
+                      ],
+                    ),
+                  ),
               ],
               onSelected: (value) {
-                if (value == 'close') {
+                if (value == 'resize') {
+                  onResize?.call();
+                } else if (value == 'close') {
                   onClose?.call();
                 }
               },
@@ -132,6 +149,7 @@ class TmuxWindowTile extends StatelessWidget {
   final TmuxWindow window;
   final bool isActive;
   final VoidCallback? onTap;
+  final VoidCallback? onResize;
   final VoidCallback? onClose;
 
   const TmuxWindowTile({
@@ -139,6 +157,7 @@ class TmuxWindowTile extends StatelessWidget {
     required this.window,
     required this.isActive,
     this.onTap,
+    this.onResize,
     this.onClose,
   });
 
@@ -154,7 +173,7 @@ class TmuxWindowTile extends StatelessWidget {
       ),
       title: '${window.index}: ${window.name}',
       subtitle: '${window.paneCount} panes',
-      trailing: onClose != null
+      trailing: onResize != null || onClose != null
           ? PopupMenuButton<String>(
               icon: Icon(
                 Icons.more_vert,
@@ -163,19 +182,34 @@ class TmuxWindowTile extends StatelessWidget {
               ),
               padding: EdgeInsets.zero,
               itemBuilder: (menuContext) => [
-                PopupMenuItem(
-                  value: 'close',
-                  child: Row(
-                    children: [
-                      Icon(Icons.close, size: 18, color: DesignColors.error),
-                      const SizedBox(width: 8),
-                      Text('Close Window', style: TextStyle(color: DesignColors.error)),
-                    ],
+                if (onResize != null)
+                  PopupMenuItem(
+                    value: 'resize',
+                    child: Row(
+                      children: [
+                        Icon(Icons.aspect_ratio, size: 18,
+                            color: colorScheme.onSurface),
+                        const SizedBox(width: 8),
+                        const Text('Resize Window'),
+                      ],
+                    ),
                   ),
-                ),
+                if (onClose != null)
+                  PopupMenuItem(
+                    value: 'close',
+                    child: Row(
+                      children: [
+                        Icon(Icons.close, size: 18, color: DesignColors.error),
+                        const SizedBox(width: 8),
+                        Text('Close Window', style: TextStyle(color: DesignColors.error)),
+                      ],
+                    ),
+                  ),
               ],
               onSelected: (value) {
-                if (value == 'close') {
+                if (value == 'resize') {
+                  onResize?.call();
+                } else if (value == 'close') {
                   onClose?.call();
                 }
               },

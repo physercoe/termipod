@@ -165,6 +165,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // directInput設定のローカルキャッシュ（ref.watch回避）
   bool _directInputEnabled = true;
 
+  // ウィンドウ作成中フラグ（連打防止）
+  bool _isCreatingWindow = false;
+
   // Riverpodリスナー
   ProviderSubscription<SshState>? _sshSubscription;
   ProviderSubscription<TmuxState>? _tmuxSubscription;
@@ -1533,6 +1536,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           color: colorScheme.onSurface,
                         ),
                       ),
+                      const Spacer(),
+                      IconButton(
+                        icon: Icon(Icons.add, color: colorScheme.primary),
+                        tooltip: 'New Window',
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          Future.delayed(const Duration(milliseconds: 200), () {
+                            if (mounted) _showCreateWindowDialog(session);
+                          });
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -1580,6 +1594,70 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     ).then((_) {
       _scrollToBottomKey.currentState?.show();
     });
+  }
+
+  /// ウィンドウ作成ダイアログを表示
+  void _showCreateWindowDialog(TmuxSession session) {
+    final existingNames = session.windows.map((w) => w.name).toList();
+    showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _NewWindowDialog(
+        existingWindowNames: existingNames,
+      ),
+    ).then((windowName) {
+      if (windowName != null) {
+        _createWindow(windowName.isEmpty ? null : windowName);
+      }
+    });
+  }
+
+  /// 新しいウィンドウを作成
+  Future<void> _createWindow(String? windowName) async {
+    if (_isCreatingWindow) return;
+    _isCreatingWindow = true;
+    try {
+      final sshClient = ref.read(sshProvider.notifier).client;
+      if (sshClient == null || !sshClient.isConnected) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('SSH connection is not available')),
+          );
+        }
+        return;
+      }
+      final session = ref.read(tmuxProvider).activeSession;
+      if (session == null) return;
+
+      await sshClient.exec(TmuxCommands.newWindow(
+        sessionName: session.name,
+        windowName: windowName,
+      ));
+      await _refreshSessionTree();
+      if (!mounted) return;
+
+      // active=1のウィンドウを検出して自動切替
+      final updatedSession = ref.read(tmuxProvider).activeSession;
+      final activeWindow =
+          updatedSession?.windows.where((w) => w.active).firstOrNull;
+      if (activeWindow != null) {
+        ref.read(tmuxProvider.notifier).setActiveWindow(activeWindow.index);
+        _viewNotifier.value = _viewNotifier.value.copyWith(content: '');
+        _hasInitialScrolled = false;
+        final activePaneId = ref.read(tmuxProvider).activePaneId;
+        if (activePaneId != null) {
+          await _selectPane(activePaneId);
+        }
+      }
+      _boostPolling();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create window: $e')),
+        );
+      }
+    } finally {
+      _isCreatingWindow = false;
+    }
   }
 
   /// ペインを分割
@@ -3066,6 +3144,110 @@ class _InputDialogContentState extends State<_InputDialogContent> {
           const SizedBox(height: 16),
         ],
       ),
+    );
+  }
+}
+
+/// ウィンドウ名入力ダイアログ
+class _NewWindowDialog extends StatefulWidget {
+  final List<String> existingWindowNames;
+
+  const _NewWindowDialog({required this.existingWindowNames});
+
+  @override
+  State<_NewWindowDialog> createState() => _NewWindowDialogState();
+}
+
+class _NewWindowDialogState extends State<_NewWindowDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  String? _validateWindowName(String? value) {
+    if (value == null || value.isEmpty) {
+      return null; // 空入力はtmuxデフォルト名で許容
+    }
+    if (value.length > 50) {
+      return 'Window name must be 50 characters or less';
+    }
+    if (!RegExp(r'^[a-zA-Z0-9_-]+$').hasMatch(value)) {
+      return 'Only letters, numbers, - and _ allowed';
+    }
+    if (widget.existingWindowNames.contains(value)) {
+      return 'Window "$value" already exists';
+    }
+    return null;
+  }
+
+  void _submit() {
+    if (_formKey.currentState!.validate()) {
+      Navigator.pop(context, _nameController.text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: Text(
+        'New Window',
+        style: GoogleFonts.spaceGrotesk(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          controller: _nameController,
+          autofocus: true,
+          maxLength: 50,
+          decoration: InputDecoration(
+            labelText: 'Window Name',
+            hintText: 'Leave empty for default',
+            hintStyle: GoogleFonts.jetBrainsMono(
+              fontSize: 14,
+              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+            ),
+            filled: true,
+            fillColor: isDark ? DesignColors.inputDark : DesignColors.inputLight,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: colorScheme.primary),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: DesignColors.error),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: DesignColors.error),
+            ),
+          ),
+          style: GoogleFonts.jetBrainsMono(fontSize: 14),
+          validator: _validateWindowName,
+          onFieldSubmitted: (_) => _submit(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
     );
   }
 }

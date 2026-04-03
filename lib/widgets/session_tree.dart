@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
-import 'package:flutter_muxpod/theme/design_colors.dart';
+import 'package:flutter_muxpod/widgets/active_list_tile.dart';
+import 'package:flutter_muxpod/widgets/tmux_tiles.dart';
 
 /// tmuxセッションツリー表示Widget
 /// 仮想スクロール対応: ListView.builder + 遅延ウィジェット生成
@@ -78,50 +79,32 @@ class _SessionTileState extends State<_SessionTile> {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    return Container(
-      decoration: widget.session.attached
-          ? BoxDecoration(
-              border: Border(
-                left: BorderSide(color: colorScheme.primary, width: 3),
-              ),
-            )
-          : null,
-      child: GestureDetector(
-        onDoubleTap: () => widget.onSessionDoubleTap?.call(widget.session.name),
-        child: ExpansionTile(
-          leading: Icon(
-            Icons.folder,
-            color: widget.session.attached ? colorScheme.primary : null,
-          ),
-          title: Text(
-            widget.session.name,
-            style: TextStyle(
-              color: widget.session.attached ? colorScheme.primary : colorScheme.onSurface,
-              fontWeight: widget.session.attached ? FontWeight.bold : FontWeight.normal,
+    return Column(
+      children: [
+        GestureDetector(
+          onDoubleTap: () => widget.onSessionDoubleTap?.call(widget.session.name),
+          child: TmuxSessionTile(
+            session: widget.session,
+            isActive: widget.session.attached,
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            trailing: Icon(
+              _isExpanded ? Icons.expand_less : Icons.expand_more,
+              color: colorScheme.onSurface.withValues(alpha: 0.6),
             ),
           ),
-          subtitle: Text(
-            '${widget.session.windowCount} windows',
-            style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38)),
-          ),
-          initiallyExpanded: widget.session.attached,
-          onExpansionChanged: (expanded) {
-            setState(() => _isExpanded = expanded);
-          },
-          children: _isExpanded
-              ? widget.session.windows.map((window) {
-                  return _WindowTile(
-                    sessionName: widget.session.name,
-                    window: window,
-                    isLastWindow: widget.session.windows.length == 1,
-                    selectedPaneId: widget.selectedPaneId,
-                    onPaneSelected: widget.onPaneSelected,
-                    onWindowClose: widget.onWindowClose,
-                  );
-                }).toList()
-              : const [],
         ),
-      ),
+        if (_isExpanded)
+          ...widget.session.windows.map((window) {
+            return _WindowTile(
+              sessionName: widget.session.name,
+              window: window,
+              isLastWindow: widget.session.windows.length == 1,
+              selectedPaneId: widget.selectedPaneId,
+              onPaneSelected: widget.onPaneSelected,
+              onWindowClose: widget.onWindowClose,
+            );
+          }),
+      ],
     );
   }
 }
@@ -159,84 +142,26 @@ class _WindowTileState extends State<_WindowTile> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Container(
-      decoration: widget.window.active
-          ? BoxDecoration(
-              border: Border(
-                left: BorderSide(color: colorScheme.primary, width: 3),
-              ),
-            )
-          : null,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 16),
-        child: ExpansionTile(
-          leading: Icon(
-            Icons.tab,
-            color: widget.window.active ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.6),
+    return Padding(
+      padding: const EdgeInsets.only(left: 16),
+      child: Column(
+        children: [
+          TmuxWindowTile(
+            window: widget.window,
+            isActive: widget.window.active,
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            onClose: widget.onWindowClose != null
+                ? () => widget.onWindowClose?.call(
+                      widget.sessionName,
+                      widget.window.index,
+                      widget.window.name,
+                      widget.isLastWindow,
+                    )
+                : null,
           ),
-          title: Text(
-            '${widget.window.index}: ${widget.window.name}',
-            style: TextStyle(
-              color: widget.window.active ? colorScheme.primary : colorScheme.onSurface,
-              fontWeight: widget.window.active ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-          subtitle: Text(
-            '${widget.window.paneCount} panes',
-            style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38)),
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.onWindowClose != null)
-                PopupMenuButton<String>(
-                  icon: Icon(
-                    Icons.more_vert,
-                    size: 20,
-                    color: colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                  padding: EdgeInsets.zero,
-                  itemBuilder: (menuContext) => [
-                    PopupMenuItem(
-                      value: 'close',
-                      child: Row(
-                        children: [
-                          Icon(Icons.close, size: 18, color: DesignColors.error),
-                          const SizedBox(width: 8),
-                          Text('Close Window', style: TextStyle(color: DesignColors.error)),
-                        ],
-                      ),
-                    ),
-                  ],
-                  onSelected: (value) {
-                    if (value == 'close') {
-                      widget.onWindowClose?.call(
-                        widget.sessionName,
-                        widget.window.index,
-                        widget.window.name,
-                        widget.isLastWindow,
-                      );
-                    }
-                  },
-                ),
-              Icon(
-                _isExpanded ? Icons.expand_less : Icons.expand_more,
-                color: colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-            ],
-          ),
-          initiallyExpanded: widget.window.active,
-          onExpansionChanged: (expanded) {
-            setState(() => _isExpanded = expanded);
-          },
-          children: _isExpanded
-              ? widget.window.panes.map((pane) {
-                  return _buildPaneNode(context, pane);
-                }).toList()
-              : const [],
-        ),
+          if (_isExpanded)
+            ...widget.window.panes.map((pane) => _buildPaneNode(context, pane)),
+        ],
       ),
     );
   }
@@ -247,15 +172,15 @@ class _WindowTileState extends State<_WindowTile> {
 
     return Padding(
       padding: const EdgeInsets.only(left: 32),
-      child: ListTile(
+      child: ActiveListTile(
+        isActive: isSelected,
+        showLeftBar: false,
         leading: Icon(
           Icons.terminal,
-          color: pane.active ? colorScheme.tertiary : null,
+          color: pane.active ? colorScheme.tertiary : colorScheme.onSurface.withValues(alpha: 0.6),
         ),
-        title: Text('Pane ${pane.index}'),
-        subtitle: Text('${pane.width}x${pane.height}'),
-        selected: isSelected,
-        selectedTileColor: colorScheme.primaryContainer.withValues(alpha: 0.3),
+        title: 'Pane ${pane.index}',
+        subtitle: '${pane.width}x${pane.height}',
         onTap: () => widget.onPaneSelected?.call(pane.id),
       ),
     );

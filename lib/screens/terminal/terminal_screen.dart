@@ -22,6 +22,7 @@ import '../../services/tmux/tmux_parser.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/special_keys_bar.dart';
+import '../../widgets/tmux_tiles.dart';
 import '../../providers/terminal_display_provider.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/ansi_text_view.dart';
@@ -1459,35 +1460,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     itemBuilder: (context, index) {
                       final session = tmuxState.sessions[index];
                       final isActive = session.name == tmuxState.activeSessionName;
-                      return Container(
-                        decoration: isActive
-                            ? BoxDecoration(
-                                border: Border(
-                                  left: BorderSide(color: colorScheme.primary, width: 3),
-                                ),
-                              )
-                            : null,
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.folder,
-                            color: isActive ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.6),
-                          ),
-                          title: Text(
-                            session.name,
-                            style: TextStyle(
-                              color: isActive ? colorScheme.primary : colorScheme.onSurface,
-                              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${session.windowCount} windows',
-                            style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38)),
-                          ),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _selectSession(session.name);
-                          },
-                        ),
+                      return TmuxSessionTile(
+                        session: session,
+                        isActive: isActive,
+                        onTap: () {
+                          Navigator.pop(context);
+                          _selectSession(session.name);
+                        },
                       );
                     },
                   ),
@@ -1550,66 +1529,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     itemBuilder: (context, index) {
                       final window = session.windows[index];
                       final isActive = window.index == tmuxState.activeWindowIndex;
-                      return Container(
-                        decoration: isActive
-                            ? BoxDecoration(
-                                border: Border(
-                                  left: BorderSide(color: colorScheme.primary, width: 3),
-                                ),
-                              )
-                            : null,
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.tab,
-                            color: isActive ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.6),
-                          ),
-                          title: Text(
-                            '${window.index}: ${window.name}',
-                            style: TextStyle(
-                              color: isActive ? colorScheme.primary : colorScheme.onSurface,
-                              fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle: Text(
-                            '${window.paneCount} panes',
-                            style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38)),
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            icon: Icon(
-                              Icons.more_vert,
-                              size: 20,
-                              color: colorScheme.onSurface.withValues(alpha: 0.6),
-                            ),
-                            padding: EdgeInsets.zero,
-                            itemBuilder: (menuContext) => [
-                              PopupMenuItem(
-                                value: 'close',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.close, size: 18, color: DesignColors.error),
-                                    const SizedBox(width: 8),
-                                    Text('Close Window', style: TextStyle(color: DesignColors.error)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                            onSelected: (value) {
-                              if (value == 'close') {
-                                Navigator.pop(context);
-                                _confirmAndKillWindow(
-                                  sessionName: session.name,
-                                  windowIndex: window.index,
-                                  windowName: window.name,
-                                  isLastWindow: session.windows.length == 1,
-                                );
-                              }
-                            },
-                          ),
-                          onTap: () {
-                            Navigator.pop(context);
-                            _selectWindow(session.name, window.index);
-                          },
-                        ),
+                      return TmuxWindowTile(
+                        window: window,
+                        isActive: isActive,
+                        onTap: () {
+                          Navigator.pop(context);
+                          _selectWindow(session.name, window.index);
+                        },
+                        onClose: () {
+                          Navigator.pop(context);
+                          _confirmAndKillWindow(
+                            sessionName: session.name,
+                            windowIndex: window.index,
+                            windowName: window.name,
+                            isLastWindow: session.windows.length == 1,
+                          );
+                        },
                       );
                     },
                   ),

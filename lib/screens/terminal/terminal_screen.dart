@@ -1587,6 +1587,161 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
+  /// ペインを閉じる確認ダイアログを表示
+  void _confirmAndKillPane({
+    required String paneId,
+    required String paneTitle,
+    required bool isLastPane,
+    required bool isLastWindow,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor:
+              isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+          title: Text(
+            'Close Pane?',
+            style: TextStyle(
+              color: isDark
+                  ? DesignColors.textPrimary
+                  : DesignColors.textPrimaryLight,
+            ),
+          ),
+          content: Text(
+            isLastPane && isLastWindow
+                ? 'This is the last pane in the last window. Closing it will end the session and disconnect from the server.'
+                : isLastPane
+                    ? 'This is the last pane in this window. Closing it will also close the window.'
+                    : 'Are you sure you want to close pane "$paneTitle"?',
+            style: TextStyle(
+              color: isDark
+                  ? DesignColors.textSecondary
+                  : DesignColors.textSecondaryLight,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: isDark
+                      ? DesignColors.textSecondary
+                      : DesignColors.textSecondaryLight,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                // 実行直前にペインがまだ存在するか再検証
+                final currentWindow = ref.read(tmuxProvider).activeWindow;
+                if (currentWindow == null ||
+                    !currentWindow.panes.any((p) => p.id == paneId)) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content:
+                              Text('This pane no longer exists')),
+                    );
+                  }
+                  return;
+                }
+                _killPane(
+                  paneId: paneId,
+                  isLastPane: isLastPane,
+                  isLastWindow: isLastWindow,
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: DesignColors.error,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// ペインを閉じる（SSH経由でkill-pane実行）
+  Future<void> _killPane({
+    required String paneId,
+    required bool isLastPane,
+    required bool isLastWindow,
+  }) async {
+    final sshClient = ref.read(sshProvider.notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('SSH connection is not available')),
+        );
+      }
+      return;
+    }
+
+    // ポーリング停止（SSH競合回避）
+    _pollTimer?.cancel();
+
+    try {
+      await sshClient.exec(TmuxCommands.killPane(paneId));
+      await _refreshSessionTree();
+      if (!mounted || _isDisposed) return;
+
+      // セッション消滅確認（最後のウィンドウの最後のペインだった場合）
+      if (isLastPane && isLastWindow) {
+        final sessionsOutput =
+            await sshClient.exec('tmux list-sessions 2>/dev/null || true');
+        if (!mounted || _isDisposed) return;
+        if (sessionsOutput.trim().isEmpty) {
+          await _disconnect();
+          return;
+        }
+      }
+
+      // 最後のペインだった場合→tmuxが自動選択した新ウィンドウに同期
+      if (isLastPane) {
+        final newTmuxState = ref.read(tmuxProvider);
+        final newSession = newTmuxState.activeSession;
+        if (newSession != null) {
+          final newActiveWindow =
+              newSession.windows.where((w) => w.active).firstOrNull ??
+                  newSession.windows.firstOrNull;
+          if (newActiveWindow != null) {
+            await _selectWindow(newSession.name, newActiveWindow.index);
+          }
+        }
+      } else {
+        // 同じウィンドウ内の残りペインに同期
+        final newTmuxState = ref.read(tmuxProvider);
+        final activeWindow = newTmuxState.activeWindow;
+        if (activeWindow != null) {
+          final newActivePane =
+              activeWindow.panes.where((p) => p.active).firstOrNull ??
+                  activeWindow.panes.firstOrNull;
+          if (newActivePane != null) {
+            await _selectPane(newActivePane.id);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[Terminal] Failed to kill pane: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to close pane: $e')),
+        );
+      }
+    } finally {
+      // ポーリング再開
+      if (mounted && !_isDisposed) {
+        _startPolling();
+      }
+    }
+  }
+
   /// ペイン選択ダイアログを表示
   void _showPaneSelector(TmuxState tmuxState) {
     final window = tmuxState.activeWindow;
@@ -1655,49 +1810,37 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           : (pane.currentCommand?.isNotEmpty == true
                               ? pane.currentCommand!
                               : 'Pane ${pane.index}');
-                      return ListTile(
-                        leading: Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: isActive
-                                ? colorScheme.primary.withValues(alpha: 0.2)
-                                : colorScheme.onSurface.withValues(alpha: 0.05),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isActive
-                                  ? colorScheme.primary.withValues(alpha: 0.5)
-                                  : colorScheme.onSurface.withValues(alpha: 0.1),
-                            ),
-                          ),
-                          child: Center(
-                            child: Text(
-                              '${pane.index}',
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: isActive ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.6),
-                              ),
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          paneTitle,
-                          style: TextStyle(
-                            color: isActive ? colorScheme.primary : colorScheme.onSurface,
-                            fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                        subtitle: Text(
-                          '${pane.width}x${pane.height}',
-                          style: TextStyle(color: colorScheme.onSurface.withValues(alpha: 0.38)),
-                        ),
-                        trailing: isActive
-                            ? Icon(Icons.check, color: colorScheme.primary)
-                            : null,
+                      return TmuxPaneTile(
+                        pane: pane,
+                        paneTitle: paneTitle,
+                        isActive: isActive,
                         onTap: () {
                           Navigator.pop(context);
                           _selectPane(pane.id);
+                        },
+                        onLongPress: () {
+                          Navigator.pop(context);
+                          _confirmAndKillPane(
+                            paneId: pane.id,
+                            paneTitle: paneTitle,
+                            isLastPane: window.panes.length == 1,
+                            isLastWindow:
+                                (tmuxState.activeSession?.windows.length ??
+                                        0) ==
+                                    1,
+                          );
+                        },
+                        onClose: () {
+                          Navigator.pop(context);
+                          _confirmAndKillPane(
+                            paneId: pane.id,
+                            paneTitle: paneTitle,
+                            isLastPane: window.panes.length == 1,
+                            isLastWindow:
+                                (tmuxState.activeSession?.windows.length ??
+                                        0) ==
+                                    1,
+                          );
                         },
                       );
                     },

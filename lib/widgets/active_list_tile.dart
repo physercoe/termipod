@@ -12,6 +12,7 @@ class ActiveListTile extends StatelessWidget {
   final String? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
   final bool showLeftBar;
   final Color? leftBarColor;
   final double leftBarWidth;
@@ -24,6 +25,7 @@ class ActiveListTile extends StatelessWidget {
     this.subtitle,
     this.trailing,
     this.onTap,
+    this.onLongPress,
     this.showLeftBar = true,
     this.leftBarColor,
     this.leftBarWidth = 3,
@@ -61,6 +63,7 @@ class ActiveListTile extends StatelessWidget {
             : null,
         trailing: trailing,
         onTap: onTap,
+        onLongPress: onLongPress,
       ),
     );
   }

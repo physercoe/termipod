@@ -34,6 +34,99 @@ class TmuxSessionTile extends StatelessWidget {
   }
 }
 
+/// tmuxペイン用ListTile
+class TmuxPaneTile extends StatelessWidget {
+  final TmuxPane pane;
+  final String paneTitle;
+  final bool isActive;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onClose;
+
+  const TmuxPaneTile({
+    super.key,
+    required this.pane,
+    required this.paneTitle,
+    required this.isActive,
+    this.onTap,
+    this.onLongPress,
+    this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ActiveListTile(
+      isActive: isActive,
+      leading: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: isActive
+              ? colorScheme.primary.withValues(alpha: 0.2)
+              : colorScheme.onSurface.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isActive
+                ? colorScheme.primary.withValues(alpha: 0.5)
+                : colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Center(
+          child: Text(
+            '${pane.index}',
+            style: TextStyle(
+              fontFamily: 'JetBrains Mono',
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: isActive
+                  ? colorScheme.primary
+                  : colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+      ),
+      title: paneTitle,
+      subtitle: '${pane.width}x${pane.height}',
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (onClose != null)
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.more_vert,
+                size: 20,
+                color: colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
+              padding: EdgeInsets.zero,
+              itemBuilder: (menuContext) => [
+                PopupMenuItem(
+                  value: 'close',
+                  child: Row(
+                    children: [
+                      Icon(Icons.close, size: 18, color: DesignColors.error),
+                      const SizedBox(width: 8),
+                      Text('Close Pane',
+                          style: TextStyle(color: DesignColors.error)),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) {
+                if (value == 'close') {
+                  onClose?.call();
+                }
+              },
+            ),
+        ],
+      ),
+      onTap: onTap,
+      onLongPress: onLongPress,
+    );
+  }
+}
+
 /// tmuxウィンドウ用ListTile
 class TmuxWindowTile extends StatelessWidget {
   final TmuxWindow window;

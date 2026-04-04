@@ -22,6 +22,8 @@ import '../../services/tmux/tmux_parser.dart';
 import '../../services/tmux/tmux_version.dart';
 import '../../widgets/dialogs/resize_dialog.dart';
 import '../../theme/design_colors.dart';
+import '../../services/terminal/tmux_key_display.dart';
+import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/special_keys_bar.dart';
 import '../../widgets/image_transfer_confirm_dialog.dart';
@@ -123,6 +125,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // ポーリングで頻繁に更新されるターミナル表示データ（ValueNotifierで管理）
   // 親のsetState()を回避し、ValueListenableBuilderでサブツリーのみリビルドする
   final _viewNotifier = ValueNotifier<_TerminalViewData>(const _TerminalViewData());
+
+  // キーオーバーレイ
+  final KeyOverlayState _keyOverlayState = KeyOverlayState();
+  Timer? _keyOverlayTimer;
 
   // ポーリング用タイマー
   Timer? _pollTimer;
@@ -880,6 +886,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
+    // キーオーバーレイ
+    _keyOverlayTimer?.cancel();
+    _keyOverlayTimer = null;
+    _keyOverlayState.dispose();
     // ValueNotifierを破棄
     _viewNotifier.dispose();
     // スクロールコントローラーのリスナーを削除して破棄
@@ -956,7 +966,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   verticalScrollController: _terminalScrollController,
                                   cursorX: cursor.x,
                                   cursorY: cursor.y,
-                                  onArrowSwipe: _sendSpecialKey,
+                                  onArrowSwipe: _sendSpecialKeyWithOverlay,
                                   onTwoFingerSwipe: _handleTwoFingerSwipe,
                                   navigableDirections: _getNavigableDirections(),
                                 );
@@ -987,6 +997,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           },
                         ),
                       ),
+                      // キーオーバーレイ
+                      KeyOverlayWidget(
+                        overlayState: _keyOverlayState,
+                        position: _keyOverlayPosition,
+                      ),
                     ],
                   ),
                 ),
@@ -1006,8 +1021,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 },
               ),
               SpecialKeysBar(
-                onKeyPressed: _sendKey,
-                onSpecialKeyPressed: _sendSpecialKey,
+                onKeyPressed: _sendKeyWithOverlay,
+                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
                 onInputTap: _showInputDialog,
                 directInputEnabled: _directInputEnabled,
                 onDirectInputToggle: () {
@@ -1033,11 +1048,59 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
+  // --- キーオーバーレイ ラッパー ---
+
+  KeyOverlayPosition get _keyOverlayPosition {
+    final pos = ref.read(settingsProvider).keyOverlayPosition;
+    return switch (pos) {
+      'center' => KeyOverlayPosition.center,
+      'belowHeader' => KeyOverlayPosition.belowHeader,
+      _ => KeyOverlayPosition.aboveKeyboard,
+    };
+  }
+
+  /// 特殊キー送信 + オーバーレイ表示
+  void _sendSpecialKeyWithOverlay(String tmuxKey) {
+    _sendSpecialKey(tmuxKey);
+    _showKeyOverlay(tmuxKey);
+  }
+
+  /// リテラルキー送信 + ショートカットキーのオーバーレイ表示
+  void _sendKeyWithOverlay(String key) {
+    _sendKey(key);
+    if (TmuxKeyDisplay.isShortcutKey(key)) {
+      _showKeyOverlay(key);
+    }
+  }
+
+  /// オーバーレイ表示ロジック
+  void _showKeyOverlay(String key) {
+    final settings = ref.read(settingsProvider);
+    if (!settings.showKeyOverlay) return;
+
+    final category = TmuxKeyDisplay.categoryOf(key);
+    if (category == null) return;
+
+    final enabled = switch (category) {
+      KeyOverlayCategory.modifier => settings.keyOverlayModifier,
+      KeyOverlayCategory.special => settings.keyOverlaySpecial,
+      KeyOverlayCategory.arrow => settings.keyOverlayArrow,
+      KeyOverlayCategory.shortcut => settings.keyOverlayShortcut,
+    };
+    if (!enabled) return;
+
+    _keyOverlayState.show(TmuxKeyDisplay.displayText(key));
+    _keyOverlayTimer?.cancel();
+    _keyOverlayTimer = Timer(const Duration(milliseconds: 1500), () {
+      _keyOverlayState.hide();
+    });
+  }
+
   /// AnsiTextViewからのキー入力を処理
   void _handleKeyInput(KeyInputEvent event) {
-    // 特殊キーの場合はtmux形式で送信
+    // 特殊キーの場合はtmux形式で送信（オーバーレイ付き）
     if (event.isSpecialKey && event.tmuxKeyName != null) {
-      _sendSpecialKey(event.tmuxKeyName!);
+      _sendSpecialKeyWithOverlay(event.tmuxKeyName!);
     } else {
       // 通常の文字はリテラル送信
       _sendKeyData(event.data);
@@ -2967,6 +3030,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   /// 複数行テキストを送信（行ごとにテキスト+Enterを送信）
+  ///
+  /// 注: _sendKey/_sendSpecialKeyを直接呼び出す。
+  /// オーバーレイラッパーを経由しないため、複数行送信時にオーバーレイは表示されない。
+  /// これは意図的な動作。
   Future<void> _sendMultilineText(String text) async {
     final lines = text.split('\n');
     for (int i = 0; i < lines.length; i++) {

@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/settings_migration.dart';
+
 /// アプリ設定
 class AppSettings {
   final bool darkMode;
@@ -12,7 +14,9 @@ class AppSettings {
   final bool keepScreenOn;
   final int scrollbackLines;
   final double minFontSize;
-  final bool autoFitEnabled;
+
+  /// 表示調整モード: 'none', 'autoFit', 'autoResize'
+  final String adjustMode;
 
   /// DirectInputモード（入力した文字を即座にターミナルに送信）
   final bool directInputEnabled;
@@ -63,7 +67,7 @@ class AppSettings {
     this.keepScreenOn = true,
     this.scrollbackLines = 10000,
     this.minFontSize = 8.0,
-    this.autoFitEnabled = true,
+    this.adjustMode = 'autoFit',
     this.directInputEnabled = false,
     this.showTerminalCursor = true,
     this.invertPaneNavigation = false,
@@ -84,6 +88,9 @@ class AppSettings {
     this.imageBracketedPaste = false,
   });
 
+  bool get isAutoFit => adjustMode == 'autoFit';
+  bool get isAutoResize => adjustMode == 'autoResize';
+
   AppSettings copyWith({
     bool? darkMode,
     double? fontSize,
@@ -94,7 +101,7 @@ class AppSettings {
     bool? keepScreenOn,
     int? scrollbackLines,
     double? minFontSize,
-    bool? autoFitEnabled,
+    String? adjustMode,
     bool? directInputEnabled,
     bool? showTerminalCursor,
     bool? invertPaneNavigation,
@@ -124,7 +131,7 @@ class AppSettings {
       keepScreenOn: keepScreenOn ?? this.keepScreenOn,
       scrollbackLines: scrollbackLines ?? this.scrollbackLines,
       minFontSize: minFontSize ?? this.minFontSize,
-      autoFitEnabled: autoFitEnabled ?? this.autoFitEnabled,
+      adjustMode: adjustMode ?? this.adjustMode,
       directInputEnabled: directInputEnabled ?? this.directInputEnabled,
       showTerminalCursor: showTerminalCursor ?? this.showTerminalCursor,
       invertPaneNavigation: invertPaneNavigation ?? this.invertPaneNavigation,
@@ -158,7 +165,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _keepScreenOnKey = 'settings_keep_screen_on';
   static const String _scrollbackKey = 'settings_scrollback';
   static const String _minFontSizeKey = 'settings_min_font_size';
-  static const String _autoFitEnabledKey = 'settings_auto_fit_enabled';
+  static const String _adjustModeKey = 'settings_adjust_mode';
   static const String _directInputEnabledKey = 'settings_direct_input_enabled';
   static const String _showTerminalCursorKey = 'settings_show_terminal_cursor';
   static const String _invertPaneNavKey = 'settings_invert_pane_nav';
@@ -186,6 +193,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    await SettingsMigrationRunner.run(prefs);
 
     state = AppSettings(
       darkMode: prefs.getBool(_darkModeKey) ?? true,
@@ -197,7 +205,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       keepScreenOn: prefs.getBool(_keepScreenOnKey) ?? true,
       scrollbackLines: prefs.getInt(_scrollbackKey) ?? 10000,
       minFontSize: prefs.getDouble(_minFontSizeKey) ?? 8.0,
-      autoFitEnabled: prefs.getBool(_autoFitEnabledKey) ?? true,
+      adjustMode: prefs.getString(_adjustModeKey) ?? 'autoFit',
       directInputEnabled: prefs.getBool(_directInputEnabledKey) ?? false,
       showTerminalCursor: prefs.getBool(_showTerminalCursorKey) ?? true,
       invertPaneNavigation: prefs.getBool(_invertPaneNavKey) ?? false,
@@ -286,10 +294,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSetting(_minFontSizeKey, value);
   }
 
-  /// 自動フィットを設定
-  Future<void> setAutoFitEnabled(bool value) async {
-    state = state.copyWith(autoFitEnabled: value);
-    await _saveSetting(_autoFitEnabledKey, value);
+  /// 表示調整モードを設定
+  Future<void> setAdjustMode(String value) async {
+    state = state.copyWith(adjustMode: value);
+    await _saveSetting(_adjustModeKey, value);
   }
 
   /// DirectInputモードを設定

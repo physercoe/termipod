@@ -726,7 +726,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         late final double fontSize;
         late final bool needsHorizontalScroll;
 
-        if (settings.autoFitEnabled) {
+        if (settings.isAutoFit) {
           // 自動フィット: 画面幅に合わせて計算
           final calcResult = FontCalculator.calculate(
             screenWidth: constraints.maxWidth,

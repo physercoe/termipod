@@ -17,14 +17,22 @@ void main() {
       expect(find.text('Settings'), findsOneWidget);
     });
 
+    testWidgets('displays Adjust Mode setting', (tester) async {
+      await tester.pumpWidget(_buildApp());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Adjust Mode'), findsOneWidget);
+      expect(find.text('Auto Fit'), findsOneWidget);
+    });
+
     testWidgets('displays Haptic Feedback toggle', (tester) async {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
       // Haptic Feedback is in the Behavior section - may need scroll
-      final finder = find.text('Haptic Feedback');
-      await tester.ensureVisible(finder);
-      expect(finder, findsOneWidget);
+      final scrollable = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Haptic Feedback'), 200, scrollable: scrollable);
+      expect(find.text('Haptic Feedback'), findsOneWidget);
     });
 
     testWidgets('displays Keep Screen On toggle', (tester) async {

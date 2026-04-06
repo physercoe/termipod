@@ -38,25 +38,22 @@ class SettingsScreen extends ConsumerWidget {
                     ref.read(settingsProvider.notifier).setShowTerminalCursor(value);
                   },
                 ),
-                SwitchListTile(
-                  secondary: const Icon(Icons.fit_screen),
-                  title: const Text('Auto Fit'),
-                  subtitle: const Text('Fit terminal width to screen'),
-                  value: settings.autoFitEnabled,
-                  onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setAutoFitEnabled(value);
-                  },
+                ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Adjust Mode'),
+                  subtitle: Text(_adjustModeLabel(settings.adjustMode)),
+                  onTap: () => _showAdjustModePicker(context, ref, settings.adjustMode),
                 ),
                 ListTile(
                   leading: const Icon(Icons.text_fields),
                   title: const Text('Font Size'),
                   subtitle: Text(
-                    settings.autoFitEnabled
+                    settings.isAutoFit
                         ? '${settings.fontSize.toInt()} pt (auto-fit enabled)'
                         : '${settings.fontSize.toInt()} pt',
                   ),
-                  enabled: !settings.autoFitEnabled,
-                  onTap: settings.autoFitEnabled
+                  enabled: !settings.isAutoFit,
+                  onTap: settings.isAutoFit
                       ? null
                       : () async {
                           final size = await showDialog<double>(
@@ -90,12 +87,12 @@ class SettingsScreen extends ConsumerWidget {
                   leading: const Icon(Icons.format_size),
                   title: const Text('Minimum Font Size'),
                   subtitle: Text(
-                    settings.autoFitEnabled
+                    settings.isAutoFit
                         ? '${settings.minFontSize.toInt()} pt (auto-fit limit)'
                         : '${settings.minFontSize.toInt()} pt (not used)',
                   ),
-                  enabled: settings.autoFitEnabled,
-                  onTap: settings.autoFitEnabled
+                  enabled: settings.isAutoFit,
+                  onTap: settings.isAutoFit
                       ? () async {
                           final size = await showDialog<double>(
                             context: context,
@@ -483,6 +480,43 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  String _adjustModeLabel(String mode) {
+    switch (mode) {
+      case 'autoFit':
+        return 'Auto Fit';
+      case 'autoResize':
+        return 'Auto Resize';
+      default:
+        return 'None';
+    }
+  }
+
+  void _showAdjustModePicker(BuildContext context, WidgetRef ref, String current) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Adjust Mode'),
+        children: [
+          for (final entry in [
+            ('none', 'None', 'Manual font and pane size'),
+            ('autoFit', 'Auto Fit', 'Adjust font size to fit screen width'),
+            ('autoResize', 'Auto Resize', 'Resize tmux pane to fit screen'),
+          ])
+            RadioListTile<String>(
+              title: Text(entry.$2),
+              subtitle: Text(entry.$3),
+              value: entry.$1,
+              groupValue: current,
+              onChanged: (v) {
+                if (v != null) ref.read(settingsProvider.notifier).setAdjustMode(v);
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
   void _showResizePresetPicker(BuildContext context, WidgetRef ref, String current) {
     showDialog(
       context: context,
@@ -577,3 +611,4 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
+

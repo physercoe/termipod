@@ -17,6 +17,7 @@ import '../../services/network/network_monitor.dart';
 import '../../services/ssh/input_queue.dart';
 import '../../services/ssh/ssh_client.dart' show SshConnectOptions;
 import '../../services/tmux/pane_navigator.dart';
+import '../../services/terminal/font_calculator.dart';
 import '../../services/tmux/tmux_commands.dart';
 import '../../services/tmux/tmux_parser.dart';
 import '../../services/tmux/tmux_version.dart';
@@ -177,6 +178,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // リサイズ中フラグ（排他制御）
   bool _isResizing = false;
 
+  // 自動リサイズのdebounceタイマー（画面サイズ変更時）
+  Timer? _autoResizeDebounceTimer;
+
   // tmuxバージョン情報（リサイズ機能判定用）
   TmuxVersionInfo? _tmuxVersion;
 
@@ -218,6 +222,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       case AppLifecycleState.detached:
         break;
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    final settings = ref.read(settingsProvider);
+    if (!settings.isAutoResize) return;
+
+    // debounce: 画面回転・折りたたみの連続サイズ変更を抑制
+    _autoResizeDebounceTimer?.cancel();
+    _autoResizeDebounceTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted || _isDisposed) return;
+      final activePane = ref.read(tmuxProvider).activePane;
+      if (activePane != null) {
+        _executeAutoResize(activePane);
+      }
+    });
   }
 
   /// バックグラウンド移行時にポーリングを停止
@@ -880,6 +901,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
+    _autoResizeDebounceTimer?.cancel();
+    _autoResizeDebounceTimer = null;
     // ValueNotifierを破棄
     _viewNotifier.dispose();
     // スクロールコントローラーのリスナーを削除して破棄
@@ -1210,6 +1233,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // ペイン切り替え時は初回スクロールフラグをリセット
       // 次のコンテンツ受信時に最下部へスクロールされる
       _hasInitialScrolled = false;
+
+      // 自動リサイズ: ペイン選択時に画面サイズに合わせてtmuxペインをリサイズ
+      final settings = ref.read(settingsProvider);
+      if (settings.isAutoResize) {
+        await _executeAutoResize(activePane);
+      }
 
       // セッション情報を保存（復元用）
       final sessionName = tmuxState.activeSessionName;
@@ -1837,6 +1866,57 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
+  /// 自動リサイズ: 画面サイズに合わせてtmuxペインをリサイズ
+  Future<void> _executeAutoResize(TmuxPane pane) async {
+    if (_isResizing) return;
+    if (_tmuxVersion != null && !_tmuxVersion!.supportsResizePaneToSize) return;
+
+    final displayState = ref.read(terminalDisplayProvider);
+    final settings = ref.read(settingsProvider);
+
+    final fontSize = settings.fontSize;
+    final targetCols = FontCalculator.calculateMaxCols(
+      screenWidth: displayState.screenWidth,
+      fontSize: fontSize,
+      fontFamily: settings.fontFamily,
+    );
+    final targetRows = FontCalculator.calculateMaxRows(
+      screenHeight: displayState.screenHeight,
+      fontSize: fontSize,
+      fontFamily: settings.fontFamily,
+    );
+
+    debugPrint('[AutoResize] screenWidth=${displayState.screenWidth} '
+        'screenHeight=${displayState.screenHeight} '
+        'fontSize=$fontSize '
+        'fontFamily=${settings.fontFamily} '
+        'pane=${pane.id} current=${pane.width}x${pane.height} '
+        'target=${targetCols}x$targetRows');
+
+    // 既存サイズと同一ならスキップ
+    if (pane.width == targetCols && pane.height == targetRows) return;
+
+    _isResizing = true;
+    _pollTimer?.cancel();
+    try {
+      final sshClient = ref.read(sshProvider.notifier).client;
+      if (sshClient == null || !sshClient.isConnected) return;
+      await sshClient.exec(
+        TmuxCommands.resizePaneToSize(pane.id, cols: targetCols, rows: targetRows),
+      );
+      await _refreshSessionTree();
+      final updatedPane = ref.read(tmuxProvider).activePane;
+      if (updatedPane != null) {
+        ref.read(terminalDisplayProvider.notifier).updatePane(updatedPane);
+      }
+    } catch (e) {
+      debugPrint('[AutoResize] Failed: $e');
+    } finally {
+      _isResizing = false;
+      if (mounted && !_isDisposed) _startPolling();
+    }
+  }
+
   /// ペインをリサイズ
   Future<void> _handleResizePane(TmuxPane pane) async {
     if (_isResizing) return;
@@ -1848,13 +1928,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // 現在のウィンドウの全ペインを取���
     final activeWindow = tmuxState.activeWindow;
     final allPanes = activeWindow?.panes ?? [pane];
-
-    debugPrint('[ResizePane] pane=${pane.id} size=${pane.width}x${pane.height} '
-        'left=${pane.left} top=${pane.top} allPanes=${allPanes.length}');
-    debugPrint('[ResizePane] screenWidth=${displayState.screenWidth} '
-        'screenHeight=${displayState.screenHeight} '
-        'fontSize=${displayState.calculatedFontSize} '
-        'fontFamily=${settings.fontFamily}');
 
     final result = await showDialog<ResizeResult>(
       context: context,

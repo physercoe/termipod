@@ -27,6 +27,25 @@ class AppSettings {
   /// ペインナビゲーション方向の反転
   final bool invertPaneNavigation;
 
+  // --- キーオーバーレイ設定 ---
+  /// キーオーバーレイ全体ON/OFF
+  final bool showKeyOverlay;
+
+  /// キーオーバーレイ: 修飾キー組み合わせ（Ctrl+x, Alt+x, Shift+x）
+  final bool keyOverlayModifier;
+
+  /// キーオーバーレイ: 単独特殊キー（ESC, TAB, ENTER, S-Enter）
+  final bool keyOverlaySpecial;
+
+  /// キーオーバーレイ: 矢印キー
+  final bool keyOverlayArrow;
+
+  /// キーオーバーレイ: ショートカットキー（/, -, 1-4）
+  final bool keyOverlayShortcut;
+
+  /// キーオーバーレイ: 表示位置
+  final String keyOverlayPosition;
+
   // --- 画像転送設定 ---
   final String imageRemotePath;
   final String imageOutputFormat;
@@ -52,6 +71,12 @@ class AppSettings {
     this.directInputEnabled = false,
     this.showTerminalCursor = true,
     this.invertPaneNavigation = false,
+    this.showKeyOverlay = true,
+    this.keyOverlayModifier = true,
+    this.keyOverlaySpecial = true,
+    this.keyOverlayArrow = true,
+    this.keyOverlayShortcut = true,
+    this.keyOverlayPosition = 'aboveKeyboard',
     this.imageRemotePath = '/tmp/muxpod/',
     this.imageOutputFormat = 'original',
     this.imageJpegQuality = 85,
@@ -80,6 +105,12 @@ class AppSettings {
     bool? directInputEnabled,
     bool? showTerminalCursor,
     bool? invertPaneNavigation,
+    bool? showKeyOverlay,
+    bool? keyOverlayModifier,
+    bool? keyOverlaySpecial,
+    bool? keyOverlayArrow,
+    bool? keyOverlayShortcut,
+    String? keyOverlayPosition,
     String? imageRemotePath,
     String? imageOutputFormat,
     int? imageJpegQuality,
@@ -104,6 +135,12 @@ class AppSettings {
       directInputEnabled: directInputEnabled ?? this.directInputEnabled,
       showTerminalCursor: showTerminalCursor ?? this.showTerminalCursor,
       invertPaneNavigation: invertPaneNavigation ?? this.invertPaneNavigation,
+      showKeyOverlay: showKeyOverlay ?? this.showKeyOverlay,
+      keyOverlayModifier: keyOverlayModifier ?? this.keyOverlayModifier,
+      keyOverlaySpecial: keyOverlaySpecial ?? this.keyOverlaySpecial,
+      keyOverlayArrow: keyOverlayArrow ?? this.keyOverlayArrow,
+      keyOverlayShortcut: keyOverlayShortcut ?? this.keyOverlayShortcut,
+      keyOverlayPosition: keyOverlayPosition ?? this.keyOverlayPosition,
       imageRemotePath: imageRemotePath ?? this.imageRemotePath,
       imageOutputFormat: imageOutputFormat ?? this.imageOutputFormat,
       imageJpegQuality: imageJpegQuality ?? this.imageJpegQuality,
@@ -141,6 +178,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _imagePathFormatKey = 'settings_image_path_format';
   static const String _imageAutoEnterKey = 'settings_image_auto_enter';
   static const String _imageBracketedPasteKey = 'settings_image_bracketed_paste';
+  static const String _showKeyOverlayKey = 'settings_show_key_overlay';
+  static const String _keyOverlayModifierKey = 'settings_key_overlay_modifier';
+  static const String _keyOverlaySpecialKey = 'settings_key_overlay_special';
+  static const String _keyOverlayArrowKey = 'settings_key_overlay_arrow';
+  static const String _keyOverlayShortcutKey = 'settings_key_overlay_shortcut';
+  static const String _keyOverlayPositionKey = 'settings_key_overlay_position';
 
   @override
   AppSettings build() {
@@ -166,6 +209,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
       directInputEnabled: prefs.getBool(_directInputEnabledKey) ?? false,
       showTerminalCursor: prefs.getBool(_showTerminalCursorKey) ?? true,
       invertPaneNavigation: prefs.getBool(_invertPaneNavKey) ?? false,
+      showKeyOverlay: prefs.getBool(_showKeyOverlayKey) ?? true,
+      keyOverlayModifier: prefs.getBool(_keyOverlayModifierKey) ?? true,
+      keyOverlaySpecial: prefs.getBool(_keyOverlaySpecialKey) ?? true,
+      keyOverlayArrow: prefs.getBool(_keyOverlayArrowKey) ?? true,
+      keyOverlayShortcut: prefs.getBool(_keyOverlayShortcutKey) ?? true,
+      keyOverlayPosition: prefs.getString(_keyOverlayPositionKey) ?? 'aboveKeyboard',
       imageRemotePath: prefs.getString(_imageRemotePathKey) ?? '/tmp/muxpod/',
       imageOutputFormat: prefs.getString(_imageOutputFormatKey) ?? 'original',
       imageJpegQuality: prefs.getInt(_imageJpegQualityKey) ?? 85,
@@ -272,6 +321,37 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setInvertPaneNavigation(bool value) async {
     state = state.copyWith(invertPaneNavigation: value);
     await _saveSetting(_invertPaneNavKey, value);
+  }
+
+  // --- キーオーバーレイ設定のsetter ---
+  Future<void> setShowKeyOverlay(bool value) async {
+    state = state.copyWith(showKeyOverlay: value);
+    await _saveSetting(_showKeyOverlayKey, value);
+  }
+
+  Future<void> setKeyOverlayModifier(bool value) async {
+    state = state.copyWith(keyOverlayModifier: value);
+    await _saveSetting(_keyOverlayModifierKey, value);
+  }
+
+  Future<void> setKeyOverlaySpecial(bool value) async {
+    state = state.copyWith(keyOverlaySpecial: value);
+    await _saveSetting(_keyOverlaySpecialKey, value);
+  }
+
+  Future<void> setKeyOverlayArrow(bool value) async {
+    state = state.copyWith(keyOverlayArrow: value);
+    await _saveSetting(_keyOverlayArrowKey, value);
+  }
+
+  Future<void> setKeyOverlayShortcut(bool value) async {
+    state = state.copyWith(keyOverlayShortcut: value);
+    await _saveSetting(_keyOverlayShortcutKey, value);
+  }
+
+  Future<void> setKeyOverlayPosition(String value) async {
+    state = state.copyWith(keyOverlayPosition: value);
+    await _saveSetting(_keyOverlayPositionKey, value);
   }
 
   // --- 画像転送設定のsetter ---

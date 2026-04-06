@@ -107,6 +107,82 @@ class SettingsScreen extends ConsumerWidget {
                       : null,
                 ),
                 const Divider(),
+                const _SectionHeader(title: 'Key Overlay'),
+                SwitchListTile(
+                  secondary: const Icon(Icons.visibility),
+                  title: const Text('Key Overlay'),
+                  subtitle: const Text('Show key name overlay on special key press'),
+                  value: settings.showKeyOverlay,
+                  onChanged: (value) {
+                    ref.read(settingsProvider.notifier).setShowKeyOverlay(value);
+                  },
+                ),
+                if (settings.showKeyOverlay) ...[
+                  SwitchListTile(
+                    secondary: const Icon(Icons.keyboard),
+                    title: const Text('Modifier Keys'),
+                    subtitle: const Text('Ctrl, Alt, Shift combinations'),
+                    value: settings.keyOverlayModifier,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setKeyOverlayModifier(value);
+                    },
+                  ),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.space_bar),
+                    title: const Text('Special Keys'),
+                    subtitle: const Text('ESC, TAB, ENTER, Shift+Enter'),
+                    value: settings.keyOverlaySpecial,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setKeyOverlaySpecial(value);
+                    },
+                  ),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.arrow_upward),
+                    title: const Text('Arrow Keys'),
+                    subtitle: const Text('Up, Down, Left, Right'),
+                    value: settings.keyOverlayArrow,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setKeyOverlayArrow(value);
+                    },
+                  ),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.shortcut),
+                    title: const Text('Shortcut Keys'),
+                    subtitle: const Text('/, -, 1, 2, 3, 4'),
+                    value: settings.keyOverlayShortcut,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setKeyOverlayShortcut(value);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.place),
+                    title: const Text('Overlay Position'),
+                    subtitle: Text(
+                      switch (settings.keyOverlayPosition) {
+                        'center' => 'Center of terminal',
+                        'belowHeader' => 'Below header',
+                        _ => 'Above keyboard',
+                      },
+                    ),
+                    onTap: () async {
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) => SimpleDialog(
+                          title: const Text('Overlay Position'),
+                          children: [
+                            _buildPositionOption(context, 'aboveKeyboard', 'Above Keyboard', settings.keyOverlayPosition),
+                            _buildPositionOption(context, 'center', 'Center of Terminal', settings.keyOverlayPosition),
+                            _buildPositionOption(context, 'belowHeader', 'Below Header', settings.keyOverlayPosition),
+                          ],
+                        ),
+                      );
+                      if (result != null) {
+                        ref.read(settingsProvider.notifier).setKeyOverlayPosition(result);
+                      }
+                    },
+                  ),
+                ],
+                const Divider(),
                 const _SectionHeader(title: 'Behavior'),
                 SwitchListTile(
                   secondary: const Icon(Icons.vibration),
@@ -487,6 +563,27 @@ class SettingsScreen extends ConsumerWidget {
             letterSpacing: -0.5,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPositionOption(
+    BuildContext context,
+    String value,
+    String label,
+    String currentValue,
+  ) {
+    return SimpleDialogOption(
+      onPressed: () => Navigator.pop(context, value),
+      child: Row(
+        children: [
+          Icon(
+            value == currentValue ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Text(label),
+        ],
       ),
     );
   }

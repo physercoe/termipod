@@ -1,6 +1,7 @@
 import 'dart:isolate';
 import 'dart:typed_data';
 
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 
 /// 画像出力フォーマット
@@ -32,6 +33,7 @@ class ImageConvertResult {
 /// 画像フォーマット変換 + リサイズサービス
 ///
 /// `image` パッケージを使用し、Isolate でバックグラウンド実行する。
+/// HEIC/HEIF は `flutter_image_compress` でネイティブAPI経由でJPEGに事前変換する。
 class ImageConverter {
   /// 画像のフォーマット変換とリサイズを行う
   ///
@@ -49,23 +51,56 @@ class ImageConverter {
     int maxWidth = 1920,
     int maxHeight = 1080,
   }) async {
+    final detectedExt = detectExtension(bytes);
+
+    // HEIC/HEIF はネイティブAPIでJPEGに事前変換
+    Uint8List processedBytes = bytes;
+    String effectiveExt = detectedExt;
+    if (detectedExt == 'heic') {
+      final converted = await _preProcessHeic(bytes);
+      processedBytes = converted.bytes;
+      effectiveExt = converted.extension;
+    }
+
     // 変換不要の場合はそのまま返す
     if (format == ImageOutputFormat.original && !autoResize) {
       return ImageConvertResult(
-        bytes: bytes,
-        extension: detectExtension(bytes),
+        bytes: processedBytes,
+        extension: effectiveExt,
       );
     }
 
     // Isolate でバックグラウンド実行（UIスレッドブロック防止）
     return await Isolate.run(() => _processImage(
-          bytes: bytes,
+          bytes: processedBytes,
           format: format,
           jpegQuality: jpegQuality,
           autoResize: autoResize,
           maxWidth: maxWidth,
           maxHeight: maxHeight,
+          sourceExtension: effectiveExt,
         ));
+  }
+
+  /// HEIC/HEIF をネイティブAPIでJPEGに変換
+  static Future<ImageConvertResult> _preProcessHeic(Uint8List bytes) async {
+    try {
+      final result = await FlutterImageCompress.compressWithList(
+        bytes,
+        quality: 95,
+        format: CompressFormat.jpeg,
+      );
+      if (result.isEmpty) {
+        throw const FormatException('Native HEIC conversion returned empty result');
+      }
+      return ImageConvertResult(
+        bytes: Uint8List.fromList(result),
+        extension: 'jpg',
+      );
+    } catch (e) {
+      if (e is FormatException) rethrow;
+      throw FormatException('Failed to convert HEIC image: $e');
+    }
   }
 
   /// Isolate 内で実行される画像処理
@@ -76,10 +111,11 @@ class ImageConverter {
     required bool autoResize,
     required int maxWidth,
     required int maxHeight,
+    required String sourceExtension,
   }) {
     final image = img.decodeImage(bytes);
     if (image == null) {
-      throw FormatException('Failed to decode image');
+      throw const FormatException('Failed to decode image');
     }
 
     var processed = image;
@@ -117,7 +153,7 @@ class ImageConverter {
         );
       case ImageOutputFormat.original:
         // リサイズのみ（元フォーマットで再エンコード）
-        final ext = detectExtension(bytes);
+        final ext = sourceExtension;
         if (ext == 'jpg' || ext == 'jpeg') {
           return ImageConvertResult(
             bytes: Uint8List.fromList(img.encodeJpg(processed, quality: jpegQuality)),
@@ -141,6 +177,14 @@ class ImageConverter {
     }
     if (bytes.length >= 3 && bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46) {
       return 'gif';
+    }
+    // HEIF/HEIC: ISOBMFF ftyp box
+    if (bytes.length >= 12 &&
+        bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70) {
+      final brand = String.fromCharCodes(bytes.sublist(8, 12));
+      if (const {'heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1'}.contains(brand)) {
+        return 'heic';
+      }
     }
     return 'png'; // デフォルト
   }

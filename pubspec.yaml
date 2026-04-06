@@ -49,6 +49,7 @@ dependencies:
   # Image transfer
   image_picker: ^1.1.2
   image: ^4.5.3
+  flutter_image_compress: ^2.4.0
   # Settings/notifications
   url_launcher: ^6.3.2
   # Background SSH connection maintenance

@@ -106,6 +106,12 @@ class SettingsScreen extends ConsumerWidget {
                         }
                       : null,
                 ),
+                ListTile(
+                  leading: const Icon(Icons.history),
+                  title: const Text('Scrollback Lines'),
+                  subtitle: Text('${settings.scrollbackLines} lines'),
+                  onTap: () => _showScrollbackPicker(context, ref, settings.scrollbackLines),
+                ),
                 const Divider(),
                 const _SectionHeader(title: 'Key Overlay'),
                 SwitchListTile(
@@ -509,6 +515,27 @@ class SettingsScreen extends ConsumerWidget {
               groupValue: current,
               onChanged: (v) {
                 if (v != null) ref.read(settingsProvider.notifier).setAdjustMode(v);
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showScrollbackPicker(BuildContext context, WidgetRef ref, int current) {
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Scrollback Lines'),
+        children: [
+          for (final value in [50, 100, 200, 500, 1000, 5000])
+            RadioListTile<int>(
+              title: Text('$value lines'),
+              value: value,
+              groupValue: current,
+              onChanged: (v) {
+                if (v != null) ref.read(settingsProvider.notifier).setScrollbackLines(v);
                 Navigator.pop(ctx);
               },
             ),

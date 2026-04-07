@@ -667,7 +667,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // capture-pane + カーソル位置情報 + ペインモード を1回で取得
       // 出力形式: [ペイン内容]\n[カーソル情報]\n[ペインモード]
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -200)}; '
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -ref.read(settingsProvider).scrollbackLines)}; '
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 

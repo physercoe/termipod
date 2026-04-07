@@ -12,6 +12,9 @@ class TmuxState {
   final bool isLoading;
   final String? error;
 
+  /// この状態が属するconnectionId（stale update防止用）
+  final String? connectionId;
+
   const TmuxState({
     this.sessions = const [],
     this.activeSessionName,
@@ -20,6 +23,7 @@ class TmuxState {
     this.activePaneId,
     this.isLoading = false,
     this.error,
+    this.connectionId,
   });
 
   TmuxState copyWith({
@@ -30,6 +34,7 @@ class TmuxState {
     String? activePaneId,
     bool? isLoading,
     String? error,
+    String? connectionId,
     bool clearActiveWindowIndex = false,
     bool clearActivePaneIndex = false,
     bool clearActivePaneId = false,
@@ -42,6 +47,7 @@ class TmuxState {
       activePaneId: clearActivePaneId ? null : (activePaneId ?? this.activePaneId),
       isLoading: isLoading ?? this.isLoading,
       error: error,
+      connectionId: connectionId ?? this.connectionId,
     );
   }
 
@@ -83,6 +89,16 @@ class TmuxNotifier extends Notifier<TmuxState> {
   @override
   TmuxState build() {
     return const TmuxState();
+  }
+
+  /// 現在のconnectionIdを設定（接続開始時に呼ぶ）
+  void setConnectionId(String connectionId) {
+    state = state.copyWith(connectionId: connectionId);
+  }
+
+  /// connectionIdが一致するか確認（stale update防止）
+  bool isForConnection(String connectionId) {
+    return state.connectionId == connectionId;
   }
 
   /// セッション一覧を更新

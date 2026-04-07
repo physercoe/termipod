@@ -425,7 +425,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _tmuxVersion = null;
       }
 
-      // 4. セ���ションツリー全体を取得
+      // 4. tmuxProviderをクリアしてconnectionIdを設定
+      ref.read(tmuxProvider.notifier).clear();
+      ref.read(tmuxProvider.notifier).setConnectionId(widget.connectionId);
+
+      // 5. セッションツリー全体を取得
       await _refreshSessionTree();
       if (!mounted || _isDisposed) {
         return;
@@ -559,6 +563,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isDisposed) {
       return;
     }
+    // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
+    if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) {
+      return;
+    }
     final sshClient = ref.read(sshProvider.notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       return;
@@ -568,6 +576,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final cmd = TmuxCommands.listAllPanes();
       final output = await sshClient.exec(cmd);
       if (!mounted || _isDisposed) return;
+      // 再度ガードチェック（async後に切り替わっている可能性）
+      if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) {
+        return;
+      }
       ref.read(tmuxProvider.notifier).parseAndUpdateFullTree(output);
     } catch (_) {
       // ツリー更新エラーは静かに無視（次回ポーリングで再試行）
@@ -637,6 +649,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// ペイン内容をポーリング取得
   Future<void> _pollPaneContent() async {
     if (_isPolling || _isDisposed) return; // 前回のポーリングがまだ実行中 or disposed
+    // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
+    if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) return;
     _isPolling = true;
 
     try {
@@ -883,7 +897,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   @override
-  @override
   void deactivate() {
     // ref.readはdeactivateまでは安全（disposeでは_elementsから外れている）
     final sshNotifier = ref.read(sshProvider.notifier);
@@ -894,6 +907,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (sshNotifier.checkConnection()) {
       sshNotifier.disconnect();
     }
+
+    // tmuxProviderの状態をクリアして他のconnectionへの汚染を防止
+    ref.read(tmuxProvider.notifier).clear();
+
     super.deactivate();
   }
 

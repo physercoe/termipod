@@ -233,6 +233,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
+
+    // キーボード表示/非表示やリサイズ時にターミナルを最下部にスクロール
+    _ansiTextViewKey.currentState?.scrollToBottom();
+
     final settings = ref.read(settingsProvider);
     if (!settings.isAutoResize) return;
 
@@ -315,6 +319,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           setState(() {
             _directInputEnabled = next.directInputEnabled;
           });
+          // DirectInput有効時はキーボードが表示されるため、最下部にスクロール
+          if (next.directInputEnabled) {
+            _ansiTextViewKey.currentState?.scrollToBottom();
+          }
         }
       },
       fireImmediately: false,

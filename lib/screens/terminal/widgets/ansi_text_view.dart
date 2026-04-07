@@ -1290,15 +1290,23 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
   // === スクロール制御 ===
 
   /// 一番下までスクロール
+  ///
+  /// リサイズやキーボード表示直後はmaxScrollExtentが未更新の場合があるため、
+  /// 2フレーム待ってからスクロールする。
   void scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_verticalScrollController.hasClients) {
-        _verticalScrollController.animateTo(
-          _verticalScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!mounted) return;
+      // 2フレーム目でレイアウトが確定した後にスクロール
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_verticalScrollController.hasClients) {
+          _verticalScrollController.animateTo(
+            _verticalScrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     });
   }
 

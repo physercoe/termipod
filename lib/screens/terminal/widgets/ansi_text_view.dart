@@ -1008,6 +1008,11 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
     if (event is KeyDownEvent || event is KeyRepeatEvent) {
       final key = event.logicalKey;
 
+      // Android back buttonはシステムナビゲーションに委譲
+      if (key == LogicalKeyboardKey.goBack) {
+        return KeyEventResult.ignored;
+      }
+
       // 修飾キーの状態を更新
       if (key == LogicalKeyboardKey.controlLeft ||
           key == LogicalKeyboardKey.controlRight) {

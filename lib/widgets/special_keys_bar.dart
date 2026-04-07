@@ -27,6 +27,12 @@ class SpecialKeysBar extends StatefulWidget {
   /// 画像転送ボタンが押された時のコールバック
   final VoidCallback? onImagePickRequested;
 
+  /// Compose入力モードのトグルコールバック
+  final VoidCallback? onComposeTap;
+
+  /// Compose入力モードが表示中か
+  final bool showComposeInput;
+
   const SpecialKeysBar({
     super.key,
     required this.onKeyPressed,
@@ -36,6 +42,8 @@ class SpecialKeysBar extends StatefulWidget {
     this.directInputEnabled = false,
     this.onDirectInputToggle,
     this.onImagePickRequested,
+    this.onComposeTap,
+    this.showComposeInput = false,
   });
 
   @override
@@ -580,8 +588,10 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
             const SizedBox(width: 2),
             _buildNumberKeyButton('4'),
           ],
-          // DirectInput無効時: Inputボタンを表示
+          // DirectInput無効時: ComposeボタンとInputボタンを表示
           if (!widget.directInputEnabled) ...[
+            const SizedBox(width: 4),
+            _buildComposeToggle(),
             const SizedBox(width: 4),
             Expanded(child: _buildInputButton()),
           ],
@@ -628,6 +638,41 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
             isEnabled ? Icons.flash_on : Icons.flash_off,
             size: 18,
             color: isEnabled ? DesignColors.success : Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compose入力モードトグルボタン
+  Widget _buildComposeToggle() {
+    final isActive = widget.showComposeInput;
+    return GestureDetector(
+      onTap: () {
+        if (widget.hapticFeedback) {
+          HapticFeedback.selectionClick();
+        }
+        widget.onComposeTap?.call();
+      },
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isActive
+              ? DesignColors.primary.withValues(alpha: 0.3)
+              : DesignColors.keyBackground,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isActive
+                ? DesignColors.primary.withValues(alpha: 0.5)
+                : Colors.white.withValues(alpha: 0.05),
+          ),
+        ),
+        child: Center(
+          child: Icon(
+            Icons.edit_note_rounded,
+            size: 20,
+            color: isActive ? DesignColors.primary : Colors.white70,
           ),
         ),
       ),

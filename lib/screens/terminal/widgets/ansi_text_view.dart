@@ -699,6 +699,9 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
   /// 現在のズームスケールを取得
   double get currentScale => _currentScale;
 
+  /// 現在の行の高さを取得（スクロール位置計算用）
+  double get lineHeight => _lineHeight;
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);

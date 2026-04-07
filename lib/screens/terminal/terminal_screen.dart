@@ -181,6 +181,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // ウィンドウ作成中フラグ（連打防止）
   bool _isCreatingWindow = false;
 
+  // Compose入力モード
+  bool _showComposeInput = false;
+  final _composeController = TextEditingController();
+  final _composeFocusNode = FocusNode();
+
   // リサイズ中フラグ（排他制御）
   bool _isResizing = false;
 
@@ -662,7 +667,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // capture-pane + カーソル位置情報 + ペインモード を1回で取得
       // 出力形式: [ペイン内容]\n[カーソル情報]\n[ペインモード]
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -1000)}; '
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -200)}; '
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
@@ -921,6 +926,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _keyOverlayState.dispose();
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
+    // Compose入力モードのリソースを破棄
+    _composeController.dispose();
+    _composeFocusNode.dispose();
     // ValueNotifierを破棄
     _viewNotifier.dispose();
     // スクロールコントローラーのリスナーを削除して破棄
@@ -1017,6 +1025,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           },
                         ),
                       ),
+                      // スクロール位置インジケーター: ターミナルエリア左下
+                      Positioned(
+                        bottom: 8,
+                        left: 12,
+                        child: _buildScrollPositionIndicator(),
+                      ),
                       // スクロールボタン: ターミナルエリア右下
                       Positioned(
                         bottom: 8,
@@ -1051,10 +1065,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
+              // Compose入力エリア（非モーダル・インライン）
+              if (_showComposeInput) _buildComposeInput(),
               SpecialKeysBar(
                 onKeyPressed: _sendKeyWithOverlay,
                 onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
                 onInputTap: _showInputDialog,
+                onComposeTap: _toggleComposeInput,
+                showComposeInput: _showComposeInput,
                 directInputEnabled: _directInputEnabled,
                 onDirectInputToggle: () {
                   ref.read(settingsProvider.notifier).toggleDirectInput();
@@ -1334,6 +1352,60 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted || _isDisposed) return;
       _ansiTextViewKey.currentState?.scrollToCaret();
     });
+  }
+
+  /// スクロール位置インジケーター
+  ///
+  /// ユーザーが最下部にいない時に現在行/総行数を表示する。
+  Widget _buildScrollPositionIndicator() {
+    return ListenableBuilder(
+      listenable: _terminalScrollController,
+      builder: (context, _) {
+        if (!_terminalScrollController.hasClients) {
+          return const SizedBox.shrink();
+        }
+        final position = _terminalScrollController.position;
+        final maxExtent = position.maxScrollExtent;
+        if (maxExtent <= 0) return const SizedBox.shrink();
+
+        final currentOffset = position.pixels;
+        // 最下部付近なら非表示
+        if (currentOffset >= maxExtent - 10) return const SizedBox.shrink();
+
+        final ansiState = _ansiTextViewKey.currentState;
+        if (ansiState == null) return const SizedBox.shrink();
+
+        // 行の高さから現在行と総行数を算出
+        final lineHeight = ansiState.lineHeight;
+        if (lineHeight <= 0) return const SizedBox.shrink();
+
+        final viewportHeight = position.viewportDimension;
+        final totalLines = ((maxExtent + viewportHeight) / lineHeight).round();
+        final currentTopLine = (currentOffset / lineHeight).round() + 1;
+        final visibleLines = (viewportHeight / lineHeight).round();
+        final currentBottomLine = (currentTopLine + visibleLines - 1).clamp(1, totalLines);
+
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
+            ),
+          ),
+          child: Text(
+            '$currentBottomLine / $totalLines',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// エラーオーバーレイ
@@ -3083,6 +3155,111 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
 
     _boostPolling();
+  }
+
+  /// Compose入力モードの表示/非表示を切り替え
+  void _toggleComposeInput() {
+    setState(() {
+      _showComposeInput = !_showComposeInput;
+    });
+    if (_showComposeInput) {
+      // フォーカスを要求してキーボードを表示
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _composeFocusNode.requestFocus();
+      });
+      _ansiTextViewKey.currentState?.scrollToBottom();
+    } else {
+      _composeFocusNode.unfocus();
+    }
+  }
+
+  /// Compose入力テキストを送信
+  Future<void> _sendComposeText() async {
+    final text = _composeController.text.trim();
+    if (text.isEmpty) return;
+    await _sendMultilineText(text);
+    _composeController.clear();
+    _boostPolling();
+  }
+
+  /// Compose入力ウィジェット（非モーダル・インライン）
+  ///
+  /// ターミナルを見ながらIME（AI、音声等）でテキストを編集し、
+  /// 確定してから送信できる。DirectInput（即時送信）とは異なる。
+  Widget _buildComposeInput() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+        border: Border(
+          top: BorderSide(
+            color: DesignColors.primary.withValues(alpha: 0.4),
+            width: 1,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // テキスト入力フィールド
+          Expanded(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 120),
+              child: TextField(
+                controller: _composeController,
+                focusNode: _composeFocusNode,
+                maxLines: null,
+                minLines: 1,
+                keyboardType: TextInputType.multiline,
+                textInputAction: TextInputAction.newline,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colorScheme.onSurface,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Compose text...',
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: colorScheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                  filled: true,
+                  fillColor: isDark ? DesignColors.inputDark : DesignColors.inputLight,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  isDense: true,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          // 送信ボタン
+          GestureDetector(
+            onTap: _sendComposeText,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: DesignColors.primary,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.send_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showInputDialog() {

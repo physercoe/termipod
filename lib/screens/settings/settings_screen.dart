@@ -333,9 +333,9 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.code),
                   title: const Text('Source Code'),
-                  subtitle: const Text('github.com/moezakura/mux-pod'),
+                  subtitle: const Text('github.com/physercoe/mux-pod'),
                   onTap: () async {
-                    final url = Uri.parse('https://github.com/moezakura/mux-pod');
+                    final url = Uri.parse('https://github.com/physercoe/mux-pod');
                     if (await canLaunchUrl(url)) {
                       await launchUrl(url, mode: LaunchMode.externalApplication);
                     }

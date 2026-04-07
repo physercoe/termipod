@@ -10,7 +10,7 @@ import 'key_generate_screen.dart';
 import 'key_import_screen.dart';
 import 'widgets/key_tile.dart';
 
-/// SSH鍵一覧画面
+/// SSH鍵一覧画面（スタンドアロン版 - 後方互換のため残す）
 class KeysScreen extends ConsumerWidget {
   const KeysScreen({super.key});
 
@@ -24,7 +24,7 @@ class KeysScreen extends ConsumerWidget {
           _buildAppBar(context, ref),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-            sliver: _buildBody(context, ref, keysState),
+            sliver: _KeysBody.buildContent(context, ref, keysState),
           ),
         ],
       ),
@@ -74,183 +74,6 @@ class KeysScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildBody(BuildContext context, WidgetRef ref, KeysState state) {
-    // ローディング中
-    if (state.isLoading) {
-      return const SliverFillRemaining(
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    // エラー
-    if (state.error != null) {
-      return SliverFillRemaining(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline,
-                size: 48,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(height: 16),
-              Text('Error: ${state.error}'),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  ref.read(keysProvider.notifier).reload();
-                },
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // 空状態
-    if (state.keys.isEmpty) {
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      return SliverFillRemaining(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
-                  ),
-                ),
-                child: Icon(
-                  Icons.vpn_key_off,
-                  size: 64,
-                  color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text(
-                'No SSH keys yet',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Tap the button below to add a key',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 14,
-                  color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // 鍵一覧
-    return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          final keyMeta = state.keys[index];
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: KeyTile(
-              keyMeta: keyMeta,
-              onCopyPublicKey: () {
-                _copyPublicKey(context, keyMeta);
-              },
-              onDelete: () {
-                _showDeleteConfirmation(context, ref, keyMeta);
-              },
-            ),
-          );
-        },
-        childCount: state.keys.length,
-      ),
-    );
-  }
-
-  void _copyPublicKey(BuildContext context, SshKeyMeta keyMeta) {
-    if (keyMeta.publicKey != null) {
-      Clipboard.setData(ClipboardData(text: keyMeta.publicKey!));
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Public key copied to clipboard')),
-      );
-    }
-  }
-
-  void _showDeleteConfirmation(
-      BuildContext context, WidgetRef ref, SshKeyMeta keyMeta) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Key?'),
-        content: Text(
-          'Are you sure you want to delete "${keyMeta.name}"?\n\n'
-          'This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await _deleteKey(context, ref, keyMeta);
-            },
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _deleteKey(
-      BuildContext context, WidgetRef ref, SshKeyMeta keyMeta) async {
-    try {
-      final storage = ref.read(secureStorageProvider);
-      final keysNotifier = ref.read(keysProvider.notifier);
-
-      // SecureStorageから秘密鍵を削除
-      await storage.deletePrivateKey(keyMeta.id);
-
-      // パスフレーズがあれば削除
-      if (keyMeta.hasPassphrase) {
-        await storage.deletePassphrase(keyMeta.id);
-      }
-
-      // メタデータを削除
-      await keysNotifier.remove(keyMeta.id);
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Key "${keyMeta.name}" deleted')),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to delete key: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    }
-  }
-
   void _showAddKeyOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -292,3 +115,150 @@ class KeysScreen extends ConsumerWidget {
     );
   }
 }
+
+/// 鍵一覧のコンテンツ部分を共有するヘルパー
+class _KeysBody {
+  static Widget buildContent(BuildContext context, WidgetRef ref, KeysState state) {
+    if (state.isLoading) {
+      return const SliverFillRemaining(
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (state.error != null) {
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+              const SizedBox(height: 16),
+              Text('Error: ${state.error}'),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => ref.read(keysProvider.notifier).reload(),
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state.keys.isEmpty) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      return SliverFillRemaining(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+                  ),
+                ),
+                child: Icon(Icons.vpn_key_off, size: 64,
+                    color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight),
+              ),
+              const SizedBox(height: 24),
+              Text('No SSH keys yet',
+                style: GoogleFonts.spaceGrotesk(fontSize: 20, fontWeight: FontWeight.w600,
+                    color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight)),
+              const SizedBox(height: 8),
+              Text('Tap + to add a key',
+                style: GoogleFonts.spaceGrotesk(fontSize: 14,
+                    color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final keyMeta = state.keys[index];
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: KeyTile(
+              keyMeta: keyMeta,
+              onCopyPublicKey: () {
+                if (keyMeta.publicKey != null) {
+                  Clipboard.setData(ClipboardData(text: keyMeta.publicKey!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Public key copied to clipboard')),
+                  );
+                }
+              },
+              onDelete: () {
+                _showDeleteDialog(context, ref, keyMeta);
+              },
+            ),
+          );
+        },
+        childCount: state.keys.length,
+      ),
+    );
+  }
+
+  static void _showDeleteDialog(BuildContext context, WidgetRef ref, SshKeyMeta keyMeta) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Key?'),
+        content: Text('Are you sure you want to delete "${keyMeta.name}"?\n\nThis action cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                final storage = ref.read(secureStorageProvider);
+                await storage.deletePrivateKey(keyMeta.id);
+                if (keyMeta.hasPassphrase) await storage.deletePassphrase(keyMeta.id);
+                await ref.read(keysProvider.notifier).remove(keyMeta.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Key "${keyMeta.name}" deleted')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to delete: $e'),
+                        backgroundColor: Theme.of(context).colorScheme.error),
+                  );
+                }
+              }
+            },
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Vault内のKeysタブ用ボディ（AppBar/Scaffold無しの鍵一覧）
+class KeysScreenBody extends ConsumerWidget {
+  const KeysScreenBody({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final keysState = ref.watch(keysProvider);
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+          sliver: _KeysBody.buildContent(context, ref, keysState),
+        ),
+      ],
+    );
+  }
+}
+

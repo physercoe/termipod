@@ -32,6 +32,32 @@ class ActionBarPresets {
     return null;
   }
 
+  /// Master catalog of all unique buttons from built-in profiles,
+  /// de-duplicated by value. Users pick from this when adding buttons.
+  static List<ActionBarButton> get buttonCatalog {
+    final seen = <String>{};
+    final catalog = <ActionBarButton>[];
+    for (final profile in all) {
+      for (final group in profile.groups) {
+        for (final button in group.buttons) {
+          if (seen.add(button.value)) {
+            catalog.add(button);
+          }
+        }
+      }
+    }
+    return catalog;
+  }
+
+  /// Button catalog grouped by type for the picker UI.
+  static Map<ActionBarButtonType, List<ActionBarButton>> get buttonCatalogByType {
+    final result = <ActionBarButtonType, List<ActionBarButton>>{};
+    for (final button in buttonCatalog) {
+      result.putIfAbsent(button.type, () => []).add(button);
+    }
+    return result;
+  }
+
   /// Detect suggested profile from pane_current_command
   static String? detectProfileId(String? currentCommand) {
     if (currentCommand == null || currentCommand.isEmpty) return null;

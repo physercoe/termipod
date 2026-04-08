@@ -30,13 +30,23 @@ class DashboardScreen extends ConsumerWidget {
             backgroundColor: isDark
                 ? DesignColors.backgroundDark.withValues(alpha: 0.95)
                 : DesignColors.backgroundLight.withValues(alpha: 0.95),
-            title: Text(
-              'TermiPod',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-                color: colorScheme.onSurface,
-              ),
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.asset('assets/icon/icon.png', width: 32, height: 32),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'TermiPod',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+              ],
             ),
           ),
           // Section Header

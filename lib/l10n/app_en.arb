@@ -36,6 +36,7 @@
   "buttonGenerate": "Generate",
   "buttonUpload": "Upload",
   "buttonRemove": "Remove",
+  "customButton": "Custom",
   "buttonDisconnect": "Disconnect",
 
   "searchConnections": "Search connections...",

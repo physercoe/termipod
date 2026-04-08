@@ -407,6 +407,15 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionAbout),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.asset('assets/icon/icon.png', width: 72, height: 72),
+                    ),
+                  ),
+                ),
                 ListTile(
                   leading: const Icon(Icons.info),
                   title: Text(l10n.settingVersion),

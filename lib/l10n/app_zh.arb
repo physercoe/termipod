@@ -33,6 +33,7 @@
   "buttonGenerate": "生成",
   "buttonUpload": "上传",
   "buttonRemove": "移除",
+  "customButton": "自定义",
   "buttonDisconnect": "断开连接",
 
   "searchConnections": "搜索连接...",

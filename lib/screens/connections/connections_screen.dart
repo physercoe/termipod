@@ -464,6 +464,8 @@ class ConnectionsScreen extends ConsumerWidget {
     if (confirmed == true) {
       final storage = SecureStorageService();
       await storage.deletePassword(connection.id);
+      // Remove persisted sessions for this connection before removing the connection
+      ref.read(activeSessionsProvider.notifier).removeSessionsForConnection(connection.id);
       await ref.read(connectionsProvider.notifier).remove(connection.id);
 
       if (context.mounted) {

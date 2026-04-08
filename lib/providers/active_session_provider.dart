@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/tmux/tmux_parser.dart';
+import 'connection_provider.dart';
 
 /// アクティブセッション情報
 class ActiveSession {
@@ -153,16 +154,29 @@ class ActiveSessionsNotifier extends Notifier<ActiveSessionsState> {
   }
 
   /// ストレージからセッション情報を読み込み
+  /// Prunes sessions whose connectionId no longer exists in connectionsProvider.
   Future<void> _loadFromStorage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonStr = prefs.getString(_storageKey);
       if (jsonStr != null) {
         final jsonList = jsonDecode(jsonStr) as List<dynamic>;
-        final sessions = jsonList
+        var sessions = jsonList
             .map((json) => ActiveSession.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        // Prune sessions for connections that no longer exist
+        final connections = ref.read(connectionsProvider).connections;
+        final validIds = connections.map((c) => c.id).toSet();
+        final before = sessions.length;
+        sessions = sessions.where((s) => validIds.contains(s.connectionId)).toList();
+
         state = state.copyWith(sessions: sessions);
+
+        // Persist the pruned list if anything was removed
+        if (sessions.length < before) {
+          _saveToStorage();
+        }
       }
     } catch (e) {
       // 読み込みエラーは無視（初回起動時など）

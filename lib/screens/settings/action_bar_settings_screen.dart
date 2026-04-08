@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../models/action_bar_config.dart';
+import '../../models/action_bar_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 
@@ -463,14 +464,14 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
   }
 
   void _showAddButtonDialog(BuildContext context) {
-    _showButtonDialog(context, title: AppLocalizations.of(context)!.addButton, onSave: (button) {
+    _showButtonCatalogPicker(context, onPick: (button) {
       setState(() => _buttons.add(button));
     });
   }
 
   void _showEditButtonDialog(BuildContext context, int index) {
     final existing = _buttons[index];
-    _showButtonDialog(
+    _showManualButtonDialog(
       context,
       title: AppLocalizations.of(context)!.editButton,
       initial: existing,
@@ -480,7 +481,146 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     );
   }
 
-  void _showButtonDialog(
+  /// Shows a bottom sheet with all preset buttons grouped by type.
+  /// User picks a button to add, or taps "Custom" for manual entry.
+  void _showButtonCatalogPicker(
+    BuildContext context, {
+    required void Function(ActionBarButton button) onPick,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    final catalogByType = ActionBarPresets.buttonCatalogByType;
+    // Existing values in this group — to highlight already-added buttons
+    final existingValues = _buttons.map((b) => b.value).toSet();
+
+    // Type display names
+    String typeLabel(ActionBarButtonType type) {
+      return switch (type) {
+        ActionBarButtonType.specialKey => 'Special Keys',
+        ActionBarButtonType.ctrlCombo => 'Ctrl Combos',
+        ActionBarButtonType.altCombo => 'Alt Combos',
+        ActionBarButtonType.shiftCombo => 'Shift Combos',
+        ActionBarButtonType.literal => 'Characters',
+        ActionBarButtonType.modifier => 'Modifiers',
+        ActionBarButtonType.action => 'Actions',
+        ActionBarButtonType.confirm => 'Confirm (y/n)',
+      };
+    }
+
+    // Order for display
+    const typeOrder = [
+      ActionBarButtonType.specialKey,
+      ActionBarButtonType.ctrlCombo,
+      ActionBarButtonType.modifier,
+      ActionBarButtonType.confirm,
+      ActionBarButtonType.literal,
+      ActionBarButtonType.shiftCombo,
+      ActionBarButtonType.altCombo,
+      ActionBarButtonType.action,
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                // Handle bar
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 4),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text(l10n.addButton, style: Theme.of(context).textTheme.titleMedium),
+                      const Spacer(),
+                      TextButton.icon(
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: Text(l10n.customButton),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showManualButtonDialog(
+                            context,
+                            title: l10n.addButton,
+                            onSave: onPick,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    children: [
+                      for (final type in typeOrder)
+                        if (catalogByType.containsKey(type)) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Text(
+                              typeLabel(type),
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: DesignColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                for (final button in catalogByType[type]!)
+                                  _CatalogChip(
+                                    button: button,
+                                    alreadyAdded: existingValues.contains(button.value),
+                                    onTap: () {
+                                      final newButton = ActionBarButton(
+                                        id: 'btn_${DateTime.now().millisecondsSinceEpoch}',
+                                        label: button.label,
+                                        type: button.type,
+                                        value: button.value,
+                                        longPressValue: button.longPressValue,
+                                        iconName: button.iconName,
+                                        description: button.description,
+                                      );
+                                      onPick(newButton);
+                                      Navigator.pop(ctx);
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Manual text-entry dialog for creating or editing a button.
+  void _showManualButtonDialog(
     BuildContext context, {
     required String title,
     ActionBarButton? initial,
@@ -576,7 +716,6 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 final longPress = longPressController.text.trim();
                 final desc = descriptionController.text.trim();
                 if (label.isNotEmpty && value.isNotEmpty) {
-                  // Only store description if user changed it from the default
                   final defaultDesc =
                       ActionBarButton.defaultDescriptions[value] ?? '';
                   final customDesc =
@@ -599,6 +738,45 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A chip widget for the button catalog picker.
+class _CatalogChip extends StatelessWidget {
+  final ActionBarButton button;
+  final bool alreadyAdded;
+  final VoidCallback onTap;
+
+  const _CatalogChip({
+    required this.button,
+    required this.alreadyAdded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final desc = button.displayDescription;
+    return Tooltip(
+      message: desc.isNotEmpty ? '${button.value}\n$desc' : button.value,
+      child: ActionChip(
+        avatar: alreadyAdded
+            ? Icon(Icons.check, size: 16, color: DesignColors.primary)
+            : null,
+        label: Text(
+          button.label,
+          style: TextStyle(
+            fontSize: 13,
+            color: alreadyAdded
+                ? Theme.of(context).colorScheme.onSurfaceVariant
+                : null,
+          ),
+        ),
+        backgroundColor: alreadyAdded
+            ? Theme.of(context).colorScheme.surfaceContainerHighest
+            : null,
+        onPressed: onTap,
       ),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
 import '../../providers/history_provider.dart';
@@ -34,7 +35,7 @@ class ComposeBar extends ConsumerStatefulWidget {
     this.onInsertMenu,
     this.onSpecialKeyPressed,
     this.onKeyPressed,
-    this.hintText = 'Type command or prompt...',
+    this.hintText = '',
     this.hapticFeedback = true,
   });
 
@@ -414,7 +415,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           color: colorScheme.onSurface,
         ),
         decoration: InputDecoration(
-          hintText: widget.hintText,
+          hintText: widget.hintText.isEmpty ? AppLocalizations.of(context)!.typeCommandHint : widget.hintText,
           hintStyle: TextStyle(
             fontSize: 14,
             color: colorScheme.onSurface.withValues(alpha: 0.4),
@@ -477,7 +478,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           color: Colors.transparent, // Hide the sentinel
         ),
         decoration: InputDecoration(
-          hintText: 'Direct input mode',
+          hintText: AppLocalizations.of(context)!.directInputHint,
           hintStyle: TextStyle(
             fontSize: 14,
             color: DesignColors.secondary.withValues(alpha: 0.6),

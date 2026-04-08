@@ -44,7 +44,7 @@ class DashboardScreen extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               child: Text(
-                'Recent Sessions',
+                AppLocalizations.of(context)!.recentSessions,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -108,7 +108,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'No recent sessions',
+            AppLocalizations.of(context)!.noRecentSessions,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -117,7 +117,7 @@ class DashboardScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Connect to a server to get started',
+            AppLocalizations.of(context)!.noRecentSessionsDesc,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -200,7 +200,7 @@ class _SessionHistoryCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Remove',
+              AppLocalizations.of(context)!.buttonRemove,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.error,
@@ -217,14 +217,14 @@ class _SessionHistoryCard extends StatelessWidget {
                 return AlertDialog(
                   backgroundColor: dialogColorScheme.surface,
                   title: Text(
-                    'Remove from History?',
+                    AppLocalizations.of(context)!.removeFromHistoryTitle,
                     style: GoogleFonts.spaceGrotesk(
                       fontWeight: FontWeight.w700,
                       color: dialogColorScheme.onSurface,
                     ),
                   ),
                   content: Text(
-                    'Remove "${session.sessionName}" from recent sessions?\n\nThe tmux session will remain active on the server.',
+                    AppLocalizations.of(context)!.removeFromHistoryContent(session.sessionName),
                     style: GoogleFonts.spaceGrotesk(color: dialogColorScheme.onSurfaceVariant),
                   ),
                   actions: [
@@ -331,7 +331,7 @@ class _SessionHistoryCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          _formatRelativeTime(session.lastAccessedAt ?? session.connectedAt),
+                          _formatRelativeTime(context, session.lastAccessedAt ?? session.connectedAt),
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 12,
                             color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -344,7 +344,7 @@ class _SessionHistoryCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '${session.windowCount} windows',
+                          AppLocalizations.of(context)!.windowCount(session.windowCount),
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 11,
                             color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -389,24 +389,21 @@ class _SessionHistoryCard extends StatelessWidget {
     );
   }
 
-  String _formatRelativeTime(DateTime dateTime) {
+  String _formatRelativeTime(BuildContext context, DateTime dateTime) {
+    final l10n = AppLocalizations.of(context)!;
     final now = DateTime.now();
     final diff = now.difference(dateTime);
 
     if (diff.inSeconds < 60) {
-      return 'Just now';
+      return l10n.justNow;
     } else if (diff.inMinutes < 60) {
-      final mins = diff.inMinutes;
-      return '$mins min${mins > 1 ? 's' : ''} ago';
+      return l10n.minutesAgo(diff.inMinutes);
     } else if (diff.inHours < 24) {
-      final hours = diff.inHours;
-      return '$hours hour${hours > 1 ? 's' : ''} ago';
+      return l10n.hoursAgo(diff.inHours);
     } else if (diff.inDays < 7) {
-      final days = diff.inDays;
-      return '$days day${days > 1 ? 's' : ''} ago';
+      return l10n.daysAgo(diff.inDays);
     } else {
-      final weeks = (diff.inDays / 7).floor();
-      return '$weeks week${weeks > 1 ? 's' : ''} ago';
+      return l10n.weeksAgo((diff.inDays / 7).floor());
     }
   }
 }

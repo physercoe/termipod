@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
+
 import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
@@ -43,7 +45,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: Text(
-            'No history yet',
+            AppLocalizations.of(context)!.noHistoryYet,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark
@@ -73,7 +75,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             autofocus: false,
             onChanged: (v) => setState(() => _searchQuery = v),
             decoration: InputDecoration(
-              hintText: 'Search history...',
+              hintText: AppLocalizations.of(context)!.searchHistory,
               prefixIcon: const Icon(Icons.search, size: 20),
               filled: true,
               fillColor:
@@ -93,7 +95,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
             padding: const EdgeInsets.symmetric(vertical: 24),
             child: Center(
               child: Text(
-                'No matching history',
+                AppLocalizations.of(context)!.noMatchingHistory,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 14,
                   color: isDark
@@ -141,8 +143,8 @@ class _HistoryTile extends ConsumerWidget {
           onTap: () {
             Clipboard.setData(ClipboardData(text: command));
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Copied to clipboard'),
+              SnackBar(
+                content: Text(AppLocalizations.of(context)!.copiedToClipboard),
                 duration: Duration(seconds: 1),
               ),
             );
@@ -198,7 +200,7 @@ class _HistoryTile extends ConsumerWidget {
                     HapticFeedback.selectionClick();
                     _showSaveAsSnippet(context, ref);
                   },
-                  tooltip: 'Save as Snippet',
+                  tooltip: AppLocalizations.of(context)!.saveAsSnippet,
                   visualDensity: VisualDensity.compact,
                 ),
               ],
@@ -217,11 +219,11 @@ class _HistoryTile extends ConsumerWidget {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Save as Snippet'),
+        title: Text(AppLocalizations.of(context)!.saveAsSnippet),
         content: TextField(
           controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Snippet Name',
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.snippetName,
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -230,7 +232,7 @@ class _HistoryTile extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -241,14 +243,14 @@ class _HistoryTile extends ConsumerWidget {
                     );
                 Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Saved to Snippets'),
+                  SnackBar(
+                    content: Text(AppLocalizations.of(context)!.savedToSnippets),
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: const Text('Save'),
+            child: Text(AppLocalizations.of(context)!.buttonSave),
           ),
         ],
       ),

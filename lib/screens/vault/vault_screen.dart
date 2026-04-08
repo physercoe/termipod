@@ -99,10 +99,10 @@ class VaultScreen extends ConsumerWidget {
                 // History section
                 _SectionCard(
                   icon: Icons.history,
-                  title: 'History',
+                  title: AppLocalizations.of(context)!.history,
                   trailing: _SmallActionButton(
                     icon: Icons.delete_outline,
-                    label: 'Clear',
+                    label: AppLocalizations.of(context)!.clear,
                     onTap: () => _confirmClearHistory(context, ref),
                   ),
                 ),
@@ -120,12 +120,12 @@ class VaultScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear History'),
-        content: const Text('Delete all command history? This cannot be undone.'),
+        title: Text(AppLocalizations.of(context)!.clearHistory),
+        content: Text(AppLocalizations.of(context)!.clearHistoryContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -133,7 +133,7 @@ class VaultScreen extends ConsumerWidget {
               ref.read(historyProvider.notifier).clear();
               Navigator.pop(ctx);
             },
-            child: const Text('Clear'),
+            child: Text(AppLocalizations.of(context)!.clear),
           ),
         ],
       ),

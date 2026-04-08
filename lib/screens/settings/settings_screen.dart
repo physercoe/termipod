@@ -45,7 +45,7 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.tune),
                   title: Text(l10n.settingAdjustMode),
-                  subtitle: Text(_adjustModeLabel(settings.adjustMode)),
+                  subtitle: Text(_adjustModeLabel(context, settings.adjustMode)),
                   onTap: () => _showAdjustModePicker(context, ref, settings.adjustMode),
                 ),
                 ListTile(
@@ -53,7 +53,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.settingFontSize),
                   subtitle: Text(
                     settings.isAutoFit
-                        ? '${settings.fontSize.toInt()} pt (auto-fit enabled)'
+                        ? '${settings.fontSize.toInt()} pt ${l10n.autoFitEnabled}'
                         : '${settings.fontSize.toInt()} pt',
                   ),
                   enabled: !settings.isAutoFit,
@@ -92,8 +92,8 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.settingMinFontSize),
                   subtitle: Text(
                     settings.isAutoFit
-                        ? '${settings.minFontSize.toInt()} pt (auto-fit limit)'
-                        : '${settings.minFontSize.toInt()} pt (not used)',
+                        ? '${settings.minFontSize.toInt()} pt ${l10n.autoFitLimit}'
+                        : '${settings.minFontSize.toInt()} pt ${l10n.notUsed}',
                   ),
                   enabled: settings.isAutoFit,
                   onTap: settings.isAutoFit
@@ -169,9 +169,9 @@ class SettingsScreen extends ConsumerWidget {
                     title: Text(l10n.keyOverlayPosition),
                     subtitle: Text(
                       switch (settings.keyOverlayPosition) {
-                        'center' => 'Center of terminal',
-                        'belowHeader' => 'Below header',
-                        _ => 'Above keyboard',
+                        'center' => l10n.overlayCenterTerminal,
+                        'belowHeader' => l10n.overlayBelowHeader,
+                        _ => l10n.overlayAboveKeyboard,
                       },
                     ),
                     onTap: () async {
@@ -180,9 +180,9 @@ class SettingsScreen extends ConsumerWidget {
                         builder: (context) => SimpleDialog(
                           title: Text(l10n.overlayPositionTitle),
                           children: [
-                            _buildPositionOption(context, 'aboveKeyboard', 'Above Keyboard', settings.keyOverlayPosition),
-                            _buildPositionOption(context, 'center', 'Center of Terminal', settings.keyOverlayPosition),
-                            _buildPositionOption(context, 'belowHeader', 'Below Header', settings.keyOverlayPosition),
+                            _buildPositionOption(context, 'aboveKeyboard', l10n.overlayAboveKeyboard, settings.keyOverlayPosition),
+                            _buildPositionOption(context, 'center', l10n.overlayCenterTerminal, settings.keyOverlayPosition),
+                            _buildPositionOption(context, 'belowHeader', l10n.overlayBelowHeader, settings.keyOverlayPosition),
                           ],
                         ),
                       );
@@ -193,13 +193,13 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ],
                 const Divider(),
-                const _SectionHeader(title: 'Toolbar'),
+                _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(
                   builder: (context, ref, _) {
                     final abState = ref.watch(actionBarProvider);
                     return ListTile(
                       leading: const Icon(Icons.view_column),
-                      title: const Text('Active Profile'),
+                      title: Text(l10n.activeProfile),
                       subtitle: Text(abState.activeProfile.name),
                       onTap: () => _showProfilePicker(context, ref),
                     );
@@ -207,8 +207,8 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.tune),
-                  title: const Text('Customize Groups'),
-                  subtitle: const Text('Reorder and edit button groups'),
+                  title: Text(l10n.customizeGroups),
+                  subtitle: Text(l10n.customizeGroupsDesc),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -219,7 +219,7 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
                 const Divider(),
-                const _SectionHeader(title: 'Behavior'),
+                _SectionHeader(title: l10n.sectionBehavior),
                 SwitchListTile(
                   secondary: const Icon(Icons.vibration),
                   title: Text(l10n.settingHapticFeedback),
@@ -248,11 +248,11 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
                 const Divider(),
-                const _SectionHeader(title: 'Appearance'),
+                _SectionHeader(title: l10n.sectionAppearance),
                 ListTile(
                   leading: const Icon(Icons.dark_mode),
                   title: Text(l10n.settingTheme),
-                  subtitle: Text(settings.darkMode ? 'Dark' : 'Light'),
+                  subtitle: Text(settings.darkMode ? l10n.themeDark : l10n.themeLight),
                   onTap: () async {
                     final isDark = await showDialog<bool>(
                       context: context,
@@ -268,7 +268,7 @@ class SettingsScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.language),
                   title: Text(l10n.settingLanguage),
-                  subtitle: Text(_localeLabel(settings.locale)),
+                  subtitle: Text(_localeLabel(context, settings.locale)),
                   onTap: () => _showLocalePicker(context, ref, settings.locale),
                 ),
                 const Divider(),
@@ -565,14 +565,15 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _adjustModeLabel(String mode) {
+  String _adjustModeLabel(BuildContext context, String mode) {
+    final l10n = AppLocalizations.of(context)!;
     switch (mode) {
       case 'autoFit':
-        return 'Auto Fit';
+        return l10n.adjustModeAutoFit;
       case 'autoResize':
-        return 'Auto Resize';
+        return l10n.adjustModeAutoResize;
       default:
-        return 'None';
+        return l10n.adjustModeNone;
     }
   }
 
@@ -584,9 +585,9 @@ class SettingsScreen extends ConsumerWidget {
         title: Text(l10n.adjustModeTitle),
         children: [
           for (final entry in [
-            ('none', 'None', 'Manual font and pane size'),
-            ('autoFit', 'Auto Fit', 'Adjust font size to fit screen width'),
-            ('autoResize', 'Auto Resize', 'Resize tmux pane to fit screen'),
+            ('none', l10n.adjustModeNone, l10n.adjustModeNoneDesc),
+            ('autoFit', l10n.adjustModeAutoFit, l10n.adjustModeAutoFitDesc),
+            ('autoResize', l10n.adjustModeAutoResize, l10n.adjustModeAutoResizeDesc),
           ])
             RadioListTile<String>(
               title: Text(entry.$2),
@@ -633,11 +634,11 @@ class SettingsScreen extends ConsumerWidget {
         title: Text(l10n.resizePresetTitle),
         children: [
           for (final entry in [
-            ('original', 'Original'),
-            ('small', 'Small (480px)'),
-            ('medium', 'Medium (1080px)'),
-            ('large', 'Large (1920px)'),
-            ('custom', 'Custom'),
+            ('original', l10n.resizePresetOriginal),
+            ('small', l10n.resizeSmall),
+            ('medium', l10n.resizeMedium),
+            ('large', l10n.resizeLarge),
+            ('custom', l10n.resizeCustom),
           ])
             RadioListTile<String>(
               title: Text(entry.$2),
@@ -653,14 +654,14 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  String _localeLabel(String locale) {
+  String _localeLabel(BuildContext context, String locale) {
     switch (locale) {
       case 'en':
         return 'English';
       case 'zh':
         return '中文 (简体)';
       default:
-        return 'System Default';
+        return AppLocalizations.of(context)!.systemDefault;
     }
   }
 
@@ -672,7 +673,7 @@ class SettingsScreen extends ConsumerWidget {
         title: Text(l10n.settingLanguage),
         children: [
           for (final entry in [
-            ('system', 'System Default'),
+            ('system', l10n.systemDefault),
             ('en', 'English'),
             ('zh', '中文 (简体)'),
           ])
@@ -695,12 +696,12 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Select Profile'),
+        title: Text(AppLocalizations.of(context)!.selectProfile),
         children: [
           for (final profile in state.profiles)
             RadioListTile<String>(
               title: Text(profile.name),
-              subtitle: profile.isBuiltIn ? const Text('Built-in') : null,
+              subtitle: profile.isBuiltIn ? Text(AppLocalizations.of(context)!.builtIn) : null,
               value: profile.id,
               groupValue: state.activeProfileId,
               onChanged: (v) {
@@ -726,7 +727,7 @@ class SettingsScreen extends ConsumerWidget {
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 24, bottom: 16),
         title: Text(
-          'Settings',
+          AppLocalizations.of(context)!.tabSettings,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 24,
             fontWeight: FontWeight.w700,

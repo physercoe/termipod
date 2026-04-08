@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
+
 import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../screens/settings/action_bar_settings_screen.dart';
@@ -89,7 +91,7 @@ class ProfileSheet extends ConsumerWidget {
                 child: Row(
                   children: [
                     Text(
-                      'Toolbar Profile',
+                      AppLocalizations.of(context)!.toolbarProfile,
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -105,7 +107,7 @@ class ProfileSheet extends ConsumerWidget {
                         _showCreateProfileDialog(context, ref);
                       },
                       icon: const Icon(Icons.add, size: 18),
-                      label: const Text('New'),
+                      label: Text(AppLocalizations.of(context)!.newLabel),
                       style: TextButton.styleFrom(
                         foregroundColor: DesignColors.primary,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -152,7 +154,7 @@ class ProfileSheet extends ConsumerWidget {
                 _buildAction(
                   context,
                   icon: Icons.code,
-                  label: 'Manage Snippets',
+                  label: AppLocalizations.of(context)!.manageSnippets,
                   isDark: isDark,
                   onTap: onManageSnippets!,
                 ),
@@ -160,7 +162,7 @@ class ProfileSheet extends ConsumerWidget {
               _buildAction(
                 context,
                 icon: Icons.restore,
-                label: 'Reset to Default',
+                label: AppLocalizations.of(context)!.resetToDefault,
                 isDark: isDark,
                 onTap: () {
                   HapticFeedback.selectionClick();
@@ -219,12 +221,12 @@ class ProfileSheet extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Profile'),
-        content: Text('Delete "${profile.name}"?'),
+        title: Text(AppLocalizations.of(context)!.deleteProfile),
+        content: Text(AppLocalizations.of(context)!.deleteProfileContent(profile.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -232,7 +234,7 @@ class ProfileSheet extends ConsumerWidget {
               ref.read(actionBarProvider.notifier).deleteProfile(profile.id);
               Navigator.pop(ctx);
             },
-            child: const Text('Delete'),
+            child: Text(AppLocalizations.of(context)!.buttonDelete),
           ),
         ],
       ),
@@ -244,12 +246,12 @@ class ProfileSheet extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New Profile'),
+        title: Text(AppLocalizations.of(context)!.newProfile),
         content: TextField(
           controller: nameController,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Profile Name',
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.profileName,
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -257,7 +259,7 @@ class ProfileSheet extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -312,7 +314,7 @@ class ProfileSheet extends ConsumerWidget {
                 Navigator.pop(ctx);
               }
             },
-            child: const Text('Create'),
+            child: Text(AppLocalizations.of(context)!.buttonCreate),
           ),
         ],
       ),
@@ -389,7 +391,7 @@ class _ProfileRow extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        'built-in',
+                        AppLocalizations.of(context)!.builtIn.toLowerCase(),
                         style: TextStyle(
                           fontSize: 10,
                           color: isDark

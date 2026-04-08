@@ -150,7 +150,7 @@ class _NotificationPanesScreenState extends ConsumerState<NotificationPanesScree
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 24, bottom: 16),
         title: Text(
-          'Alerts',
+          AppLocalizations.of(context)!.alerts,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -194,7 +194,7 @@ class _NotificationPanesScreenState extends ConsumerState<NotificationPanesScree
           ),
           const SizedBox(height: 16),
           Text(
-            'No alerts',
+            AppLocalizations.of(context)!.noAlerts,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 18,
               fontWeight: FontWeight.w600,
@@ -203,7 +203,7 @@ class _NotificationPanesScreenState extends ConsumerState<NotificationPanesScree
           ),
           const SizedBox(height: 8),
           Text(
-            'All panes are quiet',
+            AppLocalizations.of(context)!.allPanesQuiet,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -252,7 +252,7 @@ class _AlertPaneCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Dismiss',
+              AppLocalizations.of(context)!.dismiss,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 color: DesignColors.error,
@@ -337,7 +337,7 @@ class _AlertPaneCard extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          ' • Pane ${alert.paneIndex}',
+                          ' • ${AppLocalizations.of(context)!.paneLabel(alert.paneIndex)}',
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 11,
                             color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -379,7 +379,7 @@ class _AlertPaneCard extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  _flagLabel(alert.primaryFlag),
+                  _flagLabel(context, alert.primaryFlag),
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -448,12 +448,13 @@ class _AlertPaneCard extends StatelessWidget {
     };
   }
 
-  String _flagLabel(TmuxWindowFlag? flag) {
+  String _flagLabel(BuildContext context, TmuxWindowFlag? flag) {
+    final l10n = AppLocalizations.of(context)!;
     return switch (flag) {
-      TmuxWindowFlag.bell => 'Bell',
-      TmuxWindowFlag.activity => 'Activity',
-      TmuxWindowFlag.silence => 'Silence',
-      _ => 'Alert',
+      TmuxWindowFlag.bell => l10n.alertBell,
+      TmuxWindowFlag.activity => l10n.alertActivity,
+      TmuxWindowFlag.silence => l10n.alertSilence,
+      _ => l10n.alertGeneric,
     };
   }
 }

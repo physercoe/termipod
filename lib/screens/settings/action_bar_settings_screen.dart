@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
+
 import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
@@ -31,7 +33,7 @@ class _ActionBarSettingsScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Customize Toolbar',
+          AppLocalizations.of(context)!.customizeToolbar,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
@@ -42,9 +44,9 @@ class _ActionBarSettingsScreenState
               }
             },
             itemBuilder: (context) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'reset',
-                child: Text('Reset to Default'),
+                child: Text(AppLocalizations.of(context)!.resetToDefault),
               ),
             ],
           ),
@@ -64,7 +66,7 @@ class _ActionBarSettingsScreenState
                         : DesignColors.textSecondaryLight),
                 const SizedBox(width: 8),
                 Text(
-                  'Profile: ${profile.name}',
+                  AppLocalizations.of(context)!.profileLabel(profile.name),
                   style: TextStyle(
                     fontSize: 14,
                     color: isDark
@@ -109,7 +111,7 @@ class _ActionBarSettingsScreenState
                 child: OutlinedButton.icon(
                   onPressed: () => _addGroup(context),
                   icon: const Icon(Icons.add),
-                  label: const Text('Add Group'),
+                  label: Text(AppLocalizations.of(context)!.addGroup),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: colorScheme.primary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -127,14 +129,12 @@ class _ActionBarSettingsScreenState
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset to Default'),
-        content: const Text(
-          'This will reset all groups to the default configuration for this profile.',
-        ),
+        title: Text(AppLocalizations.of(context)!.resetToDefault),
+        content: Text(AppLocalizations.of(context)!.resetToDefaultDesc),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -144,7 +144,7 @@ class _ActionBarSettingsScreenState
                   .resetProfileToDefault(state.activeProfileId);
               Navigator.pop(ctx);
             },
-            child: const Text('Reset'),
+            child: Text(AppLocalizations.of(context)!.reset),
           ),
         ],
       ),
@@ -155,12 +155,12 @@ class _ActionBarSettingsScreenState
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Group'),
-        content: Text('Delete "${group.name}" and all its buttons?'),
+        title: Text(AppLocalizations.of(context)!.deleteGroup),
+        content: Text(AppLocalizations.of(context)!.deleteGroupContent(group.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -168,7 +168,7 @@ class _ActionBarSettingsScreenState
               ref.read(actionBarProvider.notifier).deleteGroup(group.id);
               Navigator.pop(ctx);
             },
-            child: const Text('Delete'),
+            child: Text(AppLocalizations.of(context)!.buttonDelete),
           ),
         ],
       ),
@@ -180,12 +180,12 @@ class _ActionBarSettingsScreenState
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('New Group'),
+        title: Text(AppLocalizations.of(context)!.newGroup),
         content: TextField(
           controller: nameController,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Group Name',
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.groupName,
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -193,7 +193,7 @@ class _ActionBarSettingsScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -208,7 +208,7 @@ class _ActionBarSettingsScreenState
                 Navigator.pop(ctx);
               }
             },
-            child: const Text('Create'),
+            child: Text(AppLocalizations.of(context)!.buttonCreate),
           ),
         ],
       ),
@@ -328,13 +328,13 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Edit Group',
+          AppLocalizations.of(context)!.editGroup,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
           TextButton(
             onPressed: _save,
-            child: const Text('Save'),
+            child: Text(AppLocalizations.of(context)!.buttonSave),
           ),
         ],
       ),
@@ -345,8 +345,8 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
             padding: const EdgeInsets.all(16),
             child: TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Group Name',
+              decoration: InputDecoration(
+                labelText: AppLocalizations.of(context)!.groupName,
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
@@ -435,7 +435,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => _showAddButtonDialog(context),
                   icon: const Icon(Icons.add),
-                  label: const Text('Add Button'),
+                  label: Text(AppLocalizations.of(context)!.addButton),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: colorScheme.primary,
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -463,7 +463,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
   }
 
   void _showAddButtonDialog(BuildContext context) {
-    _showButtonDialog(context, title: 'Add Button', onSave: (button) {
+    _showButtonDialog(context, title: AppLocalizations.of(context)!.addButton, onSave: (button) {
       setState(() => _buttons.add(button));
     });
   }
@@ -472,7 +472,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     final existing = _buttons[index];
     _showButtonDialog(
       context,
-      title: 'Edit Button',
+      title: AppLocalizations.of(context)!.editButton,
       initial: existing,
       onSave: (button) {
         setState(() => _buttons[index] = button);
@@ -505,9 +505,9 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               children: [
                 TextField(
                   controller: labelController,
-                  decoration: const InputDecoration(
-                    labelText: 'Label',
-                    hintText: 'e.g., ESC, C-C, Tab',
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.buttonLabel,
+                    hintText: AppLocalizations.of(context)!.buttonLabelHint,
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -516,8 +516,8 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ActionBarButtonType>(
                   initialValue: selectedType,
-                  decoration: const InputDecoration(
-                    labelText: 'Type',
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.buttonType,
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -534,9 +534,9 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: valueController,
-                  decoration: const InputDecoration(
-                    labelText: 'Value (tmux key)',
-                    hintText: 'e.g., Escape, C-c, Tab',
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.buttonValue,
+                    hintText: AppLocalizations.of(context)!.buttonValueHint,
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -544,9 +544,9 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: longPressController,
-                  decoration: const InputDecoration(
-                    labelText: 'Long-press value (optional)',
-                    hintText: 'e.g., Escape Escape, BTab',
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.buttonLongPress,
+                    hintText: AppLocalizations.of(context)!.buttonLongPressHint,
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -554,9 +554,9 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (optional)',
-                    hintText: 'e.g., Interrupt / Cancel',
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.buttonDescription,
+                    hintText: AppLocalizations.of(context)!.buttonDescriptionHint,
                     border: OutlineInputBorder(),
                     isDense: true,
                   ),
@@ -567,7 +567,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -595,7 +595,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                   Navigator.pop(ctx);
                 }
               },
-              child: Text(initial != null ? 'Save' : 'Add'),
+              child: Text(initial != null ? AppLocalizations.of(context)!.buttonSave : AppLocalizations.of(context)!.add),
             ),
           ],
         ),

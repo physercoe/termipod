@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
 import '../../providers/history_provider.dart';
@@ -58,7 +59,7 @@ class InsertMenu {
                   _buildItem(
                     context,
                     icon: Icons.history,
-                    label: 'Recent',
+                    label: AppLocalizations.of(context)!.recent,
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
@@ -70,7 +71,7 @@ class InsertMenu {
                   _buildItem(
                     context,
                     icon: Icons.upload_file,
-                    label: 'File Upload',
+                    label: AppLocalizations.of(context)!.fileUpload,
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
@@ -81,7 +82,7 @@ class InsertMenu {
                   _buildItem(
                     context,
                     icon: Icons.download,
-                    label: 'File Download',
+                    label: AppLocalizations.of(context)!.fileDownload,
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
@@ -92,7 +93,7 @@ class InsertMenu {
                   _buildItem(
                     context,
                     icon: Icons.image,
-                    label: 'Image Transfer',
+                    label: AppLocalizations.of(context)!.imageTransfer,
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
@@ -107,8 +108,8 @@ class InsertMenu {
                         ? Icons.keyboard
                         : Icons.edit_note_rounded,
                     label: abState.composeMode
-                        ? 'Direct Input Mode'
-                        : 'Compose Mode',
+                        ? AppLocalizations.of(context)!.directInputMode
+                        : AppLocalizations.of(context)!.composeMode,
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);

@@ -75,7 +75,7 @@ class ConnectionsScreen extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Connections',
+              AppLocalizations.of(context)!.connections,
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
+
 import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
@@ -87,7 +89,7 @@ class RecentSheet extends ConsumerWidget {
                         : DesignColors.textSecondaryLight),
                 const SizedBox(width: 6),
                 Text(
-                  'Recent',
+                  AppLocalizations.of(context)!.recent,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -106,7 +108,7 @@ class RecentSheet extends ConsumerWidget {
                       foregroundColor: Colors.red,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
-                    child: const Text('Clear'),
+                    child: Text(AppLocalizations.of(context)!.clear),
                   ),
               ],
             ),
@@ -117,7 +119,7 @@ class RecentSheet extends ConsumerWidget {
             child: recent.isEmpty
                 ? Center(
                     child: Text(
-                      'No recent commands',
+                      AppLocalizations.of(context)!.noRecentCommands,
                       style: TextStyle(
                         color: isDark
                             ? DesignColors.textMuted
@@ -204,11 +206,11 @@ class RecentSheet extends ConsumerWidget {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Save as Snippet'),
+        title: Text(AppLocalizations.of(context)!.saveAsSnippet),
         content: TextField(
           controller: nameController,
-          decoration: const InputDecoration(
-            labelText: 'Snippet Name',
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.snippetName,
             border: OutlineInputBorder(),
             isDense: true,
           ),
@@ -217,7 +219,7 @@ class RecentSheet extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -228,14 +230,14 @@ class RecentSheet extends ConsumerWidget {
                     );
                 Navigator.pop(dialogContext);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Saved to Snippets'),
+                  SnackBar(
+                    content: Text(AppLocalizations.of(context)!.savedToSnippets),
                     duration: Duration(seconds: 2),
                   ),
                 );
               }
             },
-            child: const Text('Save'),
+            child: Text(AppLocalizations.of(context)!.buttonSave),
           ),
         ],
       ),

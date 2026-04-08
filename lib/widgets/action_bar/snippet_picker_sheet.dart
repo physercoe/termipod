@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
+
 import '../../models/snippet_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../providers/snippet_provider.dart';
@@ -115,7 +117,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 Icon(Icons.bolt, size: 20, color: DesignColors.primary),
                 const SizedBox(width: 6),
                 Text(
-                  'Snippets',
+                  AppLocalizations.of(context)!.snippets,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -131,7 +133,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                     _showAddSnippetDialog(context, ref);
                   },
                   icon: const Icon(Icons.add, size: 18),
-                  label: const Text('New'),
+                  label: Text(AppLocalizations.of(context)!.newLabel),
                   style: TextButton.styleFrom(
                     foregroundColor: DesignColors.primary,
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -148,7 +150,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               autofocus: false,
               onChanged: (v) => setState(() => _searchQuery = v),
               decoration: InputDecoration(
-                hintText: 'Search snippets...',
+                hintText: AppLocalizations.of(context)!.searchSnippets,
                 prefixIcon: const Icon(Icons.search, size: 20),
                 filled: true,
                 fillColor:
@@ -221,7 +223,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           ),
           const SizedBox(height: 8),
           Text(
-            _searchQuery.isEmpty ? 'No snippets yet' : 'No matching snippets',
+            _searchQuery.isEmpty ? AppLocalizations.of(context)!.noSnippetsYet : AppLocalizations.of(context)!.noMatchingSnippets,
             style: TextStyle(
               color: isDark
                   ? DesignColors.textMuted
@@ -231,7 +233,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           if (_searchQuery.isEmpty) ...[
             const SizedBox(height: 4),
             Text(
-              'Tap "New" to create one',
+              AppLocalizations.of(context)!.createOneHint,
               style: TextStyle(
                 fontSize: 12,
                 color: isDark
@@ -364,7 +366,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -381,7 +383,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                   widget.onInsert(resolved);
                 }
               },
-              child: const Text('Insert'),
+              child: Text(AppLocalizations.of(context)!.insert),
             ),
           ],
         );
@@ -397,14 +399,14 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('New Snippet'),
+          title: Text(AppLocalizations.of(context)!.newSnippet),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
+                decoration: InputDecoration(
+                  labelText: AppLocalizations.of(context)!.nameLabel,
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
@@ -413,8 +415,8 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               const SizedBox(height: 12),
               TextField(
                 controller: contentController,
-                decoration: const InputDecoration(
-                  labelText: 'Command / Text',
+                decoration: InputDecoration(
+                  labelText: AppLocalizations.of(context)!.commandTextLabel,
                   hintText: 'e.g., docker compose up -d',
                   border: OutlineInputBorder(),
                   isDense: true,
@@ -426,7 +428,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -439,7 +441,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                   Navigator.pop(dialogContext);
                 }
               },
-              child: const Text('Save'),
+              child: Text(AppLocalizations.of(context)!.buttonSave),
             ),
           ],
         );

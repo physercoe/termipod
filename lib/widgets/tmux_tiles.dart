@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
 import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
 import 'package:flutter_muxpod/theme/design_colors.dart';
 import 'package:flutter_muxpod/widgets/active_list_tile.dart';

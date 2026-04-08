@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/connection_provider.dart';
 import '../../providers/key_provider.dart';

@@ -82,14 +82,15 @@ class TmuxState {
 ///
 /// Each connection gets its own isolated TmuxNotifier. No generation counters
 /// or connectionId guards needed — isolation is structural.
-class TmuxNotifier extends AutoDisposeFamilyNotifier<TmuxState, String> {
+class TmuxNotifier extends Notifier<TmuxState> {
+  final String connectionId;
+
+  TmuxNotifier(this.connectionId);
+
   @override
-  TmuxState build(String arg) {
+  TmuxState build() {
     return const TmuxState();
   }
-
-  /// The connectionId this notifier is scoped to
-  String get connectionId => arg;
 
   /// Update session list
   void updateSessions(List<TmuxSession> sessions) {
@@ -230,6 +231,6 @@ class TmuxNotifier extends AutoDisposeFamilyNotifier<TmuxState, String> {
 
 /// Tmux provider — keyed by connectionId.
 /// Each connection gets its own isolated instance, auto-disposed when no longer watched.
-final tmuxProvider = NotifierProvider.autoDispose.family<TmuxNotifier, TmuxState, String>(() {
-  return TmuxNotifier();
-});
+final tmuxProvider = NotifierProvider.autoDispose.family<TmuxNotifier, TmuxState, String>(
+  (connectionId) => TmuxNotifier(connectionId),
+);

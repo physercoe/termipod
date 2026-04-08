@@ -66,21 +66,21 @@ class ImageTransferState {
 }
 
 /// Image transfer notifier — one instance per connectionId via .family provider.
-class ImageTransferNotifier extends AutoDisposeFamilyNotifier<ImageTransferState, String> {
+class ImageTransferNotifier extends Notifier<ImageTransferState> {
+  final String connectionId;
   final _imagePicker = ImagePicker();
   final _sftpService = SftpService();
   StreamSubscription? _connectionSub;
 
+  ImageTransferNotifier(this.connectionId);
+
   @override
-  ImageTransferState build(String arg) {
+  ImageTransferState build() {
     ref.onDispose(() {
       _connectionSub?.cancel();
     });
     return const ImageTransferState();
   }
-
-  /// The connectionId this notifier is scoped to
-  String get connectionId => arg;
 
   /// 画像を選択
   Future<void> pickImage(ImageSource source) async {
@@ -242,6 +242,6 @@ class ImageTransferNotifier extends AutoDisposeFamilyNotifier<ImageTransferState
 
 /// Image transfer provider — keyed by connectionId.
 final imageTransferProvider =
-    NotifierProvider.autoDispose.family<ImageTransferNotifier, ImageTransferState, String>(() {
-  return ImageTransferNotifier();
-});
+    NotifierProvider.autoDispose.family<ImageTransferNotifier, ImageTransferState, String>(
+  (connectionId) => ImageTransferNotifier(connectionId),
+);

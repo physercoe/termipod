@@ -112,20 +112,20 @@ class FileTransferOptions {
 }
 
 /// File transfer notifier — one instance per connectionId via .family provider.
-class FileTransferNotifier extends AutoDisposeFamilyNotifier<FileTransferState, String> {
+class FileTransferNotifier extends Notifier<FileTransferState> {
+  final String connectionId;
   final _sftpService = SftpService();
   StreamSubscription? _connectionSub;
 
+  FileTransferNotifier(this.connectionId);
+
   @override
-  FileTransferState build(String arg) {
+  FileTransferState build() {
     ref.onDispose(() {
       _connectionSub?.cancel();
     });
     return const FileTransferState();
   }
-
-  /// The connectionId this notifier is scoped to
-  String get connectionId => arg;
 
   /// Pick files using system file picker
   Future<void> pickFiles() async {
@@ -383,6 +383,6 @@ class FileTransferNotifier extends AutoDisposeFamilyNotifier<FileTransferState, 
 
 /// File transfer provider — keyed by connectionId.
 final fileTransferProvider =
-    NotifierProvider.autoDispose.family<FileTransferNotifier, FileTransferState, String>(() {
-  return FileTransferNotifier();
-});
+    NotifierProvider.autoDispose.family<FileTransferNotifier, FileTransferState, String>(
+  (connectionId) => FileTransferNotifier(connectionId),
+);

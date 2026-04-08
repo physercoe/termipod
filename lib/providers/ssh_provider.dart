@@ -75,7 +75,11 @@ class SshState {
 /// Each connection gets its own isolated SshNotifier. No generation counters
 /// or cross-connection race guards needed — isolation is structural.
 /// Auto-disposed when the last listener (TerminalScreen) is removed.
-class SshNotifier extends AutoDisposeFamilyNotifier<SshState, String> {
+class SshNotifier extends Notifier<SshState> {
+  final String connectionId;
+
+  SshNotifier(this.connectionId);
+
   SshClient? _client;
   final SshForegroundTaskService _foregroundService = SshForegroundTaskService();
 
@@ -107,7 +111,7 @@ class SshNotifier extends AutoDisposeFamilyNotifier<SshState, String> {
   void Function()? onReconnectSuccess;
 
   @override
-  SshState build(String arg) {
+  SshState build() {
     // Monitor network state
     _startNetworkMonitoring();
 
@@ -121,9 +125,6 @@ class SshNotifier extends AutoDisposeFamilyNotifier<SshState, String> {
     });
     return const SshState();
   }
-
-  /// The connectionId this notifier is scoped to
-  String get connectionId => arg;
 
   /// Start network state monitoring
   void _startNetworkMonitoring() {
@@ -485,6 +486,6 @@ class SshNotifier extends AutoDisposeFamilyNotifier<SshState, String> {
 
 /// SSH provider — keyed by connectionId.
 /// Each connection gets its own isolated instance, auto-disposed when no longer watched.
-final sshProvider = NotifierProvider.autoDispose.family<SshNotifier, SshState, String>(() {
-  return SshNotifier();
-});
+final sshProvider = NotifierProvider.autoDispose.family<SshNotifier, SshState, String>(
+  (connectionId) => SshNotifier(connectionId),
+);

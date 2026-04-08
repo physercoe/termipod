@@ -417,7 +417,7 @@ class FontCalculator {
     required double screenHeight,
     required double fontSize,
     required String fontFamily,
-    double lineHeightRatio = 1.2,
+    double lineHeightRatio = 1.4,
   }) {
     final lineHeight = fontSize * lineHeightRatio;
     if (lineHeight <= 0) return 24;

@@ -35,6 +35,7 @@ class SnippetPickerSheet extends ConsumerWidget {
         initialChildSize: 0.4,
         minChildSize: 0.25,
         maxChildSize: 0.7,
+        expand: false,
         builder: (context, scrollController) {
           return SnippetPickerSheet(
             onInsert: (content) {

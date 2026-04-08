@@ -33,6 +33,7 @@ import '../../widgets/action_bar/insert_menu.dart';
 import '../../widgets/action_bar/command_menu_sheet.dart';
 import '../../widgets/action_bar/snippet_picker_sheet.dart';
 import '../../widgets/action_bar/profile_sheet.dart';
+import '../../widgets/action_bar/history_sheet.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../models/action_bar_presets.dart';
 import '../../widgets/image_transfer_confirm_dialog.dart';
@@ -3388,7 +3389,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       onSnippets: () => _showSnippetPicker(context),
       onCommandMenu: () => _showCommandMenu(context),
       onHistory: abState.commandHistory.isNotEmpty
-          ? () => _showCommandMenu(context)
+          ? () => _showHistory(context)
           : null,
       onFileTransfer: _handleFileTransfer,
       onFileDownload: _handleFileDownload,
@@ -3436,13 +3437,26 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
+  /// Show command history sheet
+  void _showHistory(BuildContext context) {
+    HistorySheet.show(
+      context,
+      ref: ref,
+      onInsert: (command) {
+        _composeBarKey.currentState?.insertText(command);
+      },
+      onSendImmediately: (command) {
+        _sendMultilineText(command);
+        _boostPolling();
+      },
+    );
+  }
+
   /// Show the profile selection sheet
   void _showProfileSheet(BuildContext context) {
     ProfileSheet.show(
       context,
       ref: ref,
-      onEditGroups: null, // TODO: Phase 5 settings screen
-      onManageSnippets: null, // TODO: Phase 5 settings screen
     );
   }
 

@@ -12,7 +12,7 @@ class ActionBarPresets {
   static const String generalTerminalId = 'general-terminal';
 
   /// Default profile ID
-  static const String defaultProfileId = claudeCodeId;
+  static const String defaultProfileId = generalTerminalId;
 
   /// All built-in profiles
   static List<ActionBarProfile> get all => [
@@ -51,7 +51,7 @@ class ActionBarPresets {
   static const claudeCode = ActionBarProfile(
     id: claudeCodeId,
     name: 'Claude Code',
-    isBuiltIn: true,
+    isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'cc-quick', name: 'Quick', buttons: [
         ActionBarButton(id: 'cc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', longPressValue: 'Escape Escape'),
@@ -107,7 +107,7 @@ class ActionBarPresets {
   static const codex = ActionBarProfile(
     id: codexId,
     name: 'Codex',
-    isBuiltIn: true,
+    isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'cx-quick', name: 'Quick', buttons: [
         ActionBarButton(id: 'cx-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', longPressValue: 'Escape Escape'),
@@ -154,7 +154,7 @@ class ActionBarPresets {
   static const kimiCode = ActionBarProfile(
     id: kimiCodeId,
     name: 'Kimi Code',
-    isBuiltIn: true,
+    isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'km-quick', name: 'Quick', buttons: [
         ActionBarButton(id: 'km-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
@@ -202,7 +202,7 @@ class ActionBarPresets {
   static const openCode = ActionBarProfile(
     id: openCodeId,
     name: 'OpenCode',
-    isBuiltIn: true,
+    isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'oc-quick', name: 'Quick', buttons: [
         ActionBarButton(id: 'oc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
@@ -251,7 +251,7 @@ class ActionBarPresets {
   static const aider = ActionBarProfile(
     id: aiderId,
     name: 'Aider',
-    isBuiltIn: true,
+    isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'ai-quick', name: 'Quick', buttons: [
         ActionBarButton(id: 'ai-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),

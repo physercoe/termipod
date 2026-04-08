@@ -40,6 +40,7 @@ class CommandMenuSheet extends ConsumerStatefulWidget {
         initialChildSize: 0.5,
         minChildSize: 0.3,
         maxChildSize: 0.8,
+        expand: false,
         builder: (context, scrollController) {
           return CommandMenuSheet(
             onInsert: (cmd) {
@@ -118,7 +119,7 @@ class _CommandMenuSheetState extends ConsumerState<CommandMenuSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: TextField(
               controller: _searchController,
-              autofocus: true,
+              autofocus: false,
               onChanged: (v) => setState(() => _searchQuery = v),
               decoration: InputDecoration(
                 hintText: 'Search commands...',

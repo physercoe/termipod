@@ -100,6 +100,7 @@ class ActionBarState {
 // SharedPreferences keys
 const _keyActiveProfile = 'settings_action_bar_active_profile';
 const _keyCustomProfiles = 'settings_action_bar_custom_profiles';
+const _keyDeletedPresets = 'settings_action_bar_deleted_presets';
 const _keyComposeMode = 'settings_action_bar_compose_mode';
 const _keyCommandHistory = 'settings_action_bar_command_history';
 const _maxHistoryItems = 50;
@@ -131,6 +132,15 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       }
     }
 
+    // Load deleted preset IDs
+    final deletedJson = prefs.getString(_keyDeletedPresets);
+    Set<String> deletedPresetIds = {};
+    if (deletedJson != null) {
+      try {
+        deletedPresetIds = (jsonDecode(deletedJson) as List).cast<String>().toSet();
+      } catch (_) {}
+    }
+
     // Load command history
     final historyJson = prefs.getString(_keyCommandHistory);
     List<String> history = [];
@@ -142,8 +152,21 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       }
     }
 
-    // Merge built-in + custom profiles
-    final allProfiles = [...ActionBarPresets.all, ...customProfiles];
+    // Merge: start with presets (excluding deleted), override with custom
+    // versions (same ID), then append user-created profiles (new IDs).
+    final customIds = customProfiles.map((p) => p.id).toSet();
+    final presetIds = ActionBarPresets.all.map((p) => p.id).toSet();
+    final allProfiles = <ActionBarProfile>[
+      for (final preset in ActionBarPresets.all)
+        if (!deletedPresetIds.contains(preset.id))
+          if (customIds.contains(preset.id))
+            customProfiles.firstWhere((p) => p.id == preset.id)
+          else
+            preset,
+      // Append user-created profiles (IDs not in presets)
+      for (final custom in customProfiles)
+        if (!presetIds.contains(custom.id)) custom,
+    ];
 
     state = state.copyWith(
       activeProfileId: activeId,
@@ -181,14 +204,40 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
     await _saveCustomProfiles();
   }
 
-  /// Delete a custom profile
+  /// Delete a profile (preset or custom). Built-in profiles cannot be deleted.
   Future<void> deleteProfile(String profileId) async {
+    // Prevent deleting the built-in General Terminal profile
+    final profile = state.profiles.firstWhere(
+      (p) => p.id == profileId,
+      orElse: () => state.activeProfile,
+    );
+    if (profile.isBuiltIn) return;
+
     final updated = state.profiles.where((p) => p.id != profileId).toList();
     state = state.copyWith(profiles: updated);
     if (state.activeProfileId == profileId) {
       await setActiveProfile(ActionBarPresets.defaultProfileId);
     }
+
+    // Track deleted presets so they don't reappear on reload
+    final isPreset = ActionBarPresets.all.any((p) => p.id == profileId);
+    if (isPreset) {
+      await _addDeletedPreset(profileId);
+    }
     await _saveCustomProfiles();
+  }
+
+  Future<void> _addDeletedPreset(String presetId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString(_keyDeletedPresets);
+    final ids = <String>{};
+    if (json != null) {
+      try {
+        ids.addAll((jsonDecode(json) as List).cast<String>());
+      } catch (_) {}
+    }
+    ids.add(presetId);
+    await prefs.setString(_keyDeletedPresets, jsonEncode(ids.toList()));
   }
 
   /// Reset a built-in profile to its default configuration

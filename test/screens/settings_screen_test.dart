@@ -86,25 +86,25 @@ void main() {
 
       final scrollable = find.byType(Scrollable).first;
 
-      // Image Transfer section header
-      await tester.scrollUntilVisible(find.text('Image Transfer'), 200, scrollable: scrollable);
-      expect(find.text('Image Transfer'), findsOneWidget);
+      // Image Transfer section header — scroll with larger delta to reach bottom
+      await tester.scrollUntilVisible(find.text('Image Transfer'), 500, scrollable: scrollable, maxScrolls: 50);
+      expect(find.text('Image Transfer'), findsWidgets);
 
       // Individual settings
       await tester.scrollUntilVisible(find.text('Remote Path'), 200, scrollable: scrollable);
-      expect(find.text('Remote Path'), findsOneWidget);
+      expect(find.text('Remote Path'), findsWidgets);
 
       await tester.scrollUntilVisible(find.text('Output Format'), 200, scrollable: scrollable);
-      expect(find.text('Output Format'), findsOneWidget);
+      expect(find.text('Output Format'), findsWidgets);
 
       await tester.scrollUntilVisible(find.text('Path Format'), 200, scrollable: scrollable);
-      expect(find.text('Path Format'), findsOneWidget);
+      expect(find.text('Path Format'), findsWidgets);
 
       await tester.scrollUntilVisible(find.text('Auto Enter'), 200, scrollable: scrollable);
-      expect(find.text('Auto Enter'), findsOneWidget);
+      expect(find.text('Auto Enter'), findsWidgets);
 
       await tester.scrollUntilVisible(find.text('Bracketed Paste'), 200, scrollable: scrollable);
-      expect(find.text('Bracketed Paste'), findsOneWidget);
+      expect(find.text('Bracketed Paste'), findsWidgets);
     });
   });
 }

@@ -1383,16 +1383,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final oldPaneId = ref.read(tmuxProvider).activePaneId;
 
     try {
-      // 前のペインにフォーカスアウトを送信
-      if (oldPaneId != null && oldPaneId != paneId) {
-        await sshClient.exec(TmuxCommands.sendKeys(oldPaneId, '\x1b[O', literal: true));
-      }
-
       // tmux select-paneを実行
       await sshClient.exec(TmuxCommands.selectPane(paneId));
 
-      // 新しいペインにフォーカスインを送信（Claude Code等のアプリがフォーカスを検知できるようにする）
-      await sshClient.exec(TmuxCommands.sendKeys(paneId, '\x1b[I', literal: true));
+      // Note: Focus events (\x1b[I / \x1b[O) are NOT sent here.
+      // These are terminal-to-application signals (DECSET 1004) that cannot
+      // be correctly injected via send-keys -l, which goes through shell input
+      // processing. Apps that don't handle focus events would see literal '[I'
+      // text. The proper mechanism is tmux's native focus-events option with
+      // a real client, which TermiPod's exec-based architecture doesn't support.
     } catch (e) {
       // SSH接続が閉じている場合は無視
       debugPrint('[Terminal] Failed to select pane: $e');

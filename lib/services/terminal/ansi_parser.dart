@@ -88,6 +88,19 @@ class AnsiParser {
   /// SGR (Select Graphic Rendition) パターン: ESC[...m
   static final _sgrRegex = RegExp(r'\x1b\[([0-9;]*)m');
 
+  /// Non-SGR escape sequences to strip before parsing.
+  /// Matches (in order):
+  ///   - OSC sequences: ESC ] ... (ST or BEL)  — window titles, hyperlinks, etc.
+  ///   - CSI sequences (non-SGR): ESC [ ... <letter other than m>
+  ///   - Character set selection: ESC ( <char>, ESC ) <char>
+  ///   - Two-char escapes: ESC followed by single char (e.g. ESC =, ESC >)
+  static final _nonSgrRegex = RegExp(
+    r'\x1b\].*?(?:\x1b\\|\x07)'  // OSC: ESC]...ST or ESC]...BEL
+    r'|\x1b\[[0-9;]*[A-LN-Za-ln-z]'  // CSI non-SGR (any final letter except m)
+    r'|\x1b[()][A-Za-z0-9]'  // Character set: ESC( or ESC)
+    r'|\x1b[=>Nc]'  // Common two-char sequences
+  );
+
   /// 標準8色（通常）
   static const List<Color> standardColors = [
     Color(0xFF000000), // 0: Black
@@ -123,16 +136,22 @@ class AnsiParser {
     this.defaultBackground = const Color(0xFF1E1E1E),
   });
 
+  /// Strip non-SGR escape sequences from text
+  static String stripNonSgr(String input) {
+    return input.replaceAll(_nonSgrRegex, '');
+  }
+
   /// ANSIテキストをセグメントに分解
   List<AnsiSegment> parse(String input) {
+    final cleaned = stripNonSgr(input);
     final segments = <AnsiSegment>[];
     var currentStyle = AnsiStyle.defaultStyle;
     var lastEnd = 0;
 
-    for (final match in _sgrRegex.allMatches(input)) {
+    for (final match in _sgrRegex.allMatches(cleaned)) {
       // マッチ前のテキストを追加
       if (match.start > lastEnd) {
-        final text = input.substring(lastEnd, match.start);
+        final text = cleaned.substring(lastEnd, match.start);
         if (text.isNotEmpty) {
           segments.add(AnsiSegment(text, currentStyle));
         }
@@ -145,8 +164,8 @@ class AnsiParser {
     }
 
     // 残りのテキストを追加
-    if (lastEnd < input.length) {
-      final text = input.substring(lastEnd);
+    if (lastEnd < cleaned.length) {
+      final text = cleaned.substring(lastEnd);
       if (text.isNotEmpty) {
         segments.add(AnsiSegment(text, currentStyle));
       }
@@ -427,14 +446,15 @@ class AnsiParser {
     String line,
     AnsiStyle startStyle,
   ) {
+    final cleaned = stripNonSgr(line);
     final segments = <AnsiSegment>[];
     var currentStyle = startStyle;
     var lastEnd = 0;
 
-    for (final match in _sgrRegex.allMatches(line)) {
+    for (final match in _sgrRegex.allMatches(cleaned)) {
       // マッチ前のテキストを追加
       if (match.start > lastEnd) {
-        final text = line.substring(lastEnd, match.start);
+        final text = cleaned.substring(lastEnd, match.start);
         if (text.isNotEmpty) {
           segments.add(AnsiSegment(text, currentStyle));
         }
@@ -447,8 +467,8 @@ class AnsiParser {
     }
 
     // 残りのテキストを追加
-    if (lastEnd < line.length) {
-      final text = line.substring(lastEnd);
+    if (lastEnd < cleaned.length) {
+      final text = cleaned.substring(lastEnd);
       if (text.isNotEmpty) {
         segments.add(AnsiSegment(text, currentStyle));
       }

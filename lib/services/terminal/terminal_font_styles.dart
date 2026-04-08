@@ -14,9 +14,12 @@ class TerminalFontStyles {
     'UDEV Gothic NF',
   ];
 
-  /// フォントフォールバック（特殊記号・絵文字用）
-  /// Nerd Fontsや記号をサポートするフォントにフォールバック
+  /// Font fallback for box-drawing, symbols, and emoji.
+  /// UDEVGothicNF is bundled and covers box-drawing (U+2500-U+257F),
+  /// Powerline, and Nerd Font glyphs — placed first for reliability.
   static const List<String> _fontFamilyFallback = [
+    'UDEVGothicNF',
+    'HackGenConsole',
     'Noto Sans Symbols 2',
     'Noto Color Emoji',
     'Symbols Nerd Font',

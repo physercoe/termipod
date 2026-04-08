@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_muxpod/services/terminal/ansi_parser.dart';
-import 'package:flutter_muxpod/services/terminal/terminal_font_styles.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -151,6 +150,48 @@ void main() {
       // Default BG is 0xFF1E1E1E, Default FG is 0xFFD4D4D4
       // Swapped: BG should be 0xFFD4D4D4
       expect(cursorSpan.style!.backgroundColor, const Color(0xFFD4D4D4));
+    });
+  });
+
+  group('AnsiParser.stripNonSgr', () {
+    test('strips OSC sequences (window title)', () {
+      const input = '\x1b]0;My Title\x07Hello';
+      expect(AnsiParser.stripNonSgr(input), 'Hello');
+    });
+
+    test('strips OSC 8 hyperlinks', () {
+      const input = '\x1b]8;;https://example.com\x1b\\Click here\x1b]8;;\x1b\\';
+      expect(AnsiParser.stripNonSgr(input), 'Click here');
+    });
+
+    test('strips CSI cursor movement', () {
+      const input = '\x1b[2KHello\x1b[1AWorld';
+      expect(AnsiParser.stripNonSgr(input), 'HelloWorld');
+    });
+
+    test('strips cursor show/hide', () {
+      const input = '\x1b[?25hHello\x1b[?25l';
+      expect(AnsiParser.stripNonSgr(input), 'Hello');
+    });
+
+    test('strips character set selection', () {
+      const input = '\x1b(BHello\x1b)0World';
+      expect(AnsiParser.stripNonSgr(input), 'HelloWorld');
+    });
+
+    test('preserves SGR sequences', () {
+      const input = '\x1b[31mRed\x1b[0m';
+      expect(AnsiParser.stripNonSgr(input), '\x1b[31mRed\x1b[0m');
+    });
+
+    test('handles mixed SGR and non-SGR', () {
+      const input = '\x1b[?25l\x1b[31mRed\x1b[2K\x1b[0mPlain\x1b]0;Title\x07';
+      expect(AnsiParser.stripNonSgr(input), '\x1b[31mRed\x1b[0mPlain');
+    });
+
+    test('strips ESC= and ESC>', () {
+      const input = '\x1b=Hello\x1b>';
+      expect(AnsiParser.stripNonSgr(input), 'Hello');
     });
   });
 }

@@ -27,7 +27,14 @@ import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
-import '../../widgets/special_keys_bar.dart';
+import '../../widgets/action_bar/action_bar.dart';
+import '../../widgets/action_bar/compose_bar.dart';
+import '../../widgets/action_bar/insert_menu.dart';
+import '../../widgets/action_bar/command_menu_sheet.dart';
+import '../../widgets/action_bar/snippet_picker_sheet.dart';
+import '../../widgets/action_bar/profile_sheet.dart';
+import '../../providers/action_bar_provider.dart';
+import '../../models/action_bar_presets.dart';
 import '../../widgets/image_transfer_confirm_dialog.dart';
 import '../../widgets/tmux_tiles.dart';
 import '../../providers/terminal_display_provider.dart';
@@ -171,8 +178,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // ズームスケール
   double _zoomScale = 1.0;
 
-  // EnterCommand入力内容保持（ボトムシートを閉じても保持）
-  String _savedCommandInput = '';
 
   // 入力キュー（切断中の入力を保持）
   final _inputQueue = InputQueue();
@@ -180,16 +185,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // バックグラウンド状態
   bool _isInBackground = false;
 
-  // directInput設定のローカルキャッシュ（ref.watch回避）
-  bool _directInputEnabled = true;
-
   // ウィンドウ作成中フラグ（連打防止）
   bool _isCreatingWindow = false;
 
-  // Compose入力モード
-  bool _showComposeInput = false;
-  final _composeController = TextEditingController();
-  final _composeFocusNode = FocusNode();
+  // ComposeBar key for inserting text
+  final _composeBarKey = GlobalKey<ComposeBarState>();
 
   // リサイズ中フラグ（排他制御）
   bool _isResizing = false;
@@ -319,8 +319,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _tmuxSubscription = ref.listenManual<TmuxState>(
       tmuxProvider,
       (previous, next) {
-        // Consumer widgets が直接 tmuxProvider を watch しているため、
-        // 親の setState() は不要（BottomSheet安定化のため除去）
+        // Profile auto-detection from pane_current_command
+        final activePane = next.activePane;
+        if (activePane != null) {
+          final suggestedId = ActionBarPresets.detectProfileId(
+            activePane.currentCommand,
+          );
+          ref.read(actionBarProvider.notifier).updateSuggestion(suggestedId);
+        }
       },
       fireImmediately: true,
     );
@@ -333,21 +339,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         if (previous?.keepScreenOn != next.keepScreenOn) {
           _applyKeepScreenOn();
         }
-        if (previous?.directInputEnabled != next.directInputEnabled) {
-          setState(() {
-            _directInputEnabled = next.directInputEnabled;
-          });
-          // DirectInput有効時はキーボードが表示されるため、最下部にスクロール
-          if (next.directInputEnabled) {
-            _ansiTextViewKey.currentState?.scrollToBottom();
-          }
-        }
+        // (directInputEnabled moved to action_bar_provider)
       },
       fireImmediately: false,
     );
 
-    // 初期値を明示的に設定
-    _directInputEnabled = ref.read(settingsProvider).directInputEnabled;
+    // Action bar state is managed by actionBarProvider
 
     // ネットワーク状態の変化を監視（実際の接続状態変化時のみ更新）
     _networkSubscription = ref.listenManual<AsyncValue<NetworkStatus>>(
@@ -967,9 +964,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _keyOverlayState.dispose();
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
-    // Compose入力モードのリソースを破棄
-    _composeController.dispose();
-    _composeFocusNode.dispose();
+    // (compose resources are managed by ComposeBar widget)
     // ValueNotifierを破棄
     _viewNotifier.dispose();
     // スクロールコントローラーのリスナーを削除して破棄
@@ -1126,21 +1121,33 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              // Compose入力エリア（非モーダル・インライン）
-              if (_showComposeInput) _buildComposeInput(),
-              SpecialKeysBar(
+              // Action bar (swipeable button groups)
+              ActionBar(
                 onKeyPressed: _sendKeyWithOverlay,
                 onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
-                onInputTap: _showInputDialog,
-                onComposeTap: _toggleComposeInput,
-                showComposeInput: _showComposeInput,
-                directInputEnabled: _directInputEnabled,
+                onFileTransfer: _handleFileTransfer,
+                onImageTransfer: _handleImageTransfer,
+                onSnippetPicker: () => _showSnippetPicker(context),
+                onCommandMenu: () => _showCommandMenu(context),
                 onDirectInputToggle: () {
-                  ref.read(settingsProvider.notifier).toggleDirectInput();
+                  ref.read(actionBarProvider.notifier).toggleInputMode();
                 },
-                onImagePickRequested: _handleImageTransfer,
-                onFileUploadRequested: _handleFileTransfer,
-                onFileDownloadRequested: _handleFileDownload,
+                onProfileSettings: () => _showProfileSheet(context),
+              ),
+              // Compose bar (primary input)
+              ComposeBar(
+                key: _composeBarKey,
+                onSend: (text, {bool withEnter = true}) {
+                  if (withEnter) {
+                    _sendMultilineText(text);
+                  } else {
+                    _sendMultilineTextNoEnter(text);
+                  }
+                  _boostPolling();
+                },
+                onInsertMenu: () => _showInsertMenu(context),
+                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                onKeyPressed: _sendKeyWithOverlay,
               ),
             ],
           ),
@@ -3357,134 +3364,85 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     });
   }
 
-  /// Compose入力モードの表示/非表示を切り替え
-  void _toggleComposeInput() {
-    setState(() {
-      _showComposeInput = !_showComposeInput;
-    });
-    if (_showComposeInput) {
-      // フォーカスを要求してキーボードを表示
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _composeFocusNode.requestFocus();
-      });
-      _ansiTextViewKey.currentState?.scrollToBottom();
-    } else {
-      _composeFocusNode.unfocus();
+  /// Send multiline text without appending a final Enter
+  Future<void> _sendMultilineTextNoEnter(String text) async {
+    final lines = text.split('\n');
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      if (line.isNotEmpty) {
+        await _sendKey(line);
+      }
+      // Send Enter between lines, but NOT after the last line
+      if (i < lines.length - 1) {
+        await _sendSpecialKey('Enter');
+      }
     }
   }
 
-  /// Compose入力テキストを送信
-  Future<void> _sendComposeText() async {
-    final text = _composeController.text.trim();
-    if (text.isEmpty) return;
-    await _sendMultilineText(text);
-    _composeController.clear();
-    _boostPolling();
-  }
-
-  /// Compose入力ウィジェット（非モーダル・インライン）
-  ///
-  /// ターミナルを見ながらIME（AI、音声等）でテキストを編集し、
-  /// 確定してから送信できる。DirectInput（即時送信）とは異なる。
-  Widget _buildComposeInput() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        border: Border(
-          top: BorderSide(
-            color: DesignColors.primary.withValues(alpha: 0.4),
-            width: 1,
-          ),
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          // テキスト入力フィールド
-          Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 120),
-              child: TextField(
-                controller: _composeController,
-                focusNode: _composeFocusNode,
-                maxLines: null,
-                minLines: 1,
-                keyboardType: TextInputType.multiline,
-                textInputAction: TextInputAction.newline,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: colorScheme.onSurface,
-                ),
-                decoration: InputDecoration(
-                  hintText: AppLocalizations.of(context)!.composeTextHint,
-                  hintStyle: TextStyle(
-                    fontSize: 14,
-                    color: colorScheme.onSurface.withValues(alpha: 0.4),
-                  ),
-                  filled: true,
-                  fillColor: isDark ? DesignColors.inputDark : DesignColors.inputLight,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  isDense: true,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // 送信ボタン
-          GestureDetector(
-            onTap: _sendComposeText,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: DesignColors.primary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.send_rounded,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-          ),
-        ],
-      ),
+  /// Show the [+] insert menu
+  void _showInsertMenu(BuildContext context) {
+    final abState = ref.read(actionBarProvider);
+    InsertMenu.show(
+      context,
+      ref: ref,
+      onSnippets: () => _showSnippetPicker(context),
+      onCommandMenu: () => _showCommandMenu(context),
+      onHistory: abState.commandHistory.isNotEmpty
+          ? () => _showCommandMenu(context)
+          : null,
+      onFileTransfer: _handleFileTransfer,
+      onImageTransfer: _handleImageTransfer,
+      onPasteClipboard: () async {
+        final data = await Clipboard.getData(Clipboard.kTextPlain);
+        if (data?.text != null && data!.text!.isNotEmpty) {
+          _composeBarKey.currentState?.insertText(data.text!);
+        }
+      },
+      onDirectInput: () {
+        ref.read(actionBarProvider.notifier).toggleInputMode();
+      },
     );
   }
 
-  void _showInputDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => _InputDialogContent(
-        initialValue: _savedCommandInput,
-        onValueChanged: (value) {
-          // 入力内容をリアルタイムで保存
-          _savedCommandInput = value;
-        },
-        onSend: (value) async {
-          await _sendMultilineText(value);
-          // 送信成功したら入力内容をクリア
-          _savedCommandInput = '';
-          if (sheetContext.mounted) Navigator.pop(sheetContext);
-        },
-      ),
-    ).then((_) {
-      _scrollToBottomKey.currentState?.show();
-    });
+  /// Show the snippet picker sheet
+  void _showSnippetPicker(BuildContext context) {
+    SnippetPickerSheet.show(
+      context,
+      ref: ref,
+      onInsert: (content) {
+        _composeBarKey.currentState?.insertText(content);
+      },
+      onSendImmediately: (content) {
+        _sendMultilineText(content);
+        _boostPolling();
+      },
+    );
+  }
+
+  /// Show the command menu sheet
+  void _showCommandMenu(BuildContext context) {
+    CommandMenuSheet.show(
+      context,
+      ref: ref,
+      onInsert: (command) {
+        _composeBarKey.currentState?.insertText(command);
+      },
+      onSendImmediately: (command) {
+        _sendMultilineText(command);
+        ref.read(actionBarProvider.notifier).addToHistory(command);
+        _boostPolling();
+      },
+    );
+  }
+
+  /// Show the profile selection sheet
+  void _showProfileSheet(BuildContext context) {
+    ProfileSheet.show(
+      context,
+      ref: ref,
+      onEditGroups: null, // TODO: Phase 5 settings screen
+      onManageSnippets: null, // TODO: Phase 5 settings screen
+    );
   }
 
   /// 複数行テキストを送信（行ごとにテキスト+Enterを送信）
@@ -4018,238 +3976,6 @@ class _SplitDownIconPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SplitDownIconPainter oldDelegate) =>
       color != oldDelegate.color;
-}
-
-/// 入力ダイアログのコンテンツ（複数行対応、Shift+Enterで改行）
-class _InputDialogContent extends StatefulWidget {
-  final String initialValue;
-  final void Function(String value) onValueChanged;
-  final Future<void> Function(String value) onSend;
-
-  const _InputDialogContent({
-    this.initialValue = '',
-    required this.onValueChanged,
-    required this.onSend,
-  });
-
-  @override
-  State<_InputDialogContent> createState() => _InputDialogContentState();
-}
-
-class _InputDialogContentState extends State<_InputDialogContent> {
-  late final TextEditingController _controller;
-  late final FocusNode _focusNode;
-  late final ScrollController _scrollController;
-  bool _isSending = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialValue);
-    _focusNode = FocusNode();
-    _scrollController = ScrollController();
-    // キーイベントをハンドルするためにonKeyEventを設定
-    _focusNode.onKeyEvent = _handleKeyEvent;
-    // テキスト変更時に親へ通知
-    _controller.addListener(_onTextChanged);
-    // 自動フォーカス（カーソルを末尾に）
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _focusNode.requestFocus();
-      // カーソルを末尾に移動
-      _controller.selection = TextSelection.collapsed(
-        offset: _controller.text.length,
-      );
-    });
-  }
-
-  void _onTextChanged() {
-    widget.onValueChanged(_controller.text);
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_onTextChanged);
-    _focusNode.onKeyEvent = null;
-    _focusNode.dispose();
-    _controller.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  /// キーイベントをハンドル（Shift+Enterで改行、Enterで送信）
-  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.enter) {
-      final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
-      if (isShiftPressed) {
-        // Shift+Enter: 改行を挿入
-        _insertNewline();
-        return KeyEventResult.handled;
-      } else {
-        // Enterのみ: 送信
-        _handleSend();
-        return KeyEventResult.handled;
-      }
-    }
-    return KeyEventResult.ignored;
-  }
-
-  /// 現在のカーソル位置に改行を挿入
-  void _insertNewline() {
-    final text = _controller.text;
-    final selection = _controller.selection;
-    final newText = text.replaceRange(selection.start, selection.end, '\n');
-    _controller.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: selection.start + 1),
-    );
-  }
-
-  Future<void> _handleSend() async {
-    if (_isSending) return;
-    setState(() => _isSending = true);
-    try {
-      await widget.onSend(_controller.text);
-    } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 16,
-        right: 16,
-        top: 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Text(
-                'Enter Command',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurface,
-                ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  AppLocalizations.of(context)!.shiftEnterNewline,
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxHeight: 200, // 最大高さを制限してスクロール可能に
-            ),
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              scrollController: _scrollController,
-              maxLines: null, // 無制限にして内部スクロール
-              minLines: 1,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline, // ペースト時の複数行対応
-              style: GoogleFonts.jetBrainsMono(color: colorScheme.onSurface),
-              decoration: InputDecoration(
-                hintText: AppLocalizations.of(context)!.commandInputHint,
-                hintStyle: GoogleFonts.jetBrainsMono(
-                  color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-                ),
-                filled: true,
-                fillColor: isDark ? DesignColors.inputDark : DesignColors.inputLight,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: colorScheme.primary),
-                ),
-                contentPadding: const EdgeInsets.all(16),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colorScheme.onSurface,
-                    side: BorderSide(color: colorScheme.onSurface.withValues(alpha: 0.3)),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: Text(
-                    AppLocalizations.of(context)!.buttonCancel,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: _isSending ? null : _handleSend,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: colorScheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: _isSending
-                      ? SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: colorScheme.onPrimary,
-                          ),
-                        )
-                      : Text(
-                          'Execute',
-                          style: GoogleFonts.spaceGrotesk(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
 }
 
 /// ウィンドウ名入力ダイアログ

@@ -3,33 +3,76 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// スニペット（再利用可能なコマンド/テキスト）
+/// A variable placeholder in a snippet
+class SnippetVariable {
+  final String name;
+  final String defaultValue;
+
+  const SnippetVariable({required this.name, this.defaultValue = ''});
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'defaultValue': defaultValue,
+      };
+
+  factory SnippetVariable.fromJson(Map<String, dynamic> json) =>
+      SnippetVariable(
+        name: json['name'] as String,
+        defaultValue: json['defaultValue'] as String? ?? '',
+      );
+}
+
+/// Saved snippet (reusable command/text)
 class Snippet {
   final String id;
   final String name;
+
+  /// Content text, may contain {{varname}} placeholders
   final String content;
 
-  /// スニペットカテゴリ: 'general', 'tmux', 'cli-agent' 等
+  /// Category: 'general', 'tmux', 'cli-agent', etc.
   final String category;
+
+  /// Variable placeholders in content
+  final List<SnippetVariable> variables;
+
+  /// If true, send directly to terminal on tap; otherwise insert into compose
+  final bool sendImmediately;
 
   const Snippet({
     required this.id,
     required this.name,
     required this.content,
     this.category = 'general',
+    this.variables = const [],
+    this.sendImmediately = false,
   });
 
   Snippet copyWith({
     String? name,
     String? content,
     String? category,
+    List<SnippetVariable>? variables,
+    bool? sendImmediately,
   }) {
     return Snippet(
       id: id,
       name: name ?? this.name,
       content: content ?? this.content,
       category: category ?? this.category,
+      variables: variables ?? this.variables,
+      sendImmediately: sendImmediately ?? this.sendImmediately,
     );
+  }
+
+  /// Resolve content by substituting variable values
+  String resolve(Map<String, String> values) {
+    var result = content;
+    for (final v in variables) {
+      final replacement = values[v.name] ?? v.defaultValue;
+      result = result.replaceAll('{{${v.name}}}', replacement);
+    }
+    return result;
   }
 
   Map<String, dynamic> toJson() => {
@@ -37,6 +80,9 @@ class Snippet {
         'name': name,
         'content': content,
         'category': category,
+        if (variables.isNotEmpty)
+          'variables': variables.map((v) => v.toJson()).toList(),
+        if (sendImmediately) 'sendImmediately': sendImmediately,
       };
 
   factory Snippet.fromJson(Map<String, dynamic> json) => Snippet(
@@ -44,6 +90,12 @@ class Snippet {
         name: json['name'] as String,
         content: json['content'] as String,
         category: json['category'] as String? ?? 'general',
+        variables: (json['variables'] as List?)
+                ?.map((v) =>
+                    SnippetVariable.fromJson(v as Map<String, dynamic>))
+                .toList() ??
+            [],
+        sendImmediately: json['sendImmediately'] as bool? ?? false,
       );
 }
 
@@ -100,20 +152,39 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
     required String name,
     required String content,
     String category = 'general',
+    List<SnippetVariable> variables = const [],
+    bool sendImmediately = false,
   }) async {
     final snippet = Snippet(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
       content: content,
       category: category,
+      variables: variables,
+      sendImmediately: sendImmediately,
     );
     state = state.copyWith(snippets: [...state.snippets, snippet]);
     await _save();
   }
 
-  Future<void> updateSnippet(String id, {String? name, String? content, String? category}) async {
+  Future<void> updateSnippet(
+    String id, {
+    String? name,
+    String? content,
+    String? category,
+    List<SnippetVariable>? variables,
+    bool? sendImmediately,
+  }) async {
     final updated = state.snippets.map((s) {
-      if (s.id == id) return s.copyWith(name: name, content: content, category: category);
+      if (s.id == id) {
+        return s.copyWith(
+          name: name,
+          content: content,
+          category: category,
+          variables: variables,
+          sendImmediately: sendImmediately,
+        );
+      }
       return s;
     }).toList();
     state = state.copyWith(snippets: updated);
@@ -124,6 +195,14 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
     state = state.copyWith(
       snippets: state.snippets.where((s) => s.id != id).toList(),
     );
+    await _save();
+  }
+
+  Future<void> reorderSnippets(int oldIndex, int newIndex) async {
+    final items = [...state.snippets];
+    final item = items.removeAt(oldIndex);
+    items.insert(newIndex, item);
+    state = state.copyWith(snippets: items);
     await _save();
   }
 

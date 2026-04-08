@@ -5,7 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/settings_provider.dart';
+import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
+import 'action_bar_settings_screen.dart';
 import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
@@ -190,6 +192,32 @@ class SettingsScreen extends ConsumerWidget {
                     },
                   ),
                 ],
+                const Divider(),
+                const _SectionHeader(title: 'Toolbar'),
+                Consumer(
+                  builder: (context, ref, _) {
+                    final abState = ref.watch(actionBarProvider);
+                    return ListTile(
+                      leading: const Icon(Icons.view_column),
+                      title: const Text('Active Profile'),
+                      subtitle: Text(abState.activeProfile.name),
+                      onTap: () => _showProfilePicker(context, ref),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Customize Groups'),
+                  subtitle: const Text('Reorder and edit button groups'),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ActionBarSettingsScreen(),
+                      ),
+                    );
+                  },
+                ),
                 const Divider(),
                 const _SectionHeader(title: 'Behavior'),
                 SwitchListTile(
@@ -654,6 +682,31 @@ class SettingsScreen extends ConsumerWidget {
               groupValue: current,
               onChanged: (v) {
                 if (v != null) ref.read(settingsProvider.notifier).setLocale(v);
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showProfilePicker(BuildContext context, WidgetRef ref) {
+    final state = ref.read(actionBarProvider);
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Select Profile'),
+        children: [
+          for (final profile in state.profiles)
+            RadioListTile<String>(
+              title: Text(profile.name),
+              subtitle: profile.isBuiltIn ? const Text('Built-in') : null,
+              value: profile.id,
+              groupValue: state.activeProfileId,
+              onChanged: (v) {
+                if (v != null) {
+                  ref.read(actionBarProvider.notifier).setActiveProfile(v);
+                }
                 Navigator.pop(ctx);
               },
             ),

@@ -781,10 +781,18 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           fontFamily: settings.fontFamily,
         );
 
+        // When zoomed > 1x, Transform.scale is paint-only and doesn't
+        // adjust scroll extent. Add bottom padding so the user can scroll
+        // far enough to see the actual bottom of content.
+        // Formula: P = viewportHeight * (scale - 1) / scale
+        final zoomBottomPadding = _currentScale > 1.0
+            ? constraints.maxHeight * (_currentScale - 1) / _currentScale
+            : 0.0;
+
         // 仮想スクロール対応のListView.builder
         Widget listWidget = ListView.builder(
           controller: _verticalScrollController,
-          padding: EdgeInsets.zero, // パディングを明示的にゼロにする
+          padding: EdgeInsets.only(bottom: zoomBottomPadding),
           physics: const ClampingScrollPhysics(),
           itemCount: parsedLines.length,
           // 固定の行高さを使用してスクロール計算を高速化
@@ -1362,11 +1370,17 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           cursorLineIndex = widget.cursorY;
         }
 
-        // Place cursor near the bottom of viewport with margin
+        // When zoomed, the visible area in content coordinates is smaller.
+        // viewportDimension is unscaled; divide by scale for actual visible.
         final viewportHeight = position.viewportDimension;
+        final effectiveViewport = _currentScale > 1.0
+            ? viewportHeight / _currentScale
+            : viewportHeight;
+
+        // Place cursor near the bottom of the VISIBLE viewport with margin
         final targetOffset =
             (cursorLineIndex + 1 + _cursorBottomMargin) * _lineHeight -
-                viewportHeight;
+                effectiveViewport;
         final clampedOffset = targetOffset.clamp(0.0, maxExtent);
 
         _verticalScrollController.jumpTo(clampedOffset);
@@ -1408,11 +1422,14 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
       // カーソル行のスクロールオフセット
       final targetOffset = cursorLineIndex * _lineHeight;
 
-      // ビューポート高さを考慮し、カーソル行が中央付近に来るよう調整
+      // Account for zoom: visible area is smaller when zoomed
       final viewportHeight =
           _verticalScrollController.position.viewportDimension;
+      final effectiveViewport = _currentScale > 1.0
+          ? viewportHeight / _currentScale
+          : viewportHeight;
       final centeredOffset =
-          targetOffset - (viewportHeight / 2) + (_lineHeight / 2);
+          targetOffset - (effectiveViewport / 2) + (_lineHeight / 2);
 
       // 有効範囲にクランプ
       final maxExtent = _verticalScrollController.position.maxScrollExtent;

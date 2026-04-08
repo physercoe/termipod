@@ -1422,14 +1422,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         final totalLines = ansiState.effectiveLineCount;
         if (totalLines <= 0) return const SizedBox.shrink();
 
-        // Account for zoom: fewer lines visible when zoomed in
-        final zoomScale = ansiState.currentScale;
-        final effectiveViewport = zoomScale > 1.0
-            ? viewportHeight / zoomScale
-            : viewportHeight;
-
         final currentTopLine = (currentOffset / lineHeight).round() + 1;
-        final visibleLines = (effectiveViewport / lineHeight).round();
+        final visibleLines = (viewportHeight / lineHeight).round();
         final currentBottomLine = (currentTopLine + visibleLines - 1).clamp(1, totalLines);
 
         // Hide when at or past the effective end

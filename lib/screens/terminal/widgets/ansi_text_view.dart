@@ -742,38 +742,33 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           });
         }
 
-        // フォントサイズを決定
-        late final double fontSize;
-        late final bool needsHorizontalScroll;
+        // フォントサイズを決定 — zoom is applied to font size directly
+        // (not via Transform.scale) so scroll extent stays correct.
+        late final double baseFontSize;
 
         if (settings.isAutoFit) {
-          // 自動フィット: 画面幅に合わせて計算
           final calcResult = FontCalculator.calculate(
             screenWidth: constraints.maxWidth,
             paneCharWidth: widget.paneWidth,
             fontFamily: settings.fontFamily,
             minFontSize: settings.minFontSize,
           );
-          fontSize = calcResult.fontSize;
-          needsHorizontalScroll = calcResult.needsScroll;
+          baseFontSize = calcResult.fontSize;
         } else {
-          // 手動設定: settings.fontSizeを使用
-          fontSize = settings.fontSize;
-          // 水平スクロールの必要性を判定
-          final terminalWidth = FontCalculator.calculateTerminalWidth(
-            paneCharWidth: widget.paneWidth,
-            fontSize: fontSize,
-            fontFamily: settings.fontFamily,
-          );
-          needsHorizontalScroll = terminalWidth > constraints.maxWidth;
+          baseFontSize = settings.fontSize;
         }
 
-        // ターミナル幅を計算
+        // Apply pinch-zoom scale to font size
+        final fontSize = (baseFontSize * _currentScale)
+            .clamp(settings.minFontSize, 48.0);
+
+        // Recalculate terminal width and scroll need with zoomed font
         final terminalWidth = FontCalculator.calculateTerminalWidth(
           paneCharWidth: widget.paneWidth,
           fontSize: fontSize,
           fontFamily: settings.fontFamily,
         );
+        final needsHorizontalScroll = terminalWidth > constraints.maxWidth;
 
         // 行データを取得（キャッシュ使用・仮想スクロール用）
         final parsedLines = _getParsedLines(
@@ -781,18 +776,10 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           fontFamily: settings.fontFamily,
         );
 
-        // When zoomed > 1x, Transform.scale is paint-only and doesn't
-        // adjust scroll extent. Add bottom padding so the user can scroll
-        // far enough to see the actual bottom of content.
-        // Formula: P = viewportHeight * (scale - 1) / scale
-        final zoomBottomPadding = _currentScale > 1.0
-            ? constraints.maxHeight * (_currentScale - 1) / _currentScale
-            : 0.0;
-
         // 仮想スクロール対応のListView.builder
         Widget listWidget = ListView.builder(
           controller: _verticalScrollController,
-          padding: EdgeInsets.only(bottom: zoomBottomPadding),
+          padding: EdgeInsets.zero,
           physics: const ClampingScrollPhysics(),
           itemCount: parsedLines.length,
           // 固定の行高さを使用してスクロール計算を高速化
@@ -966,11 +953,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
                     },
                   ),
             },
-            child: Transform.scale(
-              scale: _currentScale,
-              alignment: Alignment.topLeft,
-              child: listWidget,
-            ),
+            child: listWidget,
           );
           // Listenerで個別ポインタを追跡（gesture arenaに参加しない）
           // 指の移動方向ベクトルの内積でズーム/パンを判定するために使用
@@ -1370,17 +1353,11 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           cursorLineIndex = widget.cursorY;
         }
 
-        // When zoomed, the visible area in content coordinates is smaller.
-        // viewportDimension is unscaled; divide by scale for actual visible.
+        // Place cursor near the bottom of viewport with margin
         final viewportHeight = position.viewportDimension;
-        final effectiveViewport = _currentScale > 1.0
-            ? viewportHeight / _currentScale
-            : viewportHeight;
-
-        // Place cursor near the bottom of the VISIBLE viewport with margin
         final targetOffset =
             (cursorLineIndex + 1 + _cursorBottomMargin) * _lineHeight -
-                effectiveViewport;
+                viewportHeight;
         final clampedOffset = targetOffset.clamp(0.0, maxExtent);
 
         _verticalScrollController.jumpTo(clampedOffset);
@@ -1422,14 +1399,10 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
       // カーソル行のスクロールオフセット
       final targetOffset = cursorLineIndex * _lineHeight;
 
-      // Account for zoom: visible area is smaller when zoomed
       final viewportHeight =
           _verticalScrollController.position.viewportDimension;
-      final effectiveViewport = _currentScale > 1.0
-          ? viewportHeight / _currentScale
-          : viewportHeight;
       final centeredOffset =
-          targetOffset - (effectiveViewport / 2) + (_lineHeight / 2);
+          targetOffset - (viewportHeight / 2) + (_lineHeight / 2);
 
       // 有効範囲にクランプ
       final maxExtent = _verticalScrollController.position.maxScrollExtent;

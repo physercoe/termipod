@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_muxpod/widgets/dialogs/font_size_dialog.dart';
 
+import '../helpers/test_helpers.dart';
+
 void main() {
   group('FontSizeDialog', () {
     testWidgets('displays all font size options', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: FontSizeDialog(currentSize: 14.0),
           ),
@@ -25,6 +29,8 @@ void main() {
     testWidgets('current size is selected', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: FontSizeDialog(currentSize: 16.0),
           ),
@@ -44,6 +50,8 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: Builder(
               builder: (context) => ElevatedButton(
@@ -74,6 +82,8 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: Builder(
               builder: (context) => ElevatedButton(

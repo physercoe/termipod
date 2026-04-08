@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_muxpod/widgets/dialogs/theme_dialog.dart';
 
+import '../helpers/test_helpers.dart';
+
 void main() {
   group('ThemeDialog', () {
     testWidgets('displays all theme options', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: ThemeDialog(isDarkMode: true),
           ),
@@ -21,6 +25,8 @@ void main() {
     testWidgets('dark mode is selected when isDarkMode is true', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: ThemeDialog(isDarkMode: true),
           ),
@@ -37,6 +43,8 @@ void main() {
     testWidgets('light mode is selected when isDarkMode is false', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: ThemeDialog(isDarkMode: false),
           ),
@@ -55,6 +63,8 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: Builder(
               builder: (context) => ElevatedButton(
@@ -85,6 +95,8 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          localizationsDelegates: testLocalizationsDelegates,
+          supportedLocales: testSupportedLocales,
           home: Scaffold(
             body: Builder(
               builder: (context) => ElevatedButton(

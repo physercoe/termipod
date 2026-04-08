@@ -1,20 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
 import 'package:flutter_muxpod/screens/settings/settings_screen.dart';
+
+import '../helpers/test_helpers.dart';
 
 Widget _buildApp() {
   return const ProviderScope(
     child: MaterialApp(
-      localizationsDelegates: [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: testLocalizationsDelegates,
+      supportedLocales: testSupportedLocales,
       home: SettingsScreen(),
     ),
   );
@@ -50,23 +45,24 @@ void main() {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
-      final finder = find.text('Keep Screen On');
-      await tester.ensureVisible(finder);
-      expect(finder, findsOneWidget);
+      final scrollable = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Keep Screen On'), 200, scrollable: scrollable);
+      expect(find.text('Keep Screen On'), findsOneWidget);
     });
 
     testWidgets('behavior toggles are interactive', (tester) async {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Haptic Feedback'));
+      final scrollable = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Haptic Feedback'), 200, scrollable: scrollable);
       final hapticSwitch = find.ancestor(
         of: find.text('Haptic Feedback'),
         matching: find.byType(SwitchListTile),
       );
       expect(hapticSwitch, findsOneWidget);
 
-      await tester.ensureVisible(find.text('Keep Screen On'));
+      await tester.scrollUntilVisible(find.text('Keep Screen On'), 200, scrollable: scrollable);
       final keepScreenSwitch = find.ancestor(
         of: find.text('Keep Screen On'),
         matching: find.byType(SwitchListTile),
@@ -78,7 +74,8 @@ void main() {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.text('Source Code'));
+      final scrollable = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Source Code'), 200, scrollable: scrollable);
       expect(find.text('Source Code'), findsOneWidget);
       expect(find.text('github.com/physercoe/mux-pod'), findsOneWidget);
     });
@@ -87,24 +84,26 @@ void main() {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
+      final scrollable = find.byType(Scrollable).first;
+
       // Image Transfer section header
-      await tester.ensureVisible(find.text('Image Transfer'));
+      await tester.scrollUntilVisible(find.text('Image Transfer'), 200, scrollable: scrollable);
       expect(find.text('Image Transfer'), findsOneWidget);
 
       // Individual settings
-      await tester.ensureVisible(find.text('Remote Path'));
+      await tester.scrollUntilVisible(find.text('Remote Path'), 200, scrollable: scrollable);
       expect(find.text('Remote Path'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Output Format'));
+      await tester.scrollUntilVisible(find.text('Output Format'), 200, scrollable: scrollable);
       expect(find.text('Output Format'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Path Format'));
+      await tester.scrollUntilVisible(find.text('Path Format'), 200, scrollable: scrollable);
       expect(find.text('Path Format'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Auto Enter'));
+      await tester.scrollUntilVisible(find.text('Auto Enter'), 200, scrollable: scrollable);
       expect(find.text('Auto Enter'), findsOneWidget);
 
-      await tester.ensureVisible(find.text('Bracketed Paste'));
+      await tester.scrollUntilVisible(find.text('Bracketed Paste'), 200, scrollable: scrollable);
       expect(find.text('Bracketed Paste'), findsOneWidget);
     });
   });

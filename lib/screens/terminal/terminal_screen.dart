@@ -550,8 +550,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           paneHeight: activePane.height,
         );
 
-        // ペインにフォーカスインを送信（Claude Code等のアプリがフォーカスを検知できるようにする）
-        await sshNotifier.client?.exec(TmuxCommands.sendKeys(activePane.id, '\x1b[I', literal: true));
       }
 
       // 8. 100msポーリング開始

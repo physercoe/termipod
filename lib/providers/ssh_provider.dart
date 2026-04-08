@@ -96,6 +96,10 @@ class SshNotifier extends Notifier<SshState> {
   // 再接続タイマー
   Timer? _reconnectTimer;
 
+  // Generation counter: incremented on every new connectWithoutShell call.
+  // Prevents stale _doReconnect from interfering after a different terminal takes over.
+  int _generation = 0;
+
   // 切断検知コールバック（外部から設定可能）
   void Function()? onDisconnectDetected;
 
@@ -232,6 +236,9 @@ class SshNotifier extends Notifier<SshState> {
   ///
   /// exec()のみ使用するため、シェルは起動しない。
   Future<void> connectWithoutShell(Connection connection, SshConnectOptions options) async {
+    // Increment generation to invalidate any in-flight _doReconnect from a previous terminal
+    _generation++;
+
     // 再接続用にキャッシュ
     _lastConnection = connection;
     _lastOptions = options;
@@ -398,6 +405,9 @@ class SshNotifier extends Notifier<SshState> {
       return false;
     }
 
+    // Capture generation before async work to detect if another terminal takes over
+    final gen = _generation;
+
     try {
       // 既存の接続状態監視をキャンセル
       await _connectionStateSubscription?.cancel();
@@ -419,6 +429,14 @@ class SshNotifier extends Notifier<SshState> {
         options: _lastOptions!,
       );
 
+      // Another terminal may have called connectWithoutShell during our await.
+      // If generation changed, discard our result — the new terminal owns the connection.
+      if (gen != _generation) {
+        _client?.dispose();
+        _client = null;
+        return false;
+      }
+
       state = state.copyWith(
         connectionState: SshConnectionState.connected,
         isReconnecting: false,
@@ -433,6 +451,11 @@ class SshNotifier extends Notifier<SshState> {
 
       return true;
     } catch (e) {
+      // If generation changed, another terminal took over — do NOT retry.
+      if (gen != _generation) {
+        return false;
+      }
+
       // 再接続失敗、次の試行をスケジュール
       state = state.copyWith(
         connectionState: SshConnectionState.error,

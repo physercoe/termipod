@@ -3394,12 +3394,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       onFileTransfer: _handleFileTransfer,
       onFileDownload: _handleFileDownload,
       onImageTransfer: _handleImageTransfer,
-      onPasteClipboard: () async {
-        final data = await Clipboard.getData(Clipboard.kTextPlain);
-        if (data?.text != null && data!.text!.isNotEmpty) {
-          _composeBarKey.currentState?.insertText(data.text!);
-        }
-      },
       onDirectInput: () {
         ref.read(actionBarProvider.notifier).toggleInputMode();
       },

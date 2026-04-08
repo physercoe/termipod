@@ -21,7 +21,6 @@ class InsertMenu {
     VoidCallback? onFileTransfer,
     VoidCallback? onFileDownload,
     VoidCallback? onImageTransfer,
-    VoidCallback? onPasteClipboard,
     VoidCallback? onDirectInput,
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -119,17 +118,6 @@ class InsertMenu {
                     onTap: () {
                       Navigator.pop(context);
                       onImageTransfer();
-                    },
-                  ),
-                if (onPasteClipboard != null)
-                  _buildItem(
-                    context,
-                    icon: Icons.content_paste,
-                    label: 'Paste from Clipboard',
-                    isDark: isDark,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      onPasteClipboard();
                     },
                   ),
                 if (onDirectInput != null) ...[

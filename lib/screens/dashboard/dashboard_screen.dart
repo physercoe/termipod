@@ -31,7 +31,7 @@ class DashboardScreen extends ConsumerWidget {
                 ? DesignColors.backgroundDark.withValues(alpha: 0.95)
                 : DesignColors.backgroundLight.withValues(alpha: 0.95),
             title: Text(
-              'MuxPod',
+              'TermiPod',
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,

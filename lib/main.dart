@@ -142,7 +142,7 @@ class _MyAppState extends ConsumerState<MyApp> {
 
     return MaterialApp(
       navigatorKey: _navigatorKey,
-      title: 'MuxPod',
+      title: 'TermiPod',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.light,

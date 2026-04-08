@@ -1,18 +1,24 @@
-<svg viewBox="0 0 512 512" class="w-full h-full drop-shadow-xl">
-<!-- Background Container -->
-<rect width="512" height="512" rx="110" fill="#1E1E1E" />
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Container -->
+  <rect width="512" height="512" rx="110" fill="#1A1B2E"/>
 
-<!-- Back Card (Surface Variant / Secondary Container) -->
-<!-- Increased corner radius for MD3 feel -->
-<rect x="260" y="80" width="172" height="352" rx="40" fill="#2D3133" />
+  <!-- Pod / Capsule Shape -->
+  <rect x="96" y="96" width="320" height="320" rx="80" fill="#232640"/>
 
-<!-- Floating Main Pane (Primary Container) -->
-<!-- Shadow simulation -->
-<rect x="80" y="95" width="180" height="352" rx="40" fill="#000000" fill-opacity="0.3" />
-<!-- Main Shape -->
-<rect x="80" y="80" width="180" height="352" rx="40" fill="#00c0d1" />
+  <!-- Inner glow ring -->
+  <rect x="116" y="116" width="280" height="280" rx="64" fill="none" stroke="#00c0d1" stroke-width="3" stroke-opacity="0.3"/>
 
-<!-- MD3 Indicator (Pill Shape) -->
-<!-- High contrast White on Cyan -->
-<rect x="120" y="380" width="100" height="20" rx="10" fill="#FFFFFF" />
+  <!-- Terminal prompt: >_ -->
+  <!-- Greater-than sign -->
+  <text x="148" y="320" font-family="monospace, 'Courier New'" font-size="200" font-weight="bold" fill="#00c0d1">
+    &gt;_
+  </text>
+
+  <!-- Blinking cursor accent dot -->
+  <circle cx="390" cy="290" r="10" fill="#00c0d1" opacity="0.8">
+    <animate attributeName="opacity" values="0.8;0.2;0.8" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Subtle pod highlight arc (top) -->
+  <path d="M176 110 Q256 85 336 110" fill="none" stroke="#00c0d1" stroke-width="2" stroke-opacity="0.2"/>
 </svg>

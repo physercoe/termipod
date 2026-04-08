@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:label="MuxPod"
+        android:label="TermiPod"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

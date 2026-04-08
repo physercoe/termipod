@@ -11,7 +11,7 @@ class LicensesScreen extends StatelessWidget {
     return Theme(
       data: Theme.of(context),
       child: LicensePage(
-        applicationName: 'MuxPod',
+        applicationName: 'TermiPod',
         applicationVersion: VersionInfo.version,
         applicationLegalese: '© 2025 mox',
       ),

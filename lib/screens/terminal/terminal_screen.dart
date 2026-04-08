@@ -3344,10 +3344,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       if (localPath != null && mounted) {
         // Share the downloaded file via Android share intent
-        final result = await SharePlus.instance.share(
-          ShareParams(files: [XFile(localPath)]),
-        );
-        if (result.status == ShareResultStatus.success) {
+        await Share.shareXFiles([XFile(localPath)]);
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(AppLocalizations.of(context)!.fileDownloaded),

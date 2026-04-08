@@ -93,7 +93,7 @@ class SshForegroundTaskService {
     _currentConnectionName = connectionName;
 
     final result = await FlutterForegroundTask.startService(
-      notificationTitle: 'SSH接続中: $connectionName',
+      notificationTitle: 'SSH connected: $connectionName',
       notificationText: 'Host: $host',
       callback: _startCallback,
     );

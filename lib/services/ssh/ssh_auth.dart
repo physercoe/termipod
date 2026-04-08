@@ -115,7 +115,7 @@ class SshAuthService {
     // 生体認証が必要な場合
     if (requireBiometricAuth) {
       final bioResult = await authenticateWithBiometrics(
-        reason: '認証情報にアクセスするために生体認証が必要です',
+        reason: 'Biometric authentication is required to access credentials',
       );
       if (bioResult != BiometricAuthResult.success) {
         return null;
@@ -234,7 +234,7 @@ class SshAuthService {
   ///
   /// [reason] 認証理由（ユーザーに表示）
   Future<BiometricAuthResult> authenticateWithBiometrics({
-    String reason = '認証してください',
+    String reason = 'Please authenticate',
   }) async {
     try {
       // 生体認証が利用可能か確認
@@ -259,7 +259,7 @@ class SshAuthService {
   ///
   /// 生体認証が利用できない場合、デバイスの認証（PIN/パターン等）にフォールバック
   Future<BiometricAuthResult> authenticate({
-    String reason = '認証してください',
+    String reason = 'Please authenticate',
   }) async {
     try {
       final isSupported = await isDeviceSupported();

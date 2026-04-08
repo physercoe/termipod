@@ -2073,7 +2073,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       debugPrint('[AutoResize] Failed: $e');
     } finally {
       _isResizing = false;
-      if (mounted && !_isDisposed) _startPolling();
+      if (mounted && !_isDisposed) {
+        _startPolling();
+        // リサイズ完了後にスクロールを最下部へ
+        _ansiTextViewKey.currentState?.scrollToBottom();
+      }
     }
   }
 
@@ -3966,7 +3970,7 @@ class _InputDialogContentState extends State<_InputDialogContent> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  'Shift+Enter: 改行',
+                  'Shift+Enter: newline',
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,
                     color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,

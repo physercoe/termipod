@@ -69,7 +69,7 @@ void main() {
 
       await tester.ensureVisible(find.text('Source Code'));
       expect(find.text('Source Code'), findsOneWidget);
-      expect(find.text('github.com/moezakura/mux-pod'), findsOneWidget);
+      expect(find.text('github.com/physercoe/mux-pod'), findsOneWidget);
     });
 
     testWidgets('displays Image Transfer settings', (tester) async {

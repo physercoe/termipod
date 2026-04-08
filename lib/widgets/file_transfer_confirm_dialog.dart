@@ -108,7 +108,7 @@ class _FileTransferConfirmDialogState extends State<FileTransferConfirmDialog> {
                   shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   itemCount: widget.files.length,
-                  separatorBuilder: (_, __) =>
+                  separatorBuilder: (_, _) =>
                       const Divider(height: 1, indent: 12, endIndent: 12),
                   itemBuilder: (context, index) {
                     final file = widget.files[index];

@@ -190,6 +190,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // リサイズ中フラグ（排他制御）
   bool _isResizing = false;
 
+  // Scroll to bottom after next content update (post-resize)
+  bool _pendingScrollToBottom = false;
+
   // 自動リサイズのdebounceタイマー（画面サイズ変更時）
   Timer? _autoResizeDebounceTimer;
 
@@ -240,10 +243,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   void didChangeMetrics() {
     super.didChangeMetrics();
 
-    // キーボード表示/非表示やリサイズ時にターミナルを最下部にスクロール
-    _ansiTextViewKey.currentState?.scrollToBottom();
-
     final settings = ref.read(settingsProvider);
+
+    // For auto-resize, defer scroll until new content arrives.
+    // For non-resize (keyboard show/hide), scroll immediately.
+    if (!settings.isAutoResize) {
+      _ansiTextViewKey.currentState?.scrollToBottom();
+    } else {
+      _pendingScrollToBottom = true;
+    }
+
     if (!settings.isAutoResize) return;
 
     // debounce: 画面回転・折りたたみの連続サイズ変更を抑制
@@ -844,6 +853,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!_hasInitialScrolled && _pendingContent.isNotEmpty) {
       _hasInitialScrolled = true;
       _scrollToCaret();
+    }
+
+    // Scroll to bottom after resize content arrives
+    if (_pendingScrollToBottom && _pendingContent.isNotEmpty) {
+      _pendingScrollToBottom = false;
+      _ansiTextViewKey.currentState?.scrollToBottom();
     }
   }
 
@@ -2075,8 +2090,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _isResizing = false;
       if (mounted && !_isDisposed) {
         _startPolling();
-        // リサイズ完了後にスクロールを最下部へ
-        _ansiTextViewKey.currentState?.scrollToBottom();
+        // Defer scroll-to-bottom until first poll delivers new content
+        _pendingScrollToBottom = true;
       }
     }
   }

@@ -23,17 +23,28 @@ class SnippetsScreen extends ConsumerWidget {
     }
 
     if (snippets.isEmpty) {
-      return _buildEmptyView(context);
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(
+            'No snippets yet',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 14,
+              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+            ),
+          ),
+        ),
+      );
     }
 
-    // カテゴリでグループ化
+    // Group by category
     final categories = <String, List<Snippet>>{};
     for (final s in snippets) {
       categories.putIfAbsent(s.category, () => []).add(s);
     }
 
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         for (final entry in categories.entries) ...[
           Padding(
@@ -65,48 +76,6 @@ class SnippetsScreen extends ConsumerWidget {
     };
   }
 
-  Widget _buildEmptyView(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
-              ),
-            ),
-            child: Icon(
-              Icons.content_paste,
-              size: 64,
-              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'No Snippets',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Add reusable commands and text snippets',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 14,
-              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 /// スニペットタイル

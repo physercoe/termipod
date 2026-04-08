@@ -351,7 +351,7 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
             Icons.settings,
             color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
           ),
-          onPressed: () => ref.read(currentTabProvider.notifier).setTab(3),
+          onPressed: () => ref.read(currentTabProvider.notifier).setTab(4),
           tooltip: AppLocalizations.of(context)!.settingsTooltip,
         ),
         const SizedBox(width: 8),

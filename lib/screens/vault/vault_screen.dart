@@ -11,40 +11,22 @@ import '../keys/key_import_screen.dart';
 import '../keys/keys_screen.dart';
 import 'snippets_screen.dart';
 
-/// Vault画面（Keys + Snippets のタブ切り替え）
+/// Vaults screen — vertical list of Keys and Snippets sections.
 ///
-/// Termiusのように、鍵とスニペットを「Vault」カテゴリにまとめる。
-class VaultScreen extends ConsumerStatefulWidget {
+/// Uses a single scrollable column instead of horizontal tabs,
+/// since the vault may contain more item types in the future and
+/// horizontal space is limited on mobile.
+class VaultScreen extends ConsumerWidget {
   const VaultScreen({super.key});
 
   @override
-  ConsumerState<VaultScreen> createState() => _VaultScreenState();
-}
-
-class _VaultScreenState extends ConsumerState<VaultScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: NestedScrollView(
-        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+      body: CustomScrollView(
+        slivers: [
           SliverAppBar(
             floating: true,
             pinned: true,
@@ -52,9 +34,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
             backgroundColor: colorScheme.surface.withValues(alpha: 0.95),
             surfaceTintColor: Colors.transparent,
             flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.only(left: 24, bottom: 50),
+              titlePadding: const EdgeInsets.only(left: 24, bottom: 16),
               title: Text(
-                'Vault',
+                AppLocalizations.of(context)!.tabVault,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 24,
                   fontWeight: FontWeight.w700,
@@ -63,91 +45,62 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
                 ),
               ),
             ),
-            bottom: TabBar(
-              controller: _tabController,
-              indicatorColor: DesignColors.primary,
-              labelColor: DesignColors.primary,
-              unselectedLabelColor:
-                  isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-              labelStyle: GoogleFonts.spaceGrotesk(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-              tabs: [
-                Tab(icon: const Icon(Icons.key, size: 18), text: AppLocalizations.of(context)!.tabKeys),
-                Tab(icon: const Icon(Icons.content_paste, size: 18), text: AppLocalizations.of(context)!.tabSnippets),
-              ],
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // Keys section
+                _SectionCard(
+                  icon: Icons.key,
+                  title: AppLocalizations.of(context)!.tabKeys,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _SmallActionButton(
+                        icon: Icons.auto_fix_high,
+                        label: AppLocalizations.of(context)!.buttonGenerate,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const KeyGenerateScreen()),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _SmallActionButton(
+                        icon: Icons.file_upload,
+                        label: AppLocalizations.of(context)!.buttonImport,
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const KeyImportScreen()),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const KeysScreenBody(),
+
+                const SizedBox(height: 24),
+
+                // Snippets section
+                _SectionCard(
+                  icon: Icons.content_paste,
+                  title: AppLocalizations.of(context)!.tabSnippets,
+                  trailing: _SmallActionButton(
+                    icon: Icons.add,
+                    label: AppLocalizations.of(context)!.buttonCreate,
+                    onTap: () => _showAddSnippetDialog(context, ref),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const SnippetsScreen(),
+              ]),
             ),
           ),
         ],
-        body: TabBarView(
-          controller: _tabController,
-          children: const [
-            KeysScreenBody(),
-            SnippetsScreen(),
-          ],
-        ),
-      ),
-      floatingActionButton: ListenableBuilder(
-        listenable: _tabController,
-        builder: (context, _) {
-          return FloatingActionButton(
-            heroTag: 'fab_vault',
-            onPressed: () => _onFabPressed(context),
-            elevation: 0,
-            backgroundColor: colorScheme.primary,
-            foregroundColor: colorScheme.onPrimary,
-            child: const Icon(Icons.add),
-          );
-        },
       ),
     );
   }
 
-  void _onFabPressed(BuildContext context) {
-    if (_tabController.index == 0) {
-      _showAddKeyOptions(context);
-    } else {
-      _showAddSnippetDialog(context);
-    }
-  }
-
-  void _showAddKeyOptions(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.auto_fix_high),
-              title: Text(AppLocalizations.of(context)!.generateNewKey),
-              subtitle: Text(AppLocalizations.of(context)!.generateNewKeyDesc),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const KeyGenerateScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.file_upload),
-              title: Text(AppLocalizations.of(context)!.importKey),
-              subtitle: Text(AppLocalizations.of(context)!.importKeyDesc),
-              onTap: () {
-                Navigator.pop(ctx);
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const KeyImportScreen()),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddSnippetDialog(BuildContext context) {
+  void _showAddSnippetDialog(BuildContext context, WidgetRef ref) {
     showDialog(
       context: context,
       builder: (ctx) => SnippetEditDialog(
@@ -158,6 +111,91 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
                 category: category,
               );
         },
+      ),
+    );
+  }
+}
+
+/// Section header card with icon, title, and trailing action buttons.
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget? trailing;
+
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 20,
+          color: DesignColors.primary,
+        ),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null) trailing!,
+      ],
+    );
+  }
+}
+
+/// Small action button used in section headers.
+class _SmallActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _SmallActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: DesignColors.primary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: DesignColors.primary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

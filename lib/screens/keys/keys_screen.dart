@@ -68,7 +68,7 @@ class KeysScreen extends ConsumerWidget {
             Icons.settings,
             color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
           ),
-          onPressed: () => ref.read(currentTabProvider.notifier).setTab(3),
+          onPressed: () => ref.read(currentTabProvider.notifier).setTab(4),
           tooltip: AppLocalizations.of(context)!.settingsTooltip,
         ),
         const SizedBox(width: 8),
@@ -246,19 +246,73 @@ class _KeysBody {
   }
 }
 
-/// Vault内のKeysタブ用ボディ（AppBar/Scaffold無しの鍵一覧）
+/// Vault inner Keys body — non-scrolling widget list for embedding.
 class KeysScreenBody extends ConsumerWidget {
   const KeysScreenBody({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final keysState = ref.watch(keysProvider);
-    return CustomScrollView(
-      slivers: [
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-          sliver: _KeysBody.buildContent(context, ref, keysState),
+
+    if (keysState.isLoading) {
+      return const Padding(
+        padding: EdgeInsets.all(32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (keysState.error != null) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
+            const SizedBox(height: 16),
+            Text(AppLocalizations.of(context)!.keysLoadError(keysState.error!)),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => ref.read(keysProvider.notifier).reload(),
+              child: Text(AppLocalizations.of(context)!.buttonRetry),
+            ),
+          ],
         ),
+      );
+    }
+
+    if (keysState.keys.isEmpty) {
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(
+            'No SSH keys yet',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 14,
+              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final keyMeta in keysState.keys)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: KeyTile(
+              keyMeta: keyMeta,
+              onCopyPublicKey: () {
+                if (keyMeta.publicKey != null) {
+                  Clipboard.setData(ClipboardData(text: keyMeta.publicKey!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(AppLocalizations.of(context)!.publicKeyCopied)),
+                  );
+                }
+              },
+              onDelete: () => _KeysBody._showDeleteDialog(context, ref, keyMeta),
+            ),
+          ),
       ],
     );
   }

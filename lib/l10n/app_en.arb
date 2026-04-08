@@ -4,7 +4,7 @@
   "appName": "TermiPod",
 
   "tabServers": "Servers",
-  "tabVault": "Vault",
+  "tabVault": "Vaults",
   "tabNotify": "Notify",
   "tabSettings": "Settings",
   "tabKeys": "Keys",

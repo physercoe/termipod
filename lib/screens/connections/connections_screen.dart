@@ -134,8 +134,8 @@ class ConnectionsScreen extends ConsumerWidget {
   }
 
   void _openSettings(BuildContext context, WidgetRef ref) {
-    // 設定タブ（インデックス3）に切り替え
-    ref.read(currentTabProvider.notifier).setTab(3);
+    // Switch to Settings tab (index 4)
+    ref.read(currentTabProvider.notifier).setTab(4);
   }
 
   void _showSortDialog(BuildContext context, WidgetRef ref) {

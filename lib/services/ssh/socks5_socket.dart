@@ -93,8 +93,8 @@ class Socks5Socket implements SSHSocket {
       if (!hasAuth) {
         throw Socks5Exception('Proxy requires authentication');
       }
-      final userBytes = username!.codeUnits;
-      final passBytes = password!.codeUnits;
+      final userBytes = username.codeUnits;
+      final passBytes = password.codeUnits;
       socket.add([
         0x01, // sub-negotiation version
         userBytes.length, ...userBytes,
@@ -203,9 +203,9 @@ class Socks5Socket implements SSHSocket {
   Future<void> get done => _socket.done;
 
   @override
-  void close() {
+  Future<void> close() async {
     _subscription?.cancel();
-    _socket.close();
+    await _socket.close();
   }
 
   @override

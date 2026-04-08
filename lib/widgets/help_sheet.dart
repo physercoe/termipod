@@ -177,7 +177,7 @@ class _HelpSheetContent extends StatelessWidget {
           children: [
             if (groupIndex > 0) const SizedBox(height: 16),
             Text(
-              group.label.toUpperCase(),
+              group.name.toUpperCase(),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -241,7 +241,6 @@ class _HelpSheetContent extends StatelessWidget {
   Widget _buildTmuxTab(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black87;
-    final mutedColor = isDark ? Colors.white54 : Colors.black54;
 
     final categories = _tmuxCheatSheet.entries.toList();
 

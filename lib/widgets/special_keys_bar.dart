@@ -28,6 +28,9 @@ class SpecialKeysBar extends StatefulWidget {
   /// 画像転送ボタンが押された時のコールバック
   final VoidCallback? onImagePickRequested;
 
+  /// File transfer button callback
+  final VoidCallback? onFilePickRequested;
+
   /// Compose入力モードのトグルコールバック
   final VoidCallback? onComposeTap;
 
@@ -43,6 +46,7 @@ class SpecialKeysBar extends StatefulWidget {
     this.directInputEnabled = false,
     this.onDirectInputToggle,
     this.onImagePickRequested,
+    this.onFilePickRequested,
     this.onComposeTap,
     this.showComposeInput = false,
   });
@@ -571,6 +575,11 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           const SizedBox(width: 2),
           _buildArrowButton(Icons.arrow_right, 'Right'),
           const SizedBox(width: 8),
+          // File transfer button
+          if (widget.onFilePickRequested != null) ...[
+            _buildFileTransferButton(),
+            const SizedBox(width: 2),
+          ],
           // 画像転送ボタン
           if (widget.onImagePickRequested != null) ...[
             _buildImageTransferButton(),
@@ -916,6 +925,34 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
         ),
         child: Icon(
           icon,
+          size: 16,
+          color: colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
+  /// File transfer button
+  Widget _buildFileTransferButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTapDown: (_) {
+        if (widget.hapticFeedback) {
+          HapticFeedback.lightImpact();
+        }
+      },
+      onTap: widget.onFilePickRequested,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
+        ),
+        child: Icon(
+          Icons.upload_file,
           size: 16,
           color: colorScheme.onSurface,
         ),

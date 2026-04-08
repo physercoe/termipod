@@ -46,6 +46,12 @@ class AppSettings {
   /// キーオーバーレイ: 表示位置
   final String keyOverlayPosition;
 
+  // --- File transfer settings ---
+  final String fileRemotePath;
+  final String filePathFormat;
+  final bool fileAutoEnter;
+  final bool fileBracketedPaste;
+
   // --- 画像転送設定 ---
   final String imageRemotePath;
   final String imageOutputFormat;
@@ -80,6 +86,10 @@ class AppSettings {
     this.keyOverlayArrow = true,
     this.keyOverlayShortcut = true,
     this.keyOverlayPosition = 'aboveKeyboard',
+    this.fileRemotePath = '/tmp/muxpod/',
+    this.filePathFormat = '{path}',
+    this.fileAutoEnter = false,
+    this.fileBracketedPaste = false,
     this.imageRemotePath = '/tmp/muxpod/',
     this.imageOutputFormat = 'original',
     this.imageJpegQuality = 85,
@@ -115,6 +125,10 @@ class AppSettings {
     bool? keyOverlayArrow,
     bool? keyOverlayShortcut,
     String? keyOverlayPosition,
+    String? fileRemotePath,
+    String? filePathFormat,
+    bool? fileAutoEnter,
+    bool? fileBracketedPaste,
     String? imageRemotePath,
     String? imageOutputFormat,
     int? imageJpegQuality,
@@ -146,6 +160,10 @@ class AppSettings {
       keyOverlayArrow: keyOverlayArrow ?? this.keyOverlayArrow,
       keyOverlayShortcut: keyOverlayShortcut ?? this.keyOverlayShortcut,
       keyOverlayPosition: keyOverlayPosition ?? this.keyOverlayPosition,
+      fileRemotePath: fileRemotePath ?? this.fileRemotePath,
+      filePathFormat: filePathFormat ?? this.filePathFormat,
+      fileAutoEnter: fileAutoEnter ?? this.fileAutoEnter,
+      fileBracketedPaste: fileBracketedPaste ?? this.fileBracketedPaste,
       imageRemotePath: imageRemotePath ?? this.imageRemotePath,
       imageOutputFormat: imageOutputFormat ?? this.imageOutputFormat,
       imageJpegQuality: imageJpegQuality ?? this.imageJpegQuality,
@@ -175,6 +193,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _directInputEnabledKey = 'settings_direct_input_enabled';
   static const String _showTerminalCursorKey = 'settings_show_terminal_cursor';
   static const String _invertPaneNavKey = 'settings_invert_pane_nav';
+  static const String _fileRemotePathKey = 'settings_file_remote_path';
+  static const String _filePathFormatKey = 'settings_file_path_format';
+  static const String _fileAutoEnterKey = 'settings_file_auto_enter';
+  static const String _fileBracketedPasteKey = 'settings_file_bracketed_paste';
   static const String _imageRemotePathKey = 'settings_image_remote_path';
   static const String _imageOutputFormatKey = 'settings_image_output_format';
   static const String _imageJpegQualityKey = 'settings_image_jpeg_quality';
@@ -222,6 +244,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
       keyOverlayArrow: prefs.getBool(_keyOverlayArrowKey) ?? true,
       keyOverlayShortcut: prefs.getBool(_keyOverlayShortcutKey) ?? true,
       keyOverlayPosition: prefs.getString(_keyOverlayPositionKey) ?? 'aboveKeyboard',
+      fileRemotePath: prefs.getString(_fileRemotePathKey) ?? '/tmp/muxpod/',
+      filePathFormat: prefs.getString(_filePathFormatKey) ?? '{path}',
+      fileAutoEnter: prefs.getBool(_fileAutoEnterKey) ?? false,
+      fileBracketedPaste: prefs.getBool(_fileBracketedPasteKey) ?? false,
       imageRemotePath: prefs.getString(_imageRemotePathKey) ?? '/tmp/muxpod/',
       imageOutputFormat: prefs.getString(_imageOutputFormatKey) ?? 'original',
       imageJpegQuality: prefs.getInt(_imageJpegQualityKey) ?? 85,
@@ -360,6 +386,27 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setKeyOverlayPosition(String value) async {
     state = state.copyWith(keyOverlayPosition: value);
     await _saveSetting(_keyOverlayPositionKey, value);
+  }
+
+  // --- File transfer settings setters ---
+  Future<void> setFileRemotePath(String value) async {
+    state = state.copyWith(fileRemotePath: value);
+    await _saveSetting(_fileRemotePathKey, value);
+  }
+
+  Future<void> setFilePathFormat(String value) async {
+    state = state.copyWith(filePathFormat: value);
+    await _saveSetting(_filePathFormatKey, value);
+  }
+
+  Future<void> setFileAutoEnter(bool value) async {
+    state = state.copyWith(fileAutoEnter: value);
+    await _saveSetting(_fileAutoEnterKey, value);
+  }
+
+  Future<void> setFileBracketedPaste(bool value) async {
+    state = state.copyWith(fileBracketedPaste: value);
+    await _saveSetting(_fileBracketedPasteKey, value);
   }
 
   // --- 画像転送設定のsetter ---

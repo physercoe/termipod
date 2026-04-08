@@ -153,6 +153,7 @@
   "sectionAbout": "About",
   "sectionTerminal": "Terminal",
   "sectionImageTransfer": "Image Transfer",
+  "sectionFileTransfer": "File Transfer",
 
   "themeDark": "Dark",
   "themeLight": "Light",
@@ -282,6 +283,13 @@
   "snippetContentLabel": "Content",
   "snippetContentHint": "e.g. git status",
   "snippetCategoryLabel": "Category",
+
+  "sendFileTooltip": "Send file",
+  "uploadFileTitle": "Upload File",
+  "fileRemoteDirLabel": "Remote Directory",
+  "filePathFormatLabel": "Path Format",
+  "fileUploaded": "Uploaded {count} file(s)",
+  "@fileUploaded": { "placeholders": { "count": { "type": "int" } } },
 
   "sendImageTooltip": "Send image",
   "uploadImageTitle": "Upload Image",

@@ -32,6 +32,8 @@ import '../../widgets/image_transfer_confirm_dialog.dart';
 import '../../widgets/tmux_tiles.dart';
 import '../../providers/terminal_display_provider.dart';
 import '../../providers/image_transfer_provider.dart';
+import '../../providers/file_transfer_provider.dart';
+import '../../widgets/file_transfer_confirm_dialog.dart';
 import 'package:image_picker/image_picker.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/ansi_text_view.dart';
@@ -950,6 +952,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _networkSubscription = null;
     _imageTransferSub?.close();
     _imageTransferSub = null;
+    _fileTransferSub?.close();
+    _fileTransferSub = null;
     // タイマーを停止
     _pollTimer?.cancel();
     _pollTimer = null;
@@ -1105,6 +1109,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
+              // File upload progress bar
+              Consumer(
+                builder: (context, ref, _) {
+                  final transfer = ref.watch(fileTransferProvider);
+                  final isActive = transfer.phase == FileTransferPhase.uploading;
+                  if (!isActive) return const SizedBox.shrink();
+                  return LinearProgressIndicator(
+                    value: transfer.uploadProgress > 0 ? transfer.uploadProgress : null,
+                    minHeight: 3,
+                    backgroundColor: Colors.transparent,
+                  );
+                },
+              ),
               // Compose入力エリア（非モーダル・インライン）
               if (_showComposeInput) _buildComposeInput(),
               SpecialKeysBar(
@@ -1118,6 +1135,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   ref.read(settingsProvider.notifier).toggleDirectInput();
                 },
                 onImagePickRequested: _handleImageTransfer,
+                onFilePickRequested: _handleFileTransfer,
               ),
             ],
           ),
@@ -3198,6 +3216,96 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } else {
       await sshClient.exec(
         TmuxCommands.sendKeys(activePaneId, formattedPath, literal: true),
+      );
+    }
+
+    if (options.autoEnter) {
+      await sshClient.exec(
+        TmuxCommands.sendKeys(activePaneId, 'Enter'),
+      );
+    }
+
+    _boostPolling();
+  }
+
+  ProviderSubscription? _fileTransferSub;
+
+  /// Initialize file transfer state listener (once)
+  void _ensureFileTransferListener() {
+    if (_fileTransferSub != null) return;
+    _fileTransferSub = ref.listenManual(fileTransferProvider, (prev, next) async {
+      if (next.phase == FileTransferPhase.confirming &&
+          next.pickedFiles != null &&
+          next.pendingRemoteDir != null &&
+          (prev?.phase == FileTransferPhase.picking)) {
+        if (!mounted) return;
+        final settings = ref.read(settingsProvider);
+        final options = await FileTransferConfirmDialog.show(
+          context,
+          files: next.pickedFiles!,
+          remoteDir: next.pendingRemoteDir!,
+          settings: settings,
+        );
+
+        if (options != null) {
+          final uploadedPaths = await ref
+              .read(fileTransferProvider.notifier)
+              .confirmAndUpload(options: options);
+
+          if (uploadedPaths != null && uploadedPaths.isNotEmpty && mounted) {
+            await _injectFilePaths(uploadedPaths, options);
+          }
+        } else {
+          ref.read(fileTransferProvider.notifier).cancel();
+        }
+      }
+
+      if (next.phase == FileTransferPhase.error && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.errorMessage ?? 'File transfer failed'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+
+      if (next.phase == FileTransferPhase.completed &&
+          next.lastUploadedPaths != null &&
+          mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppLocalizations.of(context)!.fileUploaded(next.lastUploadedPaths!.length)),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    });
+  }
+
+  /// Start file transfer flow
+  void _handleFileTransfer() {
+    _ensureFileTransferListener();
+    ref.read(fileTransferProvider.notifier).pickFiles();
+  }
+
+  /// Inject uploaded file paths into terminal
+  Future<void> _injectFilePaths(List<String> remotePaths, FileTransferOptions options) async {
+    final sshClient = ref.read(sshProvider.notifier).client;
+    if (sshClient == null || !sshClient.isConnected) return;
+
+    final activePaneId = ref.read(tmuxProvider).activePaneId;
+    if (activePaneId == null) return;
+
+    // Join all paths with space separator
+    final joinedPaths = remotePaths
+        .map((p) => options.pathFormat.replaceAll('{path}', p))
+        .join(' ');
+
+    if (options.bracketedPaste) {
+      sshClient.write('\x1b[200~$joinedPaths\x1b[201~');
+    } else {
+      await sshClient.exec(
+        TmuxCommands.sendKeys(activePaneId, joinedPaths, literal: true),
       );
     }
 

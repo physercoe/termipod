@@ -140,6 +140,7 @@
   "sectionAbout": "关于",
   "sectionTerminal": "终端",
   "sectionImageTransfer": "图片传输",
+  "sectionFileTransfer": "文件传输",
 
   "themeDark": "深色",
   "themeLight": "浅色",
@@ -246,6 +247,13 @@
   "snippetContentLabel": "内容",
   "snippetContentHint": "例如 git status",
   "snippetCategoryLabel": "分类",
+
+  "sendFileTooltip": "发送文件",
+  "uploadFileTitle": "上传文件",
+  "fileRemoteDirLabel": "远程目录",
+  "filePathFormatLabel": "路径格式",
+  "fileUploaded": "已上传 {count} 个文件",
+  "@fileUploaded": { "placeholders": { "count": { "type": "int" } } },
 
   "sendImageTooltip": "发送图片",
   "uploadImageTitle": "上传图片",

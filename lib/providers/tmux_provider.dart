@@ -86,14 +86,26 @@ class TmuxState {
 
 /// Tmuxセッションを管理するNotifier
 class TmuxNotifier extends Notifier<TmuxState> {
+  /// Monotonically increasing counter. Incremented on every connection change.
+  /// Async operations capture this before awaiting, then validate after.
+  int _generation = 0;
+
   @override
   TmuxState build() {
     return const TmuxState();
   }
 
+  /// Current generation counter (for capturing before async gaps)
+  int get generation => _generation;
+
+  /// Check whether the generation is still current (no connection change happened)
+  bool isCurrentGeneration(int gen) => gen == _generation;
+
   /// 現在のconnectionIdを設定（接続開始時に呼ぶ）
+  /// Atomically clears old state and sets the new connectionId + generation.
   void setConnectionId(String connectionId) {
-    state = state.copyWith(connectionId: connectionId);
+    _generation++;
+    state = TmuxState(connectionId: connectionId);
   }
 
   /// connectionIdが一致するか確認（stale update防止）
@@ -101,13 +113,15 @@ class TmuxNotifier extends Notifier<TmuxState> {
     return state.connectionId == connectionId;
   }
 
-  /// セッション一覧を更新
-  void updateSessions(List<TmuxSession> sessions) {
+  /// セッション一覧を更新 (guarded by connectionId)
+  void updateSessions(List<TmuxSession> sessions, {String? forConnection}) {
+    if (forConnection != null && state.connectionId != forConnection) return;
     state = state.copyWith(sessions: sessions, error: null);
   }
 
-  /// セッション一覧を解析して更新
-  void parseAndUpdateSessions(String output) {
+  /// セッション一覧を解析して更新 (guarded by connectionId)
+  void parseAndUpdateSessions(String output, {String? forConnection}) {
+    if (forConnection != null && state.connectionId != forConnection) return;
     try {
       final sessions = TmuxParser.parseSessions(output);
       state = state.copyWith(sessions: sessions, error: null);
@@ -116,8 +130,9 @@ class TmuxNotifier extends Notifier<TmuxState> {
     }
   }
 
-  /// フルツリーを解析して更新
-  void parseAndUpdateFullTree(String output) {
+  /// フルツリーを解析して更新 (guarded by connectionId)
+  void parseAndUpdateFullTree(String output, {String? forConnection}) {
+    if (forConnection != null && state.connectionId != forConnection) return;
     try {
       final sessions = TmuxParser.parseFullTree(output);
       state = state.copyWith(sessions: sessions, error: null);
@@ -179,8 +194,9 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// カーソル位置を更新
-  void updateCursorPosition(String paneId, int x, int y) {
+  /// カーソル位置を更新 (guarded by connectionId)
+  void updateCursorPosition(String paneId, int x, int y, {String? forConnection}) {
+    if (forConnection != null && state.connectionId != forConnection) return;
     // 変更がない場合はディープコピーを回避してスキップ
     final currentPane = state.activePane;
     if (currentPane == null || currentPane.id != paneId) return;
@@ -238,7 +254,9 @@ class TmuxNotifier extends Notifier<TmuxState> {
   }
 
   /// 状態をクリア
+  /// Increments generation to invalidate all in-flight async operations.
   void clear() {
+    _generation++;
     state = const TmuxState();
   }
 }

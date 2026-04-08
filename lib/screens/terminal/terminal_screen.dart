@@ -441,8 +441,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _tmuxVersion = null;
       }
 
-      // 4. tmuxProviderをクリアしてconnectionIdを設定
-      ref.read(tmuxProvider.notifier).clear();
+      // 4. tmuxProviderをアトミックにリセット+connectionId設定
+      // setConnectionIdが状態クリア+generation更新+connectionId設定を一括で行う
       ref.read(tmuxProvider.notifier).setConnectionId(widget.connectionId);
 
       // 5. セッションツリー全体を取得
@@ -579,10 +579,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isDisposed) {
       return;
     }
+    final tmuxNotifier = ref.read(tmuxProvider.notifier);
     // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
-    if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) {
+    if (!tmuxNotifier.isForConnection(widget.connectionId)) {
       return;
     }
+    // Capture generation before async gap to detect stale results
+    final gen = tmuxNotifier.generation;
     final sshClient = ref.read(sshProvider.notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       return;
@@ -592,11 +595,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final cmd = TmuxCommands.listAllPanes();
       final output = await sshClient.exec(cmd);
       if (!mounted || _isDisposed) return;
-      // 再度ガードチェック（async後に切り替わっている可能性）
-      if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) {
+      // Validate generation hasn't changed during async exec
+      if (!ref.read(tmuxProvider.notifier).isCurrentGeneration(gen)) {
         return;
       }
-      ref.read(tmuxProvider.notifier).parseAndUpdateFullTree(output);
+      ref.read(tmuxProvider.notifier).parseAndUpdateFullTree(
+        output,
+        forConnection: widget.connectionId,
+      );
     } catch (_) {
       // ツリー更新エラーは静かに無視（次回ポーリングで再試行）
     }
@@ -665,8 +671,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// ペイン内容をポーリング取得
   Future<void> _pollPaneContent() async {
     if (_isPolling || _isDisposed) return; // 前回のポーリングがまだ実行中 or disposed
+    final tmuxNotifier = ref.read(tmuxProvider.notifier);
     // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
-    if (!ref.read(tmuxProvider.notifier).isForConnection(widget.connectionId)) return;
+    if (!tmuxNotifier.isForConnection(widget.connectionId)) return;
+    // Capture generation before async gap
+    final gen = tmuxNotifier.generation;
     _isPolling = true;
 
     try {
@@ -719,8 +728,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       final endTime = DateTime.now();
 
-      // アンマウント済みならスキップ
+      // アンマウント済み or generation changed (connection switched) ならスキップ
       if (!mounted || _isDisposed) return;
+      if (!ref.read(tmuxProvider.notifier).isCurrentGeneration(gen)) return;
 
       // カーソル位置とペインサイズを更新
       int? historySize;
@@ -747,7 +757,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
           final activePaneId = ref.read(tmuxProvider).activePaneId;
           if (activePaneId != null && x != null && y != null) {
-            ref.read(tmuxProvider.notifier).updateCursorPosition(activePaneId, x, y);
+            ref.read(tmuxProvider.notifier).updateCursorPosition(
+              activePaneId, x, y,
+              forConnection: widget.connectionId,
+            );
           }
         }
       }

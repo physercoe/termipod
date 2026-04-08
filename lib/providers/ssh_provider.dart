@@ -240,6 +240,12 @@ class SshNotifier extends Notifier<SshState> {
     await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
 
+    // Dispose old client to prevent stale operations from completing
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _client?.dispose();
+    _client = null;
+
     state = state.copyWith(
       connectionState: SshConnectionState.connecting,
       error: null,

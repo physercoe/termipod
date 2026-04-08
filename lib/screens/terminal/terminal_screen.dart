@@ -69,12 +69,14 @@ class _TerminalViewData {
   final int latency;
   final int paneWidth;
   final int paneHeight;
+  final int scrollbackSize;
 
   const _TerminalViewData({
     this.content = '',
     this.latency = 0,
     this.paneWidth = 80,
     this.paneHeight = 24,
+    this.scrollbackSize = 0,
   });
 
   _TerminalViewData copyWith({
@@ -82,12 +84,14 @@ class _TerminalViewData {
     int? latency,
     int? paneWidth,
     int? paneHeight,
+    int? scrollbackSize,
   }) =>
       _TerminalViewData(
         content: content ?? this.content,
         latency: latency ?? this.latency,
         paneWidth: paneWidth ?? this.paneWidth,
         paneHeight: paneHeight ?? this.paneHeight,
+        scrollbackSize: scrollbackSize ?? this.scrollbackSize,
       );
 }
 
@@ -155,6 +159,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   bool _pendingUpdate = false;
   String _pendingContent = '';
   int _pendingLatency = 0;
+  int _pendingScrollbackSize = 0;
 
   // 適応型ポーリング用
   int _currentPollingInterval = 100;
@@ -164,6 +169,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // 選択状態保持用（スクロールモード中の更新抑制）
   String _bufferedContent = '';
   int _bufferedLatency = 0;
+  int _bufferedScrollbackSize = 0;
   bool _hasBufferedUpdate = false;
 
   // 初回スクロール完了フラグ
@@ -717,6 +723,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted || _isDisposed) return;
 
       // カーソル位置とペインサイズを更新
+      int? historySize;
       if (cursorOutput.isNotEmpty) {
         final parts = cursorOutput.trim().split(',');
         if (parts.length >= 4) {
@@ -724,6 +731,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           final y = int.tryParse(parts[1]);
           final w = int.tryParse(parts[2]);
           final h = int.tryParse(parts[3]);
+          historySize = parts.length >= 5 ? int.tryParse(parts[4]) : null;
 
           // ペインサイズの更新検知
           if (w != null && h != null && (w != _viewNotifier.value.paneWidth || h != _viewNotifier.value.paneHeight)) {
@@ -748,6 +756,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final latency = endTime.difference(startTime).inMilliseconds;
 
       // 差分があれば更新（スロットリング適用）
+      final scrollback = historySize ?? _viewNotifier.value.scrollbackSize;
       final currentView = _viewNotifier.value;
       if (processedOutput != currentView.content || latency != currentView.latency) {
         // 手動スクロールモード中のみ更新をバッファリングして選択状態を保持
@@ -755,13 +764,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         if (_terminalMode == TerminalMode.scroll && _scrollModeSource == ScrollModeSource.manual) {
           _bufferedContent = processedOutput;
           _bufferedLatency = latency;
+          _bufferedScrollbackSize = scrollback;
           _hasBufferedUpdate = true;
           // レイテンシのみ更新（選択に影響しない）
           if (mounted && !_isDisposed) {
             _viewNotifier.value = currentView.copyWith(latency: latency);
           }
         } else {
-          _scheduleUpdate(processedOutput, latency);
+          _scheduleUpdate(processedOutput, latency, scrollback);
         }
       }
 
@@ -804,10 +814,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// バッファリングされた更新を適用（スクロールモード終了時に呼び出し）
   void _applyBufferedUpdate() {
     if (_hasBufferedUpdate) {
-      _scheduleUpdate(_bufferedContent, _bufferedLatency);
+      _scheduleUpdate(_bufferedContent, _bufferedLatency, _bufferedScrollbackSize);
       _hasBufferedUpdate = false;
       _bufferedContent = '';
       _bufferedLatency = 0;
+      _bufferedScrollbackSize = 0;
     }
   }
 
@@ -815,9 +826,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   ///
   /// 高頻度更新時（htop等）に毎フレーム更新しないようスロットリングを行う。
   /// 16ms（約60fps）以内の連続更新は次フレームに延期される。
-  void _scheduleUpdate(String content, int latency) {
+  void _scheduleUpdate(String content, int latency, int scrollbackSize) {
     _pendingContent = content;
     _pendingLatency = latency;
+    _pendingScrollbackSize = scrollbackSize;
 
     // すでに更新がスケジュール済みなら何もしない
     if (_pendingUpdate) return;
@@ -847,6 +859,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _viewNotifier.value = _viewNotifier.value.copyWith(
       content: _pendingContent,
       latency: _pendingLatency,
+      scrollbackSize: _pendingScrollbackSize,
     );
 
     // 初回コンテンツ受信時に一番下へスクロール
@@ -1041,6 +1054,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   verticalScrollController: _terminalScrollController,
                                   cursorX: cursor.x,
                                   cursorY: cursor.y,
+                                  scrollbackSize: viewData.scrollbackSize,
                                   onArrowSwipe: _sendSpecialKeyWithOverlay,
                                   onTwoFingerSwipe: _handleTwoFingerSwipe,
                                   navigableDirections: _getNavigableDirections(),

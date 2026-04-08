@@ -91,14 +91,20 @@ class AnsiParser {
   /// Non-SGR escape sequences to strip before parsing.
   /// Matches (in order):
   ///   - OSC sequences: ESC ] ... (ST or BEL)  — window titles, hyperlinks, etc.
-  ///   - CSI sequences (non-SGR): ESC [ ... <letter other than m>
+  ///   - CSI sequences (non-SGR): ESC [ ... <final byte except m>
+  ///     CSI final bytes are 0x40-0x7E (@A-Z[\]^_`a-z{|}~), excluding m (0x6D).
+  ///     Intermediate bytes (0x20-0x2F) may appear before the final byte.
+  ///   - DCS sequences: ESC P ... ST — device control strings
+  ///   - APC sequences: ESC _ ... ST — application program commands
   ///   - Character set selection: ESC ( <char>, ESC ) <char>
   ///   - Two-char escapes: ESC followed by single char (e.g. ESC =, ESC >)
   static final _nonSgrRegex = RegExp(
     r'\x1b\].*?(?:\x1b\\|\x07)'  // OSC: ESC]...ST or ESC]...BEL
-    r'|\x1b\[[?0-9;]*[A-LN-Za-ln-z]'  // CSI non-SGR (any final letter except m, includes private ? prefix)
+    r'|\x1bP.*?(?:\x1b\\|\x07)'  // DCS: ESC P...ST
+    r'|\x1b_.*?(?:\x1b\\|\x07)'  // APC: ESC _...ST
+    r'|\x1b\[[<=>?]*[0-9;:]*[ -/]*[@A-LN-Za-ln-z~^`{|}]'  // CSI non-SGR (full final byte range except m)
     r'|\x1b[()][A-Za-z0-9]'  // Character set: ESC( or ESC)
-    r'|\x1b[=>Nc]'  // Common two-char sequences
+    r'|\x1b[ -/]*[=>NcDEHMZ78]'  // Two-char and multi-char sequences
   );
 
   /// 標準8色（通常）

@@ -81,6 +81,9 @@ class AnsiTextView extends ConsumerStatefulWidget {
   /// カーソルY位置（0-based, ペイン上部基準）
   final int cursorY;
 
+  /// tmux history_size (scrollback lines in the buffer)
+  final int scrollbackSize;
+
   /// ホールド+スワイプで矢印キー入力時のコールバック
   /// direction: 'Up', 'Down', 'Left', 'Right'
   final void Function(String direction)? onArrowSwipe;
@@ -108,6 +111,7 @@ class AnsiTextView extends ConsumerStatefulWidget {
     this.verticalScrollController,
     this.cursorX = 0,
     this.cursorY = 0,
+    this.scrollbackSize = 0,
     this.onArrowSwipe,
     this.onTwoFingerSwipe,
     this.navigableDirections,
@@ -702,21 +706,32 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
   /// 現在の行の高さを取得（スクロール位置計算用）
   double get lineHeight => _lineHeight;
 
+  /// Compute the absolute line index in parsedLines for the cursor.
+  ///
+  /// tmux capture-pane -p strips trailing empty lines, so
+  /// parsedLines.length may be less than scrollback + paneHeight.
+  /// We use the actual history_size from tmux to determine where
+  /// the visible area starts in parsedLines.
+  int _computeCursorLineIndex(int parsedLineCount) {
+    final requestedScrollback = ref.read(settingsProvider).scrollbackLines;
+    final actualScrollback =
+        widget.scrollbackSize.clamp(0, requestedScrollback);
+    return actualScrollback + widget.cursorY;
+  }
+
   /// The effective "end" line count (up to cursor + margin, not including
   /// trailing empty pane rows). Used by the scroll position indicator.
   int get effectiveLineCount {
     final parsedLines = _cachedParsedLines;
     if (parsedLines == null || parsedLines.isEmpty) return 0;
-    final int cursorLineIndex;
-    if (parsedLines.length >= widget.paneHeight) {
-      cursorLineIndex =
-          parsedLines.length - widget.paneHeight + widget.cursorY;
-    } else {
-      cursorLineIndex = widget.cursorY;
-    }
+    final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
     // Include a small margin below cursor, capped at total lines
+    // Use max of parsedLines.length and cursorLineIndex+1 since cursor may be on stripped lines
+    final effectiveTotal = parsedLines.length > cursorLineIndex + 1
+        ? parsedLines.length
+        : cursorLineIndex + 1;
     return (cursorLineIndex + 1 + _cursorBottomMargin)
-        .clamp(0, parsedLines.length);
+        .clamp(0, effectiveTotal);
   }
 
   @override
@@ -776,18 +791,27 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
           fontFamily: settings.fontFamily,
         );
 
+        // Extend item count to cover cursor position on stripped trailing empty lines
+        final cursorLineIdx = _computeCursorLineIndex(parsedLines.length);
+        final effectiveItemCount = parsedLines.length > cursorLineIdx + 1
+            ? parsedLines.length
+            : cursorLineIdx + 1;
+
+        // Empty line for indices beyond parsedLines (trailing empty lines stripped by capture-pane)
+        final emptyLine = ParsedLine(index: 0, segments: const [], endStyle: AnsiStyle.defaultStyle);
+
         // 仮想スクロール対応のListView.builder
         Widget listWidget = ListView.builder(
           controller: _verticalScrollController,
           padding: EdgeInsets.zero,
           physics: const ClampingScrollPhysics(),
-          itemCount: parsedLines.length,
+          itemCount: effectiveItemCount,
           // 固定の行高さを使用してスクロール計算を高速化
           itemExtent: _lineHeight,
           // RepaintBoundaryを自動追加
           addRepaintBoundaries: true,
           itemBuilder: (context, index) {
-            final line = parsedLines[index];
+            final line = index < parsedLines.length ? parsedLines[index] : emptyLine;
             final textSpan = _parser.lineToTextSpan(
               line,
               fontSize: fontSize,
@@ -810,19 +834,10 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
             );
 
             // カーソルの描画処理
-            // カーソル位置の行インデックスを計算
-            // parsedLinesには履歴+可視領域が含まれる。
-            // 末尾のpaneHeight分が可視領域となる。
-            final int cursorLineIndex;
-            if (parsedLines.length >= widget.paneHeight) {
-              cursorLineIndex = parsedLines.length - widget.paneHeight + widget.cursorY;
-            } else {
-              // 行数がpaneHeight未満の場合は、単純にcursorYを使用（初期状態など）
-              cursorLineIndex = widget.cursorY;
-            }
+            // cursorLineIdx is pre-computed before ListView.builder
 
             // 現在の行がカーソル位置と一致する場合、Stackでカーソルを重ねる
-            if (index == cursorLineIndex &&
+            if (index == cursorLineIdx &&
                 widget.mode == TerminalMode.normal &&
                 settings.showTerminalCursor) {
               // TextPainter.getOffsetForCaretを使用して、レンダリングエンジンが計算した正確なカーソル位置を取得
@@ -1345,13 +1360,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         }
 
         // Cursor absolute line index (same logic as build)
-        final int cursorLineIndex;
-        if (parsedLines.length >= widget.paneHeight) {
-          cursorLineIndex =
-              parsedLines.length - widget.paneHeight + widget.cursorY;
-        } else {
-          cursorLineIndex = widget.cursorY;
-        }
+        final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
 
         // Place cursor near the bottom of viewport with margin
         final viewportHeight = position.viewportDimension;
@@ -1388,13 +1397,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
       if (parsedLines == null || parsedLines.isEmpty) return;
 
       // カーソル行インデックスを計算（build内と同じロジック）
-      final int cursorLineIndex;
-      if (parsedLines.length >= widget.paneHeight) {
-        cursorLineIndex =
-            parsedLines.length - widget.paneHeight + widget.cursorY;
-      } else {
-        cursorLineIndex = widget.cursorY;
-      }
+      final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
 
       // カーソル行のスクロールオフセット
       final targetOffset = cursorLineIndex * _lineHeight;

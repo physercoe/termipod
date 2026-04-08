@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 
 import 'persistent_shell.dart';
+import 'socks5_socket.dart';
 
 /// SSH接続エラー
 class SshConnectionError implements Exception {
@@ -47,12 +48,36 @@ class SshConnectOptions {
   /// 接続タイムアウト（秒）
   final int timeout;
 
+  // Jump host (ProxyJump) fields
+  final String? jumpHost;
+  final int? jumpPort;
+  final String? jumpUsername;
+  final String? jumpPassword;
+  final String? jumpPrivateKey;
+  final String? jumpPassphrase;
+
+  // SOCKS5 proxy fields
+  final String? proxyHost;
+  final int? proxyPort;
+  final String? proxyUsername;
+  final String? proxyPassword;
+
   const SshConnectOptions({
     this.password,
     this.privateKey,
     this.passphrase,
     this.tmuxPath,
     this.timeout = 30,
+    this.jumpHost,
+    this.jumpPort,
+    this.jumpUsername,
+    this.jumpPassword,
+    this.jumpPrivateKey,
+    this.jumpPassphrase,
+    this.proxyHost,
+    this.proxyPort,
+    this.proxyUsername,
+    this.proxyPassword,
   });
 }
 
@@ -117,6 +142,7 @@ enum SshConnectionState {
 /// dartssh2をラップし、SSH接続を管理する。
 class SshClient {
   SSHClient? _client;
+  SSHClient? _jumpClient;
   SSHSession? _session;
   SSHSocket? _socket;
 
@@ -202,14 +228,58 @@ class SshClient {
     _lastError = null;
 
     try {
-      // ソケット接続
-      _socket = await SSHSocket.connect(
-        host,
-        port,
-        timeout: Duration(seconds: options.timeout),
-      );
+      // Step 1: Create the initial socket (optionally through SOCKS5 proxy)
+      SSHSocket initialSocket;
+      if (options.proxyHost != null && options.proxyHost!.isNotEmpty) {
+        // Connect through SOCKS5 proxy
+        final proxyTarget = options.jumpHost ?? host;
+        final proxyTargetPort = options.jumpPort ?? port;
+        initialSocket = await Socks5Socket.connect(
+          proxyHost: options.proxyHost!,
+          proxyPort: options.proxyPort ?? 1080,
+          targetHost: proxyTarget,
+          targetPort: proxyTargetPort,
+          username: options.proxyUsername,
+          password: options.proxyPassword,
+          timeout: Duration(seconds: options.timeout),
+        );
+      } else {
+        final directHost = options.jumpHost ?? host;
+        final directPort = options.jumpPort ?? port;
+        initialSocket = await SSHSocket.connect(
+          directHost,
+          directPort,
+          timeout: Duration(seconds: options.timeout),
+        );
+      }
 
-      // 認証方式に応じたクライアント作成
+      // Step 2: If jump host is configured, establish jump connection first
+      if (options.jumpHost != null && options.jumpHost!.isNotEmpty) {
+        final jumpUsername = options.jumpUsername ?? username;
+        if (options.jumpPrivateKey != null) {
+          _jumpClient = SSHClient(
+            initialSocket,
+            username: jumpUsername,
+            identities: _parsePrivateKey(options.jumpPrivateKey!, options.jumpPassphrase),
+          );
+        } else if (options.jumpPassword != null) {
+          _jumpClient = SSHClient(
+            initialSocket,
+            username: jumpUsername,
+            onPasswordRequest: () => options.jumpPassword!,
+          );
+        } else {
+          throw SshAuthenticationError('No authentication method for jump host');
+        }
+        await _jumpClient!.authenticated;
+
+        // Forward through jump host to the actual target
+        _socket = await _jumpClient!.forwardLocal(host, port);
+      } else {
+        _socket = initialSocket;
+      }
+
+      // Step 3: Create the main SSH client on the (possibly forwarded) socket
       if (options.privateKey != null) {
         // 鍵認証
         _client = SSHClient(
@@ -365,6 +435,9 @@ class SshClient {
 
     _socket?.close();
     _socket = null;
+
+    _jumpClient?.close();
+    _jumpClient = null;
   }
 
   /// 持続的シェルを開始

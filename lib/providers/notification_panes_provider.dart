@@ -85,6 +85,49 @@ class AlertPanesNotifier extends Notifier<AlertPanesState> {
     return const AlertPanesState();
   }
 
+  /// Build SshConnectOptions from Connection, including jump/proxy fields
+  Future<SshConnectOptions> _buildConnectOptions(
+    Connection connection,
+    SecureStorageService storage,
+  ) async {
+    String? password;
+    String? privateKey;
+    String? passphrase;
+    if (connection.authMethod == 'key' && connection.keyId != null) {
+      privateKey = await storage.getPrivateKey(connection.keyId!);
+      passphrase = await storage.getPassphrase(connection.keyId!);
+    } else {
+      password = await storage.getPassword(connection.id);
+    }
+    String? jumpPassword;
+    String? jumpPrivateKey;
+    String? jumpPassphrase;
+    if (connection.jumpHost != null) {
+      if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
+        jumpPrivateKey = await storage.getPrivateKey(connection.jumpKeyId!);
+        jumpPassphrase = await storage.getPassphrase(connection.jumpKeyId!);
+      } else {
+        jumpPassword = password ?? await storage.getPassword(connection.id);
+      }
+    }
+    return SshConnectOptions(
+      password: password,
+      privateKey: privateKey,
+      passphrase: passphrase,
+      tmuxPath: connection.tmuxPath,
+      jumpHost: connection.jumpHost,
+      jumpPort: connection.jumpPort,
+      jumpUsername: connection.jumpUsername,
+      jumpPassword: jumpPassword,
+      jumpPrivateKey: jumpPrivateKey,
+      jumpPassphrase: jumpPassphrase,
+      proxyHost: connection.proxyHost,
+      proxyPort: connection.proxyPort,
+      proxyUsername: connection.proxyUsername,
+      proxyPassword: connection.proxyPassword,
+    );
+  }
+
   /// アラートをローカルリストから除去
   void dismiss(String key) {
     final updated = state.alertPanes.where((a) => a.key != key).toList();
@@ -101,15 +144,7 @@ class AlertPanesNotifier extends Notifier<AlertPanesState> {
 
     try {
       final storage = SecureStorageService();
-      SshConnectOptions options;
-      if (connection.authMethod == 'key' && connection.keyId != null) {
-        final privateKey = await storage.getPrivateKey(connection.keyId!);
-        final passphrase = await storage.getPassphrase(connection.keyId!);
-        options = SshConnectOptions(privateKey: privateKey, passphrase: passphrase, tmuxPath: connection.tmuxPath);
-      } else {
-        final password = await storage.getPassword(connection.id);
-        options = SshConnectOptions(password: password, tmuxPath: connection.tmuxPath);
-      }
+      final options = await _buildConnectOptions(connection, storage);
 
       final sshClient = SshClient();
       await sshClient.connect(
@@ -141,15 +176,7 @@ class AlertPanesNotifier extends Notifier<AlertPanesState> {
 
     for (final connection in connections) {
       try {
-        SshConnectOptions options;
-        if (connection.authMethod == 'key' && connection.keyId != null) {
-          final privateKey = await storage.getPrivateKey(connection.keyId!);
-          final passphrase = await storage.getPassphrase(connection.keyId!);
-          options = SshConnectOptions(privateKey: privateKey, passphrase: passphrase, tmuxPath: connection.tmuxPath);
-        } else {
-          final password = await storage.getPassword(connection.id);
-          options = SshConnectOptions(password: password, tmuxPath: connection.tmuxPath);
-        }
+        final options = await _buildConnectOptions(connection, storage);
 
         final sshClient = SshClient();
         await sshClient.connect(

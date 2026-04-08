@@ -20,6 +20,19 @@ class Connection {
   /// ディープリンク用の識別子（外部スクリプトと共有可能）
   final String? deepLinkId;
 
+  // Jump host (ProxyJump) fields
+  final String? jumpHost;
+  final int? jumpPort;
+  final String? jumpUsername;
+  final String? jumpAuthMethod; // 'password' | 'key'
+  final String? jumpKeyId;
+
+  // SOCKS5 proxy fields
+  final String? proxyHost;
+  final int? proxyPort;
+  final String? proxyUsername;
+  final String? proxyPassword;
+
   const Connection({
     required this.id,
     required this.name,
@@ -32,6 +45,15 @@ class Connection {
     required this.createdAt,
     this.lastConnectedAt,
     this.deepLinkId,
+    this.jumpHost,
+    this.jumpPort,
+    this.jumpUsername,
+    this.jumpAuthMethod,
+    this.jumpKeyId,
+    this.proxyHost,
+    this.proxyPort,
+    this.proxyUsername,
+    this.proxyPassword,
   });
 
   Connection copyWith({
@@ -47,6 +69,17 @@ class Connection {
     DateTime? lastConnectedAt,
     String? deepLinkId,
     bool clearDeepLinkId = false,
+    String? jumpHost,
+    bool clearJumpHost = false,
+    int? jumpPort,
+    String? jumpUsername,
+    String? jumpAuthMethod,
+    String? jumpKeyId,
+    String? proxyHost,
+    bool clearProxyHost = false,
+    int? proxyPort,
+    String? proxyUsername,
+    String? proxyPassword,
   }) {
     return Connection(
       id: id ?? this.id,
@@ -60,6 +93,15 @@ class Connection {
       createdAt: createdAt ?? this.createdAt,
       lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
       deepLinkId: clearDeepLinkId ? null : (deepLinkId ?? this.deepLinkId),
+      jumpHost: clearJumpHost ? null : (jumpHost ?? this.jumpHost),
+      jumpPort: clearJumpHost ? null : (jumpPort ?? this.jumpPort),
+      jumpUsername: clearJumpHost ? null : (jumpUsername ?? this.jumpUsername),
+      jumpAuthMethod: clearJumpHost ? null : (jumpAuthMethod ?? this.jumpAuthMethod),
+      jumpKeyId: clearJumpHost ? null : (jumpKeyId ?? this.jumpKeyId),
+      proxyHost: clearProxyHost ? null : (proxyHost ?? this.proxyHost),
+      proxyPort: clearProxyHost ? null : (proxyPort ?? this.proxyPort),
+      proxyUsername: clearProxyHost ? null : (proxyUsername ?? this.proxyUsername),
+      proxyPassword: clearProxyHost ? null : (proxyPassword ?? this.proxyPassword),
     );
   }
 
@@ -76,6 +118,15 @@ class Connection {
       'createdAt': createdAt.toIso8601String(),
       'lastConnectedAt': lastConnectedAt?.toIso8601String(),
       'deepLinkId': deepLinkId,
+      if (jumpHost != null) 'jumpHost': jumpHost,
+      if (jumpPort != null) 'jumpPort': jumpPort,
+      if (jumpUsername != null) 'jumpUsername': jumpUsername,
+      if (jumpAuthMethod != null) 'jumpAuthMethod': jumpAuthMethod,
+      if (jumpKeyId != null) 'jumpKeyId': jumpKeyId,
+      if (proxyHost != null) 'proxyHost': proxyHost,
+      if (proxyPort != null) 'proxyPort': proxyPort,
+      if (proxyUsername != null) 'proxyUsername': proxyUsername,
+      if (proxyPassword != null) 'proxyPassword': proxyPassword,
     };
   }
 
@@ -94,6 +145,15 @@ class Connection {
           ? DateTime.parse(json['lastConnectedAt'] as String)
           : null,
       deepLinkId: json['deepLinkId'] as String?,
+      jumpHost: json['jumpHost'] as String?,
+      jumpPort: json['jumpPort'] as int?,
+      jumpUsername: json['jumpUsername'] as String?,
+      jumpAuthMethod: json['jumpAuthMethod'] as String?,
+      jumpKeyId: json['jumpKeyId'] as String?,
+      proxyHost: json['proxyHost'] as String?,
+      proxyPort: json['proxyPort'] as int?,
+      proxyUsername: json['proxyUsername'] as String?,
+      proxyPassword: json['proxyPassword'] as String?,
     );
   }
 }

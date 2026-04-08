@@ -38,11 +38,26 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   final _tmuxPathController = TextEditingController();
   final _deepLinkIdController = TextEditingController();
 
+  // Jump host controllers
+  final _jumpHostController = TextEditingController();
+  final _jumpPortController = TextEditingController(text: '22');
+  final _jumpUsernameController = TextEditingController();
+
+  // Proxy controllers
+  final _proxyHostController = TextEditingController();
+  final _proxyPortController = TextEditingController(text: '1080');
+  final _proxyUsernameController = TextEditingController();
+  final _proxyPasswordController = TextEditingController();
+
   String _authMethod = 'password';
   String? _selectedKeyId;
   bool _isSaving = false;
   bool _isTesting = false;
   bool _obscurePassword = true;
+  bool _useJumpHost = false;
+  String _jumpAuthMethod = 'password';
+  String? _jumpSelectedKeyId;
+  bool _useProxy = false;
 
   @override
   void initState() {
@@ -63,6 +78,23 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       _selectedKeyId = connection.keyId;
       _tmuxPathController.text = connection.tmuxPath ?? '';
       _deepLinkIdController.text = connection.deepLinkId ?? '';
+      // Jump host
+      if (connection.jumpHost != null) {
+        _useJumpHost = true;
+        _jumpHostController.text = connection.jumpHost!;
+        _jumpPortController.text = (connection.jumpPort ?? 22).toString();
+        _jumpUsernameController.text = connection.jumpUsername ?? '';
+        _jumpAuthMethod = connection.jumpAuthMethod ?? 'password';
+        _jumpSelectedKeyId = connection.jumpKeyId;
+      }
+      // Proxy
+      if (connection.proxyHost != null) {
+        _useProxy = true;
+        _proxyHostController.text = connection.proxyHost!;
+        _proxyPortController.text = (connection.proxyPort ?? 1080).toString();
+        _proxyUsernameController.text = connection.proxyUsername ?? '';
+        _proxyPasswordController.text = connection.proxyPassword ?? '';
+      }
     }
   }
 
@@ -75,6 +107,13 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     _passwordController.dispose();
     _tmuxPathController.dispose();
     _deepLinkIdController.dispose();
+    _jumpHostController.dispose();
+    _jumpPortController.dispose();
+    _jumpUsernameController.dispose();
+    _proxyHostController.dispose();
+    _proxyPortController.dispose();
+    _proxyUsernameController.dispose();
+    _proxyPasswordController.dispose();
     super.dispose();
   }
 
@@ -110,6 +149,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                 _buildServerSection(),
                 const SizedBox(height: 24),
                 _buildAuthSection(keysState),
+                const SizedBox(height: 24),
+                _buildJumpHostSection(keysState),
+                const SizedBox(height: 24),
+                _buildProxySection(),
               ],
             ),
           ),
@@ -763,6 +806,423 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     );
   }
 
+  Widget _buildJumpHostSection(KeysState keysState) {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final inputColor = isDark ? DesignColors.inputDark : DesignColors.inputLight;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(l10n.sectionJumpHost),
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  l10n.jumpHostToggle,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                value: _useJumpHost,
+                onChanged: (v) => setState(() => _useJumpHost = v),
+              ),
+              if (_useJumpHost) ...[
+                const SizedBox(height: 8),
+                _buildFieldLabel(l10n.fieldJumpHost),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _jumpHostController,
+                  keyboardType: TextInputType.url,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                  decoration: InputDecoration(
+                    hintText: l10n.jumpHostHint,
+                    hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                    filled: true,
+                    fillColor: inputColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.primary),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                  validator: (value) {
+                    if (_useJumpHost && (value == null || value.isEmpty)) {
+                      return l10n.jumpHostEmptyError;
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildFieldLabel(l10n.fieldJumpPort),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _jumpPortController,
+                            keyboardType: TextInputType.number,
+                            style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                            decoration: InputDecoration(
+                              hintText: l10n.jumpPortHint,
+                              hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                              filled: true,
+                              fillColor: inputColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.primary),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 2,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildFieldLabel(l10n.fieldJumpUsername),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _jumpUsernameController,
+                            style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                            decoration: InputDecoration(
+                              hintText: l10n.jumpUsernameHint,
+                              hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                              prefixIcon: Icon(Icons.person_outline, color: mutedColor, size: 20),
+                              filled: true,
+                              fillColor: inputColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.primary),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Jump host auth method
+                _buildFieldLabel(l10n.sectionAuthentication),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.onSurface.withValues(alpha: isDark ? 0.1 : 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  padding: const EdgeInsets.all(4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _jumpAuthMethod = 'password'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _jumpAuthMethod == 'password'
+                                  ? colorScheme.primary
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              l10n.authMethodPassword,
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _jumpAuthMethod == 'password'
+                                    ? colorScheme.onPrimary
+                                    : mutedColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _jumpAuthMethod = 'key'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _jumpAuthMethod == 'key'
+                                  ? colorScheme.primary
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              l10n.authMethodPrivateKey,
+                              textAlign: TextAlign.center,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: _jumpAuthMethod == 'key'
+                                    ? colorScheme.onPrimary
+                                    : mutedColor,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (_jumpAuthMethod == 'key')
+                  DropdownButtonFormField<String>(
+                    value: _jumpSelectedKeyId,
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(Icons.vpn_key_outlined, color: mutedColor, size: 20),
+                      filled: true,
+                      fillColor: inputColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    ),
+                    dropdownColor: colorScheme.surface,
+                    style: GoogleFonts.spaceGrotesk(fontSize: 14, color: colorScheme.onSurface),
+                    items: keysState.keys.map((key) {
+                      return DropdownMenuItem(value: key.id, child: Text(key.name));
+                    }).toList(),
+                    onChanged: (value) => setState(() => _jumpSelectedKeyId = value),
+                    hint: Text(
+                      keysState.keys.isEmpty ? l10n.keyDropdownNoKeys : l10n.keyDropdownSelect,
+                      style: GoogleFonts.spaceGrotesk(color: mutedColor),
+                    ),
+                  ),
+                // For password auth, the jump host password will be fetched from secure storage
+                // using the same pattern as the main connection password.
+                // The hint tells the user the jump password is stored with the connection.
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProxySection() {
+    final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final inputColor = isDark ? DesignColors.inputDark : DesignColors.inputLight;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader(l10n.sectionProxy),
+        Container(
+          decoration: BoxDecoration(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  l10n.proxyToggle,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                value: _useProxy,
+                onChanged: (v) => setState(() => _useProxy = v),
+              ),
+              if (_useProxy) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildFieldLabel(l10n.fieldProxyHost),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _proxyHostController,
+                            keyboardType: TextInputType.url,
+                            style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                            decoration: InputDecoration(
+                              hintText: l10n.proxyHostHint,
+                              hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                              filled: true,
+                              fillColor: inputColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.primary),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                            validator: (value) {
+                              if (_useProxy && (value == null || value.isEmpty)) {
+                                return l10n.proxyHostEmptyError;
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      flex: 1,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildFieldLabel(l10n.fieldProxyPort),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _proxyPortController,
+                            keyboardType: TextInputType.number,
+                            style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                            decoration: InputDecoration(
+                              hintText: l10n.proxyPortHint,
+                              hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                              filled: true,
+                              fillColor: inputColor,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                borderSide: BorderSide(color: colorScheme.primary),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildFieldLabel(l10n.fieldProxyUsername),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _proxyUsernameController,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                  decoration: InputDecoration(
+                    hintText: l10n.proxyUsernameHint,
+                    hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                    filled: true,
+                    fillColor: inputColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.primary),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildFieldLabel(l10n.fieldProxyPassword),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _proxyPasswordController,
+                  obscureText: true,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 14, color: colorScheme.onSurface),
+                  decoration: InputDecoration(
+                    hintText: l10n.proxyPasswordHint,
+                    hintStyle: GoogleFonts.jetBrainsMono(color: mutedColor.withValues(alpha: 0.5)),
+                    filled: true,
+                    fillColor: inputColor,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.outline.withValues(alpha: 0.2)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: colorScheme.primary),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBottomAction() {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
@@ -865,6 +1325,21 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
 
       // SSH接続テスト
       final customTmuxPath = _tmuxPathController.text.trim();
+      // Prepare jump host auth if needed
+      String? jumpPassword;
+      String? jumpPrivateKey;
+      String? jumpPassphrase;
+      if (_useJumpHost) {
+        if (_jumpAuthMethod == 'key' && _jumpSelectedKeyId != null) {
+          final storage = SecureStorageService();
+          jumpPrivateKey = await storage.getPrivateKey(_jumpSelectedKeyId!);
+          jumpPassphrase = await storage.getPassphrase(_jumpSelectedKeyId!);
+        } else {
+          // For jump host password auth, reuse main password for now
+          jumpPassword = password;
+        }
+      }
+
       await sshClient.connect(
         host: _hostController.text.trim(),
         port: int.tryParse(_portController.text) ?? 22,
@@ -874,6 +1349,19 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
           privateKey: privateKey,
           passphrase: passphrase,
           tmuxPath: customTmuxPath.isNotEmpty ? customTmuxPath : null,
+          jumpHost: _useJumpHost ? _jumpHostController.text.trim() : null,
+          jumpPort: _useJumpHost ? int.tryParse(_jumpPortController.text) ?? 22 : null,
+          jumpUsername: _useJumpHost && _jumpUsernameController.text.trim().isNotEmpty
+              ? _jumpUsernameController.text.trim() : null,
+          jumpPassword: jumpPassword,
+          jumpPrivateKey: jumpPrivateKey,
+          jumpPassphrase: jumpPassphrase,
+          proxyHost: _useProxy ? _proxyHostController.text.trim() : null,
+          proxyPort: _useProxy ? int.tryParse(_proxyPortController.text) ?? 1080 : null,
+          proxyUsername: _useProxy && _proxyUsernameController.text.trim().isNotEmpty
+              ? _proxyUsernameController.text.trim() : null,
+          proxyPassword: _useProxy && _proxyPasswordController.text.trim().isNotEmpty
+              ? _proxyPasswordController.text.trim() : null,
         ),
       );
 
@@ -954,6 +1442,18 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         createdAt: widget.isEditing
             ? ref.read(connectionsProvider.notifier).getById(connectionId)?.createdAt ?? DateTime.now()
             : DateTime.now(),
+        jumpHost: _useJumpHost ? _jumpHostController.text.trim() : null,
+        jumpPort: _useJumpHost ? int.tryParse(_jumpPortController.text) ?? 22 : null,
+        jumpUsername: _useJumpHost && _jumpUsernameController.text.trim().isNotEmpty
+            ? _jumpUsernameController.text.trim() : null,
+        jumpAuthMethod: _useJumpHost ? _jumpAuthMethod : null,
+        jumpKeyId: _useJumpHost && _jumpAuthMethod == 'key' ? _jumpSelectedKeyId : null,
+        proxyHost: _useProxy ? _proxyHostController.text.trim() : null,
+        proxyPort: _useProxy ? int.tryParse(_proxyPortController.text) ?? 1080 : null,
+        proxyUsername: _useProxy && _proxyUsernameController.text.trim().isNotEmpty
+            ? _proxyUsernameController.text.trim() : null,
+        proxyPassword: _useProxy && _proxyPasswordController.text.trim().isNotEmpty
+            ? _proxyPasswordController.text.trim() : null,
       );
       developer.log('Connection object created: ${connection.name}', name: 'ConnectionForm');
 

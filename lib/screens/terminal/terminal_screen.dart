@@ -25,7 +25,9 @@ import '../../services/tmux/tmux_version.dart';
 import '../../widgets/dialogs/resize_dialog.dart';
 import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
+import '../../widgets/help_sheet.dart';
 import '../../widgets/key_overlay_widget.dart';
+import '../../widgets/onboarding_overlay.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/action_bar/action_bar.dart';
 import '../../widgets/action_bar/compose_bar.dart';
@@ -229,6 +231,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _setupListeners();
       _connectAndSetup();
       _applyKeepScreenOn();
+      maybeShowOnboarding(context);
     });
   }
 
@@ -880,14 +883,46 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// 認証オプションを取得
   Future<SshConnectOptions> _getAuthOptions(Connection connection) async {
+    String? password;
+    String? privateKey;
+    String? passphrase;
+
     if (connection.authMethod == 'key' && connection.keyId != null) {
-      final privateKey = await _secureStorage.getPrivateKey(connection.keyId!);
-      final passphrase = await _secureStorage.getPassphrase(connection.keyId!);
-      return SshConnectOptions(privateKey: privateKey, passphrase: passphrase);
+      privateKey = await _secureStorage.getPrivateKey(connection.keyId!);
+      passphrase = await _secureStorage.getPassphrase(connection.keyId!);
     } else {
-      final password = await _secureStorage.getPassword(connection.id);
-      return SshConnectOptions(password: password);
+      password = await _secureStorage.getPassword(connection.id);
     }
+
+    // Jump host auth
+    String? jumpPassword;
+    String? jumpPrivateKey;
+    String? jumpPassphrase;
+    if (connection.jumpHost != null) {
+      if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
+        jumpPrivateKey = await _secureStorage.getPrivateKey(connection.jumpKeyId!);
+        jumpPassphrase = await _secureStorage.getPassphrase(connection.jumpKeyId!);
+      } else {
+        // Reuse main password for jump host password auth
+        jumpPassword = password ?? await _secureStorage.getPassword(connection.id);
+      }
+    }
+
+    return SshConnectOptions(
+      password: password,
+      privateKey: privateKey,
+      passphrase: passphrase,
+      jumpHost: connection.jumpHost,
+      jumpPort: connection.jumpPort,
+      jumpUsername: connection.jumpUsername,
+      jumpPassword: jumpPassword,
+      jumpPrivateKey: jumpPrivateKey,
+      jumpPassphrase: jumpPassphrase,
+      proxyHost: connection.proxyHost,
+      proxyPort: connection.proxyPort,
+      proxyUsername: connection.proxyUsername,
+      proxyPassword: connection.proxyPassword,
+    );
   }
 
   /// エラーSnackBar表示
@@ -2657,6 +2692,26 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         Navigator.pop(context);
                       }
                     : null,
+              ),
+              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
+              // Help
+              ListTile(
+                leading: Icon(
+                  Icons.help_outline,
+                  color: inactiveIconColor,
+                ),
+                title: Text(
+                  'Help',
+                  style: TextStyle(color: textColor),
+                ),
+                subtitle: Text(
+                  'Action bar & tmux cheat sheet',
+                  style: TextStyle(color: mutedTextColor, fontSize: 12),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  showHelpSheet(context, ref);
+                },
               ),
               Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
               // 設定画面へ

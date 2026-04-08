@@ -370,15 +370,42 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
       for (final connection in connections) {
         try {
           // 認証オプションを取得
-          SshConnectOptions options;
+          String? password;
+          String? privateKey;
+          String? passphrase;
           if (connection.authMethod == 'key' && connection.keyId != null) {
-            final privateKey = await storage.getPrivateKey(connection.keyId!);
-            final passphrase = await storage.getPassphrase(connection.keyId!);
-            options = SshConnectOptions(privateKey: privateKey, passphrase: passphrase, tmuxPath: connection.tmuxPath);
+            privateKey = await storage.getPrivateKey(connection.keyId!);
+            passphrase = await storage.getPassphrase(connection.keyId!);
           } else {
-            final password = await storage.getPassword(connection.id);
-            options = SshConnectOptions(password: password, tmuxPath: connection.tmuxPath);
+            password = await storage.getPassword(connection.id);
           }
+          String? jumpPassword;
+          String? jumpPrivateKey;
+          String? jumpPassphrase;
+          if (connection.jumpHost != null) {
+            if (connection.jumpAuthMethod == 'key' && connection.jumpKeyId != null) {
+              jumpPrivateKey = await storage.getPrivateKey(connection.jumpKeyId!);
+              jumpPassphrase = await storage.getPassphrase(connection.jumpKeyId!);
+            } else {
+              jumpPassword = password ?? await storage.getPassword(connection.id);
+            }
+          }
+          final options = SshConnectOptions(
+            password: password,
+            privateKey: privateKey,
+            passphrase: passphrase,
+            tmuxPath: connection.tmuxPath,
+            jumpHost: connection.jumpHost,
+            jumpPort: connection.jumpPort,
+            jumpUsername: connection.jumpUsername,
+            jumpPassword: jumpPassword,
+            jumpPrivateKey: jumpPrivateKey,
+            jumpPassphrase: jumpPassphrase,
+            proxyHost: connection.proxyHost,
+            proxyPort: connection.proxyPort,
+            proxyUsername: connection.proxyUsername,
+            proxyPassword: connection.proxyPassword,
+          );
 
           // SSH接続してセッション一覧を取得
           final sshClient = SshClient();

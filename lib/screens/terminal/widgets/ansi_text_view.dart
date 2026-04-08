@@ -702,6 +702,23 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
   /// 現在の行の高さを取得（スクロール位置計算用）
   double get lineHeight => _lineHeight;
 
+  /// The effective "end" line count (up to cursor + margin, not including
+  /// trailing empty pane rows). Used by the scroll position indicator.
+  int get effectiveLineCount {
+    final parsedLines = _cachedParsedLines;
+    if (parsedLines == null || parsedLines.isEmpty) return 0;
+    final int cursorLineIndex;
+    if (parsedLines.length >= widget.paneHeight) {
+      cursorLineIndex =
+          parsedLines.length - widget.paneHeight + widget.cursorY;
+    } else {
+      cursorLineIndex = widget.cursorY;
+    }
+    // Include a small margin below cursor, capped at total lines
+    return (cursorLineIndex + 1 + _cursorBottomMargin)
+        .clamp(0, parsedLines.length);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
@@ -1297,32 +1314,62 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
 
   // === スクロール制御 ===
 
-  /// Scroll to the very bottom.
+  /// Scroll to the cursor position (near the bottom of viewport).
+  ///
+  /// After resize, the tmux pane may have many trailing empty rows below
+  /// the cursor. Jumping to raw maxScrollExtent would show those empty
+  /// rows and push the cursor off-screen. Instead, calculate the offset
+  /// that places the cursor near the bottom of the viewport with a small
+  /// margin, then clamp to [0, maxScrollExtent].
   ///
   /// Uses jumpTo (not animateTo) to avoid animation interruption during
-  /// layout changes after resize. Retries after a short delay to handle
-  /// cases where maxScrollExtent is stale on the first attempt.
+  /// layout changes. Retries after 150ms for stale-extent edge cases.
   void scrollToBottom() {
-    _jumpToBottomAfterLayout();
-    // Retry after 150ms to catch cases where layout wasn't fully settled
+    _jumpToCursorBottom();
     Future.delayed(const Duration(milliseconds: 150), () {
       if (!mounted) return;
-      _jumpToBottomAfterLayout();
+      _jumpToCursorBottom();
     });
   }
 
-  void _jumpToBottomAfterLayout() {
+  /// Lines of margin below the cursor when scrolling to "bottom"
+  static const int _cursorBottomMargin = 3;
+
+  void _jumpToCursorBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_verticalScrollController.hasClients) {
-          final maxExtent =
-              _verticalScrollController.position.maxScrollExtent;
-          if (maxExtent > 0) {
-            _verticalScrollController.jumpTo(maxExtent);
-          }
+        if (!_verticalScrollController.hasClients) return;
+
+        final position = _verticalScrollController.position;
+        final maxExtent = position.maxScrollExtent;
+        if (maxExtent <= 0) return;
+
+        final parsedLines = _cachedParsedLines;
+        if (parsedLines == null || parsedLines.isEmpty) {
+          // No cursor info — fall back to raw maxScrollExtent
+          _verticalScrollController.jumpTo(maxExtent);
+          return;
         }
+
+        // Cursor absolute line index (same logic as build)
+        final int cursorLineIndex;
+        if (parsedLines.length >= widget.paneHeight) {
+          cursorLineIndex =
+              parsedLines.length - widget.paneHeight + widget.cursorY;
+        } else {
+          cursorLineIndex = widget.cursorY;
+        }
+
+        // Place cursor near the bottom of viewport with margin
+        final viewportHeight = position.viewportDimension;
+        final targetOffset =
+            (cursorLineIndex + 1 + _cursorBottomMargin) * _lineHeight -
+                viewportHeight;
+        final clampedOffset = targetOffset.clamp(0.0, maxExtent);
+
+        _verticalScrollController.jumpTo(clampedOffset);
       });
     });
   }

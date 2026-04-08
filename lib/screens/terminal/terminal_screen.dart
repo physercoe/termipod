@@ -854,10 +854,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _scrollToCaret();
     }
 
-    // Scroll to bottom after resize content arrives
+    // Scroll to cursor position after resize content arrives
     if (_pendingScrollToBottom && _pendingContent.isNotEmpty) {
       _pendingScrollToBottom = false;
       _ansiTextViewKey.currentState?.scrollToBottom();
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && !_isDisposed) _scrollToBottomKey.currentState?.hide();
+      });
     }
   }
 
@@ -1072,6 +1075,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           scrollController: _terminalScrollController,
                           onPressed: () {
                             _ansiTextViewKey.currentState?.scrollToBottom();
+                            // Hide after scroll completes (cursor end != maxScrollExtent)
+                            Future.delayed(const Duration(milliseconds: 200), () {
+                              _scrollToBottomKey.currentState?.hide();
+                            });
                           },
                         ),
                       ),
@@ -1402,21 +1409,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         if (maxExtent <= 0) return const SizedBox.shrink();
 
         final currentOffset = position.pixels;
-        // 最下部付近なら非表示
-        if (currentOffset >= maxExtent - 10) return const SizedBox.shrink();
 
         final ansiState = _ansiTextViewKey.currentState;
         if (ansiState == null) return const SizedBox.shrink();
 
-        // 行の高さから現在行と総行数を算出
         final lineHeight = ansiState.lineHeight;
         if (lineHeight <= 0) return const SizedBox.shrink();
 
         final viewportHeight = position.viewportDimension;
-        final totalLines = ((maxExtent + viewportHeight) / lineHeight).round();
+        // Use effective line count (up to cursor + margin) instead of
+        // raw total which includes trailing empty pane rows after resize
+        final totalLines = ansiState.effectiveLineCount;
+        if (totalLines <= 0) return const SizedBox.shrink();
+
         final currentTopLine = (currentOffset / lineHeight).round() + 1;
         final visibleLines = (viewportHeight / lineHeight).round();
         final currentBottomLine = (currentTopLine + visibleLines - 1).clamp(1, totalLines);
+
+        // Hide when at or past the effective end
+        if (currentBottomLine >= totalLines) return const SizedBox.shrink();
 
         final isDark = Theme.of(context).brightness == Brightness.dark;
         return Container(

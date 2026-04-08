@@ -367,24 +367,44 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               },
               itemBuilder: (context, index) {
                 final button = _buttons[index];
-                return ListTile(
+                return Card(
                   key: ValueKey(button.id),
-                  leading: const Icon(Icons.drag_handle),
-                  title: Text(button.label),
-                  subtitle: Text(
-                    '${button.type.name} = ${button.value}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight,
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: ListTile(
+                    leading: const Icon(Icons.drag_handle),
+                    title: Text(
+                      button.label,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () {
-                      setState(() => _buttons.removeAt(index));
-                    },
+                    subtitle: Text(
+                      '${_buttonTypeLabel(button.type)} = ${button.value}'
+                      '${button.longPressValue != null ? '  (long: ${button.longPressValue})' : ''}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
+                      ),
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 18),
+                          onPressed: () =>
+                              _showEditButtonDialog(context, index),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          onPressed: () {
+                            setState(() => _buttons.removeAt(index));
+                          },
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
@@ -414,58 +434,108 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     );
   }
 
+  static String _buttonTypeLabel(ActionBarButtonType type) {
+    return switch (type) {
+      ActionBarButtonType.specialKey => 'Key',
+      ActionBarButtonType.literal => 'Literal',
+      ActionBarButtonType.ctrlCombo => 'Ctrl',
+      ActionBarButtonType.altCombo => 'Alt',
+      ActionBarButtonType.shiftCombo => 'Shift',
+      ActionBarButtonType.modifier => 'Modifier',
+      ActionBarButtonType.action => 'Action',
+      ActionBarButtonType.confirm => 'Confirm',
+    };
+  }
+
   void _showAddButtonDialog(BuildContext context) {
-    final labelController = TextEditingController();
-    final valueController = TextEditingController();
-    var selectedType = ActionBarButtonType.specialKey;
+    _showButtonDialog(context, title: 'Add Button', onSave: (button) {
+      setState(() => _buttons.add(button));
+    });
+  }
+
+  void _showEditButtonDialog(BuildContext context, int index) {
+    final existing = _buttons[index];
+    _showButtonDialog(
+      context,
+      title: 'Edit Button',
+      initial: existing,
+      onSave: (button) {
+        setState(() => _buttons[index] = button);
+      },
+    );
+  }
+
+  void _showButtonDialog(
+    BuildContext context, {
+    required String title,
+    ActionBarButton? initial,
+    required void Function(ActionBarButton button) onSave,
+  }) {
+    final labelController = TextEditingController(text: initial?.label ?? '');
+    final valueController = TextEditingController(text: initial?.value ?? '');
+    final longPressController =
+        TextEditingController(text: initial?.longPressValue ?? '');
+    var selectedType = initial?.type ?? ActionBarButtonType.specialKey;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Add Button'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: labelController,
-                decoration: const InputDecoration(
-                  labelText: 'Label',
-                  hintText: 'e.g., ESC, C-C, Tab',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: labelController,
+                  decoration: const InputDecoration(
+                    labelText: 'Label',
+                    hintText: 'e.g., ESC, C-C, Tab',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  autofocus: initial == null,
                 ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<ActionBarButtonType>(
-                initialValue: selectedType,
-                decoration: const InputDecoration(
-                  labelText: 'Type',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+                const SizedBox(height: 12),
+                DropdownButtonFormField<ActionBarButtonType>(
+                  initialValue: selectedType,
+                  decoration: const InputDecoration(
+                    labelText: 'Type',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: ActionBarButtonType.values
+                      .map((t) => DropdownMenuItem(
+                            value: t,
+                            child: Text(_buttonTypeLabel(t)),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) setDialogState(() => selectedType = v);
+                  },
                 ),
-                items: ActionBarButtonType.values
-                    .map((t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(t.name),
-                        ))
-                    .toList(),
-                onChanged: (v) {
-                  if (v != null) setDialogState(() => selectedType = v);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: valueController,
-                decoration: const InputDecoration(
-                  labelText: 'Value (tmux key)',
-                  hintText: 'e.g., Escape, C-c, Tab',
-                  border: OutlineInputBorder(),
-                  isDense: true,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: valueController,
+                  decoration: const InputDecoration(
+                    labelText: 'Value (tmux key)',
+                    hintText: 'e.g., Escape, C-c, Tab',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextField(
+                  controller: longPressController,
+                  decoration: const InputDecoration(
+                    labelText: 'Long-press value (optional)',
+                    hintText: 'e.g., Escape Escape, BTab',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -476,19 +546,22 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               onPressed: () {
                 final label = labelController.text.trim();
                 final value = valueController.text.trim();
+                final longPress = longPressController.text.trim();
                 if (label.isNotEmpty && value.isNotEmpty) {
-                  setState(() {
-                    _buttons.add(ActionBarButton(
-                      id: 'btn_${DateTime.now().millisecondsSinceEpoch}',
-                      label: label,
-                      type: selectedType,
-                      value: value,
-                    ));
-                  });
+                  final button = ActionBarButton(
+                    id: initial?.id ??
+                        'btn_${DateTime.now().millisecondsSinceEpoch}',
+                    label: label,
+                    type: selectedType,
+                    value: value,
+                    longPressValue: longPress.isEmpty ? null : longPress,
+                    iconName: initial?.iconName,
+                  );
+                  onSave(button);
                   Navigator.pop(ctx);
                 }
               },
-              child: const Text('Add'),
+              child: Text(initial != null ? 'Save' : 'Add'),
             ),
           ],
         ),

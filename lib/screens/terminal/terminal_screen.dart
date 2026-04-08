@@ -3391,6 +3391,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ? () => _showCommandMenu(context)
           : null,
       onFileTransfer: _handleFileTransfer,
+      onFileDownload: _handleFileDownload,
       onImageTransfer: _handleImageTransfer,
       onPasteClipboard: () async {
         final data = await Clipboard.getData(Clipboard.kTextPlain);

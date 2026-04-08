@@ -19,6 +19,7 @@ class InsertMenu {
     VoidCallback? onCommandMenu,
     VoidCallback? onHistory,
     VoidCallback? onFileTransfer,
+    VoidCallback? onFileDownload,
     VoidCallback? onImageTransfer,
     VoidCallback? onPasteClipboard,
     VoidCallback? onDirectInput,
@@ -90,12 +91,23 @@ class InsertMenu {
                 if (onFileTransfer != null)
                   _buildItem(
                     context,
-                    icon: Icons.swap_vert,
-                    label: 'File Transfer',
+                    icon: Icons.upload_file,
+                    label: 'File Upload',
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
                       onFileTransfer();
+                    },
+                  ),
+                if (onFileDownload != null)
+                  _buildItem(
+                    context,
+                    icon: Icons.download,
+                    label: 'File Download',
+                    isDark: isDark,
+                    onTap: () {
+                      Navigator.pop(context);
+                      onFileDownload();
                     },
                   ),
                 if (onImageTransfer != null)

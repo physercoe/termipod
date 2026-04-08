@@ -439,7 +439,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<ActionBarButtonType>(
-                value: selectedType,
+                initialValue: selectedType,
                 decoration: const InputDecoration(
                   labelText: 'Type',
                   border: OutlineInputBorder(),

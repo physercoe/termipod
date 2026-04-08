@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_muxpod/l10n/app_localizations.dart';
 import 'package:flutter_muxpod/screens/settings/settings_screen.dart';
 
 Widget _buildApp() {
   return const ProviderScope(
-    child: MaterialApp(home: SettingsScreen()),
+    child: MaterialApp(
+      localizationsDelegates: [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: SettingsScreen(),
+    ),
   );
 }
 
@@ -21,8 +32,8 @@ void main() {
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
-      expect(find.text('Adjust Mode'), findsOneWidget);
-      expect(find.text('Auto Fit'), findsOneWidget);
+      expect(find.text('Adjust Mode'), findsWidgets);
+      expect(find.text('Auto Fit'), findsWidgets);
     });
 
     testWidgets('displays Haptic Feedback toggle', (tester) async {

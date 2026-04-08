@@ -96,7 +96,7 @@ class AnsiParser {
   ///   - Two-char escapes: ESC followed by single char (e.g. ESC =, ESC >)
   static final _nonSgrRegex = RegExp(
     r'\x1b\].*?(?:\x1b\\|\x07)'  // OSC: ESC]...ST or ESC]...BEL
-    r'|\x1b\[[0-9;]*[A-LN-Za-ln-z]'  // CSI non-SGR (any final letter except m)
+    r'|\x1b\[[?0-9;]*[A-LN-Za-ln-z]'  // CSI non-SGR (any final letter except m, includes private ? prefix)
     r'|\x1b[()][A-Za-z0-9]'  // Character set: ESC( or ESC)
     r'|\x1b[=>Nc]'  // Common two-char sequences
   );

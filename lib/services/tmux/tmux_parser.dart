@@ -236,7 +236,7 @@ class TmuxParser {
     // Strip all escape sequences: OSC, CSI, charset selection, two-char
     return text
         .replaceAll(RegExp(r'\x1b\].*?(?:\x1b\\|\x07)'), '')  // OSC
-        .replaceAll(RegExp(r'\x1b\[[0-9;]*[a-zA-Z]'), '')  // CSI
+        .replaceAll(RegExp(r'\x1b\[[?0-9;]*[a-zA-Z]'), '')  // CSI (including private mode ?)
         .replaceAll(RegExp(r'\x1b[()][A-Za-z0-9]'), '')  // Charset
         .replaceAll(RegExp(r'\x1b[=>Nc]'), '');  // Two-char
   }

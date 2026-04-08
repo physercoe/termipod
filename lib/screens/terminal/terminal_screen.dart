@@ -245,15 +245,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     final settings = ref.read(settingsProvider);
 
-    // For auto-resize, defer scroll until new content arrives.
-    // For non-resize (keyboard show/hide), scroll immediately.
+    // For non-auto-resize, scroll immediately on any metrics change.
+    // For auto-resize, DON'T set _pendingScrollToBottom here — it gets
+    // consumed prematurely by regular polling before the resize executes.
+    // _executeAutoResize's finally block handles the deferred scroll.
     if (!settings.isAutoResize) {
       _ansiTextViewKey.currentState?.scrollToBottom();
-    } else {
-      _pendingScrollToBottom = true;
+      return;
     }
-
-    if (!settings.isAutoResize) return;
 
     // debounce: 画面回転・折りたたみの連続サイズ変更を抑制
     _autoResizeDebounceTimer?.cancel();
@@ -1070,6 +1069,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         right: 16,
                         child: ScrollToBottomButton(
                           key: _scrollToBottomKey,
+                          scrollController: _terminalScrollController,
                           onPressed: () {
                             _ansiTextViewKey.currentState?.scrollToBottom();
                           },
@@ -2068,8 +2068,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         'pane=${pane.id} current=${pane.width}x${pane.height} '
         'target=${targetCols}x$targetRows');
 
-    // 既存サイズと同一ならスキップ
-    if (pane.width == targetCols && pane.height == targetRows) return;
+    // Same size — no resize needed, but viewport may have changed
+    // (e.g. keyboard, system UI). Scroll to bottom directly.
+    if (pane.width == targetCols && pane.height == targetRows) {
+      _ansiTextViewKey.currentState?.scrollToBottom();
+      _scrollToBottomKey.currentState?.show();
+      return;
+    }
 
     _isResizing = true;
     _pollTimer?.cancel();
@@ -2092,6 +2097,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _startPolling();
         // Defer scroll-to-bottom until first poll delivers new content
         _pendingScrollToBottom = true;
+        _scrollToBottomKey.currentState?.show();
       }
     }
   }

@@ -5,8 +5,8 @@
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>Your tmux sessions, in your pocket.</b><br>
-  <sub>A mobile-first tmux client for Android — SSH in, navigate sessions, and stay productive on the go.</sub>
+  <b>SSH terminal for Android, built for tmux and AI coding agents.</b><br>
+  <sub>Manage remote servers from your phone — run Claude Code, Codex, Aider, or any CLI tool through a touch-optimized terminal.</sub>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 ---
 
-> **TermiPod** is a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), adding i18n support, a complete input UX redesign with CLI agent profiles, code snippets, command history, and other enhancements.
+> **TermiPod** is a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), adding a complete input UX redesign with CLI agent profiles, code snippets, SSH jump host/proxy support, help system, and other enhancements.
 
 ---
 
@@ -34,54 +34,107 @@
 
 ---
 
-## Why TermiPod?
+## What is TermiPod?
 
-Ever needed to check on a long-running process, restart a service, or peek at logs while away from your desk?
+TermiPod is a **mobile SSH client and tmux manager for Android** — purpose-built for developers who run long-lived terminal sessions on remote servers and need to check in, interact, or operate from their phone.
 
-**TermiPod turns your Android phone into a tmux remote control.**
+Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how people actually use terminals on mobile:
 
-- **Zero server setup** — Works with any server running `sshd`. No agents, no daemons, nothing to install.
-- **Built for mobile** — Not a terminal crammed into a phone. A thoughtful UI designed for touch.
-- **Secure by default** — SSH keys stored in Android Keystore. Your credentials never leave the device.
-- **CLI agent optimized** — Built-in profiles for Claude Code, Codex, Kimi Code, OpenCode, and Aider with per-agent button layouts and command presets.
-- **File transfer built-in** — Upload and download files via SFTP without leaving the terminal. Browse remote directories, pick files, track progress.
-- **Multi-language** — English and Chinese (Simplified) out of the box, follows system locale.
+- **Navigate tmux sessions** visually — tap through sessions, windows, and panes instead of memorizing keybindings
+- **Run AI coding agents** (Claude Code, Codex, Kimi Code, Aider) with pre-configured button layouts and command presets
+- **Send commands without fighting the keyboard** — compose bar for multi-line input, action bar for quick keys, snippets for saved commands
+- **Transfer files** to and from servers via SFTP — upload from phone, download and share, browse remote directories
+- **Connect through jump hosts and proxies** — SSH ProxyJump and SOCKS5 proxy support for machines behind NAT or corporate firewalls
+
+### Who is this for?
+
+- **Developers** who SSH into dev machines, CI runners, or cloud VMs
+- **DevOps/SRE** who need to check on services, tail logs, restart processes on the go
+- **AI agent users** who run Claude Code, Codex, Aider, or similar CLI tools in tmux sessions
+- **Homelab enthusiasts** managing servers, Raspberry Pis, NAS boxes from their phone
+- **Anyone with a remote tmux session** who wants a better mobile experience than Termux or JuiceSSH
 
 ---
 
-## What's New in TermiPod
+## Features
 
-Compared to the upstream [MuxPod](https://github.com/moezakura/mux-pod):
+### SSH Connection
+- **Password and key authentication** — Ed25519 and RSA keys, generated on-device or imported
+- **SSH ProxyJump** — Connect through a bastion/jump host to reach internal machines
+- **SOCKS5 proxy** — Route SSH through corporate proxies, VPNs, or Shadowsocks/Clash
+- **Connection testing** — Verify SSH + tmux availability before saving
+- **Secure storage** — Keys and passwords in Android Keystore via flutter_secure_storage
+- **Zero server setup** — Works with any server running `sshd` + `tmux`. Nothing to install remotely.
 
-### Input UX Redesign
-- **Action bar** — Single-row swipeable button groups replacing the old fixed special keys bar. Each profile defines its own groups (Quick, Navigate, Ctrl, Edit, etc.) with 4-6 buttons per page.
-- **Compose bar** — Always-visible primary input with `[+]` insert menu, multi-line text field, and Send button (tap = send with Enter, long-press = send without Enter). Clear button appears when text is entered.
-- **6 built-in profiles** — Claude Code, Codex, Kimi Code, OpenCode, Aider, and General Terminal — each with optimized button layouts.
-- **Profile auto-detection** — Suggests switching profile based on `pane_current_command` (e.g., detects `claude` running and offers Claude Code profile).
-- **Full customization** — Reorder groups, add/remove buttons, create custom profiles, all from Settings > Toolbar.
+### tmux Session Management
+- **Visual session/window/pane navigation** — Breadcrumb header with tap-to-switch
+- **Pane layout visualization** — Accurate proportional view of split panes
+- **Two-finger swipe** between panes — Navigate tmux splits with touch gestures
+- **Create/rename/close** sessions and windows from the app
+- **ANSI color support** — Full 256-color terminal rendering
 
-### Snippets & Command History
-- **Snippet system** — Save frequently-used commands as snippets with categories. Preset agent-specific commands (e.g., `/help`, `/compact`, `/model`) ship per profile.
-- **Bolt button** — Quick access to snippet picker from the action bar. Shows preset agent commands for the active profile plus user snippets, with search and categories.
-- **Command history** — Recent commands (last 10) accessible from `[+]` menu. Full history searchable in Vault. Save any history item as a snippet.
+### Input UX (Mobile-Optimized)
+- **Action bar** — Swipeable button groups with profile-specific layouts. ESC, Tab, Ctrl+C, arrow keys — all one tap away.
+- **Compose bar** — Multi-line text input with send button. Type a command, review it, send it. Long-press send to omit Enter.
+- **6 built-in profiles** — Claude Code, Codex, Kimi Code, OpenCode, Aider, General Terminal. Each with optimized button groups.
+- **Profile auto-detection** — Detects which CLI tool is running and suggests the matching profile
+- **Snippet system** — Save commands as snippets with categories. Preset agent-specific commands ship per profile.
+- **Command history** — Recent commands from [+] menu. Full archive in Vault with search and save-as-snippet.
+- **Direct input mode** — Keystroke-by-keystroke mode for vim, nano, and interactive CLIs
+- **Modifier keys** — Ctrl and Alt as toggle buttons (tap to arm, double-tap to lock)
+- **Key overlay** — Visual feedback showing key names on press (configurable per key category)
 
-### Vault
-- **Keys** — Generate Ed25519/RSA keys on-device, import existing keys. Stored securely with optional passphrase.
-- **Snippets** — Manage user-created snippets with name, content, and category.
-- **History** — Full command history archive with search, swipe-to-delete, and save-as-snippet.
+### File & Image Transfer
+- **SFTP upload** — Pick files from phone, upload to server with progress tracking
+- **SFTP download** — Browse remote directories, download files, share via Android share sheet
+- **Image transfer** — Send photos with format conversion, resize presets, and path injection
+- **Bracketed paste** — Auto-wrap paths in bracketed paste mode for safe insertion
 
-### Key Overlay
-- **Visual key feedback** — Configurable overlay showing key names on press (modifiers, special keys, arrows, shortcuts). Adjustable position (above keyboard, center, below header).
+### Help & Onboarding
+- **Built-in help** — Tabbed cheat sheet for action bar buttons and tmux keybindings, accessible from terminal menu
+- **First-run walkthrough** — 4-card onboarding overlay explaining compose bar, action bar, insert menu, and terminal menu
 
-### Other Features
-- **i18n** — Full English and Chinese Simplified localization across all screens, auto-detects system language.
-- **File transfer** — Upload files from phone to server and download remote files via SFTP, with progress tracking, remote file browser, and Android share integration.
-- **Image transfer** — Send photos from camera or gallery to the server with format conversion, resize presets, and path injection into terminal.
-- **Notification alerts** — Monitor tmux window flags (bell, activity, silence) across all connections in real-time.
-- **Deep linking** — `muxpod://` URL scheme for external app integration (e.g., Telegram notifications that open the right terminal).
-- **Foldable device support** — Adapts UI for large inner screens on foldable phones.
-- **Auto-resize** — Adjusts terminal font size or tmux pane dimensions to fit screen.
-- **Bug fixes** — Scroll-on-resize, session list separation, back button handling, CSI private mode sequences, and more.
+### Other
+- **Notification alerts** — Monitor tmux window flags (bell, activity, silence) across all connections
+- **Deep linking** — `muxpod://` URL scheme for opening specific terminal sessions from external apps
+- **Foldable device support** — Adapts layout for large inner screens
+- **Auto-resize** — Adjusts terminal dimensions to fit screen
+- **i18n** — English and Chinese (Simplified), follows system locale
+
+---
+
+## How TermiPod Compares
+
+| Feature | TermiPod | Termux | JuiceSSH | Termius | ConnectBot |
+|---------|----------|--------|----------|---------|------------|
+| **tmux integration** | Native (visual navigation) | Manual (CLI) | None | None | None |
+| **AI agent profiles** | 6 built-in (Claude, Codex, Aider...) | None | None | None | None |
+| **Action bar** | Swipeable, per-profile | Extra keys row | Basic buttons | Custom toolbar | None |
+| **Snippet system** | Categories + agent presets | None | Snippet support | Snippet support | None |
+| **SSH jump host** | Built-in ProxyJump | Via CLI | Via CLI | Built-in | None |
+| **SOCKS5 proxy** | Built-in | Via CLI | None | None | None |
+| **File transfer** | SFTP with UI | Local filesystem | None | SFTP | None |
+| **Help / cheat sheet** | Built-in tmux reference | None | None | None | None |
+| **Open source** | Yes (Apache 2.0) | Yes | No | No | Yes |
+| **Price** | Free | Free | Freemium | Freemium | Free |
+
+**TermiPod is not a local terminal emulator** (like Termux). It's a remote terminal client that connects to servers via SSH. Think of it as a mobile-optimized replacement for opening a terminal on your laptop, running `ssh server`, and attaching to a tmux session.
+
+---
+
+## Common Use Cases
+
+### Monitor Claude Code / AI agents
+SSH into your dev machine, attach to the tmux session running Claude Code, and interact using the optimized Claude Code profile with pre-configured buttons for `/help`, `/compact`, escape, and interrupt.
+
+### Quick server check from phone
+Something alerting at 2am? Open TermiPod, tap your server from the dashboard, check logs, restart a service, detach. Total time: 30 seconds.
+
+### Manage homelab / Raspberry Pi
+Connect to your home server behind NAT using SSH ProxyJump through a VPS, or SOCKS5 through Tailscale/Cloudflare Tunnel. Transfer config files via SFTP.
+
+### Pair programming on the go
+Share a tmux session with a colleague. You watch and interact from your phone while they code on their laptop.
 
 ---
 
@@ -99,7 +152,7 @@ Your home screen. Recent sessions sorted by last access time. **One tap to recon
 
 ### Servers
 
-Manage SSH connections. **Tap to expand** a server card and see active tmux sessions. Create new sessions or jump into existing ones.
+Manage SSH connections. **Tap to expand** a server card and see active tmux sessions. Create new sessions or jump into existing ones. Configure jump hosts and SOCKS5 proxies per connection.
 
 ### Alerts
 
@@ -114,9 +167,9 @@ Monitor tmux window flags across all connections in real-time.
 ### Vault
 
 Three sections in a scrollable list:
-- **Keys** — Generate or import SSH keys. One-tap copy public key.
+- **Keys** — Generate or import SSH keys (Ed25519/RSA). One-tap copy public key.
 - **Snippets** — Manage saved commands with name, content, and category.
-- **History** — Full command history with search, delete, and save-as-snippet.
+- **History** — Full command history archive with search, delete, and save-as-snippet.
 
 ### Settings
 
@@ -124,7 +177,7 @@ Three sections in a scrollable list:
 |---------|---------|
 | **Terminal** | Cursor, adjust mode, font size/family, scrollback lines |
 | **Key Overlay** | Toggle per key category, position |
-| **Toolbar** | Active profile, customize groups |
+| **Toolbar** | Active profile, customize groups and buttons |
 | **Behavior** | Haptic feedback, keep screen on, invert pane navigation |
 | **Appearance** | Theme (dark/light), language (English/Chinese/System) |
 | **Image Transfer** | Remote path, format, quality, resize, path format |
@@ -132,7 +185,7 @@ Three sections in a scrollable list:
 
 ---
 
-## Terminal Experience
+## Terminal Screen
 
 The terminal screen is where TermiPod shines — purpose-built for mobile tmux interaction.
 
@@ -149,22 +202,23 @@ Tap **Session > Window > Pane** in the header to switch contexts instantly. The 
 | Gesture | Action |
 |---------|--------|
 | **Hold + Swipe** | Send arrow keys — perfect for vim/nano |
+| **Two-finger swipe** | Switch tmux panes |
 | **Pinch** | Zoom in/out (50%–500%) |
 | **Tap pane indicator** | Quick pane switcher with visual layout |
 
 ### Action Bar
 
-A single-row swipeable toolbar replacing the old fixed special keys bar:
+A single-row swipeable toolbar with per-profile button layouts:
 
 ```
-← [ESC] [TAB] [C-C] [y] [n] [C-D] [⚡] →    [⋮]
-                    · · ● · ·
+← [ESC] [TAB] [C-C] [y] [n] [C-D] [bolt] →    [menu]
+                    . . . . .
 ```
 
 - **Swipe** between button groups (Quick, Navigate, Ctrl, Edit, etc.)
 - **Page dots** show current position
-- **[⋮]** opens profile sheet — switch profiles, manage snippets, reset to default
-- **[⚡] bolt** opens snippet picker — agent commands + user snippets
+- **[menu]** opens profile sheet — switch profiles, manage snippets
+- **[bolt]** opens snippet picker — agent commands + user snippets with search
 - **Modifier keys** (CTRL, ALT) toggle on tap, lock on double-tap
 - **Confirm buttons** (y/n) send with Enter on tap, without Enter on long-press
 
@@ -173,13 +227,13 @@ A single-row swipeable toolbar replacing the old fixed special keys bar:
 Always-visible primary input below the action bar:
 
 ```
-[+] [ Type command or prompt...        ][×] [▶]
+[+] [ Type command or prompt...        ][clear] [send]
 ```
 
 - **[+]** insert menu — Recent, File Upload/Download, Image Transfer, Direct Input toggle
 - **Multi-line** text field with auto-expand
-- **[▶] Send** — tap sends with Enter, long-press sends without Enter
-- **[×] Clear** — tap clears text, long-press clears + sends C-u
+- **Send** — tap sends with Enter, long-press sends without Enter
+- **Clear** — tap clears text, long-press clears + sends C-u (kill line)
 
 ### Profiles
 
@@ -226,9 +280,10 @@ flutter build apk --release
 ### Connect
 
 1. **Add a server** — Tap + on Servers tab, enter host/port/username
-2. **Authenticate** — Choose password or SSH key (generate in Keys tab)
-3. **Navigate** — Expand server > select session > tap window > choose pane
-4. **Interact** — Use the action bar, compose bar, or Direct Input mode
+2. **Authenticate** — Choose password or SSH key (generate in Vault > Keys)
+3. **Optional: Configure jump host or proxy** — Expand the Jump Host or SOCKS5 Proxy section in the connection form
+4. **Navigate** — Expand server > select session > tap window > choose pane
+5. **Interact** — Use the action bar for quick keys, compose bar for commands, [+] for snippets and file transfers
 
 ---
 
@@ -239,6 +294,7 @@ flutter build apk --release
 | **Device** | Android 8.0+ (API 26) |
 | **Server** | Any SSH server (OpenSSH, Dropbear, etc.) |
 | **tmux** | Any version (tested with 2.9+) |
+| **Network** | Direct SSH, or via jump host / SOCKS5 proxy |
 
 ---
 
@@ -248,9 +304,9 @@ flutter build apk --release
 |---|---|
 | **Framework** | Flutter 3.24+ / Dart 3.x |
 | **SSH** | [dartssh2](https://pub.dev/packages/dartssh2) |
-| **Terminal** | [xterm](https://pub.dev/packages/xterm) |
+| **Terminal** | [xterm](https://pub.dev/packages/xterm) (rendering) |
 | **State** | [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) |
-| **Security** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) |
+| **Security** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) (Android Keystore) |
 
 ---
 
@@ -266,6 +322,15 @@ See [docs/](docs/) for architecture details and coding conventions.
 
 ---
 
+## Roadmap
+
+- Navigation pad — Game-style D-pad and action buttons for thumb-optimized arrow/tab/enter input
+- Custom terminal keyboard — Compact Flutter-native keyboard for direct input mode (half the height of system keyboard)
+- Real xterm mode — Native VT terminal via PTY stream as alternative to tmux polling
+- Local echo — Predictive character display for low-latency feel on slow connections
+
+---
+
 ## Acknowledgments
 
 TermiPod is built on top of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura). Thanks for the excellent foundation.
@@ -277,5 +342,5 @@ TermiPod is built on top of [MuxPod](https://github.com/moezakura/mux-pod) by [@
 ---
 
 <p align="center">
-  <sub>Built with Flutter</sub>
+  <sub>Built with Flutter. Designed for mobile. Made for developers who live in the terminal.</sub>
 </p>

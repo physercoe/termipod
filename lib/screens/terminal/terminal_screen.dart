@@ -30,7 +30,6 @@ import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/action_bar/action_bar.dart';
 import '../../widgets/action_bar/compose_bar.dart';
 import '../../widgets/action_bar/insert_menu.dart';
-import '../../providers/history_provider.dart';
 import '../../widgets/action_bar/snippet_picker_sheet.dart';
 import '../../widgets/action_bar/profile_sheet.dart';
 import '../../widgets/action_bar/recent_sheet.dart';

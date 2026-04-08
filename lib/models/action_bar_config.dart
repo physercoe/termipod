@@ -163,7 +163,6 @@ class ActionBarButton {
     'image_transfer': 'Upload image',
     'direct_input': 'Toggle direct input',
   };
-  }
 }
 
 /// A named group of buttons (one swipeable page)

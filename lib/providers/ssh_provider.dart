@@ -7,7 +7,7 @@ import '../services/network/network_monitor.dart';
 import '../services/ssh/ssh_client.dart';
 import 'connection_provider.dart';
 
-/// SSH接続状態
+/// SSH connection state
 class SshState {
   final SshConnectionState connectionState;
   final String? error;
@@ -16,13 +16,13 @@ class SshState {
   final int reconnectAttempt;
   final int? reconnectDelayMs;
 
-  /// ネットワークが利用可能か
+  /// Whether network is available
   final bool isNetworkAvailable;
 
-  /// 次回リトライ予定時刻
+  /// Next retry time
   final DateTime? nextRetryAt;
 
-  /// 再接続が一時停止中か（ネットワーク不可時）
+  /// Whether reconnection is paused (network unavailable)
   final bool isPaused;
 
   const SshState({
@@ -66,52 +66,52 @@ class SshState {
   bool get isDisconnected => connectionState == SshConnectionState.disconnected;
   bool get hasError => connectionState == SshConnectionState.error;
 
-  /// オフラインで待機中か
+  /// Whether waiting for network while offline
   bool get isWaitingForNetwork => isPaused && !isNetworkAvailable;
 }
 
-/// SSH接続を管理するNotifier
-class SshNotifier extends Notifier<SshState> {
+/// SSH connection manager — one instance per connectionId via .family provider.
+///
+/// Each connection gets its own isolated SshNotifier. No generation counters
+/// or cross-connection race guards needed — isolation is structural.
+/// Auto-disposed when the last listener (TerminalScreen) is removed.
+class SshNotifier extends AutoDisposeFamilyNotifier<SshState, String> {
   SshClient? _client;
   final SshForegroundTaskService _foregroundService = SshForegroundTaskService();
 
-  // 再接続用のキャッシュ
+  // Cached connection info for reconnection
   Connection? _lastConnection;
   SshConnectOptions? _lastOptions;
 
-  // 無制限リトライモード（0 = 無制限）
-  static const int _maxReconnectAttempts = 0; // 無制限
+  // Unlimited retry mode (0 = unlimited)
+  static const int _maxReconnectAttempts = 0;
 
-  // 指数バックオフ（最大60秒）
+  // Exponential backoff (max 60s)
   static const int _baseDelayMs = 1000;
   static const int _maxDelayMs = 60000;
   static const double _backoffMultiplier = 1.5;
 
-  // 接続状態監視用
+  // Connection state monitoring
   StreamSubscription<SshConnectionState>? _connectionStateSubscription;
 
-  // ネットワーク状態監視用
+  // Network state monitoring
   StreamSubscription<NetworkStatus>? _networkStatusSubscription;
 
-  // 再接続タイマー
+  // Reconnect timer
   Timer? _reconnectTimer;
 
-  // Generation counter: incremented on every new connectWithoutShell call.
-  // Prevents stale _doReconnect from interfering after a different terminal takes over.
-  int _generation = 0;
-
-  // 切断検知コールバック（外部から設定可能）
+  // Disconnect callback (set externally by terminal screen)
   void Function()? onDisconnectDetected;
 
-  // 再接続成功コールバック（外部から設定可能）
+  // Reconnect success callback (set externally by terminal screen)
   void Function()? onReconnectSuccess;
 
   @override
-  SshState build() {
-    // ネットワーク状態を監視
+  SshState build(String arg) {
+    // Monitor network state
     _startNetworkMonitoring();
 
-    // クリーンアップを登録
+    // Register cleanup — auto-dispose handles calling this
     ref.onDispose(() {
       _reconnectTimer?.cancel();
       _connectionStateSubscription?.cancel();
@@ -122,44 +122,41 @@ class SshNotifier extends Notifier<SshState> {
     return const SshState();
   }
 
-  /// ネットワーク状態の監視を開始
+  /// The connectionId this notifier is scoped to
+  String get connectionId => arg;
+
+  /// Start network state monitoring
   void _startNetworkMonitoring() {
     final monitor = ref.read(networkMonitorProvider);
     _networkStatusSubscription = monitor.statusStream.listen(_onNetworkStatusChanged);
   }
 
-  /// ネットワーク状態変化のハンドラ
+  /// Network state change handler
   void _onNetworkStatusChanged(NetworkStatus status) {
     final isOnline = status == NetworkStatus.online;
 
     state = state.copyWith(isNetworkAvailable: isOnline);
 
     if (isOnline) {
-      // オフラインからオンラインに復帰した場合
       if (state.isPaused && state.isReconnecting) {
-        // 即座に再接続を試みる（遅延なし）
         state = state.copyWith(isPaused: false, reconnectAttempt: 0);
         _reconnectTimer?.cancel();
-        // 直接_doReconnectを呼んで即座に再接続
         _doReconnect();
       }
     } else {
-      // オフラインになった場合
       if (state.isReconnecting) {
-        // 再接続を一時停止
         state = state.copyWith(isPaused: true);
         _reconnectTimer?.cancel();
       }
     }
   }
 
-  /// 再接続遅延を計算（指数バックオフ）
+  /// Calculate reconnect delay (exponential backoff)
   int _calculateDelay(int attempt) {
     final delay = (_baseDelayMs * _pow(_backoffMultiplier, attempt)).round();
     return delay.clamp(_baseDelayMs, _maxDelayMs);
   }
 
-  /// 累乗計算
   double _pow(double base, int exponent) {
     double result = 1.0;
     for (int i = 0; i < exponent; i++) {
@@ -168,16 +165,16 @@ class SshNotifier extends Notifier<SshState> {
     return result;
   }
 
-  /// SSHクライアントを取得
+  /// Get the SSH client
   SshClient? get client => _client;
 
-  /// 最後の接続情報
+  /// Last connection info
   Connection? get lastConnection => _lastConnection;
 
-  /// 最後の接続オプション
+  /// Last connection options
   SshConnectOptions? get lastOptions => _lastOptions;
 
-  /// SSH接続を確立（シェル付き - 従来方式）
+  /// Establish SSH connection (with shell - legacy mode)
   Future<void> connect(Connection connection, SshConnectOptions options) async {
     state = state.copyWith(
       connectionState: SshConnectionState.connecting,
@@ -200,10 +197,8 @@ class SshNotifier extends Notifier<SshState> {
         connectionState: SshConnectionState.connected,
       );
 
-      // 最終接続日時を更新
       ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
 
-      // Foreground Serviceを開始してバックグラウンドでも接続を維持
       await _foregroundService.startService(
         connectionName: connection.name,
         host: connection.host,
@@ -232,35 +227,18 @@ class SshNotifier extends Notifier<SshState> {
     }
   }
 
-  /// SSH接続を確立（シェルなし - tmuxコマンド方式用）
-  ///
-  /// exec()のみ使用するため、シェルは起動しない。
+  /// Establish SSH connection (without shell - for tmux command mode)
   Future<void> connectWithoutShell(Connection connection, SshConnectOptions options) async {
-    // Increment generation to invalidate any in-flight _doReconnect from a previous terminal
-    _generation++;
-
-    // 再接続用にキャッシュ
+    // Cache for reconnection
     _lastConnection = connection;
     _lastOptions = options;
 
-    // Capture and clear old references synchronously to prevent
-    // a concurrent disconnect() (from old terminal's deactivate) from
-    // interfering with our new connection.
-    final oldSub = _connectionStateSubscription;
-    final oldClient = _client;
-    final oldTimer = _reconnectTimer;
+    // Clean up any existing connection
+    _reconnectTimer?.cancel();
+    await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
-    _reconnectTimer = null;
+    _client?.dispose();
     _client = null;
-
-    // Cancel timer synchronously
-    oldTimer?.cancel();
-
-    // Cancel old subscription (async but on local var — won't touch our new state)
-    await oldSub?.cancel();
-
-    // Dispose old client (fire-and-forget on local var — safe)
-    oldClient?.dispose();
 
     state = state.copyWith(
       connectionState: SshConnectionState.connecting,
@@ -272,7 +250,6 @@ class SshNotifier extends Notifier<SshState> {
     try {
       _client = SshClient();
 
-      // 接続状態のストリームを監視（切断検知の高速化）
       _connectionStateSubscription = _client!.connectionStateStream.listen(
         _onConnectionStateChanged,
       );
@@ -284,18 +261,14 @@ class SshNotifier extends Notifier<SshState> {
         options: options,
       );
 
-      // シェルは起動しない（exec専用）
-
       state = state.copyWith(
         connectionState: SshConnectionState.connected,
         isReconnecting: false,
         reconnectAttempt: 0,
       );
 
-      // 最終接続日時を更新
       ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
 
-      // Foreground Serviceを開始してバックグラウンドでも接続を維持
       await _foregroundService.startService(
         connectionName: connection.name,
         host: connection.host,
@@ -324,40 +297,30 @@ class SshNotifier extends Notifier<SshState> {
     }
   }
 
-  /// 接続状態変化のハンドラ
-  ///
-  /// Keep-aliveやソケットからの切断検知を即座に処理する。
+  /// Connection state change handler
   void _onConnectionStateChanged(SshConnectionState newState) {
-    // 接続中の状態から切断/エラーになった場合
     if (state.isConnected &&
         (newState == SshConnectionState.error ||
          newState == SshConnectionState.disconnected)) {
-      // 状態を更新
       state = state.copyWith(
         connectionState: newState,
         error: newState == SshConnectionState.error ? 'Connection lost' : null,
       );
 
-      // 切断検知コールバックを呼び出し
       onDisconnectDetected?.call();
 
-      // 自動再接続を試みる（すでに再接続中でなければ）
       if (!state.isReconnecting) {
         reconnect();
       }
     }
   }
 
-  /// 再接続を試みる
-  ///
-  /// 自動再接続用。指数バックオフで無制限に試行する。
-  /// ネットワークがオフラインの場合は一時停止し、復帰時に自動再開。
+  /// Attempt reconnection with exponential backoff
   Future<bool> reconnect() async {
     if (_lastConnection == null || _lastOptions == null) {
       return false;
     }
 
-    // ネットワークがオフラインの場合は一時停止
     if (!state.isNetworkAvailable) {
       state = state.copyWith(
         isReconnecting: true,
@@ -369,7 +332,6 @@ class SshNotifier extends Notifier<SshState> {
 
     final attempt = state.reconnectAttempt;
 
-    // 無制限リトライでない場合のみ上限チェック
     if (_maxReconnectAttempts > 0 && attempt >= _maxReconnectAttempts) {
       state = state.copyWith(
         isReconnecting: false,
@@ -389,7 +351,6 @@ class SshNotifier extends Notifier<SshState> {
       nextRetryAt: nextRetry,
     );
 
-    // 遅延後に再接続
     final completer = Completer<bool>();
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(milliseconds: delayMs), () async {
@@ -402,47 +363,28 @@ class SshNotifier extends Notifier<SshState> {
     return completer.future;
   }
 
-  /// 実際の再接続処理
-  ///
-  /// Uses generation counter to detect if another terminal has called
-  /// connectWithoutShell() during our async gaps. If generation changes,
-  /// we bail out WITHOUT touching _client (which now belongs to the new terminal).
+  /// Perform the actual reconnection.
+  /// No generation guards needed — each connection has its own isolated notifier.
   Future<bool> _doReconnect() async {
     if (_lastConnection == null || _lastOptions == null) {
       return false;
     }
 
-    // ネットワークがオフラインの場合は中断
     if (!state.isNetworkAvailable) {
       state = state.copyWith(isPaused: true);
       return false;
     }
 
-    // Capture generation before async work to detect if another terminal takes over
-    final gen = _generation;
-
     try {
-      // Cancel old subscription using local capture to avoid nulling a
-      // subscription that connectWithoutShell() may have set up.
-      final oldSub = _connectionStateSubscription;
+      await _connectionStateSubscription?.cancel();
       _connectionStateSubscription = null;
-      await oldSub?.cancel();
 
-      // Re-check generation after first await — connectWithoutShell may have run
-      if (gen != _generation) return false;
-
-      // Now safe to modify shared state — we're still the current generation.
-      // Capture old client locally for cleanup, then create new one.
-      final oldClient = _client;
+      _client?.dispose();
       _client = SshClient();
 
-      // 接続状態のストリームを監視（切断検知の高速化）
       _connectionStateSubscription = _client!.connectionStateStream.listen(
         _onConnectionStateChanged,
       );
-
-      // Dispose old client after creating new one (avoids window with _client == null)
-      oldClient?.dispose();
 
       await _client!.connect(
         host: _lastConnection!.host,
@@ -450,14 +392,6 @@ class SshNotifier extends Notifier<SshState> {
         username: _lastConnection!.username,
         options: _lastOptions!,
       );
-
-      // Re-check generation after connect — another terminal may have taken over.
-      // Do NOT dispose _client here: if generation changed, connectWithoutShell()
-      // already disposed our client and set its own. Touching _client would kill
-      // the new terminal's connection.
-      if (gen != _generation) {
-        return false;
-      }
 
       state = state.copyWith(
         connectionState: SshConnectionState.connected,
@@ -468,26 +402,16 @@ class SshNotifier extends Notifier<SshState> {
         nextRetryAt: null,
       );
 
-      // 再接続成功コールバック
       onReconnectSuccess?.call();
 
       return true;
     } catch (e) {
-      // If generation changed, another terminal took over — do NOT retry or
-      // touch _client (it belongs to the new terminal now).
-      if (gen != _generation) {
-        return false;
-      }
-
-      // 再接続失敗、次の試行をスケジュール
       state = state.copyWith(
         connectionState: SshConnectionState.error,
         error: 'Reconnect failed: $e',
       );
 
-      // 自動で次の試行をスケジュール（無制限リトライの場合）
       if (_maxReconnectAttempts == 0 || state.reconnectAttempt < _maxReconnectAttempts) {
-        // 非同期で次の再接続をスケジュール
         Future.microtask(() => reconnect());
       }
 
@@ -495,7 +419,7 @@ class SshNotifier extends Notifier<SshState> {
     }
   }
 
-  /// 今すぐ再接続を試みる（ユーザー操作用）
+  /// Reconnect immediately (user action)
   Future<bool> reconnectNow() async {
     _reconnectTimer?.cancel();
     state = state.copyWith(
@@ -505,12 +429,12 @@ class SshNotifier extends Notifier<SshState> {
     return _doReconnect();
   }
 
-  /// 接続がアクティブかチェック
+  /// Check if connection is active
   bool checkConnection() {
     return _client != null && _client!.isConnected;
   }
 
-  /// 再接続状態をリセット
+  /// Reset reconnection state
   void resetReconnect() {
     _reconnectTimer?.cancel();
     state = state.copyWith(
@@ -522,76 +446,45 @@ class SshNotifier extends Notifier<SshState> {
     );
   }
 
-  /// 切断
-  ///
-  /// IMPORTANT: This method is called from deactivate() which is synchronous
-  /// and does NOT await the result. To prevent racing with a subsequent
-  /// connectWithoutShell() call (from a new terminal), all shared mutable
-  /// fields (_client, _connectionStateSubscription, _reconnectTimer) are
-  /// captured in local variables and nulled synchronously BEFORE any await.
-  /// Async cleanup then operates only on the captured locals.
+  /// Disconnect
   Future<void> disconnect() async {
-    // Capture references locally BEFORE any await to avoid racing with
-    // connectWithoutShell() which may run during our async gaps.
-    final clientToDisconnect = _client;
-    final subToCancel = _connectionStateSubscription;
-    final timerToCancel = _reconnectTimer;
-
-    // Synchronously clear shared fields so any concurrent
-    // connectWithoutShell() sees clean state immediately.
-    _reconnectTimer = null;
+    _reconnectTimer?.cancel();
+    await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
+
+    await _foregroundService.stopService();
+    await _client?.disconnect();
     _client = null;
 
-    // Cancel timer synchronously (safe, no await needed)
-    timerToCancel?.cancel();
-
-    // Async cleanup on captured (local) references only.
-    // These operations cannot interfere with a new connection.
-    await subToCancel?.cancel();
-
-    // Only stop foreground service if no new connection has started.
-    // If connectWithoutShell() ran during our cleanup, it will manage the service.
-    // Stopping it here could cause Android to kill the process mid-connect.
-    if (_client == null) {
-      await _foregroundService.stopService();
-    }
-
-    await clientToDisconnect?.disconnect();
-
-    // Only update state if no new connection has been established
-    // while we were cleaning up. If connectWithoutShell() ran during
-    // our awaits, _client will be non-null (the new terminal's client).
-    if (_client == null) {
-      state = state.copyWith(
-        connectionState: SshConnectionState.disconnected,
-        error: null,
-        sessionTitle: null,
-        isReconnecting: false,
-        isPaused: false,
-        reconnectAttempt: 0,
-        nextRetryAt: null,
-      );
-    }
+    state = state.copyWith(
+      connectionState: SshConnectionState.disconnected,
+      error: null,
+      sessionTitle: null,
+      isReconnecting: false,
+      isPaused: false,
+      reconnectAttempt: 0,
+      nextRetryAt: null,
+    );
   }
 
-  /// セッションタイトルを更新
+  /// Update session title
   void updateSessionTitle(String title) {
     state = state.copyWith(sessionTitle: title);
   }
 
-  /// データを送信
+  /// Send data
   void write(String data) {
     _client?.write(data);
   }
 
-  /// ターミナルサイズを変更
+  /// Resize terminal
   void resize(int cols, int rows) {
     _client?.resize(cols, rows);
   }
 }
 
-/// SSHプロバイダー
-final sshProvider = NotifierProvider<SshNotifier, SshState>(() {
+/// SSH provider — keyed by connectionId.
+/// Each connection gets its own isolated instance, auto-disposed when no longer watched.
+final sshProvider = NotifierProvider.autoDispose.family<SshNotifier, SshState, String>(() {
   return SshNotifier();
 });

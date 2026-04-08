@@ -111,18 +111,21 @@ class FileTransferOptions {
   });
 }
 
-/// File transfer notifier
-class FileTransferNotifier extends Notifier<FileTransferState> {
+/// File transfer notifier — one instance per connectionId via .family provider.
+class FileTransferNotifier extends AutoDisposeFamilyNotifier<FileTransferState, String> {
   final _sftpService = SftpService();
   StreamSubscription? _connectionSub;
 
   @override
-  FileTransferState build() {
+  FileTransferState build(String arg) {
     ref.onDispose(() {
       _connectionSub?.cancel();
     });
     return const FileTransferState();
   }
+
+  /// The connectionId this notifier is scoped to
+  String get connectionId => arg;
 
   /// Pick files using system file picker
   Future<void> pickFiles() async {
@@ -184,7 +187,7 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
       return null;
     }
 
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       state = const FileTransferState(
         phase: FileTransferPhase.error,
@@ -265,7 +268,7 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
 
   /// Browse remote directory
   Future<List<SftpFileEntry>?> browseRemote(String path) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       state = const FileTransferState(
         phase: FileTransferPhase.error,
@@ -298,7 +301,7 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
 
   /// Download a remote file to local temp directory
   Future<String?> downloadFile(String remotePath) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       state = const FileTransferState(
         phase: FileTransferPhase.error,
@@ -378,8 +381,8 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
   }
 }
 
-/// File transfer provider
+/// File transfer provider — keyed by connectionId.
 final fileTransferProvider =
-    NotifierProvider<FileTransferNotifier, FileTransferState>(() {
+    NotifierProvider.autoDispose.family<FileTransferNotifier, FileTransferState, String>(() {
   return FileTransferNotifier();
 });

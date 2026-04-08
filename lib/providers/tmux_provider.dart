@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/tmux/tmux_parser.dart';
 
-/// Tmux状態
+/// Tmux state (scoped per connection via family provider)
 class TmuxState {
   final List<TmuxSession> sessions;
   final String? activeSessionName;
@@ -12,9 +12,6 @@ class TmuxState {
   final bool isLoading;
   final String? error;
 
-  /// この状態が属するconnectionId（stale update防止用）
-  final String? connectionId;
-
   const TmuxState({
     this.sessions = const [],
     this.activeSessionName,
@@ -23,7 +20,6 @@ class TmuxState {
     this.activePaneId,
     this.isLoading = false,
     this.error,
-    this.connectionId,
   });
 
   TmuxState copyWith({
@@ -34,7 +30,6 @@ class TmuxState {
     String? activePaneId,
     bool? isLoading,
     String? error,
-    String? connectionId,
     bool clearActiveWindowIndex = false,
     bool clearActivePaneIndex = false,
     bool clearActivePaneId = false,
@@ -47,11 +42,10 @@ class TmuxState {
       activePaneId: clearActivePaneId ? null : (activePaneId ?? this.activePaneId),
       isLoading: isLoading ?? this.isLoading,
       error: error,
-      connectionId: connectionId ?? this.connectionId,
     );
   }
 
-  /// アクティブセッションを取得
+  /// Get the active session
   TmuxSession? get activeSession {
     if (activeSessionName == null) return null;
     try {
@@ -61,7 +55,7 @@ class TmuxState {
     }
   }
 
-  /// アクティブウィンドウを取得
+  /// Get the active window
   TmuxWindow? get activeWindow {
     final session = activeSession;
     if (session == null || activeWindowIndex == null) return null;
@@ -72,7 +66,7 @@ class TmuxState {
     }
   }
 
-  /// アクティブペインを取得
+  /// Get the active pane
   TmuxPane? get activePane {
     final window = activeWindow;
     if (window == null || activePaneId == null) return null;
@@ -84,44 +78,26 @@ class TmuxState {
   }
 }
 
-/// Tmuxセッションを管理するNotifier
-class TmuxNotifier extends Notifier<TmuxState> {
-  /// Monotonically increasing counter. Incremented on every connection change.
-  /// Async operations capture this before awaiting, then validate after.
-  int _generation = 0;
-
+/// Tmux session manager — one instance per connectionId via .family provider.
+///
+/// Each connection gets its own isolated TmuxNotifier. No generation counters
+/// or connectionId guards needed — isolation is structural.
+class TmuxNotifier extends AutoDisposeFamilyNotifier<TmuxState, String> {
   @override
-  TmuxState build() {
+  TmuxState build(String arg) {
     return const TmuxState();
   }
 
-  /// Current generation counter (for capturing before async gaps)
-  int get generation => _generation;
+  /// The connectionId this notifier is scoped to
+  String get connectionId => arg;
 
-  /// Check whether the generation is still current (no connection change happened)
-  bool isCurrentGeneration(int gen) => gen == _generation;
-
-  /// 現在のconnectionIdを設定（接続開始時に呼ぶ）
-  /// Atomically clears old state and sets the new connectionId + generation.
-  void setConnectionId(String connectionId) {
-    _generation++;
-    state = TmuxState(connectionId: connectionId);
-  }
-
-  /// connectionIdが一致するか確認（stale update防止）
-  bool isForConnection(String connectionId) {
-    return state.connectionId == connectionId;
-  }
-
-  /// セッション一覧を更新 (guarded by connectionId)
-  void updateSessions(List<TmuxSession> sessions, {String? forConnection}) {
-    if (forConnection != null && state.connectionId != forConnection) return;
+  /// Update session list
+  void updateSessions(List<TmuxSession> sessions) {
     state = state.copyWith(sessions: sessions, error: null);
   }
 
-  /// セッション一覧を解析して更新 (guarded by connectionId)
-  void parseAndUpdateSessions(String output, {String? forConnection}) {
-    if (forConnection != null && state.connectionId != forConnection) return;
+  /// Parse and update sessions from tmux output
+  void parseAndUpdateSessions(String output) {
     try {
       final sessions = TmuxParser.parseSessions(output);
       state = state.copyWith(sessions: sessions, error: null);
@@ -130,9 +106,8 @@ class TmuxNotifier extends Notifier<TmuxState> {
     }
   }
 
-  /// フルツリーを解析して更新 (guarded by connectionId)
-  void parseAndUpdateFullTree(String output, {String? forConnection}) {
-    if (forConnection != null && state.connectionId != forConnection) return;
+  /// Parse and update full tree from tmux output
+  void parseAndUpdateFullTree(String output) {
     try {
       final sessions = TmuxParser.parseFullTree(output);
       state = state.copyWith(sessions: sessions, error: null);
@@ -141,9 +116,8 @@ class TmuxNotifier extends Notifier<TmuxState> {
     }
   }
 
-  /// アクティブセッションを設定
+  /// Set active session
   void setActiveSession(String sessionName) {
-    // セッション内の最初のアクティブウィンドウとペインを自動選択
     final session = state.sessions.where((s) => s.name == sessionName).firstOrNull;
     final activeWindow = session?.windows.where((w) => w.active).firstOrNull ?? session?.windows.firstOrNull;
     final activePane = activeWindow?.panes.where((p) => p.active).firstOrNull ?? activeWindow?.panes.firstOrNull;
@@ -159,9 +133,8 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// アクティブウィンドウを設定
+  /// Set active window
   void setActiveWindow(int windowIndex) {
-    // ウィンドウ内の最初のアクティブペインを自動選択
     final session = state.activeSession;
     final window = session?.windows.where((w) => w.index == windowIndex).firstOrNull;
     final activePane = window?.panes.where((p) => p.active).firstOrNull ?? window?.panes.firstOrNull;
@@ -175,7 +148,7 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// アクティブペインを設定（pane index）
+  /// Set active pane by index
   void setActivePaneByIndex(int paneIndex, {String? paneId}) {
     state = state.copyWith(
       activePaneIndex: paneIndex,
@@ -183,9 +156,8 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// アクティブペインを設定（pane ID）
+  /// Set active pane by ID
   void setActivePane(String paneId) {
-    // paneIdからindexを取得
     final window = state.activeWindow;
     final pane = window?.panes.where((p) => p.id == paneId).firstOrNull;
     state = state.copyWith(
@@ -194,10 +166,8 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// カーソル位置を更新 (guarded by connectionId)
-  void updateCursorPosition(String paneId, int x, int y, {String? forConnection}) {
-    if (forConnection != null && state.connectionId != forConnection) return;
-    // 変更がない場合はディープコピーを回避してスキップ
+  /// Update cursor position for a pane
+  void updateCursorPosition(String paneId, int x, int y) {
     final currentPane = state.activePane;
     if (currentPane == null || currentPane.id != paneId) return;
     if (currentPane.cursorX == x && currentPane.cursorY == y) return;
@@ -218,7 +188,7 @@ class TmuxNotifier extends Notifier<TmuxState> {
     state = state.copyWith(sessions: sessions);
   }
 
-  /// アクティブなセッション/ウィンドウ/ペインを一括設定
+  /// Set active session/window/pane in one call
   void setActive({
     String? sessionName,
     int? windowIndex,
@@ -233,8 +203,7 @@ class TmuxNotifier extends Notifier<TmuxState> {
     );
   }
 
-  /// 現在のポーリング対象のtmuxターゲット文字列を取得
-  /// format: session:window.pane
+  /// Get the current tmux target string (session:window.pane)
   String? get currentTarget {
     final session = state.activeSessionName;
     final window = state.activeWindowIndex;
@@ -243,25 +212,24 @@ class TmuxNotifier extends Notifier<TmuxState> {
     return '$session:$window.$pane';
   }
 
-  /// ローディング状態を設定
+  /// Set loading state
   void setLoading(bool isLoading) {
     state = state.copyWith(isLoading: isLoading);
   }
 
-  /// エラーを設定
+  /// Set error
   void setError(String? error) {
     state = state.copyWith(error: error);
   }
 
-  /// 状態をクリア
-  /// Increments generation to invalidate all in-flight async operations.
+  /// Clear state
   void clear() {
-    _generation++;
     state = const TmuxState();
   }
 }
 
-/// Tmuxプロバイダー
-final tmuxProvider = NotifierProvider<TmuxNotifier, TmuxState>(() {
+/// Tmux provider — keyed by connectionId.
+/// Each connection gets its own isolated instance, auto-disposed when no longer watched.
+final tmuxProvider = NotifierProvider.autoDispose.family<TmuxNotifier, TmuxState, String>(() {
   return TmuxNotifier();
 });

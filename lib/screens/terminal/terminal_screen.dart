@@ -268,7 +268,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = Timer(const Duration(milliseconds: 500), () {
       if (!mounted || _isDisposed) return;
-      final activePane = ref.read(tmuxProvider).activePane;
+      final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
       if (activePane != null) {
         _executeAutoResize(activePane);
       }
@@ -308,7 +308,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   void _setupListeners() {
     // SSH状態の変化を監視
     _sshSubscription = ref.listenManual<SshState>(
-      sshProvider,
+      sshProvider(widget.connectionId),
       (previous, next) {
         if (!mounted || _isDisposed) return;
         setState(() {
@@ -323,7 +323,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // Consumer widgetでtmuxProviderを直接watchするため、
     // サブツリー内でのみリビルドされる。
     _tmuxSubscription = ref.listenManual<TmuxState>(
-      tmuxProvider,
+      tmuxProvider(widget.connectionId),
       (previous, next) {
         // Profile auto-detection from pane_current_command
         final activePane = next.activePane;
@@ -367,7 +367,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
 
     // 再接続成功時の処理を設定
-    final sshNotifier = ref.read(sshProvider.notifier);
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
     sshNotifier.onReconnectSuccess = _onReconnectSuccess;
   }
 
@@ -425,7 +425,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // 3. SSH接続（シェルは起動しない - execのみ使用）
-      final sshNotifier = ref.read(sshProvider.notifier);
+      final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
       await sshNotifier.connectWithoutShell(connection, options);
       if (!mounted || _isDisposed) {
         return;
@@ -441,9 +441,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _tmuxVersion = null;
       }
 
-      // 4. tmuxProviderをアトミックにリセット+connectionId設定
-      // setConnectionIdが状態クリア+generation更新+connectionId設定を一括で行う
-      ref.read(tmuxProvider.notifier).setConnectionId(widget.connectionId);
 
       // 5. セッションツリー全体を取得
       await _refreshSessionTree();
@@ -451,7 +448,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         return;
       }
 
-      final tmuxState = ref.read(tmuxProvider);
+      final tmuxState = ref.read(tmuxProvider(widget.connectionId));
       final sessions = tmuxState.sessions;
 
       // 5. セッションを選択または新規作成
@@ -466,7 +463,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           sessionName = sessions[existingIndex].name;
         } else {
           // 新規セッション作成
-          final sshClient = ref.read(sshProvider.notifier).client;
+          final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
           await sshClient?.exec(TmuxCommands.newSession(
             name: widget.sessionName!,
             detached: true,
@@ -481,7 +478,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         sessionName = sessions.first.name;
       } else {
         // セッションがない場合は自動生成名で新規作成
-        final sshClient = ref.read(sshProvider.notifier).client;
+        final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
         sessionName = 'muxpod-${DateTime.now().millisecondsSinceEpoch}';
         await sshClient?.exec(TmuxCommands.newSession(name: sessionName, detached: true));
         if (!mounted || _isDisposed) return;
@@ -490,12 +487,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // 6. アクティブセッション/ウィンドウ/ペインを設定
-      ref.read(tmuxProvider.notifier).setActiveSession(sessionName);
+      ref.read(tmuxProvider(widget.connectionId).notifier).setActiveSession(sessionName);
 
       // 6.1 ディープリンクまたは保存されたウィンドウ/ペイン位置を復元
       if (widget.deepLinkWindowName != null) {
         // ディープリンク: ウィンドウ名で検索
-        final tmuxState = ref.read(tmuxProvider);
+        final tmuxState = ref.read(tmuxProvider(widget.connectionId));
         final session = tmuxState.activeSession;
         if (session != null) {
           final targetName = widget.deepLinkWindowName!;
@@ -508,18 +505,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             }
           }
           if (window != null) {
-            ref.read(tmuxProvider.notifier).setActiveWindow(window.index);
+            ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
 
             // ペインインデックスが指定されている場合
             if (widget.deepLinkPaneIndex != null && widget.deepLinkPaneIndex! < window.panes.length) {
               final pane = window.panes[widget.deepLinkPaneIndex!];
-              ref.read(tmuxProvider.notifier).setActivePane(pane.id);
+              ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
             }
           }
         }
       } else if (widget.lastWindowIndex != null) {
         // 通常の復元: インデックスで検索
-        final tmuxState = ref.read(tmuxProvider);
+        final tmuxState = ref.read(tmuxProvider(widget.connectionId));
         final session = tmuxState.activeSession;
         if (session != null) {
           // 指定されたウィンドウが存在するか確認
@@ -527,7 +524,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             (w) => w.index == widget.lastWindowIndex,
             orElse: () => session.windows.first,
           );
-          ref.read(tmuxProvider.notifier).setActiveWindow(window.index);
+          ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
 
           // ペインIDが指定されていて存在する場合は復元
           if (widget.lastPaneId != null) {
@@ -535,13 +532,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               (p) => p.id == widget.lastPaneId,
               orElse: () => window.panes.first,
             );
-            ref.read(tmuxProvider.notifier).setActivePane(pane.id);
+            ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
           }
         }
       }
 
       // 7. TerminalDisplayProviderにペイン情報を通知（フォントサイズ計算用）
-      final activePane = ref.read(tmuxProvider).activePane;
+      final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
       if (activePane != null) {
         debugPrint('[Terminal] Pane size: ${activePane.width}x${activePane.height}');
         ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
@@ -574,35 +571,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// セッションツリー全体を取得して更新
   Future<void> _refreshSessionTree() async {
-    if (_isDisposed) {
-      return;
-    }
-    final tmuxNotifier = ref.read(tmuxProvider.notifier);
-    // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
-    if (!tmuxNotifier.isForConnection(widget.connectionId)) {
-      return;
-    }
-    // Capture generation before async gap to detect stale results
-    final gen = tmuxNotifier.generation;
-    final sshClient = ref.read(sshProvider.notifier).client;
-    if (sshClient == null || !sshClient.isConnected) {
-      return;
-    }
+    if (_isDisposed) return;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
+    if (sshClient == null || !sshClient.isConnected) return;
 
     try {
       final cmd = TmuxCommands.listAllPanes();
       final output = await sshClient.exec(cmd);
       if (!mounted || _isDisposed) return;
-      // Validate generation hasn't changed during async exec
-      if (!ref.read(tmuxProvider.notifier).isCurrentGeneration(gen)) {
-        return;
-      }
-      ref.read(tmuxProvider.notifier).parseAndUpdateFullTree(
-        output,
-        forConnection: widget.connectionId,
-      );
+      ref.read(tmuxProvider(widget.connectionId).notifier).parseAndUpdateFullTree(output);
     } catch (_) {
-      // ツリー更新エラーは静かに無視（次回ポーリングで再試行）
+      // Tree update errors are silently ignored (retried on next poll)
     }
   }
 
@@ -668,22 +647,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// ペイン内容をポーリング取得
   Future<void> _pollPaneContent() async {
-    if (_isPolling || _isDisposed) return; // 前回のポーリングがまだ実行中 or disposed
-    final tmuxNotifier = ref.read(tmuxProvider.notifier);
-    // connectionIdガード: 別のconnectionに切り替わっていたらスキップ
-    if (!tmuxNotifier.isForConnection(widget.connectionId)) return;
-    // Capture generation before async gap
-    final gen = tmuxNotifier.generation;
+    if (_isPolling || _isDisposed) return;
     _isPolling = true;
 
     try {
-      final sshNotifier = ref.read(sshProvider.notifier);
+      final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
       final sshClient = sshNotifier.client;
 
       // 接続が切れている場合は自動再接続を試みる
       if (sshClient == null || !sshClient.isConnected) {
         // すでに再接続中でなければ再接続を開始
-        final currentState = ref.read(sshProvider);
+        final currentState = ref.read(sshProvider(widget.connectionId));
         if (!currentState.isReconnecting) {
           _attemptReconnect();
         }
@@ -692,7 +666,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // tmux_providerからターゲットを取得
-      final target = ref.read(tmuxProvider.notifier).currentTarget;
+      final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
       if (target == null) {
         _isPolling = false;
         return;
@@ -726,9 +700,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       final endTime = DateTime.now();
 
-      // アンマウント済み or generation changed (connection switched) ならスキップ
       if (!mounted || _isDisposed) return;
-      if (!ref.read(tmuxProvider.notifier).isCurrentGeneration(gen)) return;
 
       // カーソル位置とペインサイズを更新
       int? historySize;
@@ -745,7 +717,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           if (w != null && h != null && (w != _viewNotifier.value.paneWidth || h != _viewNotifier.value.paneHeight)) {
             _viewNotifier.value = _viewNotifier.value.copyWith(paneWidth: w, paneHeight: h);
             // フォントサイズ再計算のために通知
-            final currentActivePane = ref.read(tmuxProvider).activePane;
+            final currentActivePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
             if (currentActivePane != null) {
               ref.read(terminalDisplayProvider.notifier).updatePane(
                     currentActivePane.copyWith(width: w, height: h),
@@ -753,11 +725,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             }
           }
 
-          final activePaneId = ref.read(tmuxProvider).activePaneId;
+          final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
           if (activePaneId != null && x != null && y != null) {
-            ref.read(tmuxProvider.notifier).updateCursorPosition(
+            ref.read(tmuxProvider(widget.connectionId).notifier).updateCursorPosition(
               activePaneId, x, y,
-              forConnection: widget.connectionId,
             );
           }
         }
@@ -812,7 +783,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       // 通信エラーの場合は自動再接続を試みる
       if (!_isDisposed) {
-        final currentState = ref.read(sshProvider);
+        final currentState = ref.read(sshProvider(widget.connectionId));
         if (!currentState.isReconnecting) {
           _attemptReconnect();
         }
@@ -893,14 +864,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Future<void> _attemptReconnect() async {
     if (_isDisposed) return;
 
-    final sshNotifier = ref.read(sshProvider.notifier);
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
     final success = await sshNotifier.reconnect();
 
     if (!mounted || _isDisposed) return;
 
     if (!success) {
       // 再接続失敗時は再試行（最大回数に達するまで）
-      final currentState = ref.read(sshProvider);
+      final currentState = ref.read(sshProvider(widget.connectionId));
       if (currentState.reconnectAttempt < 5) {
         // 次のポーリングで再試行される
       }
@@ -941,18 +912,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   @override
   void deactivate() {
-    // ref.readはdeactivateまでは安全（disposeでは_elementsから外れている）
-    final sshNotifier = ref.read(sshProvider.notifier);
+    // Clear callbacks to prevent firing after widget is deactivated.
+    // SSH disconnect and tmux state cleanup are handled by auto-dispose
+    // when subscriptions are closed in dispose().
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
     sshNotifier.onReconnectSuccess = null;
     sshNotifier.onDisconnectDetected = null;
-
-    // popUntil等で_disconnect()を経由せずにpopされた場合もSSHを切断
-    if (sshNotifier.checkConnection()) {
-      sshNotifier.disconnect();
-    }
-
-    // tmuxProviderの状態をクリアして他のconnectionへの汚染を防止
-    ref.read(tmuxProvider.notifier).clear();
 
     super.deactivate();
   }
@@ -1015,7 +980,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               // ブレッドクラム: ConsumerでtmuxProviderを直接watch（親リビルド不要）
               Consumer(
                 builder: (context, ref, _) {
-                  final tmuxState = ref.watch(tmuxProvider);
+                  final tmuxState = ref.watch(tmuxProvider(widget.connectionId));
                   return _buildBreadcrumbHeader(tmuxState);
                 },
               ),
@@ -1040,7 +1005,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           builder: (context, viewData, _) {
                             return Consumer(
                               builder: (context, ref, _) {
-                                final cursor = ref.watch(tmuxProvider.select((s) => (
+                                final cursor = ref.watch(tmuxProvider(widget.connectionId).select((s) => (
                                   x: s.activePane?.cursorX ?? 0,
                                   y: s.activePane?.cursorY ?? 0,
                                 )));
@@ -1081,7 +1046,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         right: 8,
                         child: Consumer(
                           builder: (context, ref, _) {
-                            final tmuxState = ref.watch(tmuxProvider);
+                            final tmuxState = ref.watch(tmuxProvider(widget.connectionId));
                             return _buildPaneIndicator(tmuxState);
                           },
                         ),
@@ -1120,7 +1085,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               // 画像アップロード進捗バー
               Consumer(
                 builder: (context, ref, _) {
-                  final transfer = ref.watch(imageTransferProvider);
+                  final transfer = ref.watch(imageTransferProvider(widget.connectionId));
                   final isActive = transfer.phase == ImageTransferPhase.uploading ||
                       transfer.phase == ImageTransferPhase.converting;
                   if (!isActive) return const SizedBox.shrink();
@@ -1134,7 +1099,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               // File transfer progress bar (upload or download)
               Consumer(
                 builder: (context, ref, _) {
-                  final transfer = ref.watch(fileTransferProvider);
+                  final transfer = ref.watch(fileTransferProvider(widget.connectionId));
                   final isUploading = transfer.phase == FileTransferPhase.uploading;
                   final isDownloading = transfer.phase == FileTransferPhase.downloading;
                   if (!isUploading && !isDownloading) return const SizedBox.shrink();
@@ -1252,7 +1217,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// 2本指スワイプによるペイン切り替え
   void _handleTwoFingerSwipe(SwipeDirection direction) {
-    final tmuxState = ref.read(tmuxProvider);
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
     final window = tmuxState.activeWindow;
     final activePane = tmuxState.activePane;
     if (window == null || activePane == null) return;
@@ -1276,7 +1241,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// 現在のペインからナビゲーション可能な方向を取得
   Map<SwipeDirection, bool>? _getNavigableDirections() {
-    final tmuxState = ref.read(tmuxProvider);
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
     final window = tmuxState.activeWindow;
     final activePane = tmuxState.activePane;
     if (window == null || activePane == null) return null;
@@ -1300,7 +1265,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// キーデータをtmux send-keysで送信
   Future<void> _sendKeyData(String data) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
 
     // 接続が切れている場合はキューに追加
     if (sshClient == null || !sshClient.isConnected) {
@@ -1309,7 +1274,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
 
-    final target = ref.read(tmuxProvider.notifier).currentTarget;
+    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
 
     try {
@@ -1323,14 +1288,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// セッションを選択
   Future<void> _selectSession(String sessionName) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null) return;
 
     // tmux_providerでアクティブセッションを更新
-    ref.read(tmuxProvider.notifier).setActiveSession(sessionName);
+    ref.read(tmuxProvider(widget.connectionId).notifier).setActiveSession(sessionName);
 
     // アクティブなペインを選択状態にする（select-paneコマンドを実行）
-    final activePaneId = ref.read(tmuxProvider).activePaneId;
+    final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
@@ -1342,13 +1307,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// ウィンドウを選択
   Future<void> _selectWindow(String sessionName, int windowIndex) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
     // セッションが異なる場合はセッションも切り替え
-    final currentSession = ref.read(tmuxProvider).activeSessionName;
+    final currentSession = ref.read(tmuxProvider(widget.connectionId)).activeSessionName;
     if (currentSession != sessionName) {
-      ref.read(tmuxProvider.notifier).setActiveSession(sessionName);
+      ref.read(tmuxProvider(widget.connectionId).notifier).setActiveSession(sessionName);
     }
 
     try {
@@ -1362,10 +1327,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!mounted || _isDisposed) return;
 
     // tmux_providerでアクティブウィンドウを更新
-    ref.read(tmuxProvider.notifier).setActiveWindow(windowIndex);
+    ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(windowIndex);
 
     // アクティブなペインを選択状態にする（select-paneコマンドを実行）
-    final activePaneId = ref.read(tmuxProvider).activePaneId;
+    final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
@@ -1377,10 +1342,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// ペインを選択
   Future<void> _selectPane(String paneId) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
-    final oldPaneId = ref.read(tmuxProvider).activePaneId;
+    final oldPaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
 
     try {
       // tmux select-paneを実行
@@ -1400,11 +1365,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!mounted || _isDisposed) return;
 
     // tmux_providerでアクティブペインを更新
-    ref.read(tmuxProvider.notifier).setActivePane(paneId);
+    ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(paneId);
 
     // TerminalDisplayProviderにペイン情報を通知（フォントサイズ計算用）
-    final activePane = ref.read(tmuxProvider).activePane;
-    final tmuxState = ref.read(tmuxProvider);
+    final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
     if (activePane != null) {
       ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
       _viewNotifier.value = _viewNotifier.value.copyWith(
@@ -1580,7 +1545,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               children: [
                 ElevatedButton(
                   onPressed: () {
-                    ref.read(sshProvider.notifier).reconnectNow();
+                    ref.read(sshProvider(widget.connectionId).notifier).reconnectNow();
                   },
                   child: Text(AppLocalizations.of(context)!.retryNow),
                 ),
@@ -1915,7 +1880,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isCreatingWindow) return;
     _isCreatingWindow = true;
     try {
-      final sshClient = ref.read(sshProvider.notifier).client;
+      final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null || !sshClient.isConnected) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1924,7 +1889,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         }
         return;
       }
-      final session = ref.read(tmuxProvider).activeSession;
+      final session = ref.read(tmuxProvider(widget.connectionId)).activeSession;
       if (session == null) return;
 
       await sshClient.exec(TmuxCommands.newWindow(
@@ -1935,14 +1900,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted) return;
 
       // active=1のウィンドウを検出して自動切替
-      final updatedSession = ref.read(tmuxProvider).activeSession;
+      final updatedSession = ref.read(tmuxProvider(widget.connectionId)).activeSession;
       final activeWindow =
           updatedSession?.windows.where((w) => w.active).firstOrNull;
       if (activeWindow != null) {
-        ref.read(tmuxProvider.notifier).setActiveWindow(activeWindow.index);
+        ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(activeWindow.index);
         _viewNotifier.value = _viewNotifier.value.copyWith(content: '');
         _hasInitialScrolled = false;
-        final activePaneId = ref.read(tmuxProvider).activePaneId;
+        final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
         if (activePaneId != null) {
           await _selectPane(activePaneId);
         }
@@ -1961,7 +1926,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// ペインを分割
   Future<void> _splitPane(String paneId, SplitDirection direction) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2035,7 +2000,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                final currentWindow = ref.read(tmuxProvider).activeWindow;
+                final currentWindow = ref.read(tmuxProvider(widget.connectionId)).activeWindow;
                 if (currentWindow == null ||
                     !currentWindow.panes.any((p) => p.id == paneId)) {
                   if (mounted) {
@@ -2143,13 +2108,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _isResizing = true;
     _pollTimer?.cancel();
     try {
-      final sshClient = ref.read(sshProvider.notifier).client;
+      final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null || !sshClient.isConnected) return;
       await sshClient.exec(
         TmuxCommands.resizePaneToSize(pane.id, cols: targetCols, rows: targetRows),
       );
       await _refreshSessionTree();
-      final updatedPane = ref.read(tmuxProvider).activePane;
+      final updatedPane = ref.read(tmuxProvider(widget.connectionId)).activePane;
       if (updatedPane != null) {
         ref.read(terminalDisplayProvider.notifier).updatePane(updatedPane);
       }
@@ -2172,7 +2137,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     final displayState = ref.read(terminalDisplayProvider);
     final settings = ref.read(settingsProvider);
-    final tmuxState = ref.read(tmuxProvider);
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
 
     // 現在のウィンドウの全ペインを取���
     final activeWindow = tmuxState.activeWindow;
@@ -2197,14 +2162,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _isResizing = true;
     _pollTimer?.cancel();
     try {
-      final sshClient = ref.read(sshProvider.notifier).client;
+      final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null) return;
       await sshClient.exec(
         TmuxCommands.resizePaneToSize(pane.id, cols: result.cols, rows: result.rows),
       );
       await _refreshSessionTree();
       // 明示的にupdatePaneを呼んでフォント再計算
-      final activePane = ref.read(tmuxProvider).activePane;
+      final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
       if (activePane != null) {
         ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
       }
@@ -2256,15 +2221,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _isResizing = true;
     _pollTimer?.cancel();
     try {
-      final sshClient = ref.read(sshProvider.notifier).client;
+      final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null) return;
-      final tmuxState = ref.read(tmuxProvider);
+      final tmuxState = ref.read(tmuxProvider(widget.connectionId));
       final target = '${tmuxState.activeSessionName}:${window.index}';
       await sshClient.exec(
         TmuxCommands.resizeWindow(target, cols: result.cols, rows: result.rows),
       );
       await _refreshSessionTree();
-      final activePane = ref.read(tmuxProvider).activePane;
+      final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
       if (activePane != null) {
         ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
       }
@@ -2286,7 +2251,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     required bool isLastPane,
     required bool isLastWindow,
   }) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2317,7 +2282,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       // 最後のペインだった場合→tmuxが自動選択した新ウィンドウに同期
       if (isLastPane) {
-        final newTmuxState = ref.read(tmuxProvider);
+        final newTmuxState = ref.read(tmuxProvider(widget.connectionId));
         final newSession = newTmuxState.activeSession;
         if (newSession != null) {
           final newActiveWindow =
@@ -2329,7 +2294,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         }
       } else {
         // 同じウィンドウ内の残りペインに同期
-        final newTmuxState = ref.read(tmuxProvider);
+        final newTmuxState = ref.read(tmuxProvider(widget.connectionId));
         final activeWindow = newTmuxState.activeWindow;
         if (activeWindow != null) {
           final newActivePane =
@@ -2785,7 +2750,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                final wasActive = windowIndex == ref.read(tmuxProvider).activeWindowIndex;
+                final wasActive = windowIndex == ref.read(tmuxProvider(widget.connectionId)).activeWindowIndex;
                 _killWindow(
                   sessionName: sessionName,
                   windowIndex: windowIndex,
@@ -2810,7 +2775,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     required int windowIndex,
     required bool wasActiveWindow,
   }) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2837,7 +2802,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       // アクティブウィンドウを閉じた場合、tmuxが自動選択した新ウィンドウに同期
       if (wasActiveWindow) {
-        final newTmuxState = ref.read(tmuxProvider);
+        final newTmuxState = ref.read(tmuxProvider(widget.connectionId));
         final newSession = newTmuxState.activeSession;
         if (newSession != null) {
           final newActiveWindow = newSession.windows.where((w) => w.active).firstOrNull
@@ -2905,7 +2870,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _treeRefreshTimer?.cancel();
 
     // SSH切断
-    await ref.read(sshProvider.notifier).disconnect();
+    await ref.read(sshProvider(widget.connectionId).notifier).disconnect();
 
     // 前の画面に戻る
     if (mounted) {
@@ -3046,7 +3011,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         const SizedBox(width: 8),
         GestureDetector(
           onTap: () {
-            ref.read(sshProvider.notifier).reconnectNow();
+            ref.read(sshProvider(widget.connectionId).notifier).reconnectNow();
           },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -3074,7 +3039,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// [key] 送信するキー
   /// [literal] trueの場合はリテラル送信（-l フラグ）
   Future<void> _sendKey(String key, {bool literal = true}) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
 
     // 接続が切れている場合はキューに追加（リテラルの場合のみ）
     if (sshClient == null || !sshClient.isConnected) {
@@ -3085,7 +3050,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
 
-    final target = ref.read(tmuxProvider.notifier).currentTarget;
+    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
 
     try {
@@ -3098,9 +3063,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// tmux copy-modeに入る
   Future<void> _enterTmuxCopyMode() async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
-    final target = ref.read(tmuxProvider.notifier).currentTarget;
+    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
     try {
       await sshClient.exec(TmuxCommands.enterCopyMode(target));
@@ -3110,9 +3075,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// tmux copy-modeを終了
   Future<void> _cancelTmuxCopyMode() async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
-    final target = ref.read(tmuxProvider.notifier).currentTarget;
+    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
     try {
       await sshClient.exec(TmuxCommands.cancelCopyMode(target));
@@ -3122,12 +3087,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// tmux特殊キーを送信（Ctrl+C, Escape等）
   Future<void> _sendSpecialKey(String tmuxKey) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
 
     // 特殊キーは接続が切れている場合は送信しない（キューしない）
     if (sshClient == null || !sshClient.isConnected) return;
 
-    final target = ref.read(tmuxProvider.notifier).currentTarget;
+    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
 
     try {
@@ -3144,7 +3109,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// 画像転送の状態リスナーを初期化（1回のみ）
   void _ensureImageTransferListener() {
     if (_imageTransferSub != null) return;
-    _imageTransferSub = ref.listenManual(imageTransferProvider, (prev, next) async {
+    _imageTransferSub = ref.listenManual(imageTransferProvider(widget.connectionId), (prev, next) async {
 
       if (next.phase == ImageTransferPhase.confirming &&
           next.pickedImageBytes != null &&
@@ -3162,14 +3127,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
         if (options != null) {
           final uploadedPath = await ref
-              .read(imageTransferProvider.notifier)
+              .read(imageTransferProvider(widget.connectionId).notifier)
               .confirmAndUpload(options: options);
 
           if (uploadedPath != null && mounted) {
             await _injectImagePath(uploadedPath, options);
           }
         } else {
-          ref.read(imageTransferProvider.notifier).cancel();
+          ref.read(imageTransferProvider(widget.connectionId).notifier).cancel();
         }
       }
 
@@ -3214,7 +3179,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               title: Text(AppLocalizations.of(context)!.imageSourceGallery),
               onTap: () {
                 Navigator.pop(ctx);
-                ref.read(imageTransferProvider.notifier).pickImage(
+                ref.read(imageTransferProvider(widget.connectionId).notifier).pickImage(
                       ImageSource.gallery,
                     );
               },
@@ -3224,7 +3189,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               title: Text(AppLocalizations.of(context)!.imageSourceCamera),
               onTap: () {
                 Navigator.pop(ctx);
-                ref.read(imageTransferProvider.notifier).pickImage(
+                ref.read(imageTransferProvider(widget.connectionId).notifier).pickImage(
                       ImageSource.camera,
                     );
               },
@@ -3237,10 +3202,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// アップロード済み画像のパスをターミナルに注入
   Future<void> _injectImagePath(String remotePath, ImageTransferOptions options) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
-    final activePaneId = ref.read(tmuxProvider).activePaneId;
+    final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
     if (activePaneId == null) return;
 
     // パスフォーマット適用（optionsから取得）
@@ -3268,7 +3233,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// Initialize file transfer state listener (once)
   void _ensureFileTransferListener() {
     if (_fileTransferSub != null) return;
-    _fileTransferSub = ref.listenManual(fileTransferProvider, (prev, next) async {
+    _fileTransferSub = ref.listenManual(fileTransferProvider(widget.connectionId), (prev, next) async {
       if (next.phase == FileTransferPhase.confirming &&
           next.pickedFiles != null &&
           next.pendingRemoteDir != null &&
@@ -3284,14 +3249,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
         if (options != null) {
           final uploadedPaths = await ref
-              .read(fileTransferProvider.notifier)
+              .read(fileTransferProvider(widget.connectionId).notifier)
               .confirmAndUpload(options: options);
 
           if (uploadedPaths != null && uploadedPaths.isNotEmpty && mounted) {
             await _injectFilePaths(uploadedPaths, options);
           }
         } else {
-          ref.read(fileTransferProvider.notifier).cancel();
+          ref.read(fileTransferProvider(widget.connectionId).notifier).cancel();
         }
       }
 
@@ -3320,15 +3285,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// Start file transfer flow
   void _handleFileTransfer() {
     _ensureFileTransferListener();
-    ref.read(fileTransferProvider.notifier).pickFiles();
+    ref.read(fileTransferProvider(widget.connectionId).notifier).pickFiles();
   }
 
   /// Inject uploaded file paths into terminal
   Future<void> _injectFilePaths(List<String> remotePaths, FileTransferOptions options) async {
-    final sshClient = ref.read(sshProvider.notifier).client;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
-    final activePaneId = ref.read(tmuxProvider).activePaneId;
+    final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
     if (activePaneId == null) return;
 
     // Join all paths with space separator
@@ -3364,12 +3329,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       context,
       initialPath: initialPath,
       onListDir: (path) =>
-          ref.read(fileTransferProvider.notifier).browseRemote(path),
+          ref.read(fileTransferProvider(widget.connectionId).notifier).browseRemote(path),
     ).then((selectedPath) async {
       if (selectedPath == null || !mounted) return;
 
       final localPath = await ref
-          .read(fileTransferProvider.notifier)
+          .read(fileTransferProvider(widget.connectionId).notifier)
           .downloadFile(selectedPath);
 
       if (localPath != null && mounted) {

@@ -5,21 +5,23 @@ import 'package:image_picker/image_picker.dart';
 
 import '../providers/image_transfer_provider.dart';
 
-/// 画像転送ボタン
+/// Image transfer button
 ///
-/// SpecialKeysBar の横に配置される36x36のアイコンボタン。
-/// タップでギャラリー/カメラ選択のBottomSheetを表示する。
+/// 36x36 icon button placed in the terminal bar.
+/// Tapping shows a gallery/camera picker BottomSheet.
 class ImageTransferButton extends ConsumerWidget {
+  final String connectionId;
   final VoidCallback? onTransferComplete;
 
   const ImageTransferButton({
     super.key,
+    required this.connectionId,
     this.onTransferComplete,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final transferState = ref.watch(imageTransferProvider);
+    final transferState = ref.watch(imageTransferProvider(connectionId));
     final isUploading = transferState.phase == ImageTransferPhase.uploading ||
         transferState.phase == ImageTransferPhase.converting;
     final isIdle = transferState.canPick;
@@ -86,7 +88,7 @@ class ImageTransferButton extends ConsumerWidget {
               title: Text(AppLocalizations.of(context)!.imageSourceGallery),
               onTap: () {
                 Navigator.pop(context);
-                ref.read(imageTransferProvider.notifier).pickImage(ImageSource.gallery);
+                ref.read(imageTransferProvider(connectionId).notifier).pickImage(ImageSource.gallery);
               },
             ),
             ListTile(
@@ -94,7 +96,7 @@ class ImageTransferButton extends ConsumerWidget {
               title: Text(AppLocalizations.of(context)!.imageSourceCamera),
               onTap: () {
                 Navigator.pop(context);
-                ref.read(imageTransferProvider.notifier).pickImage(ImageSource.camera);
+                ref.read(imageTransferProvider(connectionId).notifier).pickImage(ImageSource.camera);
               },
             ),
           ],

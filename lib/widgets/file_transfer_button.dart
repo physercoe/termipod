@@ -9,11 +9,16 @@ import '../providers/file_transfer_provider.dart';
 /// 36x36 icon button placed next to ImageTransferButton in the terminal bar.
 /// Tapping opens the system file picker directly.
 class FileTransferButton extends ConsumerWidget {
-  const FileTransferButton({super.key});
+  final String connectionId;
+
+  const FileTransferButton({
+    super.key,
+    required this.connectionId,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final transferState = ref.watch(fileTransferProvider);
+    final transferState = ref.watch(fileTransferProvider(connectionId));
     final isUploading = transferState.phase == FileTransferPhase.uploading;
     final isIdle = transferState.canPick;
 
@@ -33,7 +38,7 @@ class FileTransferButton extends ConsumerWidget {
             )
           : IconButton(
               onPressed: isIdle
-                  ? () => ref.read(fileTransferProvider.notifier).pickFiles()
+                  ? () => ref.read(fileTransferProvider(connectionId).notifier).pickFiles()
                   : null,
               icon: Icon(
                 _iconForPhase(transferState.phase),

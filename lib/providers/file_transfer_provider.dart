@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../services/sftp/sftp_service.dart';
 import 'settings_provider.dart';
@@ -15,6 +17,8 @@ enum FileTransferPhase {
   confirming,
   uploading,
   injecting,
+  browsing,
+  downloading,
   completed,
   error,
 }
@@ -40,6 +44,11 @@ class FileTransferState {
   final String? errorMessage;
   final List<PickedFile>? pickedFiles;
   final String? pendingRemoteDir;
+  // Download-specific fields
+  final double downloadProgress;
+  final String? lastDownloadedLocalPath;
+  final List<SftpFileEntry>? remoteEntries;
+  final String? currentRemotePath;
 
   const FileTransferState({
     this.phase = FileTransferPhase.idle,
@@ -48,9 +57,16 @@ class FileTransferState {
     this.errorMessage,
     this.pickedFiles,
     this.pendingRemoteDir,
+    this.downloadProgress = 0.0,
+    this.lastDownloadedLocalPath,
+    this.remoteEntries,
+    this.currentRemotePath,
   });
 
   bool get canPick =>
+      phase == FileTransferPhase.idle || phase == FileTransferPhase.completed;
+
+  bool get canBrowse =>
       phase == FileTransferPhase.idle || phase == FileTransferPhase.completed;
 
   FileTransferState copyWith({
@@ -60,6 +76,10 @@ class FileTransferState {
     String? errorMessage,
     List<PickedFile>? pickedFiles,
     String? pendingRemoteDir,
+    double? downloadProgress,
+    String? lastDownloadedLocalPath,
+    List<SftpFileEntry>? remoteEntries,
+    String? currentRemotePath,
   }) {
     return FileTransferState(
       phase: phase ?? this.phase,
@@ -68,6 +88,10 @@ class FileTransferState {
       errorMessage: errorMessage ?? this.errorMessage,
       pickedFiles: pickedFiles ?? this.pickedFiles,
       pendingRemoteDir: pendingRemoteDir ?? this.pendingRemoteDir,
+      downloadProgress: downloadProgress ?? this.downloadProgress,
+      lastDownloadedLocalPath: lastDownloadedLocalPath ?? this.lastDownloadedLocalPath,
+      remoteEntries: remoteEntries ?? this.remoteEntries,
+      currentRemotePath: currentRemotePath ?? this.currentRemotePath,
     );
   }
 }
@@ -231,6 +255,108 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
       state = FileTransferState(
         phase: FileTransferPhase.error,
         errorMessage: 'Upload failed: $e',
+      );
+      return null;
+    } finally {
+      _connectionSub?.cancel();
+      _connectionSub = null;
+    }
+  }
+
+  /// Browse remote directory
+  Future<List<SftpFileEntry>?> browseRemote(String path) async {
+    final sshClient = ref.read(sshProvider.notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      state = const FileTransferState(
+        phase: FileTransferPhase.error,
+        errorMessage: 'SSH connection not available',
+      );
+      return null;
+    }
+
+    try {
+      final sftp = await sshClient.openSftp();
+      try {
+        final entries = await _sftpService.listDir(sftp: sftp, path: path);
+        state = FileTransferState(
+          phase: FileTransferPhase.browsing,
+          remoteEntries: entries,
+          currentRemotePath: path,
+        );
+        return entries;
+      } finally {
+        sftp.close();
+      }
+    } catch (e) {
+      state = FileTransferState(
+        phase: FileTransferPhase.error,
+        errorMessage: 'Failed to list directory: $e',
+      );
+      return null;
+    }
+  }
+
+  /// Download a remote file to local temp directory
+  Future<String?> downloadFile(String remotePath) async {
+    final sshClient = ref.read(sshProvider.notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      state = const FileTransferState(
+        phase: FileTransferPhase.error,
+        errorMessage: 'SSH connection not available',
+      );
+      return null;
+    }
+
+    // Monitor SSH disconnection
+    _connectionSub?.cancel();
+    _connectionSub = sshClient.connectionStateStream.listen((connState) {
+      if (state.phase == FileTransferPhase.downloading) {
+        state = const FileTransferState(
+          phase: FileTransferPhase.error,
+          errorMessage: 'SSH connection lost during download',
+        );
+      }
+    });
+
+    try {
+      state = state.copyWith(
+        phase: FileTransferPhase.downloading,
+        downloadProgress: 0.0,
+      );
+
+      final sftp = await sshClient.openSftp();
+      try {
+        final result = await _sftpService.download(
+          sftp: sftp,
+          remotePath: remotePath,
+          onProgress: (progress) {
+            state = state.copyWith(downloadProgress: progress);
+          },
+        );
+
+        // Save to temp directory
+        final tempDir = await getTemporaryDirectory();
+        final filename = remotePath.contains('/')
+            ? remotePath.substring(remotePath.lastIndexOf('/') + 1)
+            : remotePath;
+        final localPath = '${tempDir.path}/$filename';
+        final file = File(localPath);
+        await file.writeAsBytes(result.bytes);
+
+        state = FileTransferState(
+          phase: FileTransferPhase.completed,
+          lastDownloadedLocalPath: localPath,
+          downloadProgress: 1.0,
+        );
+
+        return localPath;
+      } finally {
+        sftp.close();
+      }
+    } catch (e) {
+      state = FileTransferState(
+        phase: FileTransferPhase.error,
+        errorMessage: 'Download failed: $e',
       );
       return null;
     } finally {

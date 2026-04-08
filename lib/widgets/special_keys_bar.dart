@@ -28,8 +28,11 @@ class SpecialKeysBar extends StatefulWidget {
   /// 画像転送ボタンが押された時のコールバック
   final VoidCallback? onImagePickRequested;
 
-  /// File transfer button callback
-  final VoidCallback? onFilePickRequested;
+  /// File upload callback
+  final VoidCallback? onFileUploadRequested;
+
+  /// File download callback
+  final VoidCallback? onFileDownloadRequested;
 
   /// Compose入力モードのトグルコールバック
   final VoidCallback? onComposeTap;
@@ -46,7 +49,8 @@ class SpecialKeysBar extends StatefulWidget {
     this.directInputEnabled = false,
     this.onDirectInputToggle,
     this.onImagePickRequested,
-    this.onFilePickRequested,
+    this.onFileUploadRequested,
+    this.onFileDownloadRequested,
     this.onComposeTap,
     this.showComposeInput = false,
   });
@@ -575,8 +579,8 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           const SizedBox(width: 2),
           _buildArrowButton(Icons.arrow_right, 'Right'),
           const SizedBox(width: 8),
-          // File transfer button
-          if (widget.onFilePickRequested != null) ...[
+          // File transfer button (upload/download)
+          if (widget.onFileUploadRequested != null || widget.onFileDownloadRequested != null) ...[
             _buildFileTransferButton(),
             const SizedBox(width: 2),
           ],
@@ -932,7 +936,7 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
     );
   }
 
-  /// File transfer button
+  /// File transfer button (opens upload/download chooser)
   Widget _buildFileTransferButton() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
@@ -942,7 +946,7 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           HapticFeedback.lightImpact();
         }
       },
-      onTap: widget.onFilePickRequested,
+      onTap: () => _showFileTransferChooser(),
       child: Container(
         width: 36,
         height: 36,
@@ -952,9 +956,45 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
           border: Border.all(color: colorScheme.outline.withValues(alpha: 0.2)),
         ),
         child: Icon(
-          Icons.upload_file,
+          Icons.swap_vert,
           size: 16,
           color: colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
+  void _showFileTransferChooser() {
+    final l10n = AppLocalizations.of(context)!;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.onFileUploadRequested != null)
+              ListTile(
+                leading: const Icon(Icons.upload_file),
+                title: Text(l10n.uploadButton),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onFileUploadRequested!();
+                },
+              ),
+            if (widget.onFileDownloadRequested != null)
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: Text(l10n.downloadButton),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  widget.onFileDownloadRequested!();
+                },
+              ),
+          ],
         ),
       ),
     );

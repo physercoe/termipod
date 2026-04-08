@@ -34,7 +34,9 @@ import '../../providers/terminal_display_provider.dart';
 import '../../providers/image_transfer_provider.dart';
 import '../../providers/file_transfer_provider.dart';
 import '../../widgets/file_transfer_confirm_dialog.dart';
+import '../../widgets/remote_file_browser_dialog.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/ansi_text_view.dart';
 
@@ -1109,14 +1111,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              // File upload progress bar
+              // File transfer progress bar (upload or download)
               Consumer(
                 builder: (context, ref, _) {
                   final transfer = ref.watch(fileTransferProvider);
-                  final isActive = transfer.phase == FileTransferPhase.uploading;
-                  if (!isActive) return const SizedBox.shrink();
+                  final isUploading = transfer.phase == FileTransferPhase.uploading;
+                  final isDownloading = transfer.phase == FileTransferPhase.downloading;
+                  if (!isUploading && !isDownloading) return const SizedBox.shrink();
+                  final progress = isUploading ? transfer.uploadProgress : transfer.downloadProgress;
                   return LinearProgressIndicator(
-                    value: transfer.uploadProgress > 0 ? transfer.uploadProgress : null,
+                    value: progress > 0 ? progress : null,
                     minHeight: 3,
                     backgroundColor: Colors.transparent,
                   );
@@ -1135,7 +1139,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   ref.read(settingsProvider.notifier).toggleDirectInput();
                 },
                 onImagePickRequested: _handleImageTransfer,
-                onFilePickRequested: _handleFileTransfer,
+                onFileUploadRequested: _handleFileTransfer,
+                onFileDownloadRequested: _handleFileDownload,
               ),
             ],
           ),
@@ -3316,6 +3321,42 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
 
     _boostPolling();
+  }
+
+  /// Start file download flow
+  void _handleFileDownload() {
+    _ensureFileTransferListener();
+
+    final settings = ref.read(settingsProvider);
+    final initialPath = settings.fileRemotePath;
+
+    RemoteFileBrowserDialog.show(
+      context,
+      initialPath: initialPath,
+      onListDir: (path) =>
+          ref.read(fileTransferProvider.notifier).browseRemote(path),
+    ).then((selectedPath) async {
+      if (selectedPath == null || !mounted) return;
+
+      final localPath = await ref
+          .read(fileTransferProvider.notifier)
+          .downloadFile(selectedPath);
+
+      if (localPath != null && mounted) {
+        // Share the downloaded file via Android share intent
+        final result = await SharePlus.instance.share(
+          ShareParams(files: [XFile(localPath)]),
+        );
+        if (result.status == ShareResultStatus.success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(AppLocalizations.of(context)!.fileDownloaded),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    });
   }
 
   /// Compose入力モードの表示/非表示を切り替え

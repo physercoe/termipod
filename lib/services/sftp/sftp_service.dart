@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import 'package:uuid/uuid.dart';
 
-/// SFTPアップロード結果
+/// SFTP upload result
 class SftpUploadResult {
   final String remotePath;
   final int bytesWritten;
@@ -11,6 +11,32 @@ class SftpUploadResult {
   const SftpUploadResult({
     required this.remotePath,
     required this.bytesWritten,
+  });
+}
+
+/// SFTP download result
+class SftpDownloadResult {
+  final Uint8List bytes;
+  final String remotePath;
+  final int size;
+
+  const SftpDownloadResult({
+    required this.bytes,
+    required this.remotePath,
+    required this.size,
+  });
+}
+
+/// Remote file/directory entry
+class SftpFileEntry {
+  final String name;
+  final bool isDirectory;
+  final int size;
+
+  const SftpFileEntry({
+    required this.name,
+    required this.isDirectory,
+    required this.size,
   });
 }
 
@@ -106,6 +132,88 @@ class SftpService {
     } finally {
       await file?.close();
     }
+  }
+
+  /// File download
+  ///
+  /// [sftp] SFTP client
+  /// [remotePath] Full remote file path
+  /// [onProgress] Progress callback (0.0 ~ 1.0)
+  Future<SftpDownloadResult> download({
+    required SftpClient sftp,
+    required String remotePath,
+    void Function(double progress)? onProgress,
+  }) async {
+    final stat = await sftp.stat(remotePath);
+    final totalBytes = stat.size ?? 0;
+
+    final file = await sftp.open(
+      remotePath,
+      mode: SftpFileOpenMode.read,
+    );
+
+    try {
+      final chunks = <Uint8List>[];
+      var readBytes = 0;
+
+      await for (final chunk in file.read()) {
+        chunks.add(chunk);
+        readBytes += chunk.length;
+        if (totalBytes > 0) {
+          onProgress?.call(readBytes / totalBytes);
+        }
+      }
+
+      final result = Uint8List(readBytes);
+      var offset = 0;
+      for (final chunk in chunks) {
+        result.setRange(offset, offset + chunk.length, chunk);
+        offset += chunk.length;
+      }
+
+      return SftpDownloadResult(
+        bytes: result,
+        remotePath: remotePath,
+        size: readBytes,
+      );
+    } finally {
+      await file.close();
+    }
+  }
+
+  /// List remote directory contents
+  ///
+  /// Returns sorted list: directories first, then files, alphabetically.
+  Future<List<SftpFileEntry>> listDir({
+    required SftpClient sftp,
+    required String path,
+  }) async {
+    final items = await sftp.listdir(path);
+    final entries = <SftpFileEntry>[];
+
+    for (final item in items) {
+      final name = item.filename;
+      if (name == '.' || name == '..') continue;
+
+      final isDir = item.attr.isDirectory;
+      final size = item.attr.size ?? 0;
+
+      entries.add(SftpFileEntry(
+        name: name,
+        isDirectory: isDir,
+        size: size,
+      ));
+    }
+
+    // Sort: directories first, then alphabetically
+    entries.sort((a, b) {
+      if (a.isDirectory != b.isDirectory) {
+        return a.isDirectory ? -1 : 1;
+      }
+      return a.name.compareTo(b.name);
+    });
+
+    return entries;
   }
 
   static String _pad(int value) => value.toString().padLeft(2, '0');

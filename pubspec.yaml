@@ -61,6 +61,9 @@ dependencies:
   wakelock_plus: 1.4.0
   # Network connectivity monitoring
   connectivity_plus: 6.1.5
+  # File download (temp dir + share intent)
+  path_provider: ^2.1.0
+  share_plus: ^10.0.0
 
 dev_dependencies:
   flutter_test:

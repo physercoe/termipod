@@ -42,6 +42,7 @@ Ever needed to check on a long-running process, restart a service, or peek at lo
 - **Zero server setup** — Works with any server running `sshd`. No agents, no daemons, nothing to install.
 - **Built for mobile** — Not a terminal crammed into a phone. A thoughtful UI designed for touch.
 - **Secure by default** — SSH keys stored in Android Keystore. Your credentials never leave the device.
+- **File transfer built-in** — Upload and download files via SFTP without leaving the terminal. Browse remote directories, pick files, track progress.
 - **Multi-language** — English and Chinese (Simplified) out of the box, follows system locale.
 
 ---
@@ -54,6 +55,8 @@ Compared to the upstream [MuxPod](https://github.com/moezakura/mux-pod):
 - **Input UX redesign** — Improved special keys bar, snippet integration, command input
 - **Code snippets** — Save and quickly paste frequently used commands
 - **CLI agent support** — Optimized for Claude Code / Kimi Code workflows (S-RET, DirectInput)
+- **File transfer** — Upload files from phone to server and download remote files via SFTP, with progress tracking, remote file browser, and Android share integration
+- **Image transfer** — Send photos from camera or gallery to the server with format conversion, resize presets, and path injection into terminal
 - **Bug fixes** — Scroll-on-resize, back button handling, version display, and more
 
 ---
@@ -120,7 +123,7 @@ Dedicated buttons for terminal essentials:
 
 ```
 [ESC] [TAB] [CTRL] [ALT] [SHIFT] [ENTER] [S-RET] [/] [-]
-[←] [↑] [↓] [→]  [DirectInput]  [Input...]
+[←] [↑] [↓] [→]  [File↕] [Image] [DirectInput]  [Input...]
 ```
 
 - **Modifier keys toggle** — Tap CTRL, then type 'c' for Ctrl-C

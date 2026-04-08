@@ -21,7 +21,6 @@ class ActionBar extends ConsumerStatefulWidget {
   final VoidCallback? onFileTransfer;
   final VoidCallback? onImageTransfer;
   final VoidCallback? onSnippetPicker;
-  final VoidCallback? onCommandMenu;
   final VoidCallback? onDirectInputToggle;
   final VoidCallback? onProfileSettings;
 
@@ -34,7 +33,6 @@ class ActionBar extends ConsumerStatefulWidget {
     this.onFileTransfer,
     this.onImageTransfer,
     this.onSnippetPicker,
-    this.onCommandMenu,
     this.onDirectInputToggle,
     this.onProfileSettings,
     this.hapticFeedback = true,
@@ -146,9 +144,6 @@ class _ActionBarState extends ConsumerState<ActionBar> {
         break;
       case 'snippet':
         widget.onSnippetPicker?.call();
-        break;
-      case 'command_menu':
-        widget.onCommandMenu?.call();
         break;
       case 'direct_input':
         widget.onDirectInputToggle?.call();

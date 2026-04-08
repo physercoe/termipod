@@ -30,10 +30,10 @@ import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/action_bar/action_bar.dart';
 import '../../widgets/action_bar/compose_bar.dart';
 import '../../widgets/action_bar/insert_menu.dart';
-import '../../widgets/action_bar/command_menu_sheet.dart';
+import '../../providers/history_provider.dart';
 import '../../widgets/action_bar/snippet_picker_sheet.dart';
 import '../../widgets/action_bar/profile_sheet.dart';
-import '../../widgets/action_bar/history_sheet.dart';
+import '../../widgets/action_bar/recent_sheet.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../models/action_bar_presets.dart';
 import '../../widgets/image_transfer_confirm_dialog.dart';
@@ -1129,7 +1129,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 onFileTransfer: _handleFileTransfer,
                 onImageTransfer: _handleImageTransfer,
                 onSnippetPicker: () => _showSnippetPicker(context),
-                onCommandMenu: () => _showCommandMenu(context),
                 onDirectInputToggle: () {
                   ref.read(actionBarProvider.notifier).toggleInputMode();
                 },
@@ -3382,15 +3381,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// Show the [+] insert menu
   void _showInsertMenu(BuildContext context) {
-    final abState = ref.read(actionBarProvider);
     InsertMenu.show(
       context,
       ref: ref,
-      onSnippets: () => _showSnippetPicker(context),
-      onCommandMenu: () => _showCommandMenu(context),
-      onHistory: abState.commandHistory.isNotEmpty
-          ? () => _showHistory(context)
-          : null,
+      onRecent: () => _showRecent(context),
       onFileTransfer: _handleFileTransfer,
       onFileDownload: _handleFileDownload,
       onImageTransfer: _handleImageTransfer,
@@ -3415,25 +3409,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// Show the command menu sheet
-  void _showCommandMenu(BuildContext context) {
-    CommandMenuSheet.show(
-      context,
-      ref: ref,
-      onInsert: (command) {
-        _composeBarKey.currentState?.insertText(command);
-      },
-      onSendImmediately: (command) {
-        _sendMultilineText(command);
-        ref.read(actionBarProvider.notifier).addToHistory(command);
-        _boostPolling();
-      },
-    );
-  }
-
-  /// Show command history sheet
-  void _showHistory(BuildContext context) {
-    HistorySheet.show(
+  /// Show recent commands sheet
+  void _showRecent(BuildContext context) {
+    RecentSheet.show(
       context,
       ref: ref,
       onInsert: (command) {

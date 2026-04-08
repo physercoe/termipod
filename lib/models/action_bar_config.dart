@@ -20,7 +20,7 @@ enum ActionBarButtonType {
   /// Modifier toggle: ctrl, alt
   modifier,
 
-  /// Action button: file_transfer, image_transfer, snippet, command_menu, direct_input
+  /// Action button: file_transfer, image_transfer, snippet, direct_input
   action,
 
   /// Confirm button (y/n): tap sends literal + Enter, long-press sends literal only
@@ -42,6 +42,10 @@ class ActionBarButton {
   /// Optional Material icon name (used instead of label text)
   final String? iconName;
 
+  /// Human-readable description (e.g., "Kill line (to start)" for C-U).
+  /// Editable by user. Presets ship with defaults.
+  final String? description;
+
   const ActionBarButton({
     required this.id,
     required this.label,
@@ -49,6 +53,7 @@ class ActionBarButton {
     required this.value,
     this.longPressValue,
     this.iconName,
+    this.description,
   });
 
   ActionBarButton copyWith({
@@ -58,8 +63,10 @@ class ActionBarButton {
     String? value,
     String? longPressValue,
     String? iconName,
+    String? description,
     bool clearLongPressValue = false,
     bool clearIconName = false,
+    bool clearDescription = false,
   }) {
     return ActionBarButton(
       id: id ?? this.id,
@@ -69,6 +76,8 @@ class ActionBarButton {
       longPressValue:
           clearLongPressValue ? null : (longPressValue ?? this.longPressValue),
       iconName: clearIconName ? null : (iconName ?? this.iconName),
+      description:
+          clearDescription ? null : (description ?? this.description),
     );
   }
 
@@ -79,6 +88,7 @@ class ActionBarButton {
         'value': value,
         if (longPressValue != null) 'longPressValue': longPressValue,
         if (iconName != null) 'iconName': iconName,
+        if (description != null) 'description': description,
       };
 
   factory ActionBarButton.fromJson(Map<String, dynamic> json) {
@@ -89,7 +99,70 @@ class ActionBarButton {
       value: json['value'] as String,
       longPressValue: json['longPressValue'] as String?,
       iconName: json['iconName'] as String?,
+      description: json['description'] as String?,
     );
+  }
+
+  /// Get the display description: user-set description, or built-in default.
+  String get displayDescription => description ?? defaultDescriptions[value] ?? '';
+
+  /// Built-in descriptions for common terminal keys and combos.
+  /// Used as fallback when [description] is null.
+  static const defaultDescriptions = <String, String>{
+    // Special keys
+    'Escape': 'Cancel / Back',
+    'Tab': 'Autocomplete',
+    'BTab': 'Shift+Tab / Reverse',
+    'Enter': 'Execute / Confirm',
+    'Space': 'Space',
+    'BSpace': 'Backspace',
+    'Home': 'Move to line start',
+    'End': 'Move to line end',
+    'Left': 'Move left',
+    'Right': 'Move right',
+    'Up': 'Previous / Scroll up',
+    'Down': 'Next / Scroll down',
+    'PPage': 'Page up / Scroll back',
+    'NPage': 'Page down / Scroll forward',
+    'F1': 'Help',
+    'F2': 'Rename / Edit',
+    'F3': 'Search',
+    'F4': 'Close / End',
+    'Escape Escape': 'Double Escape',
+    // Ctrl combos
+    'C-c': 'Interrupt / Cancel',
+    'C-d': 'EOF / Exit',
+    'C-l': 'Clear screen',
+    'C-r': 'Reverse search history',
+    'C-z': 'Suspend process',
+    'C-u': 'Kill line (to start)',
+    'C-k': 'Kill line (to end)',
+    'C-y': 'Yank (paste killed text)',
+    'C-a': 'Move to line start',
+    'C-e': 'Move to line end',
+    'C-j': 'Newline (literal)',
+    'C-g': 'Cancel / Abort',
+    'C-o': 'Accept line & fetch next',
+    'C-p': 'Command palette',
+    'C-x': 'Leader key / Cut',
+    'C-v': 'Scroll down / Paste',
+    'C-b': 'Scroll up / Back',
+    // Shift combos
+    'S-Enter': 'Newline (no execute)',
+    'S-Tab': 'Reverse autocomplete',
+    // Alt combos
+    'M-Enter': 'Submit (Aider)',
+    'M-p': 'Previous history',
+    'M-t': 'Transpose words',
+    // Modifiers
+    'ctrl': 'Hold Ctrl for next key',
+    'alt': 'Hold Alt for next key',
+    // Actions
+    'snippet': 'Open snippets',
+    'file_transfer': 'Upload file',
+    'image_transfer': 'Upload image',
+    'direct_input': 'Toggle direct input',
+  };
   }
 }
 
@@ -134,54 +207,17 @@ class ActionBarGroup {
   }
 }
 
-/// A slash command or menu item in the command palette
-class CommandMenuItem {
-  final String label;
-  final String? description;
-  final String command;
-  final bool sendImmediately;
-  final String category;
-
-  const CommandMenuItem({
-    required this.label,
-    this.description,
-    required this.command,
-    this.sendImmediately = false,
-    this.category = 'agent',
-  });
-
-  Map<String, dynamic> toJson() => {
-        'label': label,
-        if (description != null) 'description': description,
-        'command': command,
-        'sendImmediately': sendImmediately,
-        'category': category,
-      };
-
-  factory CommandMenuItem.fromJson(Map<String, dynamic> json) {
-    return CommandMenuItem(
-      label: json['label'] as String,
-      description: json['description'] as String?,
-      command: json['command'] as String,
-      sendImmediately: json['sendImmediately'] as bool? ?? false,
-      category: json['category'] as String? ?? 'agent',
-    );
-  }
-}
-
 /// A complete toolbar profile (built-in or custom)
 class ActionBarProfile {
   final String id;
   final String name;
   final List<ActionBarGroup> groups;
-  final List<CommandMenuItem> slashCommands;
   final bool isBuiltIn;
 
   const ActionBarProfile({
     required this.id,
     required this.name,
     required this.groups,
-    this.slashCommands = const [],
     this.isBuiltIn = false,
   });
 
@@ -189,14 +225,12 @@ class ActionBarProfile {
     String? id,
     String? name,
     List<ActionBarGroup>? groups,
-    List<CommandMenuItem>? slashCommands,
     bool? isBuiltIn,
   }) {
     return ActionBarProfile(
       id: id ?? this.id,
       name: name ?? this.name,
       groups: groups ?? this.groups,
-      slashCommands: slashCommands ?? this.slashCommands,
       isBuiltIn: isBuiltIn ?? this.isBuiltIn,
     );
   }
@@ -205,7 +239,6 @@ class ActionBarProfile {
         'id': id,
         'name': name,
         'groups': groups.map((g) => g.toJson()).toList(),
-        'slashCommands': slashCommands.map((c) => c.toJson()).toList(),
         'isBuiltIn': isBuiltIn,
       };
 
@@ -216,11 +249,6 @@ class ActionBarProfile {
       groups: (json['groups'] as List)
           .map((g) => ActionBarGroup.fromJson(g as Map<String, dynamic>))
           .toList(),
-      slashCommands: (json['slashCommands'] as List?)
-              ?.map(
-                  (c) => CommandMenuItem.fromJson(c as Map<String, dynamic>))
-              .toList() ??
-          [],
       isBuiltIn: json['isBuiltIn'] as bool? ?? false,
     );
   }

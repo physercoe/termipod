@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/snippet_presets.dart';
+import '../../providers/action_bar_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 
-/// Snippet picker bottom sheet.
+/// Unified snippet picker bottom sheet.
 ///
-/// Shows saved snippets. Tap to insert into compose, long-press to edit.
-class SnippetPickerSheet extends ConsumerWidget {
+/// Shows preset agent commands (for active profile) and user snippets,
+/// grouped by category with search. Tap to insert, double-tap to send.
+class SnippetPickerSheet extends ConsumerStatefulWidget {
   /// Called when a snippet is selected to insert into compose
   final void Function(String content) onInsert;
 
@@ -32,9 +35,9 @@ class SnippetPickerSheet extends ConsumerWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.4,
-        minChildSize: 0.25,
-        maxChildSize: 0.7,
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.8,
         expand: false,
         builder: (context, scrollController) {
           return SnippetPickerSheet(
@@ -53,10 +56,37 @@ class SnippetPickerSheet extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SnippetPickerSheet> createState() =>
+      _SnippetPickerSheetState();
+}
+
+class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final snippetsState = ref.watch(snippetsProvider);
-    final snippets = snippetsState.snippets;
+    final userSnippets = snippetsState.snippets;
+    final activeProfileId = ref.watch(actionBarProvider).activeProfileId;
+    final presetSnippets = SnippetPresets.forProfile(activeProfileId);
+
+    // Filter by search
+    final filteredPresets = _filter(presetSnippets);
+    final filteredUser = _filter(userSnippets);
+
+    // Group user snippets by category
+    final userByCategory = <String, List<Snippet>>{};
+    for (final s in filteredUser) {
+      userByCategory.putIfAbsent(s.category, () => []).add(s);
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -77,11 +107,13 @@ class SnippetPickerSheet extends ConsumerWidget {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // Title
+          // Title row
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Row(
               children: [
+                Icon(Icons.bolt, size: 20, color: DesignColors.primary),
+                const SizedBox(width: 6),
                 Text(
                   'Snippets',
                   style: TextStyle(
@@ -93,7 +125,6 @@ class SnippetPickerSheet extends ConsumerWidget {
                   ),
                 ),
                 const Spacer(),
-                // Add snippet button
                 TextButton.icon(
                   onPressed: () {
                     Navigator.pop(context);
@@ -103,58 +134,63 @@ class SnippetPickerSheet extends ConsumerWidget {
                   label: const Text('New'),
                   style: TextButton.styleFrom(
                     foregroundColor: DesignColors.primary,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
                 ),
               ],
             ),
           ),
+          // Search field
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: TextField(
+              controller: _searchController,
+              autofocus: false,
+              onChanged: (v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Search snippets...',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                filled: true,
+                fillColor:
+                    isDark ? DesignColors.inputDark : DesignColors.inputLight,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                isDense: true,
+              ),
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
           const SizedBox(height: 4),
-          // Snippet list
+          // Content
           Expanded(
-            child: snippets.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.code_off,
-                          size: 48,
-                          color: isDark
-                              ? DesignColors.textMuted
-                              : DesignColors.textMutedLight,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'No snippets yet',
-                          style: TextStyle(
-                            color: isDark
-                                ? DesignColors.textMuted
-                                : DesignColors.textMutedLight,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Tap "New" to create one',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark
-                                ? DesignColors.textMuted
-                                : DesignColors.textMutedLight,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
+            child: (filteredPresets.isEmpty && filteredUser.isEmpty)
+                ? _buildEmptyState(isDark)
+                : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    itemCount: snippets.length,
-                    itemBuilder: (context, index) {
-                      final snippet = snippets[index];
-                      return _buildSnippetItem(
-                          context, ref, snippet, isDark);
-                    },
+                    children: [
+                      // Preset agent commands section
+                      if (filteredPresets.isNotEmpty) ...[
+                        _buildSectionHeader(
+                          SnippetPresets.categoryLabel(activeProfileId),
+                          isDark,
+                        ),
+                        ...filteredPresets
+                            .map((s) => _buildSnippetItem(s, isDark,
+                                isPreset: true)),
+                      ],
+                      // User snippet sections by category
+                      for (final entry in userByCategory.entries) ...[
+                        _buildSectionHeader(
+                          SnippetPresets.categoryLabel(entry.key),
+                          isDark,
+                        ),
+                        ...entry.value
+                            .map((s) => _buildSnippetItem(s, isDark)),
+                      ],
+                    ],
                   ),
           ),
         ],
@@ -162,48 +198,136 @@ class SnippetPickerSheet extends ConsumerWidget {
     );
   }
 
-  Widget _buildSnippetItem(
-      BuildContext context, WidgetRef ref, Snippet snippet, bool isDark) {
+  List<Snippet> _filter(List<Snippet> items) {
+    if (_searchQuery.isEmpty) return items;
+    final q = _searchQuery.toLowerCase();
+    return items
+        .where((s) =>
+            s.name.toLowerCase().contains(q) ||
+            s.content.toLowerCase().contains(q))
+        .toList();
+  }
+
+  Widget _buildEmptyState(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.bolt_outlined,
+            size: 48,
+            color:
+                isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _searchQuery.isEmpty ? 'No snippets yet' : 'No matching snippets',
+            style: TextStyle(
+              color: isDark
+                  ? DesignColors.textMuted
+                  : DesignColors.textMutedLight,
+            ),
+          ),
+          if (_searchQuery.isEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Tap "New" to create one',
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, top: 12, bottom: 4),
+      child: Text(
+        title.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.8,
+          color:
+              isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSnippetItem(Snippet snippet, bool isDark,
+      {bool isPreset = false}) {
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
         if (snippet.variables.isNotEmpty) {
           _showVariableDialog(context, snippet);
         } else if (snippet.sendImmediately) {
-          onSendImmediately(snippet.content);
+          widget.onSendImmediately(snippet.content);
         } else {
-          onInsert(snippet.content);
+          widget.onInsert(snippet.content);
         }
+      },
+      onDoubleTap: () {
+        HapticFeedback.lightImpact();
+        widget.onSendImmediately(snippet.content);
       },
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(
-              snippet.name,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: isDark
-                    ? DesignColors.textPrimary
-                    : DesignColors.textPrimaryLight,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    snippet.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: isPreset
+                          ? DesignColors.primary
+                          : (isDark
+                              ? DesignColors.textPrimary
+                              : DesignColors.textPrimaryLight),
+                    ),
+                  ),
+                  if (snippet.content != snippet.name) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      snippet.content,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark
+                            ? DesignColors.textSecondary
+                            : DesignColors.textSecondaryLight,
+                        fontFamily: 'monospace',
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 2),
-            Text(
-              snippet.content,
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark
-                    ? DesignColors.textSecondary
-                    : DesignColors.textSecondaryLight,
-                fontFamily: 'monospace',
+            if (snippet.sendImmediately)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Icon(
+                  Icons.send,
+                  size: 14,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
           ],
         ),
       ),
@@ -250,12 +374,11 @@ class SnippetPickerSheet extends ConsumerWidget {
                 }
                 final resolved = snippet.resolve(values);
                 Navigator.pop(dialogContext);
-                // Close the picker sheet too
                 Navigator.pop(context);
                 if (snippet.sendImmediately) {
-                  onSendImmediately(resolved);
+                  widget.onSendImmediately(resolved);
                 } else {
-                  onInsert(resolved);
+                  widget.onInsert(resolved);
                 }
               },
               child: const Text('Insert'),
@@ -264,9 +387,6 @@ class SnippetPickerSheet extends ConsumerWidget {
         );
       },
     );
-
-    // Clean up controllers when dialog is dismissed
-    // (TextField controllers are automatically disposed with the dialog)
   }
 
   void _showAddSnippetDialog(BuildContext context, WidgetRef ref) {
@@ -294,7 +414,7 @@ class SnippetPickerSheet extends ConsumerWidget {
               TextField(
                 controller: contentController,
                 decoration: const InputDecoration(
-                  labelText: 'Command',
+                  labelText: 'Command / Text',
                   hintText: 'e.g., docker compose up -d',
                   border: OutlineInputBorder(),
                   isDense: true,

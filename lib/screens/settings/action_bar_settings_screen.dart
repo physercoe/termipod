@@ -377,15 +377,30 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                       button.label,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    subtitle: Text(
-                      '${_buttonTypeLabel(button.type)} = ${button.value}'
-                      '${button.longPressValue != null ? '  (long: ${button.longPressValue})' : ''}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: isDark
-                            ? DesignColors.textMuted
-                            : DesignColors.textMutedLight,
-                      ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (button.displayDescription.isNotEmpty)
+                          Text(
+                            button.displayDescription,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? DesignColors.textSecondary
+                                  : DesignColors.textSecondaryLight,
+                            ),
+                          ),
+                        Text(
+                          '${_buttonTypeLabel(button.type)} = ${button.value}'
+                          '${button.longPressValue != null ? '  (long: ${button.longPressValue})' : ''}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isDark
+                                ? DesignColors.textMuted
+                                : DesignColors.textMutedLight,
+                          ),
+                        ),
+                      ],
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -475,6 +490,8 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
     final valueController = TextEditingController(text: initial?.value ?? '');
     final longPressController =
         TextEditingController(text: initial?.longPressValue ?? '');
+    final descriptionController =
+        TextEditingController(text: initial?.displayDescription ?? '');
     var selectedType = initial?.type ?? ActionBarButtonType.specialKey;
 
     showDialog(
@@ -534,6 +551,16 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                     isDense: true,
                   ),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descriptionController,
+                  decoration: const InputDecoration(
+                    labelText: 'Description (optional)',
+                    hintText: 'e.g., Interrupt / Cancel',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
               ],
             ),
           ),
@@ -547,7 +574,13 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                 final label = labelController.text.trim();
                 final value = valueController.text.trim();
                 final longPress = longPressController.text.trim();
+                final desc = descriptionController.text.trim();
                 if (label.isNotEmpty && value.isNotEmpty) {
+                  // Only store description if user changed it from the default
+                  final defaultDesc =
+                      ActionBarButton.defaultDescriptions[value] ?? '';
+                  final customDesc =
+                      desc.isEmpty || desc == defaultDesc ? null : desc;
                   final button = ActionBarButton(
                     id: initial?.id ??
                         'btn_${DateTime.now().millisecondsSinceEpoch}',
@@ -556,6 +589,7 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
                     value: value,
                     longPressValue: longPress.isEmpty ? null : longPress,
                     iconName: initial?.iconName,
+                    description: customDesc,
                   );
                   onSave(button);
                   Navigator.pop(ctx);

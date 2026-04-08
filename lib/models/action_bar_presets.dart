@@ -60,6 +60,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'cc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'cc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
         ActionBarButton(id: 'cc-cd', label: 'C-D', type: ActionBarButtonType.ctrlCombo, value: 'C-d'),
+        ActionBarButton(id: 'cc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'cc-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'cc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -86,18 +87,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'cc-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
       ]),
     ],
-    slashCommands: [
-      CommandMenuItem(label: '/help', description: 'Show help', command: '/help'),
-      CommandMenuItem(label: '/compact', description: 'Compact conversation', command: '/compact'),
-      CommandMenuItem(label: '/clear', description: 'Clear conversation', command: '/clear'),
-      CommandMenuItem(label: '/diff', description: 'Show pending changes', command: '/diff'),
-      CommandMenuItem(label: '/model', description: 'Switch model', command: '/model'),
-      CommandMenuItem(label: '/config', description: 'Open configuration', command: '/config'),
-      CommandMenuItem(label: '/vim', description: 'Toggle vim mode', command: '/vim'),
-      CommandMenuItem(label: '/theme', description: 'Change theme', command: '/theme'),
-      CommandMenuItem(label: '/exit', description: 'Exit session', command: '/exit'),
-      CommandMenuItem(label: '/doctor', description: 'Run diagnostics', command: '/doctor'),
-    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -116,6 +105,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'cx-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'cx-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
         ActionBarButton(id: 'cx-cg', label: 'C-G', type: ActionBarButtonType.ctrlCombo, value: 'C-g'),
+        ActionBarButton(id: 'cx-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'cx-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'cx-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -137,14 +127,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'cx-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
       ]),
     ],
-    slashCommands: [
-      CommandMenuItem(label: '/permissions', description: 'Manage permissions', command: '/permissions'),
-      CommandMenuItem(label: '/clear', description: 'Clear conversation', command: '/clear'),
-      CommandMenuItem(label: '/compact', description: 'Compact conversation', command: '/compact'),
-      CommandMenuItem(label: '/diff', description: 'Show changes', command: '/diff'),
-      CommandMenuItem(label: '/model', description: 'Switch model', command: '/model'),
-      CommandMenuItem(label: '/exit', description: 'Exit session', command: '/exit'),
-    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -163,6 +145,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'km-cx', label: 'C-X', type: ActionBarButtonType.ctrlCombo, value: 'C-x'),
         ActionBarButton(id: 'km-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'km-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
+        ActionBarButton(id: 'km-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'km-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'km-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -184,15 +167,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'km-senter', label: 'S-Ent', type: ActionBarButtonType.shiftCombo, value: 'S-Enter'),
       ]),
     ],
-    slashCommands: [
-      CommandMenuItem(label: '/help', description: 'Show help', command: '/help'),
-      CommandMenuItem(label: '/compact', description: 'Compact conversation', command: '/compact'),
-      CommandMenuItem(label: '/clear', description: 'Clear conversation', command: '/clear'),
-      CommandMenuItem(label: '/model', description: 'Switch model', command: '/model'),
-      CommandMenuItem(label: '/yolo', description: 'Auto-approve mode', command: '/yolo'),
-      CommandMenuItem(label: '/web', description: 'Web search', command: '/web'),
-      CommandMenuItem(label: '/exit', description: 'Exit session', command: '/exit'),
-    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -210,6 +184,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'oc-cp', label: 'C-P', type: ActionBarButtonType.ctrlCombo, value: 'C-p'),
         ActionBarButton(id: 'oc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'oc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
+        ActionBarButton(id: 'oc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'oc-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'oc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -235,13 +210,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'oc-f2', label: 'F2', type: ActionBarButtonType.specialKey, value: 'F2'),
       ]),
     ],
-    slashCommands: [
-      CommandMenuItem(label: '/init', description: 'Initialize project', command: '/init'),
-      CommandMenuItem(label: '/undo', description: 'Undo last change', command: '/undo'),
-      CommandMenuItem(label: '/redo', description: 'Redo last change', command: '/redo'),
-      CommandMenuItem(label: '/share', description: 'Share session', command: '/share'),
-      CommandMenuItem(label: '/help', description: 'Show help', command: '/help'),
-    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -258,6 +226,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'ai-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'ai-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'ai-menter', label: 'M-Ent', type: ActionBarButtonType.altCombo, value: 'M-Enter'),
+        ActionBarButton(id: 'ai-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'ai-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'ai-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -280,21 +249,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'ai-cl', label: 'C-L', type: ActionBarButtonType.ctrlCombo, value: 'C-l'),
       ]),
     ],
-    slashCommands: [
-      CommandMenuItem(label: '/help', description: 'Show help', command: '/help'),
-      CommandMenuItem(label: '/add', description: 'Add file to chat', command: '/add'),
-      CommandMenuItem(label: '/drop', description: 'Remove file from chat', command: '/drop'),
-      CommandMenuItem(label: '/ask', description: 'Ask mode (discuss)', command: '/ask'),
-      CommandMenuItem(label: '/code', description: 'Code mode (edit)', command: '/code'),
-      CommandMenuItem(label: '/architect', description: 'Architect mode (plan)', command: '/architect'),
-      CommandMenuItem(label: '/clear', description: 'Clear chat history', command: '/clear'),
-      CommandMenuItem(label: '/diff', description: 'Show diffs', command: '/diff'),
-      CommandMenuItem(label: '/model', description: 'Switch model', command: '/model'),
-      CommandMenuItem(label: '/run', description: 'Run shell command', command: '/run'),
-      CommandMenuItem(label: '/test', description: 'Run tests', command: '/test'),
-      CommandMenuItem(label: '/undo', description: 'Undo last change', command: '/undo'),
-      CommandMenuItem(label: '/exit', description: 'Exit session', command: '/exit'),
-    ],
   );
 
   // ---------------------------------------------------------------------------
@@ -312,6 +266,7 @@ class ActionBarPresets {
         ActionBarButton(id: 'gt-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
         ActionBarButton(id: 'gt-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
         ActionBarButton(id: 'gt-enter', label: 'Enter', type: ActionBarButtonType.specialKey, value: 'Enter'),
+        ActionBarButton(id: 'gt-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'gt-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'gt-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -338,6 +293,5 @@ class ActionBarPresets {
         ActionBarButton(id: 'gt-f4', label: 'F4', type: ActionBarButtonType.specialKey, value: 'F4'),
       ]),
     ],
-    slashCommands: [],
   );
 }

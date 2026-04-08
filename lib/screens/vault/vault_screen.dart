@@ -4,11 +4,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
+import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 import '../keys/key_generate_screen.dart';
 import '../keys/key_import_screen.dart';
 import '../keys/keys_screen.dart';
+import 'history_screen.dart';
 import 'snippets_screen.dart';
 
 /// Vaults screen — vertical list of Keys and Snippets sections.
@@ -91,8 +93,47 @@ class VaultScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 const SnippetsScreen(),
+
+                const SizedBox(height: 24),
+
+                // History section
+                _SectionCard(
+                  icon: Icons.history,
+                  title: 'History',
+                  trailing: _SmallActionButton(
+                    icon: Icons.delete_outline,
+                    label: 'Clear',
+                    onTap: () => _confirmClearHistory(context, ref),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const HistoryScreen(),
               ]),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmClearHistory(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear History'),
+        content: const Text('Delete all command history? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              ref.read(historyProvider.notifier).clear();
+              Navigator.pop(ctx);
+            },
+            child: const Text('Clear'),
           ),
         ],
       ),

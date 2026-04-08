@@ -3,28 +3,29 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/action_bar_provider.dart';
+import '../../providers/history_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// The [+] insert/action menu that appears from the compose bar.
 ///
-/// Shows a vertical popup menu with: Snippets, Command Menu, History,
-/// File Transfer, Image Transfer, Paste Clipboard, Direct Input.
+/// Shows a vertical popup menu with: Recent, File Upload, File Download,
+/// Image Transfer, Direct Input.
+/// Snippets are accessed via the bolt button on the action bar instead.
 class InsertMenu {
   InsertMenu._();
 
   static Future<void> show(
     BuildContext context, {
     required WidgetRef ref,
-    VoidCallback? onSnippets,
-    VoidCallback? onCommandMenu,
-    VoidCallback? onHistory,
+    VoidCallback? onRecent,
     VoidCallback? onFileTransfer,
     VoidCallback? onFileDownload,
     VoidCallback? onImageTransfer,
     VoidCallback? onDirectInput,
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final state = ref.read(actionBarProvider);
+    final abState = ref.read(actionBarProvider);
+    final historyState = ref.read(historyProvider);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -53,37 +54,15 @@ class InsertMenu {
                   ),
                 ),
                 // Menu items
-                if (onSnippets != null)
-                  _buildItem(
-                    context,
-                    icon: Icons.code,
-                    label: 'Snippets',
-                    isDark: isDark,
-                    onTap: () {
-                      Navigator.pop(context);
-                      onSnippets();
-                    },
-                  ),
-                if (onCommandMenu != null)
-                  _buildItem(
-                    context,
-                    icon: Icons.terminal,
-                    label: 'Command Menu',
-                    isDark: isDark,
-                    onTap: () {
-                      Navigator.pop(context);
-                      onCommandMenu();
-                    },
-                  ),
-                if (onHistory != null && state.commandHistory.isNotEmpty)
+                if (onRecent != null && historyState.recent.isNotEmpty)
                   _buildItem(
                     context,
                     icon: Icons.history,
-                    label: 'History',
+                    label: 'Recent',
                     isDark: isDark,
                     onTap: () {
                       Navigator.pop(context);
-                      onHistory();
+                      onRecent();
                     },
                   ),
                 const Divider(height: 1),
@@ -124,10 +103,10 @@ class InsertMenu {
                   const Divider(height: 1),
                   _buildItem(
                     context,
-                    icon: state.composeMode
+                    icon: abState.composeMode
                         ? Icons.keyboard
                         : Icons.edit_note_rounded,
-                    label: state.composeMode
+                    label: abState.composeMode
                         ? 'Direct Input Mode'
                         : 'Compose Mode',
                     isDark: isDark,

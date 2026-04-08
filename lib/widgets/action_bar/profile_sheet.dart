@@ -304,7 +304,6 @@ class ProfileSheet extends ConsumerWidget {
                       ],
                     ),
                   ],
-                  slashCommands: const [],
                 );
                 ref.read(actionBarProvider.notifier).addCustomProfile(profile);
                 ref

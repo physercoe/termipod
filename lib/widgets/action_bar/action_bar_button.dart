@@ -203,6 +203,8 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
         return Icons.arrow_drop_up;
       case 'arrow_drop_down':
         return Icons.arrow_drop_down;
+      case 'bolt':
+        return Icons.bolt;
       default:
         return null;
     }

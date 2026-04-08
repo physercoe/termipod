@@ -32,9 +32,6 @@ class ActionBarState {
   /// Input mode: true = compose (default), false = direct input
   final bool composeMode;
 
-  /// Command history (recent composed inputs)
-  final List<String> commandHistory;
-
   /// Suggested profile ID based on pane_current_command (null = no suggestion)
   final String? suggestedProfileId;
 
@@ -47,7 +44,6 @@ class ActionBarState {
     this.ctrlLocked = false,
     this.altLocked = false,
     this.composeMode = true,
-    this.commandHistory = const [],
     this.suggestedProfileId,
   });
 
@@ -64,9 +60,6 @@ class ActionBarState {
   /// Get the active groups
   List<ActionBarGroup> get activeGroups => activeProfile.groups;
 
-  /// Get the active slash commands
-  List<CommandMenuItem> get activeSlashCommands => activeProfile.slashCommands;
-
   ActionBarState copyWith({
     String? activeProfileId,
     List<ActionBarProfile>? profiles,
@@ -76,7 +69,6 @@ class ActionBarState {
     bool? ctrlLocked,
     bool? altLocked,
     bool? composeMode,
-    List<String>? commandHistory,
     String? suggestedProfileId,
     bool clearSuggestion = false,
   }) {
@@ -89,7 +81,6 @@ class ActionBarState {
       ctrlLocked: ctrlLocked ?? this.ctrlLocked,
       altLocked: altLocked ?? this.altLocked,
       composeMode: composeMode ?? this.composeMode,
-      commandHistory: commandHistory ?? this.commandHistory,
       suggestedProfileId: clearSuggestion
           ? null
           : (suggestedProfileId ?? this.suggestedProfileId),
@@ -102,8 +93,6 @@ const _keyActiveProfile = 'settings_action_bar_active_profile';
 const _keyCustomProfiles = 'settings_action_bar_custom_profiles';
 const _keyDeletedPresets = 'settings_action_bar_deleted_presets';
 const _keyComposeMode = 'settings_action_bar_compose_mode';
-const _keyCommandHistory = 'settings_action_bar_command_history';
-const _maxHistoryItems = 50;
 
 class ActionBarNotifier extends Notifier<ActionBarState> {
   @override
@@ -141,17 +130,6 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       } catch (_) {}
     }
 
-    // Load command history
-    final historyJson = prefs.getString(_keyCommandHistory);
-    List<String> history = [];
-    if (historyJson != null) {
-      try {
-        history = (jsonDecode(historyJson) as List).cast<String>();
-      } catch (_) {
-        // Ignore corrupt data
-      }
-    }
-
     // Merge: start with presets (excluding deleted), override with custom
     // versions (same ID), then append user-created profiles (new IDs).
     final customIds = customProfiles.map((p) => p.id).toSet();
@@ -172,7 +150,6 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       activeProfileId: activeId,
       profiles: allProfiles,
       composeMode: composeMode,
-      commandHistory: history,
     );
   }
 
@@ -386,30 +363,6 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
 
   void toggleInputMode() {
     setComposeMode(!state.composeMode);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Command history
-  // ---------------------------------------------------------------------------
-
-  Future<void> addToHistory(String command) async {
-    if (command.trim().isEmpty) return;
-    final history = [
-      command,
-      ...state.commandHistory.where((h) => h != command),
-    ];
-    final trimmed = history.length > _maxHistoryItems
-        ? history.sublist(0, _maxHistoryItems)
-        : history;
-    state = state.copyWith(commandHistory: trimmed);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyCommandHistory, jsonEncode(trimmed));
-  }
-
-  Future<void> clearHistory() async {
-    state = state.copyWith(commandHistory: []);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyCommandHistory);
   }
 
   // ---------------------------------------------------------------------------

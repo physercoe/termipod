@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/action_bar_provider.dart';
+import '../../providers/history_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// Compose bar: [+] insert menu + text field + [Send] button.
@@ -44,6 +45,7 @@ class ComposeBar extends ConsumerStatefulWidget {
 class ComposeBarState extends ConsumerState<ComposeBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  bool _hasText = false;
 
   // Direct input mode state (sentinel approach from SpecialKeysBar)
   static const String _sentinel = '\u200B';
@@ -57,11 +59,20 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_onComposeTextChanged);
     _directController.addListener(_onDirectInputChanged);
+  }
+
+  void _onComposeTextChanged() {
+    final hasText = _controller.text.isNotEmpty;
+    if (hasText != _hasText) {
+      setState(() => _hasText = hasText);
+    }
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_onComposeTextChanged);
     _controller.dispose();
     _focusNode.dispose();
     _directController.removeListener(_onDirectInputChanged);
@@ -101,7 +112,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
     } else {
       widget.onSend(text, withEnter: true);
       // Add to history
-      ref.read(actionBarProvider.notifier).addToHistory(text);
+      ref.read(historyProvider.notifier).add(text);
       _controller.clear();
     }
   }
@@ -114,7 +125,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
     final text = _controller.text;
     if (text.isNotEmpty) {
       widget.onSend(text, withEnter: false);
-      ref.read(actionBarProvider.notifier).addToHistory(text);
+      ref.read(historyProvider.notifier).add(text);
       _controller.clear();
     }
   }
@@ -374,6 +385,20 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
     );
   }
 
+  void _handleClear() {
+    if (widget.hapticFeedback) HapticFeedback.selectionClick();
+    _controller.clear();
+    _focusNode.requestFocus();
+  }
+
+  void _handleLongPressClear() {
+    if (widget.hapticFeedback) HapticFeedback.mediumImpact();
+    _controller.clear();
+    // Also clear the terminal input line via C-u
+    widget.onSpecialKeyPressed?.call('C-u');
+    _focusNode.requestFocus();
+  }
+
   Widget _buildComposeField(bool isDark, ColorScheme colorScheme) {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxHeight: 120),
@@ -405,6 +430,24 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
             vertical: 8,
           ),
           isDense: true,
+          suffixIcon: _hasText
+              ? GestureDetector(
+                  onTap: _handleClear,
+                  onLongPress: _handleLongPressClear,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight,
+                    ),
+                  ),
+                )
+              : null,
+          suffixIconConstraints:
+              const BoxConstraints(minWidth: 28, minHeight: 28),
         ),
       ),
     );

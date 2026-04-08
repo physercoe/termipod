@@ -243,15 +243,24 @@ class SshNotifier extends Notifier<SshState> {
     _lastConnection = connection;
     _lastOptions = options;
 
-    // 既存の接続状態監視をキャンセル
-    await _connectionStateSubscription?.cancel();
+    // Capture and clear old references synchronously to prevent
+    // a concurrent disconnect() (from old terminal's deactivate) from
+    // interfering with our new connection.
+    final oldSub = _connectionStateSubscription;
+    final oldClient = _client;
+    final oldTimer = _reconnectTimer;
     _connectionStateSubscription = null;
-
-    // Dispose old client to prevent stale operations from completing
-    _reconnectTimer?.cancel();
     _reconnectTimer = null;
-    _client?.dispose();
     _client = null;
+
+    // Cancel timer synchronously
+    oldTimer?.cancel();
+
+    // Cancel old subscription (async but on local var — won't touch our new state)
+    await oldSub?.cancel();
+
+    // Dispose old client (fire-and-forget on local var — safe)
+    oldClient?.dispose();
 
     state = state.copyWith(
       connectionState: SshConnectionState.connecting,
@@ -394,6 +403,10 @@ class SshNotifier extends Notifier<SshState> {
   }
 
   /// 実際の再接続処理
+  ///
+  /// Uses generation counter to detect if another terminal has called
+  /// connectWithoutShell() during our async gaps. If generation changes,
+  /// we bail out WITHOUT touching _client (which now belongs to the new terminal).
   Future<bool> _doReconnect() async {
     if (_lastConnection == null || _lastOptions == null) {
       return false;
@@ -409,18 +422,27 @@ class SshNotifier extends Notifier<SshState> {
     final gen = _generation;
 
     try {
-      // 既存の接続状態監視をキャンセル
-      await _connectionStateSubscription?.cancel();
+      // Cancel old subscription using local capture to avoid nulling a
+      // subscription that connectWithoutShell() may have set up.
+      final oldSub = _connectionStateSubscription;
       _connectionStateSubscription = null;
+      await oldSub?.cancel();
 
-      // 古いクライアントをクリーンアップ
-      _client?.dispose();
+      // Re-check generation after first await — connectWithoutShell may have run
+      if (gen != _generation) return false;
+
+      // Now safe to modify shared state — we're still the current generation.
+      // Capture old client locally for cleanup, then create new one.
+      final oldClient = _client;
       _client = SshClient();
 
       // 接続状態のストリームを監視（切断検知の高速化）
       _connectionStateSubscription = _client!.connectionStateStream.listen(
         _onConnectionStateChanged,
       );
+
+      // Dispose old client after creating new one (avoids window with _client == null)
+      oldClient?.dispose();
 
       await _client!.connect(
         host: _lastConnection!.host,
@@ -429,11 +451,11 @@ class SshNotifier extends Notifier<SshState> {
         options: _lastOptions!,
       );
 
-      // Another terminal may have called connectWithoutShell during our await.
-      // If generation changed, discard our result — the new terminal owns the connection.
+      // Re-check generation after connect — another terminal may have taken over.
+      // Do NOT dispose _client here: if generation changed, connectWithoutShell()
+      // already disposed our client and set its own. Touching _client would kill
+      // the new terminal's connection.
       if (gen != _generation) {
-        _client?.dispose();
-        _client = null;
         return false;
       }
 
@@ -451,7 +473,8 @@ class SshNotifier extends Notifier<SshState> {
 
       return true;
     } catch (e) {
-      // If generation changed, another terminal took over — do NOT retry.
+      // If generation changed, another terminal took over — do NOT retry or
+      // touch _client (it belongs to the new terminal now).
       if (gen != _generation) {
         return false;
       }
@@ -500,29 +523,56 @@ class SshNotifier extends Notifier<SshState> {
   }
 
   /// 切断
+  ///
+  /// IMPORTANT: This method is called from deactivate() which is synchronous
+  /// and does NOT await the result. To prevent racing with a subsequent
+  /// connectWithoutShell() call (from a new terminal), all shared mutable
+  /// fields (_client, _connectionStateSubscription, _reconnectTimer) are
+  /// captured in local variables and nulled synchronously BEFORE any await.
+  /// Async cleanup then operates only on the captured locals.
   Future<void> disconnect() async {
-    // 再接続タイマーをキャンセル
-    _reconnectTimer?.cancel();
+    // Capture references locally BEFORE any await to avoid racing with
+    // connectWithoutShell() which may run during our async gaps.
+    final clientToDisconnect = _client;
+    final subToCancel = _connectionStateSubscription;
+    final timerToCancel = _reconnectTimer;
+
+    // Synchronously clear shared fields so any concurrent
+    // connectWithoutShell() sees clean state immediately.
     _reconnectTimer = null;
-
-    // 接続状態監視をキャンセル
-    await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
-
-    // Foreground Serviceを停止
-    await _foregroundService.stopService();
-
-    await _client?.disconnect();
     _client = null;
-    state = state.copyWith(
-      connectionState: SshConnectionState.disconnected,
-      error: null,
-      sessionTitle: null,
-      isReconnecting: false,
-      isPaused: false,
-      reconnectAttempt: 0,
-      nextRetryAt: null,
-    );
+
+    // Cancel timer synchronously (safe, no await needed)
+    timerToCancel?.cancel();
+
+    // Async cleanup on captured (local) references only.
+    // These operations cannot interfere with a new connection.
+    await subToCancel?.cancel();
+
+    // Only stop foreground service if no new connection has started.
+    // If connectWithoutShell() ran during our cleanup, it will manage the service.
+    // Stopping it here could cause Android to kill the process mid-connect.
+    if (_client == null) {
+      await _foregroundService.stopService();
+    }
+
+    await clientToDisconnect?.disconnect();
+
+    // Only update state if no new connection has been established
+    // while we were cleaning up. If connectWithoutShell() ran during
+    // our awaits, _client will be non-null (the new terminal's client).
+    if (_client == null) {
+      state = state.copyWith(
+        connectionState: SshConnectionState.disconnected,
+        error: null,
+        sessionTitle: null,
+        isReconnecting: false,
+        isPaused: false,
+        reconnectAttempt: 0,
+        nextRetryAt: null,
+      );
+    }
   }
 
   /// セッションタイトルを更新

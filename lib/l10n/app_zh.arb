@@ -117,6 +117,7 @@
   "settingInvertPaneNav": "反转窗格导航",
   "settingInvertPaneNavDesc": "反转滑动方向以切换窗格",
   "settingTheme": "主题",
+  "settingLanguage": "语言",
   "settingRemotePath": "远程路径",
   "settingImageOutputFormat": "输出格式",
   "settingJpegQuality": "JPEG 质量",

@@ -57,6 +57,9 @@ class AppSettings {
   final bool imageAutoEnter;
   final bool imageBracketedPaste;
 
+  /// Language override: 'system', 'en', 'zh'
+  final String locale;
+
   const AppSettings({
     this.darkMode = true,
     this.fontSize = 14.0,
@@ -86,6 +89,7 @@ class AppSettings {
     this.imagePathFormat = '{path}',
     this.imageAutoEnter = false,
     this.imageBracketedPaste = false,
+    this.locale = 'system',
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -120,6 +124,7 @@ class AppSettings {
     String? imagePathFormat,
     bool? imageAutoEnter,
     bool? imageBracketedPaste,
+    String? locale,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -150,6 +155,7 @@ class AppSettings {
       imagePathFormat: imagePathFormat ?? this.imagePathFormat,
       imageAutoEnter: imageAutoEnter ?? this.imageAutoEnter,
       imageBracketedPaste: imageBracketedPaste ?? this.imageBracketedPaste,
+      locale: locale ?? this.locale,
     );
   }
 }
@@ -184,6 +190,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _keyOverlayArrowKey = 'settings_key_overlay_arrow';
   static const String _keyOverlayShortcutKey = 'settings_key_overlay_shortcut';
   static const String _keyOverlayPositionKey = 'settings_key_overlay_position';
+  static const String _localeKey = 'settings_locale';
 
   @override
   AppSettings build() {
@@ -224,6 +231,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       imagePathFormat: prefs.getString(_imagePathFormatKey) ?? '{path}',
       imageAutoEnter: prefs.getBool(_imageAutoEnterKey) ?? false,
       imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
+      locale: prefs.getString(_localeKey) ?? 'system',
     );
   }
 
@@ -400,7 +408,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSetting(_imageBracketedPasteKey, value);
   }
 
-  /// リロード
+  Future<void> setLocale(String value) async {
+    state = state.copyWith(locale: value);
+    await _saveSetting(_localeKey, value);
+  }
+
   Future<void> reload() async {
     await _loadSettings();
   }

@@ -140,6 +140,11 @@ class _MyAppState extends ConsumerState<MyApp> {
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
 
+    // Resolve locale override
+    final localeOverride = settings.locale != 'system'
+        ? Locale(settings.locale)
+        : null;
+
     return MaterialApp(
       navigatorKey: _navigatorKey,
       title: 'TermiPod',
@@ -153,6 +158,7 @@ class _MyAppState extends ConsumerState<MyApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
+      locale: localeOverride,
       home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );

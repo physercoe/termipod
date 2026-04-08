@@ -237,6 +237,12 @@ class SettingsScreen extends ConsumerWidget {
                     }
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.language),
+                  title: Text(l10n.settingLanguage),
+                  subtitle: Text(_localeLabel(settings.locale)),
+                  onTap: () => _showLocalePicker(context, ref, settings.locale),
+                ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionImageTransfer),
                 ListTile(
@@ -572,6 +578,43 @@ class SettingsScreen extends ConsumerWidget {
               groupValue: current,
               onChanged: (v) {
                 if (v != null) ref.read(settingsProvider.notifier).setImageResizePreset(v);
+                Navigator.pop(ctx);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _localeLabel(String locale) {
+    switch (locale) {
+      case 'en':
+        return 'English';
+      case 'zh':
+        return '中文 (简体)';
+      default:
+        return 'System Default';
+    }
+  }
+
+  void _showLocalePicker(BuildContext context, WidgetRef ref, String current) {
+    final l10n = AppLocalizations.of(context)!;
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l10n.settingLanguage),
+        children: [
+          for (final entry in [
+            ('system', 'System Default'),
+            ('en', 'English'),
+            ('zh', '中文 (简体)'),
+          ])
+            RadioListTile<String>(
+              title: Text(entry.$2),
+              value: entry.$1,
+              groupValue: current,
+              onChanged: (v) {
+                if (v != null) ref.read(settingsProvider.notifier).setLocale(v);
                 Navigator.pop(ctx);
               },
             ),

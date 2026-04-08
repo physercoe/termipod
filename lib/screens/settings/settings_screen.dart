@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,6 +20,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
+    final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
       body: CustomScrollView(
@@ -28,11 +30,11 @@ class SettingsScreen extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(0, 0, 0, 100),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                const _SectionHeader(title: 'Terminal'),
+                _SectionHeader(title: l10n.sectionTerminal),
                 SwitchListTile(
                   secondary: const Icon(Icons.abc),
-                  title: const Text('Show Cursor'),
-                  subtitle: const Text('Show terminal cursor indicator'),
+                  title: Text(l10n.settingShowCursor),
+                  subtitle: Text(l10n.settingShowCursorDesc),
                   value: settings.showTerminalCursor,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setShowTerminalCursor(value);
@@ -40,13 +42,13 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.tune),
-                  title: const Text('Adjust Mode'),
+                  title: Text(l10n.settingAdjustMode),
                   subtitle: Text(_adjustModeLabel(settings.adjustMode)),
                   onTap: () => _showAdjustModePicker(context, ref, settings.adjustMode),
                 ),
                 ListTile(
                   leading: const Icon(Icons.text_fields),
-                  title: const Text('Font Size'),
+                  title: Text(l10n.settingFontSize),
                   subtitle: Text(
                     settings.isAutoFit
                         ? '${settings.fontSize.toInt()} pt (auto-fit enabled)'
@@ -69,7 +71,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.font_download),
-                  title: const Text('Font Family'),
+                  title: Text(l10n.settingFontFamily),
                   subtitle: Text(settings.fontFamily),
                   onTap: () async {
                     final family = await showDialog<String>(
@@ -85,7 +87,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.format_size),
-                  title: const Text('Minimum Font Size'),
+                  title: Text(l10n.settingMinFontSize),
                   subtitle: Text(
                     settings.isAutoFit
                         ? '${settings.minFontSize.toInt()} pt (auto-fit limit)'
@@ -108,16 +110,16 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.history),
-                  title: const Text('Scrollback Lines'),
-                  subtitle: Text('${settings.scrollbackLines} lines'),
+                  title: Text(l10n.settingScrollbackLines),
+                  subtitle: Text(l10n.scrollbackLinesValue(settings.scrollbackLines)),
                   onTap: () => _showScrollbackPicker(context, ref, settings.scrollbackLines),
                 ),
                 const Divider(),
-                const _SectionHeader(title: 'Key Overlay'),
+                _SectionHeader(title: l10n.settingKeyOverlay),
                 SwitchListTile(
                   secondary: const Icon(Icons.visibility),
-                  title: const Text('Key Overlay'),
-                  subtitle: const Text('Show key name overlay on special key press'),
+                  title: Text(l10n.settingKeyOverlay),
+                  subtitle: Text(l10n.settingKeyOverlayDesc),
                   value: settings.showKeyOverlay,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setShowKeyOverlay(value);
@@ -126,8 +128,8 @@ class SettingsScreen extends ConsumerWidget {
                 if (settings.showKeyOverlay) ...[
                   SwitchListTile(
                     secondary: const Icon(Icons.keyboard),
-                    title: const Text('Modifier Keys'),
-                    subtitle: const Text('Ctrl, Alt, Shift combinations'),
+                    title: Text(l10n.keyOverlayModifierKeys),
+                    subtitle: Text(l10n.keyOverlayModifierKeysDesc),
                     value: settings.keyOverlayModifier,
                     onChanged: (value) {
                       ref.read(settingsProvider.notifier).setKeyOverlayModifier(value);
@@ -135,8 +137,8 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   SwitchListTile(
                     secondary: const Icon(Icons.space_bar),
-                    title: const Text('Special Keys'),
-                    subtitle: const Text('ESC, TAB, ENTER, Shift+Enter'),
+                    title: Text(l10n.keyOverlaySpecialKeys),
+                    subtitle: Text(l10n.keyOverlaySpecialKeysDesc),
                     value: settings.keyOverlaySpecial,
                     onChanged: (value) {
                       ref.read(settingsProvider.notifier).setKeyOverlaySpecial(value);
@@ -144,8 +146,8 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   SwitchListTile(
                     secondary: const Icon(Icons.arrow_upward),
-                    title: const Text('Arrow Keys'),
-                    subtitle: const Text('Up, Down, Left, Right'),
+                    title: Text(l10n.keyOverlayArrowKeys),
+                    subtitle: Text(l10n.keyOverlayArrowKeysDesc),
                     value: settings.keyOverlayArrow,
                     onChanged: (value) {
                       ref.read(settingsProvider.notifier).setKeyOverlayArrow(value);
@@ -153,8 +155,8 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   SwitchListTile(
                     secondary: const Icon(Icons.shortcut),
-                    title: const Text('Shortcut Keys'),
-                    subtitle: const Text('/, -, 1, 2, 3, 4'),
+                    title: Text(l10n.keyOverlayShortcutKeys),
+                    subtitle: Text(l10n.keyOverlayShortcutKeysDesc),
                     value: settings.keyOverlayShortcut,
                     onChanged: (value) {
                       ref.read(settingsProvider.notifier).setKeyOverlayShortcut(value);
@@ -162,7 +164,7 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   ListTile(
                     leading: const Icon(Icons.place),
-                    title: const Text('Overlay Position'),
+                    title: Text(l10n.keyOverlayPosition),
                     subtitle: Text(
                       switch (settings.keyOverlayPosition) {
                         'center' => 'Center of terminal',
@@ -174,7 +176,7 @@ class SettingsScreen extends ConsumerWidget {
                       final result = await showDialog<String>(
                         context: context,
                         builder: (context) => SimpleDialog(
-                          title: const Text('Overlay Position'),
+                          title: Text(l10n.overlayPositionTitle),
                           children: [
                             _buildPositionOption(context, 'aboveKeyboard', 'Above Keyboard', settings.keyOverlayPosition),
                             _buildPositionOption(context, 'center', 'Center of Terminal', settings.keyOverlayPosition),
@@ -192,8 +194,8 @@ class SettingsScreen extends ConsumerWidget {
                 const _SectionHeader(title: 'Behavior'),
                 SwitchListTile(
                   secondary: const Icon(Icons.vibration),
-                  title: const Text('Haptic Feedback'),
-                  subtitle: const Text('Vibrate on key press'),
+                  title: Text(l10n.settingHapticFeedback),
+                  subtitle: Text(l10n.settingHapticFeedbackDesc),
                   value: settings.enableVibration,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setEnableVibration(value);
@@ -201,8 +203,8 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.brightness_high),
-                  title: const Text('Keep Screen On'),
-                  subtitle: const Text('Prevent screen from sleeping'),
+                  title: Text(l10n.settingKeepScreenOn),
+                  subtitle: Text(l10n.settingKeepScreenOnDesc),
                   value: settings.keepScreenOn,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setKeepScreenOn(value);
@@ -210,8 +212,8 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.swipe),
-                  title: const Text('Invert Pane Navigation'),
-                  subtitle: const Text('Reverse swipe direction for pane switching'),
+                  title: Text(l10n.settingInvertPaneNav),
+                  subtitle: Text(l10n.settingInvertPaneNavDesc),
                   value: settings.invertPaneNavigation,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setInvertPaneNavigation(value);
@@ -221,7 +223,7 @@ class SettingsScreen extends ConsumerWidget {
                 const _SectionHeader(title: 'Appearance'),
                 ListTile(
                   leading: const Icon(Icons.dark_mode),
-                  title: const Text('Theme'),
+                  title: Text(l10n.settingTheme),
                   subtitle: Text(settings.darkMode ? 'Dark' : 'Light'),
                   onTap: () async {
                     final isDark = await showDialog<bool>(
@@ -236,32 +238,32 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
                 const Divider(),
-                const _SectionHeader(title: 'Image Transfer'),
+                _SectionHeader(title: l10n.sectionImageTransfer),
                 ListTile(
                   leading: const Icon(Icons.folder),
-                  title: const Text('Remote Path'),
+                  title: Text(l10n.settingRemotePath),
                   subtitle: Text(settings.imageRemotePath),
                   onTap: () => _showTextInputDialog(
                     context, ref,
-                    title: 'Remote Path',
+                    title: l10n.settingRemotePath,
                     currentValue: settings.imageRemotePath,
                     onSave: (v) => ref.read(settingsProvider.notifier).setImageRemotePath(v),
                   ),
                 ),
                 ListTile(
                   leading: const Icon(Icons.image),
-                  title: const Text('Output Format'),
+                  title: Text(l10n.settingImageOutputFormat),
                   subtitle: Text(settings.imageOutputFormat),
                   onTap: () => _showFormatPicker(context, ref, settings.imageOutputFormat),
                 ),
                 if (settings.imageOutputFormat == 'jpeg')
                   ListTile(
                     leading: const Icon(Icons.high_quality),
-                    title: const Text('JPEG Quality'),
-                    subtitle: Text('${settings.imageJpegQuality}%'),
+                    title: Text(l10n.settingJpegQuality),
+                    subtitle: Text(l10n.jpegQualityValue(settings.imageJpegQuality)),
                     onTap: () => _showSliderDialog(
                       context, ref,
-                      title: 'JPEG Quality',
+                      title: l10n.settingJpegQuality,
                       value: settings.imageJpegQuality.toDouble(),
                       min: 1, max: 100,
                       onSave: (v) => ref.read(settingsProvider.notifier).setImageJpegQuality(v.round()),
@@ -269,29 +271,29 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ListTile(
                   leading: const Icon(Icons.photo_size_select_large),
-                  title: const Text('Resize'),
+                  title: Text(l10n.settingImageResize),
                   subtitle: Text(settings.imageResizePreset.toUpperCase()),
                   onTap: () => _showResizePresetPicker(context, ref, settings.imageResizePreset),
                 ),
                 if (settings.imageResizePreset == 'custom') ...[
                   ListTile(
                     leading: const SizedBox(width: 24),
-                    title: const Text('Max Width'),
-                    subtitle: Text('${settings.imageMaxWidth}px'),
+                    title: Text(l10n.settingMaxWidth),
+                    subtitle: Text(l10n.maxWidthValue(settings.imageMaxWidth)),
                     onTap: () => _showNumberInputDialog(
                       context, ref,
-                      title: 'Max Width',
+                      title: l10n.settingMaxWidth,
                       currentValue: settings.imageMaxWidth,
                       onSave: (v) => ref.read(settingsProvider.notifier).setImageMaxWidth(v),
                     ),
                   ),
                   ListTile(
                     leading: const SizedBox(width: 24),
-                    title: const Text('Max Height'),
-                    subtitle: Text('${settings.imageMaxHeight}px'),
+                    title: Text(l10n.settingMaxHeight),
+                    subtitle: Text(l10n.maxHeightValue(settings.imageMaxHeight)),
                     onTap: () => _showNumberInputDialog(
                       context, ref,
-                      title: 'Max Height',
+                      title: l10n.settingMaxHeight,
                       currentValue: settings.imageMaxHeight,
                       onSave: (v) => ref.read(settingsProvider.notifier).setImageMaxHeight(v),
                     ),
@@ -299,11 +301,11 @@ class SettingsScreen extends ConsumerWidget {
                 ],
                 ListTile(
                   leading: const Icon(Icons.text_format),
-                  title: const Text('Path Format'),
+                  title: Text(l10n.settingPathFormat),
                   subtitle: Text(settings.imagePathFormat),
                   onTap: () => _showTextInputDialog(
                     context, ref,
-                    title: 'Path Format',
+                    title: l10n.settingPathFormat,
                     currentValue: settings.imagePathFormat,
                     hint: 'Use {path} as placeholder. e.g. @{path}',
                     onSave: (v) => ref.read(settingsProvider.notifier).setImagePathFormat(v),
@@ -311,29 +313,29 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.keyboard_return),
-                  title: const Text('Auto Enter'),
-                  subtitle: const Text('Send Enter after path injection'),
+                  title: Text(l10n.settingAutoEnter),
+                  subtitle: Text(l10n.settingAutoEnterDesc),
                   value: settings.imageAutoEnter,
                   onChanged: (v) => ref.read(settingsProvider.notifier).setImageAutoEnter(v),
                 ),
                 SwitchListTile(
                   secondary: const Icon(Icons.paste),
-                  title: const Text('Bracketed Paste'),
-                  subtitle: const Text('Use bracketed paste protocol'),
+                  title: Text(l10n.settingBracketedPaste),
+                  subtitle: Text(l10n.settingBracketedPasteDesc),
                   value: settings.imageBracketedPaste,
                   onChanged: (v) => ref.read(settingsProvider.notifier).setImageBracketedPaste(v),
                 ),
                 const Divider(),
-                const _SectionHeader(title: 'About'),
+                _SectionHeader(title: l10n.sectionAbout),
                 ListTile(
                   leading: const Icon(Icons.info),
-                  title: const Text('Version'),
+                  title: Text(l10n.settingVersion),
                   subtitle: Text(VersionInfo.version),
                 ),
                 ListTile(
                   leading: const Icon(Icons.code),
-                  title: const Text('Source Code'),
-                  subtitle: const Text('github.com/physercoe/mux-pod'),
+                  title: Text(l10n.settingSourceCode),
+                  subtitle: Text(l10n.settingSourceCodeUrl),
                   onTap: () async {
                     final url = Uri.parse('https://github.com/physercoe/mux-pod');
                     if (await canLaunchUrl(url)) {
@@ -343,8 +345,8 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.description),
-                  title: const Text('Licenses'),
-                  subtitle: const Text('Open source licenses'),
+                  title: Text(l10n.settingLicenses),
+                  subtitle: Text(l10n.settingLicensesDesc),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -370,6 +372,7 @@ class SettingsScreen extends ConsumerWidget {
     String? hint,
     required void Function(String) onSave,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     final controller = TextEditingController(text: currentValue);
     showDialog(
       context: context,
@@ -383,13 +386,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.buttonCancel)),
           FilledButton(
             onPressed: () {
               onSave(controller.text.trim());
               Navigator.pop(ctx);
             },
-            child: const Text('Save'),
+            child: Text(l10n.buttonSave),
           ),
         ],
       ),
@@ -403,6 +406,7 @@ class SettingsScreen extends ConsumerWidget {
     required int currentValue,
     required void Function(int) onSave,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     final controller = TextEditingController(text: currentValue.toString());
     showDialog(
       context: context,
@@ -414,14 +418,14 @@ class SettingsScreen extends ConsumerWidget {
           decoration: const InputDecoration(border: OutlineInputBorder()),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.buttonCancel)),
           FilledButton(
             onPressed: () {
               final v = int.tryParse(controller.text.trim());
               if (v != null) onSave(v);
               Navigator.pop(ctx);
             },
-            child: const Text('Save'),
+            child: Text(l10n.buttonSave),
           ),
         ],
       ),
@@ -437,6 +441,7 @@ class SettingsScreen extends ConsumerWidget {
     required double max,
     required void Function(double) onSave,
   }) {
+    final l10n = AppLocalizations.of(context)!;
     var current = value;
     showDialog(
       context: context,
@@ -451,13 +456,13 @@ class SettingsScreen extends ConsumerWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.buttonCancel)),
             FilledButton(
               onPressed: () {
                 onSave(current);
                 Navigator.pop(ctx);
               },
-              child: const Text('Save'),
+              child: Text(l10n.buttonSave),
             ),
           ],
         ),
@@ -466,10 +471,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showFormatPicker(BuildContext context, WidgetRef ref, String current) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Output Format'),
+        title: Text(l10n.outputFormatTitle),
         children: [
           for (final format in ['original', 'png', 'jpeg'])
             RadioListTile<String>(
@@ -498,10 +504,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showAdjustModePicker(BuildContext context, WidgetRef ref, String current) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Adjust Mode'),
+        title: Text(l10n.adjustModeTitle),
         children: [
           for (final entry in [
             ('none', 'None', 'Manual font and pane size'),
@@ -524,14 +531,15 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showScrollbackPicker(BuildContext context, WidgetRef ref, int current) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Scrollback Lines'),
+        title: Text(l10n.scrollbackLinesTitle),
         children: [
           for (final value in [50, 100, 200, 500, 1000, 5000])
             RadioListTile<int>(
-              title: Text('$value lines'),
+              title: Text(l10n.scrollbackLinesDisplay(value)),
               value: value,
               groupValue: current,
               onChanged: (v) {
@@ -545,10 +553,11 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showResizePresetPicker(BuildContext context, WidgetRef ref, String current) {
+    final l10n = AppLocalizations.of(context)!;
     showDialog(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Resize Preset'),
+        title: Text(l10n.resizePresetTitle),
         children: [
           for (final entry in [
             ('original', 'Original'),

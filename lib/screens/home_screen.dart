@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../providers/active_session_provider.dart';
@@ -86,7 +87,7 @@ class HomeScreen extends ConsumerWidget {
                     ref,
                     index: 0,
                     icon: Icons.dns,
-                    label: 'Servers',
+                    label: AppLocalizations.of(context)!.tabServers,
                     isSelected: currentTab == 0,
                   ),
                   // Vault（左寄り）
@@ -95,7 +96,7 @@ class HomeScreen extends ConsumerWidget {
                     ref,
                     index: 1,
                     icon: Icons.shield,
-                    label: 'Vault',
+                    label: AppLocalizations.of(context)!.tabVault,
                     isSelected: currentTab == 1,
                   ),
                   // 中央スペーサー（Dashboardボタンの場所）
@@ -106,7 +107,7 @@ class HomeScreen extends ConsumerWidget {
                     ref,
                     index: 3,
                     icon: Icons.notifications_outlined,
-                    label: 'Notify',
+                    label: AppLocalizations.of(context)!.tabNotify,
                     isSelected: currentTab == 3,
                   ),
                   // Settings（右端）
@@ -115,7 +116,7 @@ class HomeScreen extends ConsumerWidget {
                     ref,
                     index: 4,
                     icon: Icons.settings,
-                    label: 'Settings',
+                    label: AppLocalizations.of(context)!.tabSettings,
                     isSelected: currentTab == 4,
                   ),
                 ],
@@ -318,7 +319,7 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
       flexibleSpace: FlexibleSpaceBar(
         titlePadding: const EdgeInsets.only(left: 24, bottom: 16),
         title: Text(
-          'Active Sessions',
+          AppLocalizations.of(context)!.activeSessions,
           style: GoogleFonts.spaceGrotesk(
             fontSize: 24,
             fontWeight: FontWeight.w700,
@@ -343,7 +344,7 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
                   color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
                 ),
           onPressed: _isReloading ? null : _reloadSessions,
-          tooltip: 'Reload sessions',
+          tooltip: AppLocalizations.of(context)!.reloadSessions,
         ),
         IconButton(
           icon: Icon(
@@ -351,7 +352,7 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
             color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
           ),
           onPressed: () => ref.read(currentTabProvider.notifier).setTab(3),
-          tooltip: 'Settings',
+          tooltip: AppLocalizations.of(context)!.settingsTooltip,
         ),
         const SizedBox(width: 8),
       ],
@@ -468,7 +469,7 @@ class _EmptySessionsView extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Text(
-            'No Active Sessions',
+            AppLocalizations.of(context)!.noActiveSessions,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -477,7 +478,7 @@ class _EmptySessionsView extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Connect to a server to start a terminal session',
+            AppLocalizations.of(context)!.noActiveSessionsDesc,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -531,25 +532,25 @@ class _SessionCard extends StatelessWidget {
             return AlertDialog(
               backgroundColor: dialogColorScheme.surface,
               title: Text(
-                'Close Session?',
+                AppLocalizations.of(context)!.closeSessionTitle,
                 style: GoogleFonts.spaceGrotesk(
                   fontWeight: FontWeight.w700,
                   color: dialogColorScheme.onSurface,
                 ),
               ),
               content: Text(
-                'Remove "${session.sessionName}" from active sessions?',
+                AppLocalizations.of(context)!.closeSessionContent(session.sessionName),
                 style: GoogleFonts.spaceGrotesk(color: dialogColorScheme.onSurfaceVariant),
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
+                  child: Text(AppLocalizations.of(context)!.buttonCancel),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext, true),
                   style: TextButton.styleFrom(foregroundColor: DesignColors.error),
-                  child: const Text('Close'),
+                  child: Text(AppLocalizations.of(context)!.buttonClose),
                 ),
               ],
             );
@@ -628,7 +629,7 @@ class _SessionCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '${session.windowCount} windows',
+                          AppLocalizations.of(context)!.windowCount(session.windowCount),
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 11,
                             color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -650,7 +651,7 @@ class _SessionCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 2),
                           Text(
-                            'Last: W${session.lastWindowIndex ?? 0}',
+                            AppLocalizations.of(context)!.lastWindow(session.lastWindowIndex ?? 0),
                             style: GoogleFonts.jetBrainsMono(
                               fontSize: 10,
                               color: DesignColors.primary.withValues(alpha: 0.7),
@@ -681,7 +682,7 @@ class _SessionCard extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  isAttached ? 'Attached' : 'Detached',
+                  isAttached ? AppLocalizations.of(context)!.sessionAttached : AppLocalizations.of(context)!.sessionDetached,
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,

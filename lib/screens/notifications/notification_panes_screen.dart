@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -174,7 +175,7 @@ class _NotificationPanesScreenState extends ConsumerState<NotificationPanesScree
                   color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
                 ),
           onPressed: _isRefreshing ? null : _refresh,
-          tooltip: 'Refresh alerts',
+          tooltip: AppLocalizations.of(context)!.refreshAlerts,
         ),
         const SizedBox(width: 8),
       ],

@@ -1,6 +1,7 @@
 import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -120,12 +121,12 @@ class ConnectionsScreen extends ConsumerWidget {
         IconButton(
           icon: Icon(Icons.sort, color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight),
           onPressed: () => _showSortDialog(context, ref),
-          tooltip: 'Sort',
+          tooltip: AppLocalizations.of(context)!.sortTooltip,
         ),
         IconButton(
           icon: const Icon(Icons.settings, color: DesignColors.textSecondary),
           onPressed: () => _openSettings(context, ref),
-          tooltip: 'Settings',
+          tooltip: AppLocalizations.of(context)!.settingsTooltip,
         ),
         const SizedBox(width: 8),
       ],
@@ -334,7 +335,7 @@ class ConnectionsScreen extends ConsumerWidget {
               ref.read(_searchVisibleProvider.notifier).hide();
             },
             icon: const Icon(Icons.clear),
-            label: const Text('Clear Search'),
+            label: Text(AppLocalizations.of(context)!.clearSearch),
             style: TextButton.styleFrom(
               foregroundColor: colorScheme.primary,
             ),
@@ -361,7 +362,7 @@ class ConnectionsScreen extends ConsumerWidget {
           ElevatedButton.icon(
             onPressed: () => ref.read(connectionsProvider.notifier).reload(),
             icon: const Icon(Icons.refresh),
-            label: const Text('Retry'),
+            label: Text(AppLocalizations.of(context)!.buttonRetry),
           ),
         ],
       ),
@@ -440,20 +441,21 @@ class ConnectionsScreen extends ConsumerWidget {
     WidgetRef ref,
     Connection connection,
   ) async {
+    final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Connection'),
+        title: Text(l10n.deleteConnectionTitle),
         content: Text('Are you sure you want to delete "${connection.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.buttonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: TextButton.styleFrom(foregroundColor: DesignColors.error),
-            child: const Text('Delete'),
+            child: Text(l10n.buttonDelete),
           ),
         ],
       ),
@@ -466,7 +468,7 @@ class ConnectionsScreen extends ConsumerWidget {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${connection.name} deleted')),
+          SnackBar(content: Text(l10n.connectionDeleted(connection.name))),
         );
       }
     }
@@ -747,7 +749,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
             child: Row(
               children: [
                 Text(
-                  'ACTIVE SESSIONS',
+                  AppLocalizations.of(context)!.activeSessions.toUpperCase(),
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
@@ -767,7 +769,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                       color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
                     ),
                     onPressed: _isLoadingSessions ? null : _fetchSessions,
-                    tooltip: 'Reload sessions',
+                    tooltip: AppLocalizations.of(context)!.reloadSessions,
                   ),
                 ),
               ],
@@ -800,7 +802,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
-                'No tmux sessions found',
+                AppLocalizations.of(context)!.noSessions,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 12,
                   color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -816,7 +818,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
             child: OutlinedButton.icon(
               onPressed: _showNewSessionDialog,
               icon: const Icon(Icons.add, size: 16),
-              label: const Text('New Session'),
+              label: Text(AppLocalizations.of(context)!.newSession),
               style: OutlinedButton.styleFrom(
                 foregroundColor: colorScheme.primary.withValues(alpha: 0.8),
                 side: BorderSide(
@@ -838,7 +840,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                   child: TextButton.icon(
                     onPressed: widget.onEdit,
                     icon: const Icon(Icons.edit, size: 16),
-                    label: const Text('Edit'),
+                    label: Text(AppLocalizations.of(context)!.buttonEdit),
                     style: TextButton.styleFrom(
                       foregroundColor: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
                     ),
@@ -848,7 +850,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                   child: TextButton.icon(
                     onPressed: widget.onDelete,
                     icon: const Icon(Icons.delete, size: 16),
-                    label: const Text('Delete'),
+                    label: Text(AppLocalizations.of(context)!.buttonDelete),
                     style: TextButton.styleFrom(
                       foregroundColor: DesignColors.error,
                     ),
@@ -907,7 +909,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                       ),
                     ),
                     Text(
-                      '${session.windowCount} windows',
+                      AppLocalizations.of(context)!.windowCount(session.windowCount),
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: 11,
                         color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -931,7 +933,7 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                   ),
                 ),
                 child: Text(
-                  isAttached ? 'Attached' : 'Detached',
+                  isAttached ? AppLocalizations.of(context)!.sessionAttached : AppLocalizations.of(context)!.sessionDetached,
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
@@ -1001,7 +1003,7 @@ class _SearchFieldState extends State<_SearchField> {
         color: colorScheme.onSurface,
       ),
       decoration: InputDecoration(
-        hintText: 'Search connections...',
+        hintText: AppLocalizations.of(context)!.searchConnections,
         hintStyle: GoogleFonts.jetBrainsMono(
           fontSize: 12,
           color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -1104,14 +1106,15 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   }
 
   String? _validateSessionName(String? value) {
+    final l10n = AppLocalizations.of(context)!;
     if (value == null || value.isEmpty) {
-      return 'Please enter a session name';
+      return l10n.sessionNameEmptyError;
     }
     if (!RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(value)) {
-      return 'Only letters, numbers, - _ . allowed';
+      return l10n.sessionNameInvalidError;
     }
     if (widget.existingSessionNames.contains(value)) {
-      return 'Session "$value" already exists';
+      return l10n.sessionNameExistsError(value);
     }
     return null;
   }
@@ -1126,9 +1129,10 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
       title: Text(
-        'New Session',
+        l10n.newSession,
         style: GoogleFonts.spaceGrotesk(
           fontWeight: FontWeight.w700,
         ),
@@ -1139,8 +1143,8 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
           controller: _nameController,
           autofocus: true,
           decoration: InputDecoration(
-            labelText: 'Session Name',
-            hintText: 'session-1',
+            labelText: l10n.newSession,
+            hintText: l10n.sessionNameHint,
             hintStyle: GoogleFonts.jetBrainsMono(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -1172,11 +1176,11 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Create'),
+          child: Text(l10n.buttonCreate),
         ),
       ],
     );

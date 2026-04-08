@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -229,12 +230,12 @@ class _SessionHistoryCard extends StatelessWidget {
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(dialogContext, false),
-                      child: const Text('Cancel'),
+                      child: Text(AppLocalizations.of(dialogContext)!.buttonCancel),
                     ),
                     TextButton(
                       onPressed: () => Navigator.pop(dialogContext, true),
                       style: TextButton.styleFrom(foregroundColor: DesignColors.error),
-                      child: const Text('Remove'),
+                      child: Text(AppLocalizations.of(dialogContext)!.buttonRemove),
                     ),
                   ],
                 );

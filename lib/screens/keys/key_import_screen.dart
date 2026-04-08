@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+
 import '../../providers/key_provider.dart';
 
 /// SSH鍵インポート画面
@@ -36,7 +38,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Import SSH Key'),
+        title: Text(AppLocalizations.of(context)!.importKeyScreenTitle),
       ),
       body: Form(
         key: _formKey,
@@ -45,13 +47,13 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
           children: [
             TextFormField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Key Name',
-                hintText: 'My SSH Key',
+              decoration: InputDecoration(
+                labelText: AppLocalizations.of(context)!.keyNameLabel,
+                hintText: AppLocalizations.of(context)!.keyNameHint,
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
-                  return 'Please enter a name';
+                  return AppLocalizations.of(context)!.keyNameEmptyError;
                 }
                 return null;
               },
@@ -74,7 +76,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
               controller: _privateKeyController,
               decoration: InputDecoration(
                 labelText: 'Private Key (PEM format)',
-                hintText: '-----BEGIN OPENSSH PRIVATE KEY-----',
+                hintText: AppLocalizations.of(context)!.pemFormatHint,
                 alignLabelWithHint: true,
                 errorText: _pemValidationError,
               ),
@@ -98,16 +100,16 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
                 controller: _passphraseController,
                 decoration: InputDecoration(
                   labelText: _isEncrypted
-                      ? 'Passphrase (required - key is encrypted)'
-                      : 'Passphrase (optional)',
+                      ? AppLocalizations.of(context)!.passphraseRequired
+                      : AppLocalizations.of(context)!.passphraseOptional,
                   hintText: _isEncrypted
-                      ? 'Enter passphrase to decrypt'
-                      : 'Leave empty if key is not encrypted',
+                      ? AppLocalizations.of(context)!.passphraseDecryptHint
+                      : AppLocalizations.of(context)!.passphraseEmptyHint,
                 ),
                 obscureText: true,
                 validator: (value) {
                   if (_isEncrypted && (value == null || value.isEmpty)) {
-                    return 'Passphrase is required for encrypted keys';
+                    return AppLocalizations.of(context)!.passphraseRequiredError;
                   }
                   return null;
                 },
@@ -121,7 +123,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
                     _showPassphrase = true;
                   });
                 },
-                child: const Text('Add passphrase (if key is encrypted)'),
+                child: Text(AppLocalizations.of(context)!.addPassphrase),
               ),
             ],
             const SizedBox(height: 32),
@@ -133,7 +135,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
                       height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Import'),
+                  : Text(AppLocalizations.of(context)!.buttonImport),
             ),
           ],
         ),
@@ -155,7 +157,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
     // PEM形式の基本的なバリデーション
     if (!value.contains('-----BEGIN') || !value.contains('-----END')) {
       setState(() {
-        _pemValidationError = 'Invalid PEM format';
+        _pemValidationError = AppLocalizations.of(context)!.invalidPemFormat;
         _isEncrypted = false;
       });
       return;
@@ -173,7 +175,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       });
     } catch (e) {
       setState(() {
-        _pemValidationError = 'Invalid PEM format';
+        _pemValidationError = AppLocalizations.of(context)!.invalidPemFormat;
         _isEncrypted = false;
       });
     }
@@ -214,7 +216,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to pick file: $e'),
+            content: Text(AppLocalizations.of(context)!.pickFileFailed(e.toString())),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
@@ -272,7 +274,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Key "$name" imported successfully')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.keyImportedSuccess(name))),
         );
       }
     } on FormatException catch (e) {
@@ -280,7 +282,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (mounted) {
         final message = e.message.contains('passphrase')
             ? 'Wrong passphrase. Please check and try again.'
-            : 'Invalid key format: ${e.message}';
+            : AppLocalizations.of(context)!.invalidKeyFormat(e.message ?? '');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
@@ -292,7 +294,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to import key: $e'),
+            content: Text(AppLocalizations.of(context)!.importKeyFailed(e.toString())),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );

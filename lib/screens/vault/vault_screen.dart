@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 import '../keys/key_generate_screen.dart';
@@ -71,9 +73,9 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
-              tabs: const [
-                Tab(icon: Icon(Icons.key, size: 18), text: 'Keys'),
-                Tab(icon: Icon(Icons.content_paste, size: 18), text: 'Snippets'),
+              tabs: [
+                Tab(icon: const Icon(Icons.key, size: 18), text: AppLocalizations.of(context)!.tabKeys),
+                Tab(icon: const Icon(Icons.content_paste, size: 18), text: AppLocalizations.of(context)!.tabSnippets),
               ],
             ),
           ),
@@ -119,8 +121,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
           children: [
             ListTile(
               leading: const Icon(Icons.auto_fix_high),
-              title: const Text('Generate Key'),
-              subtitle: const Text('Create a new RSA or Ed25519 key'),
+              title: Text(AppLocalizations.of(context)!.generateNewKey),
+              subtitle: Text(AppLocalizations.of(context)!.generateNewKeyDesc),
               onTap: () {
                 Navigator.pop(ctx);
                 Navigator.of(context).push(
@@ -130,8 +132,8 @@ class _VaultScreenState extends ConsumerState<VaultScreen>
             ),
             ListTile(
               leading: const Icon(Icons.file_upload),
-              title: const Text('Import Key'),
-              subtitle: const Text('Import an existing private key'),
+              title: Text(AppLocalizations.of(context)!.importKey),
+              subtitle: Text(AppLocalizations.of(context)!.importKeyDesc),
               onTap: () {
                 Navigator.pop(ctx);
                 Navigator.of(context).push(

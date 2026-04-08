@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -53,7 +54,7 @@ class ImageTransferButton extends ConsumerWidget {
                 minWidth: 36,
                 minHeight: 36,
               ),
-              tooltip: 'Send image',
+              tooltip: AppLocalizations.of(context)!.sendImageTooltip,
             ),
     );
   }
@@ -82,7 +83,7 @@ class ImageTransferButton extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
+              title: Text(AppLocalizations.of(context)!.imageSourceGallery),
               onTap: () {
                 Navigator.pop(context);
                 ref.read(imageTransferProvider.notifier).pickImage(ImageSource.gallery);
@@ -90,7 +91,7 @@ class ImageTransferButton extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
+              title: Text(AppLocalizations.of(context)!.imageSourceCamera),
               onTap: () {
                 Navigator.pop(context);
                 ref.read(imageTransferProvider.notifier).pickImage(ImageSource.camera);

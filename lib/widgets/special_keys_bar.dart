@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../theme/design_colors.dart';
@@ -744,7 +745,7 @@ class _SpecialKeysBarState extends State<SpecialKeysBar> {
                   color: isDark ? Colors.white : Colors.black87,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Type here...',
+                  hintText: AppLocalizations.of(context)!.typeHereHint,
                   hintStyle: GoogleFonts.jetBrainsMono(
                     fontSize: 14,
                     color: DesignColors.success.withValues(alpha: 0.5),

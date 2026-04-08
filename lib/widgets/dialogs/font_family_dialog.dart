@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../../services/terminal/terminal_font_styles.dart';
 
@@ -27,7 +28,7 @@ class _FontFamilyDialogState extends State<FontFamilyDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Font Family'),
+      title: Text(AppLocalizations.of(context)!.fontFamilyTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -65,7 +66,7 @@ class _FontFamilyDialogState extends State<FontFamilyDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
       ],
     );

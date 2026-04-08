@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 /// フォントサイズ選択ダイアログ
 class FontSizeDialog extends StatefulWidget {
@@ -27,7 +28,7 @@ class _FontSizeDialogState extends State<FontSizeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Font Size'),
+      title: Text(AppLocalizations.of(context)!.fontSizeTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -48,7 +49,7 @@ class _FontSizeDialogState extends State<FontSizeDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
       ],
     );

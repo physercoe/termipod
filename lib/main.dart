@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_muxpod/providers/connection_provider.dart';
 import 'package:flutter_muxpod/providers/settings_provider.dart';
@@ -98,7 +100,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     if (connection == null) {
       ScaffoldMessenger.maybeOf(navigator.context)?.showSnackBar(
         SnackBar(
-          content: Text('Server not found: ${data.server}'),
+          content: Text(AppLocalizations.of(navigator.context)?.deepLinkServerNotFound(data.server!) ?? 'Server not found: ${data.server}'),
           backgroundColor: Colors.red,
         ),
       );
@@ -144,6 +146,13 @@ class _MyAppState extends ConsumerState<MyApp> {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: settings.darkMode ? ThemeMode.dark : ThemeMode.light,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
       home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );

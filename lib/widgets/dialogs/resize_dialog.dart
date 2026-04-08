@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../../services/terminal/font_calculator.dart';
 import '../../services/tmux/tmux_parser.dart';
@@ -94,9 +95,9 @@ class _ResizePaneDialogState extends State<ResizePaneDialog> {
     return AlertDialog(
       backgroundColor: DesignColors.surfaceDark,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: const Text(
-        'Resize Pane',
-        style: TextStyle(color: DesignColors.textPrimary),
+      title: Text(
+        AppLocalizations.of(context)!.resizePaneTitle,
+        style: const TextStyle(color: DesignColors.textPrimary),
       ),
       content: SizedBox(
         width: MediaQuery.of(context).size.width * 0.8,
@@ -121,6 +122,8 @@ class _ResizePaneDialogState extends State<ResizePaneDialog> {
               rows: _rows,
               onColsChanged: (v) => setState(() => _cols = v),
               onRowsChanged: (v) => setState(() => _rows = v),
+              colsLabel: AppLocalizations.of(context)!.colsLabel,
+              rowsLabel: AppLocalizations.of(context)!.rowsLabel,
             ),
             const SizedBox(height: 12),
             _buildPresetChips(
@@ -137,7 +140,7 @@ class _ResizePaneDialogState extends State<ResizePaneDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed: () =>
@@ -145,7 +148,7 @@ class _ResizePaneDialogState extends State<ResizePaneDialog> {
           style: FilledButton.styleFrom(
             backgroundColor: DesignColors.primary,
           ),
-          child: const Text('Resize'),
+          child: Text(AppLocalizations.of(context)!.buttonResize),
         ),
       ],
     );
@@ -220,9 +223,9 @@ class _ResizeWindowDialogState extends State<ResizeWindowDialog> {
     return AlertDialog(
       backgroundColor: DesignColors.surfaceDark,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: const Text(
-        'Resize Window',
-        style: TextStyle(color: DesignColors.textPrimary),
+      title: Text(
+        AppLocalizations.of(context)!.resizeWindowTitle,
+        style: const TextStyle(color: DesignColors.textPrimary),
       ),
       content: SizedBox(
         width: MediaQuery.of(context).size.width * 0.8,
@@ -246,6 +249,8 @@ class _ResizeWindowDialogState extends State<ResizeWindowDialog> {
               rows: _rows,
               onColsChanged: (v) => setState(() => _cols = v),
               onRowsChanged: (v) => setState(() => _rows = v),
+              colsLabel: AppLocalizations.of(context)!.colsLabel,
+              rowsLabel: AppLocalizations.of(context)!.rowsLabel,
             ),
             const SizedBox(height: 12),
             _buildPresetChips(
@@ -262,7 +267,7 @@ class _ResizeWindowDialogState extends State<ResizeWindowDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed: widget.supportsResizeWindow
@@ -272,7 +277,7 @@ class _ResizeWindowDialogState extends State<ResizeWindowDialog> {
           style: FilledButton.styleFrom(
             backgroundColor: DesignColors.primary,
           ),
-          child: const Text('Resize'),
+          child: Text(AppLocalizations.of(context)!.buttonResize),
         ),
       ],
     );
@@ -611,12 +616,14 @@ Widget _buildSizeInputRow({
   required int rows,
   required ValueChanged<int> onColsChanged,
   required ValueChanged<int> onRowsChanged,
+  required String colsLabel,
+  required String rowsLabel,
 }) {
   return Row(
     children: [
       Expanded(
         child: _buildNumberInput(
-          label: 'Cols',
+          label: colsLabel,
           value: cols,
           onChanged: onColsChanged,
         ),
@@ -624,7 +631,7 @@ Widget _buildSizeInputRow({
       const SizedBox(width: 12),
       Expanded(
         child: _buildNumberInput(
-          label: 'Rows',
+          label: rowsLabel,
           value: rows,
           onChanged: onRowsChanged,
         ),

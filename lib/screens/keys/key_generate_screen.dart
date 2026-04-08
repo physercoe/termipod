@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+
 import '../../providers/key_provider.dart';
 import '../../services/keychain/ssh_key_service.dart';
 
@@ -31,7 +33,7 @@ class _KeyGenerateScreenState extends ConsumerState<KeyGenerateScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Generate SSH Key'),
+        title: Text(AppLocalizations.of(context)!.generateKeyScreenTitle),
       ),
       body: Form(
         key: _formKey,
@@ -40,29 +42,29 @@ class _KeyGenerateScreenState extends ConsumerState<KeyGenerateScreen> {
           children: [
             TextFormField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Key Name',
-                hintText: 'My SSH Key',
+              decoration: InputDecoration(
+                labelText: AppLocalizations.of(context)!.keyNameLabel,
+                hintText: AppLocalizations.of(context)!.keyNameHint,
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) {
-                  return 'Please enter a name';
+                  return AppLocalizations.of(context)!.keyNameEmptyError;
                 }
                 return null;
               },
             ),
             const SizedBox(height: 24),
-            const Text('Key Type'),
+            Text(AppLocalizations.of(context)!.keyTypeLabel),
             const SizedBox(height: 8),
             SegmentedButton<String>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                   value: 'ed25519',
-                  label: Text('Ed25519'),
+                  label: Text(AppLocalizations.of(context)!.keyTypeEd25519),
                 ),
                 ButtonSegment(
                   value: 'rsa',
-                  label: Text('RSA'),
+                  label: Text(AppLocalizations.of(context)!.keyTypeRSA),
                 ),
               ],
               selected: {_keyType},
@@ -74,20 +76,20 @@ class _KeyGenerateScreenState extends ConsumerState<KeyGenerateScreen> {
             ),
             if (_keyType == 'rsa') ...[
               const SizedBox(height: 16),
-              const Text('RSA Key Size'),
+              Text(AppLocalizations.of(context)!.rsaKeySizeLabel),
               Slider(
                 value: _rsaBits.toDouble(),
                 min: 2048,
                 max: 4096,
                 divisions: 2,
-                label: '$_rsaBits bits',
+                label: AppLocalizations.of(context)!.rsaBitsDisplay(_rsaBits),
                 onChanged: (value) {
                   setState(() {
                     _rsaBits = value.toInt();
                   });
                 },
               ),
-              Center(child: Text('$_rsaBits bits')),
+              Center(child: Text(AppLocalizations.of(context)!.rsaBitsDisplay(_rsaBits))),
             ],
             const SizedBox(height: 32),
             FilledButton(
@@ -107,7 +109,7 @@ class _KeyGenerateScreenState extends ConsumerState<KeyGenerateScreen> {
                         ],
                       ],
                     )
-                  : const Text('Generate'),
+                  : Text(AppLocalizations.of(context)!.buttonGenerate),
             ),
             if (_keyType == 'rsa') ...[
               const SizedBox(height: 8),
@@ -177,14 +179,14 @@ class _KeyGenerateScreenState extends ConsumerState<KeyGenerateScreen> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Key "$name" generated successfully')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.keyGeneratedSuccess(name))),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to generate key: $e'),
+            content: Text(AppLocalizations.of(context)!.generateKeyFailed(e.toString())),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );

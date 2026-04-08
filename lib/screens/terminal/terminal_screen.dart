@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -883,7 +884,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         content: Text(message),
         backgroundColor: Colors.red,
         action: SnackBarAction(
-          label: 'Retry',
+          label: AppLocalizations.of(context)!.buttonRetry,
           textColor: Colors.white,
           onPressed: _connectAndSetup,
         ),
@@ -1502,7 +1503,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   onPressed: () {
                     ref.read(sshProvider.notifier).reconnectNow();
                   },
-                  child: const Text('Retry Now'),
+                  child: Text(AppLocalizations.of(context)!.retryNow),
                 ),
                 if (_sshState.isReconnecting) ...[
                   const SizedBox(width: 12),
@@ -1751,7 +1752,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       const Spacer(),
                       IconButton(
                         icon: Icon(Icons.open_in_full, color: colorScheme.primary),
-                        tooltip: 'Resize Window',
+                        tooltip: AppLocalizations.of(context)!.resizeWindowTooltip,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           Future.delayed(const Duration(milliseconds: 200), () {
@@ -1761,7 +1762,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       ),
                       IconButton(
                         icon: Icon(Icons.add, color: colorScheme.primary),
-                        tooltip: 'New Window',
+                        tooltip: AppLocalizations.of(context)!.newWindowTooltip,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           Future.delayed(const Duration(milliseconds: 200), () {
@@ -1839,7 +1840,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (sshClient == null || !sshClient.isConnected) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('SSH connection is not available')),
+            SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
           );
         }
         return;
@@ -1871,7 +1872,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create window: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.createWindowFailed(e.toString()))),
         );
       }
     } finally {
@@ -1885,7 +1886,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SSH connection is not available')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
         );
       }
       return;
@@ -1900,7 +1901,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to split pane: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.splitPaneFailed(e.toString()))),
         );
       }
     }
@@ -1921,7 +1922,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           backgroundColor:
               isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           title: Text(
-            'Close Pane?',
+            AppLocalizations.of(context)!.closePaneTitle,
             style: TextStyle(
               color: isDark
                   ? DesignColors.textPrimary
@@ -1930,10 +1931,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ),
           content: Text(
             isLastPane && isLastWindow
-                ? 'This is the last pane in the last window. Closing it will end the session and disconnect from the server.'
+                ? AppLocalizations.of(context)!.closeLastPaneWarning
                 : isLastPane
-                    ? 'This is the last pane in this window. Closing it will also close the window.'
-                    : 'Are you sure you want to close pane "$paneTitle"?',
+                    ? AppLocalizations.of(context)!.closeLastPaneInWindowWarning
+                    : AppLocalizations.of(context)!.closePaneConfirm(paneTitle),
             style: TextStyle(
               color: isDark
                   ? DesignColors.textSecondary
@@ -1944,7 +1945,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: Text(
-                'Cancel',
+                AppLocalizations.of(context)!.buttonCancel,
                 style: TextStyle(
                   color: isDark
                       ? DesignColors.textSecondary
@@ -1955,15 +1956,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dialogContext);
-                // 実行直前にペインがまだ存在するか再検証
                 final currentWindow = ref.read(tmuxProvider).activeWindow;
                 if (currentWindow == null ||
                     !currentWindow.panes.any((p) => p.id == paneId)) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
+                      SnackBar(
                           content:
-                              Text('This pane no longer exists')),
+                              Text(AppLocalizations.of(context)!.paneNoLongerExists)),
                     );
                   }
                   return;
@@ -1978,7 +1978,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 backgroundColor: DesignColors.error,
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Close'),
+              child: Text(AppLocalizations.of(context)!.buttonClose),
             ),
           ],
         );
@@ -2126,7 +2126,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resize failed: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.resizeFailed(e.toString()))),
         );
       }
     } finally {
@@ -2186,7 +2186,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resize failed: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.resizeFailed(e.toString()))),
         );
       }
     } finally {
@@ -2205,7 +2205,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SSH connection is not available')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
         );
       }
       return;
@@ -2259,7 +2259,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       debugPrint('[Terminal] Failed to kill pane: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to close pane: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.closePaneFailed(e.toString()))),
         );
       }
     } finally {
@@ -2309,7 +2309,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       const Spacer(),
                       IconButton(
                         icon: Icon(Icons.open_in_full, color: colorScheme.primary),
-                        tooltip: 'Resize Pane',
+                        tooltip: AppLocalizations.of(context)!.resizePaneTooltip,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           Future.delayed(const Duration(milliseconds: 200), () {
@@ -2524,8 +2524,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 ),
                 title: Text(
                   _terminalMode == TerminalMode.scroll
-                      ? 'Scroll & Select Mode'
-                      : 'Normal Mode',
+                      ? AppLocalizations.of(context)!.scrollSelectMode
+                      : AppLocalizations.of(context)!.normalMode,
                   style: TextStyle(
                     color: _terminalMode == TerminalMode.scroll
                         ? DesignColors.warning
@@ -2537,8 +2537,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 ),
                 subtitle: Text(
                   _terminalMode == TerminalMode.scroll
-                      ? 'Tap to return to normal mode'
-                      : 'Tap to enable text selection',
+                      ? AppLocalizations.of(context)!.scrollModeHintOn
+                      : AppLocalizations.of(context)!.scrollModeHintOff,
                   style: TextStyle(color: mutedTextColor, fontSize: 12),
                 ),
                 trailing: Switch(
@@ -2586,15 +2586,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   color: _zoomScale != 1.0 ? DesignColors.warning : inactiveIconColor,
                 ),
                 title: Text(
-                  'Reset Zoom',
+                  AppLocalizations.of(context)!.resetZoom,
                   style: TextStyle(
                     color: _zoomScale != 1.0 ? textColor : mutedTextColor,
                   ),
                 ),
                 subtitle: Text(
                   _zoomScale != 1.0
-                      ? 'Current: ${(_zoomScale * 100).toStringAsFixed(0)}%'
-                      : 'Pinch to zoom in/out',
+                      ? AppLocalizations.of(context)!.zoomCurrent((_zoomScale * 100).toStringAsFixed(0))
+                      : AppLocalizations.of(context)!.zoomHint,
                   style: TextStyle(color: mutedTextColor, fontSize: 12),
                 ),
                 enabled: _zoomScale != 1.0,
@@ -2616,11 +2616,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   color: inactiveIconColor,
                 ),
                 title: Text(
-                  'Settings',
+                  AppLocalizations.of(context)!.settingsLabel,
                   style: TextStyle(color: textColor),
                 ),
                 subtitle: Text(
-                  'Font, theme, and other options',
+                  AppLocalizations.of(context)!.settingsDesc,
                   style: TextStyle(color: mutedTextColor, fontSize: 12),
                 ),
                 onTap: () {
@@ -2641,14 +2641,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   color: DesignColors.error,
                 ),
                 title: Text(
-                  'Disconnect',
+                  AppLocalizations.of(context)!.disconnectLabel,
                   style: TextStyle(
                     color: DesignColors.error,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 subtitle: Text(
-                  'Close SSH connection',
+                  AppLocalizations.of(context)!.disconnectDesc,
                   style: TextStyle(color: mutedTextColor, fontSize: 12),
                 ),
                 onTap: () {
@@ -2680,20 +2680,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         return AlertDialog(
           backgroundColor: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           title: Text(
-            'Close Window?',
+            AppLocalizations.of(context)!.closeWindowTitle,
             style: TextStyle(color: isDark ? Colors.white : Colors.black87),
           ),
           content: Text(
             isLastWindow
-                ? 'This is the last window in the session. Closing it will end the session and disconnect from the server.'
-                : 'Are you sure you want to close window "$windowName"?',
+                ? AppLocalizations.of(context)!.closeLastWindowWarning
+                : AppLocalizations.of(context)!.closeWindowConfirm(windowName),
             style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: Text(
-                'Cancel',
+                AppLocalizations.of(context)!.buttonCancel,
                 style: TextStyle(color: isDark ? Colors.white60 : Colors.black54),
               ),
             ),
@@ -2711,7 +2711,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 backgroundColor: DesignColors.error,
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Close'),
+              child: Text(AppLocalizations.of(context)!.buttonClose),
             ),
           ],
         );
@@ -2729,7 +2729,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (sshClient == null || !sshClient.isConnected) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('SSH connection is not available')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
         );
       }
       return;
@@ -2766,7 +2766,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       debugPrint('[Terminal] Failed to kill window: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to close window: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.closeWindowFailed(e.toString()))),
         );
       }
     }
@@ -2781,31 +2781,31 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         return AlertDialog(
           backgroundColor: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
           title: Text(
-            'Disconnect?',
+            AppLocalizations.of(this.context)!.disconnectTitle,
             style: TextStyle(color: isDark ? Colors.white : Colors.black87),
           ),
           content: Text(
-            'Are you sure you want to disconnect from the server?',
+            AppLocalizations.of(this.context)!.disconnectConfirm,
             style: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                AppLocalizations.of(this.context)!.buttonCancel,
                 style: TextStyle(color: isDark ? Colors.white60 : Colors.black54),
               ),
             ),
             ElevatedButton(
               onPressed: () async {
-                Navigator.pop(context); // ダイアログを閉じる
+                Navigator.pop(context);
                 await _disconnect();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: DesignColors.error,
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Disconnect'),
+              child: Text(AppLocalizations.of(this.context)!.buttonDisconnect),
             ),
           ],
         );
@@ -2972,7 +2972,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              'Retry',
+              AppLocalizations.of(context)!.buttonRetry,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 9,
                 color: DesignColors.warning,
@@ -3102,7 +3102,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Uploaded: ${next.lastUploadedPath}'),
+            content: Text(AppLocalizations.of(context)!.imageUploaded(next.lastUploadedPath!)),
             backgroundColor: Colors.green,
           ),
         );
@@ -3126,7 +3126,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
+              title: Text(AppLocalizations.of(context)!.imageSourceGallery),
               onTap: () {
                 Navigator.pop(ctx);
                 ref.read(imageTransferProvider.notifier).pickImage(
@@ -3136,7 +3136,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
+              title: Text(AppLocalizations.of(context)!.imageSourceCamera),
               onTap: () {
                 Navigator.pop(ctx);
                 ref.read(imageTransferProvider.notifier).pickImage(
@@ -3240,7 +3240,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   color: colorScheme.onSurface,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'Compose text...',
+                  hintText: AppLocalizations.of(context)!.composeTextHint,
                   hintStyle: TextStyle(
                     fontSize: 14,
                     color: colorScheme.onSurface.withValues(alpha: 0.4),
@@ -3588,7 +3588,7 @@ class _PaneLayoutVisualizerState extends State<_PaneLayoutVisualizer> {
         final colorScheme = Theme.of(dialogContext).colorScheme;
         return AlertDialog(
           title: Text(
-            'Split Pane ${pane.index}',
+            AppLocalizations.of(context)!.splitPaneTitle(pane.index),
             style: GoogleFonts.spaceGrotesk(
               fontWeight: FontWeight.w700,
             ),
@@ -3601,7 +3601,7 @@ class _PaneLayoutVisualizerState extends State<_PaneLayoutVisualizer> {
                   size: const Size(24, 24),
                   painter: _SplitRightIconPainter(color: colorScheme.primary),
                 ),
-                title: const Text('Split Right'),
+                title: Text(AppLocalizations.of(context)!.splitRight),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -3615,7 +3615,7 @@ class _PaneLayoutVisualizerState extends State<_PaneLayoutVisualizer> {
                   size: const Size(24, 24),
                   painter: _SplitDownIconPainter(color: colorScheme.primary),
                 ),
-                title: const Text('Split Down'),
+                title: Text(AppLocalizations.of(context)!.splitDown),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -3629,7 +3629,7 @@ class _PaneLayoutVisualizerState extends State<_PaneLayoutVisualizer> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
             ),
           ],
         );
@@ -3970,7 +3970,7 @@ class _InputDialogContentState extends State<_InputDialogContent> {
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
-                  'Shift+Enter: newline',
+                  AppLocalizations.of(context)!.shiftEnterNewline,
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,
                     color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -3994,7 +3994,7 @@ class _InputDialogContentState extends State<_InputDialogContent> {
               textInputAction: TextInputAction.newline, // ペースト時の複数行対応
               style: GoogleFonts.jetBrainsMono(color: colorScheme.onSurface),
               decoration: InputDecoration(
-                hintText: 'Type your command... (Enter to send)',
+                hintText: AppLocalizations.of(context)!.commandInputHint,
                 hintStyle: GoogleFonts.jetBrainsMono(
                   color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
                 ),
@@ -4027,7 +4027,7 @@ class _InputDialogContentState extends State<_InputDialogContent> {
                     ),
                   ),
                   child: Text(
-                    'Cancel',
+                    AppLocalizations.of(context)!.buttonCancel,
                     style: GoogleFonts.spaceGrotesk(
                       fontWeight: FontWeight.w700,
                     ),
@@ -4121,7 +4121,7 @@ class _NewWindowDialogState extends State<_NewWindowDialog> {
     final colorScheme = Theme.of(context).colorScheme;
     return AlertDialog(
       title: Text(
-        'New Window',
+        AppLocalizations.of(context)!.newWindowTitle,
         style: GoogleFonts.spaceGrotesk(
           fontWeight: FontWeight.w700,
         ),
@@ -4133,8 +4133,8 @@ class _NewWindowDialogState extends State<_NewWindowDialog> {
           autofocus: true,
           maxLength: 50,
           decoration: InputDecoration(
-            labelText: 'Window Name',
-            hintText: 'Leave empty for default',
+            labelText: AppLocalizations.of(context)!.newWindowTitle,
+            hintText: AppLocalizations.of(context)!.newWindowHint,
             hintStyle: GoogleFonts.jetBrainsMono(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -4166,11 +4166,11 @@ class _NewWindowDialogState extends State<_NewWindowDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Create'),
+          child: Text(AppLocalizations.of(context)!.buttonCreate),
         ),
       ],
     );
@@ -4224,9 +4224,9 @@ class _ResizePaneChooserDialogState extends State<_ResizePaneChooserDialog> {
     return AlertDialog(
       backgroundColor: DesignColors.surfaceDark,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: const Text(
-        'Resize Pane',
-        style: TextStyle(color: DesignColors.textPrimary),
+      title: Text(
+        AppLocalizations.of(context)!.resizePaneTitle,
+        style: const TextStyle(color: DesignColors.textPrimary),
       ),
       content: SizedBox(
         width: MediaQuery.of(context).size.width * 0.8,
@@ -4235,22 +4235,20 @@ class _ResizePaneChooserDialogState extends State<_ResizePaneChooserDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ペインレイアウトのグリッドプレビュー
             _buildSelectablePaneGrid(),
             const SizedBox(height: 12),
-            // 選択中のペイン情報
             if (selected != null)
               Text(
-                'Selected: Pane ${selected.index} (${selected.width}x${selected.height})',
+                AppLocalizations.of(context)!.paneSelectionInfo(selected.index, selected.width, selected.height),
                 style: const TextStyle(
                   fontSize: 13,
                   color: DesignColors.textSecondary,
                 ),
               )
             else
-              const Text(
-                'Tap a pane to select',
-                style: TextStyle(
+              Text(
+                AppLocalizations.of(context)!.selectWindowPrompt,
+                style: const TextStyle(
                   fontSize: 13,
                   color: DesignColors.textSecondary,
                 ),
@@ -4262,14 +4260,14 @@ class _ResizePaneChooserDialogState extends State<_ResizePaneChooserDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed: selected != null ? () => widget.onResize(selected) : null,
           style: FilledButton.styleFrom(
             backgroundColor: DesignColors.primary,
           ),
-          child: const Text('Resize'),
+          child: Text(AppLocalizations.of(context)!.buttonResize),
         ),
       ],
     );
@@ -4417,9 +4415,9 @@ class _ResizeWindowChooserDialogState
     return AlertDialog(
       backgroundColor: DesignColors.surfaceDark,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: const Text(
-        'Resize Window',
-        style: TextStyle(color: DesignColors.textPrimary),
+      title: Text(
+        AppLocalizations.of(context)!.resizeWindowTitle,
+        style: const TextStyle(color: DesignColors.textPrimary),
       ),
       content: SizedBox(
         width: MediaQuery.of(context).size.width * 0.8,
@@ -4447,9 +4445,9 @@ class _ResizeWindowChooserDialogState
                   ),
                 ),
               ] else
-                const Text(
-                  'Tap a window to select',
-                  style: TextStyle(
+                Text(
+                  AppLocalizations.of(context)!.selectWindowPrompt,
+                  style: const TextStyle(
                     fontSize: 13,
                     color: DesignColors.textSecondary,
                   ),
@@ -4461,7 +4459,7 @@ class _ResizeWindowChooserDialogState
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed:
@@ -4469,7 +4467,7 @@ class _ResizeWindowChooserDialogState
           style: FilledButton.styleFrom(
             backgroundColor: DesignColors.primary,
           ),
-          child: const Text('Resize'),
+          child: Text(AppLocalizations.of(context)!.buttonResize),
         ),
       ],
     );

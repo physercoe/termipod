@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import '../providers/settings_provider.dart';
 
@@ -204,7 +205,7 @@ class _ImageTransferConfirmDialogState
 
     return AlertDialog(
       backgroundColor: theme.colorScheme.surfaceContainerHigh,
-      title: const Text('Upload Image'),
+      title: Text(AppLocalizations.of(context)!.uploadImageTitle),
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
@@ -252,10 +253,10 @@ class _ImageTransferConfirmDialogState
               _label('Format'),
               const SizedBox(height: 4),
               SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'original', label: Text('Original')),
-                  ButtonSegment(value: 'png', label: Text('PNG')),
-                  ButtonSegment(value: 'jpeg', label: Text('JPEG')),
+                segments: [
+                  ButtonSegment(value: 'original', label: Text(AppLocalizations.of(context)!.formatOriginal)),
+                  ButtonSegment(value: 'png', label: Text(AppLocalizations.of(context)!.formatPNG)),
+                  ButtonSegment(value: 'jpeg', label: Text(AppLocalizations.of(context)!.formatJPEG)),
                 ],
                 selected: {_outputFormat},
                 onSelectionChanged: (v) => setState(() => _outputFormat = v.first),
@@ -271,11 +272,11 @@ class _ImageTransferConfirmDialogState
               _label('Resize'),
               const SizedBox(height: 4),
               SegmentedButton<ImageResizePreset>(
-                segments: const [
-                  ButtonSegment(value: ImageResizePreset.original, label: Text('Original')),
-                  ButtonSegment(value: ImageResizePreset.small, label: Text('S')),
-                  ButtonSegment(value: ImageResizePreset.medium, label: Text('M')),
-                  ButtonSegment(value: ImageResizePreset.large, label: Text('L')),
+                segments: [
+                  ButtonSegment(value: ImageResizePreset.original, label: Text(AppLocalizations.of(context)!.resizePresetOriginal)),
+                  ButtonSegment(value: ImageResizePreset.small, label: Text(AppLocalizations.of(context)!.resizePresetSmall)),
+                  ButtonSegment(value: ImageResizePreset.medium, label: Text(AppLocalizations.of(context)!.resizePresetMedium)),
+                  ButtonSegment(value: ImageResizePreset.large, label: Text(AppLocalizations.of(context)!.resizePresetLarge)),
                 ],
                 selected: {_resizePreset == ImageResizePreset.custom ? ImageResizePreset.original : _resizePreset},
                 onSelectionChanged: (v) => setState(() => _resizePreset = v.first),
@@ -390,7 +391,7 @@ class _ImageTransferConfirmDialogState
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, null),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
@@ -399,7 +400,7 @@ class _ImageTransferConfirmDialogState
               Navigator.pop(context, _buildOptions());
             }
           },
-          child: const Text('Upload'),
+          child: Text(AppLocalizations.of(context)!.buttonUpload),
         ),
       ],
     );

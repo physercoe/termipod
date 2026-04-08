@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/key_provider.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+
 import '../../theme/design_colors.dart';
 import '../home_screen.dart';
 import 'key_generate_screen.dart';
@@ -67,7 +69,7 @@ class KeysScreen extends ConsumerWidget {
             color: isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight,
           ),
           onPressed: () => ref.read(currentTabProvider.notifier).setTab(3),
-          tooltip: 'Settings',
+          tooltip: AppLocalizations.of(context)!.settingsTooltip,
         ),
         const SizedBox(width: 8),
       ],
@@ -83,8 +85,8 @@ class KeysScreen extends ConsumerWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.add_circle),
-              title: const Text('Generate New Key'),
-              subtitle: const Text('Create a new RSA or Ed25519 key'),
+              title: Text(AppLocalizations.of(context)!.generateNewKey),
+              subtitle: Text(AppLocalizations.of(context)!.generateNewKeyDesc),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
@@ -97,8 +99,8 @@ class KeysScreen extends ConsumerWidget {
             ),
             ListTile(
               leading: const Icon(Icons.file_upload),
-              title: const Text('Import Key'),
-              subtitle: const Text('Import an existing private key'),
+              title: Text(AppLocalizations.of(context)!.importKey),
+              subtitle: Text(AppLocalizations.of(context)!.importKeyDesc),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
@@ -133,11 +135,11 @@ class _KeysBody {
             children: [
               Icon(Icons.error_outline, size: 48, color: Theme.of(context).colorScheme.error),
               const SizedBox(height: 16),
-              Text('Error: ${state.error}'),
+              Text(AppLocalizations.of(context)!.keysLoadError(state.error!)),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () => ref.read(keysProvider.notifier).reload(),
-                child: const Text('Retry'),
+                child: Text(AppLocalizations.of(context)!.buttonRetry),
               ),
             ],
           ),
@@ -190,7 +192,7 @@ class _KeysBody {
                 if (keyMeta.publicKey != null) {
                   Clipboard.setData(ClipboardData(text: keyMeta.publicKey!));
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Public key copied to clipboard')),
+                    SnackBar(content: Text(AppLocalizations.of(context)!.publicKeyCopied)),
                   );
                 }
               },
@@ -209,10 +211,10 @@ class _KeysBody {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Key?'),
+        title: Text(AppLocalizations.of(context)!.deleteKeyTitle),
         content: Text('Are you sure you want to delete "${keyMeta.name}"?\n\nThis action cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text(AppLocalizations.of(context)!.buttonCancel)),
           FilledButton(
             onPressed: () async {
               Navigator.pop(context);
@@ -223,20 +225,20 @@ class _KeysBody {
                 await ref.read(keysProvider.notifier).remove(keyMeta.id);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Key "${keyMeta.name}" deleted')),
+                    SnackBar(content: Text(AppLocalizations.of(context)!.keyDeleted(keyMeta.name))),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to delete: $e'),
+                    SnackBar(content: Text(AppLocalizations.of(context)!.deleteKeyFailed(e.toString())),
                         backgroundColor: Theme.of(context).colorScheme.error),
                   );
                 }
               }
             },
             style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            child: const Text('Delete'),
+            child: Text(AppLocalizations.of(context)!.buttonDelete),
           ),
         ],
       ),

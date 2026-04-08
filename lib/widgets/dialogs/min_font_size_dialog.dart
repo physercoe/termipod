@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 /// 最小フォントサイズ選択ダイアログ
 ///
@@ -31,7 +32,7 @@ class _MinFontSizeDialogState extends State<MinFontSizeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Minimum Font Size'),
+      title: Text(AppLocalizations.of(context)!.minFontSizeTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -45,7 +46,7 @@ class _MinFontSizeDialogState extends State<MinFontSizeDialog> {
             ),
             ..._minFontSizes.map((size) {
               return RadioListTile<double>(
-                title: Text('${size.toInt()} pt'),
+                title: Text(AppLocalizations.of(context)!.fontSizePt(size.toInt())),
                 value: size,
                 groupValue: _selectedSize,
                 onChanged: (value) {
@@ -61,7 +62,7 @@ class _MinFontSizeDialogState extends State<MinFontSizeDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(AppLocalizations.of(context)!.buttonCancel),
         ),
       ],
     );

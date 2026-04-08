@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 
@@ -37,7 +39,7 @@ class SnippetsScreen extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(top: 12, bottom: 8),
             child: Text(
-              _categoryLabel(entry.key),
+              _categoryLabel(context, entry.key),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -53,11 +55,12 @@ class SnippetsScreen extends ConsumerWidget {
     );
   }
 
-  String _categoryLabel(String category) {
+  String _categoryLabel(BuildContext context, String category) {
+    final l10n = AppLocalizations.of(context)!;
     return switch (category) {
-      'general' => 'GENERAL',
-      'tmux' => 'TMUX',
-      'cli-agent' => 'CLI AGENT',
+      'general' => l10n.categoryGeneral.toUpperCase(),
+      'tmux' => l10n.categoryTmux.toUpperCase(),
+      'cli-agent' => l10n.categoryCliAgent.toUpperCase(),
       _ => category.toUpperCase(),
     };
   }
@@ -135,17 +138,17 @@ class _SnippetTile extends ConsumerWidget {
           return await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Delete Snippet?'),
+              title: Text(AppLocalizations.of(context)!.deleteSnippetTitle),
               content: Text('Delete "${snippet.name}"?'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
+                  child: Text(AppLocalizations.of(context)!.buttonCancel),
                 ),
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, true),
                   style: TextButton.styleFrom(foregroundColor: DesignColors.error),
-                  child: const Text('Delete'),
+                  child: Text(AppLocalizations.of(context)!.buttonDelete),
                 ),
               ],
             ),
@@ -159,7 +162,7 @@ class _SnippetTile extends ConsumerWidget {
           onLongPress: () {
             Clipboard.setData(ClipboardData(text: snippet.content));
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Copied to clipboard'), duration: Duration(seconds: 1)),
+              SnackBar(content: Text(AppLocalizations.of(context)!.copiedToClipboard), duration: const Duration(seconds: 1)),
             );
           },
           borderRadius: BorderRadius.circular(12),
@@ -251,11 +254,16 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
   late final TextEditingController _contentController;
   late String _category;
 
-  static const _categories = [
-    ('general', 'General'),
-    ('tmux', 'Tmux'),
-    ('cli-agent', 'CLI Agent'),
-  ];
+  static const _categoryKeys = ['general', 'tmux', 'cli-agent'];
+
+  static String _categoryDisplayName(AppLocalizations l10n, String key) {
+    return switch (key) {
+      'general' => l10n.categoryGeneral,
+      'tmux' => l10n.categoryTmux,
+      'cli-agent' => l10n.categoryCliAgent,
+      _ => key,
+    };
+  }
 
   @override
   void initState() {
@@ -275,26 +283,27 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.snippet != null;
+    final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: Text(isEdit ? 'Edit Snippet' : 'New Snippet'),
+      title: Text(isEdit ? 'Edit Snippet' : l10n.newSnippetTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Name',
-                hintText: 'e.g. Git status',
+              decoration: InputDecoration(
+                labelText: l10n.snippetNameLabel,
+                hintText: l10n.snippetNameHint,
               ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _contentController,
-              decoration: const InputDecoration(
-                labelText: 'Content',
-                hintText: 'e.g. git status',
+              decoration: InputDecoration(
+                labelText: l10n.snippetContentLabel,
+                hintText: l10n.snippetContentHint,
               ),
               maxLines: 4,
               minLines: 2,
@@ -302,10 +311,13 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _category,
-              decoration: const InputDecoration(labelText: 'Category'),
+              decoration: InputDecoration(labelText: l10n.snippetCategoryLabel),
               items: [
-                for (final c in _categories)
-                  DropdownMenuItem(value: c.$1, child: Text(c.$2)),
+                for (final key in _categoryKeys)
+                  DropdownMenuItem(
+                    value: key,
+                    child: Text(_categoryDisplayName(l10n, key)),
+                  ),
               ],
               onChanged: (v) {
                 if (v != null) setState(() => _category = v);
@@ -317,7 +329,7 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(l10n.buttonCancel),
         ),
         FilledButton(
           onPressed: () {
@@ -327,7 +339,7 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
             widget.onSave(name, content, _category);
             Navigator.pop(context);
           },
-          child: const Text('Save'),
+          child: Text(l10n.buttonSave),
         ),
       ],
     );

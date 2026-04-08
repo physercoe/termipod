@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
 import 'package:flutter_muxpod/theme/design_colors.dart';
 import 'package:flutter_muxpod/widgets/active_list_tile.dart';
@@ -111,7 +112,7 @@ class TmuxPaneTile extends StatelessWidget {
                         Icon(Icons.aspect_ratio, size: 18,
                             color: colorScheme.onSurface),
                         const SizedBox(width: 8),
-                        const Text('Resize Pane'),
+                        Text(AppLocalizations.of(menuContext)!.resizePaneTitle),
                       ],
                     ),
                   ),
@@ -190,7 +191,7 @@ class TmuxWindowTile extends StatelessWidget {
                         Icon(Icons.aspect_ratio, size: 18,
                             color: colorScheme.onSurface),
                         const SizedBox(width: 8),
-                        const Text('Resize Window'),
+                        Text(AppLocalizations.of(menuContext)!.resizeWindowTitle),
                       ],
                     ),
                   ),

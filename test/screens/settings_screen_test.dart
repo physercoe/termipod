@@ -81,29 +81,19 @@ void main() {
     });
 
     testWidgets('displays Image Transfer settings', (tester) async {
+      // Use a larger surface to ensure all settings are built
+      await tester.binding.setSurfaceSize(const Size(400, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
       await tester.pumpWidget(_buildApp());
       await tester.pumpAndSettle();
 
-      final scrollable = find.byType(Scrollable).first;
-
-      // Image Transfer section header — scroll with larger delta to reach bottom
-      await tester.scrollUntilVisible(find.text('Image Transfer'), 500, scrollable: scrollable, maxScrolls: 50);
+      // With tall surface, all slivers should be built
       expect(find.text('Image Transfer'), findsWidgets);
-
-      // Individual settings
-      await tester.scrollUntilVisible(find.text('Remote Path'), 200, scrollable: scrollable);
       expect(find.text('Remote Path'), findsWidgets);
-
-      await tester.scrollUntilVisible(find.text('Output Format'), 200, scrollable: scrollable);
       expect(find.text('Output Format'), findsWidgets);
-
-      await tester.scrollUntilVisible(find.text('Path Format'), 200, scrollable: scrollable);
       expect(find.text('Path Format'), findsWidgets);
-
-      await tester.scrollUntilVisible(find.text('Auto Enter'), 200, scrollable: scrollable);
       expect(find.text('Auto Enter'), findsWidgets);
-
-      await tester.scrollUntilVisible(find.text('Bracketed Paste'), 200, scrollable: scrollable);
       expect(find.text('Bracketed Paste'), findsWidgets);
     });
   });

@@ -190,6 +190,21 @@ class _HistoryTile extends ConsumerWidget {
                 ),
                 IconButton(
                   icon: Icon(
+                    Icons.edit_outlined,
+                    size: 18,
+                    color: isDark
+                        ? DesignColors.textMuted
+                        : DesignColors.textMutedLight,
+                  ),
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    _showEditDialog(context, ref);
+                  },
+                  tooltip: AppLocalizations.of(context)!.editHistory,
+                  visualDensity: VisualDensity.compact,
+                ),
+                IconButton(
+                  icon: Icon(
                     Icons.bookmark_add_outlined,
                     size: 18,
                     color: isDark
@@ -207,6 +222,44 @@ class _HistoryTile extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController(text: command);
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.of(context)!.editHistoryTitle),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.editHistoryLabel,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+          autofocus: true,
+          maxLines: 5,
+          minLines: 1,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final newCmd = controller.text.trim();
+              if (newCmd.isNotEmpty && newCmd != command) {
+                ref.read(historyProvider.notifier).update(command, newCmd);
+              }
+              Navigator.pop(dialogContext);
+            },
+            child: Text(AppLocalizations.of(context)!.buttonSave),
+          ),
+        ],
       ),
     );
   }

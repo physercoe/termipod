@@ -13,16 +13,23 @@ import '../keys/keys_screen.dart';
 import 'history_screen.dart';
 import 'snippets_screen.dart';
 
-/// Vaults screen — vertical list of Keys and Snippets sections.
+/// Vaults screen — vertical list of Keys, Snippets, and History sections.
 ///
-/// Uses a single scrollable column instead of horizontal tabs,
-/// since the vault may contain more item types in the future and
-/// horizontal space is limited on mobile.
-class VaultScreen extends ConsumerWidget {
+/// Each section is collapsible via tap on the section header.
+class VaultScreen extends ConsumerStatefulWidget {
   const VaultScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<VaultScreen> createState() => _VaultScreenState();
+}
+
+class _VaultScreenState extends ConsumerState<VaultScreen> {
+  bool _keysExpanded = true;
+  bool _snippetsExpanded = true;
+  bool _historyExpanded = true;
+
+  @override
+  Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -55,6 +62,8 @@ class VaultScreen extends ConsumerWidget {
                 _SectionCard(
                   icon: Icons.key,
                   title: AppLocalizations.of(context)!.tabKeys,
+                  expanded: _keysExpanded,
+                  onToggle: () => setState(() => _keysExpanded = !_keysExpanded),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -76,8 +85,10 @@ class VaultScreen extends ConsumerWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                const KeysScreenBody(),
+                if (_keysExpanded) ...[
+                  const SizedBox(height: 8),
+                  const KeysScreenBody(),
+                ],
 
                 const SizedBox(height: 24),
 
@@ -85,14 +96,18 @@ class VaultScreen extends ConsumerWidget {
                 _SectionCard(
                   icon: Icons.content_paste,
                   title: AppLocalizations.of(context)!.tabSnippets,
+                  expanded: _snippetsExpanded,
+                  onToggle: () => setState(() => _snippetsExpanded = !_snippetsExpanded),
                   trailing: _SmallActionButton(
                     icon: Icons.add,
                     label: AppLocalizations.of(context)!.buttonCreate,
                     onTap: () => _showAddSnippetDialog(context, ref),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const SnippetsScreen(),
+                if (_snippetsExpanded) ...[
+                  const SizedBox(height: 8),
+                  const SnippetsScreen(),
+                ],
 
                 const SizedBox(height: 24),
 
@@ -100,14 +115,18 @@ class VaultScreen extends ConsumerWidget {
                 _SectionCard(
                   icon: Icons.history,
                   title: AppLocalizations.of(context)!.history,
+                  expanded: _historyExpanded,
+                  onToggle: () => setState(() => _historyExpanded = !_historyExpanded),
                   trailing: _SmallActionButton(
                     icon: Icons.delete_outline,
                     label: AppLocalizations.of(context)!.clear,
                     onTap: () => _confirmClearHistory(context, ref),
                   ),
                 ),
-                const SizedBox(height: 8),
-                const HistoryScreen(),
+                if (_historyExpanded) ...[
+                  const SizedBox(height: 8),
+                  const HistoryScreen(),
+                ],
               ]),
             ),
           ),
@@ -156,40 +175,58 @@ class VaultScreen extends ConsumerWidget {
   }
 }
 
-/// Section header card with icon, title, and trailing action buttons.
+/// Section header card with icon, title, expand/collapse toggle, and trailing action buttons.
 class _SectionCard extends StatelessWidget {
   final IconData icon;
   final String title;
   final Widget? trailing;
+  final bool expanded;
+  final VoidCallback? onToggle;
 
   const _SectionCard({
     required this.icon,
     required this.title,
     this.trailing,
+    this.expanded = true,
+    this.onToggle,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 20,
-          color: DesignColors.primary,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight,
+    return InkWell(
+      onTap: onToggle,
+      borderRadius: BorderRadius.circular(8),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: DesignColors.primary,
           ),
-        ),
-        const Spacer(),
-        if (trailing != null) trailing!,
-      ],
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight,
+            ),
+          ),
+          const SizedBox(width: 4),
+          AnimatedRotation(
+            turns: expanded ? 0.0 : -0.25,
+            duration: const Duration(milliseconds: 200),
+            child: Icon(
+              Icons.expand_more,
+              size: 20,
+              color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+            ),
+          ),
+          const Spacer(),
+          if (trailing != null) trailing!,
+        ],
+      ),
     );
   }
 }

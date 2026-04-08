@@ -452,5 +452,17 @@
   "weeksAgo": "{count} week(s) ago",
   "@weeksAgo": { "placeholders": { "count": { "type": "int" } } },
 
-  "newLabel": "New"
+  "newLabel": "New",
+
+  "addNewProfile": "Add Profile",
+  "addNewProfileDesc": "Create a new custom toolbar profile",
+  "editHistory": "Edit",
+  "editHistoryTitle": "Edit Command",
+  "editHistoryLabel": "Command",
+  "editSnippet": "Edit Snippet",
+  "categoryClaude": "Claude Code",
+  "categoryCodex": "Codex",
+  "categoryKimi": "Kimi Code",
+  "categoryOpencode": "OpenCode",
+  "categoryAider": "Aider"
 }

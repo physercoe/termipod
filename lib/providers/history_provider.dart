@@ -77,6 +77,14 @@ class HistoryNotifier extends Notifier<HistoryState> {
     await prefs.remove(_storageKey);
   }
 
+  /// Update a history item in place
+  Future<void> update(String oldCommand, String newCommand) async {
+    if (newCommand.trim().isEmpty) return;
+    final items = state.items.map((h) => h == oldCommand ? newCommand : h).toList();
+    state = state.copyWith(items: items);
+    await _save();
+  }
+
   /// Delete a single history item
   Future<void> delete(String command) async {
     state = state.copyWith(

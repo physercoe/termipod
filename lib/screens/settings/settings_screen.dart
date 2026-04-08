@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/settings_provider.dart';
+import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_settings_screen.dart';
@@ -217,6 +218,12 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     );
                   },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.add_circle_outline),
+                  title: Text(l10n.addNewProfile),
+                  subtitle: Text(l10n.addNewProfileDesc),
+                  onTap: () => _showCreateProfileDialog(context, ref),
                 ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionBehavior),
@@ -711,6 +718,85 @@ class SettingsScreen extends ConsumerWidget {
                 Navigator.pop(ctx);
               },
             ),
+        ],
+      ),
+    );
+  }
+
+  void _showCreateProfileDialog(BuildContext context, WidgetRef ref) {
+    final nameController = TextEditingController();
+    final l10n = AppLocalizations.of(context)!;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.newProfile),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: l10n.profileName,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l10n.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                final profile = ActionBarProfile(
+                  id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
+                  name: name,
+                  groups: const [
+                    ActionBarGroup(
+                      id: 'default-keys',
+                      name: 'Keys',
+                      buttons: [
+                        ActionBarButton(
+                          id: 'esc',
+                          label: 'ESC',
+                          type: ActionBarButtonType.specialKey,
+                          value: 'Escape',
+                        ),
+                        ActionBarButton(
+                          id: 'tab',
+                          label: 'TAB',
+                          type: ActionBarButtonType.specialKey,
+                          value: 'Tab',
+                        ),
+                        ActionBarButton(
+                          id: 'ctrl',
+                          label: 'CTRL',
+                          type: ActionBarButtonType.modifier,
+                          value: 'ctrl',
+                        ),
+                        ActionBarButton(
+                          id: 'alt',
+                          label: 'ALT',
+                          type: ActionBarButtonType.modifier,
+                          value: 'alt',
+                        ),
+                        ActionBarButton(
+                          id: 'enter',
+                          label: 'RET',
+                          type: ActionBarButtonType.specialKey,
+                          value: 'Enter',
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+                ref.read(actionBarProvider.notifier).addCustomProfile(profile);
+                ref.read(actionBarProvider.notifier).setActiveProfile(profile.id);
+                Navigator.pop(ctx);
+              }
+            },
+            child: Text(l10n.buttonCreate),
+          ),
         ],
       ),
     );

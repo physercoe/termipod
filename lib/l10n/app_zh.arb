@@ -403,5 +403,17 @@
   "daysAgo": "{count} 天前",
   "weeksAgo": "{count} 周前",
 
-  "newLabel": "新建"
+  "newLabel": "新建",
+
+  "addNewProfile": "添加配置",
+  "addNewProfileDesc": "创建新的自定义工具栏配置",
+  "editHistory": "编辑",
+  "editHistoryTitle": "编辑命令",
+  "editHistoryLabel": "命令",
+  "editSnippet": "编辑代码片段",
+  "categoryClaude": "Claude Code",
+  "categoryCodex": "Codex",
+  "categoryKimi": "Kimi Code",
+  "categoryOpencode": "OpenCode",
+  "categoryAider": "Aider"
 }

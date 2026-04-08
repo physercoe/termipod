@@ -72,6 +72,11 @@ class SnippetsScreen extends ConsumerWidget {
       'general' => l10n.categoryGeneral.toUpperCase(),
       'tmux' => l10n.categoryTmux.toUpperCase(),
       'cli-agent' => l10n.categoryCliAgent.toUpperCase(),
+      'claude-code' => l10n.categoryClaude.toUpperCase(),
+      'codex' => l10n.categoryCodex.toUpperCase(),
+      'kimi-code' => l10n.categoryKimi.toUpperCase(),
+      'opencode' => l10n.categoryOpencode.toUpperCase(),
+      'aider' => l10n.categoryAider.toUpperCase(),
       _ => category.toUpperCase(),
     };
   }
@@ -223,13 +228,27 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
   late final TextEditingController _contentController;
   late String _category;
 
-  static const _categoryKeys = ['general', 'tmux', 'cli-agent'];
+  static const _categoryKeys = [
+    'general',
+    'tmux',
+    'cli-agent',
+    'claude-code',
+    'codex',
+    'kimi-code',
+    'opencode',
+    'aider',
+  ];
 
   static String _categoryDisplayName(AppLocalizations l10n, String key) {
     return switch (key) {
       'general' => l10n.categoryGeneral,
       'tmux' => l10n.categoryTmux,
       'cli-agent' => l10n.categoryCliAgent,
+      'claude-code' => l10n.categoryClaude,
+      'codex' => l10n.categoryCodex,
+      'kimi-code' => l10n.categoryKimi,
+      'opencode' => l10n.categoryOpencode,
+      'aider' => l10n.categoryAider,
       _ => key,
     };
   }
@@ -254,7 +273,7 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
     final isEdit = widget.snippet != null;
     final l10n = AppLocalizations.of(context)!;
     return AlertDialog(
-      title: Text(isEdit ? 'Edit Snippet' : l10n.newSnippetTitle),
+      title: Text(isEdit ? l10n.editSnippet : l10n.newSnippetTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,

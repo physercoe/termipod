@@ -54,13 +54,13 @@ class ActionBarPresets {
     isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'cc-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'cc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'cc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', longPressValue: 'Escape Escape'),
         ActionBarButton(id: 'cc-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'cc-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'cc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'cc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
         ActionBarButton(id: 'cc-cd', label: 'C-D', type: ActionBarButtonType.ctrlCombo, value: 'C-d'),
-        ActionBarButton(id: 'cc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'cc-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'cc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -99,13 +99,13 @@ class ActionBarPresets {
     isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'cx-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'cx-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'cx-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', longPressValue: 'Escape Escape'),
         ActionBarButton(id: 'cx-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'cx-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'cx-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'cx-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
         ActionBarButton(id: 'cx-cg', label: 'C-G', type: ActionBarButtonType.ctrlCombo, value: 'C-g'),
-        ActionBarButton(id: 'cx-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'cx-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'cx-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -139,13 +139,13 @@ class ActionBarPresets {
     isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'km-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'km-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'km-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
         ActionBarButton(id: 'km-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'km-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'km-cx', label: 'C-X', type: ActionBarButtonType.ctrlCombo, value: 'C-x'),
         ActionBarButton(id: 'km-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'km-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
-        ActionBarButton(id: 'km-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'km-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'km-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -179,12 +179,12 @@ class ActionBarPresets {
     isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'oc-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'oc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'oc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
         ActionBarButton(id: 'oc-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'oc-cp', label: 'C-P', type: ActionBarButtonType.ctrlCombo, value: 'C-p'),
         ActionBarButton(id: 'oc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
         ActionBarButton(id: 'oc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
-        ActionBarButton(id: 'oc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'oc-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'oc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -222,11 +222,11 @@ class ActionBarPresets {
     isBuiltIn: false,
     groups: [
       ActionBarGroup(id: 'ai-quick', name: 'Quick', buttons: [
+        ActionBarButton(id: 'ai-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'ai-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
         ActionBarButton(id: 'ai-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'ai-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
         ActionBarButton(id: 'ai-menter', label: 'M-Ent', type: ActionBarButtonType.altCombo, value: 'M-Enter'),
-        ActionBarButton(id: 'ai-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'ai-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'ai-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
@@ -261,12 +261,12 @@ class ActionBarPresets {
     isBuiltIn: true,
     groups: [
       ActionBarGroup(id: 'gt-keys', name: 'Keys', buttons: [
+        ActionBarButton(id: 'gt-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
         ActionBarButton(id: 'gt-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
         ActionBarButton(id: 'gt-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
         ActionBarButton(id: 'gt-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
         ActionBarButton(id: 'gt-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
         ActionBarButton(id: 'gt-enter', label: 'Enter', type: ActionBarButtonType.specialKey, value: 'Enter'),
-        ActionBarButton(id: 'gt-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
       ]),
       ActionBarGroup(id: 'gt-nav', name: 'Navigate', buttons: [
         ActionBarButton(id: 'gt-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),

@@ -43,6 +43,15 @@ abstract class TerminalBackend {
   /// Scrollback line count.
   int get scrollbackSize;
 
+  /// Returns the current working directory of the active shell/pane, or
+  /// null if the backend cannot determine it.
+  ///
+  /// - TmuxBackend: reads `#{pane_current_path}` of the active pane.
+  /// - RawPtyBackend: returns the cached `$HOME` captured at shell startup
+  ///   (the initial CWD for an interactive SSH login). Real `$PWD` tracking
+  ///   is not implemented in this release.
+  Future<String?> getCurrentPath();
+
   /// Dispose resources.
   void dispose();
 }

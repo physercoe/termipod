@@ -388,6 +388,8 @@
   "toolbarProfile": "工具栏配置",
   "newProfile": "新建配置",
   "profileName": "配置名称",
+  "profileLabel": "配置",
+  "keyPaletteLabel": "按键面板",
   "manageSnippets": "管理代码片段",
   "deleteProfile": "删除配置",
   "deleteProfileContent": "删除「{name}」？",
@@ -401,6 +403,7 @@
 
   "snippets": "代码片段",
   "searchSnippets": "搜索代码片段...",
+  "tabAll": "全部",
   "noSnippetsYet": "暂无代码片段",
   "noMatchingSnippets": "无匹配的代码片段",
   "createOneHint": "点击「新建」来创建",

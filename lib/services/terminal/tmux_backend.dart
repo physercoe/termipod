@@ -256,6 +256,20 @@ class TmuxBackend implements TerminalBackend {
     } catch (_) {}
   }
 
+  @override
+  Future<String?> getCurrentPath() async {
+    if (!_sshClient.isConnected) return null;
+    final target = _getCurrentTarget();
+    if (target == null) return null;
+    try {
+      final out = await _sshClient.exec(TmuxCommands.paneCurrentPath(target));
+      final trimmed = out.trim();
+      return trimmed.isEmpty ? null : trimmed;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Enter tmux copy-mode.
   Future<void> enterCopyMode() async {
     if (!_sshClient.isConnected) return;

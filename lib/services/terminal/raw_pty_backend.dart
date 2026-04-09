@@ -24,6 +24,10 @@ class RawPtyBackend implements TerminalBackend {
   bool _contentDirty = true;
   bool _disposed = false;
 
+  /// Cached `$HOME` fetched once at shell startup. Used by [getCurrentPath]
+  /// as the default CWD for file downloads. Null if the probe failed.
+  String? _homeDir;
+
   /// Tmux key name -> VT escape sequence mapping.
   /// Used when callers provide tmux key names (from action bar, nav pad).
   static const Map<String, String> _keyToEscape = {
@@ -131,6 +135,19 @@ class RawPtyBackend implements TerminalBackend {
     _terminal = Terminal(maxLines: 1000);
     _terminal.resize(cols, rows);
 
+    // Probe $HOME on a throwaway exec channel before starting the shell.
+    // dartssh2 serializes channels, so we must run this BEFORE startShell()
+    // rather than concurrently. Cost: one extra round-trip (~50-100ms) that
+    // happens inside the connection spinner and is invisible to users.
+    try {
+      final out = await _sshClient.exec('printf %s "\$HOME"');
+      final trimmed = out.trim();
+      if (trimmed.isNotEmpty) _homeDir = trimmed;
+    } catch (_) {
+      // Ignore — getCurrentPath() will return null and callers will
+      // fall back to settings.fileRemotePath.
+    }
+
     // Start interactive PTY shell
     _sshClient.updateEventHandlers(onData: _onShellData);
     await _sshClient.startShell(ShellOptions(
@@ -139,6 +156,9 @@ class RawPtyBackend implements TerminalBackend {
       rows: rows,
     ));
   }
+
+  @override
+  Future<String?> getCurrentPath() async => _homeDir;
 
   void _onShellData(Uint8List data) {
     if (_disposed) return;

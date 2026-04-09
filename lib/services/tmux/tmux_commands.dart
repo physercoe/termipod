@@ -256,6 +256,11 @@ class TmuxCommands {
     return 'tmux display-message -p -t ${_escapeArg(target)} "#{pane_mode}"';
   }
 
+  /// ペインの現在の作業ディレクトリを取得（#{pane_current_path}）
+  static String paneCurrentPath(String target) {
+    return 'tmux display-message -p -t ${_escapeArg(target)} "#{pane_current_path}"';
+  }
+
   /// copy-modeに入る
   static String enterCopyMode(String target) {
     return 'tmux copy-mode -t ${_escapeArg(target)}';

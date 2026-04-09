@@ -128,7 +128,7 @@ class AppSettings {
     this.imageAutoEnter = false,
     this.imageBracketedPaste = false,
     this.locale = 'system',
-    this.navPadMode = 'off',
+    this.navPadMode = 'compact',
     this.navPadDpadStyle = 'dpad',
     this.navPadRepeatRate = 80,
     this.navPadHaptic = true,
@@ -328,7 +328,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       imageAutoEnter: prefs.getBool(_imageAutoEnterKey) ?? false,
       imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
       locale: prefs.getString(_localeKey) ?? 'system',
-      navPadMode: prefs.getString(_navPadModeKey) ?? 'off',
+      navPadMode: _migrateNavPadMode(prefs.getString(_navPadModeKey)),
       navPadDpadStyle: prefs.getString(_navPadDpadStyleKey) ?? 'dpad',
       navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
       navPadHaptic: prefs.getBool(_navPadHapticKey) ?? true,
@@ -552,12 +552,18 @@ class SettingsNotifier extends Notifier<AppSettings> {
   }
 
   Future<void> cycleNavPadMode() async {
-    final next = switch (state.navPadMode) {
-      'full' => 'compact',
-      'compact' => 'off',
-      _ => 'full',
-    };
+    // Full mode is deprecated in 0.9.1; toggle between compact and off only.
+    final next = state.navPadMode == 'off' ? 'compact' : 'off';
     await setNavPadMode(next);
+  }
+
+  /// Migration: 'full' mode was removed from the settings UI in 0.9.1.
+  /// Existing users with 'full' stored are silently coerced to 'compact'
+  /// on load. Null/missing key defaults to 'compact' (new default).
+  static String _migrateNavPadMode(String? raw) {
+    if (raw == null) return 'compact';
+    if (raw == 'full') return 'compact';
+    return raw;
   }
 
   Future<void> setNavPadDpadStyle(String value) async {

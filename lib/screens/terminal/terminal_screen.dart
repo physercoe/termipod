@@ -3000,9 +3000,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   final navMode = menuRef.watch(settingsProvider).navPadMode;
                   final l10n = AppLocalizations.of(context)!;
                   final modeLabel = switch (navMode) {
-                    'full' => l10n.navPadModeFull,
-                    'compact' => l10n.navPadModeCompact,
-                    _ => l10n.navPadModeOff,
+                    'off' => l10n.navPadModeOff,
+                    _ => l10n.navPadModeCompact,
                   };
                   return ListTile(
                     leading: Icon(
@@ -3751,9 +3750,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   /// Start file transfer flow
-  void _handleFileTransfer() {
+  void _handleFileTransfer() async {
     _ensureFileTransferListener();
-    ref.read(fileTransferProvider(widget.connectionId).notifier).pickFiles();
+    // Prefer the backend's current working directory; falls back inside
+    // pickFiles() to settings.fileRemotePath when null.
+    final cwd = await _backend?.getCurrentPath();
+    if (!mounted) return;
+    ref
+        .read(fileTransferProvider(widget.connectionId).notifier)
+        .pickFiles(initialRemoteDir: cwd);
   }
 
   /// Inject uploaded file paths into terminal
@@ -3787,11 +3792,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   /// Start file download flow
-  void _handleFileDownload() {
+  void _handleFileDownload() async {
     _ensureFileTransferListener();
 
     final settings = ref.read(settingsProvider);
-    final initialPath = settings.fileRemotePath;
+    // Prefer the backend's current working directory; fall back to the
+    // user's static setting when the backend can't determine it.
+    final cwd = await _backend?.getCurrentPath();
+    if (!mounted) return;
+    final initialPath =
+        (cwd != null && cwd.isNotEmpty) ? cwd : settings.fileRemotePath;
 
     RemoteFileBrowserDialog.show(
       context,
@@ -3880,11 +3890,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// Show the profile selection sheet
+  /// Show the Key Palette sheet (formerly the profile selection sheet).
+  ///
+  /// The sheet exposes the full key palette of the active profile plus
+  /// profile switching. Key taps route through the same overlay-wrapped
+  /// callbacks as the action bar.
   void _showProfileSheet(BuildContext context) {
     ProfileSheet.show(
       context,
       ref: ref,
+      onKeyTap: _sendKeyWithOverlay,
+      onSpecialKeyTap: _sendSpecialKeyWithOverlay,
+      onModifierTap: (modifier) {
+        if (modifier == 'ctrl') {
+          ref.read(actionBarProvider.notifier).toggleCtrl();
+        } else if (modifier == 'alt') {
+          ref.read(actionBarProvider.notifier).toggleAlt();
+        }
+      },
     );
   }
 

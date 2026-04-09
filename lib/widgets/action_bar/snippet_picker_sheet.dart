@@ -37,9 +37,9 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
+        initialChildSize: 0.7,
         minChildSize: 0.3,
-        maxChildSize: 0.8,
+        maxChildSize: 0.95,
         expand: false,
         builder: (context, scrollController) {
           return SnippetPickerSheet(
@@ -66,6 +66,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
+  /// Active category tab. Values:
+  /// - 'all' — show presets + all user categories (default)
+  /// - 'presets' — show only preset snippets for the active profile
+  /// - <category> — show only user snippets in that category
+  String _activeTab = 'all';
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -90,6 +96,23 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       userByCategory.putIfAbsent(s.category, () => []).add(s);
     }
 
+    // Build category tab list. 'all' is always present. 'presets' appears
+    // when preset snippets exist for the active profile. User categories
+    // are added in sorted order.
+    final categories = <String>['all'];
+    if (presetSnippets.isNotEmpty) categories.add('presets');
+    final userCategorySet = <String>{};
+    for (final s in userSnippets) {
+      userCategorySet.add(s.category);
+    }
+    final sortedUserCategories = userCategorySet.toList()..sort();
+    categories.addAll(sortedUserCategories);
+
+    // Clamp active tab if it no longer exists (e.g. category was deleted).
+    if (!categories.contains(_activeTab)) {
+      _activeTab = 'all';
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
@@ -109,94 +132,193 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // Title row
+          // Title row — bolt icon + inline search + [+] new button
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.fromLTRB(12, 4, 8, 8),
             child: Row(
               children: [
                 Icon(Icons.bolt, size: 20, color: DesignColors.primary),
-                const SizedBox(width: 6),
-                Text(
-                  AppLocalizations.of(context)!.snippets,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: isDark
-                        ? DesignColors.textPrimary
-                        : DesignColors.textPrimaryLight,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SizedBox(
+                    height: 36,
+                    child: TextField(
+                      controller: _searchController,
+                      autofocus: false,
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      decoration: InputDecoration(
+                        hintText:
+                            AppLocalizations.of(context)!.searchSnippets,
+                        prefixIcon: const Icon(Icons.search, size: 18),
+                        prefixIconConstraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                        filled: true,
+                        fillColor: isDark
+                            ? DesignColors.inputDark
+                            : DesignColors.inputLight,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 0,
+                        ),
+                        isDense: true,
+                      ),
+                      style: const TextStyle(fontSize: 14),
+                    ),
                   ),
                 ),
-                const Spacer(),
-                TextButton.icon(
+                const SizedBox(width: 4),
+                IconButton(
                   onPressed: () {
                     Navigator.pop(context);
                     _showAddSnippetDialog(context, ref);
                   },
-                  icon: const Icon(Icons.add, size: 18),
-                  label: Text(AppLocalizations.of(context)!.newLabel),
-                  style: TextButton.styleFrom(
-                    foregroundColor: DesignColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
+                  icon: const Icon(Icons.add_circle_outline, size: 22),
+                  color: DesignColors.primary,
+                  tooltip: AppLocalizations.of(context)!.newLabel,
+                  visualDensity: VisualDensity.compact,
                 ),
               ],
             ),
           ),
-          // Search field
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: TextField(
-              controller: _searchController,
-              autofocus: false,
-              onChanged: (v) => setState(() => _searchQuery = v),
-              decoration: InputDecoration(
-                hintText: AppLocalizations.of(context)!.searchSnippets,
-                prefixIcon: const Icon(Icons.search, size: 20),
-                filled: true,
-                fillColor:
-                    isDark ? DesignColors.inputDark : DesignColors.inputLight,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                isDense: true,
+          // Category tabs — shown only when there are ≥2 categories to
+          // switch between (['all'] alone is meaningless).
+          if (categories.length >= 2)
+            SizedBox(
+              height: 36,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: categories.length,
+                itemBuilder: (context, i) {
+                  final cat = categories[i];
+                  final isActive = cat == _activeTab;
+                  final label = switch (cat) {
+                    'all' => AppLocalizations.of(context)!.tabAll,
+                    'presets' =>
+                      SnippetPresets.categoryLabel(activeProfileId),
+                    _ => SnippetPresets.categoryLabel(cat),
+                  };
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
+                      onTap: () => setState(() => _activeTab = cat),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? DesignColors.primary.withValues(alpha: 0.15)
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: isActive
+                                ? DesignColors.primary
+                                : (isDark
+                                    ? DesignColors.borderDark
+                                    : DesignColors.borderLight),
+                            width: 1,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Center(
+                          child: Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isActive
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
+                              color: isActive
+                                  ? DesignColors.primary
+                                  : (isDark
+                                      ? DesignColors.textSecondary
+                                      : DesignColors
+                                          .textSecondaryLight),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-              style: const TextStyle(fontSize: 14),
             ),
-          ),
           const SizedBox(height: 4),
-          // Content
+          // Content — filtered by active tab
           Expanded(
-            child: (filteredPresets.isEmpty && filteredUser.isEmpty)
-                ? _buildEmptyState(isDark)
-                : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    children: [
-                      // Preset agent commands section
-                      if (filteredPresets.isNotEmpty) ...[
-                        _buildSectionHeader(
-                          SnippetPresets.categoryLabel(activeProfileId),
-                          isDark,
-                        ),
-                        ...filteredPresets
-                            .map((s) => _buildSnippetItem(s, isDark,
-                                isPreset: true)),
-                      ],
-                      // User snippet sections by category
-                      for (final entry in userByCategory.entries) ...[
-                        _buildSectionHeader(
-                          SnippetPresets.categoryLabel(entry.key),
-                          isDark,
-                        ),
-                        ...entry.value
-                            .map((s) => _buildSnippetItem(s, isDark)),
-                      ],
-                    ],
-                  ),
+            child: _buildTabContent(
+              activeProfileId: activeProfileId,
+              filteredPresets: filteredPresets,
+              userByCategory: userByCategory,
+              isDark: isDark,
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Build the list content for the currently active category tab.
+  Widget _buildTabContent({
+    required String activeProfileId,
+    required List<Snippet> filteredPresets,
+    required Map<String, List<Snippet>> userByCategory,
+    required bool isDark,
+  }) {
+    // Determine which sections to render based on the active tab.
+    final sections =
+        <({String? header, List<Snippet> snippets, bool isPreset})>[];
+
+    if (_activeTab == 'all') {
+      if (filteredPresets.isNotEmpty) {
+        sections.add((
+          header: SnippetPresets.categoryLabel(activeProfileId),
+          snippets: filteredPresets,
+          isPreset: true,
+        ));
+      }
+      for (final entry in userByCategory.entries) {
+        sections.add((
+          header: SnippetPresets.categoryLabel(entry.key),
+          snippets: entry.value,
+          isPreset: false,
+        ));
+      }
+    } else if (_activeTab == 'presets') {
+      if (filteredPresets.isNotEmpty) {
+        sections.add((
+          header: null,
+          snippets: filteredPresets,
+          isPreset: true,
+        ));
+      }
+    } else {
+      final cat = userByCategory[_activeTab];
+      if (cat != null && cat.isNotEmpty) {
+        sections.add((header: null, snippets: cat, isPreset: false));
+      }
+    }
+
+    if (sections.isEmpty) return _buildEmptyState(isDark);
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      children: [
+        for (final s in sections) ...[
+          if (s.header != null) _buildSectionHeader(s.header!, isDark),
+          ...s.snippets.map(
+            (snip) => _buildSnippetItem(snip, isDark, isPreset: s.isPreset),
+          ),
+        ],
+      ],
     );
   }
 

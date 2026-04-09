@@ -432,6 +432,8 @@
   "toolbarProfile": "Toolbar Profile",
   "newProfile": "New Profile",
   "profileName": "Profile Name",
+  "profileLabel": "Profile",
+  "keyPaletteLabel": "Key Palette",
   "manageSnippets": "Manage Snippets",
   "deleteProfile": "Delete Profile",
   "deleteProfileContent": "Delete \"{name}\"?",
@@ -446,6 +448,7 @@
 
   "snippets": "Snippets",
   "searchSnippets": "Search snippets...",
+  "tabAll": "All",
   "noSnippetsYet": "No snippets yet",
   "noMatchingSnippets": "No matching snippets",
   "createOneHint": "Tap \"New\" to create one",

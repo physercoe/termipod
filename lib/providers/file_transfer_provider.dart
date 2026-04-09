@@ -133,8 +133,13 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
     return const FileTransferState();
   }
 
-  /// Pick files using system file picker
-  Future<void> pickFiles() async {
+  /// Pick files using system file picker.
+  ///
+  /// [initialRemoteDir] — optional CWD from the terminal backend. When
+  /// provided (and non-empty), it's used as the pending remote directory
+  /// instead of `settings.fileRemotePath`. Callers should pass the result
+  /// of `backend.getCurrentPath()` here.
+  Future<void> pickFiles({String? initialRemoteDir}) async {
     if (!state.canPick) return;
 
     state = const FileTransferState(phase: FileTransferPhase.picking);
@@ -170,10 +175,13 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
       }
 
       final settings = ref.read(settingsProvider);
+      final remoteDir = (initialRemoteDir != null && initialRemoteDir.isNotEmpty)
+          ? initialRemoteDir
+          : settings.fileRemotePath;
       state = FileTransferState(
         phase: FileTransferPhase.confirming,
         pickedFiles: pickedFiles,
-        pendingRemoteDir: settings.fileRemotePath,
+        pendingRemoteDir: remoteDir,
       );
     } catch (e) {
       state = FileTransferState(

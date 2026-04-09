@@ -202,9 +202,8 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.navPadMode),
                   subtitle: Text(
                     switch (settings.navPadMode) {
-                      'full' => l10n.navPadModeFull,
-                      'compact' => l10n.navPadModeCompact,
-                      _ => l10n.navPadModeOff,
+                      'off' => l10n.navPadModeOff,
+                      _ => l10n.navPadModeCompact,
                     },
                   ),
                   onTap: () async {
@@ -213,10 +212,6 @@ class SettingsScreen extends ConsumerWidget {
                       builder: (context) => SimpleDialog(
                         title: Text(l10n.navPadMode),
                         children: [
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, 'full'),
-                            child: Text(l10n.navPadModeFull),
-                          ),
                           SimpleDialogOption(
                             onPressed: () => Navigator.pop(context, 'compact'),
                             child: Text(l10n.navPadModeCompact),

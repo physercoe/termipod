@@ -452,6 +452,11 @@
   "navPadHapticDesc": "按下方向键和操作按钮时振动",
   "navPadMenuTitle": "导航面板",
 
+  "terminalMode": "终端模式",
+  "terminalModeTmux": "tmux",
+  "terminalModeRaw": "原始终端",
+  "terminalModeDesc": "tmux: 管理会话/窗口/面板。原始终端: 直接PTY连接，无需tmux。",
+
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",
   "categoryKimi": "Kimi Code",

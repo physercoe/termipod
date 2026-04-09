@@ -17,6 +17,9 @@ import '../../services/keychain/secure_storage.dart';
 import '../../services/network/network_monitor.dart';
 import '../../services/ssh/input_queue.dart';
 import '../../services/ssh/ssh_client.dart' show SshConnectOptions;
+import '../../services/terminal/terminal_backend.dart';
+import '../../services/terminal/tmux_backend.dart';
+import '../../services/terminal/raw_pty_backend.dart';
 import '../../services/tmux/pane_navigator.dart';
 import '../../services/terminal/font_calculator.dart';
 import '../../services/tmux/tmux_commands.dart';
@@ -215,6 +218,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   // tmuxバージョン情報（リサイズ機能判定用）
   TmuxVersionInfo? _tmuxVersion;
+
+  // Terminal backend (tmux or raw PTY)
+  TerminalBackend? _backend;
+  StreamSubscription<void>? _backendContentSub;
 
   // Riverpodリスナー
   ProviderSubscription<SshState>? _sshSubscription;
@@ -439,129 +446,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         return;
       }
 
-      // 3.5. tmuxバー��ョン取得（リサイズ機能判定用）
-      try {
-        final versionOutput = await sshNotifier.client?.exec(TmuxCommands.version());
-        if (versionOutput != null) {
-          _tmuxVersion = TmuxVersionInfo.parse(versionOutput);
-        }
-      } catch (_) {
-        _tmuxVersion = null;
-      }
-
-
-      // 5. セッションツリー全体を取得
-      await _refreshSessionTree();
-      if (!mounted || _isDisposed) {
-        return;
-      }
-
-      final tmuxState = ref.read(tmuxProvider(widget.connectionId));
-      final sessions = tmuxState.sessions;
-
-      // 5. セッションを選択または新規作成
-      String sessionName;
-      if (widget.sessionName != null) {
-        // セッション名が指定されている場合
-        final existingIndex = sessions.indexWhere(
-          (s) => s.name == widget.sessionName,
-        );
-        if (existingIndex >= 0) {
-          // 既存セッションに接続
-          sessionName = sessions[existingIndex].name;
-        } else {
-          // 新規セッション作成
-          final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-          await sshClient?.exec(TmuxCommands.newSession(
-            name: widget.sessionName!,
-            detached: true,
-          ));
-          if (!mounted || _isDisposed) return;
-          await _refreshSessionTree();
-          if (!mounted || _isDisposed) return;
-          sessionName = widget.sessionName!;
-        }
-      } else if (sessions.isNotEmpty) {
-        // セッション名が指定されていない場合は最初のセッションに接続
-        sessionName = sessions.first.name;
+      if (connection.isRawMode) {
+        // --- Raw PTY mode: direct shell, no tmux ---
+        await _setupRawPtyBackend(sshNotifier);
       } else {
-        // セッションがない場合は自動生成名で新規作成
-        final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-        sessionName = 'muxpod-${DateTime.now().millisecondsSinceEpoch}';
-        await sshClient?.exec(TmuxCommands.newSession(name: sessionName, detached: true));
-        if (!mounted || _isDisposed) return;
-        await _refreshSessionTree();
-        if (!mounted || _isDisposed) return;
+        // --- Tmux mode: existing flow ---
+        await _setupTmuxBackend(connection, sshNotifier);
       }
-
-      // 6. アクティブセッション/ウィンドウ/ペインを設定
-      ref.read(tmuxProvider(widget.connectionId).notifier).setActiveSession(sessionName);
-
-      // 6.1 ディープリンクまたは保存されたウィンドウ/ペイン位置を復元
-      if (widget.deepLinkWindowName != null) {
-        // ディープリンク: ウィンドウ名で検索
-        final tmuxState = ref.read(tmuxProvider(widget.connectionId));
-        final session = tmuxState.activeSession;
-        if (session != null) {
-          final targetName = widget.deepLinkWindowName!;
-          // ウィンドウ名で検索（"index:name" 形式の名前部分にも対応）
-          TmuxWindow? window;
-          for (final w in session.windows) {
-            if (w.name == targetName || w.name.endsWith(':$targetName')) {
-              window = w;
-              break;
-            }
-          }
-          if (window != null) {
-            ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
-
-            // ペインインデックスが指定されている場合
-            if (widget.deepLinkPaneIndex != null && widget.deepLinkPaneIndex! < window.panes.length) {
-              final pane = window.panes[widget.deepLinkPaneIndex!];
-              ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
-            }
-          }
-        }
-      } else if (widget.lastWindowIndex != null) {
-        // 通常の復元: インデックスで検索
-        final tmuxState = ref.read(tmuxProvider(widget.connectionId));
-        final session = tmuxState.activeSession;
-        if (session != null) {
-          // 指定されたウィンドウが存在するか確認
-          final window = session.windows.firstWhere(
-            (w) => w.index == widget.lastWindowIndex,
-            orElse: () => session.windows.first,
-          );
-          ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
-
-          // ペインIDが指定されていて存在する場合は復元
-          if (widget.lastPaneId != null) {
-            final pane = window.panes.firstWhere(
-              (p) => p.id == widget.lastPaneId,
-              orElse: () => window.panes.first,
-            );
-            ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
-          }
-        }
-      }
-
-      // 7. TerminalDisplayProviderにペイン情報を通知（フォントサイズ計算用）
-      final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
-      if (activePane != null) {
-        debugPrint('[Terminal] Pane size: ${activePane.width}x${activePane.height}');
-        ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
-        _viewNotifier.value = _viewNotifier.value.copyWith(
-          paneWidth: activePane.width,
-          paneHeight: activePane.height,
-        );
-
-      }
-
-      // 8. 100msポーリング開始
-      _startPolling();
-
-      // 9. 5秒ごとにセッションツリーを更新
-      _startTreeRefresh();
 
       if (!mounted) return;
       setState(() {
@@ -574,6 +465,223 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _connectionError = e.toString();
       });
       _showErrorSnackBar(e.toString());
+    }
+  }
+
+  /// Raw PTY backend setup — start shell, subscribe to content stream.
+  Future<void> _setupRawPtyBackend(SshNotifier sshNotifier) async {
+    final sshClient = sshNotifier.client;
+    if (sshClient == null) throw Exception('SSH client not available');
+
+    final settings = ref.read(settingsProvider);
+    final displayState = ref.read(terminalDisplayProvider);
+    final cols = displayState.paneWidth > 0 ? displayState.paneWidth : 80;
+    final rows = displayState.paneHeight > 0 ? displayState.paneHeight : 24;
+
+    _backend = RawPtyBackend(sshClient: sshClient, cols: cols, rows: rows);
+    await _backend!.initialize(cols: cols, rows: rows);
+
+    _viewNotifier.value = _viewNotifier.value.copyWith(
+      paneWidth: cols,
+      paneHeight: rows,
+    );
+
+    _backendContentSub = _backend!.contentUpdates.listen((_) {
+      if (!mounted || _isDisposed) return;
+      _onBackendContentUpdate();
+    });
+  }
+
+  /// Tmux backend setup — detect tmux, create/attach session, start polling.
+  Future<void> _setupTmuxBackend(Connection connection, SshNotifier sshNotifier) async {
+    final sshClient = sshNotifier.client;
+    if (sshClient == null) throw Exception('SSH client not available');
+
+    // tmux version check
+    try {
+      final versionOutput = await sshClient.exec(TmuxCommands.version());
+      _tmuxVersion = TmuxVersionInfo.parse(versionOutput);
+    } catch (_) {
+      _tmuxVersion = null;
+    }
+
+    // Session tree
+    await _refreshSessionTree();
+    if (!mounted || _isDisposed) return;
+
+    final tmuxState = ref.read(tmuxProvider(widget.connectionId));
+    final sessions = tmuxState.sessions;
+
+    // Select or create session
+    String sessionName;
+    if (widget.sessionName != null) {
+      final existingIndex = sessions.indexWhere(
+        (s) => s.name == widget.sessionName,
+      );
+      if (existingIndex >= 0) {
+        sessionName = sessions[existingIndex].name;
+      } else {
+        await sshClient.exec(TmuxCommands.newSession(
+          name: widget.sessionName!,
+          detached: true,
+        ));
+        if (!mounted || _isDisposed) return;
+        await _refreshSessionTree();
+        if (!mounted || _isDisposed) return;
+        sessionName = widget.sessionName!;
+      }
+    } else if (sessions.isNotEmpty) {
+      sessionName = sessions.first.name;
+    } else {
+      sessionName = 'muxpod-${DateTime.now().millisecondsSinceEpoch}';
+      await sshClient.exec(TmuxCommands.newSession(name: sessionName, detached: true));
+      if (!mounted || _isDisposed) return;
+      await _refreshSessionTree();
+      if (!mounted || _isDisposed) return;
+    }
+
+    // Set active session/window/pane
+    ref.read(tmuxProvider(widget.connectionId).notifier).setActiveSession(sessionName);
+
+    // Deep link or saved position restore
+    if (widget.deepLinkWindowName != null) {
+      final tmuxState = ref.read(tmuxProvider(widget.connectionId));
+      final session = tmuxState.activeSession;
+      if (session != null) {
+        final targetName = widget.deepLinkWindowName!;
+        TmuxWindow? window;
+        for (final w in session.windows) {
+          if (w.name == targetName || w.name.endsWith(':$targetName')) {
+            window = w;
+            break;
+          }
+        }
+        if (window != null) {
+          ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
+          if (widget.deepLinkPaneIndex != null && widget.deepLinkPaneIndex! < window.panes.length) {
+            final pane = window.panes[widget.deepLinkPaneIndex!];
+            ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
+          }
+        }
+      }
+    } else if (widget.lastWindowIndex != null) {
+      final tmuxState = ref.read(tmuxProvider(widget.connectionId));
+      final session = tmuxState.activeSession;
+      if (session != null) {
+        final window = session.windows.firstWhere(
+          (w) => w.index == widget.lastWindowIndex,
+          orElse: () => session.windows.first,
+        );
+        ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(window.index);
+        if (widget.lastPaneId != null) {
+          final pane = window.panes.firstWhere(
+            (p) => p.id == widget.lastPaneId,
+            orElse: () => window.panes.first,
+          );
+          ref.read(tmuxProvider(widget.connectionId).notifier).setActivePane(pane.id);
+        }
+      }
+    }
+
+    // TerminalDisplayProvider pane info
+    final activePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
+    if (activePane != null) {
+      debugPrint('[Terminal] Pane size: ${activePane.width}x${activePane.height}');
+      ref.read(terminalDisplayProvider.notifier).updatePane(activePane);
+      _viewNotifier.value = _viewNotifier.value.copyWith(
+        paneWidth: activePane.width,
+        paneHeight: activePane.height,
+      );
+    }
+
+    // Create TmuxBackend
+    final settings = ref.read(settingsProvider);
+    final tmuxNotifier = ref.read(tmuxProvider(widget.connectionId).notifier);
+    _backend = TmuxBackend(
+      sshClient: sshClient,
+      getCurrentTarget: () => tmuxNotifier.currentTarget,
+      scrollbackLines: settings.scrollbackLines,
+      onCursorUpdate: (cursorX, cursorY, w, h, historySize) {
+        if (!mounted || _isDisposed) return;
+        // Update pane size if changed
+        if (w != null && h != null &&
+            (w != _viewNotifier.value.paneWidth || h != _viewNotifier.value.paneHeight)) {
+          _viewNotifier.value = _viewNotifier.value.copyWith(paneWidth: w, paneHeight: h);
+          final currentActivePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
+          if (currentActivePane != null) {
+            ref.read(terminalDisplayProvider.notifier).updatePane(
+              currentActivePane.copyWith(width: w, height: h),
+            );
+          }
+        }
+        // Update cursor position
+        final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
+        if (activePaneId != null) {
+          ref.read(tmuxProvider(widget.connectionId).notifier).updateCursorPosition(
+            activePaneId, cursorX, cursorY,
+          );
+        }
+      },
+      onCopyModeChange: (isInCopyMode) {
+        if (!mounted || _isDisposed) return;
+        if (isInCopyMode && _scrollModeSource == ScrollModeSource.none) {
+          setState(() {
+            _terminalMode = TerminalMode.scroll;
+            _scrollModeSource = ScrollModeSource.tmux;
+            _gestureModeActive = false;
+          });
+        } else if (!isInCopyMode && _scrollModeSource == ScrollModeSource.tmux) {
+          setState(() {
+            _terminalMode = TerminalMode.normal;
+            _scrollModeSource = ScrollModeSource.none;
+          });
+          _applyBufferedUpdate();
+        }
+      },
+      getRecommendedInterval: () {
+        final ansiTextViewState = _ansiTextViewKey.currentState;
+        return ansiTextViewState?.recommendedPollingInterval ?? 100;
+      },
+    );
+
+    await _backend!.initialize(
+      cols: activePane?.width ?? 80,
+      rows: activePane?.height ?? 24,
+    );
+
+    _backendContentSub = _backend!.contentUpdates.listen((_) {
+      if (!mounted || _isDisposed) return;
+      _onBackendContentUpdate();
+    });
+
+    // Tree refresh timer
+    _startTreeRefresh();
+  }
+
+  /// Handle content update from backend (both tmux and raw).
+  void _onBackendContentUpdate() {
+    final backend = _backend;
+    if (backend == null) return;
+
+    final content = backend.currentContent;
+    final cursor = backend.cursorPosition;
+    final dims = backend.dimensions;
+    final scrollback = backend.scrollbackSize;
+    final latency = backend is TmuxBackend ? backend.latency : 0;
+
+    // For tmux backend: scroll mode buffering
+    if (backend.supportsNavigation &&
+        _terminalMode == TerminalMode.scroll &&
+        _scrollModeSource == ScrollModeSource.manual) {
+      _bufferedContent = content;
+      _bufferedLatency = latency;
+      _bufferedScrollbackSize = scrollback;
+      _hasBufferedUpdate = true;
+      if (mounted && !_isDisposed) {
+        _viewNotifier.value = _viewNotifier.value.copyWith(latency: latency);
+      }
+    } else {
+      _scheduleUpdate(content, latency, scrollback);
     }
   }
 
@@ -983,6 +1091,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _imageTransferSub = null;
     _fileTransferSub?.close();
     _fileTransferSub = null;
+    // Backend cleanup
+    _backendContentSub?.cancel();
+    _backendContentSub = null;
+    _backend?.dispose();
+    _backend = null;
     // タイマーを停止
     _pollTimer?.cancel();
     _pollTimer = null;
@@ -1018,13 +1131,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         children: [
           Column(
             children: [
-              // ブレッドクラム: ConsumerでtmuxProviderを直接watch（親リビルド不要）
-              Consumer(
-                builder: (context, ref, _) {
-                  final tmuxState = ref.watch(tmuxProvider(widget.connectionId));
-                  return _buildBreadcrumbHeader(tmuxState);
-                },
-              ),
+              // Breadcrumb header: tmux navigation or simple connection name
+              if (_backend?.supportsNavigation ?? true)
+                Consumer(
+                  builder: (context, ref, _) {
+                    final tmuxState = ref.watch(tmuxProvider(widget.connectionId));
+                    return _buildBreadcrumbHeader(tmuxState);
+                  },
+                )
+              else
+                _buildRawModeHeader(),
               Expanded(
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
@@ -1621,6 +1737,65 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 ],
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Simple header for raw PTY mode (no tmux navigation).
+  Widget _buildRawModeHeader() {
+    final connection = ref.read(connectionsProvider.notifier).getById(widget.connectionId);
+    final colorScheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      bottom: false,
+      child: Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: colorScheme.surface.withValues(alpha: 0.9),
+          border: Border(
+            bottom: BorderSide(color: colorScheme.outline, width: 1),
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 8),
+            Icon(Icons.terminal, size: 16, color: colorScheme.onSurface.withValues(alpha: 0.7)),
+            const SizedBox(width: 6),
+            Text(
+              connection?.name ?? 'Shell',
+              style: TextStyle(
+                color: colorScheme.onSurface,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                color: DesignColors.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'RAW',
+                style: TextStyle(
+                  color: DesignColors.primary,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            const Spacer(),
+            // Terminal menu button
+            IconButton(
+              icon: Icon(Icons.more_vert, size: 18, color: colorScheme.onSurface.withValues(alpha: 0.7)),
+              onPressed: _showTerminalMenu,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            ),
+            const SizedBox(width: 4),
           ],
         ),
       ),
@@ -3150,13 +3325,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// [key] 送信するキー
   /// [literal] trueの場合はリテラル送信（-l フラグ）
   Future<void> _sendKey(String key, {bool literal = true}) async {
+    if (_backend != null) {
+      try {
+        if (literal) {
+          await _backend!.sendText(key);
+        } else {
+          await _backend!.sendSpecialKey(key);
+        }
+        _backend!.boostRefresh();
+      } catch (_) {}
+      return;
+    }
+
+    // Fallback: direct tmux path (used during init before backend is ready)
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
 
-    // 接続が切れている場合はキューに追加（リテラルの場合のみ）
     if (sshClient == null || !sshClient.isConnected) {
       if (literal) {
         _inputQueue.enqueue(key);
-        if (mounted) setState(() {}); // キューイング状態を更新
+        if (mounted) setState(() {});
       }
       return;
     }
@@ -3167,13 +3354,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     try {
       await sshClient.exec(TmuxCommands.sendKeys(target, key, literal: literal));
       _boostPolling();
-    } catch (_) {
-      // キー送信エラーは静かに無視（ポーリングで状態は更新される）
-    }
+    } catch (_) {}
   }
 
-  /// tmux copy-modeに入る
+  /// Enter tmux copy-mode (tmux backend only).
   Future<void> _enterTmuxCopyMode() async {
+    final backend = _backend;
+    if (backend is TmuxBackend) {
+      await backend.enterCopyMode();
+      return;
+    }
+    // Fallback
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
     final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
@@ -3184,8 +3375,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (_) {}
   }
 
-  /// tmux copy-modeを終了
+  /// Cancel tmux copy-mode (tmux backend only).
   Future<void> _cancelTmuxCopyMode() async {
+    final backend = _backend;
+    if (backend is TmuxBackend) {
+      await backend.cancelCopyMode();
+      return;
+    }
+    // Fallback
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
     final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
@@ -3219,23 +3416,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// tmux特殊キーを送信（Ctrl+C, Escape等）
+  /// Send a special key (Ctrl+C, Escape, arrows, etc.) via backend.
   Future<void> _sendSpecialKey(String tmuxKey) async {
+    if (_backend != null) {
+      try {
+        await _backend!.sendSpecialKey(tmuxKey);
+        _backend!.boostRefresh();
+      } catch (_) {}
+      return;
+    }
+
+    // Fallback: direct tmux path
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-
-    // 特殊キーは接続が切れている場合は送信しない（キューしない）
     if (sshClient == null || !sshClient.isConnected) return;
-
     final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
     if (target == null) return;
-
     try {
-      // 特殊キーはリテラルではなくtmux形式で送信
       await sshClient.exec(TmuxCommands.sendKeys(target, tmuxKey, literal: false));
       _boostPolling();
-    } catch (_) {
-      // キー送信エラーは静かに無視（ポーリングで状態は更新される）
-    }
+    } catch (_) {}
   }
 
   ProviderSubscription? _imageTransferSub;

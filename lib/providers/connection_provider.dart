@@ -14,7 +14,11 @@ class Connection {
   final String authMethod; // 'password' | 'key'
   final String? keyId;
   final String? tmuxPath;
+  final String? terminalMode; // null/'tmux' | 'raw'
   final DateTime createdAt;
+
+  bool get isRawMode => terminalMode == 'raw';
+  bool get isTmuxMode => terminalMode != 'raw';
   final DateTime? lastConnectedAt;
 
   /// ディープリンク用の識別子（外部スクリプトと共有可能）
@@ -42,6 +46,7 @@ class Connection {
     this.authMethod = 'password',
     this.keyId,
     this.tmuxPath,
+    this.terminalMode,
     required this.createdAt,
     this.lastConnectedAt,
     this.deepLinkId,
@@ -65,6 +70,8 @@ class Connection {
     String? authMethod,
     String? keyId,
     String? tmuxPath,
+    String? terminalMode,
+    bool clearTerminalMode = false,
     DateTime? createdAt,
     DateTime? lastConnectedAt,
     String? deepLinkId,
@@ -90,6 +97,7 @@ class Connection {
       authMethod: authMethod ?? this.authMethod,
       keyId: keyId ?? this.keyId,
       tmuxPath: tmuxPath ?? this.tmuxPath,
+      terminalMode: clearTerminalMode ? null : (terminalMode ?? this.terminalMode),
       createdAt: createdAt ?? this.createdAt,
       lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
       deepLinkId: clearDeepLinkId ? null : (deepLinkId ?? this.deepLinkId),
@@ -115,6 +123,7 @@ class Connection {
       'authMethod': authMethod,
       'keyId': keyId,
       'tmuxPath': tmuxPath,
+      if (terminalMode != null) 'terminalMode': terminalMode,
       'createdAt': createdAt.toIso8601String(),
       'lastConnectedAt': lastConnectedAt?.toIso8601String(),
       'deepLinkId': deepLinkId,
@@ -140,6 +149,7 @@ class Connection {
       authMethod: json['authMethod'] as String? ?? 'password',
       keyId: json['keyId'] as String?,
       tmuxPath: json['tmuxPath'] as String?,
+      terminalMode: json['terminalMode'] as String?,
       createdAt: DateTime.parse(json['createdAt'] as String),
       lastConnectedAt: json['lastConnectedAt'] != null
           ? DateTime.parse(json['lastConnectedAt'] as String)

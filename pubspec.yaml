@@ -64,6 +64,8 @@ dependencies:
   # File download (temp dir + share intent)
   path_provider: ^2.1.0
   share_plus: ^10.0.0
+  # Headless VT state machine for raw PTY backend
+  xterm: ^4.0.0
 
 dev_dependencies:
   flutter_test:

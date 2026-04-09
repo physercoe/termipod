@@ -502,6 +502,11 @@
   "navPadHapticDesc": "Vibrate on D-pad and action button press",
   "navPadMenuTitle": "Navigation Pad",
 
+  "terminalMode": "Terminal Mode",
+  "terminalModeTmux": "tmux",
+  "terminalModeRaw": "Raw Shell",
+  "terminalModeDesc": "tmux: manage sessions/windows/panes. Raw Shell: direct PTY, no tmux required.",
+
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",
   "categoryKimi": "Kimi Code",

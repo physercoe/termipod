@@ -58,6 +58,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
   String _jumpAuthMethod = 'password';
   String? _jumpSelectedKeyId;
   bool _useProxy = false;
+  String _terminalMode = 'tmux'; // 'tmux' or 'raw'
 
   @override
   void initState() {
@@ -77,6 +78,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
       _authMethod = connection.authMethod;
       _selectedKeyId = connection.keyId;
       _tmuxPathController.text = connection.tmuxPath ?? '';
+      _terminalMode = connection.terminalMode ?? 'tmux';
       _deepLinkIdController.text = connection.deepLinkId ?? '';
       // Jump host
       if (connection.jumpHost != null) {
@@ -283,10 +285,34 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              // tmux path
-              _buildFieldLabel(l10n.fieldTmuxPath),
+              // Terminal mode selector
+              _buildFieldLabel(l10n.terminalMode),
               const SizedBox(height: 8),
-              _buildTmuxPathInput(),
+              SegmentedButton<String>(
+                segments: [
+                  ButtonSegment(value: 'tmux', label: Text(l10n.terminalModeTmux)),
+                  ButtonSegment(value: 'raw', label: Text(l10n.terminalModeRaw)),
+                ],
+                selected: {_terminalMode},
+                onSelectionChanged: (v) => setState(() => _terminalMode = v.first),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                l10n.terminalModeDesc,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+              if (_terminalMode == 'tmux') ...[
+                const SizedBox(height: 16),
+                // tmux path
+                _buildFieldLabel(l10n.fieldTmuxPath),
+                const SizedBox(height: 8),
+                _buildTmuxPathInput(),
+              ],
               const SizedBox(height: 16),
               // Deep Link ID
               _buildFieldLabel(l10n.fieldDeepLinkId),
@@ -1438,6 +1464,7 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         authMethod: _authMethod,
         keyId: _authMethod == 'key' ? _selectedKeyId : null,
         tmuxPath: saveTmuxPath.isNotEmpty ? saveTmuxPath : null,
+        terminalMode: _terminalMode == 'tmux' ? null : _terminalMode,
         deepLinkId: saveDeepLinkId.isNotEmpty ? saveDeepLinkId : null,
         createdAt: widget.isEditing
             ? ref.read(connectionsProvider.notifier).getById(connectionId)?.createdAt ?? DateTime.now()

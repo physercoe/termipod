@@ -202,7 +202,7 @@ class ProfileSheet extends ConsumerWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            AppLocalizations.of(context)!.profileLabel,
+            AppLocalizations.of(context)!.profileHeaderTitle,
             style: TextStyle(
               fontSize: 12,
               color: isDark

@@ -432,7 +432,7 @@
   "toolbarProfile": "Toolbar Profile",
   "newProfile": "New Profile",
   "profileName": "Profile Name",
-  "profileLabel": "Profile",
+  "profileHeaderTitle": "Profile",
   "keyPaletteLabel": "Key Palette",
   "manageSnippets": "Manage Snippets",
   "deleteProfile": "Delete Profile",

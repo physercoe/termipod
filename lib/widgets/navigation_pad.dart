@@ -211,13 +211,11 @@ class _CompactModeLayout extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Center(
-            child: _CompactRow(
-              onSpecialKeyPressed: onSpecialKeyPressed,
-              repeatRate: repeatRate,
-              haptic: haptic,
-              buttons: actionButtons,
-            ),
+          child: _CompactRow(
+            onSpecialKeyPressed: onSpecialKeyPressed,
+            repeatRate: repeatRate,
+            haptic: haptic,
+            buttons: actionButtons,
           ),
         ),
         _ChevronToggle(ref: ref, mode: mode),
@@ -592,38 +590,49 @@ class _CompactRow extends StatelessWidget {
       ('Right', Icons.keyboard_arrow_right),
     ];
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Arrow buttons
-        for (final (key, icon) in arrowButtons) ...[
-          _NavButton(
-            icon: icon,
-            tmuxKey: key,
-            width: 34,
-            height: 32,
-            onSpecialKeyPressed: onSpecialKeyPressed,
-            repeatRate: repeatRate,
-            haptic: haptic,
-            supportsRepeat: true,
-          ),
-          const SizedBox(width: 2),
+    // Each child uses Expanded so the 8 buttons stretch to fill the available
+    // width (matches ActionBar stretch behavior on wide/foldable screens).
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          // Arrow buttons
+          for (final (key, icon) in arrowButtons)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: _NavButton(
+                  icon: icon,
+                  tmuxKey: key,
+                  width: double.infinity,
+                  height: 32,
+                  onSpecialKeyPressed: onSpecialKeyPressed,
+                  repeatRate: repeatRate,
+                  haptic: haptic,
+                  supportsRepeat: true,
+                ),
+              ),
+            ),
+          // Small divider between arrow group and action group
+          const SizedBox(width: 4),
+          // Action buttons (customizable)
+          for (final btn in buttons)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: _NavButton(
+                  label: btn.label,
+                  tmuxKey: btn.tmuxKey,
+                  width: double.infinity,
+                  height: 32,
+                  onSpecialKeyPressed: onSpecialKeyPressed,
+                  repeatRate: repeatRate,
+                  haptic: haptic,
+                ),
+              ),
+            ),
         ],
-        const SizedBox(width: 4),
-        // Action buttons (customizable)
-        for (final btn in buttons) ...[
-          _NavButton(
-            label: btn.label,
-            tmuxKey: btn.tmuxKey,
-            width: 36,
-            height: 32,
-            onSpecialKeyPressed: onSpecialKeyPressed,
-            repeatRate: repeatRate,
-            haptic: haptic,
-          ),
-          const SizedBox(width: 2),
-        ],
-      ],
+      ),
     );
   }
 }

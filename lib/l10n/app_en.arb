@@ -508,6 +508,10 @@
   "sectionExperimental": "Experimental",
   "floatingPad": "Floating Joystick",
   "floatingPadDesc": "Draggable D-pad overlay on terminal. Tap zones for arrow keys, center for Enter, long-press to repeat. Best on large screens.",
+  "floatingPadSize": "Joystick Size",
+  "floatingPadCenterKey": "Center Button Key",
+  "gestureModeMenuTitle": "Gesture Mode",
+  "gestureModeMenuDesc": "Swipe → arrows, 2-finger tap → Enter, 3-finger tap → Esc",
 
   "terminalMode": "Terminal Mode",
   "terminalModeTmux": "tmux",

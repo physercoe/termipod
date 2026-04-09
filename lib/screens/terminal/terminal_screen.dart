@@ -1353,6 +1353,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
               haptic: ref.watch(settingsProvider).navPadHaptic,
               repeatRate: ref.watch(settingsProvider).navPadRepeatRate,
+              size: ref.watch(settingsProvider).floatingPadSize,
+              centerKey: ref.watch(settingsProvider).floatingPadCenterKey,
             ),
           // ローディングオーバーレイ
           if (_isConnecting || sshState.isConnecting)
@@ -2937,6 +2939,38 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         Navigator.pop(context);
                       }
                     : null,
+              ),
+              // Gesture mode toggle — makes the GestureSurface overlay
+              // discoverable regardless of Navigation Pad state. The other
+              // activation path is double-tapping the D-pad/joystick center.
+              ListTile(
+                leading: Icon(
+                  Icons.touch_app,
+                  color: _gestureModeActive ? DesignColors.primary : inactiveIconColor,
+                ),
+                title: Text(
+                  AppLocalizations.of(context)!.gestureModeMenuTitle,
+                  style: TextStyle(
+                    color: _gestureModeActive ? DesignColors.primary : textColor,
+                    fontWeight: _gestureModeActive ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                subtitle: Text(
+                  AppLocalizations.of(context)!.gestureModeMenuDesc,
+                  style: TextStyle(color: mutedTextColor, fontSize: 12),
+                ),
+                trailing: Switch(
+                  value: _gestureModeActive,
+                  onChanged: (_) {
+                    _toggleGestureMode();
+                    Navigator.pop(context);
+                  },
+                  activeThumbColor: DesignColors.primary,
+                ),
+                onTap: () {
+                  _toggleGestureMode();
+                  Navigator.pop(context);
+                },
               ),
               // Navigation Pad mode cycle
               Consumer(

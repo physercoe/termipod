@@ -321,6 +321,29 @@ class SettingsScreen extends ConsumerWidget {
                     ref.read(settingsProvider.notifier).setFloatingPadEnabled(value);
                   },
                 ),
+                if (settings.floatingPadEnabled) ...[
+                  ListTile(
+                    leading: const Icon(Icons.photo_size_select_small),
+                    title: Text(l10n.floatingPadSize),
+                    subtitle: Slider(
+                      value: settings.floatingPadSize.clamp(48.0, 128.0),
+                      min: 48.0,
+                      max: 128.0,
+                      divisions: 16,
+                      label: '${settings.floatingPadSize.round()}px',
+                      onChanged: (v) {
+                        ref.read(settingsProvider.notifier).setFloatingPadSize(v);
+                      },
+                    ),
+                    trailing: Text('${settings.floatingPadSize.round()}'),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.keyboard_return),
+                    title: Text(l10n.floatingPadCenterKey),
+                    subtitle: Text(settings.floatingPadCenterKey),
+                    onTap: () => _showFloatingPadCenterKeyPicker(context, ref, settings),
+                  ),
+                ],
                 const Divider(),
                 _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(
@@ -982,6 +1005,77 @@ class SettingsScreen extends ConsumerWidget {
           },
         );
       },
+    );
+  }
+
+  /// Show a picker for the floating joystick center-button key.
+  /// Offers common terminal keys plus a text field for arbitrary values.
+  void _showFloatingPadCenterKeyPicker(
+      BuildContext context, WidgetRef ref, AppSettings settings) {
+    const commonKeys = <(String, String)>[
+      ('Enter', 'Enter (⏎)'),
+      ('Escape', 'Escape (ESC)'),
+      ('Tab', 'Tab (⇥)'),
+      ('Space', 'Space'),
+      ('BSpace', 'Backspace'),
+      ('C-c', 'Ctrl+C'),
+      ('C-d', 'Ctrl+D'),
+      ('C-z', 'Ctrl+Z'),
+    ];
+    final customController = TextEditingController(
+      text: commonKeys.any((k) => k.$1 == settings.floatingPadCenterKey)
+          ? ''
+          : settings.floatingPadCenterKey,
+    );
+    showDialog(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(AppLocalizations.of(context)!.floatingPadCenterKey),
+        children: [
+          for (final (value, label) in commonKeys)
+            RadioListTile<String>(
+              title: Text(label),
+              value: value,
+              groupValue: settings.floatingPadCenterKey,
+              onChanged: (v) {
+                if (v != null) {
+                  ref.read(settingsProvider.notifier).setFloatingPadCenterKey(v);
+                }
+                Navigator.pop(ctx);
+              },
+            ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: customController,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom (tmux key name)',
+                      hintText: 'e.g. C-x or F5',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () {
+                    final v = customController.text.trim();
+                    if (v.isNotEmpty) {
+                      ref.read(settingsProvider.notifier).setFloatingPadCenterKey(v);
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

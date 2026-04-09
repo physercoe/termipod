@@ -8,19 +8,25 @@ import '../theme/design_colors.dart';
 
 /// Floating draggable D-pad overlay for terminal navigation.
 ///
-/// Tap outer quadrants for arrow keys, tap center for Enter.
-/// Long-press for auto-repeat. Drag to reposition.
+/// Tap outer quadrants for arrow keys, tap center for the configured center
+/// key (default Enter). Long-press for auto-repeat. Drag to reposition.
 /// Designed for large screens (foldable/tablet) and Claude Code approve flow.
 class FloatingJoystick extends StatefulWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final bool haptic;
   final int repeatRate;
+  /// Outer radius in logical pixels. Diameter = 2 * size.
+  final double size;
+  /// Tmux key name sent when the center zone is tapped.
+  final String centerKey;
 
   const FloatingJoystick({
     super.key,
     required this.onSpecialKeyPressed,
     this.haptic = true,
     this.repeatRate = 80,
+    this.size = 64.0,
+    this.centerKey = 'Enter',
   });
 
   @override
@@ -31,9 +37,11 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   double _right = 16;
   double _bottom = 8;
 
-  static const _outerRadius = 64.0;
-  static const _centerRadius = 24.0;
-  // Minimum drag distance (px) before treating gesture as reposition
+  // Center zone radius is derived proportionally from the outer radius so the
+  // center stays a reasonable touch target at all sizes.
+  double get _outerRadius => widget.size;
+  double get _centerRadius => widget.size * 0.375;
+  // Minimum drag distance (px) before treating gesture as reposition.
   static const _dragThreshold = 16.0;
 
   String? _activeZone;
@@ -47,12 +55,14 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   bool _isRepositioning = false;
   bool _hasFired = false; // Whether we've sent a key for this gesture
 
+  /// Returns the tmux key name for the zone under [localPosition], or null
+  /// if the touch is outside the circle.
   String? _hitTest(Offset localPosition) {
-    final center = const Offset(_outerRadius, _outerRadius);
+    final center = Offset(_outerRadius, _outerRadius);
     final offset = localPosition - center;
     final distance = offset.distance;
 
-    if (distance <= _centerRadius) return 'Enter';
+    if (distance <= _centerRadius) return widget.centerKey;
     if (distance > _outerRadius) return null;
 
     final angle = math.atan2(offset.dy, offset.dx);
@@ -146,6 +156,27 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     _repeatTimer = null;
   }
 
+  /// Abbreviated label shown inside the center zone.
+  static String _centerLabel(String tmuxKey) {
+    switch (tmuxKey) {
+      case 'Enter':
+        return 'ENT';
+      case 'Escape':
+        return 'ESC';
+      case 'Tab':
+        return 'TAB';
+      case 'BSpace':
+        return 'BS';
+      case 'Space':
+        return 'SPC';
+    }
+    if (tmuxKey.startsWith('C-') && tmuxKey.length == 3) {
+      return '^${tmuxKey[2].toUpperCase()}';
+    }
+    // Truncate anything longer than 3 chars to keep the glyph inside the dot.
+    return tmuxKey.length <= 3 ? tmuxKey.toUpperCase() : tmuxKey.substring(0, 3).toUpperCase();
+  }
+
   @override
   void dispose() {
     _stopRepeat();
@@ -178,15 +209,17 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
             painter: _DpadPainter(
               isDark: isDark,
               activeZone: _activeZone,
+              centerKey: widget.centerKey,
+              centerRadius: _centerRadius,
             ),
             child: Center(
               child: Text(
-                'ENT',
+                _centerLabel(widget.centerKey),
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: widget.size * 0.18,
                   fontWeight: FontWeight.w700,
                   color: (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
-                      .withValues(alpha: _activeZone == 'Enter' ? 0.8 : 0.4),
+                      .withValues(alpha: _activeZone == widget.centerKey ? 0.85 : 0.45),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -201,14 +234,21 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
 class _DpadPainter extends CustomPainter {
   final bool isDark;
   final String? activeZone;
+  final String centerKey;
+  final double centerRadius;
 
-  _DpadPainter({required this.isDark, required this.activeZone});
+  _DpadPainter({
+    required this.isDark,
+    required this.activeZone,
+    required this.centerKey,
+    required this.centerRadius,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final outerR = size.width / 2;
-    const centerR = _FloatingJoystickState._centerRadius;
+    final centerR = centerRadius;
 
     final bgColor = (isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight)
         .withValues(alpha: 0.85);
@@ -222,7 +262,7 @@ class _DpadPainter extends CustomPainter {
     // Highlight active zone
     if (activeZone != null) {
       final highlightColor = DesignColors.primary.withValues(alpha: 0.25);
-      if (activeZone == 'Enter') {
+      if (activeZone == centerKey) {
         canvas.drawCircle(center, centerR, Paint()..color = highlightColor);
       } else {
         final startAngle = switch (activeZone) {
@@ -283,7 +323,7 @@ class _DpadPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final dist = outerR * 0.70;
-    const sz = 8.0;
+    final sz = outerR * 0.125;
 
     _drawChevron(canvas, center + Offset(0, -dist), sz, -math.pi / 2, arrowPaint);
     _drawChevron(canvas, center + Offset(0, dist), sz, math.pi / 2, arrowPaint);
@@ -305,5 +345,9 @@ class _DpadPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DpadPainter old) => activeZone != old.activeZone || isDark != old.isDark;
+  bool shouldRepaint(_DpadPainter old) =>
+      activeZone != old.activeZone ||
+      isDark != old.isDark ||
+      centerKey != old.centerKey ||
+      centerRadius != old.centerRadius;
 }

@@ -83,6 +83,10 @@ class AppSettings {
   // --- Experimental features ---
   /// Floating joystick overlay on terminal (experimental)
   final bool floatingPadEnabled;
+  /// Floating joystick outer radius in logical pixels (48..128)
+  final double floatingPadSize;
+  /// Tmux key name sent when the joystick center is tapped (default 'Enter')
+  final String floatingPadCenterKey;
 
   const AppSettings({
     this.darkMode = true,
@@ -125,6 +129,8 @@ class AppSettings {
     this.navPadButtons,
     this.fileDownloadPath = '',
     this.floatingPadEnabled = false,
+    this.floatingPadSize = 64.0,
+    this.floatingPadCenterKey = 'Enter',
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -172,6 +178,8 @@ class AppSettings {
     bool clearNavPadButtons = false,
     String? fileDownloadPath,
     bool? floatingPadEnabled,
+    double? floatingPadSize,
+    String? floatingPadCenterKey,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -215,6 +223,8 @@ class AppSettings {
           clearNavPadButtons ? null : (navPadButtons ?? this.navPadButtons),
       fileDownloadPath: fileDownloadPath ?? this.fileDownloadPath,
       floatingPadEnabled: floatingPadEnabled ?? this.floatingPadEnabled,
+      floatingPadSize: floatingPadSize ?? this.floatingPadSize,
+      floatingPadCenterKey: floatingPadCenterKey ?? this.floatingPadCenterKey,
     );
   }
 }
@@ -261,6 +271,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _navPadButtonsKey = 'settings_nav_pad_buttons';
   static const String _fileDownloadPathKey = 'settings_file_download_path';
   static const String _floatingPadEnabledKey = 'settings_floating_pad_enabled';
+  static const String _floatingPadSizeKey = 'settings_floating_pad_size';
+  static const String _floatingPadCenterKeyKey = 'settings_floating_pad_center_key';
 
   @override
   AppSettings build() {
@@ -313,6 +325,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       navPadButtons: prefs.getString(_navPadButtonsKey),
       fileDownloadPath: prefs.getString(_fileDownloadPathKey) ?? '',
       floatingPadEnabled: prefs.getBool(_floatingPadEnabledKey) ?? false,
+      floatingPadSize: prefs.getDouble(_floatingPadSizeKey) ?? 64.0,
+      floatingPadCenterKey: prefs.getString(_floatingPadCenterKeyKey) ?? 'Enter',
     );
   }
 
@@ -566,6 +580,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setFloatingPadEnabled(bool value) async {
     state = state.copyWith(floatingPadEnabled: value);
     await _saveSetting(_floatingPadEnabledKey, value);
+  }
+
+  Future<void> setFloatingPadSize(double value) async {
+    state = state.copyWith(floatingPadSize: value);
+    await _saveSetting(_floatingPadSizeKey, value);
+  }
+
+  Future<void> setFloatingPadCenterKey(String value) async {
+    state = state.copyWith(floatingPadCenterKey: value);
+    await _saveSetting(_floatingPadCenterKeyKey, value);
   }
 
   Future<void> reload() async {

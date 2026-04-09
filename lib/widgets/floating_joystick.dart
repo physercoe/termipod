@@ -40,7 +40,6 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   Timer? _repeatTimer;
 
   // Gesture tracking
-  Offset _touchStartLocal = Offset.zero;
   Offset _touchStartGlobal = Offset.zero;
   double _startRight = 0;
   double _startBottom = 0;
@@ -84,7 +83,6 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   }
 
   void _onPanStart(DragStartDetails details) {
-    _touchStartLocal = details.localPosition;
     _touchStartGlobal = details.globalPosition;
     _startRight = _right;
     _startBottom = _bottom;

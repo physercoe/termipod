@@ -526,6 +526,7 @@ class _ConnectionCard extends ConsumerStatefulWidget {
   final VoidCallback onDelete;
 
   const _ConnectionCard({
+    super.key,
     required this.connection,
     required this.onConnect,
     required this.onEdit,

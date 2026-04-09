@@ -40,11 +40,14 @@ List<({String label, String tmuxKey})> _parseActionButtons(String? json) {
 class NavigationPad extends ConsumerWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final void Function(String key) onKeyPressed;
+  /// Called when user double-taps the D-pad center to toggle gesture mode.
+  final VoidCallback? onGestureToggle;
 
   const NavigationPad({
     super.key,
     required this.onSpecialKeyPressed,
     required this.onKeyPressed,
+    this.onGestureToggle,
   });
 
   @override
@@ -85,12 +88,14 @@ class NavigationPad extends ConsumerWidget {
                   onSpecialKeyPressed: onSpecialKeyPressed,
                   repeatRate: settings.navPadRepeatRate,
                   haptic: settings.navPadHaptic,
+                  onDoubleTapCenter: onGestureToggle,
                 )
               else
                 _DpadFull(
                   onSpecialKeyPressed: onSpecialKeyPressed,
                   repeatRate: settings.navPadRepeatRate,
                   haptic: settings.navPadHaptic,
+                  onDoubleTapCenter: onGestureToggle,
                 ),
               const SizedBox(width: 12),
               _ActionGrid(
@@ -125,11 +130,13 @@ class _DpadFull extends StatelessWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final int repeatRate;
   final bool haptic;
+  final VoidCallback? onDoubleTapCenter;
 
   const _DpadFull({
     required this.onSpecialKeyPressed,
     required this.repeatRate,
     required this.haptic,
+    this.onDoubleTapCenter,
   });
 
   @override
@@ -139,6 +146,16 @@ class _DpadFull extends StatelessWidget {
       height: 56,
       child: Stack(
         children: [
+          // Center double-tap zone for gesture mode toggle
+          if (onDoubleTapCenter != null)
+            Positioned(
+              top: 16,
+              left: 34,
+              child: GestureDetector(
+                onDoubleTap: onDoubleTapCenter,
+                child: const SizedBox(width: 32, height: 24),
+              ),
+            ),
           Positioned(
             top: 0,
             left: 34,
@@ -205,11 +222,13 @@ class _JoystickFull extends StatefulWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final int repeatRate;
   final bool haptic;
+  final VoidCallback? onDoubleTapCenter;
 
   const _JoystickFull({
     required this.onSpecialKeyPressed,
     required this.repeatRate,
     required this.haptic,
+    this.onDoubleTapCenter,
   });
 
   @override
@@ -296,6 +315,7 @@ class _JoystickFullState extends State<_JoystickFull> {
     final activeThumbColor = DesignColors.primary;
 
     return GestureDetector(
+      onDoubleTap: widget.onDoubleTapCenter,
       onPanUpdate: _onPanUpdate,
       onPanEnd: _onPanEnd,
       onPanCancel: () {

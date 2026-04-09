@@ -26,6 +26,7 @@ import '../../widgets/dialogs/resize_dialog.dart';
 import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/help_sheet.dart';
+import '../../widgets/gesture_surface.dart';
 import '../../widgets/navigation_pad.dart';
 import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/onboarding_overlay.dart';
@@ -180,6 +181,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   // ターミナルモード
   TerminalMode _terminalMode = TerminalMode.normal;
+
+  // Gesture surface mode (mutually exclusive with scroll mode)
+  bool _gestureModeActive = false;
 
   // スクロールモードのソース（none / manual / tmux）
   ScrollModeSource _scrollModeSource = ScrollModeSource.none;
@@ -771,6 +775,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           setState(() {
             _terminalMode = TerminalMode.scroll;
             _scrollModeSource = ScrollModeSource.tmux;
+            _gestureModeActive = false; // mutually exclusive
           });
         } else if (!isTmuxCopyMode && _scrollModeSource == ScrollModeSource.tmux) {
           // tmux copy-mode が終了した → 自動で通常モードに復帰
@@ -1025,9 +1030,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   duration: const Duration(milliseconds: 200),
                   decoration: BoxDecoration(
                     border: Border.all(
-                      color: _terminalMode == TerminalMode.scroll
-                          ? DesignColors.warning
-                          : Colors.transparent,
+                      color: _gestureModeActive
+                          ? DesignColors.primary
+                          : _terminalMode == TerminalMode.scroll
+                              ? DesignColors.warning
+                              : Colors.transparent,
                       width: 3,
                     ),
                   ),
@@ -1114,6 +1121,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         overlayState: _keyOverlayState,
                         position: _keyOverlayPosition,
                       ),
+                      // Gesture surface overlay
+                      if (_gestureModeActive)
+                        Positioned.fill(
+                          child: GestureSurface(
+                            onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                            onPaste: (text) => _sendMultilineText(text),
+                            onDeactivate: _deactivateGestureMode,
+                            haptic: ref.read(settingsProvider).navPadHaptic,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -1151,6 +1168,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               NavigationPad(
                 onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
                 onKeyPressed: _sendKeyWithOverlay,
+                onGestureToggle: _toggleGestureMode,
               ),
               // Action bar (swipeable button groups)
               ActionBar(
@@ -2641,6 +2659,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     setState(() {
                       _terminalMode = newMode;
                       _scrollModeSource = value ? ScrollModeSource.manual : ScrollModeSource.none;
+                      if (value) _gestureModeActive = false;
                     });
                     if (newMode == TerminalMode.scroll) {
                       _enterTmuxCopyMode();
@@ -2660,6 +2679,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   setState(() {
                     _terminalMode = newMode;
                     _scrollModeSource = isScrolling ? ScrollModeSource.none : ScrollModeSource.manual;
+                    if (!isScrolling) _gestureModeActive = false;
                   });
                   if (newMode == TerminalMode.scroll) {
                     _enterTmuxCopyMode();
@@ -3174,6 +3194,29 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       await sshClient.exec(TmuxCommands.cancelCopyMode(target));
       _boostPolling();
     } catch (_) {}
+  }
+
+  /// Toggle gesture surface mode on/off.
+  void _toggleGestureMode() {
+    setState(() {
+      _gestureModeActive = !_gestureModeActive;
+      if (_gestureModeActive) {
+        // Exit scroll mode if active (mutually exclusive)
+        if (_terminalMode == TerminalMode.scroll) {
+          _terminalMode = TerminalMode.normal;
+          _scrollModeSource = ScrollModeSource.none;
+          _cancelTmuxCopyMode();
+          _applyBufferedUpdate();
+        }
+      }
+    });
+  }
+
+  /// Deactivate gesture surface mode.
+  void _deactivateGestureMode() {
+    if (_gestureModeActive) {
+      setState(() => _gestureModeActive = false);
+    }
   }
 
   /// tmux特殊キーを送信（Ctrl+C, Escape等）

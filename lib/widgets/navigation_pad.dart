@@ -79,45 +79,149 @@ class NavigationPad extends ConsumerWidget {
             ),
           ),
         ),
-        child: Row(
-          children: [
-            const SizedBox(width: 8),
-            if (mode == 'full') ...[
-              if (settings.navPadDpadStyle == 'joystick')
-                _JoystickFull(
-                  onSpecialKeyPressed: onSpecialKeyPressed,
-                  repeatRate: settings.navPadRepeatRate,
-                  haptic: settings.navPadHaptic,
-                  onDoubleTapCenter: onGestureToggle,
-                )
-              else
-                _DpadFull(
-                  onSpecialKeyPressed: onSpecialKeyPressed,
-                  repeatRate: settings.navPadRepeatRate,
-                  haptic: settings.navPadHaptic,
-                  onDoubleTapCenter: onGestureToggle,
-                ),
-              const SizedBox(width: 12),
-              _ActionGrid(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenWidth = constraints.maxWidth;
+            // Wide layout threshold: foldable unfolded or tablet (>600dp)
+            final isWide = screenWidth > 600;
+
+            if (mode == 'full') {
+              return _FullModeLayout(
                 onSpecialKeyPressed: onSpecialKeyPressed,
-                repeatRate: settings.navPadRepeatRate,
-                haptic: settings.navPadHaptic,
-                buttons: actionButtons,
-              ),
-            ] else ...[
-              _CompactRow(
+                onGestureToggle: onGestureToggle,
+                settings: settings,
+                actionButtons: actionButtons,
+                isWide: isWide,
+                screenWidth: screenWidth,
+                ref: ref,
+                mode: mode,
+              );
+            } else {
+              return _CompactModeLayout(
                 onSpecialKeyPressed: onSpecialKeyPressed,
-                repeatRate: settings.navPadRepeatRate,
-                haptic: settings.navPadHaptic,
-                buttons: actionButtons,
-              ),
-            ],
-            const Spacer(),
-            _ChevronToggle(ref: ref, mode: mode),
-            const SizedBox(width: 4),
-          ],
+                settings: settings,
+                actionButtons: actionButtons,
+                isWide: isWide,
+                ref: ref,
+                mode: mode,
+              );
+            }
+          },
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Full mode layout — D-pad/joystick + action grid, evenly distributed
+// ---------------------------------------------------------------------------
+
+class _FullModeLayout extends StatelessWidget {
+  final void Function(String tmuxKey) onSpecialKeyPressed;
+  final VoidCallback? onGestureToggle;
+  final dynamic settings;
+  final List<({String label, String tmuxKey})> actionButtons;
+  final bool isWide;
+  final double screenWidth;
+  final WidgetRef ref;
+  final String mode;
+
+  const _FullModeLayout({
+    required this.onSpecialKeyPressed,
+    required this.onGestureToggle,
+    required this.settings,
+    required this.actionButtons,
+    required this.isWide,
+    required this.screenWidth,
+    required this.ref,
+    required this.mode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final repeatRate = settings.navPadRepeatRate;
+    final haptic = settings.navPadHaptic;
+    final inputStyle = settings.navPadInputStyle;
+
+    final directional = inputStyle == 'joystick'
+        ? _JoystickFull(
+            onSpecialKeyPressed: onSpecialKeyPressed,
+            repeatRate: repeatRate,
+            haptic: haptic,
+            onDoubleTapCenter: onGestureToggle,
+          ) as Widget
+        : _DpadFull(
+            onSpecialKeyPressed: onSpecialKeyPressed,
+            repeatRate: repeatRate,
+            haptic: haptic,
+            onDoubleTapCenter: onGestureToggle,
+          );
+
+    final actionGrid = _ActionGrid(
+      onSpecialKeyPressed: onSpecialKeyPressed,
+      repeatRate: repeatRate,
+      haptic: haptic,
+      buttons: actionButtons,
+    );
+
+    return Row(
+      children: [
+        // Left side — directional control, centered in its half
+        Expanded(
+          child: Center(child: directional),
+        ),
+        // Right side — action grid, centered in its half
+        Expanded(
+          child: Center(child: actionGrid),
+        ),
+        // Chevron toggle
+        _ChevronToggle(ref: ref, mode: mode),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact mode layout — single row, evenly distributed
+// ---------------------------------------------------------------------------
+
+class _CompactModeLayout extends StatelessWidget {
+  final void Function(String tmuxKey) onSpecialKeyPressed;
+  final dynamic settings;
+  final List<({String label, String tmuxKey})> actionButtons;
+  final bool isWide;
+  final WidgetRef ref;
+  final String mode;
+
+  const _CompactModeLayout({
+    required this.onSpecialKeyPressed,
+    required this.settings,
+    required this.actionButtons,
+    required this.isWide,
+    required this.ref,
+    required this.mode,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final repeatRate = settings.navPadRepeatRate;
+    final haptic = settings.navPadHaptic;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Center(
+            child: _CompactRow(
+              onSpecialKeyPressed: onSpecialKeyPressed,
+              repeatRate: repeatRate,
+              haptic: haptic,
+              buttons: actionButtons,
+            ),
+          ),
+        ),
+        _ChevronToggle(ref: ref, mode: mode),
+      ],
     );
   }
 }

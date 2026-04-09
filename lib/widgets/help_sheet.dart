@@ -98,7 +98,7 @@ class _HelpSheetContent extends StatelessWidget {
     final mutedColor = isDark ? Colors.white38 : Colors.black38;
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Column(
         children: [
           // Handle
@@ -142,6 +142,7 @@ class _HelpSheetContent extends StatelessWidget {
             ),
             tabs: const [
               Tab(text: 'ACTION BAR'),
+              Tab(text: 'GESTURES'),
               Tab(text: 'TMUX'),
             ],
           ),
@@ -150,6 +151,7 @@ class _HelpSheetContent extends StatelessWidget {
             child: TabBarView(
               children: [
                 _buildActionBarTab(context),
+                _buildGesturesTab(context),
                 _buildTmuxTab(context),
               ],
             ),
@@ -235,6 +237,95 @@ class _HelpSheetContent extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGesturesTab(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    const gestureCheatSheet = <String, List<_TmuxEntry>>{
+      'Gesture Surface': [
+        _TmuxEntry('Swipe Left', 'Left arrow key'),
+        _TmuxEntry('Swipe Right', 'Right arrow key'),
+        _TmuxEntry('Swipe Up', 'Up arrow key'),
+        _TmuxEntry('Swipe Down', 'Down arrow key'),
+        _TmuxEntry('Double Tap', 'Tab key'),
+        _TmuxEntry('Two-Finger Tap', 'Enter key'),
+        _TmuxEntry('Three-Finger Tap', 'Escape key'),
+        _TmuxEntry('Long Press', 'Paste from clipboard'),
+      ],
+      'Navigation Pad': [
+        _TmuxEntry('D-pad / Joystick', 'Arrow keys (hold to repeat)'),
+        _TmuxEntry('Double-Tap Center', 'Toggle gesture surface'),
+        _TmuxEntry('Action Buttons', '4 customizable keys (ESC, TAB, C-C, ENT)'),
+        _TmuxEntry('Chevron', 'Cycle: full > compact > off'),
+      ],
+      'Scroll Mode': [
+        _TmuxEntry('Swipe Up/Down', 'Scroll terminal output'),
+        _TmuxEntry('Tap Bottom Bar', 'Toggle scroll mode on/off'),
+      ],
+    };
+
+    final categories = gestureCheatSheet.entries.toList();
+
+    return ListView.builder(
+      controller: scrollController,
+      padding: const EdgeInsets.all(16),
+      itemCount: categories.length,
+      itemBuilder: (context, index) {
+        final category = categories[index];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (index > 0) const SizedBox(height: 16),
+            Text(
+              category.key.toUpperCase(),
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.5,
+                color: DesignColors.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            ...category.value.map((entry) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 110,
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: DesignColors.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      entry.key,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: DesignColors.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      entry.description,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )),
+          ],
+        );
+      },
     );
   }
 

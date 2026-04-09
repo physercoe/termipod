@@ -368,6 +368,10 @@ class _TerminalTabState extends ConsumerState<_TerminalTab> {
       final storage = SecureStorageService();
 
       for (final connection in connections) {
+        // Raw PTY connections have no tmux sessions — skip entirely so we
+        // don't pollute activeSessionsProvider with tmux-style entries for
+        // them, and don't waste an SSH roundtrip.
+        if (connection.isRawMode) continue;
         try {
           // 認証オプションを取得
           String? password;

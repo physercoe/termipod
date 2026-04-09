@@ -272,12 +272,19 @@ class ConnectionsScreen extends ConsumerWidget {
     }
 
     return SliverList(
+      // findChildIndexCallback + ValueKey lets Flutter reconcile _ConnectionCard
+      // state (expanded flag, fetched sessions) by connection.id across sort/
+      // filter changes. Without this, re-sorting re-binds State instances to
+      // different connections by list index — which is how session data was
+      // bleeding between hosts.
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           final connection = filteredConnections[index];
           return Padding(
+            key: ValueKey('conn_${connection.id}'),
             padding: const EdgeInsets.only(bottom: 12),
             child: _ConnectionCard(
+              key: ValueKey(connection.id),
               connection: connection,
               onConnect: (sessionName) =>
                   _connectToServer(context, ref, connection, sessionName),
@@ -287,6 +294,16 @@ class ConnectionsScreen extends ConsumerWidget {
           );
         },
         childCount: filteredConnections.length,
+        findChildIndexCallback: (Key key) {
+          if (key is ValueKey<String>) {
+            final id = key.value.startsWith('conn_')
+                ? key.value.substring(5)
+                : key.value;
+            final idx = filteredConnections.indexWhere((c) => c.id == id);
+            return idx >= 0 ? idx : null;
+          }
+          return null;
+        },
       ),
     );
   }
@@ -526,13 +543,33 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
   String? _sessionError;
 
   @override
+  void didUpdateWidget(covariant _ConnectionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Defensive: if Flutter ever rebinds this State to a different connection
+    // (should not happen now that ValueKey is set on the widget, but this
+    // guards against regressions), clear all fetched state that is tied to
+    // the previous connection id.
+    if (oldWidget.connection.id != widget.connection.id) {
+      setState(() {
+        _isExpanded = false;
+        _isLoadingSessions = false;
+        _sessions = [];
+        _sessionError = null;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
-    // アクティブセッションからこの接続のセッション情報を取得
+    final isRaw = widget.connection.isRawMode;
+    // Raw PTY connections do not have tmux sessions — always empty, so the
+    // green "active sessions" visual state never applies.
     final activeSessionsState = ref.watch(activeSessionsProvider);
-    final activeSessions =
-        activeSessionsState.getSessionsForConnection(widget.connection.id);
+    final activeSessions = isRaw
+        ? const <ActiveSession>[]
+        : activeSessionsState.getSessionsForConnection(widget.connection.id);
     final hasActiveSessions = activeSessions.isNotEmpty;
 
     // 接続状態の判定（アクティブセッションがあるか、lastConnectedAtがあるか）
@@ -582,11 +619,15 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                           ),
                         ),
                         child: Icon(
-                          Icons.dns,
+                          // Visual distinction: raw PTY uses a terminal
+                          // glyph, tmux uses the server/dns glyph.
+                          isRaw ? Icons.terminal : Icons.dns,
                           size: 20,
                           color: hasActiveSessions
                               ? colorScheme.primary
-                              : (isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight),
+                              : (isRaw
+                                  ? (isDark ? DesignColors.primary : DesignColors.primary)
+                                  : (isDark ? DesignColors.textSecondary : DesignColors.textSecondaryLight)),
                         ),
                       ),
                       Positioned(
@@ -621,14 +662,46 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          widget.connection.name,
-                          style: GoogleFonts.spaceGrotesk(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: colorScheme.onSurface,
-                            letterSpacing: 0.3,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                widget.connection.name,
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: colorScheme.onSurface,
+                                  letterSpacing: 0.3,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isRaw) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: DesignColors.primary.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: DesignColors.primary.withValues(alpha: 0.5),
+                                    width: 0.5,
+                                  ),
+                                ),
+                                child: Text(
+                                  'RAW',
+                                  style: GoogleFonts.jetBrainsMono(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: DesignColors.primary,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -650,8 +723,11 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
               ),
             ),
           ),
-          // Expanded Content - Sessions List
-          if (_isExpanded) _buildExpandedContent(activeSessions, isDark, colorScheme),
+          // Expanded Content - Sessions List (tmux) or simple connect panel (raw)
+          if (_isExpanded)
+            isRaw
+                ? _buildRawExpandedContent(isDark, colorScheme)
+                : _buildExpandedContent(activeSessions, isDark, colorScheme),
         ],
       ),
     );
@@ -661,6 +737,8 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
     setState(() {
       _isExpanded = !_isExpanded;
     });
+    // Raw PTY connections have no tmux sessions to fetch — skip entirely.
+    if (widget.connection.isRawMode) return;
     // 展開時にセッション情報をフェッチ
     if (_isExpanded && _sessions.isEmpty && !_isLoadingSessions) {
       _fetchSessions();
@@ -761,6 +839,95 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
         _sessionError = e.toString();
       });
     }
+  }
+
+  /// Simplified expanded panel for raw PTY connections.
+  /// No tmux sessions to list — just Connect + Edit/Delete actions.
+  Widget _buildRawExpandedContent(bool isDark, ColorScheme colorScheme) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF15161C) : const Color(0xFFF8F9FA),
+        border: Border(
+            top: BorderSide(
+                color: isDark ? DesignColors.borderDark : DesignColors.borderLight)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 14,
+                  color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    AppLocalizations.of(context)!.rawShellDescription,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11,
+                      color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: OutlinedButton.icon(
+              onPressed: () => widget.onConnect(null),
+              icon: const Icon(Icons.terminal, size: 16),
+              label: Text(AppLocalizations.of(context)!.openShell),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: colorScheme.primary.withValues(alpha: 0.9),
+                side: BorderSide(
+                  color: colorScheme.primary.withValues(alpha: 0.4),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                minimumSize: const Size(double.infinity, 0),
+              ),
+            ),
+          ),
+          Divider(
+              color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+              height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: widget.onEdit,
+                    icon: const Icon(Icons.edit, size: 16),
+                    label: Text(AppLocalizations.of(context)!.buttonEdit),
+                    style: TextButton.styleFrom(
+                      foregroundColor: isDark
+                          ? DesignColors.textSecondary
+                          : DesignColors.textSecondaryLight,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: widget.onDelete,
+                    icon: const Icon(Icons.delete, size: 16),
+                    label: Text(AppLocalizations.of(context)!.buttonDelete),
+                    style: TextButton.styleFrom(
+                      foregroundColor: DesignColors.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildExpandedContent(List<ActiveSession> activeSessions, bool isDark, ColorScheme colorScheme) {

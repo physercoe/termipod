@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
+import '../../providers/active_session_provider.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../services/keychain/secure_storage.dart';
@@ -1492,6 +1493,15 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
         developer.log('Adding new connection...', name: 'ConnectionForm');
         await ref.read(connectionsProvider.notifier).add(connection);
         developer.log('Connection added successfully', name: 'ConnectionForm');
+      }
+
+      // When a connection is switched to raw mode, any existing tmux session
+      // entries are now meaningless — purge them so the dashboard and the
+      // connection card don't show orphans.
+      if (connection.isRawMode) {
+        ref
+            .read(activeSessionsProvider.notifier)
+            .removeSessionsForConnection(connectionId);
       }
 
       developer.log('Save completed, popping navigator...', name: 'ConnectionForm');

@@ -517,6 +517,8 @@
   "terminalModeTmux": "tmux",
   "terminalModeRaw": "Raw Shell",
   "terminalModeDesc": "tmux: manage sessions/windows/panes. Raw Shell: direct PTY, no tmux required.",
+  "rawShellDescription": "Raw PTY shell — no tmux sessions, windows, or panes",
+  "openShell": "Open Shell",
 
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",

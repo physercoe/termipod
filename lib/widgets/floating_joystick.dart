@@ -46,6 +46,12 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
 
   String? _activeZone;
   Timer? _repeatTimer;
+  // Tap flash: after a successful tap we keep the zone highlighted for a
+  // brief moment and pulse a confirmation ring, so the user can see that
+  // the press registered. Without this the highlight disappears within a
+  // frame of touch-up and feels like nothing happened.
+  Timer? _flashTimer;
+  bool _flashActive = false;
 
   // Gesture tracking
   Offset _touchStartGlobal = Offset.zero;
@@ -83,13 +89,32 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     final zone = _activeZone;
     if (zone != null) {
       widget.onSpecialKeyPressed(zone);
-      if (widget.haptic) HapticFeedback.lightImpact();
+      // Stronger haptic so the confirmation is unmistakable.
+      if (widget.haptic) HapticFeedback.mediumImpact();
+
+      // Hold the highlight for ~220ms so the user gets a clear visual flash.
+      // The flash flag asks the painter to draw an intensified highlight +
+      // confirmation ring during this window.
+      _flashTimer?.cancel();
+      setState(() => _flashActive = true);
+      _flashTimer = Timer(const Duration(milliseconds: 220), () {
+        if (!mounted) return;
+        setState(() {
+          _activeZone = null;
+          _flashActive = false;
+        });
+      });
+      return;
     }
     setState(() => _activeZone = null);
   }
 
   void _onTapCancel() {
-    setState(() => _activeZone = null);
+    _flashTimer?.cancel();
+    setState(() {
+      _activeZone = null;
+      _flashActive = false;
+    });
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -99,6 +124,10 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     _totalDrag = 0;
     _isRepositioning = false;
     _hasFired = false;
+
+    // A new gesture cancels any in-flight tap flash.
+    _flashTimer?.cancel();
+    _flashActive = false;
 
     // Immediately show which zone is under the finger
     final zone = _hitTest(details.localPosition);
@@ -179,6 +208,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
 
   @override
   void dispose() {
+    _flashTimer?.cancel();
     _stopRepeat();
     super.dispose();
   }
@@ -211,6 +241,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
               activeZone: _activeZone,
               centerKey: widget.centerKey,
               centerRadius: _centerRadius,
+              flashActive: _flashActive,
             ),
             child: Center(
               child: Text(
@@ -218,8 +249,11 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
                 style: TextStyle(
                   fontSize: widget.size * 0.18,
                   fontWeight: FontWeight.w700,
-                  color: (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
-                      .withValues(alpha: _activeZone == widget.centerKey ? 0.85 : 0.45),
+                  color: (_flashActive && _activeZone == widget.centerKey)
+                      ? DesignColors.primary
+                      : (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
+                          .withValues(
+                              alpha: _activeZone == widget.centerKey ? 0.85 : 0.45),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -236,12 +270,14 @@ class _DpadPainter extends CustomPainter {
   final String? activeZone;
   final String centerKey;
   final double centerRadius;
+  final bool flashActive;
 
   _DpadPainter({
     required this.isDark,
     required this.activeZone,
     required this.centerKey,
     required this.centerRadius,
+    this.flashActive = false,
   });
 
   @override
@@ -259,11 +295,25 @@ class _DpadPainter extends CustomPainter {
     // Background circle
     canvas.drawCircle(center, outerR, Paint()..color = bgColor);
 
-    // Highlight active zone
+    // Highlight active zone.
+    // During the post-tap flash window we intensify the fill, add a bright
+    // rim on the zone boundary, and draw a confirmation ring around the
+    // whole pad so the tap feels unmistakable.
     if (activeZone != null) {
-      final highlightColor = DesignColors.primary.withValues(alpha: 0.25);
+      final fillAlpha = flashActive ? 0.55 : 0.25;
+      final highlightColor = DesignColors.primary.withValues(alpha: fillAlpha);
       if (activeZone == centerKey) {
         canvas.drawCircle(center, centerR, Paint()..color = highlightColor);
+        if (flashActive) {
+          canvas.drawCircle(
+            center,
+            centerR,
+            Paint()
+              ..color = DesignColors.primary.withValues(alpha: 0.9)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2.0,
+          );
+        }
       } else {
         final startAngle = switch (activeZone) {
           'Right' => -math.pi / 4,
@@ -282,7 +332,34 @@ class _DpadPainter extends CustomPainter {
           )
           ..close();
         canvas.drawPath(path, Paint()..color = highlightColor);
+        if (flashActive) {
+          // Bright outer arc on the pressed quadrant.
+          final arcRect = Rect.fromCircle(center: center, radius: outerR - 2);
+          canvas.drawArc(
+            arcRect,
+            startAngle,
+            math.pi / 2,
+            false,
+            Paint()
+              ..color = DesignColors.primary.withValues(alpha: 0.9)
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2.5
+              ..strokeCap = StrokeCap.round,
+          );
+        }
       }
+    }
+
+    // Confirmation ring — only during the tap flash window.
+    if (flashActive) {
+      canvas.drawCircle(
+        center,
+        outerR - 1,
+        Paint()
+          ..color = DesignColors.primary.withValues(alpha: 0.75)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.0,
+      );
     }
 
     // Outer ring
@@ -349,5 +426,6 @@ class _DpadPainter extends CustomPainter {
       activeZone != old.activeZone ||
       isDark != old.isDark ||
       centerKey != old.centerKey ||
-      centerRadius != old.centerRadius;
+      centerRadius != old.centerRadius ||
+      flashActive != old.flashActive;
 }

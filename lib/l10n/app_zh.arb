@@ -467,6 +467,8 @@
   "terminalModeTmux": "tmux",
   "terminalModeRaw": "原始终端",
   "terminalModeDesc": "tmux: 管理会话/窗口/面板。原始终端: 直接PTY连接，无需tmux。",
+  "rawShellDescription": "原始 PTY 终端 — 无 tmux 会话、窗口或面板",
+  "openShell": "打开终端",
 
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",

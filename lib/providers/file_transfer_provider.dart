@@ -299,7 +299,29 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
     }
   }
 
-  /// Download a remote file to local temp directory
+  /// Get the effective download directory.
+  /// Uses configured path if set, otherwise app external storage + TermiPod/.
+  Future<String> _getDownloadDir() async {
+    final settings = ref.read(settingsProvider);
+    if (settings.fileDownloadPath.isNotEmpty) {
+      return settings.fileDownloadPath;
+    }
+    // Default: app external storage / TermiPod
+    final extDir = await getExternalStorageDirectory();
+    if (extDir != null) {
+      final dlDir = Directory('${extDir.path}/TermiPod');
+      if (!dlDir.existsSync()) {
+        dlDir.createSync(recursive: true);
+      }
+      return dlDir.path;
+    }
+    // Fallback to temp
+    final tempDir = await getTemporaryDirectory();
+    return tempDir.path;
+  }
+
+  /// Download a remote file to configurable local directory.
+  /// Supports resume via .part files if connection drops mid-transfer.
   Future<String?> downloadFile(String remotePath) async {
     final sshClient = ref.read(sshProvider(connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) {
@@ -329,30 +351,34 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
 
       final sftp = await sshClient.openSftp();
       try {
-        final result = await _sftpService.download(
+        final downloadDir = await _getDownloadDir();
+        final filename = remotePath.contains('/')
+            ? remotePath.substring(remotePath.lastIndexOf('/') + 1)
+            : remotePath;
+        final localPath = '$downloadDir/$filename';
+
+        // Ensure download directory exists
+        final dir = Directory(downloadDir);
+        if (!dir.existsSync()) {
+          dir.createSync(recursive: true);
+        }
+
+        final resultPath = await _sftpService.downloadToFile(
           sftp: sftp,
           remotePath: remotePath,
-          onProgress: (progress) {
+          localPath: localPath,
+          onProgress: (progress, received, total) {
             state = state.copyWith(downloadProgress: progress);
           },
         );
 
-        // Save to temp directory
-        final tempDir = await getTemporaryDirectory();
-        final filename = remotePath.contains('/')
-            ? remotePath.substring(remotePath.lastIndexOf('/') + 1)
-            : remotePath;
-        final localPath = '${tempDir.path}/$filename';
-        final file = File(localPath);
-        await file.writeAsBytes(result.bytes);
-
         state = FileTransferState(
           phase: FileTransferPhase.completed,
-          lastDownloadedLocalPath: localPath,
+          lastDownloadedLocalPath: resultPath,
           downloadProgress: 1.0,
         );
 
-        return localPath;
+        return resultPath;
       } finally {
         sftp.close();
       }

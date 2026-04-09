@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dartssh2/dartssh2.dart';
@@ -176,6 +177,64 @@ class SftpService {
         remotePath: remotePath,
         size: readBytes,
       );
+    } finally {
+      await file.close();
+    }
+  }
+
+  /// Download a remote file directly to a local file path.
+  ///
+  /// Supports resume: if [localPath] already exists with partial content,
+  /// continues from the last byte received. Uses `.part` suffix during
+  /// download, renamed on completion.
+  Future<String> downloadToFile({
+    required SftpClient sftp,
+    required String remotePath,
+    required String localPath,
+    void Function(double progress, int bytesReceived, int totalBytes)? onProgress,
+  }) async {
+    final stat = await sftp.stat(remotePath);
+    final totalBytes = stat.size ?? 0;
+
+    final partPath = '$localPath.part';
+    final partFile = File(partPath);
+    int startOffset = 0;
+
+    // Resume: check for existing partial file
+    if (partFile.existsSync()) {
+      startOffset = partFile.lengthSync();
+      if (startOffset >= totalBytes && totalBytes > 0) {
+        // Already complete — just rename
+        partFile.renameSync(localPath);
+        onProgress?.call(1.0, totalBytes, totalBytes);
+        return localPath;
+      }
+    }
+
+    final file = await sftp.open(remotePath, mode: SftpFileOpenMode.read);
+
+    try {
+      final sink = partFile.openWrite(mode: startOffset > 0 ? FileMode.append : FileMode.write);
+      var receivedBytes = startOffset;
+
+      try {
+        await for (final chunk in file.read(offset: startOffset > 0 ? startOffset : null)) {
+          sink.add(chunk);
+          receivedBytes += chunk.length;
+          if (totalBytes > 0) {
+            onProgress?.call(receivedBytes / totalBytes, receivedBytes, totalBytes);
+          }
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+
+      // Rename .part to final name
+      final finalFile = File(partPath);
+      finalFile.renameSync(localPath);
+
+      return localPath;
     } finally {
       await file.close();
     }

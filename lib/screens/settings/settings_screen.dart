@@ -508,6 +508,20 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ),
                 ListTile(
+                  leading: const Icon(Icons.download),
+                  title: Text(l10n.settingDownloadPath),
+                  subtitle: Text(settings.fileDownloadPath.isEmpty
+                      ? l10n.settingDownloadPathDefault
+                      : settings.fileDownloadPath),
+                  onTap: () => _showTextInputDialog(
+                    context, ref,
+                    title: l10n.settingDownloadPath,
+                    currentValue: settings.fileDownloadPath,
+                    hint: l10n.settingDownloadPathHint,
+                    onSave: (v) => ref.read(settingsProvider.notifier).setFileDownloadPath(v),
+                  ),
+                ),
+                ListTile(
                   leading: const Icon(Icons.text_format),
                   title: Text(l10n.settingPathFormat),
                   subtitle: Text(settings.filePathFormat),

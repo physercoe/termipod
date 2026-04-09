@@ -76,6 +76,10 @@ class AppSettings {
   /// JSON-encoded list of 4 custom action buttons (null = defaults)
   final String? navPadButtons;
 
+  // --- File download settings ---
+  /// Local download directory (empty = app external storage/TermiPod)
+  final String fileDownloadPath;
+
   // --- Experimental features ---
   /// Floating joystick overlay on terminal (experimental)
   final bool floatingPadEnabled;
@@ -119,6 +123,7 @@ class AppSettings {
     this.navPadRepeatRate = 80,
     this.navPadHaptic = true,
     this.navPadButtons,
+    this.fileDownloadPath = '',
     this.floatingPadEnabled = false,
   });
 
@@ -165,6 +170,7 @@ class AppSettings {
     bool? navPadHaptic,
     String? navPadButtons,
     bool clearNavPadButtons = false,
+    String? fileDownloadPath,
     bool? floatingPadEnabled,
   }) {
     return AppSettings(
@@ -207,6 +213,7 @@ class AppSettings {
       navPadHaptic: navPadHaptic ?? this.navPadHaptic,
       navPadButtons:
           clearNavPadButtons ? null : (navPadButtons ?? this.navPadButtons),
+      fileDownloadPath: fileDownloadPath ?? this.fileDownloadPath,
       floatingPadEnabled: floatingPadEnabled ?? this.floatingPadEnabled,
     );
   }
@@ -252,6 +259,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _navPadRepeatRateKey = 'settings_nav_pad_repeat_rate';
   static const String _navPadHapticKey = 'settings_nav_pad_haptic';
   static const String _navPadButtonsKey = 'settings_nav_pad_buttons';
+  static const String _fileDownloadPathKey = 'settings_file_download_path';
   static const String _floatingPadEnabledKey = 'settings_floating_pad_enabled';
 
   @override
@@ -303,6 +311,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
       navPadHaptic: prefs.getBool(_navPadHapticKey) ?? true,
       navPadButtons: prefs.getString(_navPadButtonsKey),
+      fileDownloadPath: prefs.getString(_fileDownloadPathKey) ?? '',
       floatingPadEnabled: prefs.getBool(_floatingPadEnabledKey) ?? false,
     );
   }
@@ -545,6 +554,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
       state = state.copyWith(navPadButtons: value);
       await _saveSetting(_navPadButtonsKey, value);
     }
+  }
+
+  // --- File download settings ---
+  Future<void> setFileDownloadPath(String value) async {
+    state = state.copyWith(fileDownloadPath: value);
+    await _saveSetting(_fileDownloadPathKey, value);
   }
 
   // --- Experimental features ---

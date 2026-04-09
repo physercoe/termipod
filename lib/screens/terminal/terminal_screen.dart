@@ -30,6 +30,8 @@ import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/help_sheet.dart';
 import '../../widgets/gesture_surface.dart';
+import '../../providers/download_manager_provider.dart';
+import '../../widgets/download_manager_sheet.dart';
 import '../../widgets/floating_joystick.dart';
 import '../../widgets/navigation_pad.dart';
 import '../../widgets/key_overlay_widget.dart';
@@ -2947,6 +2949,40 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 onTap: () {
                   Navigator.pop(context);
                   showHelpSheet(context, ref);
+                },
+              ),
+              // Downloads
+              Consumer(
+                builder: (context, menuRef, _) {
+                  final dmState = menuRef.watch(downloadManagerProvider);
+                  final activeCount = dmState.activeCount;
+                  final totalCount = dmState.entries.length;
+                  return ListTile(
+                    leading: Badge(
+                      isLabelVisible: activeCount > 0,
+                      label: Text('$activeCount'),
+                      child: Icon(
+                        Icons.download,
+                        color: activeCount > 0 ? DesignColors.primary : inactiveIconColor,
+                      ),
+                    ),
+                    title: Text(
+                      'Downloads',
+                      style: TextStyle(color: textColor),
+                    ),
+                    subtitle: Text(
+                      totalCount == 0
+                          ? 'No downloads'
+                          : activeCount > 0
+                              ? '$activeCount active, $totalCount total'
+                              : '$totalCount downloads',
+                      style: TextStyle(color: mutedTextColor, fontSize: 12),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      showDownloadManagerSheet(context);
+                    },
+                  );
                 },
               ),
               Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),

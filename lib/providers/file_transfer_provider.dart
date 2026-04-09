@@ -6,9 +6,15 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../services/sftp/sftp_service.dart';
+import 'connection_provider.dart';
+import 'download_manager_provider.dart';
 import 'settings_provider.dart';
 import 'ssh_provider.dart';
+
+const _uuid = Uuid();
 
 /// File transfer phase
 enum FileTransferPhase {
@@ -343,6 +349,24 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
       }
     });
 
+    // Register with download manager
+    final downloadId = _uuid.v4();
+    final connections = ref.read(connectionsProvider);
+    final connName = connections.connections
+        .where((c) => c.id == connectionId)
+        .firstOrNull
+        ?.name ?? connectionId;
+    final dm = ref.read(downloadManagerProvider.notifier);
+
+    dm.addEntry(DownloadEntry(
+      id: downloadId,
+      remotePath: remotePath,
+      connectionId: connectionId,
+      connectionName: connName,
+      status: DownloadStatus.downloading,
+      startTime: DateTime.now(),
+    ));
+
     try {
       state = state.copyWith(
         phase: FileTransferPhase.downloading,
@@ -369,8 +393,11 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
           localPath: localPath,
           onProgress: (progress, received, total) {
             state = state.copyWith(downloadProgress: progress);
+            dm.updateProgress(downloadId, progress, received, total);
           },
         );
+
+        dm.markCompleted(downloadId, resultPath);
 
         state = FileTransferState(
           phase: FileTransferPhase.completed,
@@ -383,6 +410,8 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
         sftp.close();
       }
     } catch (e) {
+      dm.markFailed(downloadId, '$e');
+
       state = FileTransferState(
         phase: FileTransferPhase.error,
         errorMessage: 'Download failed: $e',

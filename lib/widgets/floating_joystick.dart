@@ -6,11 +6,11 @@ import 'package:flutter/services.dart';
 
 import '../theme/design_colors.dart';
 
-/// Floating draggable joystick overlay for terminal navigation.
+/// Floating draggable D-pad overlay for terminal navigation.
 ///
-/// Designed for large screens (foldable/tablet) where the bottom-right corner
-/// of the terminal is often empty. Center tap sends Enter, drag sends arrow
-/// keys — ideal for Claude Code approve/reject flow.
+/// Tap outer quadrants for arrow keys, tap center for Enter.
+/// Long-press for auto-repeat. Drag to reposition.
+/// Designed for large screens (foldable/tablet) and Claude Code approve flow.
 class FloatingJoystick extends StatefulWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final bool haptic;
@@ -28,102 +28,105 @@ class FloatingJoystick extends StatefulWidget {
 }
 
 class _FloatingJoystickState extends State<FloatingJoystick> {
-  // Position (bottom-right by default)
   double _right = 16;
   double _bottom = 8;
 
-  // Joystick state
   static const _outerRadius = 48.0;
-  static const _innerRadius = 20.0;
-  static const _deadZone = 10.0;
+  static const _centerRadius = 18.0;
+  // Minimum drag distance (px) before treating gesture as reposition
+  static const _dragThreshold = 12.0;
 
-  Offset _thumbOffset = Offset.zero;
-  String? _activeDirection;
+  String? _activeZone;
   Timer? _repeatTimer;
-  bool _isDraggingPosition = false;
 
-  // For distinguishing position drag from joystick input
-  Offset? _positionDragStart;
-  Offset? _positionDragStartPos;
+  // Gesture tracking
+  Offset _touchStartLocal = Offset.zero;
+  Offset _touchStartGlobal = Offset.zero;
+  double _startRight = 0;
+  double _startBottom = 0;
+  double _totalDrag = 0;
+  bool _isRepositioning = false;
+  bool _hasFired = false; // Whether we've sent a key for this gesture
+
+  String? _hitTest(Offset localPosition) {
+    final center = const Offset(_outerRadius, _outerRadius);
+    final offset = localPosition - center;
+    final distance = offset.distance;
+
+    if (distance <= _centerRadius) return 'Enter';
+    if (distance > _outerRadius) return null;
+
+    final angle = math.atan2(offset.dy, offset.dx);
+    if (angle > -math.pi / 4 && angle <= math.pi / 4) return 'Right';
+    if (angle > math.pi / 4 && angle <= 3 * math.pi / 4) return 'Down';
+    if (angle > -3 * math.pi / 4 && angle <= -math.pi / 4) return 'Up';
+    return 'Left';
+  }
 
   void _onPanStart(DragStartDetails details) {
-    final center = const Offset(_outerRadius, _outerRadius);
-    final distance = (details.localPosition - center).distance;
+    _touchStartLocal = details.localPosition;
+    _touchStartGlobal = details.globalPosition;
+    _startRight = _right;
+    _startBottom = _bottom;
+    _totalDrag = 0;
+    _isRepositioning = false;
+    _hasFired = false;
 
-    // If touch starts near the edge, treat as position drag
-    if (distance > _outerRadius - 8) {
-      _isDraggingPosition = true;
-      _positionDragStart = details.globalPosition;
-      _positionDragStartPos = Offset(_right, _bottom);
-      return;
-    }
-    _isDraggingPosition = false;
+    // Immediately show which zone is under the finger
+    final zone = _hitTest(details.localPosition);
+    setState(() => _activeZone = zone);
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
-    if (_isDraggingPosition) {
-      // Move the entire widget
-      final delta = details.globalPosition - _positionDragStart!;
+    _totalDrag += details.delta.distance;
+
+    if (_totalDrag > _dragThreshold && !_hasFired) {
+      // Crossed drag threshold without having fired a key — reposition mode
+      _isRepositioning = true;
+      _stopRepeat();
+      setState(() => _activeZone = null);
+    }
+
+    if (_isRepositioning) {
+      final delta = details.globalPosition - _touchStartGlobal;
       setState(() {
-        _right = (_positionDragStartPos!.dx - delta.dx).clamp(0.0, 1000.0);
-        _bottom = (_positionDragStartPos!.dy - delta.dy).clamp(0.0, 1000.0);
+        _right = (_startRight - delta.dx).clamp(0.0, 2000.0);
+        _bottom = (_startBottom - delta.dy).clamp(0.0, 2000.0);
       });
-      return;
-    }
-
-    // Joystick input
-    final center = const Offset(_outerRadius, _outerRadius);
-    final local = details.localPosition - center;
-    final distance = local.distance;
-    final maxRadius = _outerRadius - _innerRadius;
-
-    final clamped = distance > maxRadius ? local / distance * maxRadius : local;
-    setState(() => _thumbOffset = clamped);
-
-    if (distance < _deadZone) {
-      _stopRepeat();
-      _activeDirection = null;
-      return;
-    }
-
-    final angle = math.atan2(local.dy, local.dx);
-    String direction;
-    if (angle > -math.pi / 4 && angle <= math.pi / 4) {
-      direction = 'Right';
-    } else if (angle > math.pi / 4 && angle <= 3 * math.pi / 4) {
-      direction = 'Down';
-    } else if (angle > -3 * math.pi / 4 && angle <= -math.pi / 4) {
-      direction = 'Up';
-    } else {
-      direction = 'Left';
-    }
-
-    if (direction != _activeDirection) {
-      _activeDirection = direction;
-      _stopRepeat();
-      widget.onSpecialKeyPressed(direction);
-      if (widget.haptic) HapticFeedback.lightImpact();
-      _repeatTimer = Timer.periodic(
-        Duration(milliseconds: widget.repeatRate),
-        (_) {
-          if (widget.haptic) HapticFeedback.selectionClick();
-          widget.onSpecialKeyPressed(direction);
-        },
-      );
     }
   }
 
   void _onPanEnd(DragEndDetails _) {
-    _isDraggingPosition = false;
+    if (!_isRepositioning && !_hasFired) {
+      // Short tap — fire the key
+      final zone = _hitTest(_touchStartLocal);
+      if (zone != null) {
+        widget.onSpecialKeyPressed(zone);
+        if (widget.haptic) HapticFeedback.lightImpact();
+      }
+    }
     _stopRepeat();
-    _activeDirection = null;
-    setState(() => _thumbOffset = Offset.zero);
+    _isRepositioning = false;
+    setState(() => _activeZone = null);
   }
 
-  void _onTap() {
-    // Center tap = Enter
-    widget.onSpecialKeyPressed('Enter');
-    if (widget.haptic) HapticFeedback.mediumImpact();
+  void _onLongPress(Offset localPosition) {
+    if (_isRepositioning) return;
+    final zone = _hitTest(localPosition);
+    if (zone == null) return;
+
+    // Fire immediately + start repeat
+    _hasFired = true;
+    widget.onSpecialKeyPressed(zone);
+    if (widget.haptic) HapticFeedback.lightImpact();
+
+    _repeatTimer = Timer.periodic(
+      Duration(milliseconds: widget.repeatRate),
+      (_) {
+        if (widget.haptic) HapticFeedback.selectionClick();
+        widget.onSpecialKeyPressed(zone);
+      },
+    );
   }
 
   void _stopRepeat() {
@@ -145,24 +148,21 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
       right: _right,
       bottom: _bottom,
       child: GestureDetector(
-        onTap: _onTap,
         onPanStart: _onPanStart,
         onPanUpdate: _onPanUpdate,
         onPanEnd: _onPanEnd,
-        onPanCancel: () {
-          _isDraggingPosition = false;
+        onLongPressStart: (details) => _onLongPress(details.localPosition),
+        onLongPressEnd: (_) {
           _stopRepeat();
-          _activeDirection = null;
-          setState(() => _thumbOffset = Offset.zero);
+          setState(() => _activeZone = null);
         },
         child: SizedBox(
           width: _outerRadius * 2,
           height: _outerRadius * 2,
           child: CustomPaint(
-            painter: _FloatingJoystickPainter(
+            painter: _DpadPainter(
               isDark: isDark,
-              thumbOffset: _thumbOffset,
-              isActive: _activeDirection != null,
+              activeZone: _activeZone,
             ),
             child: Center(
               child: Text(
@@ -171,7 +171,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
                   color: (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
-                      .withValues(alpha: 0.4),
+                      .withValues(alpha: _activeZone == 'Enter' ? 0.8 : 0.4),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -183,97 +183,112 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   }
 }
 
-class _FloatingJoystickPainter extends CustomPainter {
+class _DpadPainter extends CustomPainter {
   final bool isDark;
-  final Offset thumbOffset;
-  final bool isActive;
+  final String? activeZone;
 
-  _FloatingJoystickPainter({
-    required this.isDark,
-    required this.thumbOffset,
-    required this.isActive,
-  });
+  _DpadPainter({required this.isDark, required this.activeZone});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final outerRadius = size.width / 2;
-    const innerRadius = _FloatingJoystickState._innerRadius;
+    final outerR = size.width / 2;
+    const centerR = _FloatingJoystickState._centerRadius;
 
-    // Outer circle (semi-transparent background)
-    canvas.drawCircle(
-      center,
-      outerRadius,
-      Paint()
-        ..color = (isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight)
-            .withValues(alpha: 0.85),
-    );
+    final bgColor = (isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight)
+        .withValues(alpha: 0.85);
+    final borderColor = (isDark ? DesignColors.borderDark : DesignColors.borderLight)
+        .withValues(alpha: 0.6);
+    final textColor = isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+
+    // Background circle
+    canvas.drawCircle(center, outerR, Paint()..color = bgColor);
+
+    // Highlight active zone
+    if (activeZone != null) {
+      final highlightColor = DesignColors.primary.withValues(alpha: 0.25);
+      if (activeZone == 'Enter') {
+        canvas.drawCircle(center, centerR, Paint()..color = highlightColor);
+      } else {
+        final startAngle = switch (activeZone) {
+          'Right' => -math.pi / 4,
+          'Down' => math.pi / 4,
+          'Left' => 3 * math.pi / 4,
+          'Up' => -3 * math.pi / 4,
+          _ => 0.0,
+        };
+        final path = Path()
+          ..moveTo(center.dx, center.dy)
+          ..arcTo(
+            Rect.fromCircle(center: center, radius: outerR),
+            startAngle,
+            math.pi / 2,
+            false,
+          )
+          ..close();
+        canvas.drawPath(path, Paint()..color = highlightColor);
+      }
+    }
 
     // Outer ring
     canvas.drawCircle(
       center,
-      outerRadius - 1,
+      outerR - 1,
       Paint()
-        ..color = (isDark ? DesignColors.borderDark : DesignColors.borderLight)
-            .withValues(alpha: 0.6)
+        ..color = borderColor
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
 
-    // Direction indicators (small arrows)
-    final arrowColor = (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
-        .withValues(alpha: 0.2);
+    // Center circle border
+    canvas.drawCircle(
+      center,
+      centerR,
+      Paint()
+        ..color = borderColor.withValues(alpha: 0.4)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    // Divider lines between quadrants
+    final dividerPaint = Paint()
+      ..color = borderColor.withValues(alpha: 0.3)
+      ..strokeWidth = 0.5;
+    for (final angle in [math.pi / 4, 3 * math.pi / 4, -math.pi / 4, -3 * math.pi / 4]) {
+      final inner = center + Offset(math.cos(angle) * centerR, math.sin(angle) * centerR);
+      final outer = center + Offset(math.cos(angle) * (outerR - 2), math.sin(angle) * (outerR - 2));
+      canvas.drawLine(inner, outer, dividerPaint);
+    }
+
+    // Arrow chevrons in each quadrant
     final arrowPaint = Paint()
-      ..color = arrowColor
+      ..color = textColor.withValues(alpha: 0.35)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
+      ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round;
 
-    const arrowSize = 6.0;
-    const arrowDist = 34.0;
+    const dist = 33.0;
+    const sz = 6.0;
 
-    // Up arrow
-    _drawArrow(canvas, center + const Offset(0, -arrowDist), arrowSize, 0, arrowPaint);
-    // Down arrow
-    _drawArrow(canvas, center + const Offset(0, arrowDist), arrowSize, math.pi, arrowPaint);
-    // Left arrow
-    _drawArrow(canvas, center + const Offset(-arrowDist, 0), arrowSize, math.pi / 2, arrowPaint);
-    // Right arrow
-    _drawArrow(canvas, center + const Offset(arrowDist, 0), arrowSize, -math.pi / 2, arrowPaint);
-
-    // Inner thumb
-    final thumbColor = isActive
-        ? DesignColors.primary
-        : (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
-            .withValues(alpha: 0.5);
-
-    canvas.drawCircle(
-      center + thumbOffset,
-      innerRadius,
-      Paint()..color = thumbColor.withValues(alpha: 0.3),
-    );
-    canvas.drawCircle(
-      center + thumbOffset,
-      innerRadius,
-      Paint()
-        ..color = thumbColor.withValues(alpha: 0.6)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
+    _drawChevron(canvas, center + const Offset(0, -dist), sz, -math.pi / 2, arrowPaint);
+    _drawChevron(canvas, center + const Offset(0, dist), sz, math.pi / 2, arrowPaint);
+    _drawChevron(canvas, center + const Offset(-dist, 0), sz, math.pi, arrowPaint);
+    _drawChevron(canvas, center + const Offset(dist, 0), sz, 0, arrowPaint);
   }
 
-  void _drawArrow(Canvas canvas, Offset center, double size, double rotation, Paint paint) {
-    final path = Path();
-    // Chevron pointing up, rotated
-    path.moveTo(center.dx - size * math.cos(rotation + math.pi / 4),
-        center.dy - size * math.sin(rotation + math.pi / 4));
-    path.lineTo(center.dx, center.dy);
-    path.lineTo(center.dx + size * math.cos(rotation - math.pi / 4),
-        center.dy + size * math.sin(rotation - math.pi / 4));
+  void _drawChevron(Canvas canvas, Offset tip, double size, double angle, Paint paint) {
+    final dx = math.cos(angle) * size;
+    final dy = math.sin(angle) * size;
+    final px = -dy * 0.7;
+    final py = dx * 0.7;
+
+    final path = Path()
+      ..moveTo(tip.dx - dx + px, tip.dy - dy + py)
+      ..lineTo(tip.dx, tip.dy)
+      ..lineTo(tip.dx - dx - px, tip.dy - dy - py);
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(_FloatingJoystickPainter old) =>
-      thumbOffset != old.thumbOffset || isActive != old.isActive || isDark != old.isDark;
+  bool shouldRepaint(_DpadPainter old) => activeZone != old.activeZone || isDark != old.isDark;
 }

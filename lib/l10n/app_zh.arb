@@ -454,7 +454,7 @@
 
   "sectionExperimental": "实验功能",
   "floatingPad": "悬浮摇杆",
-  "floatingPadDesc": "终端上的可拖动摇杆。点击中心发送Enter，拖动发送方向键。适合大屏设备。",
+  "floatingPadDesc": "终端上的可拖动方向盘��点击区域发送方向键，点击中心发送Enter，长按重复。适合大屏设备。",
 
   "terminalMode": "终端模式",
   "terminalModeTmux": "tmux",

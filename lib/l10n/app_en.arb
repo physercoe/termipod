@@ -504,7 +504,7 @@
 
   "sectionExperimental": "Experimental",
   "floatingPad": "Floating Joystick",
-  "floatingPadDesc": "Draggable joystick overlay on terminal. Center tap sends Enter, drag sends arrow keys. Best on large screens.",
+  "floatingPadDesc": "Draggable D-pad overlay on terminal. Tap zones for arrow keys, center for Enter, long-press to repeat. Best on large screens.",
 
   "terminalMode": "Terminal Mode",
   "terminalModeTmux": "tmux",

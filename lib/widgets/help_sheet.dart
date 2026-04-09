@@ -261,10 +261,11 @@ class _HelpSheetContent extends StatelessWidget {
         _TmuxEntry('Action Buttons', '4 customizable keys (ESC, TAB, C-C, ENT)'),
         _TmuxEntry('Chevron', 'Cycle: full > compact > off'),
       ],
-      'Floating Joystick (Experimental)': [
-        _TmuxEntry('Drag', 'Arrow keys (hold to repeat)'),
+      'Floating Pad (Experimental)': [
+        _TmuxEntry('Tap Zone', 'Arrow key (Up/Down/Left/Right)'),
         _TmuxEntry('Tap Center', 'Enter key'),
-        _TmuxEntry('Drag Edge', 'Reposition on screen'),
+        _TmuxEntry('Long Press', 'Auto-repeat arrow or Enter'),
+        _TmuxEntry('Drag', 'Reposition on screen'),
       ],
       'Scroll Mode': [
         _TmuxEntry('Swipe Up/Down', 'Scroll terminal output'),

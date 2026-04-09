@@ -48,7 +48,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   final FocusNode _focusNode = FocusNode();
   bool _hasText = false;
 
-  // Direct input mode state (sentinel approach from SpecialKeysBar)
+  // Direct input mode state (sentinel approach)
   static const String _sentinel = '\u200B';
   final TextEditingController _directController = TextEditingController();
   final FocusNode _directFocusNode = FocusNode();
@@ -132,7 +132,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   }
 
   // ---------------------------------------------------------------------------
-  // Direct input mode (migrated from SpecialKeysBar)
+  // Direct input mode
   // ---------------------------------------------------------------------------
 
   void _onDirectInputChanged() {

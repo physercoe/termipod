@@ -15,7 +15,7 @@ enum KeyOverlayCategory {
 
 /// キーオーバーレイの表示位置
 enum KeyOverlayPosition {
-  /// キーボード（SpecialKeysBar）の真上
+  /// Above the action bar
   aboveKeyboard,
 
   /// ターミナル領域の中央

@@ -80,6 +80,10 @@ class _TerminalViewData {
   final int paneWidth;
   final int paneHeight;
   final int scrollbackSize;
+  // Cursor position for raw mode (tmux mode still reads from activePane).
+  // null means "use the tmux activePane cursor instead".
+  final int? rawCursorX;
+  final int? rawCursorY;
 
   const _TerminalViewData({
     this.content = '',
@@ -87,6 +91,8 @@ class _TerminalViewData {
     this.paneWidth = 80,
     this.paneHeight = 24,
     this.scrollbackSize = 0,
+    this.rawCursorX,
+    this.rawCursorY,
   });
 
   _TerminalViewData copyWith({
@@ -95,6 +101,8 @@ class _TerminalViewData {
     int? paneWidth,
     int? paneHeight,
     int? scrollbackSize,
+    int? rawCursorX,
+    int? rawCursorY,
   }) =>
       _TerminalViewData(
         content: content ?? this.content,
@@ -102,6 +110,8 @@ class _TerminalViewData {
         paneWidth: paneWidth ?? this.paneWidth,
         paneHeight: paneHeight ?? this.paneHeight,
         scrollbackSize: scrollbackSize ?? this.scrollbackSize,
+        rawCursorX: rawCursorX ?? this.rawCursorX,
+        rawCursorY: rawCursorY ?? this.rawCursorY,
       );
 }
 
@@ -669,6 +679,21 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final scrollback = backend.scrollbackSize;
     final latency = backend is TmuxBackend ? backend.latency : 0;
 
+    // For raw backend: push cursor directly into _viewNotifier so AnsiTextView
+    // can draw it. Tmux backend routes cursor via tmuxProvider.activePane.
+    if (!backend.supportsNavigation) {
+      final cursor = backend.cursorPosition;
+      final dims = backend.dimensions;
+      if (mounted && !_isDisposed) {
+        _viewNotifier.value = _viewNotifier.value.copyWith(
+          rawCursorX: cursor.x,
+          rawCursorY: cursor.y,
+          paneWidth: dims.width,
+          paneHeight: dims.height,
+        );
+      }
+    }
+
     // For tmux backend: scroll mode buffering
     if (backend.supportsNavigation &&
         _terminalMode == TerminalMode.scroll &&
@@ -1164,10 +1189,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           builder: (context, viewData, _) {
                             return Consumer(
                               builder: (context, ref, _) {
-                                final cursor = ref.watch(tmuxProvider(widget.connectionId).select((s) => (
-                                  x: s.activePane?.cursorX ?? 0,
-                                  y: s.activePane?.cursorY ?? 0,
-                                )));
+                                // Raw PTY backend writes cursor directly into viewData;
+                                // tmux backend routes cursor through tmuxProvider.activePane.
+                                final ({int x, int y}) cursor;
+                                if (viewData.rawCursorX != null && viewData.rawCursorY != null) {
+                                  cursor = (x: viewData.rawCursorX!, y: viewData.rawCursorY!);
+                                } else {
+                                  cursor = ref.watch(tmuxProvider(widget.connectionId).select((s) => (
+                                    x: s.activePane?.cursorX ?? 0,
+                                    y: s.activePane?.cursorY ?? 0,
+                                  )));
+                                }
                                 return AnsiTextView(
                                   key: _ansiTextViewKey,
                                   text: viewData.content,
@@ -2777,14 +2809,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       backgroundColor: menuBgColor,
       isDismissible: true,
       enableDrag: true,
+      isScrollControlled: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) {
         return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -3035,6 +3072,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               ),
               const SizedBox(height: 16),
             ],
+            ),
           ),
         );
       },

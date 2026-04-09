@@ -120,7 +120,7 @@ class NavigationPad extends ConsumerWidget {
 class _FullModeLayout extends StatelessWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final VoidCallback? onGestureToggle;
-  final dynamic settings;
+  final AppSettings settings;
   final List<({String label, String tmuxKey})> actionButtons;
   final bool isWide;
   final double screenWidth;
@@ -142,7 +142,7 @@ class _FullModeLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final repeatRate = settings.navPadRepeatRate;
     final haptic = settings.navPadHaptic;
-    final inputStyle = settings.navPadInputStyle;
+    final inputStyle = settings.navPadDpadStyle;
 
     final directional = inputStyle == 'joystick'
         ? _JoystickFull(
@@ -188,7 +188,7 @@ class _FullModeLayout extends StatelessWidget {
 
 class _CompactModeLayout extends StatelessWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
-  final dynamic settings;
+  final AppSettings settings;
   final List<({String label, String tmuxKey})> actionButtons;
   final bool isWide;
   final WidgetRef ref;

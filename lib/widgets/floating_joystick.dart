@@ -31,10 +31,10 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   double _right = 16;
   double _bottom = 8;
 
-  static const _outerRadius = 48.0;
-  static const _centerRadius = 18.0;
+  static const _outerRadius = 64.0;
+  static const _centerRadius = 24.0;
   // Minimum drag distance (px) before treating gesture as reposition
-  static const _dragThreshold = 12.0;
+  static const _dragThreshold = 16.0;
 
   String? _activeZone;
   Timer? _repeatTimer;
@@ -61,6 +61,26 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     if (angle > math.pi / 4 && angle <= 3 * math.pi / 4) return 'Down';
     if (angle > -3 * math.pi / 4 && angle <= -math.pi / 4) return 'Up';
     return 'Left';
+  }
+
+  void _onTapDown(TapDownDetails details) {
+    // Highlight the zone under the finger on tap down
+    final zone = _hitTest(details.localPosition);
+    setState(() => _activeZone = zone);
+  }
+
+  void _onTap() {
+    // Fire the key for the last highlighted zone
+    final zone = _activeZone;
+    if (zone != null) {
+      widget.onSpecialKeyPressed(zone);
+      if (widget.haptic) HapticFeedback.lightImpact();
+    }
+    setState(() => _activeZone = null);
+  }
+
+  void _onTapCancel() {
+    setState(() => _activeZone = null);
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -97,14 +117,8 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   }
 
   void _onPanEnd(DragEndDetails _) {
-    if (!_isRepositioning && !_hasFired) {
-      // Short tap — fire the key
-      final zone = _hitTest(_touchStartLocal);
-      if (zone != null) {
-        widget.onSpecialKeyPressed(zone);
-        if (widget.haptic) HapticFeedback.lightImpact();
-      }
-    }
+    // Pure taps are handled by onTap — pan only reaches here after movement,
+    // which means the gesture was a reposition or a long-press drag.
     _stopRepeat();
     _isRepositioning = false;
     setState(() => _activeZone = null);
@@ -148,6 +162,9 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
       right: _right,
       bottom: _bottom,
       child: GestureDetector(
+        onTapDown: _onTapDown,
+        onTap: _onTap,
+        onTapCancel: _onTapCancel,
         onPanStart: _onPanStart,
         onPanUpdate: _onPanUpdate,
         onPanEnd: _onPanEnd,
@@ -168,7 +185,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
               child: Text(
                 'ENT',
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight)
                       .withValues(alpha: _activeZone == 'Enter' ? 0.8 : 0.4),
@@ -267,13 +284,13 @@ class _DpadPainter extends CustomPainter {
       ..strokeWidth = 2.0
       ..strokeCap = StrokeCap.round;
 
-    const dist = 33.0;
-    const sz = 6.0;
+    final dist = outerR * 0.70;
+    const sz = 8.0;
 
-    _drawChevron(canvas, center + const Offset(0, -dist), sz, -math.pi / 2, arrowPaint);
-    _drawChevron(canvas, center + const Offset(0, dist), sz, math.pi / 2, arrowPaint);
-    _drawChevron(canvas, center + const Offset(-dist, 0), sz, math.pi, arrowPaint);
-    _drawChevron(canvas, center + const Offset(dist, 0), sz, 0, arrowPaint);
+    _drawChevron(canvas, center + Offset(0, -dist), sz, -math.pi / 2, arrowPaint);
+    _drawChevron(canvas, center + Offset(0, dist), sz, math.pi / 2, arrowPaint);
+    _drawChevron(canvas, center + Offset(-dist, 0), sz, math.pi, arrowPaint);
+    _drawChevron(canvas, center + Offset(dist, 0), sz, 0, arrowPaint);
   }
 
   void _drawChevron(Canvas canvas, Offset tip, double size, double angle, Paint paint) {

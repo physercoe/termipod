@@ -23,7 +23,7 @@
 
 ---
 
-> **TermiPod** is a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), adding a complete input UX redesign with CLI agent profiles, code snippets, SSH jump host/proxy support, help system, and other enhancements.
+> **TermiPod** is a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), adding a complete input UX redesign with CLI agent profiles, code snippets, SSH jump host/proxy support, navigation pad with gesture controls, raw PTY mode, help system, and other enhancements.
 
 ---
 
@@ -36,7 +36,7 @@
 
 ## What is TermiPod?
 
-TermiPod is a **mobile SSH client and tmux manager for Android** — purpose-built for developers who run long-lived terminal sessions on remote servers and need to check in, interact, or operate from their phone.
+TermiPod is a **mobile SSH client and tmux manager for Android** — purpose-built for developers who run long-lived terminal sessions on remote servers and need to check in, interact, or operate from their phone. Also supports raw PTY connections for servers without tmux.
 
 Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how people actually use terminals on mobile:
 
@@ -64,7 +64,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **SOCKS5 proxy** — Route SSH through corporate proxies, VPNs, or Shadowsocks/Clash
 - **Connection testing** — Verify SSH + tmux availability before saving
 - **Secure storage** — Keys and passwords in Android Keystore via flutter_secure_storage
-- **Zero server setup** — Works with any server running `sshd` + `tmux`. Nothing to install remotely.
+- **Zero server setup** — Works with any server running `sshd` (+ `tmux` for session management). Nothing to install remotely.
 
 ### tmux Session Management
 - **Visual session/window/pane navigation** — Breadcrumb header with tap-to-switch
@@ -90,8 +90,22 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **Image transfer** — Send photos with format conversion, resize presets, and path injection
 - **Bracketed paste** — Auto-wrap paths in bracketed paste mode for safe insertion
 
+### Navigation Pad
+- **D-pad mode** — Classic cross layout for arrow keys with auto-repeat on hold
+- **Joystick mode** — Circular drag zone for directional input
+- **Action buttons** — 2x2 grid of customizable keys (default: ESC, TAB, C-C, ENT)
+- **Compact mode** — Single-row layout with arrows + action buttons
+- **Gesture surface** — Overlay mode: swipe for arrows, double-tap for Tab, two-finger for Enter, three-finger for Escape, long-press for paste
+- **Adaptive layout** — Auto-detects screen width for foldable/tablet optimization
+
+### Raw PTY Mode
+- **No-tmux connections** — Connect to servers without tmux installed, direct shell access
+- **xterm VT state machine** — Headless xterm.dart Terminal processes PTY byte stream with full ANSI rendering
+- **Terminal mode selector** — Choose tmux or raw shell per connection in the connection form
+- **Full input support** — Action bar, nav pad, compose bar, and gesture surface all work in raw mode
+
 ### Help & Onboarding
-- **Built-in help** — Tabbed cheat sheet for action bar buttons and tmux keybindings, accessible from terminal menu
+- **Built-in help** — Tabbed cheat sheet for action bar buttons, gesture controls, and tmux keybindings
 - **First-run walkthrough** — 4-card onboarding overlay explaining compose bar, action bar, insert menu, and terminal menu
 
 ### Other
@@ -114,7 +128,9 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 | **SSH jump host** | Built-in ProxyJump | Via CLI | Via CLI | Built-in | None |
 | **SOCKS5 proxy** | Built-in | Via CLI | None | None | None |
 | **File transfer** | SFTP with UI | Local filesystem | None | SFTP | None |
-| **Help / cheat sheet** | Built-in tmux reference | None | None | None | None |
+| **Navigation pad** | D-pad/joystick + gestures | None | None | None | None |
+| **Raw PTY mode** | No-tmux shell support | N/A (local) | Yes | Yes | Yes |
+| **Help / cheat sheet** | Action bar + gestures + tmux | None | None | None | None |
 | **Open source** | Yes (Apache 2.0) | Yes | No | No | Yes |
 | **Price** | Free | Free | Freemium | Freemium | Free |
 
@@ -201,10 +217,21 @@ Tap **Session > Window > Pane** in the header to switch contexts instantly. The 
 
 | Gesture | Action |
 |---------|--------|
-| **Hold + Swipe** | Send arrow keys — perfect for vim/nano |
 | **Two-finger swipe** | Switch tmux panes |
 | **Pinch** | Zoom in/out (50%–500%) |
 | **Tap pane indicator** | Quick pane switcher with visual layout |
+
+#### Navigation Pad & Gesture Surface
+
+| Input | Action |
+|-------|--------|
+| **D-pad / Joystick** | Arrow keys (hold to repeat) |
+| **Action buttons** | 4 customizable keys (ESC, TAB, C-C, ENT) |
+| **Swipe on gesture surface** | Arrow keys (L/R/U/D) |
+| **Double-tap** | Tab key |
+| **Two-finger tap** | Enter key |
+| **Three-finger tap** | Escape key |
+| **Long-press** | Paste from clipboard |
 
 ### Action Bar
 
@@ -293,7 +320,7 @@ flutter build apk --release
 |-----------|-------------|
 | **Device** | Android 8.0+ (API 26) |
 | **Server** | Any SSH server (OpenSSH, Dropbear, etc.) |
-| **tmux** | Any version (tested with 2.9+) |
+| **tmux** | Any version (tested with 2.9+) — optional in raw PTY mode |
 | **Network** | Direct SSH, or via jump host / SOCKS5 proxy |
 
 ---
@@ -304,7 +331,7 @@ flutter build apk --release
 |---|---|
 | **Framework** | Flutter 3.24+ / Dart 3.x |
 | **SSH** | [dartssh2](https://pub.dev/packages/dartssh2) |
-| **Terminal** | [xterm](https://pub.dev/packages/xterm) (rendering) |
+| **Terminal** | [xterm](https://pub.dev/packages/xterm) (rendering + headless VT for raw PTY) |
 | **State** | [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) |
 | **Security** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) (Android Keystore) |
 
@@ -324,10 +351,10 @@ See [docs/](docs/) for architecture details and coding conventions.
 
 ## Roadmap
 
-- Navigation pad — Game-style D-pad and action buttons for thumb-optimized arrow/tab/enter input
+- Hybrid xterm mode — Combine PTY stream rendering with tmux session navigation
 - Custom terminal keyboard — Compact Flutter-native keyboard for direct input mode (half the height of system keyboard)
-- Real xterm mode — Native VT terminal via PTY stream as alternative to tmux polling
 - Local echo — Predictive character display for low-latency feel on slow connections
+- Cursor alignment — Font glyph width calibration for pixel-perfect cursor positioning
 
 ---
 

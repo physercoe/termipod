@@ -473,7 +473,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final sshClient = sshNotifier.client;
     if (sshClient == null) throw Exception('SSH client not available');
 
-    final settings = ref.read(settingsProvider);
     final displayState = ref.read(terminalDisplayProvider);
     final cols = displayState.paneWidth > 0 ? displayState.paneWidth : 80;
     final rows = displayState.paneHeight > 0 ? displayState.paneHeight : 24;
@@ -664,8 +663,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (backend == null) return;
 
     final content = backend.currentContent;
-    final cursor = backend.cursorPosition;
-    final dims = backend.dimensions;
     final scrollback = backend.scrollbackSize;
     final latency = backend is TmuxBackend ? backend.latency : 0;
 

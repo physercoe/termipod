@@ -502,6 +502,10 @@
   "navPadHapticDesc": "Vibrate on D-pad and action button press",
   "navPadMenuTitle": "Navigation Pad",
 
+  "sectionExperimental": "Experimental",
+  "floatingPad": "Floating Joystick",
+  "floatingPadDesc": "Draggable joystick overlay on terminal. Center tap sends Enter, drag sends arrow keys. Best on large screens.",
+
   "terminalMode": "Terminal Mode",
   "terminalModeTmux": "tmux",
   "terminalModeRaw": "Raw Shell",

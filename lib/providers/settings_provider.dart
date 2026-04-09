@@ -76,6 +76,10 @@ class AppSettings {
   /// JSON-encoded list of 4 custom action buttons (null = defaults)
   final String? navPadButtons;
 
+  // --- Experimental features ---
+  /// Floating joystick overlay on terminal (experimental)
+  final bool floatingPadEnabled;
+
   const AppSettings({
     this.darkMode = true,
     this.fontSize = 14.0,
@@ -115,6 +119,7 @@ class AppSettings {
     this.navPadRepeatRate = 80,
     this.navPadHaptic = true,
     this.navPadButtons,
+    this.floatingPadEnabled = false,
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -160,6 +165,7 @@ class AppSettings {
     bool? navPadHaptic,
     String? navPadButtons,
     bool clearNavPadButtons = false,
+    bool? floatingPadEnabled,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -201,6 +207,7 @@ class AppSettings {
       navPadHaptic: navPadHaptic ?? this.navPadHaptic,
       navPadButtons:
           clearNavPadButtons ? null : (navPadButtons ?? this.navPadButtons),
+      floatingPadEnabled: floatingPadEnabled ?? this.floatingPadEnabled,
     );
   }
 }
@@ -245,6 +252,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _navPadRepeatRateKey = 'settings_nav_pad_repeat_rate';
   static const String _navPadHapticKey = 'settings_nav_pad_haptic';
   static const String _navPadButtonsKey = 'settings_nav_pad_buttons';
+  static const String _floatingPadEnabledKey = 'settings_floating_pad_enabled';
 
   @override
   AppSettings build() {
@@ -295,6 +303,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
       navPadHaptic: prefs.getBool(_navPadHapticKey) ?? true,
       navPadButtons: prefs.getString(_navPadButtonsKey),
+      floatingPadEnabled: prefs.getBool(_floatingPadEnabledKey) ?? false,
     );
   }
 
@@ -536,6 +545,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
       state = state.copyWith(navPadButtons: value);
       await _saveSetting(_navPadButtonsKey, value);
     }
+  }
+
+  // --- Experimental features ---
+  Future<void> setFloatingPadEnabled(bool value) async {
+    state = state.copyWith(floatingPadEnabled: value);
+    await _saveSetting(_floatingPadEnabledKey, value);
   }
 
   Future<void> reload() async {

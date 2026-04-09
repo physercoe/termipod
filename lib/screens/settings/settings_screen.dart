@@ -311,6 +311,17 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ],
                 const Divider(),
+                _SectionHeader(title: l10n.sectionExperimental),
+                SwitchListTile(
+                  secondary: const Icon(Icons.science),
+                  title: Text(l10n.floatingPad),
+                  subtitle: Text(l10n.floatingPadDesc),
+                  value: settings.floatingPadEnabled,
+                  onChanged: (value) {
+                    ref.read(settingsProvider.notifier).setFloatingPadEnabled(value);
+                  },
+                ),
+                const Divider(),
                 _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(
                   builder: (context, ref, _) {

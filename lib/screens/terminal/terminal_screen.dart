@@ -30,6 +30,7 @@ import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/help_sheet.dart';
 import '../../widgets/gesture_surface.dart';
+import '../../widgets/floating_joystick.dart';
 import '../../widgets/navigation_pad.dart';
 import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/onboarding_overlay.dart';
@@ -1312,6 +1313,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               ),
             ],
           ),
+          // Floating joystick overlay (experimental)
+          if (ref.watch(settingsProvider).floatingPadEnabled)
+            FloatingJoystick(
+              onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+              haptic: ref.watch(settingsProvider).navPadHaptic,
+              repeatRate: ref.watch(settingsProvider).navPadRepeatRate,
+            ),
           // ローディングオーバーレイ
           if (_isConnecting || sshState.isConnecting)
             Container(

@@ -194,6 +194,85 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                 ],
                 const Divider(),
+                _SectionHeader(title: l10n.sectionNavPad),
+                ListTile(
+                  leading: const Icon(Icons.gamepad),
+                  title: Text(l10n.navPadMode),
+                  subtitle: Text(
+                    switch (settings.navPadMode) {
+                      'full' => l10n.navPadModeFull,
+                      'compact' => l10n.navPadModeCompact,
+                      _ => l10n.navPadModeOff,
+                    },
+                  ),
+                  onTap: () async {
+                    final result = await showDialog<String>(
+                      context: context,
+                      builder: (context) => SimpleDialog(
+                        title: Text(l10n.navPadMode),
+                        children: [
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, 'full'),
+                            child: Text(l10n.navPadModeFull),
+                          ),
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, 'compact'),
+                            child: Text(l10n.navPadModeCompact),
+                          ),
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, 'off'),
+                            child: Text(l10n.navPadModeOff),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (result != null) {
+                      ref.read(settingsProvider.notifier).setNavPadMode(result);
+                    }
+                  },
+                ),
+                if (settings.navPadMode != 'off') ...[
+                  ListTile(
+                    leading: const Icon(Icons.speed),
+                    title: Text(l10n.navPadRepeatRate),
+                    subtitle: Text(l10n.navPadRepeatRateMs(settings.navPadRepeatRate)),
+                    onTap: () async {
+                      final result = await showDialog<int>(
+                        context: context,
+                        builder: (context) => SimpleDialog(
+                          title: Text(l10n.navPadRepeatRate),
+                          children: [
+                            for (final ms in [50, 80, 100, 120, 150, 200])
+                              SimpleDialogOption(
+                                onPressed: () => Navigator.pop(context, ms),
+                                child: Text(
+                                  l10n.navPadRepeatRateMs(ms),
+                                  style: TextStyle(
+                                    fontWeight: ms == settings.navPadRepeatRate
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                      if (result != null) {
+                        ref.read(settingsProvider.notifier).setNavPadRepeatRate(result);
+                      }
+                    },
+                  ),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.vibration),
+                    title: Text(l10n.navPadHaptic),
+                    subtitle: Text(l10n.navPadHapticDesc),
+                    value: settings.navPadHaptic,
+                    onChanged: (value) {
+                      ref.read(settingsProvider.notifier).setNavPadHaptic(value);
+                    },
+                  ),
+                ],
+                const Divider(),
                 _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(
                   builder: (context, ref, _) {

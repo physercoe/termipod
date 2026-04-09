@@ -66,6 +66,12 @@ class AppSettings {
   /// Language override: 'system', 'en', 'zh'
   final String locale;
 
+  // --- Navigation Pad settings ---
+  /// Navigation pad mode: 'full', 'compact', 'off'
+  final String navPadMode;
+  final int navPadRepeatRate;
+  final bool navPadHaptic;
+
   const AppSettings({
     this.darkMode = true,
     this.fontSize = 14.0,
@@ -100,6 +106,9 @@ class AppSettings {
     this.imageAutoEnter = false,
     this.imageBracketedPaste = false,
     this.locale = 'system',
+    this.navPadMode = 'off',
+    this.navPadRepeatRate = 80,
+    this.navPadHaptic = true,
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -139,6 +148,9 @@ class AppSettings {
     bool? imageAutoEnter,
     bool? imageBracketedPaste,
     String? locale,
+    String? navPadMode,
+    int? navPadRepeatRate,
+    bool? navPadHaptic,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -174,6 +186,9 @@ class AppSettings {
       imageAutoEnter: imageAutoEnter ?? this.imageAutoEnter,
       imageBracketedPaste: imageBracketedPaste ?? this.imageBracketedPaste,
       locale: locale ?? this.locale,
+      navPadMode: navPadMode ?? this.navPadMode,
+      navPadRepeatRate: navPadRepeatRate ?? this.navPadRepeatRate,
+      navPadHaptic: navPadHaptic ?? this.navPadHaptic,
     );
   }
 }
@@ -213,6 +228,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _keyOverlayShortcutKey = 'settings_key_overlay_shortcut';
   static const String _keyOverlayPositionKey = 'settings_key_overlay_position';
   static const String _localeKey = 'settings_locale';
+  static const String _navPadModeKey = 'settings_nav_pad_mode';
+  static const String _navPadRepeatRateKey = 'settings_nav_pad_repeat_rate';
+  static const String _navPadHapticKey = 'settings_nav_pad_haptic';
 
   @override
   AppSettings build() {
@@ -258,6 +276,9 @@ class SettingsNotifier extends Notifier<AppSettings> {
       imageAutoEnter: prefs.getBool(_imageAutoEnterKey) ?? false,
       imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
       locale: prefs.getString(_localeKey) ?? 'system',
+      navPadMode: prefs.getString(_navPadModeKey) ?? 'off',
+      navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
+      navPadHaptic: prefs.getBool(_navPadHapticKey) ?? true,
     );
   }
 
@@ -458,6 +479,31 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setLocale(String value) async {
     state = state.copyWith(locale: value);
     await _saveSetting(_localeKey, value);
+  }
+
+  // --- Navigation Pad settings setters ---
+  Future<void> setNavPadMode(String value) async {
+    state = state.copyWith(navPadMode: value);
+    await _saveSetting(_navPadModeKey, value);
+  }
+
+  Future<void> cycleNavPadMode() async {
+    final next = switch (state.navPadMode) {
+      'full' => 'compact',
+      'compact' => 'off',
+      _ => 'full',
+    };
+    await setNavPadMode(next);
+  }
+
+  Future<void> setNavPadRepeatRate(int value) async {
+    state = state.copyWith(navPadRepeatRate: value);
+    await _saveSetting(_navPadRepeatRateKey, value);
+  }
+
+  Future<void> setNavPadHaptic(bool value) async {
+    state = state.copyWith(navPadHaptic: value);
+    await _saveSetting(_navPadHapticKey, value);
   }
 
   Future<void> reload() async {

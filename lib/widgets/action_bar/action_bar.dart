@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_page.dart';
 
@@ -161,16 +162,24 @@ class _ActionBarState extends ConsumerState<ActionBar> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(actionBarProvider);
-    final groups = state.activeGroups;
+    final settings = ref.watch(settingsProvider);
+    // When nav pad is active, filter out the "Navigate" group (arrows/tab/enter/esc
+    // are handled by the nav pad instead)
+    final groups = settings.navPadMode != 'off'
+        ? state.activeGroups.where((g) => g.name != 'Navigate').toList()
+        : state.activeGroups;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Sync page controller when profile changes
+    final clampedPage = state.currentPage < groups.length
+        ? state.currentPage
+        : (groups.isEmpty ? 0 : groups.length - 1);
     if (_pageController.hasClients &&
-        state.currentPage < groups.length &&
-        _pageController.page?.round() != state.currentPage) {
+        clampedPage < groups.length &&
+        _pageController.page?.round() != clampedPage) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_pageController.hasClients && state.currentPage < groups.length) {
-          _pageController.jumpToPage(state.currentPage);
+        if (_pageController.hasClients && clampedPage < groups.length) {
+          _pageController.jumpToPage(clampedPage);
         }
       });
     }

@@ -26,6 +26,7 @@ import '../../widgets/dialogs/resize_dialog.dart';
 import '../../theme/design_colors.dart';
 import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/help_sheet.dart';
+import '../../widgets/navigation_pad.dart';
 import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/onboarding_overlay.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
@@ -1145,6 +1146,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     backgroundColor: Colors.transparent,
                   );
                 },
+              ),
+              // Navigation Pad (D-pad + action buttons)
+              NavigationPad(
+                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                onKeyPressed: _sendKeyWithOverlay,
               ),
               // Action bar (swipeable button groups)
               ActionBar(
@@ -2692,6 +2698,36 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         Navigator.pop(context);
                       }
                     : null,
+              ),
+              // Navigation Pad mode cycle
+              Consumer(
+                builder: (context, menuRef, _) {
+                  final navMode = menuRef.watch(settingsProvider).navPadMode;
+                  final l10n = AppLocalizations.of(context)!;
+                  final modeLabel = switch (navMode) {
+                    'full' => l10n.navPadModeFull,
+                    'compact' => l10n.navPadModeCompact,
+                    _ => l10n.navPadModeOff,
+                  };
+                  return ListTile(
+                    leading: Icon(
+                      Icons.gamepad,
+                      color: navMode != 'off' ? DesignColors.primary : inactiveIconColor,
+                    ),
+                    title: Text(
+                      l10n.navPadMenuTitle,
+                      style: TextStyle(color: textColor),
+                    ),
+                    subtitle: Text(
+                      modeLabel,
+                      style: TextStyle(color: mutedTextColor, fontSize: 12),
+                    ),
+                    onTap: () {
+                      menuRef.read(settingsProvider.notifier).cycleNavPadMode();
+                      Navigator.pop(context);
+                    },
+                  );
+                },
               ),
               Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
               // Help

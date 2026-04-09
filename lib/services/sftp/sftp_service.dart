@@ -218,7 +218,27 @@ class SftpService {
       var receivedBytes = startOffset;
 
       try {
-        await for (final chunk in file.read(offset: startOffset > 0 ? startOffset : null)) {
+        // dartssh2 SftpFile.read() streams from current position.
+        // For resume, we skip already-received bytes.
+        var skippedBytes = 0;
+        await for (final chunk in file.read()) {
+          // Skip bytes we already have from a previous partial download
+          if (skippedBytes < startOffset) {
+            final remaining = startOffset - skippedBytes;
+            if (chunk.length <= remaining) {
+              skippedBytes += chunk.length;
+              continue;
+            }
+            // Partial skip: take only the new part of this chunk
+            final newBytes = chunk.sublist(remaining);
+            skippedBytes = startOffset;
+            sink.add(newBytes);
+            receivedBytes += newBytes.length;
+            if (totalBytes > 0) {
+              onProgress?.call(receivedBytes / totalBytes, receivedBytes, totalBytes);
+            }
+            continue;
+          }
           sink.add(chunk);
           receivedBytes += chunk.length;
           if (totalBytes > 0) {

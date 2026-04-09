@@ -21,6 +21,11 @@ class AppSettings {
   /// DirectInputモード（入力した文字を即座にターミナルに送信）
   final bool directInputEnabled;
 
+  /// When true, direct input mode uses the Flutter-native custom keyboard
+  /// instead of the hidden TextField + system IME. Users who need CJK
+  /// composition or system voice input should keep this OFF.
+  final bool useCustomKeyboard;
+
   /// ターミナルカーソルの表示設定
   final bool showTerminalCursor;
 
@@ -100,6 +105,7 @@ class AppSettings {
     this.minFontSize = 8.0,
     this.adjustMode = 'autoFit',
     this.directInputEnabled = false,
+    this.useCustomKeyboard = true,
     this.showTerminalCursor = true,
     this.invertPaneNavigation = false,
     this.showKeyOverlay = true,
@@ -148,6 +154,7 @@ class AppSettings {
     double? minFontSize,
     String? adjustMode,
     bool? directInputEnabled,
+    bool? useCustomKeyboard,
     bool? showTerminalCursor,
     bool? invertPaneNavigation,
     bool? showKeyOverlay,
@@ -193,6 +200,7 @@ class AppSettings {
       minFontSize: minFontSize ?? this.minFontSize,
       adjustMode: adjustMode ?? this.adjustMode,
       directInputEnabled: directInputEnabled ?? this.directInputEnabled,
+      useCustomKeyboard: useCustomKeyboard ?? this.useCustomKeyboard,
       showTerminalCursor: showTerminalCursor ?? this.showTerminalCursor,
       invertPaneNavigation: invertPaneNavigation ?? this.invertPaneNavigation,
       showKeyOverlay: showKeyOverlay ?? this.showKeyOverlay,
@@ -242,6 +250,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _minFontSizeKey = 'settings_min_font_size';
   static const String _adjustModeKey = 'settings_adjust_mode';
   static const String _directInputEnabledKey = 'settings_direct_input_enabled';
+  static const String _useCustomKeyboardKey = 'settings_use_custom_keyboard';
   static const String _showTerminalCursorKey = 'settings_show_terminal_cursor';
   static const String _invertPaneNavKey = 'settings_invert_pane_nav';
   static const String _fileRemotePathKey = 'settings_file_remote_path';
@@ -296,6 +305,7 @@ class SettingsNotifier extends Notifier<AppSettings> {
       minFontSize: prefs.getDouble(_minFontSizeKey) ?? 8.0,
       adjustMode: prefs.getString(_adjustModeKey) ?? 'autoFit',
       directInputEnabled: prefs.getBool(_directInputEnabledKey) ?? false,
+      useCustomKeyboard: prefs.getBool(_useCustomKeyboardKey) ?? true,
       showTerminalCursor: prefs.getBool(_showTerminalCursorKey) ?? true,
       invertPaneNavigation: prefs.getBool(_invertPaneNavKey) ?? false,
       showKeyOverlay: prefs.getBool(_showKeyOverlayKey) ?? true,
@@ -412,6 +422,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
   /// DirectInputモードをトグル
   Future<void> toggleDirectInput() async {
     await setDirectInputEnabled(!state.directInputEnabled);
+  }
+
+  /// カスタムキーボードの有効/無効を設定
+  Future<void> setUseCustomKeyboard(bool value) async {
+    state = state.copyWith(useCustomKeyboard: value);
+    await _saveSetting(_useCustomKeyboardKey, value);
   }
 
   /// ターミナルカーソル表示設定を設定

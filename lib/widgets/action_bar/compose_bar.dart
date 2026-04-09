@@ -5,6 +5,7 @@ import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
 import '../../providers/history_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// Compose bar: [+] insert menu + text field + [Send] button.
@@ -324,6 +325,8 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(actionBarProvider);
+    final useCustomKeyboard =
+        ref.watch(settingsProvider.select((s) => s.useCustomKeyboard));
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -372,7 +375,9 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           Expanded(
             child: state.composeMode
                 ? _buildComposeField(isDark, colorScheme)
-                : _buildDirectInputField(isDark, colorScheme),
+                : (useCustomKeyboard
+                    ? _buildLiveStatusChip(isDark)
+                    : _buildDirectInputField(isDark, colorScheme)),
           ),
           const SizedBox(width: 6),
 
@@ -528,6 +533,46 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           suffixIconConstraints:
               const BoxConstraints(minWidth: 0, minHeight: 0),
         ),
+      ),
+    );
+  }
+
+  /// Status chip displayed in direct input mode when the Flutter-native
+  /// custom keyboard is active. The text field is not mounted because the
+  /// custom keyboard captures input directly — this chip simply signals
+  /// that direct mode is live so the compose bar still feels "active".
+  Widget _buildLiveStatusChip(bool isDark) {
+    return Container(
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: DesignColors.success.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: DesignColors.success.withValues(alpha: 0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.keyboard_rounded,
+            size: 14,
+            color: DesignColors.success,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            AppLocalizations.of(context)!.customKeyboardLive,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.success,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

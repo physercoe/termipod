@@ -470,6 +470,11 @@
   "rawShellDescription": "原始 PTY 终端 — 无 tmux 会话、窗口或面板",
   "openShell": "打开终端",
 
+  "useCustomKeyboardTitle": "使用自定义键盘",
+  "useCustomKeyboardDesc": "终端专用键盘，含 Ctrl/Alt/Esc/方向键。中日韩输入或系统语音输入请关闭。",
+  "customKeyboardLive": "直连",
+  "customKeyboardCapsLock": "大写锁定",
+
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",
   "categoryKimi": "Kimi Code",

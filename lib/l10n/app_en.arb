@@ -520,6 +520,11 @@
   "rawShellDescription": "Raw PTY shell — no tmux sessions, windows, or panes",
   "openShell": "Open Shell",
 
+  "useCustomKeyboardTitle": "Use custom keyboard",
+  "useCustomKeyboardDesc": "Terminal-native keyboard with Ctrl/Alt/Esc/arrows. Disable for CJK (Chinese/Japanese/Korean) input or system voice input.",
+  "customKeyboardLive": "LIVE",
+  "customKeyboardCapsLock": "Caps Lock",
+
   "categoryClaude": "Claude Code",
   "categoryCodex": "Codex",
   "categoryKimi": "Kimi Code",

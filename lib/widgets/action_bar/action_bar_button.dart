@@ -34,7 +34,12 @@ class ActionBarButtonWidget extends StatefulWidget {
 
 class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
   Timer? _repeatTimer;
+  // Post-tap flash: hold the highlight for ~220ms so users get an
+  // unmistakable confirmation that the tap registered. Same pattern as
+  // floating_joystick.dart and navigation_pad.dart _NavButton.
+  Timer? _flashTimer;
   bool _isPressed = false;
+  bool _flashActive = false;
 
   /// Whether this button type supports key repeat on long-press
   bool get _supportsRepeat =>
@@ -47,25 +52,46 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
       value == 'Up' ||
       value == 'Down';
 
+  /// Modifier buttons show armed/locked state persistently, so we skip the
+  /// flash overlay on them — the existing armed/locked color scheme already
+  /// provides unambiguous feedback.
+  bool get _skipFlash => widget.button.type == ActionBarButtonType.modifier;
+
   void _handleTapDown(TapDownDetails _) {
     setState(() => _isPressed = true);
-    if (widget.hapticFeedback) {
-      HapticFeedback.lightImpact();
-    }
   }
 
   void _handleTapUp(TapUpDetails _) {
-    setState(() => _isPressed = false);
+    if (!_flashActive) {
+      setState(() => _isPressed = false);
+    }
     _stopRepeat();
   }
 
   void _handleTapCancel() {
-    setState(() => _isPressed = false);
+    _flashTimer?.cancel();
+    setState(() {
+      _isPressed = false;
+      _flashActive = false;
+    });
     _stopRepeat();
   }
 
   void _handleTap() {
     widget.onTap();
+    if (widget.hapticFeedback) {
+      HapticFeedback.mediumImpact();
+    }
+    if (_skipFlash) return;
+    _flashTimer?.cancel();
+    setState(() => _flashActive = true);
+    _flashTimer = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      setState(() {
+        _isPressed = false;
+        _flashActive = false;
+      });
+    });
   }
 
   void _handleLongPress() {
@@ -92,6 +118,7 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
 
   @override
   void dispose() {
+    _flashTimer?.cancel();
     _stopRepeat();
     super.dispose();
   }
@@ -109,41 +136,58 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
     Color borderColor;
 
     if (isModifier && (widget.isModifierArmed || widget.isModifierLocked)) {
-      // Armed/locked modifier: highlighted
+      // Armed/locked modifier: highlighted (no flash overlay on modifiers —
+      // their armed/locked color already provides persistent feedback).
       bgColor = DesignColors.primary.withValues(alpha: 0.3);
       textColor = DesignColors.primary;
       borderColor = widget.isModifierLocked
           ? DesignColors.primary
           : DesignColors.primary.withValues(alpha: 0.5);
     } else if (isConfirm) {
-      // Confirm buttons: subtle green tint
-      bgColor = _isPressed
-          ? DesignColors.success.withValues(alpha: 0.3)
-          : (isDark
-              ? DesignColors.success.withValues(alpha: 0.1)
-              : DesignColors.success.withValues(alpha: 0.08));
+      // Confirm buttons: subtle green tint, green flash on tap.
+      if (_flashActive) {
+        bgColor = DesignColors.success.withValues(alpha: 0.55);
+        borderColor = DesignColors.success.withValues(alpha: 0.9);
+      } else {
+        bgColor = _isPressed
+            ? DesignColors.success.withValues(alpha: 0.3)
+            : (isDark
+                ? DesignColors.success.withValues(alpha: 0.1)
+                : DesignColors.success.withValues(alpha: 0.08));
+        borderColor = Colors.transparent;
+      }
       textColor = isDark ? DesignColors.success : const Color(0xFF16A34A);
-      borderColor = Colors.transparent;
     } else if (isAction) {
-      // Action buttons: secondary accent
-      bgColor = _isPressed
-          ? DesignColors.secondary.withValues(alpha: 0.3)
-          : (isDark
-              ? DesignColors.keyBackground
-              : DesignColors.keyBackgroundLight);
+      // Action buttons: secondary accent, secondary-color flash on tap.
+      if (_flashActive) {
+        bgColor = DesignColors.secondary.withValues(alpha: 0.55);
+        borderColor = DesignColors.secondary.withValues(alpha: 0.9);
+      } else {
+        bgColor = _isPressed
+            ? DesignColors.secondary.withValues(alpha: 0.3)
+            : (isDark
+                ? DesignColors.keyBackground
+                : DesignColors.keyBackgroundLight);
+        borderColor = Colors.transparent;
+      }
       textColor = DesignColors.secondary;
-      borderColor = Colors.transparent;
     } else {
-      // Normal key button
-      bgColor = _isPressed
-          ? (isDark
-              ? DesignColors.keyBackgroundHover
-              : DesignColors.keyBackgroundHoverLight)
-          : (isDark
-              ? DesignColors.keyBackground
-              : DesignColors.keyBackgroundLight);
-      textColor = isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
-      borderColor = Colors.transparent;
+      // Normal key button — primary-color flash on tap.
+      if (_flashActive) {
+        bgColor = DesignColors.primary.withValues(alpha: 0.55);
+        borderColor = DesignColors.primary.withValues(alpha: 0.9);
+        textColor = DesignColors.primary;
+      } else {
+        bgColor = _isPressed
+            ? (isDark
+                ? DesignColors.keyBackgroundHover
+                : DesignColors.keyBackgroundHoverLight)
+            : (isDark
+                ? DesignColors.keyBackground
+                : DesignColors.keyBackgroundLight);
+        textColor = isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+        borderColor = Colors.transparent;
+      }
     }
 
     final iconData = _resolveIcon(widget.button.iconName);
@@ -156,7 +200,7 @@ class _ActionBarButtonWidgetState extends State<ActionBarButtonWidget> {
       onLongPress: _handleLongPress,
       onLongPressEnd: (_) => _stopRepeat(),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
+        duration: const Duration(milliseconds: 80),
         height: 32,
         constraints: const BoxConstraints(minWidth: 36),
         padding: const EdgeInsets.symmetric(horizontal: 6),

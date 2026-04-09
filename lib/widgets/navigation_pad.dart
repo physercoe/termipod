@@ -705,27 +705,49 @@ class _NavButton extends StatefulWidget {
 
 class _NavButtonState extends State<_NavButton> {
   Timer? _repeatTimer;
+  // Post-tap flash: hold the highlight for ~220ms so the user sees an
+  // unmistakable confirmation that their tap registered. See
+  // lib/widgets/floating_joystick.dart for the reference pattern.
+  Timer? _flashTimer;
   bool _isPressed = false;
+  bool _flashActive = false;
 
   void _handleTapDown(TapDownDetails _) {
     setState(() => _isPressed = true);
-    if (widget.haptic) {
-      HapticFeedback.lightImpact();
-    }
   }
 
   void _handleTapUp(TapUpDetails _) {
-    setState(() => _isPressed = false);
+    // Only clear _isPressed if we're not in an active flash — the flash
+    // Timer owns the state during its window.
+    if (!_flashActive) {
+      setState(() => _isPressed = false);
+    }
     _stopRepeat();
   }
 
   void _handleTapCancel() {
-    setState(() => _isPressed = false);
+    _flashTimer?.cancel();
+    setState(() {
+      _isPressed = false;
+      _flashActive = false;
+    });
     _stopRepeat();
   }
 
   void _handleTap() {
     widget.onSpecialKeyPressed(widget.tmuxKey);
+    if (widget.haptic) {
+      HapticFeedback.mediumImpact();
+    }
+    _flashTimer?.cancel();
+    setState(() => _flashActive = true);
+    _flashTimer = Timer(const Duration(milliseconds: 220), () {
+      if (!mounted) return;
+      setState(() {
+        _isPressed = false;
+        _flashActive = false;
+      });
+    });
   }
 
   void _handleLongPress() {
@@ -749,6 +771,7 @@ class _NavButtonState extends State<_NavButton> {
 
   @override
   void dispose() {
+    _flashTimer?.cancel();
     _stopRepeat();
     super.dispose();
   }
@@ -757,15 +780,18 @@ class _NavButtonState extends State<_NavButton> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    final bgColor = _isPressed
-        ? (isDark
-            ? DesignColors.keyBackgroundHover
-            : DesignColors.keyBackgroundHoverLight)
-        : (isDark
-            ? DesignColors.keyBackground
-            : DesignColors.keyBackgroundLight);
-    final textColor =
-        isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight;
+    final bgColor = _flashActive
+        ? DesignColors.primary.withValues(alpha: 0.55)
+        : _isPressed
+            ? (isDark
+                ? DesignColors.keyBackgroundHover
+                : DesignColors.keyBackgroundHoverLight)
+            : (isDark
+                ? DesignColors.keyBackground
+                : DesignColors.keyBackgroundLight);
+    final textColor = _flashActive
+        ? DesignColors.primary
+        : (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight);
 
     return GestureDetector(
       onTapDown: _handleTapDown,
@@ -781,6 +807,12 @@ class _NavButtonState extends State<_NavButton> {
         decoration: BoxDecoration(
           color: bgColor,
           borderRadius: BorderRadius.circular(6),
+          border: _flashActive
+              ? Border.all(
+                  color: DesignColors.primary.withValues(alpha: 0.9),
+                  width: 1.5,
+                )
+              : null,
         ),
         child: Center(
           child: widget.icon != null

@@ -32,6 +32,7 @@ import '../../widgets/help_sheet.dart';
 import '../../widgets/gesture_surface.dart';
 import '../../providers/download_manager_provider.dart';
 import '../../widgets/download_manager_sheet.dart';
+import '../../widgets/custom_keyboard.dart';
 import '../../widgets/floating_joystick.dart';
 import '../../widgets/navigation_pad.dart';
 import '../../widgets/key_overlay_widget.dart';
@@ -1344,6 +1345,27 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 onInsertMenu: () => _showInsertMenu(context),
                 onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
                 onKeyPressed: _sendKeyWithOverlay,
+              ),
+              // Custom Flutter-native keyboard (direct input mode only,
+              // gated on settings toggle — legacy hidden-TextField path
+              // still used when disabled, for CJK/voice input).
+              Consumer(
+                builder: (context, ref, _) {
+                  final composeMode = ref.watch(
+                    actionBarProvider.select((s) => s.composeMode),
+                  );
+                  final useCustom = ref.watch(
+                    settingsProvider.select((s) => s.useCustomKeyboard),
+                  );
+                  if (composeMode || !useCustom) {
+                    return const SizedBox.shrink();
+                  }
+                  return CustomKeyboard(
+                    onKeyPressed: _sendKeyWithOverlay,
+                    onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                    haptic: ref.watch(settingsProvider).navPadHaptic,
+                  );
+                },
               ),
             ],
           ),

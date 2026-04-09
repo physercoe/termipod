@@ -310,6 +310,17 @@ class SettingsScreen extends ConsumerWidget {
                     },
                   ),
                 ],
+                SwitchListTile(
+                  secondary: const Icon(Icons.keyboard_alt_outlined),
+                  title: Text(l10n.useCustomKeyboardTitle),
+                  subtitle: Text(l10n.useCustomKeyboardDesc),
+                  value: settings.useCustomKeyboard,
+                  onChanged: (value) {
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setUseCustomKeyboard(value);
+                  },
+                ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionExperimental),
                 SwitchListTile(

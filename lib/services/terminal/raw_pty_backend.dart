@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:xterm/xterm.dart' as xterm;
+import 'package:xterm/core.dart';
 
 import '../ssh/ssh_client.dart';
 import 'terminal_backend.dart';
@@ -16,7 +16,7 @@ class RawPtyBackend implements TerminalBackend {
   final SshClient _sshClient;
   final _contentController = StreamController<void>.broadcast();
 
-  late final xterm.Terminal _terminal;
+  late final Terminal _terminal;
   int _cols;
   int _rows;
 
@@ -24,7 +24,7 @@ class RawPtyBackend implements TerminalBackend {
   bool _contentDirty = true;
   bool _disposed = false;
 
-  /// Tmux key name → VT escape sequence mapping.
+  /// Tmux key name -> VT escape sequence mapping.
   /// Used when callers provide tmux key names (from action bar, nav pad).
   static const Map<String, String> _keyToEscape = {
     'Enter': '\r',
@@ -103,7 +103,10 @@ class RawPtyBackend implements TerminalBackend {
   bool get isInCopyMode => false;
 
   @override
-  int get scrollbackSize => _terminal.buffer.lines.length - _rows;
+  int get scrollbackSize {
+    final sb = _terminal.buffer.scrollBack;
+    return sb > 0 ? sb : 0;
+  }
 
   @override
   ({int x, int y}) get cursorPosition =>
@@ -125,7 +128,7 @@ class RawPtyBackend implements TerminalBackend {
   Future<void> initialize({required int cols, required int rows}) async {
     _cols = cols;
     _rows = rows;
-    _terminal = xterm.Terminal(maxLines: 1000);
+    _terminal = Terminal(maxLines: 1000);
     _terminal.resize(cols, rows);
 
     // Start interactive PTY shell
@@ -151,10 +154,11 @@ class RawPtyBackend implements TerminalBackend {
   String _extractAnsiContent() {
     final buf = StringBuffer();
     final buffer = _terminal.buffer;
-    final height = _rows;
+    final sb = buffer.scrollBack;
 
-    for (int y = 0; y < height; y++) {
-      final lineIndex = buffer.absoluteY - height + 1 + y;
+    // Visible lines start at scrollBack offset
+    for (int y = 0; y < _rows; y++) {
+      final lineIndex = sb + y;
       if (lineIndex < 0 || lineIndex >= buffer.lines.length) {
         buf.writeln();
         continue;
@@ -167,7 +171,7 @@ class RawPtyBackend implements TerminalBackend {
   }
 
   /// Convert a single buffer line to an ANSI-escaped string.
-  String _lineToAnsi(xterm.BufferLine line) {
+  String _lineToAnsi(BufferLine line) {
     final buf = StringBuffer();
     int prevFg = -1;
     int prevBg = -1;
@@ -178,7 +182,7 @@ class RawPtyBackend implements TerminalBackend {
     // Find last non-space character to trim trailing spaces
     int lastNonSpace = -1;
     for (int x = length - 1; x >= 0; x--) {
-      final cp = line.cellGetContent(x);
+      final cp = line.getCodePoint(x);
       if (cp != 0 && cp != 32) {
         lastNonSpace = x;
         break;
@@ -186,15 +190,15 @@ class RawPtyBackend implements TerminalBackend {
     }
 
     for (int x = 0; x <= lastNonSpace; x++) {
-      final cp = line.cellGetContent(x);
-      final width = line.cellGetWidth(x);
+      final cp = line.getCodePoint(x);
+      final width = line.getWidth(x);
 
       // Skip trailing cells of wide characters
       if (width == 0) continue;
 
-      final fg = line.cellGetFg(x);
-      final bg = line.cellGetBg(x);
-      final flags = line.cellGetFlags(x);
+      final fg = line.getForeground(x);
+      final bg = line.getBackground(x);
+      final flags = line.getAttributes(x);
 
       // Emit SGR if attributes changed
       if (fg != prevFg || bg != prevBg || flags != prevFlags) {
@@ -229,15 +233,15 @@ class RawPtyBackend implements TerminalBackend {
       params.add(0);
     }
 
-    // Flags (bold, italic, underline, etc.)
-    if (flags & xterm.CellFlags.bold != 0) params.add(1);
-    if (flags & xterm.CellFlags.dim != 0) params.add(2);
-    if (flags & xterm.CellFlags.italic != 0) params.add(3);
-    if (flags & xterm.CellFlags.underline != 0) params.add(4);
-    if (flags & xterm.CellFlags.blink != 0) params.add(5);
-    if (flags & xterm.CellFlags.inverse != 0) params.add(7);
-    if (flags & xterm.CellFlags.invisible != 0) params.add(8);
-    if (flags & xterm.CellFlags.strikethrough != 0) params.add(9);
+    // Flags — CellAttr bit positions from xterm.dart cell.dart
+    if (flags & CellAttr.bold != 0) params.add(1);
+    if (flags & CellAttr.faint != 0) params.add(2);
+    if (flags & CellAttr.italic != 0) params.add(3);
+    if (flags & CellAttr.underline != 0) params.add(4);
+    if (flags & CellAttr.blink != 0) params.add(5);
+    if (flags & CellAttr.inverse != 0) params.add(7);
+    if (flags & CellAttr.invisible != 0) params.add(8);
+    if (flags & CellAttr.strikethrough != 0) params.add(9);
 
     // Foreground color
     _emitColor(params, fg, true);
@@ -251,31 +255,32 @@ class RawPtyBackend implements TerminalBackend {
   }
 
   /// Emit color parameters for SGR sequence.
+  ///
+  /// xterm.dart CellColor encoding:
+  /// - Bits 0-24: value (RGB or index)
+  /// - Bits 25-26: type (normal=0, named=1, palette=2, rgb=3)
   void _emitColor(List<int> params, int color, bool isForeground) {
     if (color == 0) return; // Default color, no param needed
 
+    final type = (color >> CellColor.typeShift) & 0x03;
     final base = isForeground ? 30 : 40;
-
-    // xterm.dart encodes colors as packed int:
-    // - Bits 0-23: RGB value
-    // - Bits 24-25: color type (0=default, 1=named, 2=palette, 3=rgb)
-    final type = (color >> 24) & 0x03;
 
     switch (type) {
       case 1: // Named color (0-7 standard, 8-15 bright)
-        final index = color & 0xFF;
+        final index = color & CellColor.valueMask;
         if (index < 8) {
           params.add(base + index);
-        } else {
+        } else if (index < 16) {
           params.add(base + 60 + (index - 8));
         }
       case 2: // 256-color palette
-        final index = color & 0xFF;
+        final index = color & CellColor.valueMask;
         params.addAll([isForeground ? 38 : 48, 5, index]);
       case 3: // 24-bit RGB
-        final r = (color >> 16) & 0xFF;
-        final g = (color >> 8) & 0xFF;
-        final b = color & 0xFF;
+        final value = color & CellColor.valueMask;
+        final r = (value >> 16) & 0xFF;
+        final g = (value >> 8) & 0xFF;
+        final b = value & 0xFF;
         params.addAll([isForeground ? 38 : 48, 2, r, g, b]);
     }
   }
@@ -300,7 +305,7 @@ class RawPtyBackend implements TerminalBackend {
       return;
     }
 
-    // Fall back to tmux key name → escape sequence mapping
+    // Fall back to tmux key name -> escape sequence mapping
     final seq = _keyToEscape[tmuxKey];
     if (seq != null) {
       _sshClient.write(seq);

@@ -69,8 +69,12 @@ class AppSettings {
   // --- Navigation Pad settings ---
   /// Navigation pad mode: 'full', 'compact', 'off'
   final String navPadMode;
+  /// D-pad style: 'dpad' or 'joystick'
+  final String navPadDpadStyle;
   final int navPadRepeatRate;
   final bool navPadHaptic;
+  /// JSON-encoded list of 4 custom action buttons (null = defaults)
+  final String? navPadButtons;
 
   const AppSettings({
     this.darkMode = true,
@@ -107,8 +111,10 @@ class AppSettings {
     this.imageBracketedPaste = false,
     this.locale = 'system',
     this.navPadMode = 'off',
+    this.navPadDpadStyle = 'dpad',
     this.navPadRepeatRate = 80,
     this.navPadHaptic = true,
+    this.navPadButtons,
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -149,8 +155,11 @@ class AppSettings {
     bool? imageBracketedPaste,
     String? locale,
     String? navPadMode,
+    String? navPadDpadStyle,
     int? navPadRepeatRate,
     bool? navPadHaptic,
+    String? navPadButtons,
+    bool clearNavPadButtons = false,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -187,8 +196,11 @@ class AppSettings {
       imageBracketedPaste: imageBracketedPaste ?? this.imageBracketedPaste,
       locale: locale ?? this.locale,
       navPadMode: navPadMode ?? this.navPadMode,
+      navPadDpadStyle: navPadDpadStyle ?? this.navPadDpadStyle,
       navPadRepeatRate: navPadRepeatRate ?? this.navPadRepeatRate,
       navPadHaptic: navPadHaptic ?? this.navPadHaptic,
+      navPadButtons:
+          clearNavPadButtons ? null : (navPadButtons ?? this.navPadButtons),
     );
   }
 }
@@ -229,8 +241,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _keyOverlayPositionKey = 'settings_key_overlay_position';
   static const String _localeKey = 'settings_locale';
   static const String _navPadModeKey = 'settings_nav_pad_mode';
+  static const String _navPadDpadStyleKey = 'settings_nav_pad_dpad_style';
   static const String _navPadRepeatRateKey = 'settings_nav_pad_repeat_rate';
   static const String _navPadHapticKey = 'settings_nav_pad_haptic';
+  static const String _navPadButtonsKey = 'settings_nav_pad_buttons';
 
   @override
   AppSettings build() {
@@ -277,8 +291,10 @@ class SettingsNotifier extends Notifier<AppSettings> {
       imageBracketedPaste: prefs.getBool(_imageBracketedPasteKey) ?? false,
       locale: prefs.getString(_localeKey) ?? 'system',
       navPadMode: prefs.getString(_navPadModeKey) ?? 'off',
+      navPadDpadStyle: prefs.getString(_navPadDpadStyleKey) ?? 'dpad',
       navPadRepeatRate: prefs.getInt(_navPadRepeatRateKey) ?? 80,
       navPadHaptic: prefs.getBool(_navPadHapticKey) ?? true,
+      navPadButtons: prefs.getString(_navPadButtonsKey),
     );
   }
 
@@ -496,6 +512,11 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await setNavPadMode(next);
   }
 
+  Future<void> setNavPadDpadStyle(String value) async {
+    state = state.copyWith(navPadDpadStyle: value);
+    await _saveSetting(_navPadDpadStyleKey, value);
+  }
+
   Future<void> setNavPadRepeatRate(int value) async {
     state = state.copyWith(navPadRepeatRate: value);
     await _saveSetting(_navPadRepeatRateKey, value);
@@ -504,6 +525,17 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setNavPadHaptic(bool value) async {
     state = state.copyWith(navPadHaptic: value);
     await _saveSetting(_navPadHapticKey, value);
+  }
+
+  Future<void> setNavPadButtons(String? value) async {
+    if (value == null) {
+      state = state.copyWith(clearNavPadButtons: true);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_navPadButtonsKey);
+    } else {
+      state = state.copyWith(navPadButtons: value);
+      await _saveSetting(_navPadButtonsKey, value);
+    }
   }
 
   Future<void> reload() async {

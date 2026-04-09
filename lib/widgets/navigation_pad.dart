@@ -1,15 +1,41 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/action_bar_config.dart';
 import '../providers/settings_provider.dart';
 import '../theme/design_colors.dart';
 
+/// Default action buttons when no custom buttons are configured.
+const _defaultActionButtons = [
+  (label: 'ESC', tmuxKey: 'Escape'),
+  (label: 'TAB', tmuxKey: 'Tab'),
+  (label: 'C-C', tmuxKey: 'C-c'),
+  (label: 'ENT', tmuxKey: 'Enter'),
+];
+
+/// Parse custom action buttons from JSON settings, falling back to defaults.
+List<({String label, String tmuxKey})> _parseActionButtons(String? json) {
+  if (json == null) return _defaultActionButtons;
+  try {
+    final list = jsonDecode(json) as List;
+    if (list.length != 4) return _defaultActionButtons;
+    return list.map((e) {
+      final btn = ActionBarButton.fromJson(e as Map<String, dynamic>);
+      return (label: btn.label, tmuxKey: btn.value);
+    }).toList();
+  } catch (_) {
+    return _defaultActionButtons;
+  }
+}
+
 /// Game-style D-pad + action buttons for thumb-optimized terminal navigation.
 ///
-/// Three modes: full (D-pad + 2x2 grid), compact (single row), off (hidden).
+/// Three modes: full (D-pad/joystick + 2x2 grid), compact (single row), off (hidden).
 /// Auto-hides when software keyboard is open.
 class NavigationPad extends ConsumerWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
@@ -33,6 +59,7 @@ class NavigationPad extends ConsumerWidget {
     if (keyboardHeight > 50) return const SizedBox.shrink();
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final actionButtons = _parseActionButtons(settings.navPadButtons);
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 150),
@@ -53,22 +80,31 @@ class NavigationPad extends ConsumerWidget {
           children: [
             const SizedBox(width: 8),
             if (mode == 'full') ...[
-              _DpadFull(
-                onSpecialKeyPressed: onSpecialKeyPressed,
-                repeatRate: settings.navPadRepeatRate,
-                haptic: settings.navPadHaptic,
-              ),
+              if (settings.navPadDpadStyle == 'joystick')
+                _JoystickFull(
+                  onSpecialKeyPressed: onSpecialKeyPressed,
+                  repeatRate: settings.navPadRepeatRate,
+                  haptic: settings.navPadHaptic,
+                )
+              else
+                _DpadFull(
+                  onSpecialKeyPressed: onSpecialKeyPressed,
+                  repeatRate: settings.navPadRepeatRate,
+                  haptic: settings.navPadHaptic,
+                ),
               const SizedBox(width: 12),
               _ActionGrid(
                 onSpecialKeyPressed: onSpecialKeyPressed,
                 repeatRate: settings.navPadRepeatRate,
                 haptic: settings.navPadHaptic,
+                buttons: actionButtons,
               ),
             ] else ...[
               _CompactRow(
                 onSpecialKeyPressed: onSpecialKeyPressed,
                 repeatRate: settings.navPadRepeatRate,
                 haptic: settings.navPadHaptic,
+                buttons: actionButtons,
               ),
             ],
             const Spacer(),
@@ -103,7 +139,6 @@ class _DpadFull extends StatelessWidget {
       height: 56,
       child: Stack(
         children: [
-          // Up
           Positioned(
             top: 0,
             left: 34,
@@ -117,7 +152,6 @@ class _DpadFull extends StatelessWidget {
               haptic: haptic,
             ),
           ),
-          // Left
           Positioned(
             top: 18,
             left: 0,
@@ -131,7 +165,6 @@ class _DpadFull extends StatelessWidget {
               haptic: haptic,
             ),
           ),
-          // Right
           Positioned(
             top: 18,
             right: 0,
@@ -145,7 +178,6 @@ class _DpadFull extends StatelessWidget {
               haptic: haptic,
             ),
           ),
-          // Down
           Positioned(
             bottom: 0,
             left: 34,
@@ -166,18 +198,188 @@ class _DpadFull extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Action buttons (full mode) — 2x2 grid: ESC, Tab, Ctrl+C, Enter
+// Joystick (full mode) — circular drag zone
+// ---------------------------------------------------------------------------
+
+class _JoystickFull extends StatefulWidget {
+  final void Function(String tmuxKey) onSpecialKeyPressed;
+  final int repeatRate;
+  final bool haptic;
+
+  const _JoystickFull({
+    required this.onSpecialKeyPressed,
+    required this.repeatRate,
+    required this.haptic,
+  });
+
+  @override
+  State<_JoystickFull> createState() => _JoystickFullState();
+}
+
+class _JoystickFullState extends State<_JoystickFull> {
+  static const _size = 56.0;
+  static const _deadZone = 8.0;
+
+  Offset _thumbOffset = Offset.zero;
+  String? _activeDirection;
+  Timer? _repeatTimer;
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    final center = const Offset(_size / 2, _size / 2);
+    final local = details.localPosition - center;
+    final distance = local.distance;
+    final maxRadius = _size / 2 - 4;
+
+    // Clamp thumb to circle
+    final clamped = distance > maxRadius ? local / distance * maxRadius : local;
+    setState(() => _thumbOffset = clamped);
+
+    if (distance < _deadZone) {
+      _stopRepeat();
+      _activeDirection = null;
+      return;
+    }
+
+    // Determine direction from angle
+    final angle = math.atan2(local.dy, local.dx);
+    String direction;
+    if (angle > -math.pi / 4 && angle <= math.pi / 4) {
+      direction = 'Right';
+    } else if (angle > math.pi / 4 && angle <= 3 * math.pi / 4) {
+      direction = 'Down';
+    } else if (angle > -3 * math.pi / 4 && angle <= -math.pi / 4) {
+      direction = 'Up';
+    } else {
+      direction = 'Left';
+    }
+
+    if (direction != _activeDirection) {
+      _activeDirection = direction;
+      _stopRepeat();
+      // Send immediately + start repeat
+      widget.onSpecialKeyPressed(direction);
+      if (widget.haptic) HapticFeedback.lightImpact();
+      _repeatTimer = Timer.periodic(
+        Duration(milliseconds: widget.repeatRate),
+        (_) {
+          if (widget.haptic) HapticFeedback.selectionClick();
+          widget.onSpecialKeyPressed(direction);
+        },
+      );
+    }
+  }
+
+  void _onPanEnd(DragEndDetails _) {
+    _stopRepeat();
+    _activeDirection = null;
+    setState(() => _thumbOffset = Offset.zero);
+  }
+
+  void _stopRepeat() {
+    _repeatTimer?.cancel();
+    _repeatTimer = null;
+  }
+
+  @override
+  void dispose() {
+    _stopRepeat();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight;
+    final thumbColor = isDark
+        ? DesignColors.textPrimary.withValues(alpha: 0.6)
+        : DesignColors.textPrimaryLight.withValues(alpha: 0.6);
+    final activeThumbColor = DesignColors.primary;
+
+    return GestureDetector(
+      onPanUpdate: _onPanUpdate,
+      onPanEnd: _onPanEnd,
+      onPanCancel: () {
+        _stopRepeat();
+        _activeDirection = null;
+        setState(() => _thumbOffset = Offset.zero);
+      },
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: CustomPaint(
+          painter: _JoystickPainter(
+            bgColor: bgColor,
+            thumbColor: _activeDirection != null ? activeThumbColor : thumbColor,
+            thumbOffset: _thumbOffset,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _JoystickPainter extends CustomPainter {
+  final Color bgColor;
+  final Color thumbColor;
+  final Offset thumbOffset;
+
+  _JoystickPainter({
+    required this.bgColor,
+    required this.thumbColor,
+    required this.thumbOffset,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+
+    // Background circle
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()..color = bgColor,
+    );
+
+    // Outer ring
+    canvas.drawCircle(
+      center,
+      radius - 1,
+      Paint()
+        ..color = thumbColor.withValues(alpha: 0.3)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1,
+    );
+
+    // Thumb dot
+    canvas.drawCircle(
+      center + thumbOffset,
+      8,
+      Paint()..color = thumbColor,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_JoystickPainter old) =>
+      thumbOffset != old.thumbOffset ||
+      thumbColor != old.thumbColor;
+}
+
+// ---------------------------------------------------------------------------
+// Action buttons (full mode) — 2x2 grid, customizable
 // ---------------------------------------------------------------------------
 
 class _ActionGrid extends StatelessWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final int repeatRate;
   final bool haptic;
+  final List<({String label, String tmuxKey})> buttons;
 
   const _ActionGrid({
     required this.onSpecialKeyPressed,
     required this.repeatRate,
     required this.haptic,
+    required this.buttons,
   });
 
   @override
@@ -190,8 +392,8 @@ class _ActionGrid extends StatelessWidget {
           Row(
             children: [
               _NavButton(
-                label: 'ESC',
-                tmuxKey: 'Escape',
+                label: buttons[0].label,
+                tmuxKey: buttons[0].tmuxKey,
                 width: 48,
                 height: 26,
                 onSpecialKeyPressed: onSpecialKeyPressed,
@@ -200,8 +402,8 @@ class _ActionGrid extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               _NavButton(
-                label: 'TAB',
-                tmuxKey: 'Tab',
+                label: buttons[1].label,
+                tmuxKey: buttons[1].tmuxKey,
                 width: 48,
                 height: 26,
                 onSpecialKeyPressed: onSpecialKeyPressed,
@@ -214,8 +416,8 @@ class _ActionGrid extends StatelessWidget {
           Row(
             children: [
               _NavButton(
-                label: 'C-C',
-                tmuxKey: 'C-c',
+                label: buttons[2].label,
+                tmuxKey: buttons[2].tmuxKey,
                 width: 48,
                 height: 26,
                 onSpecialKeyPressed: onSpecialKeyPressed,
@@ -224,8 +426,8 @@ class _ActionGrid extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               _NavButton(
-                label: 'ENT',
-                tmuxKey: 'Enter',
+                label: buttons[3].label,
+                tmuxKey: buttons[3].tmuxKey,
                 width: 48,
                 height: 26,
                 onSpecialKeyPressed: onSpecialKeyPressed,
@@ -248,33 +450,29 @@ class _CompactRow extends StatelessWidget {
   final void Function(String tmuxKey) onSpecialKeyPressed;
   final int repeatRate;
   final bool haptic;
+  final List<({String label, String tmuxKey})> buttons;
 
   const _CompactRow({
     required this.onSpecialKeyPressed,
     required this.repeatRate,
     required this.haptic,
+    required this.buttons,
   });
 
   @override
   Widget build(BuildContext context) {
-    const buttons = [
-      ('Left', Icons.keyboard_arrow_left, true),
-      ('Up', Icons.keyboard_arrow_up, true),
-      ('Down', Icons.keyboard_arrow_down, true),
-      ('Right', Icons.keyboard_arrow_right, true),
-    ];
-    const actionButtons = [
-      ('Escape', 'ESC'),
-      ('Tab', 'TAB'),
-      ('C-c', 'C-C'),
-      ('Enter', 'ENT'),
+    const arrowButtons = [
+      ('Left', Icons.keyboard_arrow_left),
+      ('Up', Icons.keyboard_arrow_up),
+      ('Down', Icons.keyboard_arrow_down),
+      ('Right', Icons.keyboard_arrow_right),
     ];
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         // Arrow buttons
-        for (final (key, icon, _) in buttons) ...[
+        for (final (key, icon) in arrowButtons) ...[
           _NavButton(
             icon: icon,
             tmuxKey: key,
@@ -288,11 +486,11 @@ class _CompactRow extends StatelessWidget {
           const SizedBox(width: 2),
         ],
         const SizedBox(width: 4),
-        // Action buttons
-        for (final (key, label) in actionButtons) ...[
+        // Action buttons (customizable)
+        for (final btn in buttons) ...[
           _NavButton(
-            label: label,
-            tmuxKey: key,
+            label: btn.label,
+            tmuxKey: btn.tmuxKey,
             width: 36,
             height: 32,
             onSpecialKeyPressed: onSpecialKeyPressed,

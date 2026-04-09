@@ -5,7 +5,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/settings_provider.dart';
+import 'dart:convert';
 import '../../models/action_bar_config.dart';
+import '../../models/action_bar_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_settings_screen.dart';
@@ -232,6 +234,42 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
                 if (settings.navPadMode != 'off') ...[
+                  ListTile(
+                    leading: const Icon(Icons.radio_button_checked),
+                    title: Text(l10n.navPadDpadStyle),
+                    subtitle: Text(
+                      settings.navPadDpadStyle == 'joystick'
+                          ? l10n.navPadStyleJoystick
+                          : l10n.navPadStyleDpad,
+                    ),
+                    onTap: () async {
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) => SimpleDialog(
+                          title: Text(l10n.navPadDpadStyle),
+                          children: [
+                            SimpleDialogOption(
+                              onPressed: () => Navigator.pop(context, 'dpad'),
+                              child: Text(l10n.navPadStyleDpad),
+                            ),
+                            SimpleDialogOption(
+                              onPressed: () => Navigator.pop(context, 'joystick'),
+                              child: Text(l10n.navPadStyleJoystick),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (result != null) {
+                        ref.read(settingsProvider.notifier).setNavPadDpadStyle(result);
+                      }
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.dashboard_customize),
+                    title: Text(l10n.navPadCustomizeButtons),
+                    subtitle: Text(l10n.navPadCustomizeButtonsDesc),
+                    onTap: () => _showNavPadButtonPicker(context, ref, settings),
+                  ),
                   ListTile(
                     leading: const Icon(Icons.speed),
                     title: Text(l10n.navPadRepeatRate),
@@ -786,6 +824,142 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  void _showNavPadButtonPicker(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Parse current buttons
+    List<ActionBarButton> currentButtons;
+    if (settings.navPadButtons != null) {
+      try {
+        final list = jsonDecode(settings.navPadButtons!) as List;
+        currentButtons = list
+            .map((e) => ActionBarButton.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } catch (_) {
+        currentButtons = [];
+      }
+    } else {
+      currentButtons = [];
+    }
+
+    // Default buttons for display
+    final defaults = [
+      ActionBarButton(id: 'np-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
+      ActionBarButton(id: 'np-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab'),
+      ActionBarButton(id: 'np-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
+      ActionBarButton(id: 'np-ent', label: 'ENT', type: ActionBarButtonType.specialKey, value: 'Enter'),
+    ];
+
+    final buttons = currentButtons.length == 4 ? currentButtons : defaults;
+    final isCustom = settings.navPadButtons != null;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.6,
+              minChildSize: 0.3,
+              maxChildSize: 0.9,
+              expand: false,
+              builder: (context, scrollController) {
+                return Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 8, bottom: 4),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Text(l10n.navPadCustomizeButtons, style: Theme.of(context).textTheme.titleMedium),
+                          const Spacer(),
+                          if (isCustom)
+                            TextButton(
+                              onPressed: () {
+                                ref.read(settingsProvider.notifier).setNavPadButtons(null);
+                                Navigator.pop(ctx);
+                              },
+                              child: Text(l10n.resetToDefault),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    // Current 4 buttons
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          for (var i = 0; i < 4; i++)
+                            _NavPadSlot(
+                              index: i,
+                              button: buttons[i],
+                              onReplace: (newButton) {
+                                buttons[i] = newButton;
+                                // Save all 4 buttons
+                                final json = jsonEncode(buttons.map((b) => b.toJson()).toList());
+                                ref.read(settingsProvider.notifier).setNavPadButtons(json);
+                                setSheetState(() {});
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          l10n.navPadPickButton,
+                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                color: DesignColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ),
+                    ),
+                    // Button catalog
+                    Expanded(
+                      child: _NavPadButtonCatalog(
+                        scrollController: scrollController,
+                        onPick: (button) {
+                          // Find first slot to show visual feedback
+                          // For now, just show a message — user taps a slot first
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Tap a button slot above, then pick a replacement'),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showProfilePicker(BuildContext context, WidgetRef ref) {
     final state = ref.read(actionBarProvider);
     showDialog(
@@ -930,6 +1104,200 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(width: 12),
           Text(label),
         ],
+      ),
+    );
+  }
+}
+
+/// A single slot in the nav pad button customization grid.
+/// Tapping opens the button catalog to pick a replacement.
+class _NavPadSlot extends StatelessWidget {
+  final int index;
+  final ActionBarButton button;
+  final void Function(ActionBarButton) onReplace;
+
+  const _NavPadSlot({
+    required this.index,
+    required this.button,
+    required this.onReplace,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: () => _pickButton(context),
+      child: Container(
+        width: 64,
+        height: 48,
+        decoration: BoxDecoration(
+          color: isDark ? DesignColors.keyBackground : DesignColors.keyBackgroundLight,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              button.label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight,
+              ),
+            ),
+            Text(
+              button.value,
+              style: TextStyle(
+                fontSize: 8,
+                color: isDark
+                    ? DesignColors.textPrimary.withValues(alpha: 0.5)
+                    : DesignColors.textPrimaryLight.withValues(alpha: 0.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _pickButton(BuildContext context) {
+    final catalogByType = ActionBarPresets.buttonCatalogByType;
+    const typeOrder = [
+      ActionBarButtonType.specialKey,
+      ActionBarButtonType.ctrlCombo,
+      ActionBarButtonType.altCombo,
+      ActionBarButtonType.shiftCombo,
+      ActionBarButtonType.literal,
+      ActionBarButtonType.confirm,
+    ];
+
+    String typeLabel(ActionBarButtonType type) {
+      return switch (type) {
+        ActionBarButtonType.specialKey => 'Special Keys',
+        ActionBarButtonType.ctrlCombo => 'Ctrl Combos',
+        ActionBarButtonType.altCombo => 'Alt Combos',
+        ActionBarButtonType.shiftCombo => 'Shift Combos',
+        ActionBarButtonType.literal => 'Characters',
+        ActionBarButtonType.modifier => 'Modifiers',
+        ActionBarButtonType.action => 'Actions',
+        ActionBarButtonType.confirm => 'Confirm (y/n)',
+      };
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 4),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Text(
+                    'Pick button for slot ${index + 1}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    children: [
+                      for (final type in typeOrder)
+                        if (catalogByType.containsKey(type)) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: Text(
+                              typeLabel(type),
+                              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: DesignColors.primary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                for (final catButton in catalogByType[type]!)
+                                  ActionChip(
+                                    label: Text(catButton.label),
+                                    tooltip: '${catButton.value} — ${catButton.displayDescription}',
+                                    onPressed: () {
+                                      final newButton = ActionBarButton(
+                                        id: 'np_${DateTime.now().millisecondsSinceEpoch}',
+                                        label: catButton.label,
+                                        type: catButton.type,
+                                        value: catButton.value,
+                                        longPressValue: catButton.longPressValue,
+                                        iconName: catButton.iconName,
+                                        description: catButton.description,
+                                      );
+                                      onReplace(newButton);
+                                      Navigator.pop(ctx);
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      const SizedBox(height: 16),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Placeholder catalog in the main sheet — shows hint to tap slots.
+class _NavPadButtonCatalog extends StatelessWidget {
+  final ScrollController scrollController;
+  final void Function(ActionBarButton) onPick;
+
+  const _NavPadButtonCatalog({
+    required this.scrollController,
+    required this.onPick,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Text(
+          'Tap a button slot above to replace it from the catalog',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isDark ? Colors.white38 : Colors.black38,
+            fontSize: 14,
+          ),
+        ),
       ),
     );
   }

@@ -28,7 +28,21 @@ class TmuxBackend implements TerminalBackend {
   final CursorUpdateCallback? onCursorUpdate;
   final CopyModeCallback? onCopyModeChange;
   final PollingIntervalCallback? getRecommendedInterval;
-  final int scrollbackLines;
+
+  /// Baseline scrollback window size set at construction — the value the
+  /// user configured in settings. [resetScrollback] snaps back to this.
+  final int _defaultScrollbackLines;
+
+  /// Current scrollback window size, possibly extended at runtime via
+  /// [extendScrollback] when the user scrolls past the top of the buffer.
+  int _scrollbackLines;
+
+  /// Hard ceiling on [_scrollbackLines] to prevent runaway memory/SSH
+  /// transfer cost from repeated top-of-buffer extensions.
+  static const int _maxScrollbackLines = 10000;
+
+  /// Current (possibly extended) scrollback window size in lines.
+  int get scrollbackLines => _scrollbackLines;
 
   // Polling state
   Timer? _pollTimer;
@@ -58,9 +72,11 @@ class TmuxBackend implements TerminalBackend {
     this.onCursorUpdate,
     this.onCopyModeChange,
     this.getRecommendedInterval,
-    this.scrollbackLines = 100,
+    int scrollbackLines = 100,
   })  : _sshClient = sshClient,
-        _getCurrentTarget = getCurrentTarget;
+        _getCurrentTarget = getCurrentTarget,
+        _defaultScrollbackLines = scrollbackLines,
+        _scrollbackLines = scrollbackLines;
 
   @override
   bool get supportsNavigation => true;
@@ -142,6 +158,28 @@ class TmuxBackend implements TerminalBackend {
     _scheduleNextPoll();
   }
 
+  @override
+  Future<int> extendScrollback(int extraLines) async {
+    if (extraLines <= 0 || _disposed) return 0;
+    if (_scrollbackLines >= _maxScrollbackLines) return 0;
+    final newTotal = (_scrollbackLines + extraLines).clamp(
+      _defaultScrollbackLines,
+      _maxScrollbackLines,
+    );
+    final added = newTotal - _scrollbackLines;
+    if (added <= 0) return 0;
+    _scrollbackLines = newTotal;
+    boostRefresh();
+    return added;
+  }
+
+  @override
+  Future<void> resetScrollback() async {
+    if (_scrollbackLines == _defaultScrollbackLines) return;
+    _scrollbackLines = _defaultScrollbackLines;
+    boostRefresh();
+  }
+
   void _updatePollingInterval() {
     if (getRecommendedInterval != null) {
       final recommended = getRecommendedInterval!();
@@ -171,7 +209,7 @@ class TmuxBackend implements TerminalBackend {
       final startTime = DateTime.now();
 
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -scrollbackLines)}; '
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -_scrollbackLines)}; '
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 

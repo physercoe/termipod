@@ -410,6 +410,19 @@ class RawPtyBackend implements TerminalBackend {
   }
 
   @override
+  Future<int> extendScrollback(int extraLines) async {
+    // No-op: xterm.dart Terminal uses a fixed maxLines buffer that can't
+    // be resized at runtime without reconstructing the whole terminal.
+    // Raw PTY already ships with a larger default scrollback than tmux.
+    return 0;
+  }
+
+  @override
+  Future<void> resetScrollback() async {
+    // No-op — see extendScrollback.
+  }
+
+  @override
   Stream<void> get contentUpdates => _contentController.stream;
 
   @override

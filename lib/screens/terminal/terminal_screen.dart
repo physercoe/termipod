@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
@@ -229,6 +230,27 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   // Scroll to bottom after next content update (post-resize)
   bool _pendingScrollToBottom = false;
+
+  // --- Scrollback auto-extension state -------------------------------------
+  //
+  // When the user scrolls up to the top of the captured buffer, we ask the
+  // backend to extend its scrollback window by [_scrollbackExtendStep] lines.
+  // The next poll brings back a longer buffer, and we compensate the scroll
+  // offset so the visible content stays anchored on the same line instead of
+  // jumping upward.
+  //
+  // [_pendingScrollbackCompensation] flags that the upcoming content update
+  // should perform that compensation. [_scrollbackExtendOldLineCount] and
+  // [_scrollbackExtendOldPixels] snapshot the state at the moment extension
+  // was triggered. [_lastScrollbackExtendTime] throttles rapid re-triggers so
+  // a single swipe up only fires one extension.
+  static const int _scrollbackExtendStep = 100;
+  static const Duration _scrollbackExtendCooldown = Duration(milliseconds: 1500);
+  bool _pendingScrollbackCompensation = false;
+  int _scrollbackExtendOldLineCount = 0;
+  double _scrollbackExtendOldPixels = 0;
+  DateTime _lastScrollbackExtendTime =
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   // 自動リサイズのdebounceタイマー（画面サイズ変更時）
   Timer? _autoResizeDebounceTimer;
@@ -948,8 +970,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // 3つのコマンドを1つに統合して実行（持続的シェルは同時に1コマンドのみ）
       // capture-pane + カーソル位置情報 + ペインモード を1回で取得
       // 出力形式: [ペイン内容]\n[カーソル情報]\n[ペインモード]
+      //
+      // Honour the tmux backend's (possibly extended) scrollback window so
+      // this parallel polling path stays in lock-step with the backend
+      // after [TmuxBackend.extendScrollback] / [resetScrollback] calls. If
+      // no tmux backend is active (raw mode), fall back to the setting.
+      final backend = _backend;
+      final scrollbackWindow = backend is TmuxBackend
+          ? backend.scrollbackLines
+          : ref.read(settingsProvider).scrollbackLines;
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -ref.read(settingsProvider).scrollbackLines)}; '
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -scrollbackWindow)}; '
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
@@ -1138,6 +1169,31 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         if (mounted && !_isDisposed) _scrollToBottomKey.currentState?.hide();
       });
     }
+
+    // Anchor the viewport after a scrollback extension so the visible
+    // content stays on the same line. New history lines were prepended
+    // to the buffer; without compensation the user's reading position
+    // would suddenly be in the middle of the newly-loaded older text.
+    if (_pendingScrollbackCompensation && _pendingContent.isNotEmpty) {
+      _pendingScrollbackCompensation = false;
+      final newLineCount = '\n'.allMatches(_pendingContent).length + 1;
+      final addedLines = newLineCount - _scrollbackExtendOldLineCount;
+      if (addedLines > 0) {
+        final lineHeight =
+            _ansiTextViewKey.currentState?.lineHeight ?? 20.0;
+        final targetOffset =
+            _scrollbackExtendOldPixels + addedLines * lineHeight;
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _isDisposed) return;
+          if (!_terminalScrollController.hasClients) return;
+          final maxExtent =
+              _terminalScrollController.position.maxScrollExtent;
+          _terminalScrollController.jumpTo(
+            targetOffset.clamp(0.0, maxExtent),
+          );
+        });
+      }
+    }
   }
 
   /// 自動再接続を試みる
@@ -1220,6 +1276,46 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// スクロール時にスクロールボタンを表示
   void _onTerminalScroll() {
     _scrollToBottomKey.currentState?.show();
+    _maybeExtendScrollback();
+  }
+
+  /// When the user scrolls within ~2 line-heights of the top of the
+  /// captured buffer, ask the backend for more scrollback so they can
+  /// keep scrolling. Debounced so a single swipe fires at most one
+  /// extension, and gated on tmux (raw PTY's buffer is fixed).
+  void _maybeExtendScrollback() {
+    if (_isDisposed) return;
+    final backend = _backend;
+    if (backend is! TmuxBackend) return;
+    if (!_terminalScrollController.hasClients) return;
+
+    final position = _terminalScrollController.position;
+    // Only react to user-driven scroll, not programmatic jumps.
+    if (position.userScrollDirection == ScrollDirection.idle) return;
+
+    final lineHeight = _ansiTextViewKey.currentState?.lineHeight ?? 20.0;
+    final topThreshold = position.minScrollExtent + lineHeight * 2;
+    if (position.pixels > topThreshold) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastScrollbackExtendTime) <
+        _scrollbackExtendCooldown) {
+      return;
+    }
+    _lastScrollbackExtendTime = now;
+
+    // Snapshot state so the next content update can anchor the view.
+    _scrollbackExtendOldLineCount =
+        '\n'.allMatches(_viewNotifier.value.content).length + 1;
+    _scrollbackExtendOldPixels = position.pixels;
+    _pendingScrollbackCompensation = true;
+
+    backend.extendScrollback(_scrollbackExtendStep).then((added) {
+      if (added <= 0) {
+        // Hit the cap or backend rejected — don't leave the flag set.
+        _pendingScrollbackCompensation = false;
+      }
+    });
   }
 
   @override
@@ -1392,6 +1488,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           key: _scrollToBottomKey,
                           scrollController: _terminalScrollController,
                           onPressed: () {
+                            // Extension is a temporary lookup aid — dropping
+                            // it on jump-to-bottom avoids paying the ongoing
+                            // capture cost after the user is done browsing.
+                            _pendingScrollbackCompensation = false;
+                            _backend?.resetScrollback();
                             _ansiTextViewKey.currentState?.scrollToBottom();
                             // Hide after scroll completes (cursor end != maxScrollExtent)
                             Future.delayed(const Duration(milliseconds: 200), () {

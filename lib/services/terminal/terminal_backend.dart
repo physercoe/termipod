@@ -51,6 +51,25 @@ abstract class TerminalBackend {
   /// Boost polling/refresh rate (called after key input for responsiveness).
   void boostRefresh();
 
+  /// Temporarily extend the scrollback window by [extraLines] additional
+  /// history lines so the next capture/poll returns more context.
+  ///
+  /// Called when the user scrolls to the top of the visible buffer and
+  /// wants to look further back. Backends should clamp the total at a
+  /// safe cap (~10000 lines) to prevent runaway growth. After extension,
+  /// call [boostRefresh] so the user sees the new content promptly.
+  ///
+  /// Returns the number of lines actually added (may be less than
+  /// requested if the cap was hit; 0 if already at cap or unsupported).
+  Future<int> extendScrollback(int extraLines);
+
+  /// Drop any runtime scrollback extensions and return to the default
+  /// window size. Called when the user taps jump-to-bottom, since
+  /// extension is intended for one-off lookups, not a persistent state.
+  ///
+  /// No-op for backends that do not support runtime extension.
+  Future<void> resetScrollback();
+
   /// Whether currently in tmux copy-mode (always false for raw).
   bool get isInCopyMode;
 

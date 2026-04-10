@@ -486,6 +486,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   Future<void> _onReconnectSuccess() async {
     if (!mounted || _isDisposed) return;
 
+    // Rebind the backend to the newly-created SshClient. The backend
+    // captured the old client at construction and would otherwise keep
+    // polling (tmux) or holding a dead shell stream (raw PTY) against
+    // a disposed socket — that's why latency can tick while the
+    // terminal content stays frozen across a reconnect.
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
+    final newClient = sshNotifier.client;
+    if (newClient != null && _backend != null) {
+      try {
+        await _backend!.rebindSshClient(newClient);
+      } catch (e) {
+        debugPrint('[Terminal] Backend rebind failed: $e');
+      }
+    }
+
+    if (!mounted || _isDisposed) return;
+
     // ポーリングフラグをリセット
     _isPolling = false;
     _lastSuccessfulPoll = DateTime.now();
@@ -496,7 +513,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // ポーリングを再開
     _startPolling();
 
-    // セッションツリーを再取得
+    // tmux モードではセッションツリーを即座に再取得して、
+    // リコネクト後に欠落しているウィンドウ/ペイン情報を補う。
+    // Raw PTY では不要（ツリーという概念がない）。
+    if (_backend?.supportsNavigation ?? false) {
+      await _refreshSessionTree();
+      _backend?.boostRefresh();
+    }
+
+    if (!mounted || _isDisposed) return;
+
+    // セッションツリー周期更新を再開
     _startTreeRefresh();
 
     // 接続状態監視ウォッチドッグを再開

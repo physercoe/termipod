@@ -13,7 +13,7 @@ import 'terminal_backend.dart';
 /// The xterm [Terminal] model processes VT sequences and maintains screen state.
 /// Screen content is serialized back to ANSI text for [AnsiTextView].
 class RawPtyBackend implements TerminalBackend {
-  final SshClient _sshClient;
+  SshClient _sshClient;
   final _contentController = StreamController<void>.broadcast();
 
   late final Terminal _terminal;
@@ -155,6 +155,46 @@ class RawPtyBackend implements TerminalBackend {
       cols: cols,
       rows: rows,
     ));
+  }
+
+  @override
+  Future<void> rebindSshClient(SshClient newClient) async {
+    if (_disposed) return;
+
+    // Swap to the fresh client and re-register the shell data handler.
+    // The xterm.dart Terminal buffer is kept intact so users don't lose
+    // on-screen content or scrollback across the reconnect.
+    _sshClient = newClient;
+    _sshClient.updateEventHandlers(onData: _onShellData);
+
+    // Re-probe $HOME on the new client. Failure is non-fatal — the
+    // previous value (if any) is kept as a best-effort fallback.
+    try {
+      final out = await _sshClient.exec('printf %s "\$HOME"');
+      final trimmed = out.trim();
+      if (trimmed.isNotEmpty) _homeDir = trimmed;
+    } catch (_) {}
+
+    // Start a fresh interactive shell on the new client. Without this
+    // the new connection has no PTY and _sshClient.write() would throw
+    // "shell not started".
+    try {
+      await _sshClient.startShell(ShellOptions(
+        term: 'xterm-256color',
+        cols: _cols,
+        rows: _rows,
+      ));
+    } catch (_) {
+      // If the shell fails to start, leave the backend idle; the next
+      // reconnect attempt will try again.
+      return;
+    }
+
+    // Nudge the view so it repaints at least once after the rebind —
+    // the new shell prompt typically arrives on its own, but this
+    // keeps the latency/dimensions fresh even if it doesn't.
+    _contentDirty = true;
+    _contentController.add(null);
   }
 
   @override

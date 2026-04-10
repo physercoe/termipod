@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import '../ssh/ssh_client.dart';
+
 /// Abstract interface for terminal backends.
 ///
 /// Implementations handle content retrieval, key input, and resize
@@ -10,6 +12,18 @@ abstract class TerminalBackend {
 
   /// Initialize after SSH is connected.
   Future<void> initialize({required int cols, required int rows});
+
+  /// Rebind to a new SSH client after a reconnect.
+  ///
+  /// Must be called when the underlying [SshClient] has been replaced
+  /// (e.g. after [SshNotifier.reconnectNow]). Backends capture the
+  /// client reference at construction and would otherwise keep talking
+  /// to the dead socket. Implementations should:
+  /// - Cancel any in-flight work tied to the old client
+  /// - Swap the internal reference to [newClient]
+  /// - Re-establish streams / polling against the new client
+  /// - Preserve display state (scrollback, terminal buffer) where possible
+  Future<void> rebindSshClient(SshClient newClient);
 
   /// Current screen content as ANSI-escaped text (what AnsiTextView renders).
   String get currentContent;

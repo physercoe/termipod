@@ -23,7 +23,7 @@ typedef PollingIntervalCallback = int Function();
 ///
 /// Extracted from terminal_screen.dart to implement [TerminalBackend].
 class TmuxBackend implements TerminalBackend {
-  final SshClient _sshClient;
+  SshClient _sshClient;
   final String? Function() _getCurrentTarget;
   final CursorUpdateCallback? onCursorUpdate;
   final CopyModeCallback? onCopyModeChange;
@@ -99,6 +99,19 @@ class TmuxBackend implements TerminalBackend {
     _paneWidth = cols;
     _paneHeight = rows;
     _startPolling();
+  }
+
+  @override
+  Future<void> rebindSshClient(SshClient newClient) async {
+    // Stop polling against the dead client, swap in the new one, and
+    // reset polling state so the next tick hits the fresh socket.
+    _pollTimer?.cancel();
+    _isPolling = false;
+    _sshClient = newClient;
+    _currentPollingInterval = _minPollingInterval;
+    if (!_disposed) {
+      _scheduleNextPoll();
+    }
   }
 
   // ---------------------------------------------------------------------------

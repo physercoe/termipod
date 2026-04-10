@@ -5,14 +5,16 @@
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>SSH terminal for Android, built for tmux and AI coding agents.</b><br>
-  <sub>Manage remote servers from your phone — run Claude Code, Codex, or any CLI tool through a touch-optimized terminal.</sub>
+  <b>SSH terminal for mobile, built for tmux and AI coding agents.</b><br>
+  <sub>Manage remote servers from your phone or tablet — run Claude Code, Codex, or any CLI tool through a touch-optimized terminal. Android, iOS, and iPadOS from a single Flutter codebase.</sub>
 </p>
 
 <p align="center">
   <a href="https://github.com/physercoe/mux-pod/releases"><img src="https://img.shields.io/github/v/release/physercoe/mux-pod?style=flat-square&color=00c0d1" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/mux-pod?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
+  <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
+  <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
+  <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
   <img src="https://img.shields.io/badge/Flutter-3.24+-02569B?style=flat-square&logo=flutter&logoColor=white" alt="Flutter">
 </p>
 
@@ -36,7 +38,7 @@
 
 ## What is TermiPod?
 
-TermiPod is a **mobile SSH client and tmux manager for Android** — purpose-built for developers who run long-lived terminal sessions on remote servers and need to check in, interact, or operate from their phone. Also supports raw PTY connections for servers without tmux.
+TermiPod is a **cross-platform mobile SSH client and tmux manager** for Android, iOS, and iPadOS — purpose-built for developers who run long-lived terminal sessions on remote servers and need to check in, interact, or operate from a phone or tablet. Built on Flutter so the same touch-optimized UI runs everywhere from a single codebase. Also supports raw PTY connections for servers without tmux.
 
 Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how people actually use terminals on mobile:
 
@@ -64,7 +66,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **SSH ProxyJump** — Connect through a bastion/jump host to reach internal machines
 - **SOCKS5 proxy** — Route SSH through corporate proxies, VPNs, or Shadowsocks/Clash
 - **Connection testing** — Verify SSH + tmux availability before saving
-- **Secure storage** — Keys and passwords in Android Keystore via flutter_secure_storage
+- **Secure storage** — Keys and passwords encrypted in Android Keystore / iOS Keychain via flutter_secure_storage
 - **Zero server setup** — Works with any server running `sshd` (+ `tmux` for session management). Nothing to install remotely.
 
 ### tmux Session Management
@@ -114,7 +116,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 ### Other
 - **Notification alerts** — Monitor tmux window flags (bell, activity, silence) across all connections
 - **Deep linking** — `muxpod://` URL scheme for opening specific terminal sessions from external apps
-- **Foldable device support** — Adapts layout for large inner screens
+- **Tablet & foldable support** — Adapts layout for iPad, Android tablets, and foldable inner screens
 - **Auto-resize** — Adjusts terminal dimensions to fit screen
 - **i18n** — English and Chinese (Simplified), follows system locale
 
@@ -293,7 +295,9 @@ Works with [claude-telegram-notify](https://github.com/launch52-ai/claude-telegr
 
 ### Install
 
-Download the latest APK from [**Releases**](https://github.com/physercoe/mux-pod/releases).
+**Android:** Download the latest APK from [**Releases**](https://github.com/physercoe/mux-pod/releases) and sideload.
+
+**iOS / iPadOS:** No App Store build yet — build from source with Xcode (see below). TestFlight distribution is on the roadmap.
 
 ### Or build from source
 
@@ -301,7 +305,13 @@ Download the latest APK from [**Releases**](https://github.com/physercoe/mux-pod
 git clone https://github.com/physercoe/mux-pod.git
 cd mux-pod
 flutter pub get
+
+# Android
 flutter build apk --release
+
+# iOS / iPadOS (macOS with Xcode required)
+flutter build ios --release
+# or open ios/Runner.xcworkspace in Xcode and archive for device/TestFlight
 ```
 
 ### Connect
@@ -318,7 +328,7 @@ flutter build apk --release
 
 | Component | Requirement |
 |-----------|-------------|
-| **Device** | Android 8.0+ (API 26) |
+| **Device** | Android 8.0+ (API 26), iOS 13.0+, iPadOS 13.0+ — phone, tablet, or foldable |
 | **Server** | Any SSH server (OpenSSH, Dropbear, etc.) |
 | **tmux** | Any version (tested with 2.9+) — optional in raw PTY mode |
 | **Network** | Direct SSH, or via jump host / SOCKS5 proxy |
@@ -333,7 +343,7 @@ flutter build apk --release
 | **SSH** | [dartssh2](https://pub.dev/packages/dartssh2) |
 | **Terminal** | [xterm](https://pub.dev/packages/xterm) (rendering + headless VT for raw PTY) |
 | **State** | [flutter_riverpod](https://pub.dev/packages/flutter_riverpod) |
-| **Security** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) (Android Keystore) |
+| **Security** | [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) (Android Keystore / iOS Keychain) |
 
 ---
 
@@ -368,5 +378,5 @@ TermiPod is built on top of [MuxPod](https://github.com/moezakura/mux-pod) by [@
 ---
 
 <p align="center">
-  <sub>Built with Flutter. Designed for mobile. Made for developers who live in the terminal.</sub>
+  <sub>Built with Flutter. Designed for mobile — phone, tablet, Android, iOS. Made for developers who live in the terminal.</sub>
 </p>

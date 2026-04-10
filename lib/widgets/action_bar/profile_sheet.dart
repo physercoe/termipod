@@ -8,6 +8,7 @@ import '../../models/action_bar_config.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../screens/settings/action_bar_settings_screen.dart';
 import '../../theme/design_colors.dart';
+import '../help_sheet.dart';
 
 /// Key Palette bottom sheet opened from the [⋮] button in the action bar.
 ///
@@ -212,6 +213,22 @@ class ProfileSheet extends ConsumerWidget {
                 ),
               ),
             ),
+          ),
+          // Help (?) — opens the cheat sheet so users can look up what
+          // every button in the current profile actually does without
+          // digging through settings. Lives next to "+ New" so both
+          // profile-meta actions share one corner.
+          IconButton(
+            onPressed: () {
+              HapticFeedback.selectionClick();
+              showHelpSheet(context, ref);
+            },
+            icon: const Icon(Icons.help_outline, size: 18),
+            color: DesignColors.primary,
+            tooltip: 'Help',
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
           TextButton.icon(
             onPressed: () {

@@ -231,6 +231,34 @@ class TmuxCommands {
     return 'tmux send-keys -t ${_escapeArg(paneId)} $escapedKeys';
   }
 
+  /// Send a whitespace-separated sequence of tmux key names as separate
+  /// positional arguments to `tmux send-keys`.
+  ///
+  /// This is the path for buttons whose `value` encodes a chord like
+  /// `"C-b c"` (new window) or `"C-b %"` (split vertical). Sending the
+  /// whole string through [sendKeys] would wrap it in double quotes —
+  /// tmux would then see one giant key name, not two. We split on
+  /// whitespace, escape each token individually, and join them with
+  /// plain spaces so tmux receives `tmux send-keys -t <pane> C-b c`.
+  ///
+  /// Escape-only characters such as `"` or `{` in a token are preserved
+  /// via [_escapeArg], which safely wraps them in double quotes per
+  /// token. Empty input collapses to a no-op command that's still a
+  /// valid exec target (it just sends nothing).
+  static String sendKeySequence(String paneId, String keys) {
+    final tokens = keys
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .map(_escapeArg)
+        .join(' ');
+    if (tokens.isEmpty) {
+      // Nothing to send — emit a harmless no-op so callers don't have
+      // to special-case empty input.
+      return ':';
+    }
+    return 'tmux send-keys -t ${_escapeArg(paneId)} $tokens';
+  }
+
   /// Enterキーを送信
   static String sendEnter(String paneId) {
     return 'tmux send-keys -t ${_escapeArg(paneId)} Enter';

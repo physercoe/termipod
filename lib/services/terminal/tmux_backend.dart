@@ -264,7 +264,15 @@ class TmuxBackend implements TerminalBackend {
     if (target == null) return;
 
     try {
-      await _sshClient.exec(TmuxCommands.sendKeys(target, tmuxKey, literal: false));
+      // Whitespace-separated chords like "C-b c" (new window) must be
+      // sent as separate positional args to `tmux send-keys` so tmux
+      // reads them as a sequence, not as one literal key name. The
+      // default sendKeys path would escape the whole string into a
+      // single quoted arg, which tmux rejects as an unknown key.
+      final cmd = tmuxKey.contains(RegExp(r'\s'))
+          ? TmuxCommands.sendKeySequence(target, tmuxKey)
+          : TmuxCommands.sendKeys(target, tmuxKey, literal: false);
+      await _sshClient.exec(cmd);
       boostRefresh();
     } catch (_) {}
   }

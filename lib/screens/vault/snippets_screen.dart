@@ -484,11 +484,23 @@ typedef SnippetEditSaveCallback = void Function(
 /// スニペット作成/編集ダイアログ
 class SnippetEditDialog extends ConsumerStatefulWidget {
   final Snippet? snippet;
+
+  /// Optional initial name prefill for new-snippet creation (ignored if
+  /// [snippet] is non-null). Lets callers like the history "save as
+  /// snippet" flow seed the name field without fabricating a Snippet.
+  final String? initialName;
+
+  /// Optional initial content prefill for new-snippet creation (ignored
+  /// if [snippet] is non-null).
+  final String? initialContent;
+
   final SnippetEditSaveCallback onSave;
 
   const SnippetEditDialog({
     super.key,
     this.snippet,
+    this.initialName,
+    this.initialContent,
     required this.onSave,
   });
 
@@ -642,9 +654,12 @@ class _SnippetEditDialogState extends ConsumerState<SnippetEditDialog> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.snippet?.name ?? '');
-    _contentController =
-        TextEditingController(text: widget.snippet?.content ?? '');
+    _nameController = TextEditingController(
+      text: widget.snippet?.name ?? widget.initialName ?? '',
+    );
+    _contentController = TextEditingController(
+      text: widget.snippet?.content ?? widget.initialContent ?? '',
+    );
     _category = widget.snippet?.category ?? 'general';
     _variables = [...?widget.snippet?.variables];
     _rebuildControllers();

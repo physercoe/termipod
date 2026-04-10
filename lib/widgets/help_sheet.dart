@@ -13,6 +13,19 @@ class _TmuxEntry {
   const _TmuxEntry(this.key, this.description);
 }
 
+/// Resolve the text the action-bar cheat sheet should render for a
+/// given button. Prefers the button's own [ActionBarButton.description]
+/// when set, then the shared [ActionBarButton.defaultDescriptions]
+/// lookup (also used by the settings picker), and finally falls back
+/// to the button's raw value so nothing ever renders blank.
+String _describeButton(ActionBarButton button) {
+  final own = button.description;
+  if (own != null && own.trim().isNotEmpty) return own;
+  final mapped = ActionBarButton.defaultDescriptions[button.value];
+  if (mapped != null && mapped.isNotEmpty) return mapped;
+  return button.value;
+}
+
 /// Tmux cheat sheet categories
 const _tmuxCheatSheet = <String, List<_TmuxEntry>>{
   'Windows': [
@@ -228,7 +241,7 @@ class _HelpSheetContent extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              button.description ?? button.value,
+              _describeButton(button),
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 13,
                 color: textColor,

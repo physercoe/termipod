@@ -7,6 +7,7 @@ class ActionBarPresets {
   static const String claudeCodeId = 'claude-code';
   static const String codexId = 'codex';
   static const String generalTerminalId = 'general-terminal';
+  static const String tmuxId = 'tmux';
 
   /// Default profile ID
   static const String defaultProfileId = generalTerminalId;
@@ -16,6 +17,7 @@ class ActionBarPresets {
         claudeCode,
         codex,
         generalTerminal,
+        tmux,
       ];
 
   /// Get a built-in profile by ID, returns null if not found
@@ -28,6 +30,11 @@ class ActionBarPresets {
 
   /// Master catalog of all unique buttons from built-in profiles,
   /// de-duplicated by value. Users pick from this when adding buttons.
+  ///
+  /// Also merges in [extraCatalogButtons] so the picker offers every
+  /// standard keyboard key (numbers, shift-number symbols, F1-F12,
+  /// brackets, quotes, Delete/Insert, etc.) even though no preset
+  /// profile ships them in its default groups.
   static List<ActionBarButton> get buttonCatalog {
     final seen = <String>{};
     final catalog = <ActionBarButton>[];
@@ -38,6 +45,11 @@ class ActionBarPresets {
             catalog.add(button);
           }
         }
+      }
+    }
+    for (final button in extraCatalogButtons) {
+      if (seen.add(button.value)) {
+        catalog.add(button);
       }
     }
     return catalog;
@@ -189,4 +201,117 @@ class ActionBarPresets {
       ]),
     ],
   );
+
+  // ---------------------------------------------------------------------------
+  // Tmux (prefix-chord action buttons)
+  //
+  // Buttons whose `value` contains a space are routed through
+  // [TmuxCommands.sendKeySequence] by [TmuxBackend.sendSpecialKey], which
+  // splits the string and passes each token as a separate positional
+  // argument to `tmux send-keys`. That lets a single button fire a
+  // full `C-b x` chord from inside an attached session — tmux sees the
+  // prefix followed by the action key and reacts exactly as if the
+  // user had typed both. Only works under the tmux backend; the raw
+  // PTY backend would send the literal string, so users on that
+  // backend should avoid this profile.
+  // ---------------------------------------------------------------------------
+
+  static const tmux = ActionBarProfile(
+    id: tmuxId,
+    name: 'Tmux',
+    isBuiltIn: true,
+    groups: [
+      ActionBarGroup(id: 'tx-windows', name: 'Windows', buttons: [
+        ActionBarButton(id: 'tx-win-new', label: 'New', type: ActionBarButtonType.specialKey, value: 'C-b c'),
+        ActionBarButton(id: 'tx-win-next', label: 'Next', type: ActionBarButtonType.specialKey, value: 'C-b n'),
+        ActionBarButton(id: 'tx-win-prev', label: 'Prev', type: ActionBarButtonType.specialKey, value: 'C-b p'),
+        ActionBarButton(id: 'tx-win-list', label: 'List', type: ActionBarButtonType.specialKey, value: 'C-b w'),
+        ActionBarButton(id: 'tx-win-rename', label: 'Rename', type: ActionBarButtonType.specialKey, value: 'C-b ,'),
+        ActionBarButton(id: 'tx-win-kill', label: 'Kill', type: ActionBarButtonType.specialKey, value: 'C-b &'),
+      ]),
+      ActionBarGroup(id: 'tx-panes', name: 'Panes', buttons: [
+        ActionBarButton(id: 'tx-pane-vsplit', label: 'VSplit', type: ActionBarButtonType.specialKey, value: 'C-b %'),
+        ActionBarButton(id: 'tx-pane-hsplit', label: 'HSplit', type: ActionBarButtonType.specialKey, value: 'C-b "'),
+        ActionBarButton(id: 'tx-pane-next', label: 'NextP', type: ActionBarButtonType.specialKey, value: 'C-b o'),
+        ActionBarButton(id: 'tx-pane-kill', label: 'KillP', type: ActionBarButtonType.specialKey, value: 'C-b x'),
+        ActionBarButton(id: 'tx-pane-zoom', label: 'Zoom', type: ActionBarButtonType.specialKey, value: 'C-b z'),
+      ]),
+      ActionBarGroup(id: 'tx-session', name: 'Session', buttons: [
+        ActionBarButton(id: 'tx-sess-detach', label: 'Detach', type: ActionBarButtonType.specialKey, value: 'C-b d'),
+        ActionBarButton(id: 'tx-sess-list', label: 'SessLs', type: ActionBarButtonType.specialKey, value: 'C-b s'),
+        ActionBarButton(id: 'tx-sess-prompt', label: ':', type: ActionBarButtonType.specialKey, value: 'C-b :'),
+        ActionBarButton(id: 'tx-sess-help', label: '?', type: ActionBarButtonType.specialKey, value: 'C-b ?'),
+      ]),
+      ActionBarGroup(id: 'tx-copy', name: 'Copy', buttons: [
+        ActionBarButton(id: 'tx-copy-enter', label: 'Copy', type: ActionBarButtonType.specialKey, value: 'C-b ['),
+        ActionBarButton(id: 'tx-copy-paste', label: 'Paste', type: ActionBarButtonType.specialKey, value: 'C-b ]'),
+      ]),
+    ],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Extra catalog entries — not shipped in any preset profile by default,
+  // but available in the "add button" picker so users can drop every
+  // standard keyboard key into a custom group without having to type
+  // the tmux key name by hand. Values are chosen to be unique across
+  // the whole built-in catalog so de-duplication in [buttonCatalog]
+  // picks them up as additions, not collisions.
+  // ---------------------------------------------------------------------------
+
+  static const extraCatalogButtons = <ActionBarButton>[
+    // Digits 0-9
+    ActionBarButton(id: 'cat-digit-0', label: '0', type: ActionBarButtonType.literal, value: '0'),
+    ActionBarButton(id: 'cat-digit-1', label: '1', type: ActionBarButtonType.literal, value: '1'),
+    ActionBarButton(id: 'cat-digit-2', label: '2', type: ActionBarButtonType.literal, value: '2'),
+    ActionBarButton(id: 'cat-digit-3', label: '3', type: ActionBarButtonType.literal, value: '3'),
+    ActionBarButton(id: 'cat-digit-4', label: '4', type: ActionBarButtonType.literal, value: '4'),
+    ActionBarButton(id: 'cat-digit-5', label: '5', type: ActionBarButtonType.literal, value: '5'),
+    ActionBarButton(id: 'cat-digit-6', label: '6', type: ActionBarButtonType.literal, value: '6'),
+    ActionBarButton(id: 'cat-digit-7', label: '7', type: ActionBarButtonType.literal, value: '7'),
+    ActionBarButton(id: 'cat-digit-8', label: '8', type: ActionBarButtonType.literal, value: '8'),
+    ActionBarButton(id: 'cat-digit-9', label: '9', type: ActionBarButtonType.literal, value: '9'),
+    // Shift-number symbols
+    ActionBarButton(id: 'cat-sym-excl', label: '!', type: ActionBarButtonType.literal, value: '!'),
+    ActionBarButton(id: 'cat-sym-at', label: '@', type: ActionBarButtonType.literal, value: '@'),
+    ActionBarButton(id: 'cat-sym-hash', label: '#', type: ActionBarButtonType.literal, value: '#'),
+    ActionBarButton(id: 'cat-sym-dollar', label: '\$', type: ActionBarButtonType.literal, value: '\$'),
+    ActionBarButton(id: 'cat-sym-pct', label: '%', type: ActionBarButtonType.literal, value: '%'),
+    ActionBarButton(id: 'cat-sym-caret', label: '^', type: ActionBarButtonType.literal, value: '^'),
+    ActionBarButton(id: 'cat-sym-amp', label: '&', type: ActionBarButtonType.literal, value: '&'),
+    ActionBarButton(id: 'cat-sym-star', label: '*', type: ActionBarButtonType.literal, value: '*'),
+    ActionBarButton(id: 'cat-sym-lparen', label: '(', type: ActionBarButtonType.literal, value: '('),
+    ActionBarButton(id: 'cat-sym-rparen', label: ')', type: ActionBarButtonType.literal, value: ')'),
+    // Brackets & quotes
+    ActionBarButton(id: 'cat-sym-lbracket', label: '[', type: ActionBarButtonType.literal, value: '['),
+    ActionBarButton(id: 'cat-sym-rbracket', label: ']', type: ActionBarButtonType.literal, value: ']'),
+    ActionBarButton(id: 'cat-sym-lbrace', label: '{', type: ActionBarButtonType.literal, value: '{'),
+    ActionBarButton(id: 'cat-sym-rbrace', label: '}', type: ActionBarButtonType.literal, value: '}'),
+    ActionBarButton(id: 'cat-sym-lt', label: '<', type: ActionBarButtonType.literal, value: '<'),
+    ActionBarButton(id: 'cat-sym-gt', label: '>', type: ActionBarButtonType.literal, value: '>'),
+    ActionBarButton(id: 'cat-sym-dquote', label: '"', type: ActionBarButtonType.literal, value: '"'),
+    ActionBarButton(id: 'cat-sym-squote', label: "'", type: ActionBarButtonType.literal, value: "'"),
+    ActionBarButton(id: 'cat-sym-backtick', label: '`', type: ActionBarButtonType.literal, value: '`'),
+    // Other punctuation
+    ActionBarButton(id: 'cat-sym-colon', label: ':', type: ActionBarButtonType.literal, value: ':'),
+    ActionBarButton(id: 'cat-sym-semi', label: ';', type: ActionBarButtonType.literal, value: ';'),
+    ActionBarButton(id: 'cat-sym-comma', label: ',', type: ActionBarButtonType.literal, value: ','),
+    ActionBarButton(id: 'cat-sym-dot', label: '.', type: ActionBarButtonType.literal, value: '.'),
+    ActionBarButton(id: 'cat-sym-question', label: '?', type: ActionBarButtonType.literal, value: '?'),
+    ActionBarButton(id: 'cat-sym-eq', label: '=', type: ActionBarButtonType.literal, value: '='),
+    ActionBarButton(id: 'cat-sym-plus', label: '+', type: ActionBarButtonType.literal, value: '+'),
+    // Special keys not in any preset
+    ActionBarButton(id: 'cat-del', label: 'Del', type: ActionBarButtonType.specialKey, value: 'Delete'),
+    ActionBarButton(id: 'cat-ins', label: 'Ins', type: ActionBarButtonType.specialKey, value: 'Insert'),
+    ActionBarButton(id: 'cat-bspace', label: '⌫', type: ActionBarButtonType.specialKey, value: 'BSpace'),
+    ActionBarButton(id: 'cat-space', label: 'Space', type: ActionBarButtonType.specialKey, value: 'Space'),
+    // F5-F12 (F1-F4 already ship in General Terminal)
+    ActionBarButton(id: 'cat-f5', label: 'F5', type: ActionBarButtonType.specialKey, value: 'F5'),
+    ActionBarButton(id: 'cat-f6', label: 'F6', type: ActionBarButtonType.specialKey, value: 'F6'),
+    ActionBarButton(id: 'cat-f7', label: 'F7', type: ActionBarButtonType.specialKey, value: 'F7'),
+    ActionBarButton(id: 'cat-f8', label: 'F8', type: ActionBarButtonType.specialKey, value: 'F8'),
+    ActionBarButton(id: 'cat-f9', label: 'F9', type: ActionBarButtonType.specialKey, value: 'F9'),
+    ActionBarButton(id: 'cat-f10', label: 'F10', type: ActionBarButtonType.specialKey, value: 'F10'),
+    ActionBarButton(id: 'cat-f11', label: 'F11', type: ActionBarButtonType.specialKey, value: 'F11'),
+    ActionBarButton(id: 'cat-f12', label: 'F12', type: ActionBarButtonType.specialKey, value: 'F12'),
+  ];
 }

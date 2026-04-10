@@ -8,6 +8,7 @@ import 'package:flutter_muxpod/l10n/app_localizations.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
+import 'snippets_screen.dart';
 
 /// Full history screen body widget for the Vault.
 ///
@@ -265,47 +266,32 @@ class _HistoryTile extends ConsumerWidget {
   }
 
   void _showSaveAsSnippet(BuildContext context, WidgetRef ref) {
-    final nameController = TextEditingController(
-      text: command.length > 30 ? command.substring(0, 30) : command,
-    );
+    // Use the full SnippetEditDialog so users can pick a category and
+    // add variable placeholders from history — the name-only AlertDialog
+    // that used to live here couldn't do either.
+    final messenger = ScaffoldMessenger.of(context);
+    final savedLabel = AppLocalizations.of(context)!.savedToSnippets;
+    final notifier = ref.read(snippetsProvider.notifier);
 
     showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.saveAsSnippet),
-        content: TextField(
-          controller: nameController,
-          decoration: InputDecoration(
-            labelText: AppLocalizations.of(context)!.snippetName,
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          autofocus: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(AppLocalizations.of(context)!.buttonCancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty) {
-                ref.read(snippetsProvider.notifier).addSnippet(
-                      name: nameController.text,
-                      content: command,
-                    );
-                Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(AppLocalizations.of(context)!.savedToSnippets),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              }
-            },
-            child: Text(AppLocalizations.of(context)!.buttonSave),
-          ),
-        ],
+      builder: (dialogContext) => SnippetEditDialog(
+        initialName: command.length > 30 ? command.substring(0, 30) : command,
+        initialContent: command,
+        onSave: (name, content, category, variables) {
+          notifier.addSnippet(
+            name: name,
+            content: content,
+            category: category,
+            variables: variables,
+          );
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(savedLabel),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
       ),
     );
   }

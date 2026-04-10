@@ -163,11 +163,12 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
     showDialog(
       context: context,
       builder: (ctx) => SnippetEditDialog(
-        onSave: (name, content, category) {
+        onSave: (name, content, category, variables) {
           ref.read(snippetsProvider.notifier).addSnippet(
                 name: name,
                 content: content,
                 category: category,
+                variables: variables,
               );
         },
       ),

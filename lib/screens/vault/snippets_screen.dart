@@ -456,12 +456,13 @@ class _SnippetTile extends ConsumerWidget {
       context: context,
       builder: (ctx) => _SnippetEditDialog(
         snippet: snippet,
-        onSave: (name, content, category) {
+        onSave: (name, content, category, variables) {
           ref.read(snippetsProvider.notifier).updateSnippet(
                 snippet.id,
                 name: name,
                 content: content,
                 category: category,
+                variables: variables,
               );
         },
       ),
@@ -469,10 +470,21 @@ class _SnippetTile extends ConsumerWidget {
   }
 }
 
+/// Save callback for [SnippetEditDialog]. Variables are derived from
+/// `{{name}}` placeholders in `content` and optionally annotated with
+/// kind/default/options via the editor section; the callback delivers
+/// them so call sites can persist through [SnippetsNotifier].
+typedef SnippetEditSaveCallback = void Function(
+  String name,
+  String content,
+  String category,
+  List<SnippetVariable> variables,
+);
+
 /// スニペット作成/編集ダイアログ
 class SnippetEditDialog extends StatefulWidget {
   final Snippet? snippet;
-  final void Function(String name, String content, String category) onSave;
+  final SnippetEditSaveCallback onSave;
 
   const SnippetEditDialog({
     super.key,
@@ -484,10 +496,34 @@ class SnippetEditDialog extends StatefulWidget {
   State<SnippetEditDialog> createState() => _SnippetEditDialogState();
 }
 
+/// Bundles the text controllers that live alongside an editable
+/// variable: the "default value" field and the "add option" input.
+class _VarControllers {
+  final TextEditingController defaultCtl;
+  final TextEditingController newOptionCtl;
+  _VarControllers({required this.defaultCtl, required this.newOptionCtl});
+  void dispose() {
+    defaultCtl.dispose();
+    newOptionCtl.dispose();
+  }
+}
+
 class _SnippetEditDialogState extends State<SnippetEditDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _contentController;
   late String _category;
+
+  /// Editable variables kept in sync with the placeholders in
+  /// _contentController. Changes to content auto-add/remove entries
+  /// while preserving per-variable kind/options across edits.
+  List<SnippetVariable> _variables = [];
+
+  /// Controllers for each variable's default/add-option fields, keyed
+  /// by variable name. Rebuilt whenever _variables changes so the list
+  /// of fields stays consistent with detected placeholders.
+  final Map<String, _VarControllers> _varControllers = {};
+
+  static final _placeholderPattern = RegExp(r'\{\{(\w+)\}\}');
 
   static const _categoryKeys = [
     'general',
@@ -512,14 +548,122 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.snippet?.name ?? '');
-    _contentController = TextEditingController(text: widget.snippet?.content ?? '');
+    _contentController =
+        TextEditingController(text: widget.snippet?.content ?? '');
     _category = widget.snippet?.category ?? 'general';
+    _variables = [...?widget.snippet?.variables];
+    _rebuildControllers();
+    _contentController.addListener(_syncVariables);
+    // Initial sync in case a new placeholder was added to content but
+    // the snippet wasn't saved with matching variables metadata.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncVariables());
+  }
+
+  void _rebuildControllers() {
+    final keep = _variables.map((v) => v.name).toSet();
+    final stale =
+        _varControllers.keys.where((k) => !keep.contains(k)).toList();
+    for (final k in stale) {
+      _varControllers.remove(k)?.dispose();
+    }
+    for (final v in _variables) {
+      _varControllers.putIfAbsent(
+        v.name,
+        () => _VarControllers(
+          defaultCtl: TextEditingController(text: v.defaultValue),
+          newOptionCtl: TextEditingController(),
+        ),
+      );
+    }
+  }
+
+  void _syncVariables() {
+    final content = _contentController.text;
+    final seen = <String>{};
+    final found = <String>[];
+    for (final m in _placeholderPattern.allMatches(content)) {
+      final name = m.group(1)!;
+      if (seen.add(name)) found.add(name);
+    }
+    final byName = {for (final v in _variables) v.name: v};
+    final next = <SnippetVariable>[];
+    for (final name in found) {
+      next.add(byName[name] ?? SnippetVariable(name: name));
+    }
+    // Cheap identity check: if every entry is the same instance as
+    // before, nothing meaningful changed and we skip the rebuild.
+    final unchanged = next.length == _variables.length &&
+        List.generate(
+          next.length,
+          (i) => identical(next[i], _variables[i]),
+        ).every((b) => b);
+    if (unchanged) return;
+    setState(() {
+      _variables = next;
+      _rebuildControllers();
+    });
+  }
+
+  void _updateVariable(int index, SnippetVariable updated) {
+    setState(() {
+      final list = [..._variables];
+      list[index] = updated;
+      _variables = list;
+    });
+  }
+
+  void _addOption(int index) {
+    final variable = _variables[index];
+    final ctl = _varControllers[variable.name]?.newOptionCtl;
+    if (ctl == null) return;
+    final value = ctl.text.trim();
+    if (value.isEmpty || variable.options.contains(value)) return;
+    _updateVariable(
+      index,
+      SnippetVariable(
+        name: variable.name,
+        kind: SnippetVarKind.option,
+        defaultValue:
+            variable.defaultValue.isEmpty ? value : variable.defaultValue,
+        options: [...variable.options, value],
+        optional: variable.optional,
+      ),
+    );
+    ctl.clear();
+  }
+
+  void _removeOption(int index, int optionIndex) {
+    final variable = _variables[index];
+    final removed = variable.options[optionIndex];
+    final newOpts = [...variable.options]..removeAt(optionIndex);
+    final newDefault = variable.defaultValue == removed
+        ? (newOpts.isEmpty ? '' : newOpts.first)
+        : variable.defaultValue;
+    _updateVariable(
+      index,
+      SnippetVariable(
+        name: variable.name,
+        kind: variable.kind,
+        defaultValue: newDefault,
+        options: newOpts,
+        optional: variable.optional,
+      ),
+    );
+    final defaultCtl = _varControllers[variable.name]?.defaultCtl;
+    if (defaultCtl != null && defaultCtl.text != newDefault) {
+      defaultCtl.text = newDefault;
+    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    _contentController.removeListener(_syncVariables);
     _contentController.dispose();
+    for (final c in _varControllers.values) {
+      c.dispose();
+    }
+    _varControllers.clear();
     super.dispose();
   }
 
@@ -527,11 +671,13 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
   Widget build(BuildContext context) {
     final isEdit = widget.snippet != null;
     final l10n = AppLocalizations.of(context)!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AlertDialog(
       title: Text(isEdit ? l10n.editSnippet : l10n.newSnippetTitle),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
               controller: _nameController,
@@ -554,7 +700,8 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               value: _category,
-              decoration: InputDecoration(labelText: l10n.snippetCategoryLabel),
+              decoration:
+                  InputDecoration(labelText: l10n.snippetCategoryLabel),
               items: [
                 for (final key in _categoryKeys)
                   DropdownMenuItem(
@@ -566,6 +713,32 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
                 if (v != null) setState(() => _category = v);
               },
             ),
+            if (_variables.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                l10n.snippetVariablesLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? DesignColors.textSecondary
+                      : DesignColors.textSecondaryLight,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                l10n.snippetVariablesHint,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+              for (var i = 0; i < _variables.length; i++)
+                _buildVariableTile(i, _variables[i], l10n, isDark),
+            ],
           ],
         ),
       ),
@@ -579,12 +752,182 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
             final name = _nameController.text.trim();
             final content = _contentController.text.trim();
             if (name.isEmpty || content.isEmpty) return;
-            widget.onSave(name, content, _category);
+            widget.onSave(name, content, _category, List.of(_variables));
             Navigator.pop(context);
           },
           child: Text(l10n.buttonSave),
         ),
       ],
+    );
+  }
+
+  Widget _buildVariableTile(
+    int index,
+    SnippetVariable variable,
+    AppLocalizations l10n,
+    bool isDark,
+  ) {
+    final ctls = _varControllers[variable.name];
+    if (ctls == null) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: (isDark
+                ? DesignColors.keyBackground
+                : DesignColors.keyBackgroundLight)
+            .withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isDark
+                  ? DesignColors.borderDark
+                  : DesignColors.borderLight)
+              .withValues(alpha: 0.6),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  '{{${variable.name}}}',
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: DesignColors.primary,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(
+                height: 32,
+                child: SegmentedButton<SnippetVarKind>(
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  showSelectedIcon: false,
+                  segments: [
+                    ButtonSegment(
+                      value: SnippetVarKind.text,
+                      label: Text(
+                        l10n.variableKindText,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                    ButtonSegment(
+                      value: SnippetVarKind.option,
+                      label: Text(
+                        l10n.variableKindOption,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                  selected: {variable.kind},
+                  onSelectionChanged: (sel) {
+                    _updateVariable(
+                      index,
+                      SnippetVariable(
+                        name: variable.name,
+                        kind: sel.first,
+                        defaultValue: variable.defaultValue,
+                        options: variable.options,
+                        optional: variable.optional,
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (variable.kind == SnippetVarKind.option) ...[
+            const SizedBox(height: 8),
+            if (variable.options.isNotEmpty)
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (var i = 0; i < variable.options.length; i++)
+                    InputChip(
+                      label: Text(
+                        variable.options[i],
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      onDeleted: () => _removeOption(index, i),
+                      deleteIconColor: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight,
+                    ),
+                ],
+              ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 36,
+                    child: TextField(
+                      controller: ctls.newOptionCtl,
+                      decoration: InputDecoration(
+                        hintText: l10n.variableAddOptionHint,
+                        isDense: true,
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 8,
+                        ),
+                      ),
+                      style: const TextStyle(fontSize: 12),
+                      onSubmitted: (_) => _addOption(index),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(Icons.add, size: 20),
+                  tooltip: l10n.variableAddOptionTooltip,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _addOption(index),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 36,
+            child: TextField(
+              controller: ctls.defaultCtl,
+              decoration: InputDecoration(
+                labelText: l10n.variableDefaultLabel,
+                isDense: true,
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 8,
+                ),
+              ),
+              style: const TextStyle(fontSize: 12),
+              onChanged: (v) {
+                _updateVariable(
+                  index,
+                  SnippetVariable(
+                    name: variable.name,
+                    kind: variable.kind,
+                    defaultValue: v,
+                    options: variable.options,
+                    optional: variable.optional,
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -777,11 +1120,12 @@ class _PresetSnippetTile extends ConsumerWidget {
       context: context,
       builder: (ctx) => _SnippetEditDialog(
         snippet: preset,
-        onSave: (name, content, category) {
+        onSave: (name, content, category, variables) {
           final edited = preset.copyWith(
             name: name,
             content: content,
             category: category,
+            variables: variables,
           );
           ref
               .read(snippetsProvider.notifier)

@@ -634,6 +634,43 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
 
   Widget _buildPlainItem(Snippet snippet, bool isDark,
       {required bool isPreset}) {
+    final nameColor = isPreset
+        ? DesignColors.primary
+        : (isDark
+            ? DesignColors.textPrimary
+            : DesignColors.textPrimaryLight);
+    final suffixColor = isDark
+        ? DesignColors.textSecondary
+        : DesignColors.textSecondaryLight;
+
+    // Build the inline suffix: when the content extends the name
+    // (e.g. name `/compact`, content `/compact {{focus}}`), show the
+    // tail in muted gray on the same line so users can see the
+    // placeholder signature without scrolling to a second line. For
+    // snippets whose content is unrelated to the name we fall back to
+    // an em-dash separator. Newlines collapse to ⏎.
+    String? suffix;
+    if (snippet.content != snippet.name) {
+      String rest;
+      if (snippet.content.startsWith(snippet.name)) {
+        rest = snippet.content.substring(snippet.name.length);
+      } else {
+        rest = '  —  ${snippet.content}';
+      }
+      suffix = rest.replaceAll('\n', ' ⏎ ');
+    }
+
+    void handlePrimaryTap() {
+      HapticFeedback.lightImpact();
+      if (snippet.variables.isNotEmpty) {
+        _showVariableDialog(context, snippet);
+      } else if (snippet.sendImmediately) {
+        widget.onSendImmediately(snippet.content);
+      } else {
+        widget.onInsert(snippet.content);
+      }
+    }
+
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
@@ -655,59 +692,44 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       },
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    snippet.name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: isPreset
-                          ? DesignColors.primary
-                          : (isDark
-                              ? DesignColors.textPrimary
-                              : DesignColors.textPrimaryLight),
-                    ),
-                  ),
-                  if (snippet.content != snippet.name) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      // Collapse newlines so multi-line snippets preview
-                      // inline. Pairs with maxLines: 1 + ellipsis to keep
-                      // the row compact — users who need the full content
-                      // long-press to edit.
-                      snippet.content.replaceAll('\n', ' ⏎ '),
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: snippet.name,
                       style: TextStyle(
-                        fontSize: 12,
-                        color: isDark
-                            ? DesignColors.textSecondary
-                            : DesignColors.textSecondaryLight,
-                        fontFamily: 'monospace',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: nameColor,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
                     ),
+                    if (suffix != null)
+                      TextSpan(
+                        text: suffix,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: suffixColor,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
                   ],
-                ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
               ),
             ),
-            if (snippet.sendImmediately)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Icon(
-                  Icons.send,
-                  size: 14,
-                  color: isDark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight,
-                ),
-              ),
+            const SizedBox(width: 8),
+            _SendIconButton(
+              isDark: isDark,
+              sendImmediately: snippet.sendImmediately,
+              onTap: handlePrimaryTap,
+            ),
           ],
         ),
       ),

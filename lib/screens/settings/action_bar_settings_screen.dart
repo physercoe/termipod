@@ -428,77 +428,39 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
             ),
           ),
           const Divider(),
-          // Buttons list
+          // Buttons palette — chip grid so the user sees the whole
+          // button set in one glance like the action bar they're
+          // configuring. Tap a chip to edit, long-press for the full
+          // action menu (edit / move left / move right / delete) so
+          // reorder is still possible without a dedicated drag handle.
           Expanded(
-            child: ReorderableListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: _buttons.length,
-              onReorder: (oldIndex, newIndex) {
-                setState(() {
-                  if (newIndex > oldIndex) newIndex--;
-                  final item = _buttons.removeAt(oldIndex);
-                  _buttons.insert(newIndex, item);
-                });
-              },
-              itemBuilder: (context, index) {
-                final button = _buttons[index];
-                return Card(
-                  key: ValueKey(button.id),
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: ListTile(
-                    leading: const Icon(Icons.drag_handle),
-                    title: Text(
-                      button.label,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+            child: _buttons.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        AppLocalizations.of(context)!.groupButtonsEmpty,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark
+                              ? DesignColors.textMuted
+                              : DesignColors.textMutedLight,
+                        ),
+                      ),
                     ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(12),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        if (button.displayDescription.isNotEmpty)
-                          Text(
-                            button.displayDescription,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: isDark
-                                  ? DesignColors.textSecondary
-                                  : DesignColors.textSecondaryLight,
-                            ),
-                          ),
-                        Text(
-                          '${_buttonTypeLabel(button.type)} = ${button.value}'
-                          '${button.longPressValue != null ? '  (long: ${button.longPressValue})' : ''}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isDark
-                                ? DesignColors.textMuted
-                                : DesignColors.textMutedLight,
-                          ),
-                        ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, size: 18),
-                          onPressed: () =>
-                              _showEditButtonDialog(context, index),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          onPressed: () {
-                            setState(() => _buttons.removeAt(index));
-                          },
-                          visualDensity: VisualDensity.compact,
-                        ),
+                        for (var i = 0; i < _buttons.length; i++)
+                          _buildButtonChip(i, _buttons[i], isDark),
                       ],
                     ),
                   ),
-                );
-              },
-            ),
           ),
           // Add button
           SafeArea(
@@ -520,6 +482,155 @@ class _GroupEditorScreenState extends ConsumerState<_GroupEditorScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildButtonChip(int index, ActionBarButton button, bool isDark) {
+    // Action-type buttons (file transfer, snippets, etc.) and modifiers
+    // get a subtle accent tint so they're visually distinct from plain
+    // keystroke chips when scanning the palette.
+    final isAction = button.type == ActionBarButtonType.action;
+    final isModifier = button.type == ActionBarButtonType.modifier;
+    final accent = isAction || isModifier;
+    final bgColor = accent
+        ? DesignColors.primary.withValues(alpha: isDark ? 0.18 : 0.10)
+        : (isDark
+            ? DesignColors.keyBackground
+            : DesignColors.keyBackgroundLight);
+    final borderColor = accent
+        ? DesignColors.primary.withValues(alpha: 0.45)
+        : (isDark ? DesignColors.borderDark : DesignColors.borderLight);
+    final textColor = accent
+        ? DesignColors.primary
+        : (isDark
+            ? DesignColors.textPrimary
+            : DesignColors.textPrimaryLight);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showEditButtonDialog(context, index),
+        onLongPress: () => _showButtonActionSheet(context, index, button),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 60, minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: bgColor,
+            border: Border.all(color: borderColor, width: 1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                button.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'monospace',
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                _buttonTypeLabel(button.type),
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0.4,
+                  color: (isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight)
+                      .withValues(alpha: 0.85),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showButtonActionSheet(
+    BuildContext context,
+    int index,
+    ActionBarButton button,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  Text(
+                    button.label,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _buttonTypeLabel(button.type),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: DesignColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: Text(l10n.editButton),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEditButtonDialog(context, index);
+              },
+            ),
+            if (index > 0)
+              ListTile(
+                leading: const Icon(Icons.arrow_back),
+                title: Text(l10n.moveLeft),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    final b = _buttons.removeAt(index);
+                    _buttons.insert(index - 1, b);
+                  });
+                },
+              ),
+            if (index < _buttons.length - 1)
+              ListTile(
+                leading: const Icon(Icons.arrow_forward),
+                title: Text(l10n.moveRight),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() {
+                    final b = _buttons.removeAt(index);
+                    _buttons.insert(index + 1, b);
+                  });
+                },
+              ),
+            ListTile(
+              leading:
+                  const Icon(Icons.delete_outline, color: DesignColors.error),
+              title: Text(
+                l10n.buttonDelete,
+                style: const TextStyle(color: DesignColors.error),
+              ),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _buttons.removeAt(index));
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

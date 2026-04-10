@@ -796,7 +796,7 @@ class _SnippetEditDialogState extends ConsumerState<SnippetEditDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _category,
+              initialValue: _category,
               decoration:
                   InputDecoration(labelText: l10n.snippetCategoryLabel),
               items: [

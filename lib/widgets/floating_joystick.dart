@@ -35,7 +35,11 @@ class FloatingJoystick extends StatefulWidget {
 
 class _FloatingJoystickState extends State<FloatingJoystick> {
   double _right = 16;
-  double _bottom = 8;
+  // Vertical position is computed lazily on first build so the joystick
+  // defaults to the *middle* of the right edge instead of the bottom-right
+  // corner — much easier to reach with a thumb on phone-sized screens
+  // without overlapping the action bar / system gesture inset.
+  double? _bottom;
 
   // Center zone radius is derived proportionally from the outer radius so the
   // center stays a reasonable touch target at all sizes.
@@ -120,7 +124,8 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   void _onPanStart(DragStartDetails details) {
     _touchStartGlobal = details.globalPosition;
     _startRight = _right;
-    _startBottom = _bottom;
+    // build() seeds `_bottom` before any gesture can occur, so the bang is safe.
+    _startBottom = _bottom ?? 0;
     _totalDrag = 0;
     _isRepositioning = false;
     _hasFired = false;
@@ -216,6 +221,14 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Lazily center the joystick vertically on first build. Done here (rather
+    // than in initState) because MediaQuery isn't available until context is
+    // ready, and we want the default to track the actual screen height.
+    if (_bottom == null) {
+      final screenH = MediaQuery.of(context).size.height;
+      _bottom = ((screenH - _outerRadius * 2) / 2).clamp(0.0, 2000.0);
+    }
 
     return Positioned(
       right: _right,

@@ -102,7 +102,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     final activeProfileId = ref.watch(
       actionBarProvider.select((s) => s.profileIdForPanel(widget.panelKey)),
     );
-    final presetSnippets = SnippetPresets.forProfile(activeProfileId);
+    // Apply user overrides + hide deleted preset IDs.
+    final rawPresets = SnippetPresets.forProfile(activeProfileId);
+    final presetSnippets = rawPresets
+        .where((p) => !snippetsState.deletedPresetIds.contains(p.id))
+        .map((p) => snippetsState.presetOverrides[p.id] ?? p)
+        .toList();
     final history = ref.watch(historyProvider).items;
 
     // Filter by search
@@ -490,11 +495,52 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     );
   }
 
+  /// Returns the snippet's single option-kind variable when that's the
+  /// *only* variable. In that case the picker renders inline pill
+  /// buttons instead of opening a dialog — one tap = one keystroke
+  /// for the most common slash-command shape `/cmd {enum}`.
+  ///
+  /// Snippets with multiple option vars or any text vars fall back to
+  /// the dialog flow because their UX would be ambiguous in a row.
+  SnippetVariable? _inlineOptionVar(Snippet snippet) {
+    if (snippet.variables.length != 1) return null;
+    final v = snippet.variables.first;
+    if (v.kind != SnippetVarKind.option) return null;
+    if (v.options.isEmpty) return null;
+    return v;
+  }
+
+  /// Resolve the snippet using the chip's chosen value, then
+  /// send/insert per the snippet's policy.
+  void _commitInlineOption(Snippet snippet, SnippetVariable variable, String value) {
+    HapticFeedback.selectionClick();
+    final resolved = snippet.resolve({variable.name: value});
+    if (snippet.sendImmediately) {
+      widget.onSendImmediately(resolved);
+    } else {
+      widget.onInsert(resolved);
+    }
+  }
+
   Widget _buildSnippetItem(Snippet snippet, bool isDark,
       {bool isPreset = false}) {
+    final inlineVar = _inlineOptionVar(snippet);
+
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
+        if (inlineVar != null) {
+          // Use the configured default for tap-on-name; the user can
+          // pick a different value via the chips below.
+          _commitInlineOption(
+            snippet,
+            inlineVar,
+            inlineVar.defaultValue.isNotEmpty
+                ? inlineVar.defaultValue
+                : inlineVar.options.first,
+          );
+          return;
+        }
         if (snippet.variables.isNotEmpty) {
           _showVariableDialog(context, snippet);
         } else if (snippet.sendImmediately) {
@@ -503,9 +549,15 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           widget.onInsert(snippet.content);
         }
       },
-      onDoubleTap: () {
-        HapticFeedback.lightImpact();
-        widget.onSendImmediately(snippet.content);
+      onDoubleTap: inlineVar != null
+          ? null
+          : () {
+              HapticFeedback.lightImpact();
+              widget.onSendImmediately(snippet.content);
+            },
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _showSnippetActions(snippet, isPreset: isPreset);
       },
       borderRadius: BorderRadius.circular(8),
       child: Padding(
@@ -528,7 +580,23 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                               : DesignColors.textPrimaryLight),
                     ),
                   ),
-                  if (snippet.content != snippet.name) ...[
+                  if (inlineVar != null) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        for (final opt in inlineVar.options)
+                          _OptionChip(
+                            label: opt,
+                            isDefault: opt == inlineVar.defaultValue,
+                            isDark: isDark,
+                            onTap: () => _commitInlineOption(
+                                snippet, inlineVar, opt),
+                          ),
+                      ],
+                    ),
+                  ] else if (snippet.content != snippet.name) ...[
                     const SizedBox(height: 2),
                     Text(
                       snippet.content,
@@ -546,7 +614,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 ],
               ),
             ),
-            if (snippet.sendImmediately)
+            if (snippet.sendImmediately && inlineVar == null)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: Icon(
@@ -557,6 +625,156 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                       : DesignColors.textMutedLight,
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Long-press menu for a snippet row. Offers Edit and Delete; for
+  /// preset snippets we use the override path so the original built-in
+  /// definition stays intact and can be restored later.
+  void _showSnippetActions(Snippet snippet, {required bool isPreset}) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: Text(AppLocalizations.of(context)!.buttonEdit),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _showEditSnippetDialog(snippet, isPreset: isPreset);
+              },
+            ),
+            if (isPreset && ref
+                .read(snippetsProvider)
+                .presetOverrides
+                .containsKey(snippet.id))
+              ListTile(
+                leading: const Icon(Icons.restore),
+                title: Text(AppLocalizations.of(context)!.resetToDefault),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  ref
+                      .read(snippetsProvider.notifier)
+                      .revertPresetOverride(snippet.id);
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: Text(
+                AppLocalizations.of(context)!.buttonDelete,
+                style: const TextStyle(color: Colors.red),
+              ),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                if (isPreset) {
+                  ref
+                      .read(snippetsProvider.notifier)
+                      .deletePreset(snippet.id);
+                } else {
+                  ref
+                      .read(snippetsProvider.notifier)
+                      .deleteSnippet(snippet.id);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Edit dialog reused for preset overrides and user snippets.
+  /// Editing a preset stores a [Snippet] under [SnippetsNotifier.savePresetOverride]
+  /// keyed by the preset's id; editing a user snippet calls
+  /// [SnippetsNotifier.updateSnippet]. Variables are preserved as-is —
+  /// editing variable schemas is rare and would inflate this dialog
+  /// past usefulness.
+  void _showEditSnippetDialog(Snippet snippet, {required bool isPreset}) {
+    final nameController = TextEditingController(text: snippet.name);
+    final contentController = TextEditingController(text: snippet.content);
+    bool sendImmediately = snippet.sendImmediately;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(AppLocalizations.of(context)!.editSnippet),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.nameLabel,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contentController,
+                  decoration: InputDecoration(
+                    labelText:
+                        AppLocalizations.of(context)!.commandTextLabel,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text(
+                    'Send immediately',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  value: sendImmediately,
+                  onChanged: (v) =>
+                      setDialogState(() => sendImmediately = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (nameController.text.isEmpty ||
+                    contentController.text.isEmpty) {
+                  return;
+                }
+                final edited = snippet.copyWith(
+                  name: nameController.text,
+                  content: contentController.text,
+                  sendImmediately: sendImmediately,
+                );
+                if (isPreset) {
+                  ref
+                      .read(snippetsProvider.notifier)
+                      .savePresetOverride(snippet.id, edited);
+                } else {
+                  ref.read(snippetsProvider.notifier).updateSnippet(
+                        snippet.id,
+                        name: edited.name,
+                        content: edited.content,
+                        sendImmediately: edited.sendImmediately,
+                      );
+                }
+                Navigator.pop(dialogContext);
+              },
+              child: Text(AppLocalizations.of(context)!.buttonSave),
+            ),
           ],
         ),
       ),
@@ -723,6 +941,65 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Compact pill button used to render an enum option inline in a snippet
+/// row. The default value gets a primary tint so the user can see at a
+/// glance which choice the snippet would resolve to on a tap-on-name.
+class _OptionChip extends StatelessWidget {
+  final String label;
+  final bool isDefault;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _OptionChip({
+    required this.label,
+    required this.isDefault,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isDefault
+        ? DesignColors.primary.withValues(alpha: 0.18)
+        : (isDark
+            ? DesignColors.keyBackground
+            : DesignColors.keyBackgroundLight);
+    final border = isDefault
+        ? DesignColors.primary
+        : (isDark ? DesignColors.borderDark : DesignColors.borderLight);
+    final fg = isDefault
+        ? DesignColors.primary
+        : (isDark
+            ? DesignColors.textPrimary
+            : DesignColors.textPrimaryLight);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: border, width: 1),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isDefault ? FontWeight.w700 : FontWeight.w500,
+              color: fg,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

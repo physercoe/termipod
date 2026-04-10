@@ -42,9 +42,15 @@ class _ActionBarSettingsScreenState
             onSelected: (value) {
               if (value == 'reset') {
                 _confirmReset(context);
+              } else if (value == 'save_as') {
+                _saveAsNewProfile(context);
               }
             },
             itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'save_as',
+                child: Text(AppLocalizations.of(context)!.saveAsNewProfile),
+              ),
               PopupMenuItem(
                 value: 'reset',
                 child: Text(AppLocalizations.of(context)!.resetToDefault),
@@ -221,6 +227,74 @@ class _ActionBarSettingsScreenState
       context,
       MaterialPageRoute(
         builder: (context) => _GroupEditorScreen(group: group),
+      ),
+    );
+  }
+
+  /// Snapshot the active profile under a new name as a custom profile.
+  /// Useful for branching off a built-in profile without losing the
+  /// original — pair with the customization the user just made on the
+  /// edit screen.
+  void _saveAsNewProfile(BuildContext context) {
+    final state = ref.read(actionBarProvider);
+    final source = state.activeProfile;
+    final nameController = TextEditingController(text: '${source.name} copy');
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(AppLocalizations.of(context)!.saveAsNewProfile),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.profileName,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              if (name.isEmpty) return;
+              final ts = DateTime.now().millisecondsSinceEpoch;
+              final cloned = <ActionBarGroup>[];
+              for (var gi = 0; gi < source.groups.length; gi++) {
+                final g = source.groups[gi];
+                cloned.add(ActionBarGroup(
+                  id: 'g_${ts}_$gi',
+                  name: g.name,
+                  buttons: [
+                    for (var bi = 0; bi < g.buttons.length; bi++)
+                      g.buttons[bi].copyWith(id: 'b_${ts}_${gi}_$bi'),
+                  ],
+                ));
+              }
+              final newProfile = ActionBarProfile(
+                id: 'custom_$ts',
+                name: name,
+                groups: cloned,
+              );
+              final notifier = ref.read(actionBarProvider.notifier);
+              notifier.addCustomProfile(newProfile);
+              notifier.setActiveProfile(newProfile.id);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    AppLocalizations.of(context)!.savedAsProfile(name),
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Text(AppLocalizations.of(context)!.buttonSave),
+          ),
+        ],
       ),
     );
   }

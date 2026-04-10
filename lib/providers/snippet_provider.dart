@@ -161,19 +161,38 @@ class Snippet {
 /// スニペット一覧の状態
 class SnippetsState {
   final List<Snippet> snippets;
+
+  /// User edits to built-in preset snippets, keyed by the original
+  /// preset ID. When rendering the presets tab, the picker swaps in
+  /// these overrides so the user sees their customized version. The
+  /// id of the stored [Snippet] equals the original preset id.
+  final Map<String, Snippet> presetOverrides;
+
+  /// Preset IDs the user has explicitly removed from their presets
+  /// tab. The original preset is still defined in code but hidden
+  /// from the picker. Coexists with [presetOverrides] — a preset can
+  /// be either overridden or hidden, not both at once (delete wins).
+  final Set<String> deletedPresetIds;
+
   final bool isLoading;
 
   const SnippetsState({
     this.snippets = const [],
+    this.presetOverrides = const {},
+    this.deletedPresetIds = const {},
     this.isLoading = false,
   });
 
   SnippetsState copyWith({
     List<Snippet>? snippets,
+    Map<String, Snippet>? presetOverrides,
+    Set<String>? deletedPresetIds,
     bool? isLoading,
   }) {
     return SnippetsState(
       snippets: snippets ?? this.snippets,
+      presetOverrides: presetOverrides ?? this.presetOverrides,
+      deletedPresetIds: deletedPresetIds ?? this.deletedPresetIds,
       isLoading: isLoading ?? this.isLoading,
     );
   }
@@ -181,6 +200,8 @@ class SnippetsState {
 
 class SnippetsNotifier extends Notifier<SnippetsState> {
   static const _storageKey = 'snippets';
+  static const _overridesKey = 'snippet_preset_overrides';
+  static const _deletedKey = 'snippet_deleted_presets';
 
   @override
   SnippetsState build() {
@@ -191,20 +212,89 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
   Future<void> _loadSnippets() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = prefs.getString(_storageKey);
-    if (jsonStr != null) {
-      final list = (jsonDecode(jsonStr) as List)
-          .map((e) => Snippet.fromJson(e as Map<String, dynamic>))
-          .toList();
-      state = SnippetsState(snippets: list);
-    } else {
-      state = const SnippetsState();
+    final list = jsonStr != null
+        ? (jsonDecode(jsonStr) as List)
+            .map((e) => Snippet.fromJson(e as Map<String, dynamic>))
+            .toList()
+        : <Snippet>[];
+
+    final overridesStr = prefs.getString(_overridesKey);
+    final overrides = <String, Snippet>{};
+    if (overridesStr != null) {
+      final raw = jsonDecode(overridesStr) as Map<String, dynamic>;
+      raw.forEach((k, v) {
+        overrides[k] = Snippet.fromJson(v as Map<String, dynamic>);
+      });
     }
+
+    final deletedStr = prefs.getString(_deletedKey);
+    final deleted = deletedStr != null
+        ? (jsonDecode(deletedStr) as List).cast<String>().toSet()
+        : <String>{};
+
+    state = SnippetsState(
+      snippets: list,
+      presetOverrides: overrides,
+      deletedPresetIds: deleted,
+    );
   }
 
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = jsonEncode(state.snippets.map((s) => s.toJson()).toList());
     await prefs.setString(_storageKey, jsonStr);
+  }
+
+  Future<void> _saveOverrides() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = <String, dynamic>{};
+    state.presetOverrides.forEach((k, v) => raw[k] = v.toJson());
+    await prefs.setString(_overridesKey, jsonEncode(raw));
+  }
+
+  Future<void> _saveDeleted() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _deletedKey,
+      jsonEncode(state.deletedPresetIds.toList()),
+    );
+  }
+
+  /// Save an edited version of a built-in preset. The override id
+  /// must equal the original preset id so the picker can find it.
+  Future<void> savePresetOverride(String presetId, Snippet edited) async {
+    // If the preset was previously hidden, restore it.
+    final newDeleted = {...state.deletedPresetIds}..remove(presetId);
+    final newOverrides = {...state.presetOverrides, presetId: edited};
+    state = state.copyWith(
+      presetOverrides: newOverrides,
+      deletedPresetIds: newDeleted,
+    );
+    await _saveOverrides();
+    await _saveDeleted();
+  }
+
+  /// Drop a user override and revert the preset to its built-in value.
+  Future<void> revertPresetOverride(String presetId) async {
+    if (!state.presetOverrides.containsKey(presetId)) return;
+    final newOverrides = {...state.presetOverrides}..remove(presetId);
+    state = state.copyWith(presetOverrides: newOverrides);
+    await _saveOverrides();
+  }
+
+  /// Hide a preset from the picker. The user can restore it later.
+  Future<void> deletePreset(String presetId) async {
+    if (state.deletedPresetIds.contains(presetId)) return;
+    final newDeleted = {...state.deletedPresetIds, presetId};
+    // Drop any override too — keeping it would be confusing if the
+    // user later restores the preset.
+    final newOverrides = {...state.presetOverrides}..remove(presetId);
+    state = state.copyWith(
+      deletedPresetIds: newDeleted,
+      presetOverrides: newOverrides,
+    );
+    await _saveDeleted();
+    await _saveOverrides();
   }
 
   Future<void> addSnippet({

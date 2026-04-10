@@ -2872,18 +2872,31 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
                 child: Row(
                   children: [
                     Icon(Icons.tune, color: DesignColors.primary),
                     const SizedBox(width: 8),
-                    Text(
-                      'Terminal Options',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: textColor,
+                    Expanded(
+                      child: Text(
+                        'Terminal Options',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: textColor,
+                        ),
                       ),
+                    ),
+                    // Help moved inline with the title — was previously a
+                    // ListTile lower down, but it's a high-frequency action
+                    // that deserves a one-tap entry from the menu header.
+                    IconButton(
+                      icon: Icon(Icons.help_outline, color: textColor),
+                      tooltip: 'Help',
+                      onPressed: () {
+                        Navigator.pop(context);
+                        showHelpSheet(context, ref);
+                      },
                     ),
                   ],
                 ),
@@ -3048,26 +3061,40 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   );
                 },
               ),
-              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
-              // Help
-              ListTile(
-                leading: Icon(
-                  Icons.help_outline,
-                  color: inactiveIconColor,
-                ),
-                title: Text(
-                  'Help',
-                  style: TextStyle(color: textColor),
-                ),
-                subtitle: Text(
-                  'Action bar & tmux cheat sheet',
-                  style: TextStyle(color: mutedTextColor, fontSize: 12),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  showHelpSheet(context, ref);
+              // Floating Joystick toggle — also lives in Settings under
+              // Experimental, but exposing it here makes it discoverable
+              // without leaving the terminal screen.
+              Consumer(
+                builder: (context, menuRef, _) {
+                  final l10n = AppLocalizations.of(context)!;
+                  final fpEnabled = menuRef.watch(
+                    settingsProvider.select((s) => s.floatingPadEnabled),
+                  );
+                  return SwitchListTile(
+                    secondary: Icon(
+                      Icons.gamepad_outlined,
+                      color: fpEnabled ? DesignColors.primary : inactiveIconColor,
+                    ),
+                    title: Text(
+                      l10n.floatingPad,
+                      style: TextStyle(
+                        color: fpEnabled ? DesignColors.primary : textColor,
+                        fontWeight: fpEnabled ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    subtitle: Text(
+                      l10n.floatingPadDesc,
+                      style: TextStyle(color: mutedTextColor, fontSize: 12),
+                    ),
+                    value: fpEnabled,
+                    onChanged: (v) {
+                      menuRef.read(settingsProvider.notifier).setFloatingPadEnabled(v);
+                    },
+                    activeThumbColor: DesignColors.primary,
+                  );
                 },
               ),
+              Divider(height: 1, color: isDark ? const Color(0xFF2A2B36) : Colors.grey.shade300),
               // Downloads
               Consumer(
                 builder: (context, menuRef, _) {

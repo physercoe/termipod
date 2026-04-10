@@ -438,6 +438,10 @@
 
   "addNewProfile": "添加配置",
   "addNewProfileDesc": "创建新的自定义工具栏配置",
+  "startFromProfile": "基于",
+  "saveAsNewProfile": "另存为新配置",
+  "savedAsProfile": "已保存为\"{name}\"",
+  "@savedAsProfile": { "placeholders": { "name": { "type": "String" } } },
   "editHistory": "编辑",
   "editHistoryTitle": "编辑命令",
   "editHistoryLabel": "命令",

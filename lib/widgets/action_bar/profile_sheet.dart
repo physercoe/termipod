@@ -529,69 +529,89 @@ class ProfileSheet extends ConsumerWidget {
 
   void _showCreateProfileDialog(BuildContext context, WidgetRef ref) {
     final nameController = TextEditingController();
+    final state = ref.read(actionBarProvider);
+    // Default template = the profile currently active on this panel,
+    // so a "save-as" off the user's current toolbar is one tap away.
+    String? templateId = state.profileForPanel(panelKey).id;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(AppLocalizations.of(context)!.newProfile),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          decoration: InputDecoration(
-            labelText: AppLocalizations.of(context)!.profileName,
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(AppLocalizations.of(context)!.buttonCancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              final name = nameController.text.trim();
-              if (name.isNotEmpty) {
-                final profile = ActionBarProfile(
-                  id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-                  name: name,
-                  groups: const [
-                    ActionBarGroup(
-                      id: 'default-keys',
-                      name: 'Keys',
-                      buttons: [
-                        ActionBarButton(
-                          id: 'esc',
-                          label: 'ESC',
-                          type: ActionBarButtonType.specialKey,
-                          value: 'Escape',
-                        ),
-                        ActionBarButton(
-                          id: 'tab',
-                          label: 'TAB',
-                          type: ActionBarButtonType.specialKey,
-                          value: 'Tab',
-                        ),
-                        ActionBarButton(
-                          id: 'ctrl',
-                          label: 'CTRL',
-                          type: ActionBarButtonType.modifier,
-                          value: 'ctrl',
-                        ),
-                        ActionBarButton(
-                          id: 'alt',
-                          label: 'ALT',
-                          type: ActionBarButtonType.modifier,
-                          value: 'alt',
-                        ),
-                        ActionBarButton(
-                          id: 'enter',
-                          label: 'RET',
-                          type: ActionBarButtonType.specialKey,
-                          value: 'Enter',
-                        ),
-                      ],
-                    ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(AppLocalizations.of(context)!.newProfile),
+          content: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: nameController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.profileName,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // "Start from" dropdown — pick any existing profile to
+                // copy its groups as a template. This replaces the old
+                // hardcoded ESC/TAB/CTRL/ALT/RET starter so a new
+                // profile inherits the user's curated layout instead of
+                // a stale 5-button stub.
+                DropdownButtonFormField<String>(
+                  initialValue: templateId,
+                  isDense: true,
+                  decoration: InputDecoration(
+                    labelText: AppLocalizations.of(context)!.startFromProfile,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    for (final p in state.profiles)
+                      DropdownMenuItem(
+                        value: p.id,
+                        child: Text(p.name, overflow: TextOverflow.ellipsis),
+                      ),
                   ],
+                  onChanged: (v) => setDialogState(() => templateId = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(AppLocalizations.of(context)!.buttonCancel),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                final source = state.profiles
+                    .firstWhere((p) => p.id == templateId,
+                        orElse: () => state.profiles.first);
+                // Deep-copy groups so editing the new profile won't
+                // mutate the template's button list. Each group/button
+                // also needs a fresh ID — reusing IDs would make the
+                // reorderable list confuse identities across profiles.
+                final cloned = <ActionBarGroup>[];
+                final ts = DateTime.now().millisecondsSinceEpoch;
+                for (var gi = 0; gi < source.groups.length; gi++) {
+                  final g = source.groups[gi];
+                  cloned.add(ActionBarGroup(
+                    id: 'g_${ts}_$gi',
+                    name: g.name,
+                    buttons: [
+                      for (var bi = 0; bi < g.buttons.length; bi++)
+                        g.buttons[bi].copyWith(id: 'b_${ts}_${gi}_$bi'),
+                    ],
+                  ));
+                }
+                final profile = ActionBarProfile(
+                  id: 'custom_$ts',
+                  name: name,
+                  groups: cloned,
                 );
                 final notifier = ref.read(actionBarProvider.notifier);
                 notifier.addCustomProfile(profile);
@@ -605,11 +625,11 @@ class ProfileSheet extends ConsumerWidget {
                   notifier.setActiveProfile(profile.id);
                 }
                 Navigator.pop(ctx);
-              }
-            },
-            child: Text(AppLocalizations.of(context)!.buttonCreate),
-          ),
-        ],
+              },
+              child: Text(AppLocalizations.of(context)!.buttonCreate),
+            ),
+          ],
+        ),
       ),
     );
   }

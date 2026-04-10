@@ -318,35 +318,96 @@ class _GroupTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: ListTile(
-        leading: const Icon(Icons.drag_handle),
-        title: Text(
-          group.name,
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Text(
-          group.buttons.map((b) => b.label).join(' | '),
-          style: TextStyle(
-            fontSize: 12,
-            fontFamily: 'monospace',
-            color: isDark
-                ? DesignColors.textSecondary
-                : DesignColors.textSecondaryLight,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 4, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              icon: const Icon(Icons.edit, size: 20),
-              onPressed: onEdit,
+            // Header row: drag handle + group name + edit/delete
+            Row(
+              children: [
+                const Icon(Icons.drag_handle, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    group.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 18),
+                  onPressed: onEdit,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+                if (onDelete != null)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: onDelete,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
+              ],
             ),
-            if (onDelete != null)
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 20),
-                onPressed: onDelete,
+            // Button chips preview — compact Wrap so the user sees the
+            // actual button layout at a glance instead of a text list.
+            if (group.buttons.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 28, top: 4),
+                child: Wrap(
+                  spacing: 4,
+                  runSpacing: 4,
+                  children: group.buttons.map((b) {
+                    final isAction =
+                        b.type == ActionBarButtonType.action ||
+                        b.type == ActionBarButtonType.modifier;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isAction
+                            ? DesignColors.primary
+                                .withValues(alpha: isDark ? 0.15 : 0.08)
+                            : (isDark
+                                ? DesignColors.keyBackground
+                                : DesignColors.keyBackgroundLight),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: isDark
+                              ? DesignColors.borderDark
+                              : DesignColors.borderLight,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        b.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w500,
+                          color: isAction
+                              ? DesignColors.primary
+                              : (isDark
+                                  ? DesignColors.textSecondary
+                                  : DesignColors.textSecondaryLight),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ),
           ],
         ),

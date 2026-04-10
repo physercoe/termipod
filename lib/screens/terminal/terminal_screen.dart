@@ -27,7 +27,6 @@ import '../../services/tmux/tmux_parser.dart';
 import '../../services/tmux/tmux_version.dart';
 import '../../widgets/dialogs/resize_dialog.dart';
 import '../../theme/design_colors.dart';
-import '../../services/terminal/tmux_key_display.dart';
 import '../../widgets/help_sheet.dart';
 import '../../widgets/gesture_surface.dart';
 import '../../providers/download_manager_provider.dart';
@@ -35,7 +34,6 @@ import '../../widgets/download_manager_sheet.dart';
 import '../../widgets/custom_keyboard.dart';
 import '../../widgets/floating_joystick.dart';
 import '../../widgets/navigation_pad.dart';
-import '../../widgets/key_overlay_widget.dart';
 import '../../widgets/onboarding_overlay.dart';
 import '../../widgets/scroll_to_bottom_button.dart';
 import '../../widgets/action_bar/action_bar.dart';
@@ -162,10 +160,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // ポーリングで頻繁に更新されるターミナル表示データ（ValueNotifierで管理）
   // 親のsetState()を回避し、ValueListenableBuilderでサブツリーのみリビルドする
   final _viewNotifier = ValueNotifier<_TerminalViewData>(const _TerminalViewData());
-
-  // キーオーバーレイ
-  final KeyOverlayState _keyOverlayState = KeyOverlayState();
-  Timer? _keyOverlayTimer;
 
   // ポーリング用タイマー
   Timer? _pollTimer;
@@ -1136,10 +1130,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
-    // キーオーバーレイ
-    _keyOverlayTimer?.cancel();
-    _keyOverlayTimer = null;
-    _keyOverlayState.dispose();
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
     // (compose resources are managed by ComposeBar widget)
@@ -1232,7 +1222,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   cursorX: cursor.x,
                                   cursorY: cursor.y,
                                   scrollbackSize: viewData.scrollbackSize,
-                                  onArrowSwipe: _sendSpecialKeyWithOverlay,
+                                  onArrowSwipe: _dispatchSpecialKey,
                                   onTwoFingerSwipe: _handleTwoFingerSwipe,
                                   navigableDirections: _getNavigableDirections(),
                                 );
@@ -1274,16 +1264,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           },
                         ),
                       ),
-                      // キーオーバーレイ
-                      KeyOverlayWidget(
-                        overlayState: _keyOverlayState,
-                        position: _keyOverlayPosition,
-                      ),
                       // Gesture surface overlay
                       if (_gestureModeActive)
                         Positioned.fill(
                           child: GestureSurface(
-                            onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                            onSpecialKeyPressed: _dispatchSpecialKey,
                             onPaste: (text) => _sendMultilineText(text),
                             onDeactivate: _deactivateGestureMode,
                             haptic: ref.read(settingsProvider).navPadHaptic,
@@ -1324,8 +1309,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               ),
               // Navigation Pad (D-pad + action buttons)
               NavigationPad(
-                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
-                onKeyPressed: _sendKeyWithOverlay,
+                onSpecialKeyPressed: _dispatchSpecialKey,
+                onKeyPressed: _dispatchKey,
                 onGestureToggle: _toggleGestureMode,
               ),
               // Action bar (swipeable button groups). Wrapped in a
@@ -1344,8 +1329,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       paneId == null ? null : '${widget.connectionId}|$paneId';
                   return ActionBar(
                     panelKey: panelKey,
-                    onKeyPressed: _sendKeyWithOverlay,
-                    onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                    onKeyPressed: _dispatchKey,
+                    onSpecialKeyPressed: _dispatchSpecialKey,
                     onFileTransfer: _handleFileTransfer,
                     onImageTransfer: _handleImageTransfer,
                     onSnippetPicker: () =>
@@ -1370,8 +1355,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   _boostPolling();
                 },
                 onInsertMenu: () => _showInsertMenu(context),
-                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
-                onKeyPressed: _sendKeyWithOverlay,
+                onSpecialKeyPressed: _dispatchSpecialKey,
+                onKeyPressed: _dispatchKey,
               ),
               // Custom Flutter-native keyboard (direct input mode only,
               // gated on settings toggle — legacy hidden-TextField path
@@ -1388,8 +1373,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     return const SizedBox.shrink();
                   }
                   return CustomKeyboard(
-                    onKeyPressed: _sendKeyWithOverlay,
-                    onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                    onKeyPressed: _dispatchKey,
+                    onSpecialKeyPressed: _dispatchSpecialKey,
                     haptic: ref.watch(settingsProvider).navPadHaptic,
                   );
                 },
@@ -1399,7 +1384,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           // Floating joystick overlay (experimental)
           if (ref.watch(settingsProvider).floatingPadEnabled)
             FloatingJoystick(
-              onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+              onSpecialKeyPressed: _dispatchSpecialKey,
               haptic: ref.watch(settingsProvider).navPadHaptic,
               repeatRate: ref.watch(settingsProvider).navPadRepeatRate,
               size: ref.watch(settingsProvider).floatingPadSize,
@@ -1421,59 +1406,20 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  // --- キーオーバーレイ ラッパー ---
-
-  KeyOverlayPosition get _keyOverlayPosition {
-    final pos = ref.read(settingsProvider).keyOverlayPosition;
-    return switch (pos) {
-      'center' => KeyOverlayPosition.center,
-      'belowHeader' => KeyOverlayPosition.belowHeader,
-      _ => KeyOverlayPosition.aboveKeyboard,
-    };
-  }
-
-  /// 特殊キー送信 + オーバーレイ表示
-  void _sendSpecialKeyWithOverlay(String tmuxKey) {
+  // Fire-and-forget wrappers: convert the Future-returning send methods
+  // into void callbacks for widget event handlers.
+  void _dispatchSpecialKey(String tmuxKey) {
     _sendSpecialKey(tmuxKey);
-    _showKeyOverlay(tmuxKey);
   }
 
-  /// リテラルキー送信 + ショートカットキーのオーバーレイ表示
-  void _sendKeyWithOverlay(String key) {
+  void _dispatchKey(String key) {
     _sendKey(key);
-    if (TmuxKeyDisplay.isShortcutKey(key)) {
-      _showKeyOverlay(key);
-    }
-  }
-
-  /// オーバーレイ表示ロジック
-  void _showKeyOverlay(String key) {
-    final settings = ref.read(settingsProvider);
-    if (!settings.showKeyOverlay) return;
-
-    final category = TmuxKeyDisplay.categoryOf(key);
-    if (category == null) return;
-
-    final enabled = switch (category) {
-      KeyOverlayCategory.modifier => settings.keyOverlayModifier,
-      KeyOverlayCategory.special => settings.keyOverlaySpecial,
-      KeyOverlayCategory.arrow => settings.keyOverlayArrow,
-      KeyOverlayCategory.shortcut => settings.keyOverlayShortcut,
-    };
-    if (!enabled) return;
-
-    _keyOverlayState.show(TmuxKeyDisplay.displayText(key));
-    _keyOverlayTimer?.cancel();
-    _keyOverlayTimer = Timer(const Duration(milliseconds: 1500), () {
-      _keyOverlayState.hide();
-    });
   }
 
   /// AnsiTextViewからのキー入力を処理
   void _handleKeyInput(KeyInputEvent event) {
-    // 特殊キーの場合はtmux形式で送信（オーバーレイ付き）
     if (event.isSpecialKey && event.tmuxKeyName != null) {
-      _sendSpecialKeyWithOverlay(event.tmuxKeyName!);
+      _dispatchSpecialKey(event.tmuxKeyName!);
     } else {
       // 通常の文字はリテラル送信
       _sendKeyData(event.data);
@@ -3941,8 +3887,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       context,
       ref: ref,
       panelKey: panelKey,
-      onKeyTap: _sendKeyWithOverlay,
-      onSpecialKeyTap: _sendSpecialKeyWithOverlay,
+      onKeyTap: _dispatchKey,
+      onSpecialKeyTap: _dispatchSpecialKey,
       onModifierTap: (modifier) {
         if (modifier == 'ctrl') {
           ref.read(actionBarProvider.notifier).toggleCtrl();

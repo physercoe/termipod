@@ -85,6 +85,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
   /// Default is set lazily in build() based on what categories exist.
   String? _activeTab;
 
+  /// Currently highlighted enum option per snippet (keyed by snippet id).
+  /// Tapping a chip only selects it; the user has to press the row's send
+  /// button to actually send/insert. Values fall back to the variable's
+  /// [SnippetVariable.defaultValue] when no selection has been made yet.
+  final Map<String, String> _selectedOption = {};
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -510,10 +516,29 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     return v;
   }
 
-  /// Resolve the snippet using the chip's chosen value, then
-  /// send/insert per the snippet's policy.
-  void _commitInlineOption(Snippet snippet, SnippetVariable variable, String value) {
+  /// Current highlighted option for [snippet]'s inline enum variable,
+  /// falling back to the variable's default or first option.
+  String _selectedFor(Snippet snippet, SnippetVariable variable) {
+    final picked = _selectedOption[snippet.id];
+    if (picked != null && variable.options.contains(picked)) return picked;
+    if (variable.defaultValue.isNotEmpty) return variable.defaultValue;
+    return variable.options.first;
+  }
+
+  /// Select an option for the inline enum variable without sending.
+  /// Mirrors the "tap chip = highlight only" interaction the user asked
+  /// for after the 0.9.5 release; the actual send happens when the row's
+  /// send button (or the name itself) is pressed.
+  void _selectInlineOption(String snippetId, String value) {
     HapticFeedback.selectionClick();
+    setState(() => _selectedOption[snippetId] = value);
+  }
+
+  /// Resolve the snippet using the currently highlighted chip and
+  /// send/insert per the snippet's policy.
+  void _sendInlineOption(Snippet snippet, SnippetVariable variable) {
+    HapticFeedback.lightImpact();
+    final value = _selectedFor(snippet, variable);
     final resolved = snippet.resolve({variable.name: value});
     if (snippet.sendImmediately) {
       widget.onSendImmediately(resolved);
@@ -525,22 +550,93 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
   Widget _buildSnippetItem(Snippet snippet, bool isDark,
       {bool isPreset = false}) {
     final inlineVar = _inlineOptionVar(snippet);
+    if (inlineVar != null) {
+      return _buildInlineEnumItem(snippet, inlineVar, isDark,
+          isPreset: isPreset);
+    }
+    return _buildPlainItem(snippet, isDark, isPreset: isPreset);
+  }
 
+  /// Snippet row with an inline enum picker. Layout:
+  ///
+  ///     [Name] [chip chip chip …scrollable→] [send]
+  ///
+  /// Tapping a chip only highlights it (see [_selectInlineOption]);
+  /// the actual send/insert happens on the trailing send button or on
+  /// a tap of the name itself.
+  Widget _buildInlineEnumItem(
+    Snippet snippet,
+    SnippetVariable variable,
+    bool isDark, {
+    required bool isPreset,
+  }) {
+    final selected = _selectedFor(snippet, variable);
+    final nameColor = isPreset
+        ? DesignColors.primary
+        : (isDark
+            ? DesignColors.textPrimary
+            : DesignColors.textPrimaryLight);
+    return InkWell(
+      onTap: () => _sendInlineOption(snippet, variable),
+      onLongPress: () {
+        HapticFeedback.mediumImpact();
+        _showSnippetActions(snippet, isPreset: isPreset);
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 140),
+              child: Text(
+                snippet.name,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: nameColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final opt in variable.options) ...[
+                      _OptionChip(
+                        label: opt,
+                        isSelected: opt == selected,
+                        isDark: isDark,
+                        onTap: () => _selectInlineOption(snippet.id, opt),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            _SendIconButton(
+              isDark: isDark,
+              sendImmediately: snippet.sendImmediately,
+              onTap: () => _sendInlineOption(snippet, variable),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlainItem(Snippet snippet, bool isDark,
+      {required bool isPreset}) {
     return InkWell(
       onTap: () {
         HapticFeedback.selectionClick();
-        if (inlineVar != null) {
-          // Use the configured default for tap-on-name; the user can
-          // pick a different value via the chips below.
-          _commitInlineOption(
-            snippet,
-            inlineVar,
-            inlineVar.defaultValue.isNotEmpty
-                ? inlineVar.defaultValue
-                : inlineVar.options.first,
-          );
-          return;
-        }
         if (snippet.variables.isNotEmpty) {
           _showVariableDialog(context, snippet);
         } else if (snippet.sendImmediately) {
@@ -549,12 +645,10 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
           widget.onInsert(snippet.content);
         }
       },
-      onDoubleTap: inlineVar != null
-          ? null
-          : () {
-              HapticFeedback.lightImpact();
-              widget.onSendImmediately(snippet.content);
-            },
+      onDoubleTap: () {
+        HapticFeedback.lightImpact();
+        widget.onSendImmediately(snippet.content);
+      },
       onLongPress: () {
         HapticFeedback.mediumImpact();
         _showSnippetActions(snippet, isPreset: isPreset);
@@ -580,23 +674,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                               : DesignColors.textPrimaryLight),
                     ),
                   ),
-                  if (inlineVar != null) ...[
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        for (final opt in inlineVar.options)
-                          _OptionChip(
-                            label: opt,
-                            isDefault: opt == inlineVar.defaultValue,
-                            isDark: isDark,
-                            onTap: () => _commitInlineOption(
-                                snippet, inlineVar, opt),
-                          ),
-                      ],
-                    ),
-                  ] else if (snippet.content != snippet.name) ...[
+                  if (snippet.content != snippet.name) ...[
                     const SizedBox(height: 2),
                     Text(
                       snippet.content,
@@ -614,7 +692,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 ],
               ),
             ),
-            if (snippet.sendImmediately && inlineVar == null)
+            if (snippet.sendImmediately)
               Padding(
                 padding: const EdgeInsets.only(left: 8),
                 child: Icon(
@@ -946,32 +1024,33 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
 }
 
 /// Compact pill button used to render an enum option inline in a snippet
-/// row. The default value gets a primary tint so the user can see at a
-/// glance which choice the snippet would resolve to on a tap-on-name.
+/// row. The currently selected value gets a primary tint so the user can
+/// see at a glance which choice the send button will resolve to. Tapping
+/// a chip only updates [isSelected] — sending is a separate action.
 class _OptionChip extends StatelessWidget {
   final String label;
-  final bool isDefault;
+  final bool isSelected;
   final bool isDark;
   final VoidCallback onTap;
 
   const _OptionChip({
     required this.label,
-    required this.isDefault,
+    required this.isSelected,
     required this.isDark,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bg = isDefault
-        ? DesignColors.primary.withValues(alpha: 0.18)
+    final bg = isSelected
+        ? DesignColors.primary.withValues(alpha: 0.22)
         : (isDark
             ? DesignColors.keyBackground
             : DesignColors.keyBackgroundLight);
-    final border = isDefault
+    final border = isSelected
         ? DesignColors.primary
         : (isDark ? DesignColors.borderDark : DesignColors.borderLight);
-    final fg = isDefault
+    final fg = isSelected
         ? DesignColors.primary
         : (isDark
             ? DesignColors.textPrimary
@@ -987,16 +1066,64 @@ class _OptionChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: border, width: 1),
+            border: Border.all(
+              color: border,
+              width: isSelected ? 1.5 : 1,
+            ),
           ),
           child: Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: isDefault ? FontWeight.w700 : FontWeight.w500,
+              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
               color: fg,
               fontFamily: 'monospace',
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Trailing send button for rows with an inline enum picker. Uses a
+/// filled send icon when the snippet is configured to auto-send so the
+/// affordance matches the existing send indicator used on plain rows.
+class _SendIconButton extends StatelessWidget {
+  final bool isDark;
+  final bool sendImmediately;
+  final VoidCallback onTap;
+
+  const _SendIconButton({
+    required this.isDark,
+    required this.sendImmediately,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = DesignColors.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          width: 36,
+          height: 36,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: accent.withValues(alpha: 0.6),
+              width: 1,
+            ),
+          ),
+          child: Icon(
+            sendImmediately ? Icons.send : Icons.keyboard_return,
+            size: 16,
+            color: accent,
           ),
         ),
       ),

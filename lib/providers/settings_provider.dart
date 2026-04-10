@@ -32,25 +32,6 @@ class AppSettings {
   /// ペインナビゲーション方向の反転
   final bool invertPaneNavigation;
 
-  // --- キーオーバーレイ設定 ---
-  /// キーオーバーレイ全体ON/OFF
-  final bool showKeyOverlay;
-
-  /// キーオーバーレイ: 修飾キー組み合わせ（Ctrl+x, Alt+x, Shift+x）
-  final bool keyOverlayModifier;
-
-  /// キーオーバーレイ: 単独特殊キー（ESC, TAB, ENTER, S-Enter）
-  final bool keyOverlaySpecial;
-
-  /// キーオーバーレイ: 矢印キー
-  final bool keyOverlayArrow;
-
-  /// キーオーバーレイ: ショートカットキー（/, -, 1-4）
-  final bool keyOverlayShortcut;
-
-  /// キーオーバーレイ: 表示位置
-  final String keyOverlayPosition;
-
   // --- File transfer settings ---
   final String fileRemotePath;
   final String filePathFormat;
@@ -108,12 +89,6 @@ class AppSettings {
     this.useCustomKeyboard = true,
     this.showTerminalCursor = true,
     this.invertPaneNavigation = false,
-    this.showKeyOverlay = true,
-    this.keyOverlayModifier = true,
-    this.keyOverlaySpecial = true,
-    this.keyOverlayArrow = true,
-    this.keyOverlayShortcut = true,
-    this.keyOverlayPosition = 'aboveKeyboard',
     this.fileRemotePath = '.',
     this.filePathFormat = '{path}',
     this.fileAutoEnter = false,
@@ -157,12 +132,6 @@ class AppSettings {
     bool? useCustomKeyboard,
     bool? showTerminalCursor,
     bool? invertPaneNavigation,
-    bool? showKeyOverlay,
-    bool? keyOverlayModifier,
-    bool? keyOverlaySpecial,
-    bool? keyOverlayArrow,
-    bool? keyOverlayShortcut,
-    String? keyOverlayPosition,
     String? fileRemotePath,
     String? filePathFormat,
     bool? fileAutoEnter,
@@ -203,12 +172,6 @@ class AppSettings {
       useCustomKeyboard: useCustomKeyboard ?? this.useCustomKeyboard,
       showTerminalCursor: showTerminalCursor ?? this.showTerminalCursor,
       invertPaneNavigation: invertPaneNavigation ?? this.invertPaneNavigation,
-      showKeyOverlay: showKeyOverlay ?? this.showKeyOverlay,
-      keyOverlayModifier: keyOverlayModifier ?? this.keyOverlayModifier,
-      keyOverlaySpecial: keyOverlaySpecial ?? this.keyOverlaySpecial,
-      keyOverlayArrow: keyOverlayArrow ?? this.keyOverlayArrow,
-      keyOverlayShortcut: keyOverlayShortcut ?? this.keyOverlayShortcut,
-      keyOverlayPosition: keyOverlayPosition ?? this.keyOverlayPosition,
       fileRemotePath: fileRemotePath ?? this.fileRemotePath,
       filePathFormat: filePathFormat ?? this.filePathFormat,
       fileAutoEnter: fileAutoEnter ?? this.fileAutoEnter,
@@ -266,12 +229,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _imagePathFormatKey = 'settings_image_path_format';
   static const String _imageAutoEnterKey = 'settings_image_auto_enter';
   static const String _imageBracketedPasteKey = 'settings_image_bracketed_paste';
-  static const String _showKeyOverlayKey = 'settings_show_key_overlay';
-  static const String _keyOverlayModifierKey = 'settings_key_overlay_modifier';
-  static const String _keyOverlaySpecialKey = 'settings_key_overlay_special';
-  static const String _keyOverlayArrowKey = 'settings_key_overlay_arrow';
-  static const String _keyOverlayShortcutKey = 'settings_key_overlay_shortcut';
-  static const String _keyOverlayPositionKey = 'settings_key_overlay_position';
   static const String _localeKey = 'settings_locale';
   static const String _navPadModeKey = 'settings_nav_pad_mode';
   static const String _navPadDpadStyleKey = 'settings_nav_pad_dpad_style';
@@ -308,12 +265,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
       useCustomKeyboard: prefs.getBool(_useCustomKeyboardKey) ?? true,
       showTerminalCursor: prefs.getBool(_showTerminalCursorKey) ?? true,
       invertPaneNavigation: prefs.getBool(_invertPaneNavKey) ?? false,
-      showKeyOverlay: prefs.getBool(_showKeyOverlayKey) ?? true,
-      keyOverlayModifier: prefs.getBool(_keyOverlayModifierKey) ?? true,
-      keyOverlaySpecial: prefs.getBool(_keyOverlaySpecialKey) ?? true,
-      keyOverlayArrow: prefs.getBool(_keyOverlayArrowKey) ?? true,
-      keyOverlayShortcut: prefs.getBool(_keyOverlayShortcutKey) ?? true,
-      keyOverlayPosition: prefs.getString(_keyOverlayPositionKey) ?? 'aboveKeyboard',
       fileRemotePath: prefs.getString(_fileRemotePathKey) ?? '.',
       filePathFormat: prefs.getString(_filePathFormatKey) ?? '{path}',
       fileAutoEnter: prefs.getBool(_fileAutoEnterKey) ?? false,
@@ -440,37 +391,6 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setInvertPaneNavigation(bool value) async {
     state = state.copyWith(invertPaneNavigation: value);
     await _saveSetting(_invertPaneNavKey, value);
-  }
-
-  // --- キーオーバーレイ設定のsetter ---
-  Future<void> setShowKeyOverlay(bool value) async {
-    state = state.copyWith(showKeyOverlay: value);
-    await _saveSetting(_showKeyOverlayKey, value);
-  }
-
-  Future<void> setKeyOverlayModifier(bool value) async {
-    state = state.copyWith(keyOverlayModifier: value);
-    await _saveSetting(_keyOverlayModifierKey, value);
-  }
-
-  Future<void> setKeyOverlaySpecial(bool value) async {
-    state = state.copyWith(keyOverlaySpecial: value);
-    await _saveSetting(_keyOverlaySpecialKey, value);
-  }
-
-  Future<void> setKeyOverlayArrow(bool value) async {
-    state = state.copyWith(keyOverlayArrow: value);
-    await _saveSetting(_keyOverlayArrowKey, value);
-  }
-
-  Future<void> setKeyOverlayShortcut(bool value) async {
-    state = state.copyWith(keyOverlayShortcut: value);
-    await _saveSetting(_keyOverlayShortcutKey, value);
-  }
-
-  Future<void> setKeyOverlayPosition(String value) async {
-    state = state.copyWith(keyOverlayPosition: value);
-    await _saveSetting(_keyOverlayPositionKey, value);
   }
 
   // --- File transfer settings setters ---

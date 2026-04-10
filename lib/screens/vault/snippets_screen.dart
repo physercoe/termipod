@@ -5,24 +5,50 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
+import '../../models/snippet_presets.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// スニペット一覧・管理画面
+///
+/// Shows preset Agent CLI snippets (grouped by profile) first, then user
+/// snippets grouped by category. Presets can be edited in place — the
+/// edits are stored as overrides via
+/// [SnippetsNotifier.savePresetOverride] so the original built-in
+/// definition is preserved and can be restored via swipe-to-reset.
 class SnippetsScreen extends ConsumerWidget {
   const SnippetsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final snippetsState = ref.watch(snippetsProvider);
-    final snippets = snippetsState.snippets;
+    final userSnippets = snippetsState.snippets;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (snippetsState.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (snippets.isEmpty) {
+    // Preset snippets grouped by profile, filtered through user
+    // overrides + deletion list so the vault view matches what the
+    // snippet picker shows. Empty groups (fully deleted) are hidden.
+    final presetGroups = <String, List<Snippet>>{};
+    for (final profileId in SnippetPresets.profileIds) {
+      final raw = SnippetPresets.forProfile(profileId);
+      final visible = raw
+          .where((p) => !snippetsState.deletedPresetIds.contains(p.id))
+          .map((p) => snippetsState.presetOverrides[p.id] ?? p)
+          .toList();
+      if (visible.isNotEmpty) presetGroups[profileId] = visible;
+    }
+
+    // Group user snippets by category
+    final categories = <String, List<Snippet>>{};
+    for (final s in userSnippets) {
+      categories.putIfAbsent(s.category, () => []).add(s);
+    }
+
+    if (presetGroups.isEmpty && userSnippets.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
@@ -37,33 +63,82 @@ class SnippetsScreen extends ConsumerWidget {
       );
     }
 
-    // Group by category
-    final categories = <String, List<Snippet>>{};
-    for (final s in snippets) {
-      categories.putIfAbsent(s.category, () => []).add(s);
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        for (final entry in presetGroups.entries) ...[
+          _buildSectionHeader(
+            context,
+            _profileLabel(entry.key),
+            isDark,
+            badge: 'PRESET',
+          ),
+          for (final preset in entry.value)
+            _PresetSnippetTile(preset: preset),
+        ],
         for (final entry in categories.entries) ...[
-          Padding(
-            padding: const EdgeInsets.only(top: 12, bottom: 8),
-            child: Text(
-              _categoryLabel(context, entry.key),
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-                letterSpacing: 1.0,
-              ),
-            ),
+          _buildSectionHeader(
+            context,
+            _categoryLabel(context, entry.key),
+            isDark,
           ),
           for (final snippet in entry.value)
             _SnippetTile(snippet: snippet),
         ],
       ],
     );
+  }
+
+  Widget _buildSectionHeader(
+    BuildContext context,
+    String label,
+    bool isDark, {
+    String? badge,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12, bottom: 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isDark
+                  ? DesignColors.textMuted
+                  : DesignColors.textMutedLight,
+              letterSpacing: 1.0,
+            ),
+          ),
+          if (badge != null) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: DesignColors.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                badge,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.primary,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _profileLabel(String profileId) {
+    // Reuse the preset model's category label, which already handles the
+    // well-known profile IDs ('claude-code', 'codex', …). Uppercase to
+    // match the user-category section style.
+    return SnippetPresets.categoryLabel(profileId).toUpperCase();
   }
 
   String _categoryLabel(BuildContext context, String category) {
@@ -331,4 +406,199 @@ class _SnippetEditDialog extends SnippetEditDialog {
     required super.snippet,
     required super.onSave,
   });
+}
+
+/// Tile for a built-in preset snippet (Agent CLI slash commands).
+///
+/// Reuses the [SnippetEditDialog] flow but persists edits as overrides
+/// via [SnippetsNotifier.savePresetOverride] so the original built-in
+/// definition is preserved. Swipe-end-to-start deletes (adds to
+/// deletedPresetIds) and shows a restore chip in the trailing area
+/// when the preset has a user override, tappable to revert back to the
+/// built-in default.
+class _PresetSnippetTile extends ConsumerWidget {
+  final Snippet preset;
+
+  const _PresetSnippetTile({required this.preset});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasOverride =
+        ref.watch(snippetsProvider).presetOverrides.containsKey(preset.id);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Dismissible(
+        key: Key('preset-${preset.id}'),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          decoration: BoxDecoration(
+            color: DesignColors.error.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.delete, color: DesignColors.error),
+        ),
+        confirmDismiss: (_) async {
+          return await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(
+                      AppLocalizations.of(context)!.deleteSnippetTitle),
+                  content: Text('Delete "${preset.name}"?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child:
+                          Text(AppLocalizations.of(context)!.buttonCancel),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: TextButton.styleFrom(
+                          foregroundColor: DesignColors.error),
+                      child:
+                          Text(AppLocalizations.of(context)!.buttonDelete),
+                    ),
+                  ],
+                ),
+              ) ??
+              false;
+        },
+        onDismissed: (_) {
+          ref.read(snippetsProvider.notifier).deletePreset(preset.id);
+        },
+        child: InkWell(
+          onTap: () => _showEditDialog(context, ref),
+          onLongPress: () {
+            Clipboard.setData(ClipboardData(text: preset.content));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    AppLocalizations.of(context)!.copiedToClipboard),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? DesignColors.surfaceDark
+                  : DesignColors.surfaceLight,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: hasOverride
+                    ? DesignColors.primary.withValues(alpha: 0.45)
+                    : (isDark
+                        ? DesignColors.borderDark
+                        : DesignColors.borderLight),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.auto_awesome,
+                  size: 20,
+                  color: DesignColors.primary.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              preset.name,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurface,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (hasOverride) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: DesignColors.primary
+                                    .withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                'EDITED',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  color: DesignColors.primary,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        preset.content,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 12,
+                          color: isDark
+                              ? DesignColors.textMuted
+                              : DesignColors.textMutedLight,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                if (hasOverride)
+                  IconButton(
+                    icon: const Icon(Icons.restore, size: 20),
+                    tooltip: AppLocalizations.of(context)!.resetToDefault,
+                    color: DesignColors.primary,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      ref
+                          .read(snippetsProvider.notifier)
+                          .revertPresetOverride(preset.id);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _SnippetEditDialog(
+        snippet: preset,
+        onSave: (name, content, category) {
+          final edited = preset.copyWith(
+            name: name,
+            content: content,
+            category: category,
+          );
+          ref
+              .read(snippetsProvider.notifier)
+              .savePresetOverride(preset.id, edited);
+        },
+      ),
+    );
+  }
 }

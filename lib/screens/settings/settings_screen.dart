@@ -120,82 +120,6 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () => _showScrollbackPicker(context, ref, settings.scrollbackLines),
                 ),
                 const Divider(),
-                _SectionHeader(title: l10n.settingKeyOverlay),
-                SwitchListTile(
-                  secondary: const Icon(Icons.visibility),
-                  title: Text(l10n.settingKeyOverlay),
-                  subtitle: Text(l10n.settingKeyOverlayDesc),
-                  value: settings.showKeyOverlay,
-                  onChanged: (value) {
-                    ref.read(settingsProvider.notifier).setShowKeyOverlay(value);
-                  },
-                ),
-                if (settings.showKeyOverlay) ...[
-                  SwitchListTile(
-                    secondary: const Icon(Icons.keyboard),
-                    title: Text(l10n.keyOverlayModifierKeys),
-                    subtitle: Text(l10n.keyOverlayModifierKeysDesc),
-                    value: settings.keyOverlayModifier,
-                    onChanged: (value) {
-                      ref.read(settingsProvider.notifier).setKeyOverlayModifier(value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.space_bar),
-                    title: Text(l10n.keyOverlaySpecialKeys),
-                    subtitle: Text(l10n.keyOverlaySpecialKeysDesc),
-                    value: settings.keyOverlaySpecial,
-                    onChanged: (value) {
-                      ref.read(settingsProvider.notifier).setKeyOverlaySpecial(value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.arrow_upward),
-                    title: Text(l10n.keyOverlayArrowKeys),
-                    subtitle: Text(l10n.keyOverlayArrowKeysDesc),
-                    value: settings.keyOverlayArrow,
-                    onChanged: (value) {
-                      ref.read(settingsProvider.notifier).setKeyOverlayArrow(value);
-                    },
-                  ),
-                  SwitchListTile(
-                    secondary: const Icon(Icons.shortcut),
-                    title: Text(l10n.keyOverlayShortcutKeys),
-                    subtitle: Text(l10n.keyOverlayShortcutKeysDesc),
-                    value: settings.keyOverlayShortcut,
-                    onChanged: (value) {
-                      ref.read(settingsProvider.notifier).setKeyOverlayShortcut(value);
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.place),
-                    title: Text(l10n.keyOverlayPosition),
-                    subtitle: Text(
-                      switch (settings.keyOverlayPosition) {
-                        'center' => l10n.overlayCenterTerminal,
-                        'belowHeader' => l10n.overlayBelowHeader,
-                        _ => l10n.overlayAboveKeyboard,
-                      },
-                    ),
-                    onTap: () async {
-                      final result = await showDialog<String>(
-                        context: context,
-                        builder: (context) => SimpleDialog(
-                          title: Text(l10n.overlayPositionTitle),
-                          children: [
-                            _buildPositionOption(context, 'aboveKeyboard', l10n.overlayAboveKeyboard, settings.keyOverlayPosition),
-                            _buildPositionOption(context, 'center', l10n.overlayCenterTerminal, settings.keyOverlayPosition),
-                            _buildPositionOption(context, 'belowHeader', l10n.overlayBelowHeader, settings.keyOverlayPosition),
-                          ],
-                        ),
-                      );
-                      if (result != null) {
-                        ref.read(settingsProvider.notifier).setKeyOverlayPosition(result);
-                      }
-                    },
-                  ),
-                ],
-                const Divider(),
                 _SectionHeader(title: l10n.sectionNavPad),
                 ListTile(
                   leading: const Icon(Icons.gamepad),
@@ -1212,26 +1136,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildPositionOption(
-    BuildContext context,
-    String value,
-    String label,
-    String currentValue,
-  ) {
-    return SimpleDialogOption(
-      onPressed: () => Navigator.pop(context, value),
-      child: Row(
-        children: [
-          Icon(
-            value == currentValue ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-            size: 20,
-          ),
-          const SizedBox(width: 12),
-          Text(label),
-        ],
-      ),
-    );
-  }
 }
 
 /// A single slot in the nav pad button customization grid.

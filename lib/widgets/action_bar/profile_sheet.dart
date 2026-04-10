@@ -59,9 +59,9 @@ class ProfileSheet extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
-        minChildSize: 0.3,
-        maxChildSize: 0.9,
+        initialChildSize: 0.6,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
         expand: false,
         builder: (context, scrollController) => ProfileSheet(
           scrollController: scrollController,
@@ -333,22 +333,37 @@ class ProfileSheet extends ConsumerWidget {
     final chips = group.buttons;
     if (chips.isEmpty) return const SizedBox.shrink();
 
-    // Dense multi-column layout: small inline header + compact chip Wrap.
-    // Chips are sized to fit 6-8 per row on typical phone widths so the
-    // whole palette of a well-curated profile fits without scrolling.
+    // Force a fixed cross-axis count so the palette *always* renders
+    // as a grid, regardless of label widths or device DPI. Earlier
+    // Wrap-based layouts collapsed to 1 column on some devices when
+    // label widths + padding exceeded the row budget — the user kept
+    // seeing a vertical list instead of a chip grid, which this fixes.
+    // 4 columns on phones ≤420dp, 5 on wider screens, 6 on tablets.
+    final width = MediaQuery.of(context).size.width;
+    final int crossAxisCount = width >= 600
+        ? 6
+        : width >= 420
+            ? 5
+            : 4;
+    const double spacing = 6;
+    final double horizontalPadding = 12;
+    final double available = width - (horizontalPadding * 2);
+    final double chipWidth =
+        (available - spacing * (crossAxisCount - 1)) / crossAxisCount;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      padding: EdgeInsets.fromLTRB(horizontalPadding, 8, horizontalPadding, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 2, bottom: 3),
+            padding: const EdgeInsets.only(left: 2, bottom: 4),
             child: Text(
               group.name.toUpperCase(),
               style: TextStyle(
                 fontSize: 10,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.6,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.8,
                 color: isDark
                     ? DesignColors.textMuted
                     : DesignColors.textMutedLight,
@@ -356,10 +371,13 @@ class ProfileSheet extends ConsumerWidget {
             ),
           ),
           Wrap(
-            spacing: 4,
-            runSpacing: 4,
+            spacing: spacing,
+            runSpacing: spacing,
             children: chips
-                .map((b) => _buildPaletteChip(context, b, isDark))
+                .map((b) => SizedBox(
+                      width: chipWidth,
+                      child: _buildPaletteChip(context, b, isDark),
+                    ))
                 .toList(),
           ),
         ],
@@ -388,21 +406,23 @@ class ProfileSheet extends ConsumerWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _handlePaletteTap(context, btn),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         child: Container(
-          constraints: const BoxConstraints(minWidth: 38, minHeight: 30),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          height: 38,
+          padding: const EdgeInsets.symmetric(horizontal: 6),
           decoration: BoxDecoration(
             color: bgColor,
-            border: Border.all(color: borderColor, width: 0.5),
-            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: borderColor, width: 1),
+            borderRadius: BorderRadius.circular(8),
           ),
           child: Center(
             child: Text(
               btn.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
                 fontFamily: 'monospace',
                 color: isAction
                     ? DesignColors.primary

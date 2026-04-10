@@ -164,8 +164,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // ポーリング用タイマー
   Timer? _pollTimer;
   Timer? _treeRefreshTimer;
+  Timer? _staleWatchdog;
   bool _isPolling = false;
   bool _isDisposed = false;
+  // Timestamp of the last successful pane poll. Used by the
+  // stale-connection watchdog + latency indicator to flag when the
+  // SSH socket looks alive (`isConnected == true`) but no fresh data
+  // has arrived in a while — a symptom of the "half-dead" connection
+  // bug where text is queued locally but never reaches the server.
+  DateTime _lastSuccessfulPoll = DateTime.now();
+  // Mirrored into the view notifier so the latency indicator can
+  // visually flag staleness without a separate Consumer rebuild.
+  bool _isConnectionStale = false;
 
   // フレームスキップ用（高頻度更新の最適化）
   static const _minFrameInterval = Duration(milliseconds: 16); // ~60fps
@@ -304,7 +314,36 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
+    _staleWatchdog?.cancel();
+    _staleWatchdog = null;
     WakelockPlus.disable();
+  }
+
+  /// Watchdog that fires every 2s and flags the connection as stale
+  /// when no successful poll has landed for >8s. If staleness exceeds
+  /// 15s, auto-triggers a reconnect via [_probeConnectionOnResume]
+  /// which ping-tests then force-reconnects on failure. Users can
+  /// also tap the latency indicator to trigger reconnect manually.
+  void _startStaleWatchdog() {
+    _staleWatchdog?.cancel();
+    _staleWatchdog = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_isDisposed) return;
+      final sshState = ref.read(sshProvider(widget.connectionId));
+      // Don't flag stale while actively reconnecting — the UI already
+      // shows that state through _buildReconnectingIndicator.
+      if (sshState.isReconnecting) return;
+      final age = DateTime.now().difference(_lastSuccessfulPoll);
+      final stale = age.inSeconds >= 8;
+      if (stale != _isConnectionStale) {
+        if (mounted) setState(() => _isConnectionStale = stale);
+      }
+      // Auto-probe once staleness passes 15s — this catches the
+      // "half-dead socket" case where isConnected stays true forever
+      // but the remote side has silently stopped responding.
+      if (age.inSeconds >= 15) {
+        _probeConnectionOnResume();
+      }
+    });
   }
 
   /// フォアグラウンド復帰時にポーリングを再開
@@ -313,6 +352,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _isInBackground = false;
     _startPolling();
     _startTreeRefresh();
+    _startStaleWatchdog();
     _applyKeepScreenOn();
     // Android frequently kills the SSH TCP socket while the app is
     // backgrounded. `client.isConnected` stays optimistically true until
@@ -448,12 +488,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     // ポーリングフラグをリセット
     _isPolling = false;
+    _lastSuccessfulPoll = DateTime.now();
+    if (_isConnectionStale && mounted) {
+      setState(() => _isConnectionStale = false);
+    }
 
     // ポーリングを再開
     _startPolling();
 
     // セッションツリーを再取得
     _startTreeRefresh();
+
+    // 接続状態監視ウォッチドッグを再開
+    _startStaleWatchdog();
 
     // キューされた入力を送信
     await _flushInputQueue();
@@ -711,12 +758,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     // Tree refresh timer
     _startTreeRefresh();
+    // Stale-connection watchdog — starts alongside polling so the
+    // latency indicator can flag "no fresh data" even when the SSH
+    // socket still appears connected.
+    _lastSuccessfulPoll = DateTime.now();
+    _startStaleWatchdog();
   }
 
   /// Handle content update from backend (both tmux and raw).
   void _onBackendContentUpdate() {
     final backend = _backend;
     if (backend == null) return;
+
+    // Any backend-driven update proves fresh data reached us, so
+    // refresh the stale watchdog timestamp (covers raw PTY mode where
+    // _pollPaneContent isn't the primary heartbeat).
+    _lastSuccessfulPoll = DateTime.now();
+    if (_isConnectionStale && mounted && !_isDisposed) {
+      setState(() => _isConnectionStale = false);
+    }
 
     final content = backend.currentContent;
     final scrollback = backend.scrollbackSize;
@@ -920,6 +980,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       // レイテンシを更新
       final latency = endTime.difference(startTime).inMilliseconds;
+
+      // Mark this poll as successful for the stale watchdog. A
+      // response — even an empty one — proves the SSH pipe is still
+      // alive end-to-end, which `isConnected` alone can't guarantee.
+      _lastSuccessfulPoll = DateTime.now();
+      if (_isConnectionStale && mounted && !_isDisposed) {
+        setState(() => _isConnectionStale = false);
+      }
 
       // 差分があれば更新（スロットリング適用）
       final scrollback = historySize ?? _viewNotifier.value.scrollbackSize;
@@ -1169,6 +1237,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
+    _staleWatchdog?.cancel();
+    _staleWatchdog = null;
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
     // (compose resources are managed by ComposeBar widget)
@@ -3337,23 +3407,82 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   }
 
   /// 接続状態インジケーター（レイテンシまたは再接続状態を表示）
+  ///
+  /// Tap = manual reconnect fallback. Users reported cases where the
+  /// screen goes stale after long idle — socket stays "connected" but
+  /// no data flows — and tapping the indicator now forces a reconnect
+  /// via [SshNotifier.reconnectNow], bypassing the backoff schedule.
   Widget _buildConnectionIndicator(int latency) {
     final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        border: Border(
-          left: BorderSide(color: colorScheme.outline, width: 1),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _manualReconnect,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: colorScheme.outline, width: 1),
+          ),
         ),
+        child: _sshState.isReconnecting
+            ? _buildReconnectingIndicator()
+            : _buildLatencyIndicator(latency),
       ),
-      child: _sshState.isReconnecting
-          ? _buildReconnectingIndicator()
-          : _buildLatencyIndicator(latency),
     );
+  }
+
+  /// Force an immediate reconnect. Wired to the latency-indicator tap
+  /// so users have a one-tap fallback when the session looks stale
+  /// but the auto-reconnect machinery hasn't fired yet.
+  void _manualReconnect() {
+    if (_isDisposed) return;
+    HapticFeedback.mediumImpact();
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
+    final sshState = ref.read(sshProvider(widget.connectionId));
+    // Already reconnecting — don't stack another attempt, but give the
+    // user visible confirmation the tap registered.
+    if (sshState.isReconnecting) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reconnect already in progress…'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Reconnecting…'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+    sshNotifier.reconnectNow();
   }
 
   /// レイテンシ表示
   Widget _buildLatencyIndicator(int latency) {
+    // Stale connection: no fresh poll for >8s. Visually degrade to
+    // grey + "?" so users know the latency number is not live data.
+    if (_isConnectionStale) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.sync_problem,
+            size: 12,
+            color: DesignColors.warning.withValues(alpha: 0.9),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'stale',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              color: DesignColors.warning.withValues(alpha: 0.9),
+            ),
+          ),
+        ],
+      );
+    }
     // レイテンシに応じた色を決定
     Color indicatorColor;
     if (latency < 100) {

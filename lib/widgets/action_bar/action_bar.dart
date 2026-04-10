@@ -252,19 +252,31 @@ class _ActionBarState extends ConsumerState<ActionBar> {
                       ),
                     ),
             ),
-            // [⋮] Palette button — taps open the full key palette.
+            // [grid] Palette button — taps open the full key palette.
+            // Enlarged from 32dp to 44dp and given a grid icon so the
+            // chip-grid palette behind it is visually discoverable
+            // (earlier ⋮ icon was hard to associate with "open palette").
             GestureDetector(
               onTap: _openProfileSheet,
+              behavior: HitTestBehavior.opaque,
               child: Container(
-                width: 32,
+                width: 44,
                 height: 40,
                 alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  border: Border(
+                    left: BorderSide(
+                      color: isDark
+                          ? DesignColors.borderDark
+                          : DesignColors.borderLight,
+                      width: 0.5,
+                    ),
+                  ),
+                ),
                 child: Icon(
-                  Icons.more_vert,
-                  size: 18,
-                  color: isDark
-                      ? DesignColors.textSecondary
-                      : DesignColors.textSecondaryLight,
+                  Icons.grid_view_rounded,
+                  size: 20,
+                  color: DesignColors.primary.withValues(alpha: 0.85),
                 ),
               ),
             ),

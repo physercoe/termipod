@@ -227,9 +227,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     // the action bar stack so it sits under the right thumb at rest —
     // ~180dp from the bottom leaves ~20dp of breathing room above the
     // action bar while still being well within thumb reach.
-    if (_bottom == null) {
-      _bottom = 180.0;
-    }
+    _bottom ??= 180.0;
 
     return Positioned(
       right: _right,

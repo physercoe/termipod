@@ -6,9 +6,6 @@ class ActionBarPresets {
 
   static const String claudeCodeId = 'claude-code';
   static const String codexId = 'codex';
-  static const String kimiCodeId = 'kimi-code';
-  static const String openCodeId = 'opencode';
-  static const String aiderId = 'aider';
   static const String generalTerminalId = 'general-terminal';
 
   /// Default profile ID
@@ -18,9 +15,6 @@ class ActionBarPresets {
   static List<ActionBarProfile> get all => [
         claudeCode,
         codex,
-        kimiCode,
-        openCode,
-        aider,
         generalTerminal,
       ];
 
@@ -64,9 +58,6 @@ class ActionBarPresets {
     final cmd = currentCommand.toLowerCase();
     if (cmd.contains('claude')) return claudeCodeId;
     if (cmd.contains('codex')) return codexId;
-    if (cmd.contains('kimi')) return kimiCodeId;
-    if (cmd.contains('opencode')) return openCodeId;
-    if (cmd.contains('aider')) return aiderId;
     return null;
   }
 
@@ -151,128 +142,6 @@ class ActionBarPresets {
         ActionBarButton(id: 'cx-senter', label: 'S-Ent', type: ActionBarButtonType.shiftCombo, value: 'S-Enter'),
         ActionBarButton(id: 'cx-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
         ActionBarButton(id: 'cx-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
-      ]),
-    ],
-  );
-
-  // ---------------------------------------------------------------------------
-  // Kimi Code
-  // ---------------------------------------------------------------------------
-
-  static const kimiCode = ActionBarProfile(
-    id: kimiCodeId,
-    name: 'Kimi Code',
-    isBuiltIn: false,
-    groups: [
-      ActionBarGroup(id: 'km-quick', name: 'Quick', buttons: [
-        ActionBarButton(id: 'km-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
-        ActionBarButton(id: 'km-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
-        ActionBarButton(id: 'km-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
-        ActionBarButton(id: 'km-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
-        ActionBarButton(id: 'km-cx', label: 'C-X', type: ActionBarButtonType.ctrlCombo, value: 'C-x'),
-        ActionBarButton(id: 'km-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
-        ActionBarButton(id: 'km-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
-      ]),
-      ActionBarGroup(id: 'km-nav', name: 'Navigate', buttons: [
-        ActionBarButton(id: 'km-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
-        ActionBarButton(id: 'km-up', label: '↑', type: ActionBarButtonType.specialKey, value: 'Up', iconName: 'arrow_drop_up'),
-        ActionBarButton(id: 'km-down', label: '↓', type: ActionBarButtonType.specialKey, value: 'Down', iconName: 'arrow_drop_down'),
-        ActionBarButton(id: 'km-right', label: '→', type: ActionBarButtonType.specialKey, value: 'Right', iconName: 'arrow_right'),
-        ActionBarButton(id: 'km-space', label: 'SPC', type: ActionBarButtonType.literal, value: ' '),
-      ]),
-      ActionBarGroup(id: 'km-ctrl', name: 'Ctrl', buttons: [
-        ActionBarButton(id: 'km-cd', label: 'C-D', type: ActionBarButtonType.ctrlCombo, value: 'C-d'),
-        ActionBarButton(id: 'km-cj', label: 'C-J', type: ActionBarButtonType.ctrlCombo, value: 'C-j'),
-        ActionBarButton(id: 'km-co', label: 'C-O', type: ActionBarButtonType.ctrlCombo, value: 'C-o'),
-        ActionBarButton(id: 'km-ce', label: 'C-E', type: ActionBarButtonType.ctrlCombo, value: 'C-e'),
-        ActionBarButton(id: 'km-cv', label: 'C-V', type: ActionBarButtonType.ctrlCombo, value: 'C-v'),
-      ]),
-      ActionBarGroup(id: 'km-edit', name: 'Edit', buttons: [
-        ActionBarButton(id: 'km-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
-        ActionBarButton(id: 'km-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
-        ActionBarButton(id: 'km-senter', label: 'S-Ent', type: ActionBarButtonType.shiftCombo, value: 'S-Enter'),
-      ]),
-    ],
-  );
-
-  // ---------------------------------------------------------------------------
-  // OpenCode
-  // ---------------------------------------------------------------------------
-
-  static const openCode = ActionBarProfile(
-    id: openCodeId,
-    name: 'OpenCode',
-    isBuiltIn: false,
-    groups: [
-      ActionBarGroup(id: 'oc-quick', name: 'Quick', buttons: [
-        ActionBarButton(id: 'oc-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
-        ActionBarButton(id: 'oc-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
-        ActionBarButton(id: 'oc-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
-        ActionBarButton(id: 'oc-cp', label: 'C-P', type: ActionBarButtonType.ctrlCombo, value: 'C-p'),
-        ActionBarButton(id: 'oc-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
-        ActionBarButton(id: 'oc-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
-      ]),
-      ActionBarGroup(id: 'oc-nav', name: 'Navigate', buttons: [
-        ActionBarButton(id: 'oc-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
-        ActionBarButton(id: 'oc-up', label: '↑', type: ActionBarButtonType.specialKey, value: 'Up', iconName: 'arrow_drop_up'),
-        ActionBarButton(id: 'oc-down', label: '↓', type: ActionBarButtonType.specialKey, value: 'Down', iconName: 'arrow_drop_down'),
-        ActionBarButton(id: 'oc-right', label: '→', type: ActionBarButtonType.specialKey, value: 'Right', iconName: 'arrow_right'),
-        ActionBarButton(id: 'oc-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
-        ActionBarButton(id: 'oc-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
-      ]),
-      ActionBarGroup(id: 'oc-leader', name: 'Leader', buttons: [
-        ActionBarButton(id: 'oc-cx', label: 'C-X', type: ActionBarButtonType.ctrlCombo, value: 'C-x'),
-        ActionBarButton(id: 'oc-ln', label: 'n', type: ActionBarButtonType.literal, value: 'n'),
-        ActionBarButton(id: 'oc-ll', label: 'l', type: ActionBarButtonType.literal, value: 'l'),
-        ActionBarButton(id: 'oc-lc', label: 'c', type: ActionBarButtonType.literal, value: 'c'),
-        ActionBarButton(id: 'oc-le', label: 'e', type: ActionBarButtonType.literal, value: 'e'),
-        ActionBarButton(id: 'oc-lb', label: 'b', type: ActionBarButtonType.literal, value: 'b'),
-      ]),
-      ActionBarGroup(id: 'oc-edit', name: 'Edit', buttons: [
-        ActionBarButton(id: 'oc-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
-        ActionBarButton(id: 'oc-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
-        ActionBarButton(id: 'oc-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
-        ActionBarButton(id: 'oc-stab', label: 'S-Tab', type: ActionBarButtonType.shiftCombo, value: 'BTab'),
-        ActionBarButton(id: 'oc-f2', label: 'F2', type: ActionBarButtonType.specialKey, value: 'F2'),
-      ]),
-    ],
-  );
-
-  // ---------------------------------------------------------------------------
-  // Aider
-  // ---------------------------------------------------------------------------
-
-  static const aider = ActionBarProfile(
-    id: aiderId,
-    name: 'Aider',
-    isBuiltIn: false,
-    groups: [
-      ActionBarGroup(id: 'ai-quick', name: 'Quick', buttons: [
-        ActionBarButton(id: 'ai-snippet', label: '⚡', type: ActionBarButtonType.action, value: 'snippet', iconName: 'bolt', description: 'Snippets'),
-        ActionBarButton(id: 'ai-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape'),
-        ActionBarButton(id: 'ai-tab', label: 'TAB', type: ActionBarButtonType.specialKey, value: 'Tab', longPressValue: 'BTab'),
-        ActionBarButton(id: 'ai-cc', label: 'C-C', type: ActionBarButtonType.ctrlCombo, value: 'C-c'),
-        ActionBarButton(id: 'ai-menter', label: 'M-Ent', type: ActionBarButtonType.altCombo, value: 'M-Enter'),
-      ]),
-      ActionBarGroup(id: 'ai-nav', name: 'Navigate', buttons: [
-        ActionBarButton(id: 'ai-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
-        ActionBarButton(id: 'ai-up', label: '↑', type: ActionBarButtonType.specialKey, value: 'Up', iconName: 'arrow_drop_up'),
-        ActionBarButton(id: 'ai-down', label: '↓', type: ActionBarButtonType.specialKey, value: 'Down', iconName: 'arrow_drop_down'),
-        ActionBarButton(id: 'ai-right', label: '→', type: ActionBarButtonType.specialKey, value: 'Right', iconName: 'arrow_right'),
-        ActionBarButton(id: 'ai-cr', label: 'C-R', type: ActionBarButtonType.ctrlCombo, value: 'C-r'),
-      ]),
-      ActionBarGroup(id: 'ai-emacs', name: 'Emacs', buttons: [
-        ActionBarButton(id: 'ai-ca', label: 'C-A', type: ActionBarButtonType.ctrlCombo, value: 'C-a'),
-        ActionBarButton(id: 'ai-ce', label: 'C-E', type: ActionBarButtonType.ctrlCombo, value: 'C-e'),
-        ActionBarButton(id: 'ai-ck', label: 'C-K', type: ActionBarButtonType.ctrlCombo, value: 'C-k'),
-        ActionBarButton(id: 'ai-cu', label: 'C-U', type: ActionBarButtonType.ctrlCombo, value: 'C-u'),
-        ActionBarButton(id: 'ai-cy', label: 'C-Y', type: ActionBarButtonType.ctrlCombo, value: 'C-y'),
-      ]),
-      ActionBarGroup(id: 'ai-edit', name: 'Edit', buttons: [
-        ActionBarButton(id: 'ai-ctrl-mod', label: 'CTRL', type: ActionBarButtonType.modifier, value: 'ctrl'),
-        ActionBarButton(id: 'ai-alt-mod', label: 'ALT', type: ActionBarButtonType.modifier, value: 'alt'),
-        ActionBarButton(id: 'ai-cd', label: 'C-D', type: ActionBarButtonType.ctrlCombo, value: 'C-d'),
-        ActionBarButton(id: 'ai-cl', label: 'C-L', type: ActionBarButtonType.ctrlCombo, value: 'C-l'),
       ]),
     ],
   );

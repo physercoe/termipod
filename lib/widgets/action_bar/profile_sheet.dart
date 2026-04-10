@@ -27,6 +27,11 @@ class ProfileSheet extends ConsumerWidget {
   final void Function(String modifier)? onModifierTap;
   final ScrollController? scrollController;
 
+  /// Panel identifier so profile switches are scoped to the pane this
+  /// sheet was opened from. Mirrors [ActionBar.panelKey]. Null falls
+  /// back to the global default.
+  final String? panelKey;
+
   const ProfileSheet({
     super.key,
     this.onEditGroups,
@@ -35,6 +40,7 @@ class ProfileSheet extends ConsumerWidget {
     this.onSpecialKeyTap,
     this.onModifierTap,
     this.scrollController,
+    this.panelKey,
   });
 
   static Future<void> show(
@@ -45,13 +51,14 @@ class ProfileSheet extends ConsumerWidget {
     void Function(String literal)? onKeyTap,
     void Function(String tmuxKey)? onSpecialKeyTap,
     void Function(String modifier)? onModifierTap,
+    String? panelKey,
   }) async {
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
+        initialChildSize: 0.5,
         minChildSize: 0.3,
         maxChildSize: 0.9,
         expand: false,
@@ -72,6 +79,7 @@ class ProfileSheet extends ConsumerWidget {
           onKeyTap: onKeyTap,
           onSpecialKeyTap: onSpecialKeyTap,
           onModifierTap: onModifierTap,
+          panelKey: panelKey,
         ),
       ),
     );
@@ -81,12 +89,10 @@ class ProfileSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final state = ref.watch(actionBarProvider);
-    final activeProfile = state.profiles.firstWhere(
-      (p) => p.id == state.activeProfileId,
-      orElse: () => state.profiles.isNotEmpty
-          ? state.profiles.first
-          : const ActionBarProfile(id: '', name: '', groups: []),
-    );
+    // Resolve the profile for this panel (not the global default) so
+    // the palette shows the keys the user is currently looking at on
+    // the action bar.
+    final activeProfile = state.profileForPanel(panelKey);
 
     return Container(
       decoration: BoxDecoration(
@@ -123,26 +129,11 @@ class ProfileSheet extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Key Palette section header
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-                      child: Text(
-                        AppLocalizations.of(context)!
-                            .keyPaletteLabel
-                            .toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.8,
-                          color: isDark
-                              ? DesignColors.textMuted
-                              : DesignColors.textMutedLight,
-                        ),
-                      ),
-                    ),
+                    const SizedBox(height: 8),
                     // Per-group rows — always includes Navigate group,
                     // unlike the action bar which filters it when the
-                    // nav pad is enabled.
+                    // nav pad is enabled. No redundant "KEY PALETTE"
+                    // section header since the sheet is dedicated to it.
                     for (final group in activeProfile.groups)
                       _buildPaletteGroup(context, group, isDark),
                     const SizedBox(height: 8),
@@ -163,9 +154,13 @@ class ProfileSheet extends ConsumerWidget {
                       isDark: isDark,
                       onTap: () {
                         HapticFeedback.selectionClick();
+                        // Reset the profile currently displayed in this
+                        // panel's palette — not the global default —
+                        // so the user's "restore" action matches what
+                        // they see.
                         ref
                             .read(actionBarProvider.notifier)
-                            .resetProfileToDefault(state.activeProfileId);
+                            .resetProfileToDefault(activeProfile.id);
                         Navigator.pop(context);
                       },
                     ),
@@ -267,6 +262,17 @@ class ProfileSheet extends ConsumerWidget {
     ActionBarState state,
   ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final currentProfileId = state.profileIdForPanel(panelKey);
+    void applyProfile(String profileId) {
+      final key = panelKey;
+      final notifier = ref.read(actionBarProvider.notifier);
+      if (key != null) {
+        notifier.setActiveProfileForPanel(key, profileId);
+      } else {
+        notifier.setActiveProfile(profileId);
+      }
+    }
+
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => Dialog(
@@ -297,16 +303,14 @@ class ProfileSheet extends ConsumerWidget {
                 child: SingleChildScrollView(
                   child: Column(
                     children: state.profiles.map((profile) {
-                      final isActive = profile.id == state.activeProfileId;
+                      final isActive = profile.id == currentProfileId;
                       return _ProfileRow(
                         profile: profile,
                         isActive: isActive,
                         isDark: isDark,
                         onSelect: () {
                           HapticFeedback.selectionClick();
-                          ref
-                              .read(actionBarProvider.notifier)
-                              .setActiveProfile(profile.id);
+                          applyProfile(profile.id);
                           Navigator.pop(dialogCtx);
                         },
                         onEdit: () {
@@ -321,9 +325,7 @@ class ProfileSheet extends ConsumerWidget {
                                   const ActionBarSettingsScreen(),
                             ),
                           );
-                          ref
-                              .read(actionBarProvider.notifier)
-                              .setActiveProfile(profile.id);
+                          applyProfile(profile.id);
                         },
                         onDelete: profile.isBuiltIn
                             ? null
@@ -357,25 +359,31 @@ class ProfileSheet extends ConsumerWidget {
         .toList();
     if (chips.isEmpty) return const SizedBox.shrink();
 
+    // Dense multi-column layout: small inline header + compact chip Wrap.
+    // Chips are sized to fit 6-8 per row on typical phone widths so the
+    // whole palette of a well-curated profile fits without scrolling.
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            group.name,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: isDark
-                  ? DesignColors.textSecondary
-                  : DesignColors.textSecondaryLight,
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 3),
+            child: Text(
+              group.name.toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
             ),
           ),
-          const SizedBox(height: 6),
           Wrap(
-            spacing: 6,
-            runSpacing: 6,
+            spacing: 4,
+            runSpacing: 4,
             children: chips
                 .map((b) => _buildPaletteChip(context, b, isDark))
                 .toList(),
@@ -394,10 +402,10 @@ class ProfileSheet extends ConsumerWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _handlePaletteTap(context, btn),
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(6),
         child: Container(
-          constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          constraints: const BoxConstraints(minWidth: 38, minHeight: 30),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: isDark
                 ? DesignColors.keyBackground
@@ -408,13 +416,13 @@ class ProfileSheet extends ConsumerWidget {
                   : DesignColors.borderLight,
               width: 0.5,
             ),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: Center(
             child: Text(
               btn.label,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w500,
                 fontFamily: 'monospace',
                 color: isDark
@@ -585,10 +593,17 @@ class ProfileSheet extends ConsumerWidget {
                     ),
                   ],
                 );
-                ref.read(actionBarProvider.notifier).addCustomProfile(profile);
-                ref
-                    .read(actionBarProvider.notifier)
-                    .setActiveProfile(profile.id);
+                final notifier = ref.read(actionBarProvider.notifier);
+                notifier.addCustomProfile(profile);
+                // Newly created profiles become active on the current
+                // panel only — not globally — so other panes keep
+                // whatever profile they had.
+                final key = panelKey;
+                if (key != null) {
+                  notifier.setActiveProfileForPanel(key, profile.id);
+                } else {
+                  notifier.setActiveProfile(profile.id);
+                }
                 Navigator.pop(ctx);
               }
             },

@@ -448,6 +448,7 @@
 
   "snippets": "Snippets",
   "searchSnippets": "Search snippets...",
+  "searchHint": "Search...",
   "tabAll": "All",
   "noSnippetsYet": "No snippets yet",
   "noMatchingSnippets": "No matching snippets",
@@ -529,8 +530,5 @@
   "customKeyboardCapsLock": "Caps Lock",
 
   "categoryClaude": "Claude Code",
-  "categoryCodex": "Codex",
-  "categoryKimi": "Kimi Code",
-  "categoryOpencode": "OpenCode",
-  "categoryAider": "Aider"
+  "categoryCodex": "Codex"
 }

@@ -403,6 +403,7 @@
 
   "snippets": "代码片段",
   "searchSnippets": "搜索代码片段...",
+  "searchHint": "搜索...",
   "tabAll": "全部",
   "noSnippetsYet": "暂无代码片段",
   "noMatchingSnippets": "无匹配的代码片段",
@@ -479,8 +480,5 @@
   "customKeyboardCapsLock": "大写锁定",
 
   "categoryClaude": "Claude Code",
-  "categoryCodex": "Codex",
-  "categoryKimi": "Kimi Code",
-  "categoryOpencode": "OpenCode",
-  "categoryAider": "Aider"
+  "categoryCodex": "Codex"
 }

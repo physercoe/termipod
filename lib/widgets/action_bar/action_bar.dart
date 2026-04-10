@@ -8,9 +8,13 @@ import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_page.dart';
 
-/// Main action bar widget: swipeable button groups + [⋮] settings button.
+/// Main action bar widget: single button row + [⋮] palette button.
 ///
-/// Sits between terminal display and compose bar.
+/// Sits between terminal display and compose bar. Only the first group
+/// of the active profile is shown as a Row; the rest of the profile's
+/// keys are reachable via the Key Palette sheet (tap [⋮] or swipe
+/// horizontally on the bar). Horizontal swipe cycles to the next/prev
+/// profile and auto-opens the palette so the user sees the new keys.
 class ActionBar extends ConsumerStatefulWidget {
   /// Send a literal key (text character)
   final void Function(String key) onKeyPressed;
@@ -27,6 +31,14 @@ class ActionBar extends ConsumerStatefulWidget {
 
   final bool hapticFeedback;
 
+  /// Stable panel identifier so the action bar can show the right
+  /// profile for the pane the user is currently looking at (and so
+  /// switching profiles only affects that pane). Convention is
+  /// `${connectionId}|${paneId}`. When null, the global default is
+  /// used — fine for contexts that don't yet know a pane (e.g.
+  /// sessions screen preview).
+  final String? panelKey;
+
   const ActionBar({
     super.key,
     required this.onKeyPressed,
@@ -37,6 +49,7 @@ class ActionBar extends ConsumerStatefulWidget {
     this.onDirectInputToggle,
     this.onProfileSettings,
     this.hapticFeedback = true,
+    this.panelKey,
   });
 
   @override
@@ -44,21 +57,6 @@ class ActionBar extends ConsumerStatefulWidget {
 }
 
 class _ActionBarState extends ConsumerState<ActionBar> {
-  late PageController _pageController;
-
-  @override
-  void initState() {
-    super.initState();
-    final initialPage = ref.read(actionBarProvider).currentPage;
-    _pageController = PageController(initialPage: initialPage);
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
   void _handleButtonTap(ActionBarButton button) {
     final notifier = ref.read(actionBarProvider.notifier);
 
@@ -159,30 +157,56 @@ class _ActionBarState extends ConsumerState<ActionBar> {
     widget.onProfileSettings?.call();
   }
 
+  /// Cycle this panel's active profile by [delta] (+1 = next, -1 = prev),
+  /// then open the Key Palette sheet so the user immediately sees the
+  /// new profile's keys. Wraps around both ends. Only the *current
+  /// panel's* profile changes — other panes retain theirs.
+  void _cycleProfileAndOpenPalette(int delta) {
+    final notifier = ref.read(actionBarProvider.notifier);
+    final state = ref.read(actionBarProvider);
+    if (state.profiles.length < 2) {
+      // Single profile: swiping still opens the palette so there's
+      // always visible feedback for the gesture.
+      _openProfileSheet();
+      return;
+    }
+    final currentId = state.profileIdForPanel(widget.panelKey);
+    final currentIndex =
+        state.profiles.indexWhere((p) => p.id == currentId);
+    final base = currentIndex < 0 ? 0 : currentIndex;
+    final nextIndex = (base + delta) % state.profiles.length;
+    final wrapped =
+        nextIndex < 0 ? nextIndex + state.profiles.length : nextIndex;
+    final nextProfileId = state.profiles[wrapped].id;
+    final panelKey = widget.panelKey;
+    if (panelKey != null) {
+      notifier.setActiveProfileForPanel(panelKey, nextProfileId);
+    } else {
+      notifier.setActiveProfile(nextProfileId);
+    }
+    if (widget.hapticFeedback) {
+      HapticFeedback.selectionClick();
+    }
+    widget.onProfileSettings?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(actionBarProvider);
     final settings = ref.watch(settingsProvider);
+    // Pane-scoped profile: each tmux pane remembers its own active
+    // profile, so switching tabs restores the previous profile for
+    // that pane. Falls back to the global default when panelKey is
+    // null or the pane has no override yet.
+    final panelGroups = state.groupsForPanel(widget.panelKey);
     // When nav pad is active, filter out the "Navigate" group (arrows/tab/enter/esc
-    // are handled by the nav pad instead)
+    // are handled by the nav pad instead). Only the FIRST remaining
+    // group is shown in the bar — the rest live in the Key Palette.
     final groups = settings.navPadMode != 'off'
-        ? state.activeGroups.where((g) => g.name != 'Navigate').toList()
-        : state.activeGroups;
+        ? panelGroups.where((g) => g.name != 'Navigate').toList()
+        : panelGroups;
+    final primaryGroup = groups.isEmpty ? null : groups.first;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Sync page controller when profile changes
-    final clampedPage = state.currentPage < groups.length
-        ? state.currentPage
-        : (groups.isEmpty ? 0 : groups.length - 1);
-    if (_pageController.hasClients &&
-        clampedPage < groups.length &&
-        _pageController.page?.round() != clampedPage) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_pageController.hasClients && clampedPage < groups.length) {
-          _pageController.jumpToPage(clampedPage);
-        }
-      });
-    }
 
     return Container(
       decoration: BoxDecoration(
@@ -194,86 +218,58 @@ class _ActionBarState extends ConsumerState<ActionBar> {
           ),
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Button groups + settings button
-          SizedBox(
-            height: 40,
-            child: Row(
-              children: [
-                // Swipeable group pages
-                Expanded(
-                  child: groups.isEmpty
-                      ? const SizedBox.shrink()
-                      : PageView.builder(
-                          controller: _pageController,
-                          itemCount: groups.length,
-                          onPageChanged: (page) {
-                            ref
-                                .read(actionBarProvider.notifier)
-                                .setCurrentPage(page);
-                          },
-                          itemBuilder: (context, index) {
-                            return Center(
-                              child: ActionBarPage(
-                                group: groups[index],
-                                ctrlArmed: state.ctrlArmed,
-                                ctrlLocked: state.ctrlLocked,
-                                altArmed: state.altArmed,
-                                altLocked: state.altLocked,
-                                onButtonTap: _handleButtonTap,
-                                onButtonLongPress: _handleButtonLongPress,
-                                hapticFeedback: widget.hapticFeedback,
-                              ),
-                            );
-                          },
+      child: SizedBox(
+        height: 40,
+        child: Row(
+          children: [
+            // Primary button group. Horizontal swipe cycles the active
+            // profile (not the group) and opens the palette for the
+            // new profile — old behavior of swiping between groups was
+            // removed because most profiles are now curated to a
+            // single row and multi-page PageView was rarely used.
+            Expanded(
+              child: primaryGroup == null
+                  ? const SizedBox.shrink()
+                  : GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragEnd: (details) {
+                        final v = details.primaryVelocity ?? 0;
+                        if (v.abs() < 200) return;
+                        // Swipe left (negative velocity) = next profile.
+                        _cycleProfileAndOpenPalette(v < 0 ? 1 : -1);
+                      },
+                      child: Center(
+                        child: ActionBarPage(
+                          group: primaryGroup,
+                          ctrlArmed: state.ctrlArmed,
+                          ctrlLocked: state.ctrlLocked,
+                          altArmed: state.altArmed,
+                          altLocked: state.altLocked,
+                          onButtonTap: _handleButtonTap,
+                          onButtonLongPress: _handleButtonLongPress,
+                          hapticFeedback: widget.hapticFeedback,
                         ),
-                ),
-                // [⋮] Settings button
-                GestureDetector(
-                  onTap: _openProfileSheet,
-                  child: Container(
-                    width: 32,
-                    height: 40,
-                    alignment: Alignment.center,
-                    child: Icon(
-                      Icons.more_vert,
-                      size: 18,
-                      color: isDark
-                          ? DesignColors.textSecondary
-                          : DesignColors.textSecondaryLight,
+                      ),
                     ),
-                  ),
-                ),
-              ],
             ),
-          ),
-          // Page dots
-          if (groups.length > 1)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(groups.length, (index) {
-                  final isActive = index == state.currentPage;
-                  return Container(
-                    width: isActive ? 8 : 5,
-                    height: isActive ? 5 : 5,
-                    margin: const EdgeInsets.symmetric(horizontal: 2),
-                    decoration: BoxDecoration(
-                      color: isActive
-                          ? DesignColors.primary
-                          : (isDark
-                              ? DesignColors.textMuted.withValues(alpha: 0.4)
-                              : DesignColors.textMutedLight.withValues(alpha: 0.4)),
-                      borderRadius: BorderRadius.circular(3),
-                    ),
-                  );
-                }),
+            // [⋮] Palette button — taps open the full key palette.
+            GestureDetector(
+              onTap: _openProfileSheet,
+              child: Container(
+                width: 32,
+                height: 40,
+                alignment: Alignment.center,
+                child: Icon(
+                  Icons.more_vert,
+                  size: 18,
+                  color: isDark
+                      ? DesignColors.textSecondary
+                      : DesignColors.textSecondaryLight,
+                ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

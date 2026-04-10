@@ -3,23 +3,70 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// A variable placeholder in a snippet
+/// How a [SnippetVariable] should be rendered in the fill-in dialog.
+///
+/// - [text]: free-form [TextField]. Used for paths, PR numbers,
+///   prompts, etc.
+/// - [option]: fixed-choice [DropdownButtonFormField]. Used for
+///   enumerated arguments like `/model {opus,sonnet,haiku,default}`
+///   or `/permissions {auto,read-only,full-access}`.
+enum SnippetVarKind { text, option }
+
+/// A variable placeholder in a snippet (`{{name}}` in content).
 class SnippetVariable {
   final String name;
   final String defaultValue;
 
-  const SnippetVariable({required this.name, this.defaultValue = ''});
+  /// How to render the input for this variable. Default: [SnippetVarKind.text].
+  final SnippetVarKind kind;
+
+  /// Allowed values when [kind] == [SnippetVarKind.option]. Ignored
+  /// when [kind] == [SnippetVarKind.text].
+  final List<String> options;
+
+  /// Optional hint text shown inside the [TextField] for text-kind
+  /// variables. Ignored for option-kind.
+  final String? hint;
+
+  /// Whether the variable may be left blank. Text-kind only (options
+  /// are always required to a concrete choice). When true, empty
+  /// input resolves to an empty string and the surrounding space is
+  /// trimmed by [Snippet.resolve] at call sites that care.
+  final bool optional;
+
+  const SnippetVariable({
+    required this.name,
+    this.defaultValue = '',
+    this.kind = SnippetVarKind.text,
+    this.options = const [],
+    this.hint,
+    this.optional = false,
+  });
 
   Map<String, dynamic> toJson() => {
         'name': name,
         'defaultValue': defaultValue,
+        if (kind != SnippetVarKind.text) 'kind': kind.name,
+        if (options.isNotEmpty) 'options': options,
+        if (hint != null) 'hint': hint,
+        if (optional) 'optional': optional,
       };
 
-  factory SnippetVariable.fromJson(Map<String, dynamic> json) =>
-      SnippetVariable(
-        name: json['name'] as String,
-        defaultValue: json['defaultValue'] as String? ?? '',
-      );
+  factory SnippetVariable.fromJson(Map<String, dynamic> json) {
+    final rawKind = json['kind'] as String?;
+    final kind = switch (rawKind) {
+      'option' => SnippetVarKind.option,
+      _ => SnippetVarKind.text,
+    };
+    return SnippetVariable(
+      name: json['name'] as String,
+      defaultValue: json['defaultValue'] as String? ?? '',
+      kind: kind,
+      options: (json['options'] as List?)?.cast<String>() ?? const [],
+      hint: json['hint'] as String?,
+      optional: json['optional'] as bool? ?? false,
+    );
+  }
 }
 
 /// Saved snippet (reusable command/text)
@@ -65,12 +112,24 @@ class Snippet {
     );
   }
 
-  /// Resolve content by substituting variable values
+  /// Resolve content by substituting variable values. Optional text
+  /// variables that resolve to empty string get their surrounding
+  /// single space collapsed so `/compact {{focus}}` with empty focus
+  /// sends `/compact` rather than `/compact ` with a trailing space.
   String resolve(Map<String, String> values) {
     var result = content;
     for (final v in variables) {
       final replacement = values[v.name] ?? v.defaultValue;
-      result = result.replaceAll('{{${v.name}}}', replacement);
+      final placeholder = '{{${v.name}}}';
+      if (replacement.isEmpty && v.optional) {
+        // Collapse " {{name}}" → "" and "{{name}} " → "".
+        result = result
+            .replaceAll(' $placeholder', '')
+            .replaceAll('$placeholder ', '')
+            .replaceAll(placeholder, '');
+      } else {
+        result = result.replaceAll(placeholder, replacement);
+      }
     }
     return result;
   }

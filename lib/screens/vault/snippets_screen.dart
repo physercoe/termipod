@@ -74,9 +74,6 @@ class SnippetsScreen extends ConsumerWidget {
       'cli-agent' => l10n.categoryCliAgent.toUpperCase(),
       'claude-code' => l10n.categoryClaude.toUpperCase(),
       'codex' => l10n.categoryCodex.toUpperCase(),
-      'kimi-code' => l10n.categoryKimi.toUpperCase(),
-      'opencode' => l10n.categoryOpencode.toUpperCase(),
-      'aider' => l10n.categoryAider.toUpperCase(),
       _ => category.toUpperCase(),
     };
   }
@@ -234,9 +231,6 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
     'cli-agent',
     'claude-code',
     'codex',
-    'kimi-code',
-    'opencode',
-    'aider',
   ];
 
   static String _categoryDisplayName(AppLocalizations l10n, String key) {
@@ -246,9 +240,6 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
       'cli-agent' => l10n.categoryCliAgent,
       'claude-code' => l10n.categoryClaude,
       'codex' => l10n.categoryCodex,
-      'kimi-code' => l10n.categoryKimi,
-      'opencode' => l10n.categoryOpencode,
-      'aider' => l10n.categoryAider,
       _ => key,
     };
   }

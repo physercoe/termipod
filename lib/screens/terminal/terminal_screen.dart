@@ -43,7 +43,6 @@ import '../../widgets/action_bar/compose_bar.dart';
 import '../../widgets/action_bar/insert_menu.dart';
 import '../../widgets/action_bar/snippet_picker_sheet.dart';
 import '../../widgets/action_bar/profile_sheet.dart';
-import '../../widgets/action_bar/recent_sheet.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../models/action_bar_presets.dart';
 import '../../widgets/image_transfer_confirm_dialog.dart';
@@ -354,14 +353,24 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _tmuxSubscription = ref.listenManual<TmuxState>(
       tmuxProvider(widget.connectionId),
       (previous, next) {
-        // Profile auto-detection from pane_current_command
+        // Profile auto-detection from pane_current_command. Writes
+        // directly into the per-panel profile map so each tmux pane
+        // gets its own auto-detected profile, but only if the user
+        // hasn't already picked one for that pane — otherwise a
+        // transient shell command (`git`, `vim`, etc.) could clobber
+        // the user's explicit choice.
         final activePane = next.activePane;
-        if (activePane != null) {
-          final suggestedId = ActionBarPresets.detectProfileId(
-            activePane.currentCommand,
-          );
-          ref.read(actionBarProvider.notifier).updateSuggestion(suggestedId);
-        }
+        if (activePane == null) return;
+        final suggestedId = ActionBarPresets.detectProfileId(
+          activePane.currentCommand,
+        );
+        if (suggestedId == null) return;
+        final panelKey = '${widget.connectionId}|${activePane.id}';
+        final abState = ref.read(actionBarProvider);
+        if (abState.activeProfileByPanel.containsKey(panelKey)) return;
+        ref
+            .read(actionBarProvider.notifier)
+            .setActiveProfileForPanel(panelKey, suggestedId);
       },
       fireImmediately: true,
     );
@@ -1319,17 +1328,35 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 onKeyPressed: _sendKeyWithOverlay,
                 onGestureToggle: _toggleGestureMode,
               ),
-              // Action bar (swipeable button groups)
-              ActionBar(
-                onKeyPressed: _sendKeyWithOverlay,
-                onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
-                onFileTransfer: _handleFileTransfer,
-                onImageTransfer: _handleImageTransfer,
-                onSnippetPicker: () => _showSnippetPicker(context),
-                onDirectInputToggle: () {
-                  ref.read(actionBarProvider.notifier).toggleInputMode();
+              // Action bar (swipeable button groups). Wrapped in a
+              // Consumer so it rebuilds when the active pane changes
+              // (e.g. tmux select-pane, window switch) and passes the
+              // per-pane panelKey down to the profile-sheet invocation
+              // as well, so the sheet mutates the right entry in the
+              // per-panel profile map.
+              Consumer(
+                builder: (context, ref, _) {
+                  final paneId = ref.watch(
+                    tmuxProvider(widget.connectionId)
+                        .select((s) => s.activePane?.id),
+                  );
+                  final panelKey =
+                      paneId == null ? null : '${widget.connectionId}|$paneId';
+                  return ActionBar(
+                    panelKey: panelKey,
+                    onKeyPressed: _sendKeyWithOverlay,
+                    onSpecialKeyPressed: _sendSpecialKeyWithOverlay,
+                    onFileTransfer: _handleFileTransfer,
+                    onImageTransfer: _handleImageTransfer,
+                    onSnippetPicker: () =>
+                        _showSnippetPicker(context, panelKey: panelKey),
+                    onDirectInputToggle: () {
+                      ref.read(actionBarProvider.notifier).toggleInputMode();
+                    },
+                    onProfileSettings: () =>
+                        _showProfileSheet(context, panelKey: panelKey),
+                  );
                 },
-                onProfileSettings: () => _showProfileSheet(context),
               ),
               // Compose bar (primary input)
               ComposeBar(
@@ -3850,7 +3877,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     InsertMenu.show(
       context,
       ref: ref,
-      onRecent: () => _showRecent(context),
       onFileTransfer: _handleFileTransfer,
       onFileDownload: _handleFileDownload,
       onImageTransfer: _handleImageTransfer,
@@ -3860,11 +3886,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// Show the snippet picker sheet
-  void _showSnippetPicker(BuildContext context) {
+  /// Show the snippet picker sheet. [panelKey] scopes preset snippet
+  /// selection to the current pane's profile — null falls back to the
+  /// global default.
+  void _showSnippetPicker(BuildContext context, {String? panelKey}) {
     SnippetPickerSheet.show(
       context,
       ref: ref,
+      panelKey: panelKey,
       onInsert: (content) {
         _composeBarKey.currentState?.insertText(content);
       },
@@ -3875,30 +3904,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// Show recent commands sheet
-  void _showRecent(BuildContext context) {
-    RecentSheet.show(
-      context,
-      ref: ref,
-      onInsert: (command) {
-        _composeBarKey.currentState?.insertText(command);
-      },
-      onSendImmediately: (command) {
-        _sendMultilineText(command);
-        _boostPolling();
-      },
-    );
-  }
-
   /// Show the Key Palette sheet (formerly the profile selection sheet).
   ///
   /// The sheet exposes the full key palette of the active profile plus
   /// profile switching. Key taps route through the same overlay-wrapped
-  /// callbacks as the action bar.
-  void _showProfileSheet(BuildContext context) {
+  /// callbacks as the action bar. [panelKey] scopes profile switching
+  /// to the current pane — when null, the sheet falls back to the
+  /// global default.
+  void _showProfileSheet(BuildContext context, {String? panelKey}) {
     ProfileSheet.show(
       context,
       ref: ref,
+      panelKey: panelKey,
       onKeyTap: _sendKeyWithOverlay,
       onSpecialKeyTap: _sendSpecialKeyWithOverlay,
       onModifierTap: (modifier) {

@@ -6,6 +6,7 @@ import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../models/snippet_presets.dart';
 import '../../providers/action_bar_provider.dart';
+import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 
@@ -20,10 +21,16 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
   /// Called when a snippet should be sent immediately
   final void Function(String content) onSendImmediately;
 
+  /// Panel identifier so preset snippets match the profile that is
+  /// active on *this pane*, not the global default. Mirrors
+  /// [ActionBar.panelKey]. Null falls back to the global profile.
+  final String? panelKey;
+
   const SnippetPickerSheet({
     super.key,
     required this.onInsert,
     required this.onSendImmediately,
+    this.panelKey,
   });
 
   static Future<void> show(
@@ -31,6 +38,7 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
     required WidgetRef ref,
     required void Function(String content) onInsert,
     required void Function(String content) onSendImmediately,
+    String? panelKey,
   }) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -43,6 +51,7 @@ class SnippetPickerSheet extends ConsumerStatefulWidget {
         expand: false,
         builder: (context, scrollController) {
           return SnippetPickerSheet(
+            panelKey: panelKey,
             onInsert: (content) {
               Navigator.pop(context);
               onInsert(content);
@@ -67,10 +76,14 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
   String _searchQuery = '';
 
   /// Active category tab. Values:
-  /// - 'all' — show presets + all user categories (default)
-  /// - 'presets' — show only preset snippets for the active profile
-  /// - <category> — show only user snippets in that category
-  String _activeTab = 'all';
+  /// - 'presets' — preset snippets for the active profile
+  /// - <category> — user snippets in that category
+  /// - 'history' — recent commands sent to the terminal (always last tab)
+  ///
+  /// The previous 'all' aggregate view was removed so tabs map 1:1 to
+  /// distinct categories instead of showing everything jumbled together.
+  /// Default is set lazily in build() based on what categories exist.
+  String? _activeTab;
 
   @override
   void dispose() {
@@ -83,12 +96,19 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final snippetsState = ref.watch(snippetsProvider);
     final userSnippets = snippetsState.snippets;
-    final activeProfileId = ref.watch(actionBarProvider).activeProfileId;
+    // Resolve the profile for this panel so presets match the action
+    // bar the user is currently looking at. Falls back to the global
+    // default when panelKey is null.
+    final activeProfileId = ref.watch(
+      actionBarProvider.select((s) => s.profileIdForPanel(widget.panelKey)),
+    );
     final presetSnippets = SnippetPresets.forProfile(activeProfileId);
+    final history = ref.watch(historyProvider).items;
 
     // Filter by search
     final filteredPresets = _filter(presetSnippets);
     final filteredUser = _filter(userSnippets);
+    final filteredHistory = _filterStrings(history);
 
     // Group user snippets by category
     final userByCategory = <String, List<Snippet>>{};
@@ -96,10 +116,13 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       userByCategory.putIfAbsent(s.category, () => []).add(s);
     }
 
-    // Build category tab list. 'all' is always present. 'presets' appears
-    // when preset snippets exist for the active profile. User categories
-    // are added in sorted order.
-    final categories = <String>['all'];
+    // Build category tab list:
+    //   - 'presets' first (if the active profile has any presets)
+    //   - user categories in sorted order (using raw names from ALL user
+    //     snippets, not just filtered — so a search that empties one
+    //     category doesn't make its tab disappear)
+    //   - 'history' always last
+    final categories = <String>[];
     if (presetSnippets.isNotEmpty) categories.add('presets');
     final userCategorySet = <String>{};
     for (final s in userSnippets) {
@@ -107,10 +130,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     }
     final sortedUserCategories = userCategorySet.toList()..sort();
     categories.addAll(sortedUserCategories);
+    categories.add('history');
 
-    // Clamp active tab if it no longer exists (e.g. category was deleted).
-    if (!categories.contains(_activeTab)) {
-      _activeTab = 'all';
+    // Default the active tab the first time we build, and clamp to a
+    // valid tab if the previously-active one disappeared.
+    if (_activeTab == null || !categories.contains(_activeTab)) {
+      _activeTab = categories.first;
     }
 
     return Container(
@@ -147,8 +172,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                       autofocus: false,
                       onChanged: (v) => setState(() => _searchQuery = v),
                       decoration: InputDecoration(
-                        hintText:
-                            AppLocalizations.of(context)!.searchSnippets,
+                        hintText: AppLocalizations.of(context)!.searchHint,
                         prefixIcon: const Icon(Icons.search, size: 18),
                         prefixIconConstraints: const BoxConstraints(
                           minWidth: 32,
@@ -199,9 +223,9 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                   final cat = categories[i];
                   final isActive = cat == _activeTab;
                   final label = switch (cat) {
-                    'all' => AppLocalizations.of(context)!.tabAll,
                     'presets' =>
                       SnippetPresets.categoryLabel(activeProfileId),
+                    'history' => AppLocalizations.of(context)!.history,
                     _ => SnippetPresets.categoryLabel(cat),
                   };
                   return Padding(
@@ -258,6 +282,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               activeProfileId: activeProfileId,
               filteredPresets: filteredPresets,
               userByCategory: userByCategory,
+              filteredHistory: filteredHistory,
               isDark: isDark,
             ),
           ),
@@ -271,54 +296,34 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     required String activeProfileId,
     required List<Snippet> filteredPresets,
     required Map<String, List<Snippet>> userByCategory,
+    required List<String> filteredHistory,
     required bool isDark,
   }) {
-    // Determine which sections to render based on the active tab.
-    final sections =
-        <({String? header, List<Snippet> snippets, bool isPreset})>[];
-
-    if (_activeTab == 'all') {
-      if (filteredPresets.isNotEmpty) {
-        sections.add((
-          header: SnippetPresets.categoryLabel(activeProfileId),
-          snippets: filteredPresets,
-          isPreset: true,
-        ));
-      }
-      for (final entry in userByCategory.entries) {
-        sections.add((
-          header: SnippetPresets.categoryLabel(entry.key),
-          snippets: entry.value,
-          isPreset: false,
-        ));
-      }
-    } else if (_activeTab == 'presets') {
-      if (filteredPresets.isNotEmpty) {
-        sections.add((
-          header: null,
-          snippets: filteredPresets,
-          isPreset: true,
-        ));
-      }
-    } else {
-      final cat = userByCategory[_activeTab];
-      if (cat != null && cat.isNotEmpty) {
-        sections.add((header: null, snippets: cat, isPreset: false));
-      }
+    // History tab — flat list of recent command strings, newest first.
+    if (_activeTab == 'history') {
+      if (filteredHistory.isEmpty) return _buildEmptyState(isDark);
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        itemCount: filteredHistory.length,
+        itemBuilder: (context, i) =>
+            _buildHistoryItem(filteredHistory[i], isDark),
+      );
     }
 
-    if (sections.isEmpty) return _buildEmptyState(isDark);
+    // Snippet tabs — presets or a single user category. The old "all"
+    // aggregate view is gone, so we always render a single section.
+    final snippets = _activeTab == 'presets'
+        ? filteredPresets
+        : (userByCategory[_activeTab] ?? const <Snippet>[]);
+    final isPreset = _activeTab == 'presets';
 
-    return ListView(
+    if (snippets.isEmpty) return _buildEmptyState(isDark);
+
+    return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      children: [
-        for (final s in sections) ...[
-          if (s.header != null) _buildSectionHeader(s.header!, isDark),
-          ...s.snippets.map(
-            (snip) => _buildSnippetItem(snip, isDark, isPreset: s.isPreset),
-          ),
-        ],
-      ],
+      itemCount: snippets.length,
+      itemBuilder: (context, i) =>
+          _buildSnippetItem(snippets[i], isDark, isPreset: isPreset),
     );
   }
 
@@ -330,6 +335,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
             s.name.toLowerCase().contains(q) ||
             s.content.toLowerCase().contains(q))
         .toList();
+  }
+
+  List<String> _filterStrings(List<String> items) {
+    if (_searchQuery.isEmpty) return items;
+    final q = _searchQuery.toLowerCase();
+    return items.where((s) => s.toLowerCase().contains(q)).toList();
   }
 
   Widget _buildEmptyState(bool isDark) {
@@ -369,18 +380,112 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     );
   }
 
-  Widget _buildSectionHeader(String title, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 12, top: 12, bottom: 4),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.8,
-          color:
-              isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+  /// Render one recent-command row for the History tab.
+  ///
+  /// Behavior mirrors the old RecentSheet: tap-insert, double-tap-send,
+  /// long-press-save-as-snippet, swipe-end-to-start to delete from history.
+  Widget _buildHistoryItem(String cmd, bool isDark) {
+    return Dismissible(
+      key: ValueKey('history-$cmd'),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) {
+        ref.read(historyProvider.notifier).delete(cmd);
+      },
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 16),
+        color: Colors.red.withValues(alpha: 0.2),
+        child: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+      ),
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          widget.onInsert(cmd);
+        },
+        onDoubleTap: () {
+          HapticFeedback.lightImpact();
+          widget.onSendImmediately(cmd);
+        },
+        onLongPress: () {
+          HapticFeedback.mediumImpact();
+          _showSaveHistoryAsSnippet(context, cmd);
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  cmd,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: isDark
+                        ? DesignColors.textPrimary
+                        : DesignColors.textPrimaryLight,
+                    fontFamily: 'monospace',
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Icon(
+                Icons.content_paste,
+                size: 14,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  void _showSaveHistoryAsSnippet(BuildContext context, String command) {
+    final nameController = TextEditingController(
+      text: command.length > 30 ? command.substring(0, 30) : command,
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(AppLocalizations.of(context)!.saveAsSnippet),
+        content: TextField(
+          controller: nameController,
+          decoration: InputDecoration(
+            labelText: AppLocalizations.of(context)!.snippetName,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(AppLocalizations.of(context)!.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (nameController.text.isNotEmpty) {
+                ref.read(snippetsProvider.notifier).addSnippet(
+                      name: nameController.text,
+                      content: command,
+                    );
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content:
+                        Text(AppLocalizations.of(context)!.savedToSnippets),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: Text(AppLocalizations.of(context)!.buttonSave),
+          ),
+        ],
       ),
     );
   }
@@ -459,55 +564,105 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
   }
 
   void _showVariableDialog(BuildContext context, Snippet snippet) {
-    final controllers = <String, TextEditingController>{};
+    // For text-kind vars we hold a TextEditingController.
+    // For option-kind vars we hold the current selected value directly
+    // and update it via StatefulBuilder.
+    final textControllers = <String, TextEditingController>{};
+    final optionValues = <String, String>{};
     for (final v in snippet.variables) {
-      controllers[v.name] = TextEditingController(text: v.defaultValue);
+      if (v.kind == SnippetVarKind.option) {
+        optionValues[v.name] = v.defaultValue.isNotEmpty
+            ? v.defaultValue
+            : (v.options.isNotEmpty ? v.options.first : '');
+      } else {
+        textControllers[v.name] =
+            TextEditingController(text: v.defaultValue);
+      }
     }
 
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(snippet.name),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: snippet.variables.map((v) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: TextField(
-                  controller: controllers[v.name],
-                  decoration: InputDecoration(
-                    labelText: v.name,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              title: Text(snippet.name),
+              content: SizedBox(
+                width: 320,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final v in snippet.variables)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: v.kind == SnippetVarKind.option
+                              ? DropdownButtonFormField<String>(
+                                  initialValue: optionValues[v.name],
+                                  isDense: true,
+                                  decoration: InputDecoration(
+                                    labelText: v.name,
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  items: [
+                                    for (final opt in v.options)
+                                      DropdownMenuItem(
+                                        value: opt,
+                                        child: Text(opt),
+                                      ),
+                                  ],
+                                  onChanged: (val) {
+                                    if (val == null) return;
+                                    setDialogState(() {
+                                      optionValues[v.name] = val;
+                                    });
+                                  },
+                                )
+                              : TextField(
+                                  controller: textControllers[v.name],
+                                  decoration: InputDecoration(
+                                    labelText: v.optional
+                                        ? '${v.name} (optional)'
+                                        : v.name,
+                                    hintText: v.hint,
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                ),
+                        ),
+                    ],
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppLocalizations.of(context)!.buttonCancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                final values = <String, String>{};
-                for (final entry in controllers.entries) {
-                  values[entry.key] = entry.value.text;
-                }
-                final resolved = snippet.resolve(values);
-                Navigator.pop(dialogContext);
-                Navigator.pop(context);
-                if (snippet.sendImmediately) {
-                  widget.onSendImmediately(resolved);
-                } else {
-                  widget.onInsert(resolved);
-                }
-              },
-              child: Text(AppLocalizations.of(context)!.insert),
-            ),
-          ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(AppLocalizations.of(context)!.buttonCancel),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final values = <String, String>{};
+                    for (final v in snippet.variables) {
+                      values[v.name] = v.kind == SnippetVarKind.option
+                          ? (optionValues[v.name] ?? '')
+                          : (textControllers[v.name]?.text ?? '');
+                    }
+                    final resolved = snippet.resolve(values);
+                    Navigator.pop(dialogContext);
+                    Navigator.pop(context);
+                    if (snippet.sendImmediately) {
+                      widget.onSendImmediately(resolved);
+                    } else {
+                      widget.onInsert(resolved);
+                    }
+                  },
+                  child: Text(AppLocalizations.of(context)!.insert),
+                ),
+              ],
+            );
+          },
         );
       },
     );

@@ -8,8 +8,18 @@ import '../models/action_bar_presets.dart';
 
 /// Action bar state
 class ActionBarState {
-  /// Active profile ID
+  /// Active profile ID — global default used by panels that don't have
+  /// their own entry in [activeProfileByPanel] yet (e.g. a freshly opened
+  /// pane before the user picks a profile or before auto-detect fires).
   final String activeProfileId;
+
+  /// Per-panel profile override. Keyed by a caller-defined panel key
+  /// (currently `${connectionId}|${paneId}`) → profile id. When a panel
+  /// has an entry here, it wins over [activeProfileId]. A panel with no
+  /// entry falls back to the global [activeProfileId], which means new
+  /// panes inherit "the last profile the user chose somewhere" until
+  /// they diverge.
+  final Map<String, String> activeProfileByPanel;
 
   /// All profiles (built-in + custom)
   final List<ActionBarProfile> profiles;
@@ -32,11 +42,9 @@ class ActionBarState {
   /// Input mode: true = compose (default), false = direct input
   final bool composeMode;
 
-  /// Suggested profile ID based on pane_current_command (null = no suggestion)
-  final String? suggestedProfileId;
-
   const ActionBarState({
     this.activeProfileId = ActionBarPresets.defaultProfileId,
+    this.activeProfileByPanel = const {},
     this.profiles = const [],
     this.currentPage = 0,
     this.ctrlArmed = false,
@@ -44,24 +52,42 @@ class ActionBarState {
     this.ctrlLocked = false,
     this.altLocked = false,
     this.composeMode = true,
-    this.suggestedProfileId,
   });
 
-  /// Get the active profile
-  ActionBarProfile get activeProfile {
+  /// Resolve the effective profile id for a panel. When [panelKey] is
+  /// null or has no override, falls back to [activeProfileId].
+  String profileIdForPanel(String? panelKey) {
+    if (panelKey == null) return activeProfileId;
+    return activeProfileByPanel[panelKey] ?? activeProfileId;
+  }
+
+  /// Resolve the [ActionBarProfile] for a panel, using the same lookup
+  /// rules as [profileIdForPanel] but hardened against missing/deleted
+  /// profiles.
+  ActionBarProfile profileForPanel(String? panelKey) {
+    final id = profileIdForPanel(panelKey);
     for (final p in profiles) {
-      if (p.id == activeProfileId) return p;
+      if (p.id == id) return p;
     }
-    // Fallback to first profile or a default
     if (profiles.isNotEmpty) return profiles.first;
     return ActionBarPresets.claudeCode;
   }
 
-  /// Get the active groups
+  /// Groups for a panel's effective profile.
+  List<ActionBarGroup> groupsForPanel(String? panelKey) =>
+      profileForPanel(panelKey).groups;
+
+  /// Get the active profile (global default — prefer [profileForPanel]
+  /// when a panel key is available).
+  ActionBarProfile get activeProfile => profileForPanel(null);
+
+  /// Get the active groups (global default — prefer [groupsForPanel]
+  /// when a panel key is available).
   List<ActionBarGroup> get activeGroups => activeProfile.groups;
 
   ActionBarState copyWith({
     String? activeProfileId,
+    Map<String, String>? activeProfileByPanel,
     List<ActionBarProfile>? profiles,
     int? currentPage,
     bool? ctrlArmed,
@@ -69,11 +95,11 @@ class ActionBarState {
     bool? ctrlLocked,
     bool? altLocked,
     bool? composeMode,
-    String? suggestedProfileId,
-    bool clearSuggestion = false,
   }) {
     return ActionBarState(
       activeProfileId: activeProfileId ?? this.activeProfileId,
+      activeProfileByPanel:
+          activeProfileByPanel ?? this.activeProfileByPanel,
       profiles: profiles ?? this.profiles,
       currentPage: currentPage ?? this.currentPage,
       ctrlArmed: ctrlArmed ?? this.ctrlArmed,
@@ -81,9 +107,6 @@ class ActionBarState {
       ctrlLocked: ctrlLocked ?? this.ctrlLocked,
       altLocked: altLocked ?? this.altLocked,
       composeMode: composeMode ?? this.composeMode,
-      suggestedProfileId: clearSuggestion
-          ? null
-          : (suggestedProfileId ?? this.suggestedProfileId),
     );
   }
 }
@@ -93,6 +116,7 @@ const _keyActiveProfile = 'settings_action_bar_active_profile';
 const _keyCustomProfiles = 'settings_action_bar_custom_profiles';
 const _keyDeletedPresets = 'settings_action_bar_deleted_presets';
 const _keyComposeMode = 'settings_action_bar_compose_mode';
+const _keyPanelProfiles = 'settings_action_bar_panel_profiles';
 
 class ActionBarNotifier extends Notifier<ActionBarState> {
   @override
@@ -130,6 +154,16 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       } catch (_) {}
     }
 
+    // Load per-panel profile overrides
+    final panelJson = prefs.getString(_keyPanelProfiles);
+    Map<String, String> panelProfiles = {};
+    if (panelJson != null) {
+      try {
+        panelProfiles = (jsonDecode(panelJson) as Map)
+            .map((k, v) => MapEntry(k as String, v as String));
+      } catch (_) {}
+    }
+
     // Merge: start with presets (excluding deleted), override with custom
     // versions (same ID), then append user-created profiles (new IDs).
     final customIds = customProfiles.map((p) => p.id).toSet();
@@ -146,22 +180,79 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
         if (!presetIds.contains(custom.id)) custom,
     ];
 
+    // Prune panel overrides that reference profiles that no longer
+    // exist (e.g. the user deleted a custom profile that some pane
+    // was pinned to). Falling back to the global default is safer
+    // than crashing on next render.
+    final liveIds = allProfiles.map((p) => p.id).toSet();
+    panelProfiles.removeWhere((_, id) => !liveIds.contains(id));
+
     state = state.copyWith(
       activeProfileId: activeId,
+      activeProfileByPanel: panelProfiles,
       profiles: allProfiles,
       composeMode: composeMode,
     );
+  }
+
+  Future<void> _savePanelProfiles() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (state.activeProfileByPanel.isEmpty) {
+      await prefs.remove(_keyPanelProfiles);
+    } else {
+      await prefs.setString(
+          _keyPanelProfiles, jsonEncode(state.activeProfileByPanel));
+    }
   }
 
   // ---------------------------------------------------------------------------
   // Profile management
   // ---------------------------------------------------------------------------
 
-  /// Switch active profile
+  /// Switch the global default active profile. New panels (panels with
+  /// no entry in [ActionBarState.activeProfileByPanel]) will use this.
+  /// Panels that already have an override are left untouched — call
+  /// [setActiveProfileForPanel] to change a specific panel.
   Future<void> setActiveProfile(String profileId) async {
     state = state.copyWith(activeProfileId: profileId, currentPage: 0);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyActiveProfile, profileId);
+  }
+
+  /// Switch the active profile for a single panel (by [panelKey]). The
+  /// caller is responsible for building a stable key — the current
+  /// convention is `${connectionId}|${paneId}`, so profiles are scoped
+  /// per tmux pane across reconnects.
+  ///
+  /// This is the preferred entry point from the action bar / profile
+  /// sheet when they know which pane they belong to. Use
+  /// [setActiveProfile] only when there is no panel context (e.g. app
+  /// startup default, first-run onboarding).
+  Future<void> setActiveProfileForPanel(
+      String panelKey, String profileId) async {
+    final updated = Map<String, String>.from(state.activeProfileByPanel);
+    updated[panelKey] = profileId;
+    state = state.copyWith(
+      activeProfileByPanel: updated,
+      // Keep the global default in sync so brand-new panels inherit the
+      // most recently chosen profile rather than whatever was saved at
+      // app start.
+      activeProfileId: profileId,
+      currentPage: 0,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyActiveProfile, profileId);
+    await _savePanelProfiles();
+  }
+
+  /// Remove a panel's override (used when a pane is closed so the map
+  /// doesn't grow forever). Does nothing if there is no entry.
+  Future<void> clearPanelProfile(String panelKey) async {
+    if (!state.activeProfileByPanel.containsKey(panelKey)) return;
+    final updated = Map<String, String>.from(state.activeProfileByPanel)
+      ..remove(panelKey);
+    state = state.copyWith(activeProfileByPanel: updated);
+    await _savePanelProfiles();
   }
 
   /// Add a custom profile
@@ -191,7 +282,14 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
     if (profile.isBuiltIn) return;
 
     final updated = state.profiles.where((p) => p.id != profileId).toList();
-    state = state.copyWith(profiles: updated);
+    // Also drop any panel pins that still reference the now-gone
+    // profile so those panels fall back to the global default.
+    final prunedPanels = Map<String, String>.from(state.activeProfileByPanel)
+      ..removeWhere((_, id) => id == profileId);
+    state = state.copyWith(
+      profiles: updated,
+      activeProfileByPanel: prunedPanels,
+    );
     if (state.activeProfileId == profileId) {
       await setActiveProfile(ActionBarPresets.defaultProfileId);
     }
@@ -202,6 +300,7 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
       await _addDeletedPreset(profileId);
     }
     await _saveCustomProfiles();
+    await _savePanelProfiles();
   }
 
   Future<void> _addDeletedPreset(String presetId) async {
@@ -363,35 +462,6 @@ class ActionBarNotifier extends Notifier<ActionBarState> {
 
   void toggleInputMode() {
     setComposeMode(!state.composeMode);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Profile auto-detection suggestion
-  // ---------------------------------------------------------------------------
-
-  /// Update suggestion based on pane_current_command
-  void updateSuggestion(String? currentCommand) {
-    final suggested = ActionBarPresets.detectProfileId(currentCommand);
-    // Only suggest if different from current profile
-    if (suggested != null && suggested != state.activeProfileId) {
-      state = state.copyWith(suggestedProfileId: suggested);
-    } else {
-      state = state.copyWith(clearSuggestion: true);
-    }
-  }
-
-  /// Dismiss the suggestion banner
-  void dismissSuggestion() {
-    state = state.copyWith(clearSuggestion: true);
-  }
-
-  /// Accept the suggestion: switch to suggested profile
-  Future<void> acceptSuggestion() async {
-    final suggested = state.suggestedProfileId;
-    if (suggested != null) {
-      await setActiveProfile(suggested);
-    }
-    state = state.copyWith(clearSuggestion: true);
   }
 }
 

@@ -4,21 +4,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
-import '../../providers/history_provider.dart';
 import '../../theme/design_colors.dart';
 
 /// The [+] insert/action menu that appears from the compose bar.
 ///
-/// Shows a vertical popup menu with: Recent, File Upload, File Download,
-/// Image Transfer, Direct Input.
-/// Snippets are accessed via the bolt button on the action bar instead.
+/// Shows a vertical popup menu with: File Upload, File Download,
+/// Image Transfer, Direct Input. Recent/history is accessed via the
+/// bolt button's History tab, and snippets are accessed via the bolt
+/// button as well.
 class InsertMenu {
   InsertMenu._();
 
   static Future<void> show(
     BuildContext context, {
     required WidgetRef ref,
-    VoidCallback? onRecent,
     VoidCallback? onFileTransfer,
     VoidCallback? onFileDownload,
     VoidCallback? onImageTransfer,
@@ -26,7 +25,6 @@ class InsertMenu {
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final abState = ref.read(actionBarProvider);
-    final historyState = ref.read(historyProvider);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -55,18 +53,6 @@ class InsertMenu {
                   ),
                 ),
                 // Menu items
-                if (onRecent != null && historyState.recent.isNotEmpty)
-                  _buildItem(
-                    context,
-                    icon: Icons.history,
-                    label: AppLocalizations.of(context)!.recent,
-                    isDark: isDark,
-                    onTap: () {
-                      Navigator.pop(context);
-                      onRecent();
-                    },
-                  ),
-                const Divider(height: 1),
                 if (onFileTransfer != null)
                   _buildItem(
                     context,

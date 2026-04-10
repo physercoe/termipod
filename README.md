@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>SSH terminal for Android, built for tmux and AI coding agents.</b><br>
-  <sub>Manage remote servers from your phone — run Claude Code, Codex, Aider, or any CLI tool through a touch-optimized terminal.</sub>
+  <sub>Manage remote servers from your phone — run Claude Code, Codex, or any CLI tool through a touch-optimized terminal.</sub>
 </p>
 
 <p align="center">
@@ -41,8 +41,9 @@ TermiPod is a **mobile SSH client and tmux manager for Android** — purpose-bui
 Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how people actually use terminals on mobile:
 
 - **Navigate tmux sessions** visually — tap through sessions, windows, and panes instead of memorizing keybindings
-- **Run AI coding agents** (Claude Code, Codex, Kimi Code, Aider) with pre-configured button layouts and command presets
-- **Send commands without fighting the keyboard** — compose bar for multi-line input, action bar for quick keys, snippets for saved commands
+- **Run AI coding agents** (Claude Code, Codex) with pre-configured button layouts and structured slash-command snippets (`/model`, `/effort`, `/permissions` — pick options from dropdowns instead of typing them)
+- **Per-pane action bar profiles** — each tmux pane remembers its own profile, so switching from a `claude` pane to a `codex` pane flips the button layout automatically
+- **Send commands without fighting the keyboard** — compose bar for multi-line input, action bar for quick keys, snippets with fill-in variables for parameterized commands
 - **Transfer files** to and from servers via SFTP — upload from phone, download and share, browse remote directories
 - **Connect through jump hosts and proxies** — SSH ProxyJump and SOCKS5 proxy support for machines behind NAT or corporate firewalls
 
@@ -50,7 +51,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 - **Developers** who SSH into dev machines, CI runners, or cloud VMs
 - **DevOps/SRE** who need to check on services, tail logs, restart processes on the go
-- **AI agent users** who run Claude Code, Codex, Aider, or similar CLI tools in tmux sessions
+- **AI agent users** who run Claude Code, Codex, or similar CLI tools in tmux sessions
 - **Homelab enthusiasts** managing servers, Raspberry Pis, NAS boxes from their phone
 - **Anyone with a remote tmux session** who wants a better mobile experience than Termux or JuiceSSH
 
@@ -76,10 +77,12 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 ### Input UX (Mobile-Optimized)
 - **Action bar** — Swipeable button groups with profile-specific layouts. ESC, Tab, Ctrl+C, arrow keys — all one tap away.
 - **Compose bar** — Multi-line text input with send button. Type a command, review it, send it. Long-press send to omit Enter.
-- **6 built-in profiles** — Claude Code, Codex, Kimi Code, OpenCode, Aider, General Terminal. Each with optimized button groups.
-- **Profile auto-detection** — Detects which CLI tool is running and suggests the matching profile
-- **Snippet system** — Save commands as snippets with categories. Preset agent-specific commands ship per profile.
+- **3 built-in profiles** — Claude Code, Codex, General Terminal. Each with optimized button groups. Users can create custom profiles for any other CLI.
+- **Per-pane profile state** — Each tmux pane remembers its own active profile, so switching panes flips the action bar layout automatically. Auto-detection seeds a pane's profile from `pane_current_command` the first time you visit it.
+- **Structured agent snippets** — Slash commands shipped with variable placeholders: enum options like `/model {default|opus|sonnet|haiku}`, `/effort {low|medium|high|max|auto}`, `/permissions {Auto|Read Only|Full Access}` render as dropdowns; free-form args like `/add-dir {{path}}`, `/mention {{file}}`, `/compact {{focus}}` render as text fields. Sourced from current Claude Code and Codex CLI slash-command docs.
+- **Custom snippets** — Save your own commands as snippets with categories, optional `{{var}}` placeholders, and send-immediate vs insert-into-compose modes.
 - **Command history** — Recent commands from [+] menu. Full archive in Vault with search and save-as-snippet.
+- **Custom keyboard** — Flutter-native QWERTY for direct input mode with Ctrl/Alt/Esc/arrows integrated natively. Toggle off for CJK input.
 - **Direct input mode** — Keystroke-by-keystroke mode for vim, nano, and interactive CLIs
 - **Modifier keys** — Ctrl and Alt as toggle buttons (tap to arm, double-tap to lock)
 - **Key overlay** — Visual feedback showing key names on press (configurable per key category)
@@ -122,7 +125,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 | Feature | TermiPod | Termux | JuiceSSH | Termius | ConnectBot |
 |---------|----------|--------|----------|---------|------------|
 | **tmux integration** | Native (visual navigation) | Manual (CLI) | None | None | None |
-| **AI agent profiles** | 6 built-in (Claude, Codex, Aider...) | None | None | None | None |
+| **AI agent profiles** | Built-in Claude Code + Codex, per-pane state | None | None | None | None |
 | **Action bar** | Swipeable, per-profile | Extra keys row | Basic buttons | Custom toolbar | None |
 | **Snippet system** | Categories + agent presets | None | Snippet support | Snippet support | None |
 | **SSH jump host** | Built-in ProxyJump | Via CLI | Via CLI | Built-in | None |
@@ -264,18 +267,15 @@ Always-visible primary input below the action bar:
 
 ### Profiles
 
-6 built-in profiles optimized for different CLI tools:
+3 built-in profiles with per-pane state — each tmux pane remembers its own active profile, so walking between a `claude` pane and a `codex` pane flips the action bar automatically:
 
 | Profile | Optimized For | Key Groups |
 |---------|---------------|------------|
 | **Claude Code** | `claude` | Quick, Navigate, Ctrl, Edit |
 | **Codex** | `codex` | Quick, Navigate, Ctrl, Edit |
-| **Kimi Code** | `kimi` | Quick, Navigate, Ctrl, Edit |
-| **OpenCode** | `opencode` | Quick, Navigate, Leader, Edit |
-| **Aider** | `aider` | Quick, Navigate, Emacs, Edit |
 | **General** | Any terminal | Keys, Navigate, Chars, Page |
 
-Auto-detection suggests the right profile when a CLI agent is running.
+Auto-detection seeds a pane's profile from `pane_current_command` the first time you visit it. Explicit user choices are never overwritten by subsequent auto-detect. Create custom profiles for any other CLI from the profile sheet.
 
 ### Deep Linking
 
@@ -352,7 +352,6 @@ See [docs/](docs/) for architecture details and coding conventions.
 ## Roadmap
 
 - Hybrid xterm mode — Combine PTY stream rendering with tmux session navigation
-- Custom terminal keyboard — Compact Flutter-native keyboard for direct input mode (half the height of system keyboard)
 - Local echo — Predictive character display for low-latency feel on slow connections
 - Cursor alignment — Font glyph width calibration for pixel-perfect cursor positioning
 

@@ -210,8 +210,12 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 const SizedBox(width: 4),
                 IconButton(
                   onPressed: () {
+                    // Capture the notifier while ref is still valid —
+                    // Navigator.pop disposes the bottom sheet's ConsumerState,
+                    // making ref.read() fail in the dialog's save callback.
+                    final notifier = ref.read(snippetsProvider.notifier);
                     Navigator.pop(context);
-                    _showAddSnippetDialog(context, ref);
+                    _showAddSnippetDialog(context, notifier);
                   },
                   icon: const Icon(Icons.add_circle_outline, size: 22),
                   color: DesignColors.primary,
@@ -991,7 +995,10 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     );
   }
 
-  void _showAddSnippetDialog(BuildContext context, WidgetRef ref) {
+  void _showAddSnippetDialog(
+    BuildContext context,
+    SnippetsNotifier notifier,
+  ) {
     final nameController = TextEditingController();
     final contentController = TextEditingController();
 
@@ -1034,10 +1041,10 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               onPressed: () {
                 if (nameController.text.isNotEmpty &&
                     contentController.text.isNotEmpty) {
-                  ref.read(snippetsProvider.notifier).addSnippet(
-                        name: nameController.text,
-                        content: contentController.text,
-                      );
+                  notifier.addSnippet(
+                    name: nameController.text,
+                    content: contentController.text,
+                  );
                   Navigator.pop(dialogContext);
                 }
               },

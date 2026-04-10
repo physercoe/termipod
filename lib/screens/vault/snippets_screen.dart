@@ -16,11 +16,60 @@ import '../../theme/design_colors.dart';
 /// edits are stored as overrides via
 /// [SnippetsNotifier.savePresetOverride] so the original built-in
 /// definition is preserved and can be restored via swipe-to-reset.
-class SnippetsScreen extends ConsumerWidget {
+///
+/// As of 0.9.8 the screen has a top search box and each section is
+/// collapsible — preset groups and user categories default to expanded,
+/// but a search query auto-expands matching sections so results are
+/// visible without manual unfolding.
+class SnippetsScreen extends ConsumerStatefulWidget {
   const SnippetsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SnippetsScreen> createState() => _SnippetsScreenState();
+}
+
+class _SnippetsScreenState extends ConsumerState<SnippetsScreen> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  /// Section keys that are currently collapsed. Keys use the format
+  /// `preset:<profileId>` or `user:<category>` so the two axes don't
+  /// collide. Session-local state — no persistence.
+  final Set<String> _collapsed = <String>{};
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  bool _matchesQuery(Snippet s) {
+    if (_searchQuery.isEmpty) return true;
+    final q = _searchQuery.toLowerCase();
+    return s.name.toLowerCase().contains(q) ||
+        s.content.toLowerCase().contains(q);
+  }
+
+  bool _isCollapsed(String sectionKey) {
+    // Active search auto-expands matching sections so results are
+    // visible without manual unfolding.
+    if (_searchQuery.isNotEmpty) return false;
+    return _collapsed.contains(sectionKey);
+  }
+
+  void _toggleCollapsed(String sectionKey) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_collapsed.contains(sectionKey)) {
+        _collapsed.remove(sectionKey);
+      } else {
+        _collapsed.add(sectionKey);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final snippetsState = ref.watch(snippetsProvider);
     final userSnippets = snippetsState.snippets;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -31,29 +80,38 @@ class SnippetsScreen extends ConsumerWidget {
 
     // Preset snippets grouped by profile, filtered through user
     // overrides + deletion list so the vault view matches what the
-    // snippet picker shows. Empty groups (fully deleted) are hidden.
+    // snippet picker shows. Then filtered by the active search query.
+    // Empty groups (fully deleted or filtered out) are hidden.
     final presetGroups = <String, List<Snippet>>{};
     for (final profileId in SnippetPresets.profileIds) {
       final raw = SnippetPresets.forProfile(profileId);
       final visible = raw
           .where((p) => !snippetsState.deletedPresetIds.contains(p.id))
           .map((p) => snippetsState.presetOverrides[p.id] ?? p)
+          .where(_matchesQuery)
           .toList();
       if (visible.isNotEmpty) presetGroups[profileId] = visible;
     }
 
-    // Group user snippets by category
+    // Group user snippets by category + search filter
     final categories = <String, List<Snippet>>{};
     for (final s in userSnippets) {
+      if (!_matchesQuery(s)) continue;
       categories.putIfAbsent(s.category, () => []).add(s);
     }
 
-    if (presetGroups.isEmpty && userSnippets.isEmpty) {
+    final hasAnySnippets =
+        SnippetPresets.profileIds.any((pid) => SnippetPresets
+                .forProfile(pid)
+                .any((p) => !snippetsState.deletedPresetIds.contains(p.id))) ||
+            userSnippets.isNotEmpty;
+
+    if (!hasAnySnippets) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
         child: Center(
           child: Text(
-            'No snippets yet',
+            AppLocalizations.of(context)!.noSnippetsYet,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 14,
               color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
@@ -63,29 +121,113 @@ class SnippetsScreen extends ConsumerWidget {
       );
     }
 
+    final noResults = presetGroups.isEmpty && categories.isEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final entry in presetGroups.entries) ...[
-          _buildSectionHeader(
-            context,
-            _profileLabel(entry.key),
-            isDark,
-            badge: 'PRESET',
-          ),
-          for (final preset in entry.value)
-            _PresetSnippetTile(preset: preset),
-        ],
-        for (final entry in categories.entries) ...[
-          _buildSectionHeader(
-            context,
-            _categoryLabel(context, entry.key),
-            isDark,
-          ),
-          for (final snippet in entry.value)
-            _SnippetTile(snippet: snippet),
+        _buildSearchField(isDark),
+        if (noResults)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Center(
+              child: Text(
+                AppLocalizations.of(context)!.noMatchingSnippets,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+            ),
+          )
+        else ...[
+          for (final entry in presetGroups.entries) ...[
+            _buildSectionHeader(
+              context,
+              _profileLabel(entry.key),
+              isDark,
+              sectionKey: 'preset:${entry.key}',
+              count: entry.value.length,
+              badge: 'PRESET',
+            ),
+            if (!_isCollapsed('preset:${entry.key}'))
+              for (final preset in entry.value)
+                _PresetSnippetTile(preset: preset),
+          ],
+          for (final entry in categories.entries) ...[
+            _buildSectionHeader(
+              context,
+              _categoryLabel(context, entry.key),
+              isDark,
+              sectionKey: 'user:${entry.key}',
+              count: entry.value.length,
+            ),
+            if (!_isCollapsed('user:${entry.key}'))
+              for (final snippet in entry.value)
+                _SnippetTile(snippet: snippet),
+          ],
         ],
       ],
+    );
+  }
+
+  Widget _buildSearchField(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (v) => setState(() => _searchQuery = v.trim()),
+        style: GoogleFonts.spaceGrotesk(fontSize: 14),
+        decoration: InputDecoration(
+          hintText: AppLocalizations.of(context)!.searchSnippets,
+          hintStyle: GoogleFonts.spaceGrotesk(
+            fontSize: 14,
+            color: isDark
+                ? DesignColors.textMuted
+                : DesignColors.textMutedLight,
+          ),
+          prefixIcon: Icon(
+            Icons.search,
+            size: 18,
+            color: isDark
+                ? DesignColors.textMuted
+                : DesignColors.textMutedLight,
+          ),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+              : null,
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          filled: true,
+          fillColor:
+              isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(
+              color: isDark
+                  ? DesignColors.borderDark
+                  : DesignColors.borderLight,
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(
+              color: isDark
+                  ? DesignColors.borderDark
+                  : DesignColors.borderLight,
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -93,43 +235,90 @@ class SnippetsScreen extends ConsumerWidget {
     BuildContext context,
     String label,
     bool isDark, {
+    required String sectionKey,
+    required int count,
     String? badge,
   }) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 12, bottom: 8),
-      child: Row(
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+    final collapsed = _isCollapsed(sectionKey);
+    // Auto-expanded during search — chevron still reflects the stored
+    // collapsed state so the user's preference persists when the query
+    // is cleared.
+    final storedCollapsed = _collapsed.contains(sectionKey);
+    return InkWell(
+      onTap: () => _toggleCollapsed(sectionKey),
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 12, bottom: 8),
+        child: Row(
+          children: [
+            Icon(
+              storedCollapsed
+                  ? Icons.chevron_right
+                  : Icons.keyboard_arrow_down,
+              size: 18,
               color: isDark
                   ? DesignColors.textMuted
                   : DesignColors.textMutedLight,
-              letterSpacing: 1.0,
             ),
-          ),
-          if (badge != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: DesignColors.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(4),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+                letterSpacing: 1.0,
               ),
-              child: Text(
-                badge,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: DesignColors.primary,
-                  letterSpacing: 0.8,
+            ),
+            if (badge != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: DesignColors.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  badge,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: DesignColors.primary,
+                    letterSpacing: 0.8,
+                  ),
                 ),
               ),
+            ],
+            const SizedBox(width: 8),
+            Text(
+              '$count',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: isDark
+                    ? DesignColors.textMuted.withValues(alpha: 0.6)
+                    : DesignColors.textMutedLight.withValues(alpha: 0.6),
+              ),
             ),
+            // When folded, show the previewed count used to hint at
+            // content behind the collapse without having to unfold.
+            if (collapsed && _searchQuery.isEmpty) ...[
+              const Spacer(),
+              Text(
+                '…',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

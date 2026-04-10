@@ -35,10 +35,11 @@ class FloatingJoystick extends StatefulWidget {
 
 class _FloatingJoystickState extends State<FloatingJoystick> {
   double _right = 16;
-  // Vertical position is computed lazily on first build so the joystick
-  // defaults to the *middle* of the right edge instead of the bottom-right
-  // corner — much easier to reach with a thumb on phone-sized screens
-  // without overlapping the action bar / system gesture inset.
+  // Vertical position is computed lazily on first build (MediaQuery isn't
+  // available in initState). The default sits just above the action bar
+  // stack (nav pad + action bar + compose bar ≈ 170dp) so the joystick
+  // lands directly under the user's right thumb in natural phone grip —
+  // easier to reach than the old screen-vertical-middle default.
   double? _bottom;
 
   // Center zone radius is derived proportionally from the outer radius so the
@@ -222,12 +223,12 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Lazily center the joystick vertically on first build. Done here (rather
-    // than in initState) because MediaQuery isn't available until context is
-    // ready, and we want the default to track the actual screen height.
+    // Lazily position the joystick on first build. Place it just above
+    // the action bar stack so it sits under the right thumb at rest —
+    // ~180dp from the bottom leaves ~20dp of breathing room above the
+    // action bar while still being well within thumb reach.
     if (_bottom == null) {
-      final screenH = MediaQuery.of(context).size.height;
-      _bottom = ((screenH - _outerRadius * 2) / 2).clamp(0.0, 2000.0);
+      _bottom = 180.0;
     }
 
     return Positioned(

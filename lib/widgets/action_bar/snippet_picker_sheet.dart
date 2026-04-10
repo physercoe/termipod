@@ -677,7 +677,11 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                   if (snippet.content != snippet.name) ...[
                     const SizedBox(height: 2),
                     Text(
-                      snippet.content,
+                      // Collapse newlines so multi-line snippets preview
+                      // inline. Pairs with maxLines: 1 + ellipsis to keep
+                      // the row compact — users who need the full content
+                      // long-press to edit.
+                      snippet.content.replaceAll('\n', ' ⏎ '),
                       style: TextStyle(
                         fontSize: 12,
                         color: isDark
@@ -685,8 +689,9 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                             : DesignColors.textSecondaryLight,
                         fontFamily: 'monospace',
                       ),
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      softWrap: false,
                     ),
                   ],
                 ],

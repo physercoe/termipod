@@ -314,6 +314,45 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _startPolling();
     _startTreeRefresh();
     _applyKeepScreenOn();
+    // Android frequently kills the SSH TCP socket while the app is
+    // backgrounded. `client.isConnected` stays optimistically true until
+    // the next I/O attempt fails, which means the polling loop would show
+    // stale content for several seconds before noticing. Probe the
+    // connection immediately and force a reconnect if it's dead.
+    _probeConnectionOnResume();
+  }
+
+  /// Probe the SSH connection after foreground resume. If the probe fails
+  /// (or the client is already gone), force an immediate reconnect via
+  /// [SshNotifier.reconnectNow] instead of waiting for the adaptive
+  /// polling loop to discover the dead socket.
+  Future<void> _probeConnectionOnResume() async {
+    if (_isDisposed) return;
+
+    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
+    final sshState = ref.read(sshProvider(widget.connectionId));
+
+    // Already reconnecting — let the existing machinery finish its work.
+    if (sshState.isReconnecting) return;
+
+    final client = sshNotifier.client;
+    if (client == null || !client.isConnected) {
+      sshNotifier.reconnectNow();
+      return;
+    }
+
+    try {
+      await client.execPersistent(
+        'echo 1',
+        timeout: const Duration(milliseconds: 1500),
+      );
+    } catch (_) {
+      if (_isDisposed) return;
+      final latest = ref.read(sshProvider(widget.connectionId));
+      if (!latest.isReconnecting) {
+        sshNotifier.reconnectNow();
+      }
+    }
   }
 
   /// Keep screen on設定を適用
@@ -1346,6 +1385,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               // Compose bar (primary input)
               ComposeBar(
                 key: _composeBarKey,
+                connectionId: widget.connectionId,
                 onSend: (text, {bool withEnter = true}) {
                   if (withEnter) {
                     _sendMultilineText(text);

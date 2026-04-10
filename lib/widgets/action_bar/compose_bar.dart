@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_muxpod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
+import '../../providers/compose_draft_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
@@ -13,6 +14,10 @@ import '../../theme/design_colors.dart';
 /// Primary input mode for the terminal. User composes text, then sends
 /// it as a batch via tmux send-keys. Supports multi-line input.
 class ComposeBar extends ConsumerStatefulWidget {
+  /// Connection this compose bar belongs to — used to persist the compose
+  /// draft across navigation (pop back to connections list → reconnect).
+  final String connectionId;
+
   /// Called to send composed text to terminal
   final void Function(String text, {bool withEnter}) onSend;
 
@@ -32,6 +37,7 @@ class ComposeBar extends ConsumerStatefulWidget {
 
   const ComposeBar({
     super.key,
+    required this.connectionId,
     required this.onSend,
     this.onInsertMenu,
     this.onSpecialKeyPressed,
@@ -61,15 +67,29 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   @override
   void initState() {
     super.initState();
+    // Restore any draft stashed from a previous session on this connection.
+    // Read-only seed — the controller becomes the source of truth afterward.
+    final draft = ref.read(composeDraftProvider(widget.connectionId));
+    if (draft.isNotEmpty) {
+      _controller.text = draft;
+      _controller.selection =
+          TextSelection.collapsed(offset: draft.length);
+      _hasText = true;
+    }
     _controller.addListener(_onComposeTextChanged);
     _directController.addListener(_onDirectInputChanged);
   }
 
   void _onComposeTextChanged() {
-    final hasText = _controller.text.isNotEmpty;
+    final text = _controller.text;
+    final hasText = text.isNotEmpty;
     if (hasText != _hasText) {
       setState(() => _hasText = hasText);
     }
+    // Mirror every edit into the draft provider so the text survives the
+    // terminal screen being popped (e.g. user returns to connections list
+    // to reconnect after a dropped session).
+    ref.read(composeDraftProvider(widget.connectionId).notifier).set(text);
   }
 
   @override
@@ -116,6 +136,9 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
       // Add to history
       ref.read(historyProvider.notifier).add(text);
       _controller.clear();
+      // _onComposeTextChanged will propagate the empty string, but clear
+      // explicitly so there's no race with listener ordering.
+      ref.read(composeDraftProvider(widget.connectionId).notifier).clear();
     }
   }
 
@@ -129,6 +152,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
       widget.onSend(text, withEnter: false);
       ref.read(historyProvider.notifier).add(text);
       _controller.clear();
+      ref.read(composeDraftProvider(widget.connectionId).notifier).clear();
     }
   }
 

@@ -1610,8 +1610,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
     if (sshClient == null || !sshClient.isConnected) return;
 
-    final oldPaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
-
     try {
       // tmux select-paneを実行
       await sshClient.exec(TmuxCommands.selectPane(paneId));

@@ -346,7 +346,7 @@ class ProfileSheet extends ConsumerWidget {
             ? 5
             : 4;
     const double spacing = 6;
-    final double horizontalPadding = 12;
+    const double horizontalPadding = 12;
     final double available = width - (horizontalPadding * 2);
     final double chipWidth =
         (available - spacing * (crossAxisCount - 1)) / crossAxisCount;

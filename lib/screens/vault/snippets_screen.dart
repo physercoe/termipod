@@ -482,7 +482,7 @@ typedef SnippetEditSaveCallback = void Function(
 );
 
 /// スニペット作成/編集ダイアログ
-class SnippetEditDialog extends StatefulWidget {
+class SnippetEditDialog extends ConsumerStatefulWidget {
   final Snippet? snippet;
   final SnippetEditSaveCallback onSave;
 
@@ -493,7 +493,7 @@ class SnippetEditDialog extends StatefulWidget {
   });
 
   @override
-  State<SnippetEditDialog> createState() => _SnippetEditDialogState();
+  ConsumerState<SnippetEditDialog> createState() => _SnippetEditDialogState();
 }
 
 /// Bundles the text controllers that live alongside an editable
@@ -508,7 +508,7 @@ class _VarControllers {
   }
 }
 
-class _SnippetEditDialogState extends State<SnippetEditDialog> {
+class _SnippetEditDialogState extends ConsumerState<SnippetEditDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _contentController;
   late String _category;
@@ -525,15 +525,19 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
 
   static final _placeholderPattern = RegExp(r'\{\{(\w+)\}\}');
 
-  static const _categoryKeys = [
-    'general',
-    'tmux',
-    'cli-agent',
-    'claude-code',
-    'codex',
-  ];
+  /// Sentinel value for the dropdown item that launches the
+  /// "new category" prompt. Picked so it can never collide with a
+  /// legitimate user-chosen category (whitespace-only).
+  static const _newCategorySentinel = '__new__';
 
-  static String _categoryDisplayName(AppLocalizations l10n, String key) {
+  /// Categories the built-in UI always offers even on a fresh install.
+  /// Profile IDs (claude-code, codex…) are intentionally excluded —
+  /// preset snippets live in their own tab keyed by profile, and
+  /// letting users create overlapping user categories under the same
+  /// name is confusing in the picker.
+  static const _defaultCategories = ['general', 'tmux', 'notes'];
+
+  String _categoryDisplayName(AppLocalizations l10n, String key) {
     return switch (key) {
       'general' => l10n.categoryGeneral,
       'tmux' => l10n.categoryTmux,
@@ -542,6 +546,97 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
       'codex' => l10n.categoryCodex,
       _ => key,
     };
+  }
+
+  /// Build the dropdown's category list from defaults + whatever
+  /// categories existing user snippets already use, sorted A-Z, with
+  /// the current snippet's category guaranteed to appear even if it
+  /// isn't in either set (e.g. a legacy preset id). Profile IDs are
+  /// filtered out so the dropdown can't steer users into creating
+  /// overlapping user categories under preset names.
+  List<String> _availableCategories(List<Snippet> userSnippets) {
+    final reserved = SnippetPresets.profileIds;
+    final set = <String>{
+      ..._defaultCategories,
+      for (final s in userSnippets)
+        if (!reserved.contains(s.category)) s.category,
+    };
+    // Always surface the currently-selected category even if it was
+    // legacy (e.g. 'cli-agent') or reserved — hiding it would silently
+    // reset the user's choice on first open of the edit dialog.
+    if (_category.isNotEmpty) set.add(_category);
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  Future<void> _promptNewCategory() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    String? errorText;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: Text(l10n.newCategoryDialogTitle),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                textCapitalization: TextCapitalization.none,
+                decoration: InputDecoration(
+                  labelText: l10n.snippetCategoryLabel,
+                  hintText: l10n.newCategoryHint,
+                  errorText: errorText,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onSubmitted: (_) {
+                  final name = controller.text.trim();
+                  final err = _validateCategoryName(name, l10n);
+                  if (err != null) {
+                    setLocal(() => errorText = err);
+                    return;
+                  }
+                  Navigator.pop(dialogContext, name);
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(l10n.buttonCancel),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = controller.text.trim();
+                    final err = _validateCategoryName(name, l10n);
+                    if (err != null) {
+                      setLocal(() => errorText = err);
+                      return;
+                    }
+                    Navigator.pop(dialogContext, name);
+                  },
+                  child: Text(l10n.buttonSave),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    controller.dispose();
+    if (result != null && result.isNotEmpty) {
+      setState(() => _category = result);
+    }
+  }
+
+  String? _validateCategoryName(String name, AppLocalizations l10n) {
+    if (name.isEmpty) return l10n.categoryNameInvalid;
+    // Reserve profile IDs so user categories can't shadow presets.
+    if (SnippetPresets.profileIds.contains(name)) {
+      return l10n.categoryNameInvalid;
+    }
+    return null;
   }
 
   @override
@@ -672,6 +767,8 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
     final isEdit = widget.snippet != null;
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final userSnippets = ref.watch(snippetsProvider).snippets;
+    final categories = _availableCategories(userSnippets);
     return AlertDialog(
       title: Text(isEdit ? l10n.editSnippet : l10n.newSnippetTitle),
       content: SingleChildScrollView(
@@ -703,14 +800,29 @@ class _SnippetEditDialogState extends State<SnippetEditDialog> {
               decoration:
                   InputDecoration(labelText: l10n.snippetCategoryLabel),
               items: [
-                for (final key in _categoryKeys)
+                for (final key in categories)
                   DropdownMenuItem(
                     value: key,
                     child: Text(_categoryDisplayName(l10n, key)),
                   ),
+                DropdownMenuItem(
+                  value: _newCategorySentinel,
+                  child: Text(
+                    l10n.newCategoryOption,
+                    style: TextStyle(
+                      color: DesignColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ],
               onChanged: (v) {
-                if (v != null) setState(() => _category = v);
+                if (v == null) return;
+                if (v == _newCategorySentinel) {
+                  _promptNewCategory();
+                  return;
+                }
+                setState(() => _category = v);
               },
             ),
             if (_variables.isNotEmpty) ...[

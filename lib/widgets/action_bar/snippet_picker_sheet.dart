@@ -8,6 +8,7 @@ import '../../models/snippet_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/snippet_provider.dart';
+import '../../screens/vault/snippets_screen.dart' show SnippetEditDialog;
 import '../../theme/design_colors.dart';
 
 /// Unified snippet picker bottom sheet.
@@ -127,26 +128,30 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       userByCategory.putIfAbsent(s.category, () => []).add(s);
     }
 
-    // Build category tab list:
+    // Build the scrollable category tab list:
     //   - 'presets' first (if the active profile has any presets)
     //   - user categories in sorted order (using raw names from ALL user
     //     snippets, not just filtered — so a search that empties one
     //     category doesn't make its tab disappear)
-    //   - 'history' always last
-    final categories = <String>[];
-    if (presetSnippets.isNotEmpty) categories.add('presets');
+    //
+    // History is NOT included here. It's pinned outside the scroll view
+    // so it stays reachable in one tap even when the user has many
+    // categories — previously history slid off-screen behind them.
+    final scrollCategories = <String>[];
+    if (presetSnippets.isNotEmpty) scrollCategories.add('presets');
     final userCategorySet = <String>{};
     for (final s in userSnippets) {
       userCategorySet.add(s.category);
     }
     final sortedUserCategories = userCategorySet.toList()..sort();
-    categories.addAll(sortedUserCategories);
-    categories.add('history');
+    scrollCategories.addAll(sortedUserCategories);
 
+    // Valid tab set = scrollable categories + the pinned 'history' tab.
+    final validTabs = <String>[...scrollCategories, 'history'];
     // Default the active tab the first time we build, and clamp to a
     // valid tab if the previously-active one disappeared.
-    if (_activeTab == null || !categories.contains(_activeTab)) {
-      _activeTab = categories.first;
+    if (_activeTab == null || !validTabs.contains(_activeTab)) {
+      _activeTab = validTabs.first;
     }
 
     return Container(
@@ -210,12 +215,27 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                 const SizedBox(width: 4),
                 IconButton(
                   onPressed: () {
-                    // Capture the notifier while ref is still valid —
-                    // Navigator.pop disposes the bottom sheet's ConsumerState,
-                    // making ref.read() fail in the dialog's save callback.
+                    // Capture the notifier + navigator *before* popping the
+                    // bottom sheet — Navigator.pop disposes this
+                    // ConsumerState, making ref.read() fail in the dialog's
+                    // save callback, and we can no longer reach a dialog
+                    // context from the sheet's BuildContext either.
                     final notifier = ref.read(snippetsProvider.notifier);
+                    final rootContext = Navigator.of(context, rootNavigator: true).context;
                     Navigator.pop(context);
-                    _showAddSnippetDialog(context, notifier);
+                    showDialog<void>(
+                      context: rootContext,
+                      builder: (dialogCtx) => SnippetEditDialog(
+                        onSave: (name, content, category, variables) {
+                          notifier.addSnippet(
+                            name: name,
+                            content: content,
+                            category: category,
+                            variables: variables,
+                          );
+                        },
+                      ),
+                    );
                   },
                   icon: const Icon(Icons.add_circle_outline, size: 22),
                   color: DesignColors.primary,
@@ -225,71 +245,66 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
               ],
             ),
           ),
-          // Category tabs — shown only when there are ≥2 categories to
-          // switch between (['all'] alone is meaningless).
-          if (categories.length >= 2)
-            SizedBox(
-              height: 36,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: categories.length,
-                itemBuilder: (context, i) {
-                  final cat = categories[i];
-                  final isActive = cat == _activeTab;
-                  final label = switch (cat) {
-                    'presets' =>
-                      SnippetPresets.categoryLabel(activeProfileId),
-                    'history' => AppLocalizations.of(context)!.history,
-                    _ => SnippetPresets.categoryLabel(cat),
-                  };
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      onTap: () => setState(() => _activeTab = cat),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
+          // Category tabs row. The scrollable part (presets + user
+          // categories) lives inside Expanded+ListView; the History
+          // pill is pinned to the trailing edge so it's always one tap
+          // away even when there are many categories — previously it
+          // slid off-screen behind them. Hidden entirely when nothing
+          // is selectable (only history exists + no snippets at all).
+          SizedBox(
+            height: 36,
+            child: Row(
+              children: [
+                Expanded(
+                  child: scrollCategories.isEmpty
+                      ? const SizedBox.shrink()
+                      : ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: scrollCategories.length,
+                          itemBuilder: (context, i) {
+                            final cat = scrollCategories[i];
+                            final label = cat == 'presets'
+                                ? SnippetPresets.categoryLabel(
+                                    activeProfileId)
+                                : SnippetPresets.categoryLabel(cat);
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _buildTabChip(
+                                label: label,
+                                isActive: cat == _activeTab,
+                                onTap: () =>
+                                    setState(() => _activeTab = cat),
+                                isDark: isDark,
+                              ),
+                            );
+                          },
                         ),
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? DesignColors.primary.withValues(alpha: 0.15)
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: isActive
-                                ? DesignColors.primary
-                                : (isDark
-                                    ? DesignColors.borderDark
-                                    : DesignColors.borderLight),
-                            width: 1,
-                          ),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Center(
-                          child: Text(
-                            label,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: isActive
-                                  ? FontWeight.w600
-                                  : FontWeight.w400,
-                              color: isActive
-                                  ? DesignColors.primary
-                                  : (isDark
-                                      ? DesignColors.textSecondary
-                                      : DesignColors
-                                          .textSecondaryLight),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                ),
+                // Thin divider + pinned History pill. The divider gives
+                // a visual edge between "scroll me" and "fixed" areas.
+                Container(
+                  width: 1,
+                  height: 20,
+                  margin: const EdgeInsets.symmetric(horizontal: 6),
+                  color: isDark
+                      ? DesignColors.borderDark
+                      : DesignColors.borderLight,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: _buildTabChip(
+                    label: AppLocalizations.of(context)!.history,
+                    isActive: _activeTab == 'history',
+                    onTap: () => setState(() => _activeTab = 'history'),
+                    isDark: isDark,
+                    leadingIcon: Icons.history,
+                  ),
+                ),
+              ],
             ),
+          ),
           const SizedBox(height: 4),
           // Content — filtered by active tab
           Expanded(
@@ -302,6 +317,62 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Render one category tab pill. Shared between the scrollable
+  /// category list and the pinned History pill so they can't drift
+  /// apart visually.
+  Widget _buildTabChip({
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+    required bool isDark,
+    IconData? leadingIcon,
+  }) {
+    final fgColor = isActive
+        ? DesignColors.primary
+        : (isDark
+            ? DesignColors.textSecondary
+            : DesignColors.textSecondaryLight);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isActive
+              ? DesignColors.primary.withValues(alpha: 0.15)
+              : Colors.transparent,
+          border: Border.all(
+            color: isActive
+                ? DesignColors.primary
+                : (isDark
+                    ? DesignColors.borderDark
+                    : DesignColors.borderLight),
+            width: 1,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (leadingIcon != null) ...[
+              Icon(leadingIcon, size: 13, color: fgColor),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight:
+                    isActive ? FontWeight.w600 : FontWeight.w400,
+                color: fgColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -995,66 +1066,6 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
     );
   }
 
-  void _showAddSnippetDialog(
-    BuildContext context,
-    SnippetsNotifier notifier,
-  ) {
-    final nameController = TextEditingController();
-    final contentController = TextEditingController();
-
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(AppLocalizations.of(context)!.newSnippet),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: InputDecoration(
-                  labelText: AppLocalizations.of(context)!.nameLabel,
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: contentController,
-                decoration: InputDecoration(
-                  labelText: AppLocalizations.of(context)!.commandTextLabel,
-                  hintText: 'e.g., docker compose up -d',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                maxLines: 3,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(AppLocalizations.of(context)!.buttonCancel),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty &&
-                    contentController.text.isNotEmpty) {
-                  notifier.addSnippet(
-                    name: nameController.text,
-                    content: contentController.text,
-                  );
-                  Navigator.pop(dialogContext);
-                }
-              },
-              child: Text(AppLocalizations.of(context)!.buttonSave),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }
 
 /// Compact pill button used to render an enum option inline in a snippet

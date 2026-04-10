@@ -375,6 +375,7 @@
   "profileName": "配置名称",
   "profileHeaderTitle": "配置",
   "keyPaletteLabel": "按键面板",
+  "paletteMetaHeader": "其他",
   "manageSnippets": "管理代码片段",
   "deleteProfile": "删除配置",
   "deleteProfileContent": "删除「{name}」？",

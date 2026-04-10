@@ -16,15 +16,16 @@ import '../../theme/design_colors.dart';
 /// chip rows, so users can reach infrequent keys without swiping through
 /// action-bar pages. Profile selection collapses into a compact header.
 ///
-/// Actions like file transfer, snippet picker, and direct input toggle
-/// are intentionally NOT rendered in the palette — those live in the
-/// action bar and would duplicate dispatch logic if handled here.
+/// In 0.9.7 action-type buttons (file transfer, snippets, direct input)
+/// are included in the palette as chips via [onActionTap], and the meta
+/// footer ("Reset to default") is also rendered as a chip wrap — the
+/// whole palette aims to fit on one page without scrolling.
 class ProfileSheet extends ConsumerWidget {
   final VoidCallback? onEditGroups;
-  final VoidCallback? onManageSnippets;
   final void Function(String literal)? onKeyTap;
   final void Function(String tmuxKey)? onSpecialKeyTap;
   final void Function(String modifier)? onModifierTap;
+  final void Function(String actionValue)? onActionTap;
   final ScrollController? scrollController;
 
   /// Panel identifier so profile switches are scoped to the pane this
@@ -35,10 +36,10 @@ class ProfileSheet extends ConsumerWidget {
   const ProfileSheet({
     super.key,
     this.onEditGroups,
-    this.onManageSnippets,
     this.onKeyTap,
     this.onSpecialKeyTap,
     this.onModifierTap,
+    this.onActionTap,
     this.scrollController,
     this.panelKey,
   });
@@ -47,10 +48,10 @@ class ProfileSheet extends ConsumerWidget {
     BuildContext context, {
     required WidgetRef ref,
     VoidCallback? onEditGroups,
-    VoidCallback? onManageSnippets,
     void Function(String literal)? onKeyTap,
     void Function(String tmuxKey)? onSpecialKeyTap,
     void Function(String modifier)? onModifierTap,
+    void Function(String actionValue)? onActionTap,
     String? panelKey,
   }) async {
     await showModalBottomSheet<void>(
@@ -70,15 +71,10 @@ class ProfileSheet extends ConsumerWidget {
                   onEditGroups();
                 }
               : null,
-          onManageSnippets: onManageSnippets != null
-              ? () {
-                  Navigator.pop(context);
-                  onManageSnippets();
-                }
-              : null,
           onKeyTap: onKeyTap,
           onSpecialKeyTap: onSpecialKeyTap,
           onModifierTap: onModifierTap,
+          onActionTap: onActionTap,
           panelKey: panelKey,
         ),
       ),
@@ -132,38 +128,17 @@ class ProfileSheet extends ConsumerWidget {
                     const SizedBox(height: 8),
                     // Per-group rows — always includes Navigate group,
                     // unlike the action bar which filters it when the
-                    // nav pad is enabled. No redundant "KEY PALETTE"
-                    // section header since the sheet is dedicated to it.
+                    // nav pad is enabled. Action-type buttons are now
+                    // included too (chip layout) so users don't have
+                    // to hunt for ⚡ snippet/file transfer in the
+                    // action bar's scrolling carousel.
                     for (final group in activeProfile.groups)
                       _buildPaletteGroup(context, group, isDark),
-                    const SizedBox(height: 8),
-                    const Divider(height: 1),
-                    // Meta actions
-                    if (onManageSnippets != null)
-                      _buildAction(
-                        context,
-                        icon: Icons.code,
-                        label: AppLocalizations.of(context)!.manageSnippets,
-                        isDark: isDark,
-                        onTap: onManageSnippets!,
-                      ),
-                    _buildAction(
-                      context,
-                      icon: Icons.restore,
-                      label: AppLocalizations.of(context)!.resetToDefault,
-                      isDark: isDark,
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        // Reset the profile currently displayed in this
-                        // panel's palette — not the global default —
-                        // so the user's "restore" action matches what
-                        // they see.
-                        ref
-                            .read(actionBarProvider.notifier)
-                            .resetProfileToDefault(activeProfile.id);
-                        Navigator.pop(context);
-                      },
-                    ),
+                    const SizedBox(height: 6),
+                    // META actions as chips — one compact wrap instead
+                    // of line-by-line rows, so the whole palette stays
+                    // visible without scrolling.
+                    _buildMetaChips(context, ref, activeProfile, isDark),
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -351,12 +326,11 @@ class ProfileSheet extends ConsumerWidget {
     ActionBarGroup group,
     bool isDark,
   ) {
-    // Filter out action-type buttons: they're dispatched through
-    // _handleButtonTap in the action bar and would require duplicating
-    // that switch here. Users access them via the action bar directly.
-    final chips = group.buttons
-        .where((b) => b.type != ActionBarButtonType.action)
-        .toList();
+    // All button types render as chips — including action-type buttons
+    // (file transfer, snippets, direct input). Action dispatch is routed
+    // via [onActionTap] from the caller so the palette stays as the
+    // "everything in one page" view without duplicating logic.
+    final chips = group.buttons;
     if (chips.isEmpty) return const SizedBox.shrink();
 
     // Dense multi-column layout: small inline header + compact chip Wrap.
@@ -398,6 +372,18 @@ class ProfileSheet extends ConsumerWidget {
     ActionBarButton btn,
     bool isDark,
   ) {
+    // Action-type chips get a subtle accent tint so they're visually
+    // distinct from regular key chips — users scanning for "snippets"
+    // can spot the accent without reading every label.
+    final isAction = btn.type == ActionBarButtonType.action;
+    final bgColor = isAction
+        ? DesignColors.primary.withValues(alpha: isDark ? 0.18 : 0.10)
+        : (isDark
+            ? DesignColors.keyBackground
+            : DesignColors.keyBackgroundLight);
+    final borderColor = isAction
+        ? DesignColors.primary.withValues(alpha: 0.4)
+        : (isDark ? DesignColors.borderDark : DesignColors.borderLight);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -407,15 +393,8 @@ class ProfileSheet extends ConsumerWidget {
           constraints: const BoxConstraints(minWidth: 38, minHeight: 30),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: isDark
-                ? DesignColors.keyBackground
-                : DesignColors.keyBackgroundLight,
-            border: Border.all(
-              color: isDark
-                  ? DesignColors.borderDark
-                  : DesignColors.borderLight,
-              width: 0.5,
-            ),
+            color: bgColor,
+            border: Border.all(color: borderColor, width: 0.5),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Center(
@@ -425,9 +404,11 @@ class ProfileSheet extends ConsumerWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
                 fontFamily: 'monospace',
-                color: isDark
-                    ? DesignColors.textPrimary
-                    : DesignColors.textPrimaryLight,
+                color: isAction
+                    ? DesignColors.primary
+                    : (isDark
+                        ? DesignColors.textPrimary
+                        : DesignColors.textPrimaryLight),
               ),
             ),
           ),
@@ -456,50 +437,124 @@ class ProfileSheet extends ConsumerWidget {
         onKeyTap?.call(btn.value);
         onSpecialKeyTap?.call('Enter');
       case ActionBarButtonType.action:
-        // Filtered out in _buildPaletteGroup — unreachable here.
-        break;
+        onActionTap?.call(btn.value);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Meta actions + dialogs (preserved from pre-0.9.1 ProfileSheet)
+  // Meta chips row (formerly full-width "Reset to default" row)
   // ---------------------------------------------------------------------------
 
-  Widget _buildAction(
+  Widget _buildMetaChips(
+    BuildContext context,
+    WidgetRef ref,
+    ActionBarProfile activeProfile,
+    bool isDark,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 3),
+            child: Text(
+              AppLocalizations.of(context)!.paletteMetaHeader,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.6,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
+            ),
+          ),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              _buildMetaChip(
+                context,
+                icon: Icons.restore,
+                label: AppLocalizations.of(context)!.resetToDefault,
+                isDark: isDark,
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  // Reset the profile currently displayed in this
+                  // panel's palette — not the global default — so the
+                  // user's "restore" action matches what they see.
+                  ref
+                      .read(actionBarProvider.notifier)
+                      .resetProfileToDefault(activeProfile.id);
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetaChip(
     BuildContext context, {
     required IconData icon,
     required String label,
     required bool isDark,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              size: 20,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 30),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark
+                ? DesignColors.keyBackground
+                : DesignColors.keyBackgroundLight,
+            border: Border.all(
               color: isDark
-                  ? DesignColors.textSecondary
-                  : DesignColors.textSecondaryLight,
+                  ? DesignColors.borderDark
+                  : DesignColors.borderLight,
+              width: 0.5,
             ),
-            const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 14,
                 color: isDark
-                    ? DesignColors.textPrimary
-                    : DesignColors.textPrimaryLight,
+                    ? DesignColors.textSecondary
+                    : DesignColors.textSecondaryLight,
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: isDark
+                      ? DesignColors.textPrimary
+                      : DesignColors.textPrimaryLight,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Profile dialogs (preserved from pre-0.9.1 ProfileSheet)
+  // ---------------------------------------------------------------------------
 
   void _confirmDelete(
       BuildContext context, WidgetRef ref, ActionBarProfile profile) {

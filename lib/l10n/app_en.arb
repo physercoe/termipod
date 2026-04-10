@@ -419,6 +419,7 @@
   "profileName": "Profile Name",
   "profileHeaderTitle": "Profile",
   "keyPaletteLabel": "Key Palette",
+  "paletteMetaHeader": "META",
   "manageSnippets": "Manage Snippets",
   "deleteProfile": "Delete Profile",
   "deleteProfileContent": "Delete \"{name}\"?",

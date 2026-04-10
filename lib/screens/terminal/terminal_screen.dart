@@ -3896,6 +3896,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ref.read(actionBarProvider.notifier).toggleAlt();
         }
       },
+      // Route action-type palette chips to the same handlers the action
+      // bar uses, so tapping ⚡ Snippets in the palette opens the picker,
+      // tapping file transfer opens the sheet, etc. Without this the
+      // action chips in the palette would be no-ops.
+      onActionTap: (actionValue) {
+        switch (actionValue) {
+          case 'file_transfer':
+            _handleFileTransfer();
+          case 'image_transfer':
+            _handleImageTransfer();
+          case 'snippet':
+            _showSnippetPicker(context, panelKey: panelKey);
+          case 'direct_input':
+            ref.read(actionBarProvider.notifier).toggleInputMode();
+        }
+      },
     );
   }
 

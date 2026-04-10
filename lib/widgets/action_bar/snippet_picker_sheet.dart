@@ -77,7 +77,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
 
   /// Active category tab. Values:
   /// - 'presets' — preset snippets for the active profile
-  /// - <category> — user snippets in that category
+  /// - `<category>` — user snippets in that category
   /// - 'history' — recent commands sent to the terminal (always last tab)
   ///
   /// The previous 'all' aggregate view was removed so tabs map 1:1 to

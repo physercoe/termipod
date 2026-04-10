@@ -263,7 +263,7 @@
   "snippetContentHint": "例如 git status",
   "snippetCategoryLabel": "分类",
   "snippetVariablesLabel": "变量",
-  "snippetVariablesHint": "内容中的 {{名称}} 占位符会变为可编辑的变量。",
+  "snippetVariablesHint": "内容中以双大括号包裹的占位符（如「名称」）会变为可编辑的变量。",
   "variableKindText": "文本",
   "variableKindOption": "选项",
   "variableDefaultLabel": "默认值",

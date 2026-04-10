@@ -299,7 +299,7 @@
   "snippetContentHint": "e.g. git status",
   "snippetCategoryLabel": "Category",
   "snippetVariablesLabel": "Variables",
-  "snippetVariablesHint": "Placeholders like {{name}} in content become editable variables.",
+  "snippetVariablesHint": "Placeholders like 'name' (wrapped in double braces) in content become editable variables.",
   "variableKindText": "Text",
   "variableKindOption": "Options",
   "variableDefaultLabel": "Default value",

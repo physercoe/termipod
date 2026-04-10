@@ -5,14 +5,16 @@
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>Android SSH 终端，专为 tmux 和 AI 编程助手打造。</b><br>
-  <sub>用手机管理远程服务器 — 运行 Claude Code、Codex 或任何 CLI 工具，触控优化的终端体验。</sub>
+  <b>移动端 SSH 终端，专为 tmux 和 AI 编程助手打造。</b><br>
+  <sub>用手机或平板管理远程服务器 — 运行 Claude Code、Codex 或任何 CLI 工具，触控优化的终端体验。Android、iOS、iPadOS 共用同一套 Flutter 代码。</sub>
 </p>
 
 <p align="center">
   <a href="https://github.com/physercoe/mux-pod/releases"><img src="https://img.shields.io/github/v/release/physercoe/mux-pod?style=flat-square&color=00c0d1" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/mux-pod?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/platform-Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform">
+  <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
+  <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
+  <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
   <img src="https://img.shields.io/badge/Flutter-3.24+-02569B?style=flat-square&logo=flutter&logoColor=white" alt="Flutter">
 </p>
 
@@ -29,7 +31,7 @@
 
 ## TermiPod 是什么？
 
-TermiPod 是一款 **Android 移动 SSH 客户端和 tmux 管理器** — 专为在远程服务器上运行长期终端会话、需要随时用手机查看和操作的开发者设计。
+TermiPod 是一款 **跨平台移动 SSH 客户端和 tmux 管理器**,支持 Android、iOS 和 iPadOS — 专为在远程服务器上运行长期终端会话、需要随时用手机或平板查看和操作的开发者设计。基于 Flutter 构建,同一套触控优化的界面在各平台原生运行。
 
 与通用 SSH 应用不同，TermiPod 围绕移动端终端的实际使用场景设计：
 
@@ -57,7 +59,7 @@ TermiPod 是一款 **Android 移动 SSH 客户端和 tmux 管理器** — 专为
 - **SSH 跳板机 (ProxyJump)** — 通过堡垒机连接内网机器
 - **SOCKS5 代理** — 通过企业代理、VPN 或 Shadowsocks/Clash 路由 SSH
 - **连接测试** — 保存前验证 SSH + tmux 可用性
-- **安全存储** — 密钥和密码存储在 Android Keystore 中
+- **安全存储** — 密钥和密码通过 flutter_secure_storage 加密存储在 Android Keystore / iOS Keychain 中
 - **零服务器配置** — 只要有 `sshd` + `tmux` 即可，无需额外安装
 
 ### tmux 会话管理
@@ -108,7 +110,9 @@ TermiPod 是一款 **Android 移动 SSH 客户端和 tmux 管理器** — 专为
 
 ### 安装
 
-从 [**Releases**](https://github.com/physercoe/mux-pod/releases) 下载最新 APK。
+**Android:** 从 [**Releases**](https://github.com/physercoe/mux-pod/releases) 下载最新 APK 并侧载安装。
+
+**iOS / iPadOS:** 暂无 App Store 版本 — 请使用 Xcode 从源码构建(见下文)。TestFlight 分发在计划中。
 
 ### 从源码构建
 
@@ -116,7 +120,13 @@ TermiPod 是一款 **Android 移动 SSH 客户端和 tmux 管理器** — 专为
 git clone https://github.com/physercoe/mux-pod.git
 cd mux-pod
 flutter pub get
+
+# Android
 flutter build apk --release
+
+# iOS / iPadOS(需要 macOS + Xcode)
+flutter build ios --release
+# 或在 Xcode 中打开 ios/Runner.xcworkspace 进行真机 / TestFlight 归档
 ```
 
 ### 连接
@@ -133,7 +143,7 @@ flutter build apk --release
 
 | 组件 | 要求 |
 |------|------|
-| **设备** | Android 8.0+（API 26） |
+| **设备** | Android 8.0+(API 26)、iOS 13.0+、iPadOS 13.0+ — 手机、平板或折叠屏 |
 | **服务器** | 任意 SSH 服务器（OpenSSH、Dropbear 等） |
 | **tmux** | 任意版本（2.9+ 已测试） |
 | **网络** | 直连 SSH，或通过跳板机 / SOCKS5 代理 |

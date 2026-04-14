@@ -164,6 +164,8 @@
   "settingVersion": "Version",
   "settingSourceCode": "Source Code",
   "settingSourceCodeUrl": "github.com/physercoe/mux-pod",
+  "settingFeedback": "Send Feedback",
+  "settingFeedbackDesc": "Report bugs or suggest features",
   "settingLicenses": "Licenses",
   "settingLicensesDesc": "Open source licenses",
   "sectionAbout": "About",

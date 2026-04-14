@@ -528,6 +528,23 @@ class SettingsScreen extends ConsumerWidget {
                   },
                 ),
                 ListTile(
+                  leading: const Icon(Icons.mail_outline),
+                  title: Text(l10n.settingFeedback),
+                  subtitle: Text(l10n.settingFeedbackDesc),
+                  onTap: () async {
+                    final uri = Uri(
+                      scheme: 'mailto',
+                      path: 'whereilive@gmail.com',
+                      queryParameters: {
+                        'subject': 'TermiPod Feedback (v${VersionInfo.version})',
+                      },
+                    );
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                    }
+                  },
+                ),
+                ListTile(
                   leading: const Icon(Icons.description),
                   title: Text(l10n.settingLicenses),
                   subtitle: Text(l10n.settingLicensesDesc),

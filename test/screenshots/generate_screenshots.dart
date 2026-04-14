@@ -158,6 +158,11 @@ Future<void> _loadAppFonts() async {
       'assets/fonts/UDEVGothicNF-Regular.ttf',
       'assets/fonts/UDEVGothicNF-Bold.ttf',
     ],
+    'JetBrainsMono': [
+      'assets/fonts/google/JetBrainsMono-Regular.ttf',
+      'assets/fonts/google/JetBrainsMono-Medium.ttf',
+      'assets/fonts/google/JetBrainsMono-Bold.ttf',
+    ],
   };
 
   for (final entry in fontManifest.entries) {
@@ -169,6 +174,26 @@ Future<void> _loadAppFonts() async {
         await loader.load();
       }
     }
+  }
+
+  // Load MaterialIcons font from Flutter SDK so icons render in goldens.
+  await _loadMaterialIcons();
+}
+
+Future<void> _loadMaterialIcons() async {
+  // Find Flutter SDK root from the dart executable path.
+  // Platform.resolvedExecutable is e.g. <flutter>/bin/cache/dart-sdk/bin/dart
+  final dartExe = Platform.resolvedExecutable;
+  final sdkRoot = File(dartExe).parent.parent.parent.parent.parent.path;
+  final iconFont = File(
+    '$sdkRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+  );
+  if (iconFont.existsSync()) {
+    final loader = FontLoader('MaterialIcons');
+    loader.addFont(
+      Future.value(ByteData.sublistView(iconFont.readAsBytesSync())),
+    );
+    await loader.load();
   }
 }
 

@@ -43,6 +43,9 @@ import 'package:termipod/theme/design_colors.dart';
 import 'package:termipod/widgets/action_bar/action_bar.dart';
 import 'package:termipod/widgets/action_bar/compose_bar.dart';
 import 'package:termipod/widgets/custom_keyboard.dart';
+import 'package:termipod/widgets/action_bar/insert_menu.dart' show InsertMenu;
+import 'package:termipod/widgets/action_bar/profile_sheet.dart';
+import 'package:termipod/widgets/action_bar/snippet_picker_sheet.dart';
 import 'package:termipod/widgets/floating_joystick.dart';
 import 'package:termipod/widgets/navigation_pad.dart';
 
@@ -162,6 +165,10 @@ Future<void> _loadAppFonts() async {
       'assets/fonts/google/JetBrainsMono-Regular.ttf',
       'assets/fonts/google/JetBrainsMono-Medium.ttf',
       'assets/fonts/google/JetBrainsMono-Bold.ttf',
+    ],
+    // Generic 'monospace' used by key fingerprints, snippet content, etc.
+    'monospace': [
+      'assets/fonts/google/JetBrainsMono-Regular.ttf',
     ],
   };
 
@@ -327,6 +334,54 @@ void main() {
           directInputMode: true,
         ),
         'goldens/terminal_keyboard_dark.png',
+      );
+    });
+
+    // Bottom sheet overlays — rendered directly in a scaffold
+    // to avoid needing showModalBottomSheet + animation settling.
+
+    testWidgets('bolt_menu_dark', (tester) async {
+      await _captureScreenshot(
+        tester,
+        _buildScreenshot(
+          child: _MockSheetScreen(
+            sheet: SnippetPickerSheet(
+              onInsert: (_) {},
+              onSendImmediately: (_) {},
+            ),
+          ),
+          dark: true,
+        ),
+        'goldens/bolt_menu_dark.png',
+      );
+    });
+
+    testWidgets('key_palette_dark', (tester) async {
+      await _captureScreenshot(
+        tester,
+        _buildScreenshot(
+          child: _MockSheetScreen(
+            sheet: ProfileSheet(
+              onKeyTap: (_) {},
+              onSpecialKeyTap: (_) {},
+              onModifierTap: (_) {},
+              onActionTap: (_) {},
+            ),
+          ),
+          dark: true,
+        ),
+        'goldens/key_palette_dark.png',
+      );
+    });
+
+    testWidgets('insert_menu_dark', (tester) async {
+      await _captureScreenshot(
+        tester,
+        _buildScreenshot(
+          child: const _MockInsertMenuScreen(),
+          dark: true,
+        ),
+        'goldens/insert_menu_dark.png',
       );
     });
   });
@@ -507,4 +562,123 @@ class _TermLine {
   final String text;
   final Color color;
   const _TermLine(this.text, this.color);
+}
+
+// ---------------------------------------------------------------------------
+// Mock Sheet Screen — renders a bottom sheet widget inline over a dim backdrop
+// ---------------------------------------------------------------------------
+
+class _MockSheetScreen extends StatelessWidget {
+  final Widget sheet;
+  const _MockSheetScreen({required this.sheet});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: isDark
+          ? DesignColors.backgroundDark
+          : DesignColors.backgroundLight,
+      body: Column(
+        children: [
+          // Dim header area to simulate backdrop behind sheet
+          Container(
+            height: 80,
+            color: Colors.black.withValues(alpha: 0.4),
+          ),
+          // The sheet widget takes the rest
+          Expanded(child: sheet),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock Insert Menu Screen — renders the insert menu items directly
+// ---------------------------------------------------------------------------
+
+class _MockInsertMenuScreen extends StatelessWidget {
+  const _MockInsertMenuScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Scaffold(
+      backgroundColor: isDark
+          ? DesignColors.backgroundDark
+          : DesignColors.backgroundLight,
+      body: Column(
+        children: [
+          // Dim top area
+          Expanded(
+            child: Container(color: Colors.black.withValues(alpha: 0.4)),
+          ),
+          // Menu at bottom — replicate InsertMenu layout
+          Container(
+            decoration: BoxDecoration(
+              color: isDark
+                  ? DesignColors.surfaceDark
+                  : DesignColors.surfaceLight,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle bar
+                  Container(
+                    width: 32,
+                    height: 4,
+                    margin: const EdgeInsets.only(top: 8, bottom: 12),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  _menuItem(context, Icons.upload_file,
+                      AppLocalizations.of(context)!.fileUpload, isDark),
+                  _menuItem(context, Icons.download,
+                      AppLocalizations.of(context)!.fileDownload, isDark),
+                  _menuItem(context, Icons.image,
+                      AppLocalizations.of(context)!.imageTransfer, isDark),
+                  const Divider(height: 1),
+                  _menuItem(context, Icons.keyboard,
+                      AppLocalizations.of(context)!.directInputMode, isDark),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _menuItem(
+      BuildContext context, IconData icon, String label, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Row(
+        children: [
+          Icon(icon,
+              size: 22,
+              color: isDark
+                  ? DesignColors.textSecondary
+                  : DesignColors.textSecondaryLight),
+          const SizedBox(width: 16),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 15,
+                  color: isDark
+                      ? DesignColors.textPrimary
+                      : DesignColors.textPrimaryLight)),
+        ],
+      ),
+    );
+  }
 }

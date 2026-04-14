@@ -11,7 +11,6 @@ import 'package:path_provider/path_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../services/data_port_service.dart';
-import '../../services/keychain/secure_storage.dart';
 import 'dart:convert';
 import '../../models/action_bar_config.dart';
 import '../../models/action_bar_presets.dart';

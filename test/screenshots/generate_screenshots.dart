@@ -96,6 +96,7 @@ class MockAlertPanesNotifier extends AlertPanesNotifier {
 class MockActionBarNotifier extends ActionBarNotifier {
   @override
   ActionBarState build() => ActionBarState(
+        activeProfileId: ActionBarPresets.claudeCodeId,
         profiles: ActionBarPresets.all,
         composeMode: true,
       );
@@ -104,6 +105,7 @@ class MockActionBarNotifier extends ActionBarNotifier {
 class MockActionBarDirectNotifier extends ActionBarNotifier {
   @override
   ActionBarState build() => ActionBarState(
+        activeProfileId: ActionBarPresets.claudeCodeId,
         profiles: ActionBarPresets.all,
         composeMode: false,
       );

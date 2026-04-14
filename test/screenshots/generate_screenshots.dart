@@ -36,6 +36,7 @@ import 'package:termipod/screens/dashboard/dashboard_screen.dart';
 import 'package:termipod/screens/notifications/notification_panes_screen.dart';
 import 'package:termipod/screens/settings/settings_screen.dart';
 import 'package:termipod/screens/vault/vault_screen.dart';
+import 'package:termipod/models/action_bar_presets.dart';
 import 'package:termipod/providers/action_bar_provider.dart';
 import 'package:termipod/theme/app_theme.dart';
 import 'package:termipod/theme/design_colors.dart';
@@ -89,6 +90,22 @@ class MockAlertPanesNotifier extends AlertPanesNotifier {
   AlertPanesState build() => mockAlertPanesState;
 }
 
+class MockActionBarNotifier extends ActionBarNotifier {
+  @override
+  ActionBarState build() => ActionBarState(
+        profiles: ActionBarPresets.all,
+        composeMode: true,
+      );
+}
+
+class MockActionBarDirectNotifier extends ActionBarNotifier {
+  @override
+  ActionBarState build() => ActionBarState(
+        profiles: ActionBarPresets.all,
+        composeMode: false,
+      );
+}
+
 // ---------------------------------------------------------------------------
 // Test wrapper — provides mock providers + theme + l10n
 // ---------------------------------------------------------------------------
@@ -96,6 +113,7 @@ class MockAlertPanesNotifier extends AlertPanesNotifier {
 Widget _buildScreenshot({
   required Widget child,
   bool dark = true,
+  bool directInputMode = false,
 }) {
   return ProviderScope(
     overrides: [
@@ -106,6 +124,9 @@ Widget _buildScreenshot({
       snippetsProvider.overrideWith(() => MockSnippetsNotifier()),
       historyProvider.overrideWith(() => MockHistoryNotifier()),
       alertPanesProvider.overrideWith(() => MockAlertPanesNotifier()),
+      actionBarProvider.overrideWith(() => directInputMode
+          ? MockActionBarDirectNotifier()
+          : MockActionBarNotifier()),
     ],
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -250,6 +271,7 @@ void main() {
         _buildScreenshot(
           child: const _MockTerminalScreen(showKeyboard: true),
           dark: true,
+          directInputMode: true,
         ),
         'goldens/terminal_keyboard_dark.png',
       );

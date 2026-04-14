@@ -25,7 +25,7 @@
 
 ---
 
-> **TermiPod** 是 [@moezakura](https://github.com/moezakura) 的 [MuxPod](https://github.com/moezakura/mux-pod) 的分支，新增了完整的输入 UX 重新设计、CLI 代理配置文件、代码片段、SSH 跳板机/代理支持、帮助系统等功能。
+> **TermiPod** 基于 [@moezakura](https://github.com/moezakura) 的 [MuxPod](https://github.com/moezakura/mux-pod)（Copyright 2025 mox，[Apache License 2.0](LICENSE)）开发。原版 MuxPod 是 Android 端的 SSH 连接与 tmux 基础查看工具。TermiPod 现已作为独立项目大幅扩展：新增跨平台支持（iOS/iPadOS）、操作栏与配置文件、代码片段、SSH 跳板机/SOCKS5 代理、SFTP 文件传输、导航盘、原始 PTY 模式、自定义键盘、帮助系统等。TermiPod 是独立项目，与原作者无关联。详见 [NOTICE](NOTICE)。
 
 ---
 

@@ -25,7 +25,7 @@
 
 ---
 
-> **TermiPod** は [@moezakura](https://github.com/moezakura) による [MuxPod](https://github.com/moezakura/mux-pod) のフォークです。入力UXの完全な再設計、CLIエージェントプロファイル、コードスニペット、SSHジャンプホスト/プロキシ対応、ヘルプシステムなどの機能を追加しています。
+> **TermiPod** は [@moezakura](https://github.com/moezakura) による [MuxPod](https://github.com/moezakura/mux-pod)（Copyright 2025 mox、[Apache License 2.0](LICENSE)）をベースに開発されています。オリジナルの MuxPod は Android 向けの SSH 接続と基本的な tmux セッション表示を提供していました。TermiPod は独立プロジェクトとして大幅に拡張され、クロスプラットフォーム対応（iOS/iPadOS）、アクションバーとプロファイル、コードスニペット、SSH ジャンプホスト/SOCKS5 プロキシ、SFTP ファイル転送、ナビゲーションパッド、Raw PTY モード、カスタムキーボード、ヘルプシステムなどを追加しています。TermiPod は独立したプロジェクトであり、原作者とは提携・推奨関係にありません。詳細は [NOTICE](NOTICE) を参照してください。
 
 ---
 

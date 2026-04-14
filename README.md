@@ -25,7 +25,7 @@
 
 ---
 
-> **TermiPod** is a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), adding a complete input UX redesign with CLI agent profiles, code snippets, SSH jump host/proxy support, navigation pad with gesture controls, raw PTY mode, help system, and other enhancements.
+> **TermiPod** is a derivative work of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura), licensed under the [Apache License 2.0](LICENSE). The original MuxPod provided SSH connectivity and basic tmux session viewing for Android. TermiPod has since diverged substantially — adding cross-platform support (iOS/iPadOS), a complete input UX redesign with CLI agent profiles, code snippets, SSH jump host/proxy support, navigation pad, raw PTY mode, SFTP file transfer, custom keyboard, help system, and other features. TermiPod is an independent project and is not affiliated with or endorsed by the original author. See [NOTICE](NOTICE) for full attribution.
 
 ---
 
@@ -383,9 +383,13 @@ See [docs/](docs/) for architecture details and coding conventions.
 
 ---
 
-## Acknowledgments
+## Origin and Attribution
 
-TermiPod is built on top of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura). Thanks for the excellent foundation.
+TermiPod originated as a fork of [MuxPod](https://github.com/moezakura/mux-pod) by [@moezakura](https://github.com/moezakura) (Copyright 2025 mox), licensed under the [Apache License 2.0](LICENSE). The original MuxPod was an Android-only app for viewing tmux sessions over SSH.
+
+TermiPod is now an independent project that has diverged significantly from the original codebase. Major additions include: cross-platform support (iOS/iPadOS), action bar with per-pane profiles, compose bar, structured agent snippets, SSH ProxyJump and SOCKS5 proxy, SFTP file transfer, navigation pad with gesture controls, raw PTY mode, custom keyboard, key overlay, help/onboarding system, deep linking, and auto-extend scrollback. The original SSH connection logic and tmux polling foundation remain.
+
+Per Apache 2.0 §4, modified files carry change notices, the original copyright and license are retained, and a [NOTICE](NOTICE) file is included. Thanks to [@moezakura](https://github.com/moezakura) for the foundation that made this possible.
 
 ## Feedback
 

@@ -1,0 +1,18 @@
+TermiPod
+Copyright 2025 physercoe
+
+This product includes software developed by moezakura (mox).
+Original project: MuxPod (https://github.com/moezakura/mux-pod)
+Copyright 2025 mox
+Licensed under the Apache License, Version 2.0.
+
+TermiPod is a derivative work of MuxPod. It has been substantially
+modified and extended. The original MuxPod provided SSH connectivity
+and basic tmux session viewing for Android. TermiPod adds cross-platform
+support (iOS/iPadOS), a redesigned input system with action bar profiles
+and compose bar, structured agent snippets, SSH ProxyJump and SOCKS5
+proxy support, SFTP file transfer, navigation pad with gesture controls,
+raw PTY mode, custom keyboard, key overlay, help/onboarding, deep linking,
+auto-extend scrollback, and other features.
+
+For a list of changes, see the git history of this repository.

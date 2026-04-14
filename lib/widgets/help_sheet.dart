@@ -155,7 +155,7 @@ class _HelpSheetContent extends StatelessWidget {
             ),
             tabs: const [
               Tab(text: 'ACTION BAR'),
-              Tab(text: 'GESTURES'),
+              Tab(text: 'CONTROLS'),
               Tab(text: 'TMUX'),
             ],
           ),
@@ -258,31 +258,37 @@ class _HelpSheetContent extends StatelessWidget {
     final textColor = isDark ? Colors.white : Colors.black87;
 
     const gestureCheatSheet = <String, List<_TmuxEntry>>{
-      'Gesture Surface': [
-        _TmuxEntry('Swipe Left', 'Left arrow key'),
-        _TmuxEntry('Swipe Right', 'Right arrow key'),
-        _TmuxEntry('Swipe Up', 'Up arrow key'),
-        _TmuxEntry('Swipe Down', 'Down arrow key'),
+      'Terminal': [
+        _TmuxEntry('Pinch', 'Zoom in/out (adjusts font size)'),
+        _TmuxEntry('Swipe Left/Right', 'Switch between panes'),
+        _TmuxEntry('Tap', 'Focus terminal / dismiss overlays'),
+      ],
+      'Gesture Mode': [
+        _TmuxEntry('Swipe', 'Arrow keys (left/right/up/down)'),
         _TmuxEntry('Double Tap', 'Tab key'),
-        _TmuxEntry('Two-Finger Tap', 'Enter key'),
-        _TmuxEntry('Three-Finger Tap', 'Escape key'),
+        _TmuxEntry('2-Finger Tap', 'Enter key'),
+        _TmuxEntry('3-Finger Tap', 'Escape key'),
         _TmuxEntry('Long Press', 'Paste from clipboard'),
       ],
       'Navigation Pad': [
         _TmuxEntry('D-pad / Joystick', 'Arrow keys (hold to repeat)'),
-        _TmuxEntry('Double-Tap Center', 'Toggle gesture surface'),
-        _TmuxEntry('Action Buttons', '4 customizable keys (ESC, TAB, C-C, ENT)'),
-        _TmuxEntry('Chevron', 'Cycle: full > compact > off'),
+        _TmuxEntry('Action Buttons', '4 customizable keys (default: ESC, TAB, C-C, ENT)'),
+        _TmuxEntry('Chevron ›', 'Cycle: compact > off > compact'),
       ],
-      'Floating Pad (Experimental)': [
+      'Floating Joystick': [
         _TmuxEntry('Tap Zone', 'Arrow key (Up/Down/Left/Right)'),
         _TmuxEntry('Tap Center', 'Enter key'),
         _TmuxEntry('Long Press', 'Auto-repeat arrow or Enter'),
         _TmuxEntry('Drag', 'Reposition on screen'),
       ],
+      'Compose Bar': [
+        _TmuxEntry('[+] Tap', 'Insert menu (files, images, input mode)'),
+        _TmuxEntry('[+] Long Press', 'Snippet picker & command history'),
+        _TmuxEntry('Send Button', 'Execute command (Enter)'),
+      ],
       'Scroll Mode': [
-        _TmuxEntry('Swipe Up/Down', 'Scroll terminal output'),
-        _TmuxEntry('Tap Bottom Bar', 'Toggle scroll mode on/off'),
+        _TmuxEntry('Swipe Up/Down', 'Scroll terminal output (enters tmux copy mode)'),
+        _TmuxEntry('Toggle', 'Terminal menu or bottom bar indicator'),
       ],
     };
 

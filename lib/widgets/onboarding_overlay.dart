@@ -19,22 +19,32 @@ const _cards = [
   _OnboardingCard(
     Icons.edit_note,
     'Compose Bar',
-    'Type commands in the text field at the bottom. Press send or Enter to execute.',
+    'Type commands in the text field at the bottom. Press send or Enter to execute. Long-press [+] for snippets and history.',
   ),
   _OnboardingCard(
     Icons.swipe,
     'Action Bar',
-    'Swipe left/right on the toolbar buttons to see more groups. Tap a button to send its key.',
+    'Swipe left/right on the toolbar buttons to see more groups. Tap to send keys. Long-press the profile chip to switch profiles.',
   ),
   _OnboardingCard(
     Icons.add_circle_outline,
-    'Insert Menu',
-    'Tap [+] to insert snippets, commands from history, or switch input mode.',
+    'Insert Menu [+]',
+    'File upload/download, image transfer, and toggle between compose and direct input mode.',
   ),
   _OnboardingCard(
-    Icons.more_vert,
+    Icons.gamepad,
+    'Navigation Pad',
+    'D-pad or joystick for arrow keys with hold-to-repeat. 4 customizable action buttons. Tap the chevron to cycle full/compact/off.',
+  ),
+  _OnboardingCard(
+    Icons.keyboard,
+    'Custom Keyboard',
+    'Terminal-native keyboard with Ctrl, Alt, Esc, and arrow keys. Toggle in Settings if you need CJK or voice input.',
+  ),
+  _OnboardingCard(
+    Icons.tune,
     'Terminal Menu',
-    'Tap the menu icon for scroll mode, zoom, help, settings, and disconnect.',
+    'Tap the menu icon for scroll mode, gesture mode, zoom, navigation pad, floating joystick, downloads, settings, and disconnect.',
   ),
 ];
 
@@ -105,7 +115,7 @@ class _OnboardingDialogState extends State<_OnboardingDialog> {
                   Icon(Icons.waving_hand, color: DesignColors.primary, size: 24),
                   const SizedBox(width: 10),
                   Text(
-                    'Welcome to MuxPod',
+                    'Welcome to TermiPod',
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,

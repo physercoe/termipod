@@ -30,43 +30,23 @@
 <table>
 <tr>
 <td align="center"><b>Dashboard</b></td>
-<td align="center"><b>Terminal + Custom Keyboard</b></td>
 <td align="center"><b>Agent Commands</b></td>
+<td align="center"><b>Key Palette</b></td>
 </tr>
 <tr>
 <td><img src="docs/screens/dashboard_dark.png" width="240" alt="Dashboard — recent sessions, one-tap reconnect"></td>
-<td><img src="docs/screens/terminal_keyboard_dark.png" width="240" alt="Terminal with Flutter-native keyboard"></td>
 <td><img src="docs/screens/bolt_menu_dark.png" width="240" alt="Claude Code slash commands with dropdowns"></td>
-</tr>
-<tr>
-<td align="center"><b>Key Palette</b></td>
-<td align="center"><b>Insert Menu</b></td>
-<td align="center"><b>Terminal</b></td>
-</tr>
-<tr>
 <td><img src="docs/screens/key_palette_dark.png" width="240" alt="Profile sheet with key group grid"></td>
-<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="Insert menu — file transfer, image, direct input"></td>
-<td><img src="docs/screens/terminal_dark.png" width="240" alt="Terminal with action bar and compose bar"></td>
 </tr>
 <tr>
-<td align="center"><b>Servers</b></td>
-<td align="center"><b>Alerts</b></td>
+<td align="center"><b>Terminal</b></td>
 <td align="center"><b>Vault (Keys & Snippets)</b></td>
+<td align="center"><b>Insert Menu</b></td>
 </tr>
 <tr>
-<td><img src="docs/screens/servers_dark.png" width="240" alt="Server list with connection details"></td>
-<td><img src="docs/screens/alerts_dark.png" width="240" alt="tmux bell/activity/silence alerts"></td>
+<td><img src="docs/screens/terminal_dark.png" width="240" alt="Terminal with action bar and compose bar"></td>
 <td><img src="docs/screens/vault_dark.png" width="240" alt="SSH keys, snippets, command history"></td>
-</tr>
-<tr>
-<td align="center"><b>Settings</b></td>
-<td align="center"><b>Dashboard (Light)</b></td>
-<td align="center"><b>Servers (Light)</b></td>
-</tr>
-<tr>
-<td><img src="docs/screens/settings_dark.png" width="240" alt="Settings — terminal, input, appearance"></td>
-<td><img src="docs/screens/dashboard_light.png" width="240" alt="Dashboard in light theme"></td>
-<td><img src="docs/screens/servers_light.png" width="240" alt="Servers in light theme"></td>
+<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="Insert menu — file transfer, image, direct input"></td>
 </tr>
 </table>
 

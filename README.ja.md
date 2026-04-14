@@ -30,33 +30,23 @@
 <table>
 <tr>
 <td align="center"><b>ダッシュボード</b></td>
-<td align="center"><b>ターミナル + カスタムキーボード</b></td>
 <td align="center"><b>エージェントコマンド</b></td>
+<td align="center"><b>キーパレット</b></td>
 </tr>
 <tr>
 <td><img src="docs/screens/dashboard_dark.png" width="240" alt="ダッシュボード"></td>
-<td><img src="docs/screens/terminal_keyboard_dark.png" width="240" alt="カスタムキーボード付きターミナル"></td>
 <td><img src="docs/screens/bolt_menu_dark.png" width="240" alt="Claude Code スラッシュコマンド"></td>
-</tr>
-<tr>
-<td align="center"><b>キーパレット</b></td>
-<td align="center"><b>挿入メニュー</b></td>
-<td align="center"><b>ターミナル</b></td>
-</tr>
-<tr>
 <td><img src="docs/screens/key_palette_dark.png" width="240" alt="プロファイルシート"></td>
-<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="挿入メニュー"></td>
-<td><img src="docs/screens/terminal_dark.png" width="240" alt="アクションバー付きターミナル"></td>
 </tr>
 <tr>
-<td align="center"><b>サーバー</b></td>
-<td align="center"><b>アラート</b></td>
+<td align="center"><b>ターミナル</b></td>
 <td align="center"><b>Vault（鍵・スニペット）</b></td>
+<td align="center"><b>挿入メニュー</b></td>
 </tr>
 <tr>
-<td><img src="docs/screens/servers_dark.png" width="240" alt="サーバー一覧"></td>
-<td><img src="docs/screens/alerts_dark.png" width="240" alt="tmux アラート"></td>
+<td><img src="docs/screens/terminal_dark.png" width="240" alt="アクションバー付きターミナル"></td>
 <td><img src="docs/screens/vault_dark.png" width="240" alt="SSH 鍵、スニペット、コマンド履歴"></td>
+<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="挿入メニュー"></td>
 </tr>
 </table>
 

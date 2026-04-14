@@ -30,33 +30,23 @@
 <table>
 <tr>
 <td align="center"><b>仪表盘</b></td>
-<td align="center"><b>终端 + 自定义键盘</b></td>
 <td align="center"><b>代理命令</b></td>
+<td align="center"><b>按键面板</b></td>
 </tr>
 <tr>
 <td><img src="docs/screens/dashboard_dark.png" width="240" alt="仪表盘"></td>
-<td><img src="docs/screens/terminal_keyboard_dark.png" width="240" alt="自定义键盘终端"></td>
 <td><img src="docs/screens/bolt_menu_dark.png" width="240" alt="Claude Code 斜杠命令"></td>
-</tr>
-<tr>
-<td align="center"><b>按键面板</b></td>
-<td align="center"><b>插入菜单</b></td>
-<td align="center"><b>终端</b></td>
-</tr>
-<tr>
 <td><img src="docs/screens/key_palette_dark.png" width="240" alt="配置文件面板"></td>
-<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="插入菜单"></td>
-<td><img src="docs/screens/terminal_dark.png" width="240" alt="操作栏终端"></td>
 </tr>
 <tr>
-<td align="center"><b>服务器</b></td>
-<td align="center"><b>警报</b></td>
+<td align="center"><b>终端</b></td>
 <td align="center"><b>保险库（密钥和片段）</b></td>
+<td align="center"><b>插入菜单</b></td>
 </tr>
 <tr>
-<td><img src="docs/screens/servers_dark.png" width="240" alt="服务器列表"></td>
-<td><img src="docs/screens/alerts_dark.png" width="240" alt="tmux 警报"></td>
+<td><img src="docs/screens/terminal_dark.png" width="240" alt="操作栏终端"></td>
 <td><img src="docs/screens/vault_dark.png" width="240" alt="SSH 密钥、代码片段、命令历史"></td>
+<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="插入菜单"></td>
 </tr>
 </table>
 

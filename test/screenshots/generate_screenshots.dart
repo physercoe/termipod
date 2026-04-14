@@ -181,12 +181,36 @@ Future<void> _loadAppFonts() async {
 }
 
 Future<void> _loadMaterialIcons() async {
-  // Find Flutter SDK root from the dart executable path.
-  // Platform.resolvedExecutable is e.g. <flutter>/bin/cache/dart-sdk/bin/dart
-  final dartExe = Platform.resolvedExecutable;
-  final sdkRoot = File(dartExe).parent.parent.parent.parent.parent.path;
+  // Find Flutter SDK root. Try multiple strategies:
+  // 1. FLUTTER_ROOT env var
+  // 2. Derive from Platform.resolvedExecutable
+  //    (<flutter>/bin/cache/dart-sdk/bin/dart → 5 parents up)
+  // 3. `which flutter` and resolve symlinks
+  String? flutterRoot = Platform.environment['FLUTTER_ROOT'];
+
+  if (flutterRoot == null || flutterRoot.isEmpty) {
+    final dartExe = Platform.resolvedExecutable;
+    final candidate = File(dartExe).parent.parent.parent.parent.parent.path;
+    final check = File('$candidate/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf');
+    if (check.existsSync()) {
+      flutterRoot = candidate;
+    }
+  }
+
+  if (flutterRoot == null) {
+    final result = Process.runSync('which', ['flutter']);
+    if (result.exitCode == 0) {
+      final flutterBin = (result.stdout as String).trim();
+      final resolved = File(flutterBin).resolveSymlinksSync();
+      // resolved is <flutter>/bin/flutter
+      flutterRoot = File(resolved).parent.parent.path;
+    }
+  }
+
+  if (flutterRoot == null) return;
+
   final iconFont = File(
-    '$sdkRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+    '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
   );
   if (iconFont.existsSync()) {
     final loader = FontLoader('MaterialIcons');

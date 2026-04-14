@@ -103,6 +103,9 @@ flutter:
     - assets/icon/icon.png
     - assets/fonts/HackGenConsole-LICENSE.txt
     - assets/fonts/UDEVGothicNF-LICENSE.txt
+    # Pre-bundled Google Fonts — prevents runtime fetching in tests and
+    # provides offline fallback. google_fonts checks asset bundle first.
+    - assets/fonts/google/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

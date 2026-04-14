@@ -3,8 +3,15 @@ import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 import '../../providers/settings_provider.dart';
+import '../../providers/key_provider.dart';
+import '../../services/data_port_service.dart';
+import '../../services/keychain/secure_storage.dart';
 import 'dart:convert';
 import '../../models/action_bar_config.dart';
 import '../../models/action_bar_presets.dart';
@@ -499,6 +506,20 @@ class SettingsScreen extends ConsumerWidget {
                   subtitle: Text(l10n.settingBracketedPasteDesc),
                   value: settings.fileBracketedPaste,
                   onChanged: (v) => ref.read(settingsProvider.notifier).setFileBracketedPaste(v),
+                ),
+                const Divider(),
+                _SectionHeader(title: l10n.sectionData),
+                ListTile(
+                  leading: const Icon(Icons.upload),
+                  title: Text(l10n.exportBackup),
+                  subtitle: Text(l10n.exportBackupDesc),
+                  onTap: () => _handleExport(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.download),
+                  title: Text(l10n.importBackup),
+                  subtitle: Text(l10n.importBackupDesc),
+                  onTap: () => _handleImport(context, ref),
                 ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionAbout),
@@ -1136,6 +1157,148 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _handleExport(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    // Show warning dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.exportWarningTitle),
+        content: Text(l10n.exportWarningContent),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.buttonCancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l10n.exportButton)),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final storage = ref.read(secureStorageProvider);
+      final service = DataPortService(storage);
+      final data = await service.exportData();
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
+
+      final dir = await getTemporaryDirectory();
+      final now = DateTime.now();
+      final fileName = 'termipod-backup-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.json';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(jsonStr);
+
+      await Share.shareXFiles([XFile(file.path)]);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.exportFailed(e.toString())),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleImport(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      String content;
+      if (file.bytes != null) {
+        content = String.fromCharCodes(file.bytes!);
+      } else if (file.path != null) {
+        content = await File(file.path!).readAsString();
+      } else {
+        throw Exception('Could not read file');
+      }
+
+      final backup = jsonDecode(content) as Map<String, dynamic>;
+      DataPortService.validate(backup);
+      final summary = DataPortService.summarize(backup);
+
+      if (!context.mounted) return;
+
+      // Show import dialog with category checkboxes
+      final selectedCategories = await showDialog<Set<ImportCategory>>(
+        context: context,
+        builder: (ctx) => _ImportDialog(summary: summary, l10n: l10n),
+      );
+      if (selectedCategories == null || selectedCategories.isEmpty || !context.mounted) return;
+
+      final storage = ref.read(secureStorageProvider);
+      final service = DataPortService(storage);
+      final importResult = await service.importData(backup, categories: selectedCategories);
+
+      if (!context.mounted) return;
+
+      // Show result summary
+      final lines = <String>[];
+      if (selectedCategories.contains(ImportCategory.connections)) {
+        lines.add(l10n.importResultConnections(importResult.connectionsAdded, importResult.connectionsSkipped));
+      }
+      if (selectedCategories.contains(ImportCategory.sshKeys)) {
+        lines.add(l10n.importResultKeys(importResult.keysAdded, importResult.keysSkipped));
+      }
+      if (selectedCategories.contains(ImportCategory.snippets)) {
+        lines.add(l10n.importResultSnippets(importResult.snippetsAdded));
+      }
+      if (importResult.passwordsAdded > 0) {
+        lines.add(l10n.importResultPasswords(importResult.passwordsAdded));
+      }
+      if (selectedCategories.contains(ImportCategory.history)) {
+        lines.add(l10n.importResultHistory(importResult.historyMerged));
+      }
+      if (importResult.settingsImported) {
+        lines.add(l10n.importResultSettings);
+      }
+      if (importResult.profilesImported) {
+        lines.add(l10n.importResultProfiles);
+      }
+
+      // Invalidate providers to reload data
+      ref.invalidate(settingsProvider);
+
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l10n.importSuccess),
+          content: Text(lines.join('\n')),
+          actions: [
+            FilledButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.buttonClose)),
+          ],
+        ),
+      );
+    } on FormatException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message.contains('version')
+                ? l10n.importUnsupportedVersion(int.tryParse(e.message.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0)
+                : l10n.importInvalidFormat),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.importFailed(e.toString())),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildAppBar(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return SliverAppBar(
@@ -1159,6 +1322,80 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+}
+
+class _ImportDialog extends StatefulWidget {
+  final BackupSummary summary;
+  final AppLocalizations l10n;
+
+  const _ImportDialog({required this.summary, required this.l10n});
+
+  @override
+  State<_ImportDialog> createState() => _ImportDialogState();
+}
+
+class _ImportDialogState extends State<_ImportDialog> {
+  final _selected = <ImportCategory>{
+    ImportCategory.connections,
+    ImportCategory.sshKeys,
+    ImportCategory.snippets,
+    ImportCategory.history,
+    ImportCategory.actionBar,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+    final s = widget.summary;
+
+    return AlertDialog(
+      title: Text(l10n.importDialogTitle),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.backupSummary(s.connections, s.keys, s.snippets, s.historyItems),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            _checkbox(ImportCategory.connections, l10n.importCategoryConnections),
+            _checkbox(ImportCategory.sshKeys, l10n.importCategorySshKeys),
+            _checkbox(ImportCategory.snippets, l10n.importCategorySnippets),
+            _checkbox(ImportCategory.history, l10n.importCategoryHistory),
+            _checkbox(ImportCategory.actionBar, l10n.importCategoryActionBar),
+            _checkbox(ImportCategory.settings, l10n.importCategorySettings),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(l10n.buttonCancel)),
+        FilledButton(
+          onPressed: _selected.isEmpty ? null : () => Navigator.pop(context, _selected),
+          child: Text(l10n.importConfirm),
+        ),
+      ],
+    );
+  }
+
+  Widget _checkbox(ImportCategory category, String label) {
+    return CheckboxListTile(
+      value: _selected.contains(category),
+      title: Text(label),
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      onChanged: (v) {
+        setState(() {
+          if (v == true) {
+            _selected.add(category);
+          } else {
+            _selected.remove(category);
+          }
+        });
+      },
+    );
+  }
 }
 
 /// A single slot in the nav pad button customization grid.

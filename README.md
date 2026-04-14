@@ -129,6 +129,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 ### Other
 - **Notification alerts** — monitor bell/activity/silence flags across all connections
+- **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
 - **Help & onboarding** — cheat sheet for action bar + tmux keybindings, 4-card walkthrough
 - **Deep linking** — `termipod://` URL scheme for direct session access from external apps
 - **Tablet & foldable** adaptive layout

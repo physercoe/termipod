@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/services/terminal/ansi_parser.dart';
+import 'package:termipod/services/terminal/ansi_parser.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

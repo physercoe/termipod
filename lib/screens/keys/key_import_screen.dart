@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/key_provider.dart';
 

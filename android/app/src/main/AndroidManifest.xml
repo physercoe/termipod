@@ -39,7 +39,14 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- Deep link: muxpod://connect?server=...&session=...&window=...&pane=... -->
+            <!-- Deep link: termipod://connect?server=...&session=...&window=...&pane=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="termipod"/>
+            </intent-filter>
+            <!-- Legacy deep link scheme (transition period) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>

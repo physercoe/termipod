@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -521,7 +521,7 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.settingSourceCode),
                   subtitle: Text(l10n.settingSourceCodeUrl),
                   onTap: () async {
-                    final url = Uri.parse('https://github.com/physercoe/mux-pod');
+                    final url = Uri.parse('https://github.com/physercoe/termipod');
                     if (await canLaunchUrl(url)) {
                       await launchUrl(url, mode: LaunchMode.externalApplication);
                     }

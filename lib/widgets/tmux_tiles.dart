@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
-import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
-import 'package:flutter_muxpod/theme/design_colors.dart';
-import 'package:flutter_muxpod/widgets/active_list_tile.dart';
+import 'package:termipod/l10n/app_localizations.dart';
+import 'package:termipod/services/tmux/tmux_parser.dart';
+import 'package:termipod/theme/design_colors.dart';
+import 'package:termipod/widgets/active_list_tile.dart';
 
 /// tmuxセッション用ListTile
 class TmuxSessionTile extends StatelessWidget {

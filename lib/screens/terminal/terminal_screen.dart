@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -684,7 +684,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } else if (sessions.isNotEmpty) {
       sessionName = sessions.first.name;
     } else {
-      sessionName = 'muxpod-${DateTime.now().millisecondsSinceEpoch}';
+      sessionName = 'termipod-${DateTime.now().millisecondsSinceEpoch}';
       await sshClient.exec(TmuxCommands.newSession(name: sessionName, detached: true));
       if (!mounted || _isDisposed) return;
       await _refreshSessionTree();

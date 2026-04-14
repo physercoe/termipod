@@ -29,7 +29,7 @@ class SshForegroundTaskService {
 
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
-        channelId: 'muxpod_ssh_foreground',
+        channelId: 'termipod_ssh_foreground',
         channelName: 'SSH Connection',
         channelDescription: 'Keeps SSH connection alive in background',
         channelImportance: NotificationChannelImportance.LOW,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/screens/settings/settings_screen.dart';
+import 'package:termipod/screens/settings/settings_screen.dart';
 
 import '../helpers/test_helpers.dart';
 
@@ -77,7 +77,7 @@ void main() {
       final scrollable = find.byType(Scrollable).first;
       await tester.scrollUntilVisible(find.text('Source Code'), 200, scrollable: scrollable);
       expect(find.text('Source Code'), findsOneWidget);
-      expect(find.text('github.com/physercoe/mux-pod'), findsOneWidget);
+      expect(find.text('github.com/physercoe/termipod'), findsOneWidget);
     });
 
     // Image Transfer settings are at the very bottom of a long SliverList.

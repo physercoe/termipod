@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/services/tmux/tmux_commands.dart';
+import 'package:termipod/services/tmux/tmux_commands.dart';
 
 void main() {
   group('TmuxCommands', () {

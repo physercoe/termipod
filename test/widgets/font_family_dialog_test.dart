@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/widgets/dialogs/font_family_dialog.dart';
+import 'package:termipod/widgets/dialogs/font_family_dialog.dart';
 
 import '../helpers/test_helpers.dart';
 

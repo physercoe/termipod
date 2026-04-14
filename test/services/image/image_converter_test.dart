@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:flutter_muxpod/services/image/image_converter.dart';
+import 'package:termipod/services/image/image_converter.dart';
 
 void main() {
   group('ImageOutputFormat', () {

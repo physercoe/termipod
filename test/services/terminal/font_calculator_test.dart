@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/services/terminal/font_calculator.dart';
+import 'package:termipod/services/terminal/font_calculator.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

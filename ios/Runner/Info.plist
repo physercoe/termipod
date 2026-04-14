@@ -51,9 +51,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>com.muxpod.app</string>
+			<string>com.remoteagent.termipod</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>termipod</string>
 				<string>muxpod</string>
 			</array>
 		</dict>

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 /// 接続一覧のタイルWidget
 class ConnectionTile extends StatelessWidget {

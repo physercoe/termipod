@@ -14,7 +14,7 @@ import UIKit
 
     let controller = window?.rootViewController as! FlutterViewController
     deepLinkChannel = FlutterMethodChannel(
-      name: "com.muxpod.app/deeplink",
+      name: "com.termipod.app/deeplink",
       binaryMessenger: controller.binaryMessenger
     )
 

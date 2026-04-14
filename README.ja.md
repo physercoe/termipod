@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/physercoe/mux-pod/releases"><img src="https://img.shields.io/github/v/release/physercoe/mux-pod?style=flat-square&color=00c0d1" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/mux-pod?style=flat-square" alt="License"></a>
+  <a href="https://github.com/physercoe/termipod/releases"><img src="https://img.shields.io/github/v/release/physercoe/termipod?style=flat-square&color=00c0d1" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/termipod?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
   <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
@@ -110,14 +110,14 @@ TermiPod は **Android、iOS、iPadOS 対応のクロスプラットフォーム
 
 ### インストール
 
-**Android:** [**Releases**](https://github.com/physercoe/mux-pod/releases) から最新の APK をダウンロードしてサイドロード。
+**Android:** [**Releases**](https://github.com/physercoe/termipod/releases) から最新の APK をダウンロードしてサイドロード。
 
 **iOS / iPadOS:** App Store 版はまだありません — Xcode でソースからビルドしてください(下記参照)。TestFlight 配布はロードマップ上にあります。
 
 ### ソースからビルド
 
 ```bash
-git clone https://github.com/physercoe/mux-pod.git
+git clone https://github.com/physercoe/termipod.git
 cd mux-pod
 flutter pub get
 

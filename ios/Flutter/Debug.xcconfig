@@ -2,4 +2,4 @@
 #include "Generated.xcconfig"
 
 // Default Bundle Identifier (can be overridden via build settings)
-PRODUCT_BUNDLE_IDENTIFIER = si.mox.mux-pod
+PRODUCT_BUNDLE_IDENTIFIER = com.remoteagent.termipod

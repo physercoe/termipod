@@ -10,7 +10,7 @@ AndroidスマートフォンからSSH経由でリモートサーバーのtmuxセ
 - 特殊キー入力（ESC/CTRL/ALT等）
 - 通知ルール（パターンマッチで通知）
 - SSH鍵管理（flutter_secure_storage対応）
-- ディープリンク（muxpod:// URLスキームで外部アプリから直接遷移）
+- ディープリンク（termipod:// URLスキームで外部アプリから直接遷移、レガシー muxpod:// も対応）
 - 折りたたみデバイス対応
 
 ## 技術スタック

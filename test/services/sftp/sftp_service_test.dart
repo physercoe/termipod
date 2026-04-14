@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/services/sftp/sftp_service.dart';
+import 'package:termipod/services/sftp/sftp_service.dart';
 
 void main() {
   group('SftpService', () {

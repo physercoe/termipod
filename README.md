@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/physercoe/mux-pod/releases"><img src="https://img.shields.io/github/v/release/physercoe/mux-pod?style=flat-square&color=00c0d1" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/mux-pod?style=flat-square" alt="License"></a>
+  <a href="https://github.com/physercoe/termipod/releases"><img src="https://img.shields.io/github/v/release/physercoe/termipod?style=flat-square&color=00c0d1" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/termipod?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
   <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
@@ -115,7 +115,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 ### Other
 - **Notification alerts** — Monitor tmux window flags (bell, activity, silence) across all connections
-- **Deep linking** — `muxpod://` URL scheme for opening specific terminal sessions from external apps
+- **Deep linking** — `termipod://` URL scheme for opening specific terminal sessions from external apps (legacy `muxpod://` also accepted)
 - **Tablet & foldable support** — Adapts layout for iPad, Android tablets, and foldable inner screens
 - **Auto-resize** — Adjusts terminal dimensions to fit screen
 - **i18n** — English and Chinese (Simplified), follows system locale
@@ -281,10 +281,10 @@ Auto-detection seeds a pane's profile from `pane_current_command` the first time
 
 ### Deep Linking
 
-Open TermiPod directly from external apps using the `muxpod://` URL scheme.
+Open TermiPod directly from external apps using the `termipod://` URL scheme. The legacy `muxpod://` scheme is also accepted during the transition period.
 
 ```
-muxpod://connect?server=<id>&session=<name>&window=<name>&pane=<index>
+termipod://connect?server=<id>&session=<name>&window=<name>&pane=<index>
 ```
 
 Works with [claude-telegram-notify](https://github.com/launch52-ai/claude-telegram-notify) for tappable notifications that open the right terminal.
@@ -295,14 +295,14 @@ Works with [claude-telegram-notify](https://github.com/launch52-ai/claude-telegr
 
 ### Install
 
-**Android:** Download the latest APK from [**Releases**](https://github.com/physercoe/mux-pod/releases) and sideload.
+**Android:** Download the latest APK from [**Releases**](https://github.com/physercoe/termipod/releases) and sideload.
 
 **iOS / iPadOS:** No App Store build yet — build from source with Xcode (see below). TestFlight distribution is on the roadmap.
 
 ### Or build from source
 
 ```bash
-git clone https://github.com/physercoe/mux-pod.git
+git clone https://github.com/physercoe/termipod.git
 cd mux-pod
 flutter pub get
 

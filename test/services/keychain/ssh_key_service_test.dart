@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_muxpod/services/keychain/ssh_key_service.dart';
+import 'package:termipod/services/keychain/ssh_key_service.dart';
 
 void main() {
   late SshKeyService service;

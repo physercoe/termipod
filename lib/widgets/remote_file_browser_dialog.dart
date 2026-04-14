@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../services/sftp/sftp_service.dart';
 

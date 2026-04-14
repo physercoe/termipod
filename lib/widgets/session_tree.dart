@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_muxpod/l10n/app_localizations.dart';
-import 'package:flutter_muxpod/services/tmux/tmux_parser.dart';
-import 'package:flutter_muxpod/widgets/tmux_tiles.dart';
+import 'package:termipod/l10n/app_localizations.dart';
+import 'package:termipod/services/tmux/tmux_parser.dart';
+import 'package:termipod/widgets/tmux_tiles.dart';
 
 /// tmuxセッションツリー表示Widget
 /// 仮想スクロール対応: ListView.builder + 遅延ウィジェット生成

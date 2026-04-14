@@ -24,12 +24,12 @@ final class DeepLinkData {
       'DeepLinkData(server: $server, session: $session, window: $window, pane: $pane)';
 }
 
-/// `muxpod://` URLスキームのディープリンクを処理するサービス
+/// Deep link service for `termipod://` and legacy `muxpod://` URL schemes.
 ///
-/// URL形式: `muxpod://connect?server=id&session=name&window=name&pane=index`
+/// URL format: `termipod://connect?server=id&session=name&window=name&pane=index`
 final class DeepLinkService {
   static const _tag = 'DeepLinkService';
-  static const _channel = MethodChannel('com.muxpod.app/deeplink');
+  static const _channel = MethodChannel('com.termipod.app/deeplink');
 
   final _linkController = StreamController<DeepLinkData>.broadcast();
 
@@ -84,8 +84,8 @@ final class DeepLinkService {
     try {
       final uri = Uri.parse(uriString);
 
-      // muxpod://connect?... の形式のみ受け付け
-      if (uri.scheme != 'muxpod') {
+      // termipod:// or legacy muxpod:// scheme only
+      if (uri.scheme != 'termipod' && uri.scheme != 'muxpod') {
         return const DeepLinkData();
       }
 

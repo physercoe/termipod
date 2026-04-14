@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/physercoe/mux-pod/releases"><img src="https://img.shields.io/github/v/release/physercoe/mux-pod?style=flat-square&color=00c0d1" alt="Release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/mux-pod?style=flat-square" alt="License"></a>
+  <a href="https://github.com/physercoe/termipod/releases"><img src="https://img.shields.io/github/v/release/physercoe/termipod?style=flat-square&color=00c0d1" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/physercoe/termipod?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/iOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iOS">
   <img src="https://img.shields.io/badge/iPadOS-000000?style=flat-square&logo=apple&logoColor=white" alt="iPadOS">
@@ -110,14 +110,14 @@ TermiPod 是一款 **跨平台移动 SSH 客户端和 tmux 管理器**,支持 An
 
 ### 安装
 
-**Android:** 从 [**Releases**](https://github.com/physercoe/mux-pod/releases) 下载最新 APK 并侧载安装。
+**Android:** 从 [**Releases**](https://github.com/physercoe/termipod/releases) 下载最新 APK 并侧载安装。
 
 **iOS / iPadOS:** 暂无 App Store 版本 — 请使用 Xcode 从源码构建(见下文)。TestFlight 分发在计划中。
 
 ### 从源码构建
 
 ```bash
-git clone https://github.com/physercoe/mux-pod.git
+git clone https://github.com/physercoe/termipod.git
 cd mux-pod
 flutter pub get
 

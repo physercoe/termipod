@@ -59,6 +59,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>mailto</string>
+	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>SSH接続情報への安全なアクセスのためにFace IDを使用します</string>
 	<key>NSPhotoLibraryUsageDescription</key>

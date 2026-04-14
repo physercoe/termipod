@@ -1,9 +1,9 @@
-name: Build and Release iOS IPA
+name: Build & Release iOS
 
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v*'
 
 concurrency:
   group: ios-release-${{ github.ref }}
@@ -65,27 +65,27 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
-          MAJOR=$(echo "$VERSION_NUM" | cut -d. -f1)
-          MINOR=$(echo "$VERSION_NUM" | cut -d. -f2)
-          PATCH=$(echo "$VERSION_NUM" | cut -d. -f3)
-          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          MAJOR=$(echo "${VERSION_NUM%%-*}" | cut -d. -f1)
+          MINOR=$(echo "${VERSION_NUM%%-*}" | cut -d. -f2)
+          PATCH=$(echo "${VERSION_NUM%%-*}" | cut -d. -f3)
+          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
 
           flutter build ios --release --no-codesign \
-            --build-name=$VERSION_NUM \
-            --build-number=$BUILD_NUMBER \
-            --dart-define=APP_VERSION=$VERSION \
-            --dart-define=GIT_REF=$GIT_REF
+            --build-name="$VERSION_NUM" \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=APP_VERSION="$VERSION" \
+            --dart-define=GIT_REF="$GIT_REF"
 
       - name: Create unsigned IPA
         run: |
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          zip -r "mux-pod-${{ github.ref_name }}-unsigned.ipa" Payload
+          zip -r "termipod-${{ github.ref_name }}-ios-unsigned.ipa" Payload
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: mux-pod-${{ github.ref_name }}-unsigned.ipa
+          files: termipod-${{ github.ref_name }}-ios-unsigned.ipa
           fail_on_unmatched_files: false
           generate_release_notes: false

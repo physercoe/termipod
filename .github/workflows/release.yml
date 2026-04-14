@@ -1,9 +1,13 @@
-name: Build and Release APK
+name: Build & Release Android
 
 on:
   push:
     tags:
       - 'v*'
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -47,6 +51,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
 
@@ -58,17 +65,22 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NUM"
-          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NUM%%-*}"
+          BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
           flutter build apk --release \
-            --build-name=$VERSION_NUM \
-            --build-number=$BUILD_NUMBER \
-            --dart-define=APP_VERSION=$VERSION \
-            --dart-define=GIT_REF=$GIT_REF
+            --build-name="$VERSION_NUM" \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=APP_VERSION="$VERSION" \
+            --dart-define=GIT_REF="$GIT_REF"
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-android.apk
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-android.apk
           generate_release_notes: true

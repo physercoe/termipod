@@ -539,8 +539,14 @@ class SettingsScreen extends ConsumerWidget {
                         'subject': 'TermiPod Feedback (v${VersionInfo.version})',
                       },
                     );
-                    if (await canLaunchUrl(uri)) {
+                    try {
                       await launchUrl(uri);
+                    } catch (_) {
+                      // Fallback: open GitHub issues page if mailto fails
+                      final fallback = Uri.parse('https://github.com/physercoe/termipod/issues');
+                      if (context.mounted) {
+                        await launchUrl(fallback, mode: LaunchMode.externalApplication);
+                      }
                     }
                   },
                 ),

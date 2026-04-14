@@ -1,0 +1,4 @@
+tags:
+  screenshot:
+    # Golden screenshot tests — require platform-specific fonts.
+    # Excluded from CI by default: flutter test --exclude-tags=screenshot

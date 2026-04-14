@@ -275,6 +275,7 @@ Future<void> _captureScreenshot(
 // Tests
 // ---------------------------------------------------------------------------
 
+@Tags(['screenshot'])
 void main() {
   setUpAll(() async {
     // Fonts are pre-bundled in assets/fonts/google/ — google_fonts loads

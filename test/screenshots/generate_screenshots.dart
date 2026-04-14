@@ -281,6 +281,17 @@ void main() {
     // them from the asset bundle, no network needed.
     GoogleFonts.config.allowRuntimeFetching = false;
     await _loadAppFonts();
+
+    // Pre-warm google_fonts by calling the text style factories.
+    // This triggers asset bundle lookups so fonts are cached before
+    // the first test renders (otherwise FakeAsync can miss the async load).
+    GoogleFonts.spaceGrotesk();
+    GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w500);
+    GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600);
+    GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700);
+    GoogleFonts.jetBrainsMono();
+    GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w500);
+    GoogleFonts.jetBrainsMono(fontWeight: FontWeight.w700);
   });
 
   group('Screenshots', () {

@@ -168,6 +168,12 @@ Future<void> _loadAppFonts() async {
       'assets/fonts/google/JetBrainsMono-Medium.ttf',
       'assets/fonts/google/JetBrainsMono-Bold.ttf',
     ],
+    'SpaceGrotesk': [
+      'assets/fonts/google/SpaceGrotesk-Regular.ttf',
+      'assets/fonts/google/SpaceGrotesk-Medium.ttf',
+      'assets/fonts/google/SpaceGrotesk-SemiBold.ttf',
+      'assets/fonts/google/SpaceGrotesk-Bold.ttf',
+    ],
     // Generic 'monospace' used by key fingerprints, snippet content, etc.
     'monospace': [
       'assets/fonts/google/JetBrainsMono-Regular.ttf',
@@ -346,11 +352,12 @@ void main() {
       await _captureScreenshot(
         tester,
         _buildScreenshot(
-          child: _MockSheetScreen(
+          child: _MockTerminalWithSheet(
             sheet: SnippetPickerSheet(
               onInsert: (_) {},
               onSendImmediately: (_) {},
             ),
+            sheetFraction: 0.65,
           ),
           dark: true,
         ),
@@ -362,13 +369,14 @@ void main() {
       await _captureScreenshot(
         tester,
         _buildScreenshot(
-          child: _MockSheetScreen(
+          child: _MockTerminalWithSheet(
             sheet: ProfileSheet(
               onKeyTap: (_) {},
               onSpecialKeyTap: (_) {},
               onModifierTap: (_) {},
               onActionTap: (_) {},
             ),
+            sheetFraction: 0.6,
           ),
           dark: true,
         ),
@@ -380,7 +388,7 @@ void main() {
       await _captureScreenshot(
         tester,
         _buildScreenshot(
-          child: const _MockInsertMenuScreen(),
+          child: const _MockTerminalWithInsertMenu(),
           dark: true,
         ),
         'goldens/insert_menu_dark.png',
@@ -567,92 +575,244 @@ class _TermLine {
 }
 
 // ---------------------------------------------------------------------------
-// Mock Sheet Screen — renders a bottom sheet widget inline over a dim backdrop
+// Mock Terminal + Sheet overlay — shows terminal behind a bottom sheet
 // ---------------------------------------------------------------------------
 
-class _MockSheetScreen extends StatelessWidget {
+class _MockTerminalWithSheet extends ConsumerWidget {
   final Widget sheet;
-  const _MockSheetScreen({required this.sheet});
+  final double sheetFraction;
+  const _MockTerminalWithSheet({
+    required this.sheet,
+    this.sheetFraction = 0.65,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: isDark
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
+        children: [
+          // Terminal background (dimmed)
+          ColorFiltered(
+            colorFilter: ColorFilter.mode(
+              Colors.black.withValues(alpha: 0.5),
+              BlendMode.darken,
+            ),
+            child: Column(
+              children: [
+                _buildBreadcrumb(context, isDark),
+                Expanded(child: _buildCompactTerminal(context, isDark)),
+                ActionBar(
+                  onKeyPressed: (_) {},
+                  onSpecialKeyPressed: (_) {},
+                ),
+                ComposeBar(
+                  connectionId: 'mock',
+                  onSend: (_, {bool withEnter = true}) {},
+                ),
+              ],
+            ),
+          ),
+          // Sheet overlay at bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: MediaQuery.of(context).size.height * sheetFraction,
+            child: sheet,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBreadcrumb(BuildContext context, bool isDark) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.dns_rounded, size: 16, color: DesignColors.primary),
+          const SizedBox(width: 8),
+          Text('dev-gpu-box',
+              style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? DesignColors.textPrimary
+                      : DesignColors.textPrimaryLight)),
+          Icon(Icons.chevron_right,
+              size: 18, color: DesignColors.textSecondary),
+          Text('claude',
+              style: TextStyle(
+                  color: isDark
+                      ? DesignColors.textSecondary
+                      : DesignColors.textSecondaryLight)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactTerminal(BuildContext context, bool isDark) {
+    final lines = [
+      _TermLine('> Fix the auth middleware to validate',
+          Colors.white),
+      _TermLine('  JWT tokens before checking roles.',
+          Colors.white),
+      _TermLine('', Colors.transparent),
+      _TermLine('● Reading src/middleware/auth.ts',
+          const Color(0xFF60A5FA)),
+      _TermLine('● Reading src/types/jwt.ts',
+          const Color(0xFF60A5FA)),
+      _TermLine('', Colors.transparent),
+      _TermLine('  src/middleware/auth.ts',
+          const Color(0xFFFBBF24)),
+      _TermLine('  + const decoded = verifyJWT(token);',
+          const Color(0xFF4ADE80)),
+      _TermLine('  - checkRole(req.headers.auth);',
+          const Color(0xFFF87171)),
+      _TermLine('  + checkRole(decoded.payload);',
+          const Color(0xFF4ADE80)),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(8),
+      color: isDark
           ? DesignColors.backgroundDark
           : DesignColors.backgroundLight,
-      body: Column(
-        children: [
-          // Dim header area to simulate backdrop behind sheet
-          Container(
-            height: 80,
-            color: Colors.black.withValues(alpha: 0.4),
-          ),
-          // The sheet widget takes the rest
-          Expanded(child: sheet),
-        ],
+      child: ListView.builder(
+        itemCount: lines.length,
+        itemExtent: 18,
+        physics: const NeverScrollableScrollPhysics(),
+        itemBuilder: (context, index) {
+          final line = lines[index];
+          return Text(
+            line.text,
+            style: TextStyle(
+              fontFamily: 'JetBrainsMono',
+              fontSize: 12,
+              height: 1.4,
+              color: line.color,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+          );
+        },
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Mock Insert Menu Screen — renders the insert menu items directly
+// Mock Terminal + Insert Menu overlay
 // ---------------------------------------------------------------------------
 
-class _MockInsertMenuScreen extends StatelessWidget {
-  const _MockInsertMenuScreen();
+class _MockTerminalWithInsertMenu extends ConsumerWidget {
+  const _MockTerminalWithInsertMenu();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: isDark
-          ? DesignColors.backgroundDark
-          : DesignColors.backgroundLight,
-      body: Column(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: Stack(
         children: [
-          // Dim top area
-          Expanded(
-            child: Container(color: Colors.black.withValues(alpha: 0.4)),
-          ),
-          // Menu at bottom — replicate InsertMenu layout
-          Container(
-            decoration: BoxDecoration(
-              color: isDark
-                  ? DesignColors.surfaceDark
-                  : DesignColors.surfaceLight,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
+          // Terminal background (dimmed)
+          ColorFiltered(
+            colorFilter: ColorFilter.mode(
+              Colors.black.withValues(alpha: 0.5),
+              BlendMode.darken,
             ),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Handle bar
-                  Container(
-                    width: 32,
-                    height: 4,
-                    margin: const EdgeInsets.only(top: 8, bottom: 12),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+            child: Column(
+              children: [
+                Container(
+                  height: 48,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? DesignColors.surfaceDark
+                        : DesignColors.surfaceLight,
                   ),
-                  _menuItem(context, Icons.upload_file,
-                      AppLocalizations.of(context)!.fileUpload, isDark),
-                  _menuItem(context, Icons.download,
-                      AppLocalizations.of(context)!.fileDownload, isDark),
-                  _menuItem(context, Icons.image,
-                      AppLocalizations.of(context)!.imageTransfer, isDark),
-                  const Divider(height: 1),
-                  _menuItem(context, Icons.keyboard,
-                      AppLocalizations.of(context)!.directInputMode, isDark),
-                  const SizedBox(height: 8),
-                ],
+                  child: Row(
+                    children: [
+                      Icon(Icons.dns_rounded,
+                          size: 16, color: DesignColors.primary),
+                      const SizedBox(width: 8),
+                      Text('dev-gpu-box',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: isDark
+                                  ? DesignColors.textPrimary
+                                  : DesignColors.textPrimaryLight)),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Container(
+                    color: isDark
+                        ? DesignColors.backgroundDark
+                        : DesignColors.backgroundLight,
+                  ),
+                ),
+                ActionBar(
+                  onKeyPressed: (_) {},
+                  onSpecialKeyPressed: (_) {},
+                ),
+                ComposeBar(
+                  connectionId: 'mock',
+                  onSend: (_, {bool withEnter = true}) {},
+                ),
+              ],
+            ),
+          ),
+          // Insert menu at bottom
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? DesignColors.surfaceDark
+                    : DesignColors.surfaceLight,
+                borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 8, bottom: 12),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    _menuItem(context, Icons.upload_file,
+                        AppLocalizations.of(context)!.fileUpload, isDark),
+                    _menuItem(context, Icons.download,
+                        AppLocalizations.of(context)!.fileDownload, isDark),
+                    _menuItem(context, Icons.image,
+                        AppLocalizations.of(context)!.imageTransfer, isDark),
+                    const Divider(height: 1),
+                    _menuItem(context, Icons.keyboard,
+                        AppLocalizations.of(context)!.directInputMode, isDark),
+                    const SizedBox(height: 8),
+                  ],
+                ),
               ),
             ),
           ),

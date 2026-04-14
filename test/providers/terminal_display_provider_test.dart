@@ -1,9 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termipod/providers/terminal_display_provider.dart';
 import 'package:termipod/providers/settings_provider.dart';
 import 'package:termipod/services/tmux/tmux_parser.dart';
+
+/// Synchronous settings notifier that avoids async SharedPreferences load.
+class _TestSettingsNotifier extends SettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -100,9 +105,11 @@ void main() {
     late ProviderContainer container;
 
     setUp(() {
-      // Mock SharedPreferences
-      SharedPreferences.setMockInitialValues({});
-      container = ProviderContainer();
+      container = ProviderContainer(
+        overrides: [
+          settingsProvider.overrideWith(() => _TestSettingsNotifier()),
+        ],
+      );
     });
 
     tearDown(() {

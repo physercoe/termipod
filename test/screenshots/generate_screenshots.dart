@@ -201,7 +201,7 @@ Future<void> _loadMaterialIcons() async {
     final result = Process.runSync('which', ['flutter']);
     if (result.exitCode == 0) {
       final flutterBin = (result.stdout as String).trim();
-      final resolved = File(flutterBin).resolveSymlinksSync();
+      final resolved = Link(flutterBin).resolveSymlinksSync();
       // resolved is <flutter>/bin/flutter
       flutterRoot = File(resolved).parent.parent.path;
     }

@@ -282,7 +282,7 @@ class _KeyImportScreenState extends ConsumerState<KeyImportScreen> {
       if (mounted) {
         final message = e.message.contains('passphrase')
             ? 'Wrong passphrase. Please check and try again.'
-            : AppLocalizations.of(context)!.invalidKeyFormat(e.message ?? '');
+            : AppLocalizations.of(context)!.invalidKeyFormat(e.message);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),

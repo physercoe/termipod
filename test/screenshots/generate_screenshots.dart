@@ -12,7 +12,10 @@
 /// Google Fonts (Space Grotesk, JetBrains Mono) are pre-bundled in
 /// assets/fonts/google/ so they load from the asset bundle without
 /// network access. Text renders with real fonts.
+@Tags(['screenshot'])
 library;
+
+// ignore_for_file: unused_import
 
 import 'dart:io';
 
@@ -275,7 +278,6 @@ Future<void> _captureScreenshot(
 // Tests
 // ---------------------------------------------------------------------------
 
-@Tags(['screenshot'])
 void main() {
   setUpAll(() async {
     // Fonts are pre-bundled in assets/fonts/google/ — google_fonts loads

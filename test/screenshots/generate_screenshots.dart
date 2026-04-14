@@ -198,12 +198,16 @@ Future<void> _loadMaterialIcons() async {
   }
 
   if (flutterRoot == null) {
+    // Try resolving 'flutter' from PATH
     final result = Process.runSync('which', ['flutter']);
     if (result.exitCode == 0) {
       final flutterBin = (result.stdout as String).trim();
-      final resolved = Link(flutterBin).resolveSymlinksSync();
-      // resolved is <flutter>/bin/flutter
-      flutterRoot = File(resolved).parent.parent.path;
+      // Follow symlinks: readlink -f
+      final linkResult = Process.runSync('readlink', ['-f', flutterBin]);
+      if (linkResult.exitCode == 0) {
+        final resolved = (linkResult.stdout as String).trim();
+        flutterRoot = File(resolved).parent.parent.path;
+      }
     }
   }
 

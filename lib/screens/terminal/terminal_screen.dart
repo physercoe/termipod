@@ -2059,17 +2059,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// キャレット位置にスクロール
-  ///
-  /// パネル/ウィンドウ切り替え後の初回表示時に呼ばれ、
-  /// カーソル行が画面中央付近に来るようスクロールする
-  void _scrollToCaret() {
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (!mounted || _isDisposed) return;
-      _ansiTextViewKey.currentState?.scrollToCaret();
-    });
-  }
-
   /// スクロール位置インジケーター
   ///
   /// ユーザーが最下部にいない時に現在行/総行数を表示する。

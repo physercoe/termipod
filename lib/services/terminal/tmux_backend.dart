@@ -209,37 +209,29 @@ class TmuxBackend implements TerminalBackend {
 
       final startTime = DateTime.now();
 
-      // When on the alternate screen (vi, less, man, etc.) or history_size
-      // is 0, don't request scrollback — only capture the visible pane.
-      // This prevents stale content from appearing above fullscreen apps.
-      final effectiveScrollback =
-          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
-      final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: effectiveScrollback > 0 ? -effectiveScrollback : null)}; '
+      // --- Phase 1: query pane metadata (cursor, size, alternate_on,
+      // pane_mode) so we know the screen state BEFORE deciding how much
+      // scrollback to capture.  This costs one lightweight display-message
+      // round-trip but prevents the one-poll lag that caused old shell
+      // content to bleed into fullscreen apps like vi.
+      final metaCommand =
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
-      final combinedOutput = await _sshClient.execPersistent(
-        combinedCommand,
+      final metaOutput = await _sshClient.execPersistent(
+        metaCommand,
         timeout: const Duration(seconds: 2),
       );
 
       if (_disposed) return;
 
-      // Split output: last line = pane_mode, second-to-last = cursor info, rest = content
-      final lines = combinedOutput.split('\n');
-      final paneModeOutput = lines.isNotEmpty ? lines.removeLast() : '';
-      final cursorOutput = lines.isNotEmpty ? lines.removeLast() : '';
-      final output = lines.join('\n');
+      // Parse metadata — cursor info is first line, pane mode is second.
+      final metaLines = metaOutput.split('\n');
+      final cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
+      final paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
 
-      final processedOutput = output.endsWith('\n')
-          ? output.substring(0, output.length - 1)
-          : output;
-
-      final endTime = DateTime.now();
-      _latency = endTime.difference(startTime).inMilliseconds;
-
-      // Parse cursor position, pane size, and alternate_on flag
+      // Parse cursor position, pane size, and alternate_on flag BEFORE
+      // building the capture command so effectiveScrollback is accurate.
       int? historySize;
       if (cursorOutput.isNotEmpty) {
         final parts = cursorOutput.trim().split(',');
@@ -273,8 +265,34 @@ class TmuxBackend implements TerminalBackend {
         onCopyModeChange?.call(_isInCopyMode);
       }
 
-      // Update content
-      if (processedOutput != _currentContent || _latency != latency) {
+      // --- Phase 2: capture pane content using the now-accurate flags.
+      // When on the alternate screen (vi, less, man, etc.) or history_size
+      // is 0, don't request scrollback — only capture the visible pane.
+      // This prevents stale content from appearing above fullscreen apps.
+      final effectiveScrollback =
+          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
+      final captureCommand = TmuxCommands.capturePane(
+        target,
+        escapeSequences: true,
+        startLine: effectiveScrollback > 0 ? -effectiveScrollback : null,
+      );
+
+      final output = await _sshClient.execPersistent(
+        captureCommand,
+        timeout: const Duration(seconds: 2),
+      );
+
+      if (_disposed) return;
+
+      final processedOutput = output.endsWith('\n')
+          ? output.substring(0, output.length - 1)
+          : output;
+
+      final endTime = DateTime.now();
+      _latency = endTime.difference(startTime).inMilliseconds;
+
+      // Update content only when it actually changed.
+      if (processedOutput != _currentContent) {
         _currentContent = processedOutput;
         _contentController.add(null);
       }

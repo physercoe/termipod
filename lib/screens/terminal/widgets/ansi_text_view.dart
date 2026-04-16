@@ -1353,8 +1353,12 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
     });
   }
 
-  /// Lines of margin below the cursor when scrolling to "bottom"
-  static const int _cursorBottomMargin = 3;
+  /// Lines of margin below the cursor when scrolling to "bottom".
+  /// 0 = cursor sits on the last visible row. Prior value (3) left the
+  /// cursor visibly detached from the viewport bottom after initial
+  /// entry / vi-exit / jump-to-end, which users perceived as "not at
+  /// the bottom".
+  static const int _cursorBottomMargin = 0;
 
   void _jumpToCursorBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1372,12 +1376,6 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         // cursor+margin path below would clamp to 0 when the cursor
         // sits near the top and scroll to the TOP of the vi screen,
         // which is the opposite of what jump-to-bottom should do.
-        //
-        // For NON-fullscreen panes with `scrollbackSize == 0` (raw PTY
-        // shell before any history accumulates), we fall through to
-        // the cursor+margin path: the buffer is always `_rows` lines
-        // tall with trailing blanks, and jumping to raw maxExtent
-        // would scroll those blanks into view and hide the prompt.
         if (widget.isFullscreen) {
           _verticalScrollController.jumpTo(maxExtent);
           return;
@@ -1393,7 +1391,20 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         // Cursor absolute line index (same logic as build)
         final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
 
-        // Place cursor near the bottom of viewport with margin
+        // When the cursor lies at/after the last parsed line (tmux's
+        // capture-pane trims trailing empty rows down to the cursor
+        // row, and raw PTY emits exactly scrollback+rows lines), the
+        // raw `maxScrollExtent` already places the cursor at the
+        // viewport bottom. Using maxExtent directly avoids subtle
+        // off-by-one drift from line-height rounding and guarantees
+        // we actually land at the bottom of the scroll range.
+        if (cursorLineIndex >= parsedLines.length - 1) {
+          _verticalScrollController.jumpTo(maxExtent);
+          return;
+        }
+
+        // Otherwise (rare — cursor above a tail of explicit content),
+        // place cursor on the last visible row with no margin.
         final viewportHeight = position.viewportDimension;
         final targetOffset =
             (cursorLineIndex + 1 + _cursorBottomMargin) * _lineHeight -

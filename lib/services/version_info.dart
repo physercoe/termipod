@@ -9,7 +9,7 @@ class VersionInfo {
   static const String _gitRef = String.fromEnvironment('GIT_REF');
 
   /// Fallback version matching pubspec.yaml — update when bumping version.
-  static const String _pubspecVersion = '1.0.13-alpha';
+  static const String _pubspecVersion = '1.0.14-alpha';
 
   static String get version {
     if (_appVersion.isNotEmpty) return _appVersion;

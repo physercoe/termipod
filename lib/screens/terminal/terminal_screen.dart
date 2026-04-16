@@ -891,7 +891,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _pollIsFullscreen = backendFullscreen;
       if (wasFullscreen && !backendFullscreen) {
         _pendingScrollToBottom = true;
-        _pendingScrollToBottomBackstop = 5;
+        _pendingScrollToBottomBackstop = 10;
       }
     }
 
@@ -1142,7 +1142,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           // brings the full history. See `_pendingScrollToBottomBackstop`.
           if (wasFullscreen && !_pollIsFullscreen) {
             _pendingScrollToBottom = true;
-            _pendingScrollToBottomBackstop = 5;
+            _pendingScrollToBottomBackstop = 10;
           }
           paneHeightForStrip = h;
 
@@ -1339,7 +1339,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!_hasInitialScrolled && _pendingContent.isNotEmpty) {
       _hasInitialScrolled = true;
       _pendingScrollToBottom = true;
-      _pendingScrollToBottomBackstop = 5;
+      _pendingScrollToBottomBackstop = 10;
     }
 
     // Scroll to bottom after resize OR fullscreen→shell transition.
@@ -1350,12 +1350,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // pixels between them).
     if (_pendingScrollToBottom && _pendingContent.isNotEmpty) {
       _ansiTextViewKey.currentState?.scrollToBottom();
-      // Clear once the full scrollback is back (or the backstop runs
-      // out). While scrollback is still 0 we keep firing — the next
-      // poll brings more lines and we need to re-anchor to the new
-      // bottom.
-      if (_pendingScrollbackSize > 0 ||
-          --_pendingScrollToBottomBackstop <= 0) {
+      // Run the full backstop window regardless of scrollback state.
+      // The earlier early-clear on `scrollbackSize > 0` raced against
+      // Flutter's rebuild cycle — the freshly-arrived scrollback had
+      // landed in _pendingScrollbackSize but the ListView's
+      // maxScrollExtent was still stale on that frame, so scrollToBottom
+      // anchored to the pre-reinflation bottom (which is mid-history of
+      // the real content). Running a few more cycles lets layout catch
+      // up and re-anchors on each subsequent poll.
+      if (--_pendingScrollToBottomBackstop <= 0) {
         _pendingScrollToBottom = false;
         _pendingScrollToBottomBackstop = 0;
       }
@@ -2949,6 +2952,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _startPolling();
         // Defer scroll-to-bottom until first poll delivers new content
         _pendingScrollToBottom = true;
+        _pendingScrollToBottomBackstop = 10;
         _scrollToBottomKey.currentState?.show();
       }
     }

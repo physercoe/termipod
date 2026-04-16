@@ -44,8 +44,6 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   // lands directly under the user's right thumb in natural phone grip —
   // easier to reach than the old screen-vertical-middle default.
   double? _bottom;
-  // Track previous extraBottomOffset to compute delta on changes.
-  double _prevExtraOffset = 0;
 
   // Center zone radius is derived proportionally from the outer radius so the
   // center stays a reasonable touch target at all sizes.
@@ -229,7 +227,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
         _bottom = (_bottom! + delta).clamp(0.0, 2000.0);
       });
     }
-    _prevExtraOffset = widget.extraBottomOffset;
+
   }
 
   @override

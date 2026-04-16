@@ -30,6 +30,8 @@ class RawPtyBackend implements TerminalBackend {
 
   /// Tmux key name -> VT escape sequence mapping.
   /// Used when callers provide tmux key names (from action bar, nav pad).
+  /// Includes both standard names and tmux aliases (e.g., PPage/PageUp)
+  /// so action bar buttons work correctly in raw PTY mode.
   static const Map<String, String> _keyToEscape = {
     'Enter': '\r',
     'S-Enter': '\n',
@@ -44,9 +46,12 @@ class RawPtyBackend implements TerminalBackend {
     'Home': '\x1b[H',
     'End': '\x1b[F',
     'PageUp': '\x1b[5~',
+    'PPage': '\x1b[5~', // tmux alias
     'PageDown': '\x1b[6~',
+    'NPage': '\x1b[6~', // tmux alias
     'Insert': '\x1b[2~',
     'Delete': '\x1b[3~',
+    'DC': '\x1b[3~', // tmux alias
     'F1': '\x1bOP',
     'F2': '\x1bOQ',
     'F3': '\x1bOR',
@@ -365,7 +370,7 @@ class RawPtyBackend implements TerminalBackend {
       return;
     }
 
-    // Fall back to tmux key name -> escape sequence mapping
+    // Direct lookup in the key map
     final seq = _keyToEscape[tmuxKey];
     if (seq != null) {
       _sshClient.write(seq);
@@ -382,8 +387,31 @@ class RawPtyBackend implements TerminalBackend {
       }
     }
 
-    // Last resort: send as literal text
-    _sshClient.write(tmuxKey);
+    // Handle Alt/Meta combos: M-<char> → ESC + char
+    if (tmuxKey.startsWith('M-') && tmuxKey.length == 3) {
+      _sshClient.write('\x1b${tmuxKey[2]}');
+      return;
+    }
+
+    // Handle space-separated key sequences (e.g., "Escape Escape", "C-b c").
+    // Each token is resolved independently through this same method.
+    if (tmuxKey.contains(' ')) {
+      for (final part in tmuxKey.split(' ')) {
+        await sendSpecialKey(part.trim());
+      }
+      return;
+    }
+
+    // Single printable character — send as literal (safe for 1-char strings
+    // like "y", "n", ":" from action bar confirm/literal buttons).
+    if (tmuxKey.length == 1) {
+      _sshClient.write(tmuxKey);
+      return;
+    }
+
+    // Unknown multi-character key name — drop silently rather than
+    // injecting garbage into the terminal (e.g., vi interprets each
+    // letter of "PPage" as a separate command).
   }
 
   // ---------------------------------------------------------------------------

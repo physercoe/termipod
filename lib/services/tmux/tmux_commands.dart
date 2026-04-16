@@ -276,7 +276,7 @@ class TmuxCommands {
 
   /// カーソル位置とペインサイズを取得
   static String getCursorPosition(String target) {
-    return 'tmux display-message -p -t ${_escapeArg(target)} "#{cursor_x},#{cursor_y},#{pane_width},#{pane_height},#{history_size}"';
+    return 'tmux display-message -p -t ${_escapeArg(target)} "#{cursor_x},#{cursor_y},#{pane_width},#{pane_height},#{history_size},#{alternate_on}"';
   }
 
   /// ペインのモードを取得（copy-mode検出用）

@@ -61,6 +61,7 @@ class TmuxBackend implements TerminalBackend {
   int _paneWidth = 80;
   int _paneHeight = 24;
   int _scrollbackSize = 0;
+  bool _isAlternateScreen = false;
   bool _isInCopyMode = false;
   int _latency = 0;
 
@@ -85,7 +86,7 @@ class TmuxBackend implements TerminalBackend {
   bool get isInCopyMode => _isInCopyMode;
 
   @override
-  int get scrollbackSize => _scrollbackSize;
+  int get scrollbackSize => _isAlternateScreen ? 0 : _scrollbackSize;
 
   @override
   String get currentContent => _currentContent;
@@ -208,8 +209,13 @@ class TmuxBackend implements TerminalBackend {
 
       final startTime = DateTime.now();
 
+      // When on the alternate screen (vi, less, man, etc.) or history_size
+      // is 0, don't request scrollback — only capture the visible pane.
+      // This prevents stale content from appearing above fullscreen apps.
+      final effectiveScrollback =
+          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -_scrollbackLines)}; '
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: effectiveScrollback > 0 ? -effectiveScrollback : null)}; '
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
@@ -233,7 +239,7 @@ class TmuxBackend implements TerminalBackend {
       final endTime = DateTime.now();
       _latency = endTime.difference(startTime).inMilliseconds;
 
-      // Parse cursor position and pane size
+      // Parse cursor position, pane size, and alternate_on flag
       int? historySize;
       if (cursorOutput.isNotEmpty) {
         final parts = cursorOutput.trim().split(',');
@@ -243,6 +249,8 @@ class TmuxBackend implements TerminalBackend {
           final w = int.tryParse(parts[2]);
           final h = int.tryParse(parts[3]);
           historySize = parts.length >= 5 ? int.tryParse(parts[4]) : null;
+          _isAlternateScreen =
+              parts.length >= 6 && parts[5].trim() == '1';
 
           if (x != null) _cursorX = x;
           if (y != null) _cursorY = y;

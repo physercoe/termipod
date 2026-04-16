@@ -1621,12 +1621,25 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           ),
           // Floating joystick overlay (experimental)
           if (ref.watch(settingsProvider).floatingPadEnabled)
-            FloatingJoystick(
-              onSpecialKeyPressed: _dispatchSpecialKey,
-              haptic: ref.watch(settingsProvider).navPadHaptic,
-              repeatRate: ref.watch(settingsProvider).navPadRepeatRate,
-              size: ref.watch(settingsProvider).floatingPadSize,
-              centerKey: ref.watch(settingsProvider).floatingPadCenterKey,
+            Consumer(
+              builder: (context, ref, _) {
+                final composeMode = ref.watch(
+                  actionBarProvider.select((s) => s.composeMode),
+                );
+                final useCustom = ref.watch(
+                  settingsProvider.select((s) => s.useCustomKeyboard),
+                );
+                // Custom keyboard is ~220dp; shift joystick up when visible
+                final kbOffset = (!composeMode && useCustom) ? 220.0 : 0.0;
+                return FloatingJoystick(
+                  onSpecialKeyPressed: _dispatchSpecialKey,
+                  haptic: ref.watch(settingsProvider).navPadHaptic,
+                  repeatRate: ref.watch(settingsProvider).navPadRepeatRate,
+                  size: ref.watch(settingsProvider).floatingPadSize,
+                  centerKey: ref.watch(settingsProvider).floatingPadCenterKey,
+                  extraBottomOffset: kbOffset,
+                );
+              },
             ),
           // ローディングオーバーレイ
           if (_isConnecting || sshState.isConnecting)

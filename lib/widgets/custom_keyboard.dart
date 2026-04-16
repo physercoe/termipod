@@ -49,7 +49,8 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   bool _shiftLocked = false;
 
   // Symbols page toggles rows 1-3 between QWERTY and number/symbols.
-  bool _symbolsPage = false;
+  // 0 = letters (QWERTY), 1 = symbols page 1, 2 = symbols page 2
+  int _symbolsPage = 0;
 
   // The id of the key currently flashing after a tap. Used by _KeyboardKey
   // to intensify its visual for ~180ms so users get clear tap confirmation.
@@ -145,8 +146,13 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   void _onSymbolsToggle() {
-    setState(() => _symbolsPage = !_symbolsPage);
+    setState(() => _symbolsPage = _symbolsPage == 0 ? 1 : 0);
     _triggerFlash('symbols');
+  }
+
+  void _onSymbolsPageSwitch() {
+    setState(() => _symbolsPage = _symbolsPage == 1 ? 2 : 1);
+    _triggerFlash('symbols2');
   }
 
   void _onCtrlTap() {
@@ -268,10 +274,14 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   static const _row2 = ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'];
   static const _row3 = ['z', 'x', 'c', 'v', 'b', 'n', 'm'];
 
-  // Symbols page
+  // Symbols page 1
   static const _sym1 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
   static const _sym2 = ['!', '@', '#', r'$', '%', '^', '&', '*', '(', ')'];
   static const _sym3 = ['-', '=', '[', ']', '\\', ';', "'", '/'];
+
+  // Symbols page 2 (shifted / extra punctuation)
+  static const _sym2b = ['`', '~', '<', '>', '{', '}', ':', '"', '|', '+'];
+  static const _sym3b = ['?', '_', '.', ','];
 
   @override
   Widget build(BuildContext context) {
@@ -315,7 +325,8 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   Widget _buildRow1(bool isDark) {
-    final letters = _symbolsPage ? _sym1 : _row1;
+    final isSymbols = _symbolsPage > 0;
+    final letters = isSymbols ? _sym1 : _row1;
     return Row(
       children: [
         for (final ch in letters)
@@ -326,7 +337,7 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
               child: _KeyboardKey(
                 label: _displayLetter(ch),
                 isFlashing: _flashingKey == ch,
-                onTap: () => _symbolsPage ? _onSymbolKey(ch) : _onLetterKey(ch),
+                onTap: () => isSymbols ? _onSymbolKey(ch) : _onLetterKey(ch),
                 isDark: isDark,
               ),
             ),
@@ -350,11 +361,14 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   Widget _buildRow2(bool isDark) {
-    final letters = _symbolsPage ? _sym2 : _row2;
+    final isSymbols = _symbolsPage > 0;
+    final letters = isSymbols
+        ? (_symbolsPage == 2 ? _sym2b : _sym2)
+        : _row2;
     return Row(
       children: [
         // Small left margin to offset the staggered QWERTY layout
-        if (!_symbolsPage) const SizedBox(width: 8),
+        if (!isSymbols) const SizedBox(width: 8),
         for (final ch in letters)
           Expanded(
             flex: 2,
@@ -363,12 +377,12 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
               child: _KeyboardKey(
                 label: _displayLetter(ch),
                 isFlashing: _flashingKey == ch,
-                onTap: () => _symbolsPage ? _onSymbolKey(ch) : _onLetterKey(ch),
+                onTap: () => isSymbols ? _onSymbolKey(ch) : _onLetterKey(ch),
                 isDark: isDark,
               ),
             ),
           ),
-        if (!_symbolsPage) const SizedBox(width: 8),
+        if (!isSymbols) const SizedBox(width: 8),
         Expanded(
           flex: 3,
           child: Padding(
@@ -387,22 +401,34 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   Widget _buildRow3(bool isDark) {
-    final letters = _symbolsPage ? _sym3 : _row3;
+    final isSymbols = _symbolsPage > 0;
+    final letters = isSymbols
+        ? (_symbolsPage == 2 ? _sym3b : _sym3)
+        : _row3;
     return Row(
       children: [
+        // Shift key (letters) or page switch (#+=) for symbols
         Expanded(
           flex: 3,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: _KeyboardKey(
-              icon: _shiftLocked
-                  ? Icons.keyboard_capslock
-                  : Icons.arrow_upward_rounded,
-              isFlashing: _flashingKey == 'shift',
-              isToggled: _shiftOn || _shiftLocked,
-              onTap: _onShiftTap,
-              isDark: isDark,
-            ),
+            child: isSymbols
+                ? _KeyboardKey(
+                    label: _symbolsPage == 2 ? '!@#' : '#+=',
+                    isFlashing: _flashingKey == 'symbols2',
+                    isToggled: _symbolsPage == 2,
+                    onTap: _onSymbolsPageSwitch,
+                    isDark: isDark,
+                  )
+                : _KeyboardKey(
+                    icon: _shiftLocked
+                        ? Icons.keyboard_capslock
+                        : Icons.arrow_upward_rounded,
+                    isFlashing: _flashingKey == 'shift',
+                    isToggled: _shiftOn || _shiftLocked,
+                    onTap: _onShiftTap,
+                    isDark: isDark,
+                  ),
           ),
         ),
         for (final ch in letters)
@@ -413,12 +439,12 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
               child: _KeyboardKey(
                 label: _displayLetter(ch),
                 isFlashing: _flashingKey == ch,
-                onTap: () => _symbolsPage ? _onSymbolKey(ch) : _onLetterKey(ch),
+                onTap: () => isSymbols ? _onSymbolKey(ch) : _onLetterKey(ch),
                 isDark: isDark,
               ),
             ),
           ),
-        if (!_symbolsPage) ...[
+        if (!isSymbols) ...[
           Expanded(
             flex: 2,
             child: Padding(
@@ -457,9 +483,9 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: _KeyboardKey(
-              label: _symbolsPage ? 'ABC' : '?123',
+              label: _symbolsPage > 0 ? 'ABC' : '?123',
               isFlashing: _flashingKey == 'symbols',
-              isToggled: _symbolsPage,
+              isToggled: _symbolsPage > 0,
               onTap: _onSymbolsToggle,
               isDark: isDark,
             ),
@@ -597,7 +623,7 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   String _displayLetter(String ch) {
-    if (_symbolsPage) return ch;
+    if (_symbolsPage > 0) return ch;
     return (_shiftOn || _shiftLocked) ? ch.toUpperCase() : ch;
   }
 }

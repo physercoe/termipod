@@ -19,6 +19,8 @@ class FloatingJoystick extends StatefulWidget {
   final double size;
   /// Tmux key name sent when the center zone is tapped.
   final String centerKey;
+  /// Extra bottom offset (e.g., custom keyboard height) to avoid overlap.
+  final double extraBottomOffset;
 
   const FloatingJoystick({
     super.key,
@@ -27,6 +29,7 @@ class FloatingJoystick extends StatefulWidget {
     this.repeatRate = 80,
     this.size = 64.0,
     this.centerKey = 'Enter',
+    this.extraBottomOffset = 0,
   });
 
   @override
@@ -41,6 +44,8 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   // lands directly under the user's right thumb in natural phone grip —
   // easier to reach than the old screen-vertical-middle default.
   double? _bottom;
+  // Track previous extraBottomOffset to compute delta on changes.
+  double _prevExtraOffset = 0;
 
   // Center zone radius is derived proportionally from the outer radius so the
   // center stays a reasonable touch target at all sizes.
@@ -213,6 +218,21 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
   }
 
   @override
+  void didUpdateWidget(covariant FloatingJoystick oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When the custom keyboard opens/closes, shift the joystick by the delta
+    // so it stays above the new bottom edge rather than hiding behind it.
+    if (widget.extraBottomOffset != oldWidget.extraBottomOffset &&
+        _bottom != null) {
+      final delta = widget.extraBottomOffset - oldWidget.extraBottomOffset;
+      setState(() {
+        _bottom = (_bottom! + delta).clamp(0.0, 2000.0);
+      });
+    }
+    _prevExtraOffset = widget.extraBottomOffset;
+  }
+
+  @override
   void dispose() {
     _flashTimer?.cancel();
     _stopRepeat();
@@ -227,7 +247,7 @@ class _FloatingJoystickState extends State<FloatingJoystick> {
     // the action bar stack so it sits under the right thumb at rest —
     // ~180dp from the bottom leaves ~20dp of breathing room above the
     // action bar while still being well within thumb reach.
-    _bottom ??= 180.0;
+    _bottom ??= 180.0 + widget.extraBottomOffset;
 
     return Positioned(
       right: _right,

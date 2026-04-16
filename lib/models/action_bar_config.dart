@@ -190,6 +190,11 @@ class ActionBarButton {
     'M-Enter': 'Submit (Aider)',
     'M-p': 'Previous history',
     'M-t': 'Transpose words',
+    'M-u': 'Undo (nano)',
+    'M-e': 'Redo (nano)',
+    'M-a': 'Set mark (nano)',
+    'M-6': 'Copy line (nano)',
+    'M-w': 'Next match (nano)',
     // Modifiers
     'ctrl': 'Hold Ctrl for next key',
     'alt': 'Hold Alt for next key',

@@ -8,6 +8,8 @@ class ActionBarPresets {
   static const String codexId = 'codex';
   static const String generalTerminalId = 'general-terminal';
   static const String tmuxId = 'tmux';
+  static const String vimId = 'vim';
+  static const String nanoId = 'nano';
 
   /// Default profile ID
   static const String defaultProfileId = generalTerminalId;
@@ -18,6 +20,8 @@ class ActionBarPresets {
         codex,
         generalTerminal,
         tmux,
+        vim,
+        nano,
       ];
 
   /// Get a built-in profile by ID, returns null if not found
@@ -70,6 +74,10 @@ class ActionBarPresets {
     final cmd = currentCommand.toLowerCase();
     if (cmd.contains('claude')) return claudeCodeId;
     if (cmd.contains('codex')) return codexId;
+    if (cmd == 'vi' || cmd == 'vim' || cmd == 'nvim' || cmd == 'neovim') {
+      return vimId;
+    }
+    if (cmd == 'nano' || cmd == 'pico') return nanoId;
     return null;
   }
 
@@ -245,6 +253,93 @@ class ActionBarPresets {
       ActionBarGroup(id: 'tx-copy', name: 'Copy', buttons: [
         ActionBarButton(id: 'tx-copy-enter', label: 'Copy', type: ActionBarButtonType.specialKey, value: 'C-b ['),
         ActionBarButton(id: 'tx-copy-paste', label: 'Paste', type: ActionBarButtonType.specialKey, value: 'C-b ]'),
+      ]),
+    ],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Vim (modal editor — mode keys, motion, commands)
+  // ---------------------------------------------------------------------------
+
+  static const vim = ActionBarProfile(
+    id: vimId,
+    name: 'Vim',
+    isBuiltIn: false,
+    groups: [
+      ActionBarGroup(id: 'vi-modes', name: 'Modes', buttons: [
+        ActionBarButton(id: 'vi-esc', label: 'ESC', type: ActionBarButtonType.specialKey, value: 'Escape', description: 'Normal mode'),
+        ActionBarButton(id: 'vi-i', label: 'i', type: ActionBarButtonType.literal, value: 'i', description: 'Insert before cursor'),
+        ActionBarButton(id: 'vi-a', label: 'a', type: ActionBarButtonType.literal, value: 'a', description: 'Append after cursor'),
+        ActionBarButton(id: 'vi-o', label: 'o', type: ActionBarButtonType.literal, value: 'o', description: 'Open line below'),
+        ActionBarButton(id: 'vi-v', label: 'v', type: ActionBarButtonType.literal, value: 'v', description: 'Visual mode'),
+        ActionBarButton(id: 'vi-colon', label: ':', type: ActionBarButtonType.literal, value: ':', description: 'Command mode'),
+      ]),
+      ActionBarGroup(id: 'vi-nav', name: 'Navigate', buttons: [
+        ActionBarButton(id: 'vi-h', label: 'h', type: ActionBarButtonType.literal, value: 'h', description: 'Left'),
+        ActionBarButton(id: 'vi-j', label: 'j', type: ActionBarButtonType.literal, value: 'j', description: 'Down'),
+        ActionBarButton(id: 'vi-k', label: 'k', type: ActionBarButtonType.literal, value: 'k', description: 'Up'),
+        ActionBarButton(id: 'vi-l', label: 'l', type: ActionBarButtonType.literal, value: 'l', description: 'Right'),
+        ActionBarButton(id: 'vi-w', label: 'w', type: ActionBarButtonType.literal, value: 'w', description: 'Next word'),
+        ActionBarButton(id: 'vi-b', label: 'b', type: ActionBarButtonType.literal, value: 'b', description: 'Previous word'),
+      ]),
+      ActionBarGroup(id: 'vi-edit', name: 'Edit', buttons: [
+        ActionBarButton(id: 'vi-dd', label: 'dd', type: ActionBarButtonType.literal, value: 'dd', description: 'Delete line'),
+        ActionBarButton(id: 'vi-yy', label: 'yy', type: ActionBarButtonType.literal, value: 'yy', description: 'Yank (copy) line'),
+        ActionBarButton(id: 'vi-p', label: 'p', type: ActionBarButtonType.literal, value: 'p', description: 'Paste after'),
+        ActionBarButton(id: 'vi-u', label: 'u', type: ActionBarButtonType.literal, value: 'u', description: 'Undo'),
+        ActionBarButton(id: 'vi-cr', label: 'C-R', type: ActionBarButtonType.ctrlCombo, value: 'C-r', description: 'Redo'),
+        ActionBarButton(id: 'vi-dot', label: '.', type: ActionBarButtonType.literal, value: '.', description: 'Repeat last change'),
+      ]),
+      ActionBarGroup(id: 'vi-cmd', name: 'Commands', buttons: [
+        ActionBarButton(id: 'vi-save', label: ':w', type: ActionBarButtonType.literal, value: ':w\r', description: 'Save'),
+        ActionBarButton(id: 'vi-quit', label: ':q', type: ActionBarButtonType.literal, value: ':q\r', description: 'Quit'),
+        ActionBarButton(id: 'vi-wq', label: ':wq', type: ActionBarButtonType.literal, value: ':wq\r', description: 'Save & quit'),
+        ActionBarButton(id: 'vi-q!', label: ':q!', type: ActionBarButtonType.literal, value: ':q!\r', description: 'Force quit'),
+        ActionBarButton(id: 'vi-slash', label: '/', type: ActionBarButtonType.literal, value: '/', description: 'Search forward'),
+        ActionBarButton(id: 'vi-n', label: 'n', type: ActionBarButtonType.literal, value: 'n', description: 'Next match'),
+      ]),
+    ],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Nano (simple editor — Ctrl shortcuts)
+  // ---------------------------------------------------------------------------
+
+  static const nano = ActionBarProfile(
+    id: nanoId,
+    name: 'Nano',
+    isBuiltIn: false,
+    groups: [
+      ActionBarGroup(id: 'na-file', name: 'File', buttons: [
+        ActionBarButton(id: 'na-save', label: 'C-O', type: ActionBarButtonType.ctrlCombo, value: 'C-o', description: 'Save (Write Out)'),
+        ActionBarButton(id: 'na-exit', label: 'C-X', type: ActionBarButtonType.ctrlCombo, value: 'C-x', description: 'Exit'),
+        ActionBarButton(id: 'na-read', label: 'C-R', type: ActionBarButtonType.ctrlCombo, value: 'C-r', description: 'Insert file'),
+        ActionBarButton(id: 'na-enter', label: 'Enter', type: ActionBarButtonType.specialKey, value: 'Enter'),
+        ActionBarButton(id: 'na-y', label: 'y', type: ActionBarButtonType.confirm, value: 'y'),
+        ActionBarButton(id: 'na-n', label: 'n', type: ActionBarButtonType.confirm, value: 'n'),
+      ]),
+      ActionBarGroup(id: 'na-edit', name: 'Edit', buttons: [
+        ActionBarButton(id: 'na-cut', label: 'C-K', type: ActionBarButtonType.ctrlCombo, value: 'C-k', description: 'Cut line'),
+        ActionBarButton(id: 'na-paste', label: 'C-U', type: ActionBarButtonType.ctrlCombo, value: 'C-u', description: 'Paste'),
+        ActionBarButton(id: 'na-undo', label: 'M-U', type: ActionBarButtonType.altCombo, value: 'M-u', description: 'Undo'),
+        ActionBarButton(id: 'na-redo', label: 'M-E', type: ActionBarButtonType.altCombo, value: 'M-e', description: 'Redo'),
+        ActionBarButton(id: 'na-mark', label: 'M-A', type: ActionBarButtonType.altCombo, value: 'M-a', description: 'Set mark'),
+        ActionBarButton(id: 'na-copy', label: 'M-6', type: ActionBarButtonType.altCombo, value: 'M-6', description: 'Copy line'),
+      ]),
+      ActionBarGroup(id: 'na-search', name: 'Search', buttons: [
+        ActionBarButton(id: 'na-find', label: 'C-W', type: ActionBarButtonType.ctrlCombo, value: 'C-w', description: 'Search'),
+        ActionBarButton(id: 'na-replace', label: 'C-\\', type: ActionBarButtonType.ctrlCombo, value: 'C-\\', description: 'Replace'),
+        ActionBarButton(id: 'na-next', label: 'M-W', type: ActionBarButtonType.altCombo, value: 'M-w', description: 'Next match'),
+        ActionBarButton(id: 'na-goto', label: 'C-_', type: ActionBarButtonType.ctrlCombo, value: 'C-_', description: 'Go to line'),
+        ActionBarButton(id: 'na-help', label: 'C-G', type: ActionBarButtonType.ctrlCombo, value: 'C-g', description: 'Help'),
+      ]),
+      ActionBarGroup(id: 'na-nav', name: 'Navigate', buttons: [
+        ActionBarButton(id: 'na-left', label: '←', type: ActionBarButtonType.specialKey, value: 'Left', iconName: 'arrow_left'),
+        ActionBarButton(id: 'na-up', label: '↑', type: ActionBarButtonType.specialKey, value: 'Up', iconName: 'arrow_drop_up'),
+        ActionBarButton(id: 'na-down', label: '↓', type: ActionBarButtonType.specialKey, value: 'Down', iconName: 'arrow_drop_down'),
+        ActionBarButton(id: 'na-right', label: '→', type: ActionBarButtonType.specialKey, value: 'Right', iconName: 'arrow_right'),
+        ActionBarButton(id: 'na-pgup', label: 'PgUp', type: ActionBarButtonType.specialKey, value: 'PPage'),
+        ActionBarButton(id: 'na-pgdn', label: 'PgDn', type: ActionBarButtonType.specialKey, value: 'NPage'),
       ]),
     ],
   );

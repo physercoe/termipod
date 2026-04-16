@@ -260,7 +260,7 @@ class _HelpSheetContent extends StatelessWidget {
     const gestureCheatSheet = <String, List<_TmuxEntry>>{
       'Terminal (Normal Mode)': [
         _TmuxEntry('Scroll', 'Scroll terminal output up/down'),
-        _TmuxEntry('Pinch', 'Zoom in/out (adjusts font size)'),
+        _TmuxEntry('Pinch', 'Zoom in/out'),
         _TmuxEntry('2-Finger Swipe', 'Navigate between panes'),
         _TmuxEntry('Hold + Drag', 'Arrow keys (repeatable)'),
         _TmuxEntry('Double Tap', 'Toggle direct input mode'),
@@ -273,9 +273,23 @@ class _HelpSheetContent extends StatelessWidget {
         _TmuxEntry('3-Finger Tap', 'Escape key'),
         _TmuxEntry('Long Press', 'Paste from clipboard'),
       ],
+      'Compose Bar': [
+        _TmuxEntry('[+] Tap', 'Insert menu (files, images, input mode)'),
+        _TmuxEntry('Send Tap', 'Send text + Enter'),
+        _TmuxEntry('Send Long Press', 'Send text without Enter'),
+        _TmuxEntry('Clear (×) Tap', 'Clear compose field'),
+        _TmuxEntry('Clear (×) Hold', 'Clear field + kill line (C-u)'),
+      ],
+      'Action Bar': [
+        _TmuxEntry('Swipe L/R', 'Cycle action bar profiles'),
+        _TmuxEntry('Grid Icon', 'Open key palette (all groups)'),
+        _TmuxEntry('Confirm Hold', 'Send literal only (no Enter)'),
+        _TmuxEntry('Ctrl / Alt Tap', 'Arm modifier (one-shot)'),
+        _TmuxEntry('Ctrl / Alt ×2', 'Lock modifier (sticky)'),
+      ],
       'Navigation Pad': [
-        _TmuxEntry('D-pad / Joystick', 'Arrow keys (hold to repeat)'),
-        _TmuxEntry('Action Buttons', '4 customizable keys (default: ESC, TAB, C-C, ENT)'),
+        _TmuxEntry('D-pad/Joystick', 'Arrow keys (hold to repeat)'),
+        _TmuxEntry('Action Buttons', '4 customizable keys'),
         _TmuxEntry('Chevron ›', 'Cycle: compact > off > compact'),
       ],
       'Floating Joystick': [
@@ -284,14 +298,14 @@ class _HelpSheetContent extends StatelessWidget {
         _TmuxEntry('Long Press', 'Auto-repeat arrow or Enter'),
         _TmuxEntry('Drag', 'Reposition on screen'),
       ],
-      'Compose Bar': [
-        _TmuxEntry('[+] Tap', 'Insert menu (files, images, input mode)'),
-        _TmuxEntry('[+] Long Press', 'Snippet picker & command history'),
-        _TmuxEntry('Send Button', 'Execute command (Enter)'),
+      'Custom Keyboard': [
+        _TmuxEntry('Backspace Hold', 'Auto-repeat delete'),
+        _TmuxEntry('Arrow Hold', 'Auto-repeat cursor move'),
+        _TmuxEntry('#+=', 'Switch to extra symbols page'),
       ],
       'Scroll Mode': [
-        _TmuxEntry('Swipe Up/Down', 'Scroll terminal output (enters tmux copy mode)'),
-        _TmuxEntry('Toggle', 'Terminal menu or bottom bar indicator'),
+        _TmuxEntry('Scroll Up', 'Enter scroll / tmux copy mode'),
+        _TmuxEntry('Toggle', 'Terminal menu or bottom bar'),
       ],
     };
 

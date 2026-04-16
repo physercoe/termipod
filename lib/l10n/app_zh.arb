@@ -418,6 +418,7 @@
   "fileUpload": "上传文件",
   "fileDownload": "下载文件",
   "imageTransfer": "图片传输",
+  "saveSnippetEmpty": "编写框为空",
   "directInputMode": "直接输入模式",
   "composeMode": "编写模式",
   "directInputHint": "直接输入模式",

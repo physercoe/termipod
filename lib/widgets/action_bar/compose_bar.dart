@@ -122,6 +122,18 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   /// Get the compose text field focus node
   FocusNode get focusNode => _focusNode;
 
+  /// Current contents of the compose text field. Used by the insert menu's
+  /// "save to snippet" action to capture whatever the user has typed so far
+  /// without forcing them to re-enter it.
+  String get currentText => _controller.text;
+
+  /// Clear the compose field contents (used after stashing the draft into
+  /// snippets so the bar is ready for the next input).
+  void clearText() {
+    _controller.clear();
+    ref.read(composeDraftProvider(widget.connectionId).notifier).clear();
+  }
+
   void _handleSend() {
     if (widget.hapticFeedback) {
       HapticFeedback.lightImpact();

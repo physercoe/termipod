@@ -41,6 +41,7 @@ import '../../widgets/action_bar/action_bar.dart';
 import '../../widgets/action_bar/compose_bar.dart';
 import '../../widgets/action_bar/insert_menu.dart';
 import '../../widgets/action_bar/snippet_picker_sheet.dart';
+import '../../providers/snippet_provider.dart';
 import '../../widgets/action_bar/profile_sheet.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../models/action_bar_presets.dart';
@@ -4558,9 +4559,67 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       onFileTransfer: _handleFileTransfer,
       onFileDownload: _handleFileDownload,
       onImageTransfer: _handleImageTransfer,
+      onSaveSnippet: () => _handleSaveSnippet(context),
       onDirectInput: () {
         ref.read(actionBarProvider.notifier).toggleInputMode();
       },
+    );
+  }
+
+  /// Stash the current compose-box text into snippets so the user can
+  /// recover a draft they don't want to send yet, or build up a library
+  /// of reusable prompts from ad-hoc inputs. Does nothing when compose
+  /// is empty — the snackbar below tells the user why.
+  Future<void> _handleSaveSnippet(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final text = _composeBarKey.currentState?.currentText ?? '';
+    if (text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.saveSnippetEmpty)),
+      );
+      return;
+    }
+
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.saveAsSnippet),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: InputDecoration(hintText: l10n.snippetName),
+          onSubmitted: (v) => Navigator.pop(dialogContext, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(l10n.buttonCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              nameController.text.trim(),
+            ),
+            child: Text(l10n.buttonSave),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    if (name == null || name.isEmpty) return;
+
+    await ref.read(snippetsProvider.notifier).addSnippet(
+          name: name,
+          content: text,
+          category: 'drafts',
+        );
+    // Clear the compose box so the draft has truly been "stashed" — it
+    // now lives in the snippet library, not in limbo.
+    _composeBarKey.currentState?.clearText();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.savedToSnippets)),
     );
   }
 

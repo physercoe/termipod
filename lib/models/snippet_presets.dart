@@ -319,6 +319,7 @@ class SnippetPresets {
       'codex' => 'Codex',
       'general' => 'General',
       'tmux' => 'Tmux',
+      'drafts' => 'Drafts',
       _ => category,
     };
   }

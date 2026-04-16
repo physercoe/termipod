@@ -463,6 +463,7 @@
   "fileUpload": "File Upload",
   "fileDownload": "File Download",
   "imageTransfer": "Image Transfer",
+  "saveSnippetEmpty": "Compose box is empty",
   "directInputMode": "Direct Input Mode",
   "composeMode": "Compose Mode",
   "directInputHint": "Direct input mode",

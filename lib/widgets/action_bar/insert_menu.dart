@@ -22,6 +22,7 @@ class InsertMenu {
     VoidCallback? onFileDownload,
     VoidCallback? onImageTransfer,
     VoidCallback? onDirectInput,
+    VoidCallback? onSaveSnippet,
   }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final abState = ref.read(actionBarProvider);
@@ -84,6 +85,17 @@ class InsertMenu {
                     onTap: () {
                       Navigator.pop(context);
                       onImageTransfer();
+                    },
+                  ),
+                if (onSaveSnippet != null)
+                  _buildItem(
+                    context,
+                    icon: Icons.bookmark_add_outlined,
+                    label: AppLocalizations.of(context)!.saveAsSnippet,
+                    isDark: isDark,
+                    onTap: () {
+                      Navigator.pop(context);
+                      onSaveSnippet();
                     },
                   ),
                 if (onDirectInput != null) ...[

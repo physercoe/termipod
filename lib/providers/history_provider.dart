@@ -42,13 +42,36 @@ class HistoryNotifier extends Notifier<HistoryState> {
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonStr = prefs.getString(_storageKey);
-    List<String> items = [];
+    List<String> loaded = [];
     if (jsonStr != null) {
       try {
-        items = (jsonDecode(jsonStr) as List).cast<String>();
+        loaded = (jsonDecode(jsonStr) as List).cast<String>();
       } catch (_) {}
     }
-    state = HistoryState(items: items);
+    // Preserve any items that were added via add() while we were awaiting
+    // SharedPreferences. Without this merge the post-await assignment would
+    // clobber them, and the racing add()'s _save() would then write the
+    // stale list back — so the user's send would never reach history.
+    final existing = state.items;
+    List<String> merged;
+    if (existing.isEmpty) {
+      merged = loaded;
+    } else {
+      // items list is newest-first — keep the racing entries at the front.
+      merged = [
+        ...existing,
+        ...loaded.where((h) => !existing.contains(h)),
+      ];
+      if (merged.length > _maxHistoryItems) {
+        merged = merged.sublist(0, _maxHistoryItems);
+      }
+    }
+    state = HistoryState(items: merged);
+    // If a race happened, re-persist so the merged view survives a cold
+    // start even if the racing add()'s _save() already wrote the stale list.
+    if (existing.isNotEmpty) {
+      await _save();
+    }
   }
 
   Future<void> _save() async {

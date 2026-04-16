@@ -305,6 +305,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   ProviderSubscription<TmuxState>? _tmuxSubscription;
   ProviderSubscription<AppSettings>? _settingsSubscription;
   ProviderSubscription<AsyncValue<NetworkStatus>>? _networkSubscription;
+  ProviderSubscription<ActionBarState>? _actionBarSubscription;
 
   @override
   void initState() {
@@ -517,6 +518,30 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           _applyKeepScreenOn();
         }
         // (directInputEnabled moved to action_bar_provider)
+      },
+      fireImmediately: false,
+    );
+
+    // Input-mode toggle: custom keyboard appears/disappears inline
+    // (~220dp of bottom space). That shrinks or grows the terminal
+    // viewport without firing `didChangeMetrics` (no OS keyboard means
+    // no viewInsets change), so the cursor ends up hidden under the
+    // newly-shown keyboard unless we re-anchor. Fire scroll-to-bottom
+    // after the layout pass so the cursor row stays above the keyboard.
+    _actionBarSubscription = ref.listenManual<ActionBarState>(
+      actionBarProvider,
+      (previous, next) {
+        if (!mounted || _isDisposed) return;
+        if (previous == null) return;
+        if (previous.composeMode == next.composeMode) return;
+        // Gate on the custom-keyboard setting — when it's off, the
+        // soft OS keyboard handles inset via didChangeMetrics already.
+        final useCustom = ref.read(settingsProvider).useCustomKeyboard;
+        if (!useCustom) return;
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _isDisposed) return;
+          _ansiTextViewKey.currentState?.scrollToBottom();
+        });
       },
       fireImmediately: false,
     );
@@ -1473,6 +1498,19 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// スクロール時にスクロールボタンを表示
   void _onTerminalScroll() {
     _scrollToBottomKey.currentState?.show();
+    // User drag wins over the pending auto-anchor window. Without this,
+    // the 10-cycle backstop that keeps the view glued to the bottom
+    // after initial entry / vi-exit also re-anchors on the user's
+    // manual scroll attempts — giving the impression that the screen
+    // is "locked to bottom" for the first second after entering a
+    // session. Cancel on any user-initiated scroll direction.
+    if (_pendingScrollToBottom &&
+        _terminalScrollController.hasClients &&
+        _terminalScrollController.position.userScrollDirection !=
+            ScrollDirection.idle) {
+      _pendingScrollToBottom = false;
+      _pendingScrollToBottomBackstop = 0;
+    }
     _maybeExtendScrollback();
   }
 
@@ -1541,6 +1579,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _tmuxSubscription = null;
     _settingsSubscription?.close();
     _settingsSubscription = null;
+    _actionBarSubscription?.close();
+    _actionBarSubscription = null;
     _networkSubscription?.close();
     _networkSubscription = null;
     _imageTransferSub?.close();

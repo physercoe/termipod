@@ -744,20 +744,31 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                       message: AppLocalizations.of(context)!.connectAsRawShell,
                       child: InkWell(
                         onTap: widget.onConnectRaw,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.all(6),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          // Match the leftmost status-icon footprint
+                          // (40x40 / 20pt glyph) so the shortcut doesn't
+                          // look like a secondary affordance.
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? DesignColors.borderDark
+                                : DesignColors.borderLight,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                           child: Icon(
                             Icons.terminal,
-                            size: 18,
+                            size: 20,
                             color: isDark
-                                ? DesignColors.textSecondary
-                                : DesignColors.textSecondaryLight,
+                                ? DesignColors.primary
+                                : DesignColors.primary,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 8),
                   ],
                   // Expand Icon
                   Icon(

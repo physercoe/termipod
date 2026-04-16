@@ -1075,8 +1075,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
           // Update fullscreen flag for the NEXT poll's effectiveScrollback
           // and for the strip-on-lag check below.
+          final wasFullscreen = _pollIsFullscreen;
           _pollIsFullscreen =
               isAlternate || TmuxBackend.isFullscreenCommandName(currentCommand);
+          // Transition: fullscreen TUI → plain shell (e.g. `:q` in vi).
+          // Jump to the shell prompt once the new content lands so the
+          // user isn't left staring at the top of the pre-vi scrollback
+          // that just re-inflated beneath them.
+          if (wasFullscreen && !_pollIsFullscreen) {
+            _pendingScrollToBottom = true;
+          }
           paneHeightForStrip = h;
 
           // ペインサイズの更新検知
@@ -1968,58 +1976,106 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// スクロール位置インジケーター
   ///
   /// ユーザーが最下部にいない時に現在行/総行数を表示する。
+  /// In a fullscreen TUI (vi/less/htop/…) scrolling is suppressed, so
+  /// the "line X of Y" reading is meaningless — the indicator switches
+  /// to showing the cursor position `[row|col]` instead, which is the
+  /// piece of state users actually want visible while editing.
   Widget _buildScrollPositionIndicator() {
-    return ListenableBuilder(
-      listenable: _terminalScrollController,
-      builder: (context, _) {
-        if (!_terminalScrollController.hasClients) {
-          return const SizedBox.shrink();
+    return Consumer(
+      builder: (context, ref, _) {
+        // Fullscreen TUI: show cursor coordinates instead of scroll pos.
+        // Watch tmuxProvider so the indicator updates when the cursor
+        // moves (otherwise it would freeze on the value from the last
+        // scroll event).
+        if (_pollIsFullscreen) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          final cursor = ref.watch(
+            tmuxProvider(widget.connectionId).select(
+              (s) => (
+                x: s.activePane?.cursorX ?? 0,
+                y: s.activePane?.cursorY ?? 0,
+              ),
+            ),
+          );
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
+              ),
+            ),
+            child: Text(
+              '[${cursor.y + 1}|${cursor.x + 1}]',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                fontFamily: 'monospace',
+                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
+              ),
+            ),
+          );
         }
-        final position = _terminalScrollController.position;
-        final maxExtent = position.maxScrollExtent;
-        if (maxExtent <= 0) return const SizedBox.shrink();
 
-        final currentOffset = position.pixels;
-
-        final ansiState = _ansiTextViewKey.currentState;
-        if (ansiState == null) return const SizedBox.shrink();
-
-        final lineHeight = ansiState.lineHeight;
-        if (lineHeight <= 0) return const SizedBox.shrink();
-
-        final viewportHeight = position.viewportDimension;
-        // Use effective line count (up to cursor + margin) instead of
-        // raw total which includes trailing empty pane rows after resize
-        final totalLines = ansiState.effectiveLineCount;
-        if (totalLines <= 0) return const SizedBox.shrink();
-
-        final currentTopLine = (currentOffset / lineHeight).round() + 1;
-        final visibleLines = (viewportHeight / lineHeight).round();
-        final currentBottomLine = (currentTopLine + visibleLines - 1).clamp(1, totalLines);
-
-        // Hide when at or past the effective end
-        if (currentBottomLine >= totalLines) return const SizedBox.shrink();
-
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
-            ),
-          ),
-          child: Text(
-            '$currentBottomLine / $totalLines',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
-            ),
-          ),
+        return ListenableBuilder(
+          listenable: _terminalScrollController,
+          builder: (context, _) => _buildScrollLineCounter(context),
         );
       },
+    );
+  }
+
+  /// Line-counter variant of the scroll indicator, shown when there's
+  /// actual scrollback to navigate (normal shell mode, not fullscreen).
+  Widget _buildScrollLineCounter(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (!_terminalScrollController.hasClients) {
+      return const SizedBox.shrink();
+    }
+    final position = _terminalScrollController.position;
+    final maxExtent = position.maxScrollExtent;
+    if (maxExtent <= 0) return const SizedBox.shrink();
+
+    final currentOffset = position.pixels;
+
+    final ansiState = _ansiTextViewKey.currentState;
+    if (ansiState == null) return const SizedBox.shrink();
+
+    final lineHeight = ansiState.lineHeight;
+    if (lineHeight <= 0) return const SizedBox.shrink();
+
+    final viewportHeight = position.viewportDimension;
+    // Use effective line count (up to cursor + margin) instead of
+    // raw total which includes trailing empty pane rows after resize
+    final totalLines = ansiState.effectiveLineCount;
+    if (totalLines <= 0) return const SizedBox.shrink();
+
+    final currentTopLine = (currentOffset / lineHeight).round() + 1;
+    final visibleLines = (viewportHeight / lineHeight).round();
+    final currentBottomLine = (currentTopLine + visibleLines - 1).clamp(1, totalLines);
+
+    // Hide when at or past the effective end
+    if (currentBottomLine >= totalLines) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        '$currentBottomLine / $totalLines',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
+        ),
+      ),
     );
   }
 

@@ -62,8 +62,35 @@ class TmuxBackend implements TerminalBackend {
   int _paneHeight = 24;
   int _scrollbackSize = 0;
   bool _isAlternateScreen = false;
+  /// True when [pane_current_command] looks like a fullscreen TUI
+  /// (vi/vim/less/htop/…). Used as a fallback when `#{alternate_on}`
+  /// stays 0 — some vim configs and older tmux versions don't set
+  /// the alt-screen flag, but the running command is still a reliable
+  /// hint that scrollback should be suppressed.
+  bool _isFullscreenCommand = false;
   bool _isInCopyMode = false;
   int _latency = 0;
+
+  /// Commands that take over the terminal as a fullscreen TUI and
+  /// therefore should not have scrollback prepended above them.
+  /// Matched case-insensitively against `#{pane_current_command}`.
+  static const Set<String> _fullscreenCommands = {
+    'vi', 'vim', 'nvim', 'neovim', 'view',
+    'nano', 'pico',
+    'less', 'more', 'most',
+    'man', 'info',
+    'htop', 'top', 'btop', 'btm', 'glances', 'atop',
+    'ncdu', 'nnn', 'ranger', 'mc', 'lf', 'fzf',
+    'tig', 'lazygit', 'gitui',
+    'emacs',
+  };
+
+  static bool _isFullscreenCommandName(String? name) {
+    if (name == null) return false;
+    final n = name.trim().toLowerCase();
+    if (n.isEmpty) return false;
+    return _fullscreenCommands.contains(n);
+  }
 
   final _contentController = StreamController<void>.broadcast();
 
@@ -86,7 +113,8 @@ class TmuxBackend implements TerminalBackend {
   bool get isInCopyMode => _isInCopyMode;
 
   @override
-  int get scrollbackSize => _isAlternateScreen ? 0 : _scrollbackSize;
+  int get scrollbackSize =>
+      (_isAlternateScreen || _isFullscreenCommand) ? 0 : _scrollbackSize;
 
   @override
   String get currentContent => _currentContent;
@@ -209,11 +237,18 @@ class TmuxBackend implements TerminalBackend {
 
       final startTime = DateTime.now();
 
-      // When on the alternate screen (vi, less, man, etc.) or history_size
-      // is 0, don't request scrollback — only capture the visible pane.
-      // This prevents stale content from appearing above fullscreen apps.
+      // When on the alternate screen (vi, less, man, etc.) or running a
+      // fullscreen TUI command, or when history_size is 0, don't request
+      // scrollback — only capture the visible pane.  This prevents stale
+      // content from appearing above fullscreen apps.
+      //
+      // Both signals are checked because some configs (vim with
+      // `set t_ti= t_te=`, old tmux versions) leave `alternate_on` at 0
+      // even inside vim; the command name is a reliable fallback.
+      final suppressScrollback =
+          _isAlternateScreen || _isFullscreenCommand;
       final effectiveScrollback =
-          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
+          (suppressScrollback || _scrollbackSize == 0) ? 0 : _scrollbackLines;
 
       // Single combined command: capture-pane, then a unique delimiter,
       // then metadata (cursor info + pane mode).  Using \x01 delimiter
@@ -258,10 +293,15 @@ class TmuxBackend implements TerminalBackend {
         contentRaw = contentRaw.substring(0, contentRaw.length - 1);
       }
 
-      // Parse cursor position, pane size, and alternate_on flag.
+      // Parse cursor position, pane size, alternate_on flag, and the
+      // current command name (used as fullscreen-app fallback).
       int? historySize;
       if (cursorOutput.isNotEmpty) {
-        final parts = cursorOutput.trim().split(',');
+        // Only split the *first* line — pane_current_command is the
+        // last field and is well-formed (single token, no commas), but
+        // be defensive in case tmux ever emits a trailing newline.
+        final firstLine = cursorOutput.split('\n').first;
+        final parts = firstLine.trim().split(',');
         if (parts.length >= 4) {
           final x = int.tryParse(parts[0]);
           final y = int.tryParse(parts[1]);
@@ -270,6 +310,8 @@ class TmuxBackend implements TerminalBackend {
           historySize = parts.length >= 5 ? int.tryParse(parts[4]) : null;
           _isAlternateScreen =
               parts.length >= 6 && parts[5].trim() == '1';
+          final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
+          _isFullscreenCommand = _isFullscreenCommandName(currentCommand);
 
           if (x != null) _cursorX = x;
           if (y != null) _cursorY = y;
@@ -292,11 +334,17 @@ class TmuxBackend implements TerminalBackend {
         onCopyModeChange?.call(_isInCopyMode);
       }
 
-      // If we just detected alternate screen but captured with scrollback
+      // If we just detected a fullscreen app (alternate screen flag OR
+      // a known TUI command) but captured with scrollback this poll
       // (one-poll lag), strip the scrollback portion so only the visible
       // pane content remains.  The NEXT poll will use effectiveScrollback=0.
+      //
+      // Without this fallback path, users whose vim runs without
+      // alternate-screen toggling would see the previous shell output
+      // above the editor and have to scroll down to find the cursor.
       var processedOutput = contentRaw;
-      if (_isAlternateScreen && effectiveScrollback > 0 && _paneHeight > 0) {
+      final detectedFullscreen = _isAlternateScreen || _isFullscreenCommand;
+      if (detectedFullscreen && effectiveScrollback > 0 && _paneHeight > 0) {
         final lines = processedOutput.split('\n');
         if (lines.length > _paneHeight) {
           processedOutput = lines.sublist(lines.length - _paneHeight).join('\n');

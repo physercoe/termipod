@@ -275,8 +275,18 @@ class TmuxCommands {
   }
 
   /// カーソル位置とペインサイズを取得
+  ///
+  /// Output format (CSV, 7 fields):
+  ///   cursor_x, cursor_y, pane_width, pane_height,
+  ///   history_size, alternate_on, pane_current_command
+  ///
+  /// `pane_current_command` is included so the backend can detect
+  /// fullscreen apps (vi, less, htop, …) even when `alternate_on` is
+  /// 0 — some vim configs (`set t_ti= t_te=`) and older tmux versions
+  /// don't toggle the alternate-screen flag, but the running command
+  /// is still a reliable signal that scrollback should be suppressed.
   static String getCursorPosition(String target) {
-    return 'tmux display-message -p -t ${_escapeArg(target)} "#{cursor_x},#{cursor_y},#{pane_width},#{pane_height},#{history_size},#{alternate_on}"';
+    return 'tmux display-message -p -t ${_escapeArg(target)} "#{cursor_x},#{cursor_y},#{pane_width},#{pane_height},#{history_size},#{alternate_on},#{pane_current_command}"';
   }
 
   /// ペインのモードを取得（copy-mode検出用）

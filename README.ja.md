@@ -80,7 +80,7 @@
 - **Ed25519/RSA 鍵** — デバイス上で生成またはインポート、Android Keystore / iOS Keychain に暗号化保存
 - **SSH ProxyJump（踏み台サーバー）** — 踏み台経由で内部ネットワークのマシンに接続
 - **SOCKS5 プロキシ** — 企業プロキシ、VPN、Shadowsocks/Clash 経由で SSH 接続
-- **Raw PTY モード** — tmux なしのサーバーに直接シェルアクセス
+- **Raw PTY モード** — tmux なしのサーバーへ直接シェルアクセス。tmux 接続カードからもワンタップで起動可能
 - **接続テスト** — 保存前に SSH + tmux の可用性を確認
 
 ### tmux セッション管理
@@ -172,6 +172,9 @@ flutter build ios --release
 ## ロードマップ
 
 - ハイブリッド xterm モード — PTY ストリーム描画と tmux セッションナビゲーションの統合
+- Mosh 対応 — UDP トランスポートと IP ローミング、不安定なモバイル回線で最強
+- エージェント出力監視 — Notify タブを再設計し、Claude Code / Codex のペイン出力からプロンプトや失敗・完了パターンを検出
+- 内蔵ファイルマネージャー — SFTP ダウンロードとアプリストレージを閲覧・管理
 - ローカルエコー — 低遅延接続のための予測文字表示
 - カーソル整列 — フォントグリフ幅キャリブレーション
 - iOS TestFlight / App Store 配布

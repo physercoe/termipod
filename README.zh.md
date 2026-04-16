@@ -80,7 +80,7 @@
 - **Ed25519/RSA 密钥** — 设备上生成或导入，加密存储在 Android Keystore / iOS Keychain 中
 - **SSH 跳板机 (ProxyJump)** — 通过堡垒机连接内网机器
 - **SOCKS5 代理** — 通过企业代理、VPN 或 Shadowsocks/Clash 路由 SSH
-- **原始 PTY 模式** — 无需 tmux 的直接 Shell 访问
+- **原始 PTY 模式** — 无需 tmux 的直接 Shell 访问，从 tmux 连接卡片也可一键打开
 - **连接测试** — 保存前验证 SSH + tmux 可用性
 
 ### tmux 会话管理
@@ -172,6 +172,9 @@ flutter build ios --release
 ## 路线图
 
 - 混合 xterm 模式 — 将 PTY 流渲染与 tmux 会话导航结合
+- Mosh 支持 — UDP 传输与 IP 漫游，移动弱网场景的最佳选择
+- AI 代理输出监控 — 重新设计 Notify 标签页，监听 Claude Code / Codex 窗格中的提示、失败与完成模式
+- 内置文件管理器 — 浏览与管理 SFTP 下载和应用存储
 - 本地回显 — 预测性字符显示，低延迟输入体验
 - 光标对齐 — 基于字体字形宽度校准
 - iOS TestFlight / App Store 分发

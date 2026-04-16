@@ -80,7 +80,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **Ed25519 / RSA keys** — generate on-device or import, stored in Android Keystore / iOS Keychain
 - **SSH ProxyJump** — connect through bastion/jump hosts to internal machines
 - **SOCKS5 proxy** — route through corporate proxies, VPNs, or Shadowsocks/Clash
-- **Raw PTY mode** — direct shell access for servers without tmux
+- **Raw PTY mode** — direct shell access for servers without tmux, with a one-tap shortcut from any tmux connection card
 - **Connection testing** — verify SSH + tmux before saving
 
 ### tmux Session Management
@@ -178,6 +178,9 @@ flutter build ios --release
 ## Roadmap
 
 - Hybrid xterm mode — PTY stream rendering + tmux session navigation
+- Mosh support — UDP transport with IP roaming, best-in-class for flaky mobile networks
+- Agent output monitoring — redesigned Notify tab that watches panes for patterns (prompts, failures, completion) from Claude Code / Codex
+- Built-in file manager — browse and manage SFTP downloads and app storage
 - Local echo — predictive character display for low-latency feel
 - Cursor alignment — font glyph width calibration
 - iOS TestFlight / App Store distribution

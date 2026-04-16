@@ -73,6 +73,23 @@ abstract class TerminalBackend {
   /// Whether currently in tmux copy-mode (always false for raw).
   bool get isInCopyMode;
 
+  /// Whether the active pane is currently showing a fullscreen TUI
+  /// (vi, less, htop, …) or tmux's alternate screen buffer.
+  ///
+  /// When true, the captured content IS the visible pane — there is no
+  /// scrollback above it and cursor coordinates describe a position
+  /// *inside the editor screen*, not inside an unbounded history.
+  /// Callers use this to:
+  /// - Render `[row|col]` indicators instead of line-of-lines counters
+  /// - Jump to raw content bottom instead of cursor+margin (which can
+  ///   sit near the top of the editor and scroll the wrong direction)
+  /// - Detect the transition back to a shell prompt, to re-anchor the
+  ///   viewport at the bottom when scrollback reinflates.
+  ///
+  /// - TmuxBackend: `#{alternate_on}` OR `pane_current_command` lookup.
+  /// - RawPtyBackend: `Terminal.isUsingAltBuffer`.
+  bool get isFullscreen;
+
   /// Scrollback line count.
   int get scrollbackSize;
 

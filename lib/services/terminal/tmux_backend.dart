@@ -222,6 +222,9 @@ class TmuxBackend implements TerminalBackend {
   bool get isInCopyMode => _isInCopyMode;
 
   @override
+  bool get isFullscreen => _isAlternateScreen || _isFullscreenCommand;
+
+  @override
   int get scrollbackSize =>
       (_isAlternateScreen || _isFullscreenCommand) ? 0 : _scrollbackSize;
 
@@ -426,7 +429,18 @@ class TmuxBackend implements TerminalBackend {
         }
       }
 
-      _scrollbackSize = historySize ?? _scrollbackSize;
+      // Gate scrollback reporting on what we actually captured this
+      // poll. If `effectiveScrollback` was 0 (fullscreen / alternate
+      // screen), the content above is just `_paneHeight` rows — it
+      // does NOT contain `historySize` lines of scrollback. Reporting
+      // the raw `historySize` here would lie to AnsiTextView, which
+      // uses `scrollbackSize` to place the cursor: it would think
+      // there are 1988 scrollback rows above the captured 30-row
+      // pane, push `cursorLineIndex` off the rendered list, and make
+      // scroll-to-bottom jump into a sea of empty trailing lines.
+      // Matches the duplicate poll path in terminal_screen.dart.
+      _scrollbackSize =
+          effectiveScrollback == 0 ? 0 : (historySize ?? _scrollbackSize);
 
       // Copy-mode detection
       final paneMode = paneModeOutput.trim();

@@ -1357,6 +1357,20 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         final maxExtent = position.maxScrollExtent;
         if (maxExtent <= 0) return;
 
+        // When there is no scrollback (fullscreen TUI / alternate
+        // screen buffer), the rendered content IS the visible pane.
+        // The cursor may sit anywhere inside that pane — including the
+        // top rows (vi opens with cursor at line 1). Applying the
+        // cursor+margin clamp would turn `target = 9*lineHeight -
+        // viewport` into a negative value, clamp to 0, and scroll to
+        // the TOP of the pane — the opposite of what jump-to-bottom
+        // should do. Honor the raw bottom here so the full editor
+        // screen sits anchored at the viewport bottom.
+        if (widget.scrollbackSize == 0) {
+          _verticalScrollController.jumpTo(maxExtent);
+          return;
+        }
+
         final parsedLines = _cachedParsedLines;
         if (parsedLines == null || parsedLines.isEmpty) {
           // No cursor info — fall back to raw maxScrollExtent

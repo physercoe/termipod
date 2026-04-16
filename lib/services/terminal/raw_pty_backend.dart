@@ -112,6 +112,9 @@ class RawPtyBackend implements TerminalBackend {
   bool get isInCopyMode => false;
 
   @override
+  bool get isFullscreen => _terminal.isUsingAltBuffer;
+
+  @override
   int get scrollbackSize {
     final sb = _terminal.buffer.scrollBack;
     return sb > 0 ? sb : 0;

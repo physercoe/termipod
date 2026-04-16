@@ -83,6 +83,12 @@ class _TerminalViewData {
   // null means "use the tmux activePane cursor instead".
   final int? rawCursorX;
   final int? rawCursorY;
+  // True when the pane is showing a fullscreen TUI (vi, less, htop, …)
+  // or the alternate screen buffer. Pushed into the notifier so the
+  // scroll-position indicator (and any other passive widgets) can react
+  // to the transition — neither backend has a Riverpod channel of its
+  // own, so we proxy through _viewNotifier.
+  final bool isFullscreen;
 
   const _TerminalViewData({
     this.content = '',
@@ -92,6 +98,7 @@ class _TerminalViewData {
     this.scrollbackSize = 0,
     this.rawCursorX,
     this.rawCursorY,
+    this.isFullscreen = false,
   });
 
   _TerminalViewData copyWith({
@@ -102,6 +109,7 @@ class _TerminalViewData {
     int? scrollbackSize,
     int? rawCursorX,
     int? rawCursorY,
+    bool? isFullscreen,
   }) =>
       _TerminalViewData(
         content: content ?? this.content,
@@ -111,6 +119,7 @@ class _TerminalViewData {
         scrollbackSize: scrollbackSize ?? this.scrollbackSize,
         rawCursorX: rawCursorX ?? this.rawCursorX,
         rawCursorY: rawCursorY ?? this.rawCursorY,
+        isFullscreen: isFullscreen ?? this.isFullscreen,
       );
 }
 
@@ -244,8 +253,21 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // リサイズ中フラグ（排他制御）
   bool _isResizing = false;
 
-  // Scroll to bottom after next content update (post-resize)
+  // Scroll to bottom after next content update (post-resize OR when
+  // a fullscreen TUI exits and the underlying shell reappears).
   bool _pendingScrollToBottom = false;
+
+  // How many more `_applyUpdate` cycles should honor
+  // `_pendingScrollToBottom` before giving up. A fullscreen→shell
+  // transition needs at least two updates — the transition poll still
+  // carries no scrollback (the capture was pre-flip), and only the
+  // *next* poll brings the full history back. Firing scrollToBottom
+  // only on the first update would leave the viewport halfway up the
+  // reinflated scrollback once the follow-up poll arrives. The
+  // counter decrements per update and also auto-clears as soon as a
+  // non-zero scrollback shows up (signal that the shell history has
+  // landed and the scroll has already been anchored correctly).
+  int _pendingScrollToBottomBackstop = 0;
 
   // --- Scrollback auto-extension state -------------------------------------
   //
@@ -850,6 +872,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final scrollback = backend.scrollbackSize;
     final latency = backend is TmuxBackend ? backend.latency : 0;
 
+    // Mirror the backend's fullscreen state into `_pollIsFullscreen`
+    // and detect the fullscreen→shell transition. This is the only
+    // transition-detection path for raw PTY (the duplicate
+    // `_pollPaneContent` loop exits early when there's no tmux
+    // target). For tmux, the duplicate poll also detects transitions,
+    // but re-checking here is idempotent — the scroll-pending flag is
+    // already set and simply stays set.
+    final backendFullscreen = backend.isFullscreen;
+    final wasFullscreen = _pollIsFullscreen;
+    if (backendFullscreen != _pollIsFullscreen) {
+      _pollIsFullscreen = backendFullscreen;
+      if (wasFullscreen && !backendFullscreen) {
+        _pendingScrollToBottom = true;
+        _pendingScrollToBottomBackstop = 5;
+      }
+    }
+
     // For raw backend: push cursor directly into _viewNotifier so AnsiTextView
     // can draw it. Tmux backend routes cursor via tmuxProvider.activePane.
     if (!backend.supportsNavigation) {
@@ -861,8 +900,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           rawCursorY: cursor.y,
           paneWidth: dims.width,
           paneHeight: dims.height,
+          isFullscreen: backendFullscreen,
         );
       }
+    } else if (backendFullscreen != _viewNotifier.value.isFullscreen &&
+        mounted &&
+        !_isDisposed) {
+      // Tmux backend path: keep the notifier's fullscreen flag in sync
+      // too so the scroll-position indicator reacts when the duplicate
+      // poll hasn't run yet.
+      _viewNotifier.value = _viewNotifier.value.copyWith(
+        isFullscreen: backendFullscreen,
+      );
     }
 
     // For tmux backend: scroll mode buffering
@@ -1081,9 +1130,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           // Transition: fullscreen TUI → plain shell (e.g. `:q` in vi).
           // Jump to the shell prompt once the new content lands so the
           // user isn't left staring at the top of the pre-vi scrollback
-          // that just re-inflated beneath them.
+          // that just re-inflated beneath them. Hold the flag across
+          // several updates — the transition poll returns scrollback=0
+          // content (the capture was pre-flip), and only the next poll
+          // brings the full history. See `_pendingScrollToBottomBackstop`.
           if (wasFullscreen && !_pollIsFullscreen) {
             _pendingScrollToBottom = true;
+            _pendingScrollToBottomBackstop = 5;
           }
           paneHeightForStrip = h;
 
@@ -1137,17 +1190,32 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // 差分があれば更新（スロットリング適用）
-      // In fullscreen TUIs (vi, less, etc.) tmux still reports the real
-      // pane history (`#{history_size}`, e.g. 200) — but the visible
-      // content IS the alternate screen, with no scrollback above it.
-      // If we passed the raw history through, AnsiTextView would let
-      // the user scroll past the editor's bottom into 200 rows of
-      // empty space. Honor `_pollIsFullscreen` here exactly as
-      // [TmuxBackend.scrollbackSize] does.
-      final scrollback = _pollIsFullscreen
+      // Gate `scrollback` on `effectiveScrollback` — the value we
+      // actually fetched with — not on the freshly-updated
+      // `_pollIsFullscreen` flag. On a fullscreen→shell transition
+      // poll, the flag has already flipped to false but the capture
+      // still ran with `effectiveScrollback=0` (the decision was made
+      // pre-flip), so content only carries the visible pane. Reporting
+      // `historySize` here would claim 1988 scrollback rows above a
+      // 30-row capture — AnsiTextView would then place the cursor at
+      // index ~1988+29 and scroll-to-bottom would land inside empty
+      // trailing rows. The next poll (with full scrollback fetched)
+      // corrects the count.
+      final scrollback = effectiveScrollback == 0
           ? 0
           : (historySize ?? _viewNotifier.value.scrollbackSize);
       final currentView = _viewNotifier.value;
+      // Publish the fullscreen flag so the scroll-position indicator
+      // (a ValueListenableBuilder on _viewNotifier) can switch to
+      // `[row|col]` coordinates. This is the only signal that reaches
+      // passive widgets — the flag itself is a plain field.
+      if (_pollIsFullscreen != currentView.isFullscreen &&
+          mounted &&
+          !_isDisposed) {
+        _viewNotifier.value = currentView.copyWith(
+          isFullscreen: _pollIsFullscreen,
+        );
+      }
       if (processedOutput != currentView.content || latency != currentView.latency) {
         // 手動スクロールモード中のみ更新をバッファリングして選択状態を保持
         // tmux copy-mode中はcapture-paneがスクロール位置の内容を返すためリアルタイム表示
@@ -1158,7 +1226,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           _hasBufferedUpdate = true;
           // レイテンシのみ更新（選択に影響しない）
           if (mounted && !_isDisposed) {
-            _viewNotifier.value = currentView.copyWith(latency: latency);
+            _viewNotifier.value = _viewNotifier.value.copyWith(latency: latency);
           }
         } else {
           _scheduleUpdate(processedOutput, latency, scrollback);
@@ -1259,10 +1327,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _scrollToCaret();
     }
 
-    // Scroll to cursor position after resize content arrives
+    // Scroll to bottom after resize OR fullscreen→shell transition.
+    // Firing every cycle while the flag is held ensures the viewport
+    // stays anchored at the bottom as scrollback reinflates (transition
+    // poll carries 0 scrollback; follow-up poll carries the full
+    // history, and the raw `maxScrollExtent` jumps by thousands of
+    // pixels between them).
     if (_pendingScrollToBottom && _pendingContent.isNotEmpty) {
-      _pendingScrollToBottom = false;
       _ansiTextViewKey.currentState?.scrollToBottom();
+      // Clear once the full scrollback is back (or the backstop runs
+      // out). While scrollback is still 0 we keep firing — the next
+      // poll brings more lines and we need to re-anchor to the new
+      // bottom.
+      if (_pendingScrollbackSize > 0 ||
+          --_pendingScrollToBottomBackstop <= 0) {
+        _pendingScrollToBottom = false;
+        _pendingScrollToBottomBackstop = 0;
+      }
       Future.delayed(const Duration(milliseconds: 200), () {
         if (mounted && !_isDisposed) _scrollToBottomKey.currentState?.hide();
       });
@@ -1980,41 +2061,43 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// the "line X of Y" reading is meaningless — the indicator switches
   /// to showing the cursor position `[row|col]` instead, which is the
   /// piece of state users actually want visible while editing.
+  ///
+  /// The outer ValueListenableBuilder watches `_viewNotifier` so the
+  /// indicator rebuilds on *fullscreen state changes* as well as cursor
+  /// updates. Relying on a Consumer that only watched tmuxProvider was
+  /// fragile: the raw PTY backend never writes to that provider, and
+  /// even in tmux mode the cursor might not change between two
+  /// consecutive polls — either case left the indicator stuck on the
+  /// line-counter branch.
   Widget _buildScrollPositionIndicator() {
-    return Consumer(
-      builder: (context, ref, _) {
-        // Fullscreen TUI: show cursor coordinates instead of scroll pos.
-        // Watch tmuxProvider so the indicator updates when the cursor
-        // moves (otherwise it would freeze on the value from the last
-        // scroll event).
-        if (_pollIsFullscreen) {
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          final cursor = ref.watch(
-            tmuxProvider(widget.connectionId).select(
-              (s) => (
-                x: s.activePane?.cursorX ?? 0,
-                y: s.activePane?.cursorY ?? 0,
-              ),
-            ),
-          );
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
-              ),
-            ),
-            child: Text(
-              '[${cursor.y + 1}|${cursor.x + 1}]',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-                fontFamily: 'monospace',
-                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
-              ),
-            ),
+    return ValueListenableBuilder<_TerminalViewData>(
+      valueListenable: _viewNotifier,
+      builder: (context, view, _) {
+        if (view.isFullscreen) {
+          // For raw PTY the cursor lives on `view.rawCursor*`; for tmux
+          // it's on `activePane.cursor*`. Use the raw coordinates when
+          // present, otherwise watch the tmux provider.
+          final bool hasRawCursor =
+              view.rawCursorX != null && view.rawCursorY != null;
+          if (hasRawCursor) {
+            return _buildCursorBadge(
+              context,
+              view.rawCursorX!,
+              view.rawCursorY!,
+            );
+          }
+          return Consumer(
+            builder: (context, ref, _) {
+              final cursor = ref.watch(
+                tmuxProvider(widget.connectionId).select(
+                  (s) => (
+                    x: s.activePane?.cursorX ?? 0,
+                    y: s.activePane?.cursorY ?? 0,
+                  ),
+                ),
+              );
+              return _buildCursorBadge(context, cursor.x, cursor.y);
+            },
           );
         }
 
@@ -2023,6 +2106,30 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           builder: (context, _) => _buildScrollLineCounter(context),
         );
       },
+    );
+  }
+
+  /// `[row|col]` badge (1-indexed). Shared between raw and tmux paths.
+  Widget _buildCursorBadge(BuildContext context, int cursorX, int cursorY) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.15),
+        ),
+      ),
+      child: Text(
+        '[${cursorY + 1}|${cursorX + 1}]',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w500,
+          fontFamily: 'monospace',
+          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
+        ),
+      ),
     );
   }
 

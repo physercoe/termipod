@@ -84,6 +84,15 @@ class AnsiTextView extends ConsumerStatefulWidget {
   /// tmux history_size (scrollback lines in the buffer)
   final int scrollbackSize;
 
+  /// True when the pane is hosting a fullscreen TUI (vi, less, htop…)
+  /// or xterm's alternate screen buffer is active. Changes the
+  /// jump-to-end behavior: in fullscreen we anchor the view to the
+  /// bottom of the pane (`maxScrollExtent`) regardless of cursor
+  /// position, since the whole pane IS the content. In non-fullscreen
+  /// we use the cursor-based offset so the prompt stays visible even
+  /// when the underlying buffer has trailing blank rows.
+  final bool isFullscreen;
+
   /// ホールド+スワイプで矢印キー入力時のコールバック
   /// direction: 'Up', 'Down', 'Left', 'Right'
   final void Function(String direction)? onArrowSwipe;
@@ -115,6 +124,7 @@ class AnsiTextView extends ConsumerStatefulWidget {
     this.cursorX = 0,
     this.cursorY = 0,
     this.scrollbackSize = 0,
+    this.isFullscreen = false,
     this.onArrowSwipe,
     this.onTwoFingerSwipe,
     this.navigableDirections,
@@ -1357,16 +1367,18 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         final maxExtent = position.maxScrollExtent;
         if (maxExtent <= 0) return;
 
-        // When there is no scrollback (fullscreen TUI / alternate
-        // screen buffer), the rendered content IS the visible pane.
-        // The cursor may sit anywhere inside that pane — including the
-        // top rows (vi opens with cursor at line 1). Applying the
-        // cursor+margin clamp would turn `target = 9*lineHeight -
-        // viewport` into a negative value, clamp to 0, and scroll to
-        // the TOP of the pane — the opposite of what jump-to-bottom
-        // should do. Honor the raw bottom here so the full editor
-        // screen sits anchored at the viewport bottom.
-        if (widget.scrollbackSize == 0) {
+        // Fullscreen TUI (vi, less, htop, …) — anchor the view to
+        // the bottom of the pane regardless of cursor position. The
+        // cursor+margin path below would clamp to 0 when the cursor
+        // sits near the top and scroll to the TOP of the vi screen,
+        // which is the opposite of what jump-to-bottom should do.
+        //
+        // For NON-fullscreen panes with `scrollbackSize == 0` (raw PTY
+        // shell before any history accumulates), we fall through to
+        // the cursor+margin path: the buffer is always `_rows` lines
+        // tall with trailing blanks, and jumping to raw maxExtent
+        // would scroll those blanks into view and hide the prompt.
+        if (widget.isFullscreen) {
           _verticalScrollController.jumpTo(maxExtent);
           return;
         }

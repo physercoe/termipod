@@ -61,6 +61,19 @@ class TmuxBackend implements TerminalBackend {
   int _paneWidth = 80;
   int _paneHeight = 24;
   int _scrollbackSize = 0;
+  /// Effective scrollback used by the *most recent* poll. When the prior
+  /// poll ran with `effectiveScrollback == 0` (fullscreen TUI, or the
+  /// bootstrap/transition frame), the content on screen does NOT carry
+  /// any scrollback rows — so [scrollbackSize] must report 0 for that
+  /// frame even if `_scrollbackSize` has been (re-)populated from the
+  /// tmux `history_size` response.  The next poll either captures with
+  /// scrollback (this flag flips back) or stays fullscreen (flag stays
+  /// 0, getter keeps reporting 0).  Tracking the value separately from
+  /// `_scrollbackSize` itself avoids the lock-at-zero trap where the
+  /// pre-existing `(suppressScrollback || _scrollbackSize == 0)` gate
+  /// would make scrollback *permanently* disappear after the first
+  /// fullscreen-era poll.
+  int _lastPollEffectiveScrollback = 0;
   bool _isAlternateScreen = false;
   /// True when [pane_current_command] looks like a fullscreen TUI
   /// (vi/vim/less/htop/…). Used as a fallback when `#{alternate_on}`
@@ -225,8 +238,17 @@ class TmuxBackend implements TerminalBackend {
   bool get isFullscreen => _isAlternateScreen || _isFullscreenCommand;
 
   @override
-  int get scrollbackSize =>
-      (_isAlternateScreen || _isFullscreenCommand) ? 0 : _scrollbackSize;
+  int get scrollbackSize {
+    if (_isAlternateScreen || _isFullscreenCommand) return 0;
+    // During the transition frame (vi → shell) and during bootstrap the
+    // capture ran without scrollback — the content carries only the
+    // visible pane. Reporting the real `_scrollbackSize` (e.g. 1988)
+    // here would push AnsiTextView's cursor index into empty trailing
+    // rows. Wait until a poll has actually fetched scrollback before
+    // exposing it.
+    if (_lastPollEffectiveScrollback == 0) return 0;
+    return _scrollbackSize;
+  }
 
   @override
   String get currentContent => _currentContent;
@@ -429,18 +451,20 @@ class TmuxBackend implements TerminalBackend {
         }
       }
 
-      // Gate scrollback reporting on what we actually captured this
-      // poll. If `effectiveScrollback` was 0 (fullscreen / alternate
-      // screen), the content above is just `_paneHeight` rows — it
-      // does NOT contain `historySize` lines of scrollback. Reporting
-      // the raw `historySize` here would lie to AnsiTextView, which
-      // uses `scrollbackSize` to place the cursor: it would think
-      // there are 1988 scrollback rows above the captured 30-row
-      // pane, push `cursorLineIndex` off the rendered list, and make
-      // scroll-to-bottom jump into a sea of empty trailing lines.
-      // Matches the duplicate poll path in terminal_screen.dart.
-      _scrollbackSize =
-          effectiveScrollback == 0 ? 0 : (historySize ?? _scrollbackSize);
+      // Always track the true `history_size` — this is what the next
+      // poll uses to decide whether `effectiveScrollback` should be
+      // non-zero (see the `_scrollbackSize == 0` gate at the top of
+      // this method). Zeroing it here (the v1.0.11 attempt) created
+      // a lock-at-zero trap: on the fullscreen/bootstrap poll it went
+      // to 0, which forced the *next* poll's effectiveScrollback to 0
+      // too, which kept `_scrollbackSize` at 0 forever.
+      //
+      // The transition-frame mis-reporting that v1.0.11 tried to fix
+      // (AnsiTextView was told scrollbackSize=1988 above a 30-row
+      // capture) is now handled by the `scrollbackSize` getter gating
+      // on `_lastPollEffectiveScrollback`.
+      _scrollbackSize = historySize ?? _scrollbackSize;
+      _lastPollEffectiveScrollback = effectiveScrollback;
 
       // Copy-mode detection
       final paneMode = paneModeOutput.trim();

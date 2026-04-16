@@ -1636,6 +1636,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   cursorX: cursor.x,
                                   cursorY: cursor.y,
                                   scrollbackSize: viewData.scrollbackSize,
+                                  isFullscreen: viewData.isFullscreen,
                                   onArrowSwipe: _dispatchSpecialKey,
                                   onTwoFingerSwipe: _handleTwoFingerSwipe,
                                   navigableDirections: _getNavigableDirections(),
@@ -2079,24 +2080,38 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           // present, otherwise watch the tmux provider.
           final bool hasRawCursor =
               view.rawCursorX != null && view.rawCursorY != null;
-          if (hasRawCursor) {
-            return _buildCursorBadge(
-              context,
-              view.rawCursorX!,
-              view.rawCursorY!,
-            );
-          }
-          return Consumer(
-            builder: (context, ref, _) {
-              final cursor = ref.watch(
-                tmuxProvider(widget.connectionId).select(
-                  (s) => (
-                    x: s.activePane?.cursorX ?? 0,
-                    y: s.activePane?.cursorY ?? 0,
-                  ),
-                ),
+          // Wrap the badge in a scroll listenable so the viewport-range
+          // suffix (e.g. " · v5-19/24") re-evaluates as the user
+          // scrolls inside a taller-than-viewport vi pane.
+          return ListenableBuilder(
+            listenable: _terminalScrollController,
+            builder: (context, _) {
+              if (hasRawCursor) {
+                return _buildFullscreenBadge(
+                  context,
+                  cursorX: view.rawCursorX!,
+                  cursorY: view.rawCursorY!,
+                  paneHeight: view.paneHeight,
+                );
+              }
+              return Consumer(
+                builder: (context, ref, _) {
+                  final cursor = ref.watch(
+                    tmuxProvider(widget.connectionId).select(
+                      (s) => (
+                        x: s.activePane?.cursorX ?? 0,
+                        y: s.activePane?.cursorY ?? 0,
+                      ),
+                    ),
+                  );
+                  return _buildFullscreenBadge(
+                    context,
+                    cursorX: cursor.x,
+                    cursorY: cursor.y,
+                    paneHeight: view.paneHeight,
+                  );
+                },
               );
-              return _buildCursorBadge(context, cursor.x, cursor.y);
             },
           );
         }
@@ -2109,9 +2124,38 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// `[row|col]` badge (1-indexed). Shared between raw and tmux paths.
-  Widget _buildCursorBadge(BuildContext context, int cursorX, int cursorY) {
+  /// Fullscreen-TUI indicator: `[row|col]` cursor + optional viewport
+  /// range `v<top>-<bottom>/<paneHeight>` when the pane is taller than
+  /// the viewport (vi pane 24 rows on a phone showing 15 at a time).
+  Widget _buildFullscreenBadge(
+    BuildContext context, {
+    required int cursorX,
+    required int cursorY,
+    required int paneHeight,
+  }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Derive viewport range only if we have live scroll metrics AND
+    // the pane doesn't fit the viewport. No clients / fits = just the
+    // cursor badge.
+    String? viewportSuffix;
+    if (_terminalScrollController.hasClients && paneHeight > 0) {
+      final position = _terminalScrollController.position;
+      final lineHeight = _ansiTextViewKey.currentState?.lineHeight ?? 0;
+      if (lineHeight > 0) {
+        final visibleRows =
+            (position.viewportDimension / lineHeight).floor();
+        if (visibleRows > 0 && visibleRows < paneHeight) {
+          final topRow = (position.pixels / lineHeight).floor() + 1;
+          final bottomRow = (topRow + visibleRows - 1).clamp(1, paneHeight);
+          viewportSuffix = ' · v$topRow-$bottomRow/$paneHeight';
+        }
+      }
+    }
+
+    final text = '[${cursorY + 1}|${cursorX + 1}]'
+        '${viewportSuffix ?? ''}';
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -2122,7 +2166,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         ),
       ),
       child: Text(
-        '[${cursorY + 1}|${cursorX + 1}]',
+        text,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w500,

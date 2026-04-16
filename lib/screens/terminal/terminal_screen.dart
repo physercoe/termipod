@@ -191,6 +191,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   static const int _minPollingInterval = 50;
   static const int _maxPollingInterval = 2000;
 
+  /// True when the active pane is on tmux's alternate screen OR is
+  /// running a known fullscreen TUI command (vi, less, htop, …).
+  /// Drives scrollback suppression in the duplicate poll path so
+  /// the editor's screen isn't sandwiched below stale shell history.
+  /// Mirrors the same flag in [TmuxBackend]; both paths must agree
+  /// because either one can win the race to update `_viewNotifier`.
+  bool _pollIsFullscreen = false;
+
   // 選択状態保持用（スクロールモード中の更新抑制）
   String _bufferedContent = '';
   int _bufferedLatency = 0;
@@ -969,18 +977,41 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
       // 3つのコマンドを1つに統合して実行（持続的シェルは同時に1コマンドのみ）
       // capture-pane + カーソル位置情報 + ペインモード を1回で取得
-      // 出力形式: [ペイン内容]\n[カーソル情報]\n[ペインモード]
       //
       // Honour the tmux backend's (possibly extended) scrollback window so
       // this parallel polling path stays in lock-step with the backend
       // after [TmuxBackend.extendScrollback] / [resetScrollback] calls. If
       // no tmux backend is active (raw mode), fall back to the setting.
+      //
+      // When the pane is running a fullscreen TUI (vi, less, htop, …) or
+      // is on tmux's alternate screen, request 0 scrollback so the editor
+      // screen isn't preceded by stale shell history. `_pollIsFullscreen`
+      // is updated below from `pane_current_command`; we use the value
+      // from the *previous* poll here, then re-check after capture and
+      // strip the scrollback portion if a one-poll detection lag let it
+      // slip through. This mirrors the same logic in [TmuxBackend].
       final backend = _backend;
-      final scrollbackWindow = backend is TmuxBackend
+      final settingsScrollback = backend is TmuxBackend
           ? backend.scrollbackLines
           : ref.read(settingsProvider).scrollbackLines;
+      final effectiveScrollback = _pollIsFullscreen ? 0 : settingsScrollback;
+
+      // Use a unique \x01META\x01 delimiter between capture-pane output
+      // and the metadata fields so parsing doesn't depend on counting
+      // lines from the end. The previous `removeLast`-based split was
+      // fragile: any trailing newline variation in the persistent shell
+      // could pop a line of cursor metadata into the visible terminal
+      // (e.g. "46,53,198,54,1988,0,vi" appearing as a line of text).
+      final captureCmd = effectiveScrollback > 0
+          ? TmuxCommands.capturePane(
+              target,
+              escapeSequences: true,
+              startLine: -effectiveScrollback,
+            )
+          : TmuxCommands.capturePane(target, escapeSequences: true);
       final combinedCommand =
-          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: -scrollbackWindow)}; '
+          '$captureCmd; '
+          "printf '\\x01META\\x01\\n'; "
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
@@ -989,23 +1020,38 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         timeout: const Duration(seconds: 2),
       );
 
-      // 出力を分割（最後の行がペインモード、その前がカーソル情報）
-      final lines = combinedOutput.split('\n');
-      final paneModeOutput = lines.isNotEmpty ? lines.removeLast() : '';
-      final cursorOutput = lines.isNotEmpty ? lines.removeLast() : '';
-      final output = lines.join('\n');
-
+      // Split on the delimiter — everything before is capture-pane
+      // content, everything after is cursor + pane_mode lines.
+      String contentRaw;
+      String cursorOutput = '';
+      String paneModeOutput = '';
+      const metaDelim = '\x01META\x01';
+      final delimIndex = combinedOutput.lastIndexOf(metaDelim);
+      if (delimIndex != -1) {
+        contentRaw = combinedOutput.substring(0, delimIndex);
+        final metaPart = combinedOutput.substring(delimIndex + metaDelim.length);
+        final metaLines = metaPart.split('\n').where((l) => l.isNotEmpty).toList();
+        cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
+        paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
+      } else {
+        // Delimiter not found — fall back to treating the whole blob as
+        // content. Better to show too much than to leak cursor metadata.
+        contentRaw = combinedOutput;
+      }
       // capture-paneの出力末尾にある改行を削除
-      final processedOutput = output.endsWith('\n')
-          ? output.substring(0, output.length - 1)
-          : output;
+      var processedOutput = contentRaw.endsWith('\n')
+          ? contentRaw.substring(0, contentRaw.length - 1)
+          : contentRaw;
 
       final endTime = DateTime.now();
 
       if (!mounted || _isDisposed) return;
 
-      // カーソル位置とペインサイズを更新
+      // カーソル位置・ペインサイズ・スクリーンモード・現コマンドを更新
+      // Format: cursor_x,cursor_y,pane_width,pane_height,history_size,
+      //         alternate_on,pane_current_command
       int? historySize;
+      int? paneHeightForStrip;
       if (cursorOutput.isNotEmpty) {
         final parts = cursorOutput.trim().split(',');
         if (parts.length >= 4) {
@@ -1014,6 +1060,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           final w = int.tryParse(parts[2]);
           final h = int.tryParse(parts[3]);
           historySize = parts.length >= 5 ? int.tryParse(parts[4]) : null;
+          final isAlternate = parts.length >= 6 && parts[5].trim() == '1';
+          final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
+          // Update fullscreen flag for the NEXT poll's effectiveScrollback
+          // and for the strip-on-lag check below.
+          _pollIsFullscreen =
+              isAlternate || TmuxBackend.isFullscreenCommandName(currentCommand);
+          paneHeightForStrip = h;
 
           // ペインサイズの更新検知
           if (w != null && h != null && (w != _viewNotifier.value.paneWidth || h != _viewNotifier.value.paneHeight)) {
@@ -1033,6 +1086,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
               activePaneId, x, y,
             );
           }
+        }
+      }
+
+      // One-poll detection lag: the previous poll didn't yet know we
+      // were in a fullscreen TUI, so this capture asked tmux for
+      // scrollback and got `<shell history>\n<vi screen>`. Strip the
+      // history portion down to the visible pane so the user doesn't
+      // see stale content above the editor and have to scroll.
+      if (_pollIsFullscreen &&
+          effectiveScrollback > 0 &&
+          paneHeightForStrip != null &&
+          paneHeightForStrip > 0) {
+        final stripLines = processedOutput.split('\n');
+        if (stripLines.length > paneHeightForStrip) {
+          processedOutput = stripLines
+              .sublist(stripLines.length - paneHeightForStrip)
+              .join('\n');
         }
       }
 

@@ -71,25 +71,51 @@ class TmuxBackend implements TerminalBackend {
   bool _isInCopyMode = false;
   int _latency = 0;
 
-  /// Commands that take over the terminal as a fullscreen TUI and
-  /// therefore should not have scrollback prepended above them.
-  /// Matched case-insensitively against `#{pane_current_command}`.
-  static const Set<String> _fullscreenCommands = {
-    'vi', 'vim', 'nvim', 'neovim', 'view',
+  /// Exact command names treated as fullscreen TUIs. Matched
+  /// case-insensitively against `#{pane_current_command}`.
+  static const Set<String> _fullscreenCommandsExact = {
     'nano', 'pico',
     'less', 'more', 'most',
     'man', 'info',
     'htop', 'top', 'btop', 'btm', 'glances', 'atop',
     'ncdu', 'nnn', 'ranger', 'mc', 'lf', 'fzf',
     'tig', 'lazygit', 'gitui',
-    'emacs',
+    'emacs', 'mutt', 'neomutt', 'alpine', 'pine',
+    'irssi', 'weechat', 'finch',
+    'tmux',  // nested tmux session also runs fullscreen
   };
 
-  static bool _isFullscreenCommandName(String? name) {
+  /// Command-name *prefixes* treated as fullscreen TUIs. Catches
+  /// Debian/Ubuntu vim alternatives (`vim.basic`, `vim.tiny`,
+  /// `vim.gtk3`, `vim.nox`, …), neovim variants (`nvim-qt`), and
+  /// vim flavors (`vimdiff`, `vimtutor`, `view`, `rview`, `rvim`).
+  /// Order matters less here — we test in [isFullscreenCommandName].
+  static const List<String> _fullscreenCommandPrefixes = [
+    'vi',     // matches: vi, vim, vim.basic, vim.tiny, view, vimdiff, …
+    'nvim',   // matches: nvim, nvim-qt, neovim
+    'neovim',
+    'rvim',
+    'rview',
+  ];
+
+  /// True when `name` looks like a fullscreen TUI process. Public so
+  /// the legacy poll loop in `terminal_screen.dart` can use the same
+  /// detection — keeping the two paths in lock-step is the only way
+  /// to guarantee scrollback gets suppressed under either loop.
+  static bool isFullscreenCommandName(String? name) {
     if (name == null) return false;
     final n = name.trim().toLowerCase();
     if (n.isEmpty) return false;
-    return _fullscreenCommands.contains(n);
+    if (_fullscreenCommandsExact.contains(n)) return true;
+    for (final p in _fullscreenCommandPrefixes) {
+      // Match `p` exactly, or `p.<suffix>`, or `p-<suffix>`.
+      // We deliberately do NOT match `p<letter>` (e.g. `vis`, `vipw`)
+      // because those aren't editors / fullscreen TUIs.
+      if (n == p) return true;
+      if (n.startsWith('$p.')) return true;
+      if (n.startsWith('$p-')) return true;
+    }
+    return false;
   }
 
   final _contentController = StreamController<void>.broadcast();
@@ -311,7 +337,7 @@ class TmuxBackend implements TerminalBackend {
           _isAlternateScreen =
               parts.length >= 6 && parts[5].trim() == '1';
           final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
-          _isFullscreenCommand = _isFullscreenCommandName(currentCommand);
+          _isFullscreenCommand = isFullscreenCommandName(currentCommand);
 
           if (x != null) _cursorX = x;
           if (y != null) _cursorY = y;

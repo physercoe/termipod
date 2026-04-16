@@ -258,10 +258,13 @@ class _HelpSheetContent extends StatelessWidget {
     final textColor = isDark ? Colors.white : Colors.black87;
 
     const gestureCheatSheet = <String, List<_TmuxEntry>>{
-      'Terminal': [
+      'Terminal (Normal Mode)': [
+        _TmuxEntry('Scroll', 'Scroll terminal output up/down'),
         _TmuxEntry('Pinch', 'Zoom in/out (adjusts font size)'),
-        _TmuxEntry('Swipe Left/Right', 'Switch between panes'),
-        _TmuxEntry('Tap', 'Focus terminal / dismiss overlays'),
+        _TmuxEntry('2-Finger Swipe', 'Navigate between panes'),
+        _TmuxEntry('Hold + Drag', 'Arrow keys (repeatable)'),
+        _TmuxEntry('Double Tap', 'Toggle direct input mode'),
+        _TmuxEntry('Tap', 'Focus terminal / show scroll button'),
       ],
       'Gesture Mode': [
         _TmuxEntry('Swipe', 'Arrow keys (left/right/up/down)'),

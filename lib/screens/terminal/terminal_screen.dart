@@ -1443,6 +1443,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                                   onTap: () {
                                     _scrollToBottomKey.currentState?.show();
                                   },
+                                  onDoubleTap: () {
+                                    ref.read(actionBarProvider.notifier).toggleInputMode();
+                                  },
                                   mode: _terminalMode,
                                   zoomEnabled: true,
                                   onZoomChanged: (scale) {

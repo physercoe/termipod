@@ -97,6 +97,9 @@ class AnsiTextView extends ConsumerStatefulWidget {
   /// ターミナル領域タップ時のコールバック
   final VoidCallback? onTap;
 
+  /// ターミナル領域ダブルタップ時のコールバック
+  final VoidCallback? onDoubleTap;
+
   const AnsiTextView({
     super.key,
     required this.text,
@@ -116,6 +119,7 @@ class AnsiTextView extends ConsumerStatefulWidget {
     this.onTwoFingerSwipe,
     this.navigableDirections,
     this.onTap,
+    this.onDoubleTap,
   });
 
   @override
@@ -1002,6 +1006,7 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
               _focusNode.requestFocus();
               widget.onTap?.call();
             },
+            onDoubleTap: widget.onDoubleTap,
             onLongPressStart: _onLongPressStart,
             onLongPressMoveUpdate: _onLongPressMoveUpdate,
             onLongPressEnd: _onLongPressEnd,

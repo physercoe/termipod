@@ -209,29 +209,56 @@ class TmuxBackend implements TerminalBackend {
 
       final startTime = DateTime.now();
 
-      // --- Phase 1: query pane metadata (cursor, size, alternate_on,
-      // pane_mode) so we know the screen state BEFORE deciding how much
-      // scrollback to capture.  This costs one lightweight display-message
-      // round-trip but prevents the one-poll lag that caused old shell
-      // content to bleed into fullscreen apps like vi.
-      final metaCommand =
+      // When on the alternate screen (vi, less, man, etc.) or history_size
+      // is 0, don't request scrollback — only capture the visible pane.
+      // This prevents stale content from appearing above fullscreen apps.
+      final effectiveScrollback =
+          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
+
+      // Single combined command: capture-pane, then a unique delimiter,
+      // then metadata (cursor info + pane mode).  Using \x01 delimiter
+      // makes parsing robust regardless of whether the persistent shell
+      // or the exec() fallback is used — we search for the delimiter
+      // instead of counting lines from the end.
+      final combinedCommand =
+          '${TmuxCommands.capturePane(target, escapeSequences: true, startLine: effectiveScrollback > 0 ? -effectiveScrollback : null)}; '
+          "printf '\\x01META\\x01\\n'; "
           '${TmuxCommands.getCursorPosition(target)}; '
           '${TmuxCommands.getPaneMode(target)}';
 
-      final metaOutput = await _sshClient.execPersistent(
-        metaCommand,
+      final combinedOutput = await _sshClient.execPersistent(
+        combinedCommand,
         timeout: const Duration(seconds: 2),
       );
 
       if (_disposed) return;
 
-      // Parse metadata — cursor info is first line, pane mode is second.
-      final metaLines = metaOutput.split('\n');
-      final cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
-      final paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
+      // Split on the delimiter. Everything before it is capture-pane
+      // content; everything after is metadata (cursor + pane_mode).
+      String contentRaw;
+      String cursorOutput = '';
+      String paneModeOutput = '';
 
-      // Parse cursor position, pane size, and alternate_on flag BEFORE
-      // building the capture command so effectiveScrollback is accurate.
+      final delimIndex = combinedOutput.lastIndexOf('\x01META\x01');
+      if (delimIndex != -1) {
+        contentRaw = combinedOutput.substring(0, delimIndex);
+        final metaPart = combinedOutput.substring(
+          delimIndex + '\x01META\x01'.length,
+        );
+        final metaLines = metaPart.split('\n').where((l) => l.isNotEmpty).toList();
+        cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
+        paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
+      } else {
+        // Delimiter not found — treat entire output as content.
+        contentRaw = combinedOutput;
+      }
+
+      // Strip trailing newline from capture-pane content.
+      if (contentRaw.endsWith('\n')) {
+        contentRaw = contentRaw.substring(0, contentRaw.length - 1);
+      }
+
+      // Parse cursor position, pane size, and alternate_on flag.
       int? historySize;
       if (cursorOutput.isNotEmpty) {
         final parts = cursorOutput.trim().split(',');
@@ -265,28 +292,16 @@ class TmuxBackend implements TerminalBackend {
         onCopyModeChange?.call(_isInCopyMode);
       }
 
-      // --- Phase 2: capture pane content using the now-accurate flags.
-      // When on the alternate screen (vi, less, man, etc.) or history_size
-      // is 0, don't request scrollback — only capture the visible pane.
-      // This prevents stale content from appearing above fullscreen apps.
-      final effectiveScrollback =
-          (_isAlternateScreen || _scrollbackSize == 0) ? 0 : _scrollbackLines;
-      final captureCommand = TmuxCommands.capturePane(
-        target,
-        escapeSequences: true,
-        startLine: effectiveScrollback > 0 ? -effectiveScrollback : null,
-      );
-
-      final output = await _sshClient.execPersistent(
-        captureCommand,
-        timeout: const Duration(seconds: 2),
-      );
-
-      if (_disposed) return;
-
-      final processedOutput = output.endsWith('\n')
-          ? output.substring(0, output.length - 1)
-          : output;
+      // If we just detected alternate screen but captured with scrollback
+      // (one-poll lag), strip the scrollback portion so only the visible
+      // pane content remains.  The NEXT poll will use effectiveScrollback=0.
+      var processedOutput = contentRaw;
+      if (_isAlternateScreen && effectiveScrollback > 0 && _paneHeight > 0) {
+        final lines = processedOutput.split('\n');
+        if (lines.length > _paneHeight) {
+          processedOutput = lines.sublist(lines.length - _paneHeight).join('\n');
+        }
+      }
 
       final endTime = DateTime.now();
       _latency = endTime.difference(startTime).inMilliseconds;

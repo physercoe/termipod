@@ -79,7 +79,11 @@ class PersistentShell {
     _session!.write(utf8.encode(
       'export HISTFILE=/dev/null HISTSIZE=0 HISTFILESIZE=0 SAVEHIST=0 2>/dev/null;'
       ' set fish_history "" 2>/dev/null; true;'
-      ' export PS1="" PS2="" 2>/dev/null; stty -echo\n',
+      ' export PS1="" PS2="" 2>/dev/null;'
+      // Disable shell hooks that inject output between commands.
+      ' unset PROMPT_COMMAND 2>/dev/null;'
+      ' precmd_functions=() 2>/dev/null; precmd() { true; } 2>/dev/null;'
+      ' stty -echo\n',
     ));
     await Future.delayed(const Duration(milliseconds: 100));
 

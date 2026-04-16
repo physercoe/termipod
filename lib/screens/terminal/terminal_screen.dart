@@ -1129,7 +1129,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
 
       // 差分があれば更新（スロットリング適用）
-      final scrollback = historySize ?? _viewNotifier.value.scrollbackSize;
+      // In fullscreen TUIs (vi, less, etc.) tmux still reports the real
+      // pane history (`#{history_size}`, e.g. 200) — but the visible
+      // content IS the alternate screen, with no scrollback above it.
+      // If we passed the raw history through, AnsiTextView would let
+      // the user scroll past the editor's bottom into 200 rows of
+      // empty space. Honor `_pollIsFullscreen` here exactly as
+      // [TmuxBackend.scrollbackSize] does.
+      final scrollback = _pollIsFullscreen
+          ? 0
+          : (historySize ?? _viewNotifier.value.scrollbackSize);
       final currentView = _viewNotifier.value;
       if (processedOutput != currentView.content || latency != currentView.latency) {
         // 手動スクロールモード中のみ更新をバッファリングして選択状態を保持

@@ -1020,28 +1020,28 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         timeout: const Duration(seconds: 2),
       );
 
-      // Split on the delimiter — everything before is capture-pane
-      // content, everything after is cursor + pane_mode lines.
-      String contentRaw;
-      String cursorOutput = '';
-      String paneModeOutput = '';
-      const metaDelim = '\x01META\x01';
-      final delimIndex = combinedOutput.lastIndexOf(metaDelim);
-      if (delimIndex != -1) {
-        contentRaw = combinedOutput.substring(0, delimIndex);
-        final metaPart = combinedOutput.substring(delimIndex + metaDelim.length);
-        final metaLines = metaPart.split('\n').where((l) => l.isNotEmpty).toList();
-        cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
-        paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
-      } else {
-        // Delimiter not found — fall back to treating the whole blob as
-        // content. Better to show too much than to leak cursor metadata.
-        contentRaw = combinedOutput;
+      // Use the shared parser so this duplicate poll stays in lock-step
+      // with [TmuxBackend._pollPaneContent]. A null result is a *skip*
+      // signal — the previous frame remains on screen and the next poll
+      // recovers. The earlier "dump combinedOutput as content" fallback
+      // briefly leaked the trailing cursor-metadata line onto the
+      // terminal screen (e.g. "33,0,56,44,0,0,bash") whenever the META
+      // delimiter went missing for a single iteration.
+      final parsed = TmuxBackend.parsePollOutput(combinedOutput);
+      if (parsed == null) {
+        // Still mark the poll as successful for the stale watchdog —
+        // the SSH pipe responded, the response was just unparseable
+        // for one frame. Refresh the heartbeat so we don't trip the
+        // "no fresh data" indicator.
+        _lastSuccessfulPoll = DateTime.now();
+        if (_isConnectionStale && mounted && !_isDisposed) {
+          setState(() => _isConnectionStale = false);
+        }
+        return;
       }
-      // capture-paneの出力末尾にある改行を削除
-      var processedOutput = contentRaw.endsWith('\n')
-          ? contentRaw.substring(0, contentRaw.length - 1)
-          : contentRaw;
+      var processedOutput = parsed.content;
+      final cursorOutput = parsed.cursorLine;
+      final paneModeOutput = parsed.paneModeLine;
 
       final endTime = DateTime.now();
 

@@ -137,6 +137,70 @@ class TmuxBackend implements TerminalBackend {
     return false;
   }
 
+  /// Delimiter the poll command embeds between capture-pane content and
+  /// the trailing metadata fields (cursor info + pane mode). Uses SOH
+  /// (0x01) bytes to make the marker robust against literal text in
+  /// pane content — `tmux capture-pane -e` only emits ANSI escapes
+  /// (0x1b), never SOH, so collisions are vanishingly rare.
+  static const String pollMetaDelimiter = '\x01META\x01';
+
+  /// Pattern of a single line emitted by [TmuxCommands.getCursorPosition]:
+  /// `cursor_x,cursor_y,pane_width,pane_height,history_size,alternate_on,pane_current_command`.
+  /// Used as a defense-in-depth check by [parsePollOutput] — if this
+  /// pattern ever appears as the trailing line of pane content, we
+  /// know the META split misfired and would otherwise leak text like
+  /// "33,0,56,44,0,0,bash" onto the user's terminal screen for one
+  /// frame before the next poll cleans it up.
+  static final RegExp _cursorMetaLinePattern =
+      RegExp(r'^\d+,\d+,\d+,\d+,\d+,[01],\S*$');
+
+  /// Parses the combined output of one poll iteration into pane
+  /// content + the two metadata lines. Returns null when the parse is
+  /// not safe to use — callers MUST skip their content update in that
+  /// case, leaving the previous frame on screen and letting the next
+  /// poll recover. Dumping the raw blob as content (the old fallback)
+  /// briefly leaks cursor-metadata text onto the terminal.
+  ///
+  /// Two failure modes are detected:
+  ///
+  ///  1. The [pollMetaDelimiter] is missing entirely. Most often a
+  ///     transient PTY buffering / shell-restart edge case, but we
+  ///     can't tell content from metadata without it.
+  ///
+  ///  2. The delimiter is present but `contentRaw`'s trailing line
+  ///     matches [_cursorMetaLinePattern]. This shouldn't happen with
+  ///     correct parsing — but if a future change ever splits at the
+  ///     wrong position, this guard catches the leak before it ships.
+  static TmuxPollParseResult? parsePollOutput(String combinedOutput) {
+    final delimIndex = combinedOutput.lastIndexOf(pollMetaDelimiter);
+    if (delimIndex == -1) return null;
+
+    var content = combinedOutput.substring(0, delimIndex);
+    if (content.endsWith('\n')) {
+      content = content.substring(0, content.length - 1);
+    }
+
+    if (content.isNotEmpty) {
+      final lastNewline = content.lastIndexOf('\n');
+      final lastLine = lastNewline == -1
+          ? content
+          : content.substring(lastNewline + 1);
+      if (_cursorMetaLinePattern.hasMatch(lastLine.trim())) {
+        return null;
+      }
+    }
+
+    final metaPart =
+        combinedOutput.substring(delimIndex + pollMetaDelimiter.length);
+    final metaLines =
+        metaPart.split('\n').where((l) => l.isNotEmpty).toList();
+    return TmuxPollParseResult(
+      content: content,
+      cursorLine: metaLines.isNotEmpty ? metaLines[0] : '',
+      paneModeLine: metaLines.length >= 2 ? metaLines[1] : '',
+    );
+  }
+
   final _contentController = StreamController<void>.broadcast();
 
   TmuxBackend({
@@ -313,30 +377,23 @@ class TmuxBackend implements TerminalBackend {
 
       if (_disposed) return;
 
-      // Split on the delimiter. Everything before it is capture-pane
-      // content; everything after is metadata (cursor + pane_mode).
-      String contentRaw;
-      String cursorOutput = '';
-      String paneModeOutput = '';
-
-      final delimIndex = combinedOutput.lastIndexOf('\x01META\x01');
-      if (delimIndex != -1) {
-        contentRaw = combinedOutput.substring(0, delimIndex);
-        final metaPart = combinedOutput.substring(
-          delimIndex + '\x01META\x01'.length,
-        );
-        final metaLines = metaPart.split('\n').where((l) => l.isNotEmpty).toList();
-        cursorOutput = metaLines.isNotEmpty ? metaLines[0] : '';
-        paneModeOutput = metaLines.length >= 2 ? metaLines[1] : '';
-      } else {
-        // Delimiter not found — treat entire output as content.
-        contentRaw = combinedOutput;
+      // Split on the META delimiter. Returning null here is a deliberate
+      // *skip* signal: the previous frame stays on screen and the next
+      // poll recovers. The earlier "dump combinedOutput as content"
+      // fallback briefly leaked the trailing cursor-metadata line onto
+      // the terminal screen (e.g. "33,0,56,44,0,0,bash") whenever the
+      // delimiter went missing for a single iteration. Latency / polling
+      // cadence are still updated below so the watchdog doesn't react.
+      final parsed = parsePollOutput(combinedOutput);
+      if (parsed == null) {
+        _latency =
+            DateTime.now().difference(startTime).inMilliseconds;
+        _updatePollingInterval();
+        return;
       }
-
-      // Strip trailing newline from capture-pane content.
-      if (contentRaw.endsWith('\n')) {
-        contentRaw = contentRaw.substring(0, contentRaw.length - 1);
-      }
+      final contentRaw = parsed.content;
+      final cursorOutput = parsed.cursorLine;
+      final paneModeOutput = parsed.paneModeLine;
 
       // Parse cursor position, pane size, alternate_on flag, and the
       // current command name (used as fullscreen-app fallback).
@@ -518,4 +575,26 @@ class TmuxBackend implements TerminalBackend {
     _pollTimer?.cancel();
     _contentController.close();
   }
+}
+
+/// Parsed components of a single poll iteration's combined output.
+/// See [TmuxBackend.parsePollOutput] — a null return there means the
+/// poller should skip its content update for this frame.
+class TmuxPollParseResult {
+  /// The capture-pane portion, with its trailing newline stripped.
+  final String content;
+
+  /// The cursor / dimensions / fullscreen-hint line emitted by
+  /// [TmuxCommands.getCursorPosition]. Empty if missing.
+  final String cursorLine;
+
+  /// The pane-mode line emitted by [TmuxCommands.getPaneMode].
+  /// Empty when not in tmux copy-mode (which is the common case).
+  final String paneModeLine;
+
+  const TmuxPollParseResult({
+    required this.content,
+    required this.cursorLine,
+    required this.paneModeLine,
+  });
 }

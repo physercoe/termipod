@@ -20,6 +20,14 @@ class RawPtyBackend implements TerminalBackend {
   int _cols;
   int _rows;
 
+  /// Max scrollback lines to keep (user-configurable via settings).
+  /// Caps xterm's buffer so `_extractAnsiContent` never emits more
+  /// scrollback rows than `AnsiTextView._computeCursorLineIndex` is
+  /// willing to index into (it clamps at `settings.scrollbackLines`).
+  /// Mismatch there would re-introduce the blank-area-above-cursor
+  /// bug we're fixing here.
+  final int _scrollbackLines;
+
   String _cachedContent = '';
   bool _contentDirty = true;
   bool _disposed = false;
@@ -101,9 +109,11 @@ class RawPtyBackend implements TerminalBackend {
     required SshClient sshClient,
     int cols = 80,
     int rows = 24,
+    int scrollbackLines = 100,
   })  : _sshClient = sshClient,
         _cols = cols,
-        _rows = rows;
+        _rows = rows,
+        _scrollbackLines = scrollbackLines;
 
   @override
   bool get supportsNavigation => false;
@@ -140,7 +150,13 @@ class RawPtyBackend implements TerminalBackend {
   Future<void> initialize({required int cols, required int rows}) async {
     _cols = cols;
     _rows = rows;
-    _terminal = Terminal(maxLines: 1000);
+    // maxLines = visible rows + allowed scrollback. Using a fixed 1000
+    // here previously meant xterm kept up to 976 scrollback rows, but
+    // `_extractAnsiContent` only emitted the visible 24 — AnsiTextView
+    // then tried to index the cursor at row `scrollbackSize + cursorY`
+    // into a content buffer that ended at row 24, causing a growing
+    // blank area above the cursor as history accumulated.
+    _terminal = Terminal(maxLines: rows + _scrollbackLines);
     _terminal.resize(cols, rows);
 
     // Probe $HOME on a throwaway exec channel before starting the shell.
@@ -224,15 +240,19 @@ class RawPtyBackend implements TerminalBackend {
     final buffer = _terminal.buffer;
     final sb = buffer.scrollBack;
 
-    // Visible lines start at scrollBack offset
-    for (int y = 0; y < _rows; y++) {
-      final lineIndex = sb + y;
-      if (lineIndex < 0 || lineIndex >= buffer.lines.length) {
+    // Emit scrollback lines first (0..sb-1), then visible rows
+    // (sb..sb+rows-1). AnsiTextView expects parsedLines to contain
+    // scrollbackSize history rows followed by the visible pane so that
+    // `cursorLineIndex = scrollbackSize + cursorY` points at the right
+    // row. Without scrollback, history was hidden AND the cursor index
+    // pointed into empty trailing rows above the real content.
+    final totalRows = sb + _rows;
+    for (int i = 0; i < totalRows; i++) {
+      if (i < 0 || i >= buffer.lines.length) {
         buf.writeln();
         continue;
       }
-      final line = buffer.lines[lineIndex];
-      buf.writeln(_lineToAnsi(line));
+      buf.writeln(_lineToAnsi(buffer.lines[i]));
     }
 
     return buf.toString();

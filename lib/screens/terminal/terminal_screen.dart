@@ -669,8 +669,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final displayState = ref.read(terminalDisplayProvider);
     final cols = displayState.paneWidth > 0 ? displayState.paneWidth : 80;
     final rows = displayState.paneHeight > 0 ? displayState.paneHeight : 24;
+    final settings = ref.read(settingsProvider);
 
-    _backend = RawPtyBackend(sshClient: sshClient, cols: cols, rows: rows);
+    _backend = RawPtyBackend(
+      sshClient: sshClient,
+      cols: cols,
+      rows: rows,
+      scrollbackLines: settings.scrollbackLines,
+    );
     await _backend!.initialize(cols: cols, rows: rows);
 
     _viewNotifier.value = _viewNotifier.value.copyWith(
@@ -1322,9 +1328,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
 
     // 初回コンテンツ受信時に一番下へスクロール
+    //
+    // Use the pending-scroll-to-bottom mechanism (not `_scrollToCaret`)
+    // so we stay anchored at the bottom as scrollback reinflates across
+    // the first few polls. The bootstrap poll carries 0 scrollback and
+    // the follow-up poll brings the full history — a one-shot
+    // `_scrollToCaret` computed against the sparse initial content left
+    // the viewport stranded mid-buffer after reinflation. The same flag
+    // handles fullscreen→shell transitions, so this unifies both paths.
     if (!_hasInitialScrolled && _pendingContent.isNotEmpty) {
       _hasInitialScrolled = true;
-      _scrollToCaret();
+      _pendingScrollToBottom = true;
+      _pendingScrollToBottomBackstop = 5;
     }
 
     // Scroll to bottom after resize OR fullscreen→shell transition.

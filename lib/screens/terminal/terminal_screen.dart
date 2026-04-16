@@ -269,6 +269,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // landed and the scroll has already been anchored correctly).
   int _pendingScrollToBottomBackstop = 0;
 
+  // Mirror of the scroll-to-bottom mechanism for the shell → fullscreen
+  // transition. Held across multiple polls so the jump survives the
+  // transition-frame scrollback reinflation quirk (vi's first poll can
+  // still carry pre-flip shell state).
+  bool _pendingScrollToTop = false;
+  int _pendingScrollToTopBackstop = 0;
+
   // --- Scrollback auto-extension state -------------------------------------
   //
   // When the user scrolls up to the top of the captured buffer, we ask the
@@ -917,6 +924,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (wasFullscreen && !backendFullscreen) {
         _pendingScrollToBottom = true;
         _pendingScrollToBottomBackstop = 10;
+      } else if (!wasFullscreen && backendFullscreen) {
+        // shell → vi / fullscreen TUI. The alternate-buffer content
+        // is exactly the pane (scrollback=0), so the cursor is at
+        // row N of the current pane. Any leftover scroll offset from
+        // the prior shell view would leave the vi cursor off-screen
+        // (typically row 1, above the viewport). Pin to top so the
+        // cursor and any header text are immediately visible.
+        _pendingScrollToTop = true;
+        _pendingScrollToTopBackstop = 10;
       }
     }
 
@@ -1168,6 +1184,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           if (wasFullscreen && !_pollIsFullscreen) {
             _pendingScrollToBottom = true;
             _pendingScrollToBottomBackstop = 10;
+          } else if (!wasFullscreen && _pollIsFullscreen) {
+            // Shell → fullscreen TUI. See the matching branch in
+            // _onBackendContentUpdate for rationale.
+            _pendingScrollToTop = true;
+            _pendingScrollToTopBackstop = 10;
           }
           paneHeightForStrip = h;
 
@@ -1392,6 +1413,29 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       });
     }
 
+    // Shell → fullscreen TUI (e.g. entering vi). Pin to top so vi's
+    // cursor — usually at row 1 — isn't left below the viewport from
+    // stale pre-vi shell scroll position. Same backstop pattern as
+    // scroll-to-bottom so we survive the transition-frame and the
+    // first real alternate-buffer content frame.
+    if (_pendingScrollToTop && _pendingContent.isNotEmpty) {
+      if (_terminalScrollController.hasClients) {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _isDisposed) return;
+          if (!_terminalScrollController.hasClients) return;
+          final pos = _terminalScrollController.position;
+          // Already at top — no need to re-jump (keeps the scroll
+          // controller quiet across the remaining backstop cycles).
+          if (pos.pixels <= 0.5) return;
+          _terminalScrollController.jumpTo(0);
+        });
+      }
+      if (--_pendingScrollToTopBackstop <= 0) {
+        _pendingScrollToTop = false;
+        _pendingScrollToTopBackstop = 0;
+      }
+    }
+
     // Anchor the viewport after a scrollback extension so the visible
     // content stays on the same line. New history lines were prepended
     // to the buffer; without compensation the user's reading position
@@ -1504,12 +1548,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // manual scroll attempts — giving the impression that the screen
     // is "locked to bottom" for the first second after entering a
     // session. Cancel on any user-initiated scroll direction.
-    if (_pendingScrollToBottom &&
-        _terminalScrollController.hasClients &&
+    if (_terminalScrollController.hasClients &&
         _terminalScrollController.position.userScrollDirection !=
             ScrollDirection.idle) {
-      _pendingScrollToBottom = false;
-      _pendingScrollToBottomBackstop = 0;
+      if (_pendingScrollToBottom) {
+        _pendingScrollToBottom = false;
+        _pendingScrollToBottomBackstop = 0;
+      }
+      if (_pendingScrollToTop) {
+        _pendingScrollToTop = false;
+        _pendingScrollToTopBackstop = 0;
+      }
     }
     _maybeExtendScrollback();
   }

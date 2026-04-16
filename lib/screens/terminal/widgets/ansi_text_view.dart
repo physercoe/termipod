@@ -733,19 +733,26 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
     return actualScrollback + widget.cursorY;
   }
 
-  /// The effective "end" line count (up to cursor + margin, not including
-  /// trailing empty pane rows). Used by the scroll position indicator.
+  /// The effective "end" line count — last row with content, or cursor
+  /// row if nothing follows it. Used by the scroll position indicator
+  /// so it hides when the user has actually reached the visible bottom
+  /// (which for CLI agents is below the cursor: status line / input
+  /// box rows), not just the cursor row.
   int get effectiveLineCount {
     final parsedLines = _cachedParsedLines;
     if (parsedLines == null || parsedLines.isEmpty) return 0;
     final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
-    // Include a small margin below cursor, capped at total lines
-    // Use max of parsedLines.length and cursorLineIndex+1 since cursor may be on stripped lines
-    final effectiveTotal = parsedLines.length > cursorLineIndex + 1
+    int lastContentIdx = cursorLineIndex;
+    for (int i = parsedLines.length - 1; i > cursorLineIndex; i--) {
+      if (!parsedLines[i].isEmpty) {
+        lastContentIdx = i;
+        break;
+      }
+    }
+    final effectiveTotal = parsedLines.length > lastContentIdx + 1
         ? parsedLines.length
-        : cursorLineIndex + 1;
-    return (cursorLineIndex + 1 + _cursorBottomMargin)
-        .clamp(0, effectiveTotal);
+        : lastContentIdx + 1;
+    return (lastContentIdx + 1).clamp(0, effectiveTotal);
   }
 
   @override
@@ -1353,13 +1360,6 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
     });
   }
 
-  /// Lines of margin below the cursor when scrolling to "bottom".
-  /// 0 = cursor sits on the last visible row. Prior value (3) left the
-  /// cursor visibly detached from the viewport bottom after initial
-  /// entry / vi-exit / jump-to-end, which users perceived as "not at
-  /// the bottom".
-  static const int _cursorBottomMargin = 0;
-
   void _jumpToCursorBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1377,43 +1377,59 @@ class AnsiTextViewState extends ConsumerState<AnsiTextView>
         // sits near the top and scroll to the TOP of the vi screen,
         // which is the opposite of what jump-to-bottom should do.
         if (widget.isFullscreen) {
-          _verticalScrollController.jumpTo(maxExtent);
+          _jumpIfDifferent(maxExtent);
           return;
         }
 
         final parsedLines = _cachedParsedLines;
         if (parsedLines == null || parsedLines.isEmpty) {
           // No cursor info — fall back to raw maxScrollExtent
-          _verticalScrollController.jumpTo(maxExtent);
+          _jumpIfDifferent(maxExtent);
           return;
         }
 
-        // Cursor absolute line index (same logic as build)
         final cursorLineIndex = _computeCursorLineIndex(parsedLines.length);
 
-        // When the cursor lies at/after the last parsed line (tmux's
-        // capture-pane trims trailing empty rows down to the cursor
-        // row, and raw PTY emits exactly scrollback+rows lines), the
-        // raw `maxScrollExtent` already places the cursor at the
-        // viewport bottom. Using maxExtent directly avoids subtle
-        // off-by-one drift from line-height rounding and guarantees
-        // we actually land at the bottom of the scroll range.
-        if (cursorLineIndex >= parsedLines.length - 1) {
-          _verticalScrollController.jumpTo(maxExtent);
-          return;
+        // Find the last row with real content. CLI agents (Claude
+        // Code, Kimi Code, etc.) park a status line / input box
+        // BELOW the cursor — the cursor sits mid-pane while the real
+        // bottom of content is several rows further down. Using the
+        // cursor row as the "bottom" would scroll those status lines
+        // off-screen. Using raw maxExtent would scroll past trailing
+        // empty rows that raw PTY leaves in its buffer (e.g. a fresh
+        // `$ _` prompt in a 40-row terminal). The right target is
+        // the last parsed line that still has content — clamps to
+        // cursorLineIndex as a floor so the cursor never falls off
+        // the top when there's nothing below it.
+        int lastContentIdx = cursorLineIndex;
+        for (int i = parsedLines.length - 1; i > cursorLineIndex; i--) {
+          if (!parsedLines[i].isEmpty) {
+            lastContentIdx = i;
+            break;
+          }
         }
 
-        // Otherwise (rare — cursor above a tail of explicit content),
-        // place cursor on the last visible row with no margin.
         final viewportHeight = position.viewportDimension;
         final targetOffset =
-            (cursorLineIndex + 1 + _cursorBottomMargin) * _lineHeight -
-                viewportHeight;
+            (lastContentIdx + 1) * _lineHeight - viewportHeight;
         final clampedOffset = targetOffset.clamp(0.0, maxExtent);
 
-        _verticalScrollController.jumpTo(clampedOffset);
+        _jumpIfDifferent(clampedOffset);
       });
     });
+  }
+
+  /// Skip the jump when we're already within half a line of the target.
+  /// Pending-scroll-to-bottom re-fires on every poll for up to 10
+  /// cycles; once we're at the bottom, the repeated jumpTo calls still
+  /// trigger scroll-notifications and can cause subtle repaints, which
+  /// show up as a "flash" during session entry / vi-exit. Short-circuit
+  /// when no movement is needed.
+  void _jumpIfDifferent(double offset) {
+    if (!_verticalScrollController.hasClients) return;
+    final current = _verticalScrollController.position.pixels;
+    if ((current - offset).abs() < _lineHeight * 0.5) return;
+    _verticalScrollController.jumpTo(offset);
   }
 
   /// 一番上までスクロール

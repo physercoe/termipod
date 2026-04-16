@@ -72,30 +72,54 @@ class TmuxBackend implements TerminalBackend {
   int _latency = 0;
 
   /// Exact command names treated as fullscreen TUIs. Matched
-  /// case-insensitively against `#{pane_current_command}`.
+  /// case-insensitively against `#{pane_current_command}`. The
+  /// list is intentionally explicit (no fuzzy substring matching)
+  /// because false positives — suppressing scrollback for a regular
+  /// shell command — also hurt UX. False negatives we *do* want to
+  /// catch via the variant prefix rules below.
   static const Set<String> _fullscreenCommandsExact = {
-    'nano', 'pico',
-    'less', 'more', 'most',
-    'man', 'info',
+    // vim family (incl. read-only and restricted variants)
+    'vi', 'vim', 'view', 'ex', 'rvim', 'rview',
+    'vimdiff', 'vimtutor', 'gvim',
+    // neovim family
+    'nvim', 'neovim',
+    // other editors
+    'nano', 'pico', 'ee', 'joe', 'mg', 'micro',
+    'emacs', 'emacsclient',
+    'helix', 'hx',
+    'kakoune', 'kak',
+    // pagers
+    'less', 'more', 'most', 'lv', 'w3m',
+    // manual / info viewers
+    'man', 'info', 'mandoc',
+    // system monitors
     'htop', 'top', 'btop', 'btm', 'glances', 'atop',
+    'gtop', 'vtop', 'bashtop', 'bpytop', 'nmon',
+    // file managers
     'ncdu', 'nnn', 'ranger', 'mc', 'lf', 'fzf',
+    'broot', 'xplr', 'vifm',
+    // git TUIs
     'tig', 'lazygit', 'gitui',
-    'emacs', 'mutt', 'neomutt', 'alpine', 'pine',
-    'irssi', 'weechat', 'finch',
+    // mail clients
+    'mutt', 'neomutt', 'alpine', 'pine',
+    // IRC / chat
+    'irssi', 'weechat', 'finch', 'gomuks',
+    // misc
     'tmux',  // nested tmux session also runs fullscreen
+    'screen',
   };
 
-  /// Command-name *prefixes* treated as fullscreen TUIs. Catches
+  /// Command-name *prefixes* with required separator. Catches
   /// Debian/Ubuntu vim alternatives (`vim.basic`, `vim.tiny`,
-  /// `vim.gtk3`, `vim.nox`, …), neovim variants (`nvim-qt`), and
-  /// vim flavors (`vimdiff`, `vimtutor`, `view`, `rview`, `rvim`).
-  /// Order matters less here — we test in [isFullscreenCommandName].
+  /// `vim.gtk3`, `vim.nox`, `vim.athena`, `vim-tiny`, …) and
+  /// neovim packaging variants (`nvim-qt`, `nvim.appimage`).
+  ///
+  /// Each entry must match as `<prefix><sep><suffix>` where `<sep>`
+  /// is `.` or `-`. Plain `vis`/`vipw` won't match, but `vim.basic`
+  /// will. Exact matches are handled by the set above, not here.
   static const List<String> _fullscreenCommandPrefixes = [
-    'vi',     // matches: vi, vim, vim.basic, vim.tiny, view, vimdiff, …
-    'nvim',   // matches: nvim, nvim-qt, neovim
-    'neovim',
-    'rvim',
-    'rview',
+    'vim',
+    'nvim',
   ];
 
   /// True when `name` looks like a fullscreen TUI process. Public so
@@ -108,12 +132,7 @@ class TmuxBackend implements TerminalBackend {
     if (n.isEmpty) return false;
     if (_fullscreenCommandsExact.contains(n)) return true;
     for (final p in _fullscreenCommandPrefixes) {
-      // Match `p` exactly, or `p.<suffix>`, or `p-<suffix>`.
-      // We deliberately do NOT match `p<letter>` (e.g. `vis`, `vipw`)
-      // because those aren't editors / fullscreen TUIs.
-      if (n == p) return true;
-      if (n.startsWith('$p.')) return true;
-      if (n.startsWith('$p-')) return true;
+      if (n.startsWith('$p.') || n.startsWith('$p-')) return true;
     }
     return false;
   }

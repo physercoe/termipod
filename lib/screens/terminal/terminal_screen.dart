@@ -131,6 +131,13 @@ class TerminalScreen extends ConsumerStatefulWidget {
   /// ディープリンク用: ペインインデックス
   final int? deepLinkPaneIndex;
 
+  /// Open as a raw PTY shell even if [Connection.terminalMode] is tmux.
+  /// Lets the user reach a plain SSH shell on a tmux-configured server
+  /// without registering a duplicate connection. The override is per-
+  /// session — closing and re-opening the connection from the tmux
+  /// flow goes back to tmux mode.
+  final bool forceRawMode;
+
   const TerminalScreen({
     super.key,
     required this.connectionId,
@@ -139,6 +146,7 @@ class TerminalScreen extends ConsumerStatefulWidget {
     this.lastPaneId,
     this.deepLinkWindowName,
     this.deepLinkPaneIndex,
+    this.forceRawMode = false,
   });
 
   @override
@@ -606,7 +614,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         return;
       }
 
-      if (connection.isRawMode) {
+      // [forceRawMode] from the Servers page lets a tmux-configured
+      // connection be opened as a plain shell without persisting a
+      // duplicate raw connection.
+      if (widget.forceRawMode || connection.isRawMode) {
         // --- Raw PTY mode: direct shell, no tmux ---
         await _setupRawPtyBackend(sshNotifier);
       } else {

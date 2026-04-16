@@ -288,6 +288,13 @@ class ConnectionsScreen extends ConsumerWidget {
               connection: connection,
               onConnect: (sessionName) =>
                   _connectToServer(context, ref, connection, sessionName),
+              onConnectRaw: () => _connectToServer(
+                context,
+                ref,
+                connection,
+                null,
+                forceRawMode: true,
+              ),
               onEdit: () => _editConnection(context, ref, connection),
               onDelete: () => _deleteConnection(context, ref, connection),
             ),
@@ -497,8 +504,9 @@ class ConnectionsScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     Connection connection,
-    String? sessionName,
-  ) {
+    String? sessionName, {
+    bool forceRawMode = false,
+  }) {
     ref.read(connectionsProvider.notifier).updateLastConnected(connection.id);
     // 既存セッションを開く場合は最終アクセス日時を更新
     if (sessionName != null) {
@@ -512,6 +520,7 @@ class ConnectionsScreen extends ConsumerWidget {
         builder: (context) => TerminalScreen(
           connectionId: connection.id,
           sessionName: sessionName,
+          forceRawMode: forceRawMode,
         ),
       ),
     );
@@ -522,6 +531,14 @@ class ConnectionsScreen extends ConsumerWidget {
 class _ConnectionCard extends ConsumerStatefulWidget {
   final Connection connection;
   final void Function(String? sessionName) onConnect;
+
+  /// Quick "Open as raw shell" action — bypasses tmux session listing
+  /// and opens a direct PTY. Wired to a small terminal-icon button on
+  /// the card header for tmux connections so users don't have to
+  /// register a duplicate raw connection just to reach a plain shell.
+  /// Null disables the shortcut (e.g. for connections that are already
+  /// configured as raw — the whole card is the shortcut in that case).
+  final VoidCallback? onConnectRaw;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -529,6 +546,7 @@ class _ConnectionCard extends ConsumerStatefulWidget {
     super.key,
     required this.connection,
     required this.onConnect,
+    this.onConnectRaw,
     required this.onEdit,
     required this.onDelete,
   });
@@ -715,6 +733,32 @@ class _ConnectionCardState extends ConsumerState<_ConnectionCard> {
                       ],
                     ),
                   ),
+                  // Quick "open as raw shell" shortcut for tmux
+                  // connections — saves the user from having to expand
+                  // the card AND from registering a duplicate raw
+                  // connection just to reach a plain SSH shell. Hidden
+                  // for raw connections (where it would be redundant)
+                  // and when the parent didn't supply a handler.
+                  if (!isRaw && widget.onConnectRaw != null) ...[
+                    Tooltip(
+                      message: AppLocalizations.of(context)!.connectAsRawShell,
+                      child: InkWell(
+                        onTap: widget.onConnectRaw,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Icon(
+                            Icons.terminal,
+                            size: 18,
+                            color: isDark
+                                ? DesignColors.textSecondary
+                                : DesignColors.textSecondaryLight,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   // Expand Icon
                   Icon(
                     _isExpanded ? Icons.expand_less : Icons.expand_more,

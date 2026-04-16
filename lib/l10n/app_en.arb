@@ -529,6 +529,7 @@
   "terminalModeDesc": "tmux: manage sessions/windows/panes. Raw Shell: direct PTY, no tmux required.",
   "rawShellDescription": "Raw PTY shell — no tmux sessions, windows, or panes",
   "openShell": "Open Shell",
+  "connectAsRawShell": "Open as raw shell",
 
   "useCustomKeyboardTitle": "Use custom keyboard",
   "useCustomKeyboardDesc": "Terminal-native keyboard with Ctrl/Alt/Esc/arrows. Disable for CJK (Chinese/Japanese/Korean) input or system voice input.",

@@ -527,5 +527,20 @@
   "importResultSettings": "设置已导入",
   "importResultProfiles": "工具栏配置已导入",
   "backupSummary": "{connections} 个连接、{keys} 个密钥、{snippets} 个代码片段、{history} 条历史",
-  "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } }
+  "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
+
+  "browseFiles": "浏览文件",
+  "browseFilesDesc": "查看应用存储（备份、下载）",
+  "fileBrowserTitle": "文件",
+  "fileBrowserLocDocuments": "文档",
+  "fileBrowserLocDownloads": "下载",
+  "fileBrowserLocTemp": "临时",
+  "fileBrowserEmpty": "无文件",
+  "fileActionShare": "分享",
+  "fileActionDelete": "删除",
+  "fileActionDeleteConfirm": "删除 {name}？",
+  "@fileActionDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "fileDeleted": "已删除",
+  "fileDeleteFailed": "删除失败：{error}",
+  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } }
 }

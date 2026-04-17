@@ -17,6 +17,7 @@ import '../../models/action_bar_presets.dart';
 import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_settings_screen.dart';
+import 'file_browser_screen.dart';
 import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
@@ -519,6 +520,18 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.importBackup),
                   subtitle: Text(l10n.importBackupDesc),
                   onTap: () => _handleImport(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.folder_open),
+                  title: Text(l10n.browseFiles),
+                  subtitle: Text(l10n.browseFilesDesc),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const FileBrowserScreen(),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionAbout),

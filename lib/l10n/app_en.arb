@@ -577,5 +577,20 @@
   "importResultSettings": "Settings imported",
   "importResultProfiles": "Toolbar profiles imported",
   "backupSummary": "{connections} connections, {keys} keys, {snippets} snippets, {history} history",
-  "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } }
+  "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
+
+  "browseFiles": "Browse Files",
+  "browseFilesDesc": "View app storage (backups, downloads)",
+  "fileBrowserTitle": "Files",
+  "fileBrowserLocDocuments": "Documents",
+  "fileBrowserLocDownloads": "Downloads",
+  "fileBrowserLocTemp": "Temp",
+  "fileBrowserEmpty": "No files",
+  "fileActionShare": "Share",
+  "fileActionDelete": "Delete",
+  "fileActionDeleteConfirm": "Delete {name}?",
+  "@fileActionDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
+  "fileDeleted": "Deleted",
+  "fileDeleteFailed": "Delete failed: {error}",
+  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } }
 }

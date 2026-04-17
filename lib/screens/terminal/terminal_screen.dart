@@ -277,6 +277,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   bool _pendingScrollToTop = false;
   int _pendingScrollToTopBackstop = 0;
 
+  // Drop the next N `_applyUpdate` fires — used to suppress the sparse
+  // intermediate frame that lands between a transition (bootstrap,
+  // fullscreen→shell) and the follow-up poll that carries full
+  // scrollback. The two frames back-to-back read as a "splash". Holding
+  // the previous frame until the full one arrives collapses it to a
+  // single content swap. Guarded by [_skipApplyFallbackTimer] so a dead
+  // connection can't strand the user on a blank or stale screen.
+  int _pendingSkipApplyCount = 0;
+  Timer? _skipApplyFallbackTimer;
+
   // --- Scrollback auto-extension state -------------------------------------
   //
   // When the user scrolls up to the top of the captured buffer, we ask the
@@ -925,6 +935,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (wasFullscreen && !backendFullscreen) {
         _pendingScrollToBottom = true;
         _pendingScrollToBottomBackstop = 10;
+        // Drop the sparse transition frame so the user doesn't see
+        // the bare shell flash in before the reinflated history lands
+        // on the next poll.
+        _armSkipApply();
       } else if (!wasFullscreen && backendFullscreen) {
         // shell → vi / fullscreen TUI. The alternate-buffer content
         // is exactly the pane (scrollback=0), so the cursor is at
@@ -934,6 +948,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         // cursor and any header text are immediately visible.
         _pendingScrollToTop = true;
         _pendingScrollToTopBackstop = 10;
+        _armSkipApply();
       }
     }
 
@@ -1185,11 +1200,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           if (wasFullscreen && !_pollIsFullscreen) {
             _pendingScrollToBottom = true;
             _pendingScrollToBottomBackstop = 10;
+            _armSkipApply();
           } else if (!wasFullscreen && _pollIsFullscreen) {
             // Shell → fullscreen TUI. See the matching branch in
             // _onBackendContentUpdate for rationale.
             _pendingScrollToTop = true;
             _pendingScrollToTopBackstop = 10;
+            _armSkipApply();
           }
           paneHeightForStrip = h;
 
@@ -1363,12 +1380,61 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
+  /// Arm the skip-apply flag with a safety timeout so a dead connection
+  /// can't strand the user on a stale/blank frame. The timeout force-
+  /// clears the skip counter and re-applies whatever pending content is
+  /// currently buffered.
+  void _armSkipApply() {
+    _pendingSkipApplyCount = 1;
+    _skipApplyFallbackTimer?.cancel();
+    _skipApplyFallbackTimer = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted || _isDisposed) return;
+      if (_pendingSkipApplyCount > 0) {
+        _pendingSkipApplyCount = 0;
+        _applyUpdate();
+      }
+    });
+  }
+
   /// 保留中の更新を適用
   void _applyUpdate() {
     if (!mounted || _isDisposed) return;
     _lastFrameTime = DateTime.now();
+
+    final current = _viewNotifier.value;
+
+    // Initial bootstrap: the first non-empty content is a sparse
+    // zero-scrollback capture; the follow-up poll brings full history.
+    // Render only once by dropping the sparse frame. User sees blank
+    // ~one extra poll cycle instead of a visible two-step grow.
+    if (current.content.isEmpty &&
+        _pendingContent.isNotEmpty &&
+        _pendingScrollbackSize == 0 &&
+        _pendingSkipApplyCount == 0) {
+      _armSkipApply();
+    }
+
+    // Drop the intermediate frame on a transition/bootstrap. The real
+    // frame lands on the next poll with full scrollback.
+    if (_pendingSkipApplyCount > 0) {
+      _pendingSkipApplyCount--;
+      if (_pendingSkipApplyCount == 0) {
+        _skipApplyFallbackTimer?.cancel();
+        _skipApplyFallbackTimer = null;
+      }
+      return;
+    }
+
+    // Nothing the user sees changed — don't fire the notifier. Latency
+    // alone doesn't warrant a ListView rebuild; the latency indicator
+    // will refresh on the next real content change.
+    if (_pendingContent == current.content &&
+        _pendingScrollbackSize == current.scrollbackSize) {
+      return;
+    }
+
     // ValueNotifier更新（親のsetState()を回避し、ValueListenableBuilderのみリビルド）
-    _viewNotifier.value = _viewNotifier.value.copyWith(
+    _viewNotifier.value = current.copyWith(
       content: _pendingContent,
       latency: _pendingLatency,
       scrollbackSize: _pendingScrollbackSize,
@@ -1651,6 +1717,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _staleWatchdog = null;
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
+    _skipApplyFallbackTimer?.cancel();
+    _skipApplyFallbackTimer = null;
     // (compose resources are managed by ComposeBar widget)
     // ValueNotifierを破棄
     _viewNotifier.dispose();

@@ -181,10 +181,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   final _viewNotifier = ValueNotifier<_TerminalViewData>(const _TerminalViewData());
 
   // ポーリング用タイマー
-  Timer? _pollTimer;
   Timer? _treeRefreshTimer;
   Timer? _staleWatchdog;
-  bool _isPolling = false;
   bool _isDisposed = false;
   // Timestamp of the last successful pane poll. Used by the
   // stale-connection watchdog + latency indicator to flag when the
@@ -204,17 +202,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   int _pendingLatency = 0;
   int _pendingScrollbackSize = 0;
 
-  // 適応型ポーリング用
-  int _currentPollingInterval = 100;
-  static const int _minPollingInterval = 50;
-  static const int _maxPollingInterval = 2000;
-
-  /// True when the active pane is on tmux's alternate screen OR is
-  /// running a known fullscreen TUI command (vi, less, htop, …).
-  /// Drives scrollback suppression in the duplicate poll path so
-  /// the editor's screen isn't sandwiched below stale shell history.
-  /// Mirrors the same flag in [TmuxBackend]; both paths must agree
-  /// because either one can win the race to update `_viewNotifier`.
+  /// Last-observed backend fullscreen state. Used by
+  /// [_onBackendContentUpdate] to detect fullscreen⇄shell transitions
+  /// so the viewport can re-anchor (top for shell→vi, bottom for vi→shell).
   bool _pollIsFullscreen = false;
 
   // 選択状態保持用（スクロールモード中の更新抑制）
@@ -390,8 +380,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// バックグラウンド移行時にポーリングを停止
   void _pausePolling() {
     _isInBackground = true;
-    _pollTimer?.cancel();
-    _pollTimer = null;
+    _backend?.pausePolling();
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
     _staleWatchdog?.cancel();
@@ -430,7 +419,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   void _resumePolling() {
     if (!_isInBackground || _isDisposed) return;
     _isInBackground = false;
-    _startPolling();
+    _backend?.resumePolling();
     _startTreeRefresh();
     _startStaleWatchdog();
     _applyKeepScreenOn();
@@ -607,15 +596,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     if (!mounted || _isDisposed) return;
 
-    // ポーリングフラグをリセット
-    _isPolling = false;
     _lastSuccessfulPoll = DateTime.now();
     if (_isConnectionStale && mounted) {
       setState(() => _isConnectionStale = false);
     }
 
     // ポーリングを再開
-    _startPolling();
+    _backend?.resumePolling();
 
     // tmux モードではセッションツリーを即座に再取得して、
     // リコネクト後に欠落しているウィンドウ/ペイン情報を補う。
@@ -930,8 +917,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (backend == null) return;
 
     // Any backend-driven update proves fresh data reached us, so
-    // refresh the stale watchdog timestamp (covers raw PTY mode where
-    // _pollPaneContent isn't the primary heartbeat).
+    // refresh the stale watchdog timestamp.
     _lastSuccessfulPoll = DateTime.now();
     if (_isConnectionStale && mounted && !_isDisposed) {
       setState(() => _isConnectionStale = false);
@@ -942,12 +928,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final latency = backend is TmuxBackend ? backend.latency : 0;
 
     // Mirror the backend's fullscreen state into `_pollIsFullscreen`
-    // and detect the fullscreen→shell transition. This is the only
-    // transition-detection path for raw PTY (the duplicate
-    // `_pollPaneContent` loop exits early when there's no tmux
-    // target). For tmux, the duplicate poll also detects transitions,
-    // but re-checking here is idempotent — the scroll-pending flag is
-    // already set and simply stays set.
+    // and detect the fullscreen⇄shell transition so the viewport can
+    // re-anchor (top for shell→vi, bottom for vi→shell).
     final backendFullscreen = backend.isFullscreen;
     final wasFullscreen = _pollIsFullscreen;
     if (backendFullscreen != _pollIsFullscreen) {
@@ -990,8 +972,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         mounted &&
         !_isDisposed) {
       // Tmux backend path: keep the notifier's fullscreen flag in sync
-      // too so the scroll-position indicator reacts when the duplicate
-      // poll hasn't run yet.
+      // so the scroll-position indicator reacts.
       _viewNotifier.value = _viewNotifier.value.copyWith(
         isFullscreen: backendFullscreen,
       );
@@ -1035,335 +1016,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _treeRefreshTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) {
-        // Skip while either polling path is in flight — tree refresh
+        // Skip while the backend's poll is in flight — tree refresh
         // shares the persistent SSH shell with the poll commands, and
         // interleaved output would corrupt the META-delimited parse.
-        // Check both the screen's legacy poll and the backend's poll
-        // during the bake period; after PR 2 only the backend check
-        // will remain.
-        if (_isPolling) return;
         if (_backend?.isPolling == true) return;
         _refreshSessionTree();
       },
     );
   }
 
-  /// 適応型ポーリングでcapture-paneを実行してターミナル内容を更新
-  ///
-  /// コンテンツの変化頻度に応じてポーリング間隔を動的に調整:
-  /// - 高頻度更新時（htop等）: 50ms
-  /// - 通常時: 100ms
-  /// - アイドル時: 500ms
-  void _startPolling() {
-    _pollTimer?.cancel();
-    _scheduleNextPoll();
-  }
-
-  /// 次のポーリングをスケジュール
-  void _scheduleNextPoll() {
-    if (_isDisposed) return;
-    _pollTimer?.cancel();
-    _pollTimer = Timer(
-      Duration(milliseconds: _currentPollingInterval),
-      () async {
-        await _pollPaneContent();
-        _scheduleNextPoll();
-      },
-    );
-  }
-
-  /// キー入力後にポーリングを即座にブースト（アイドル時の応答性改善）
-  void _boostPolling() {
-    _currentPollingInterval = _minPollingInterval;
-    _pollTimer?.cancel();
-    _scheduleNextPoll();
-  }
-
-  /// ポーリング間隔を更新
-  void _updatePollingInterval() {
-    final ansiTextViewState = _ansiTextViewKey.currentState;
-    if (ansiTextViewState != null) {
-      final recommended = ansiTextViewState.recommendedPollingInterval;
-      // tmux copy-mode 検出中はポーリング間隔の上限を500msに制限
-      // copy-mode終了の検出遅延を最大0.5秒に改善
-      final maxInterval = _scrollModeSource == ScrollModeSource.tmux ? 500 : _maxPollingInterval;
-      _currentPollingInterval = recommended.clamp(
-        _minPollingInterval,
-        maxInterval,
-      );
-    }
-  }
-
-  /// ペイン内容をポーリング取得
-  Future<void> _pollPaneContent() async {
-    if (_isPolling || _isDisposed) return;
-    _isPolling = true;
-
-    try {
-      final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-      final sshClient = sshNotifier.client;
-
-      // 接続が切れている場合は自動再接続を試みる
-      if (sshClient == null || !sshClient.isConnected) {
-        // すでに再接続中でなければ再接続を開始
-        final currentState = ref.read(sshProvider(widget.connectionId));
-        if (!currentState.isReconnecting) {
-          _attemptReconnect();
-        }
-        _isPolling = false;
-        return;
-      }
-
-      // tmux_providerからターゲットを取得
-      final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-      if (target == null) {
-        _isPolling = false;
-        return;
-      }
-
-      final startTime = DateTime.now();
-
-      // 3つのコマンドを1つに統合して実行（持続的シェルは同時に1コマンドのみ）
-      // capture-pane + カーソル位置情報 + ペインモード を1回で取得
-      //
-      // Honour the tmux backend's (possibly extended) scrollback window so
-      // this parallel polling path stays in lock-step with the backend
-      // after [TmuxBackend.extendScrollback] / [resetScrollback] calls. If
-      // no tmux backend is active (raw mode), fall back to the setting.
-      //
-      // When the pane is running a fullscreen TUI (vi, less, htop, …) or
-      // is on tmux's alternate screen, request 0 scrollback so the editor
-      // screen isn't preceded by stale shell history. `_pollIsFullscreen`
-      // is updated below from `pane_current_command`; we use the value
-      // from the *previous* poll here, then re-check after capture and
-      // strip the scrollback portion if a one-poll detection lag let it
-      // slip through. This mirrors the same logic in [TmuxBackend].
-      final backend = _backend;
-      final settingsScrollback = backend is TmuxBackend
-          ? backend.scrollbackLines
-          : ref.read(settingsProvider).scrollbackLines;
-      final effectiveScrollback = _pollIsFullscreen ? 0 : settingsScrollback;
-
-      // Use a unique \x01META\x01 delimiter between capture-pane output
-      // and the metadata fields so parsing doesn't depend on counting
-      // lines from the end. The previous `removeLast`-based split was
-      // fragile: any trailing newline variation in the persistent shell
-      // could pop a line of cursor metadata into the visible terminal
-      // (e.g. "46,53,198,54,1988,0,vi" appearing as a line of text).
-      final captureCmd = effectiveScrollback > 0
-          ? TmuxCommands.capturePane(
-              target,
-              escapeSequences: true,
-              startLine: -effectiveScrollback,
-            )
-          : TmuxCommands.capturePane(target, escapeSequences: true);
-      final combinedCommand =
-          '$captureCmd; '
-          "printf '\\x01META\\x01\\n'; "
-          '${TmuxCommands.getCursorPosition(target)}; '
-          '${TmuxCommands.getPaneMode(target)}';
-
-      final combinedOutput = await sshClient.execPersistent(
-        combinedCommand,
-        timeout: const Duration(seconds: 2),
-      );
-
-      // Use the shared parser so this duplicate poll stays in lock-step
-      // with [TmuxBackend._pollPaneContent]. A null result is a *skip*
-      // signal — the previous frame remains on screen and the next poll
-      // recovers. The earlier "dump combinedOutput as content" fallback
-      // briefly leaked the trailing cursor-metadata line onto the
-      // terminal screen (e.g. "33,0,56,44,0,0,bash") whenever the META
-      // delimiter went missing for a single iteration.
-      final parsed = TmuxBackend.parsePollOutput(combinedOutput);
-      if (parsed == null) {
-        // Still mark the poll as successful for the stale watchdog —
-        // the SSH pipe responded, the response was just unparseable
-        // for one frame. Refresh the heartbeat so we don't trip the
-        // "no fresh data" indicator.
-        _lastSuccessfulPoll = DateTime.now();
-        if (_isConnectionStale && mounted && !_isDisposed) {
-          setState(() => _isConnectionStale = false);
-        }
-        return;
-      }
-      var processedOutput = parsed.content;
-      final cursorOutput = parsed.cursorLine;
-      final paneModeOutput = parsed.paneModeLine;
-
-      final endTime = DateTime.now();
-
-      if (!mounted || _isDisposed) return;
-
-      // カーソル位置・ペインサイズ・スクリーンモード・現コマンドを更新
-      // Format: cursor_x,cursor_y,pane_width,pane_height,history_size,
-      //         alternate_on,pane_current_command
-      int? historySize;
-      int? paneHeightForStrip;
-      if (cursorOutput.isNotEmpty) {
-        final parts = cursorOutput.trim().split(',');
-        if (parts.length >= 4) {
-          final x = int.tryParse(parts[0]);
-          final y = int.tryParse(parts[1]);
-          final w = int.tryParse(parts[2]);
-          final h = int.tryParse(parts[3]);
-          historySize = parts.length >= 5 ? int.tryParse(parts[4]) : null;
-          final isAlternate = parts.length >= 6 && parts[5].trim() == '1';
-          final currentCommand = parts.length >= 7 ? parts[6].trim() : null;
-          // Update fullscreen flag for the NEXT poll's effectiveScrollback
-          // and for the strip-on-lag check below.
-          final wasFullscreen = _pollIsFullscreen;
-          _pollIsFullscreen =
-              isAlternate || TmuxBackend.isFullscreenCommandName(currentCommand);
-          // Transition: fullscreen TUI → plain shell (e.g. `:q` in vi).
-          // Jump to the shell prompt once the new content lands so the
-          // user isn't left staring at the top of the pre-vi scrollback
-          // that just re-inflated beneath them. Hold the flag across
-          // several updates — the transition poll returns scrollback=0
-          // content (the capture was pre-flip), and only the next poll
-          // brings the full history. See `_pendingScrollToBottomBackstop`.
-          if (wasFullscreen && !_pollIsFullscreen) {
-            _pendingScrollToBottom = true;
-            _pendingScrollToBottomBackstop = 10;
-            _armSkipApply();
-          } else if (!wasFullscreen && _pollIsFullscreen) {
-            // Shell → fullscreen TUI. See the matching branch in
-            // _onBackendContentUpdate for rationale.
-            _pendingScrollToTop = true;
-            _pendingScrollToTopBackstop = 10;
-            _armSkipApply();
-          }
-          paneHeightForStrip = h;
-
-          // ペインサイズの更新検知
-          if (w != null && h != null && (w != _viewNotifier.value.paneWidth || h != _viewNotifier.value.paneHeight)) {
-            _viewNotifier.value = _viewNotifier.value.copyWith(paneWidth: w, paneHeight: h);
-            // フォントサイズ再計算のために通知
-            final currentActivePane = ref.read(tmuxProvider(widget.connectionId)).activePane;
-            if (currentActivePane != null) {
-              ref.read(terminalDisplayProvider.notifier).updatePane(
-                    currentActivePane.copyWith(width: w, height: h),
-                  );
-            }
-          }
-
-          final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
-          if (activePaneId != null && x != null && y != null) {
-            ref.read(tmuxProvider(widget.connectionId).notifier).updateCursorPosition(
-              activePaneId, x, y,
-            );
-          }
-        }
-      }
-
-      // One-poll detection lag: the previous poll didn't yet know we
-      // were in a fullscreen TUI, so this capture asked tmux for
-      // scrollback and got `<shell history>\n<vi screen>`. Strip the
-      // history portion down to the visible pane so the user doesn't
-      // see stale content above the editor and have to scroll.
-      if (_pollIsFullscreen &&
-          effectiveScrollback > 0 &&
-          paneHeightForStrip != null &&
-          paneHeightForStrip > 0) {
-        final stripLines = processedOutput.split('\n');
-        if (stripLines.length > paneHeightForStrip) {
-          processedOutput = stripLines
-              .sublist(stripLines.length - paneHeightForStrip)
-              .join('\n');
-        }
-      }
-
-      // レイテンシを更新
-      final latency = endTime.difference(startTime).inMilliseconds;
-
-      // Mark this poll as successful for the stale watchdog. A
-      // response — even an empty one — proves the SSH pipe is still
-      // alive end-to-end, which `isConnected` alone can't guarantee.
-      _lastSuccessfulPoll = DateTime.now();
-      if (_isConnectionStale && mounted && !_isDisposed) {
-        setState(() => _isConnectionStale = false);
-      }
-
-      // 差分があれば更新（スロットリング適用）
-      // Gate `scrollback` on `effectiveScrollback` — the value we
-      // actually fetched with — not on the freshly-updated
-      // `_pollIsFullscreen` flag. On a fullscreen→shell transition
-      // poll, the flag has already flipped to false but the capture
-      // still ran with `effectiveScrollback=0` (the decision was made
-      // pre-flip), so content only carries the visible pane. Reporting
-      // `historySize` here would claim 1988 scrollback rows above a
-      // 30-row capture — AnsiTextView would then place the cursor at
-      // index ~1988+29 and scroll-to-bottom would land inside empty
-      // trailing rows. The next poll (with full scrollback fetched)
-      // corrects the count.
-      final scrollback = effectiveScrollback == 0
-          ? 0
-          : (historySize ?? _viewNotifier.value.scrollbackSize);
-      final currentView = _viewNotifier.value;
-      // Publish the fullscreen flag so the scroll-position indicator
-      // (a ValueListenableBuilder on _viewNotifier) can switch to
-      // `[row|col]` coordinates. This is the only signal that reaches
-      // passive widgets — the flag itself is a plain field.
-      if (_pollIsFullscreen != currentView.isFullscreen &&
-          mounted &&
-          !_isDisposed) {
-        _viewNotifier.value = currentView.copyWith(
-          isFullscreen: _pollIsFullscreen,
-        );
-      }
-      if (processedOutput != currentView.content || latency != currentView.latency) {
-        // 手動スクロールモード中のみ更新をバッファリングして選択状態を保持
-        // tmux copy-mode中はcapture-paneがスクロール位置の内容を返すためリアルタイム表示
-        if (_terminalMode == TerminalMode.scroll && _scrollModeSource == ScrollModeSource.manual) {
-          _bufferedContent = processedOutput;
-          _bufferedLatency = latency;
-          _bufferedScrollbackSize = scrollback;
-          _hasBufferedUpdate = true;
-          // レイテンシのみ更新（選択に影響しない）
-          if (mounted && !_isDisposed) {
-            _viewNotifier.value = _viewNotifier.value.copyWith(latency: latency);
-          }
-        } else {
-          _scheduleUpdate(processedOutput, latency, scrollback);
-        }
-      }
-
-      // tmux copy-mode 検出による自動モード切替
-      if (mounted && !_isDisposed) {
-        final paneMode = paneModeOutput.trim();
-        final isTmuxCopyMode = paneMode.isNotEmpty;
-
-        if (isTmuxCopyMode && _scrollModeSource == ScrollModeSource.none) {
-          // tmux copy-mode に入った → スクロールモードに自動切替
-          setState(() {
-            _terminalMode = TerminalMode.scroll;
-            _scrollModeSource = ScrollModeSource.tmux;
-            _gestureModeActive = false; // mutually exclusive
-          });
-        } else if (!isTmuxCopyMode && _scrollModeSource == ScrollModeSource.tmux) {
-          // tmux copy-mode が終了した → 自動で通常モードに復帰
-          setState(() {
-            _terminalMode = TerminalMode.normal;
-            _scrollModeSource = ScrollModeSource.none;
-          });
-          _applyBufferedUpdate();
-        }
-      }
-
-      // 適応型ポーリング間隔を更新
-      _updatePollingInterval();
-    } catch (e) {
-      // 通信エラーの場合は自動再接続を試みる
-      if (!_isDisposed) {
-        final currentState = ref.read(sshProvider(widget.connectionId));
-        if (!currentState.isReconnecting) {
-          _attemptReconnect();
-        }
-      }
-    } finally {
-      _isPolling = false;
-    }
-  }
 
   /// バッファリングされた更新を適用（スクロールモード終了時に呼び出し）
   void _applyBufferedUpdate() {
@@ -1551,24 +1212,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// 自動再接続を試みる
-  Future<void> _attemptReconnect() async {
-    if (_isDisposed) return;
-
-    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-    final success = await sshNotifier.reconnect();
-
-    if (!mounted || _isDisposed) return;
-
-    if (!success) {
-      // 再接続失敗時は再試行（最大回数に達するまで）
-      final currentState = ref.read(sshProvider(widget.connectionId));
-      if (currentState.reconnectAttempt < 5) {
-        // 次のポーリングで再試行される
-      }
-    }
-  }
-
   /// 認証オプションを取得
   Future<SshConnectOptions> _getAuthOptions(Connection connection) async {
     String? password;
@@ -1733,8 +1376,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _backend?.dispose();
     _backend = null;
     // タイマーを停止
-    _pollTimer?.cancel();
-    _pollTimer = null;
     _treeRefreshTimer?.cancel();
     _treeRefreshTimer = null;
     _staleWatchdog?.cancel();
@@ -1973,7 +1614,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                   } else {
                     _sendMultilineTextNoEnter(text);
                   }
-                  _boostPolling();
+                  _backend?.boostRefresh();
                 },
                 onInsertMenu: () => _showInsertMenu(context),
                 onSpecialKeyPressed: _dispatchSpecialKey,
@@ -2125,7 +1766,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     try {
       // エスケープシーケンスや特殊キーはリテラルで送信
       await sshClient.exec(TmuxCommands.sendKeys(target, data, literal: true));
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (_) {
       // キー送信エラーは静かに無視
     }
@@ -2925,7 +2566,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           await _selectPane(activePaneId);
         }
       }
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3119,7 +2760,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
 
     _isResizing = true;
-    _pollTimer?.cancel();
     _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
@@ -3138,7 +2778,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _isResizing = false;
       if (mounted && !_isDisposed) {
         _backend?.resumePolling();
-        _startPolling();
         // Defer scroll-to-bottom until first poll delivers new content
         _pendingScrollToBottom = true;
         _pendingScrollToBottomBackstop = 10;
@@ -3176,7 +2815,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (result == null || !mounted) return;
 
     _isResizing = true;
-    _pollTimer?.cancel();
     _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
@@ -3199,7 +2837,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } finally {
       _isResizing = false;
       _backend?.resumePolling();
-      if (mounted && !_isDisposed) _startPolling();
     }
   }
 
@@ -3237,7 +2874,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (result == null || !mounted) return;
 
     _isResizing = true;
-    _pollTimer?.cancel();
     _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
@@ -3261,7 +2897,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } finally {
       _isResizing = false;
       _backend?.resumePolling();
-      if (mounted && !_isDisposed) _startPolling();
     }
   }
 
@@ -3282,7 +2917,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
 
     // ポーリング停止（SSH競合回避）
-    _pollTimer?.cancel();
     _backend?.pausePolling();
 
     try {
@@ -3336,9 +2970,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } finally {
       // ポーリング再開
       _backend?.resumePolling();
-      if (mounted && !_isDisposed) {
-        _startPolling();
-      }
     }
   }
 
@@ -4038,7 +3669,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   /// SSH接続を切断して前の画面に戻る
   Future<void> _disconnect() async {
     // ポーリングを停止
-    _pollTimer?.cancel();
+    _backend?.pausePolling();
     _treeRefreshTimer?.cancel();
 
     // SSH切断
@@ -4298,7 +3929,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     try {
       await sshClient.exec(TmuxCommands.sendKeys(target, key, literal: literal));
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (_) {}
   }
 
@@ -4316,7 +3947,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (target == null) return;
     try {
       await sshClient.exec(TmuxCommands.enterCopyMode(target));
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (_) {}
   }
 
@@ -4334,7 +3965,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (target == null) return;
     try {
       await sshClient.exec(TmuxCommands.cancelCopyMode(target));
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (_) {}
   }
 
@@ -4378,7 +4009,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (target == null) return;
     try {
       await sshClient.exec(TmuxCommands.sendKeys(target, tmuxKey, literal: false));
-      _boostPolling();
+      _backend?.boostRefresh();
     } catch (_) {}
   }
 
@@ -4503,7 +4134,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       );
     }
 
-    _boostPolling();
+    _backend?.boostRefresh();
   }
 
   ProviderSubscription? _fileTransferSub;
@@ -4599,7 +4230,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       );
     }
 
-    _boostPolling();
+    _backend?.boostRefresh();
   }
 
   /// Start file download flow
@@ -4741,7 +4372,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       },
       onSendImmediately: (content) {
         _sendMultilineText(content);
-        _boostPolling();
+        _backend?.boostRefresh();
       },
     );
   }

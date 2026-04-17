@@ -1403,19 +1403,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     final current = _viewNotifier.value;
 
-    // Initial bootstrap: the first non-empty content is a sparse
-    // zero-scrollback capture; the follow-up poll brings full history.
-    // Render only once by dropping the sparse frame. User sees blank
-    // ~one extra poll cycle instead of a visible two-step grow.
-    if (current.content.isEmpty &&
-        _pendingContent.isNotEmpty &&
-        _pendingScrollbackSize == 0 &&
-        _pendingSkipApplyCount == 0) {
-      _armSkipApply();
-    }
-
-    // Drop the intermediate frame on a transition/bootstrap. The real
-    // frame lands on the next poll with full scrollback.
+    // Drop the intermediate frame on a transition. The real frame lands
+    // on the next poll. Skip-apply is armed explicitly at transition
+    // sites (pane switch, fullscreen enter/exit); do NOT auto-arm on
+    // "empty scrollback" here — raw PTY and fresh tmux sessions legitimately
+    // have scrollbackSize=0, and auto-arming would strand them on a blank
+    // screen because every poll would re-arm the skip.
     if (_pendingSkipApplyCount > 0) {
       _pendingSkipApplyCount--;
       if (_pendingSkipApplyCount == 0) {
@@ -1425,11 +1418,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       return;
     }
 
-    // Nothing the user sees changed — don't fire the notifier. Latency
-    // alone doesn't warrant a ListView rebuild; the latency indicator
-    // will refresh on the next real content change.
+    // Content unchanged — push a latency-only update so the indicator
+    // stays live during idle periods, then bail without running the
+    // post-content scroll logic below. ValueListenableBuilder still
+    // rebuilds, but with identical content the ListView diff is cheap.
     if (_pendingContent == current.content &&
         _pendingScrollbackSize == current.scrollbackSize) {
+      if (_pendingLatency != current.latency) {
+        _viewNotifier.value = current.copyWith(latency: _pendingLatency);
+      }
       return;
     }
 

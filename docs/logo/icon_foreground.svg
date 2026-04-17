@@ -1,0 +1,45 @@
+<!--
+  Foreground-only variant of logo.svg for the Android adaptive-icon
+  foreground layer. No background rect, no outer ring, no animations —
+  the launcher draws a system background behind this asset and may mask
+  it with a circle, squircle, etc. Keep the icon content within the
+  inner safe zone (~72dp of the 108dp viewport, i.e., the inner 66%).
+-->
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e0d0"/>
+      <stop offset="100%" stop-color="#0090ff"/>
+    </linearGradient>
+    <radialGradient id="starHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e0d0" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#00e0d0" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#00e0d0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <path
+    d="M152 192 L232 264 L152 336"
+    fill="none"
+    stroke="url(#accent)"
+    stroke-width="28"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <line
+    x1="260" y1="336"
+    x2="360" y2="336"
+    stroke="url(#accent)"
+    stroke-width="28"
+    stroke-linecap="round"
+  />
+
+  <g transform="translate(354 206)">
+    <circle r="48" fill="url(#starHalo)"/>
+    <path
+      d="M 0,-34 Q 4.5,-4.5 34,0 Q 4.5,4.5 0,34 Q -4.5,4.5 -34,0 Q -4.5,-4.5 0,-34 Z"
+      fill="url(#accent)"
+    />
+  </g>
+</svg>

@@ -21,4 +21,11 @@
         android:strokeWidth="5.5"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />
+
+    <!-- 4-point sparkle (Gemini-style), centered at (74.5, 43.4),
+         outer radius ~8 with quadratic Bezier control points pulled
+         near the center to create concave waists between the points. -->
+    <path
+        android:pathData="M74.5,35.4 Q75.6,42.3 82.5,43.4 Q75.6,44.5 74.5,51.4 Q73.4,44.5 66.5,43.4 Q73.4,42.3 74.5,35.4 Z"
+        android:fillColor="#00E0D0" />
 </vector>

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo/logo.svg" alt="TermiPod — Mobile SSH Terminal for tmux & AI Coding Agents" width="140" height="140">
+  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with twinkling star" width="140" height="140">
 </p>
 
 <h1 align="center">TermiPod</h1>

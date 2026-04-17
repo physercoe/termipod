@@ -1294,7 +1294,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (!_terminalScrollController.hasClients) return;
 
     final position = _terminalScrollController.position;
-    if (position.userScrollDirection == ScrollDirection.idle) return;
+    // Only fire when the user is actively scrolling TOWARD the bottom
+    // (ScrollDirection.reverse = position increasing toward maxExtent).
+    // Without this gate, the very first upward swipe from a viewport
+    // that's already anchored at bottom triggered a programmatic
+    // scrollToBottom() that cancelled the swipe — user had to swipe up
+    // twice before scrolling registered.
+    if (position.userScrollDirection != ScrollDirection.reverse) return;
 
     final lineHeight = _ansiTextViewKey.currentState?.lineHeight ?? 20.0;
     final bottomThreshold = position.maxScrollExtent - lineHeight * 2;

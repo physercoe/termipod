@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../services/data_port_service.dart';
+import '../../services/public_file_store.dart';
 import 'dart:convert';
 import '../../models/action_bar_config.dart';
 import '../../models/action_bar_presets.dart';
@@ -1192,13 +1193,41 @@ class SettingsScreen extends ConsumerWidget {
       final data = await service.exportData();
       final jsonStr = const JsonEncoder.withIndent('  ').convert(data);
 
-      final dir = await getTemporaryDirectory();
       final now = DateTime.now();
-      final fileName = 'termipod-backup-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.json';
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsString(jsonStr);
+      final fileName =
+          'termipod-backup-${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}.json';
 
-      await Share.shareXFiles([XFile(file.path)]);
+      final savedPath = await PublicFileStore.writeBytes(
+        fileName,
+        utf8.encode(jsonStr),
+      );
+
+      if (savedPath == null) {
+        throw Exception('Failed to save backup to public storage');
+      }
+
+      if (!context.mounted) return;
+      // Also stage a share-sheet copy so the user can push the backup
+      // to Drive / Gmail / another device in one tap. The primary copy
+      // still lives in Download/TermiPod (Android) or Documents (iOS),
+      // visible from the system Files app.
+      final tmpDir = await getTemporaryDirectory();
+      final shareFile = File('${tmpDir.path}/$fileName');
+      await shareFile.writeAsString(jsonStr);
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.exportSavedTo(savedPath)),
+          action: SnackBarAction(
+            label: l10n.fileActionShare,
+            onPressed: () {
+              Share.shareXFiles([XFile(shareFile.path)]);
+            },
+          ),
+          duration: const Duration(seconds: 6),
+        ),
+      );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

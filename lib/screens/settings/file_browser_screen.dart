@@ -8,7 +8,9 @@ import 'package:termipod/l10n/app_localizations.dart';
 /// Simple read-only file browser over the app's local storage locations.
 ///
 /// Surfaces three roots: Documents (persistent app files), Downloads
-/// (external storage `TermiPod/`), and Temp (where export backups land).
+/// (virtual info card — actual files live in public `Download/TermiPod`
+/// on Android / `Files → TermiPod` on iOS, outside this app's reach),
+/// and Temp (staging dir for exports + in-flight SFTP downloads).
 /// Drill into subfolders, share files, delete files. No rename/copy —
 /// this is a lightweight utility, not a full file manager.
 class FileBrowserScreen extends StatefulWidget {
@@ -64,9 +66,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       case _Location.documents:
         return await getApplicationDocumentsDirectory();
       case _Location.downloads:
-        final ext = await getExternalStorageDirectory();
-        if (ext == null) return null;
-        return Directory('${ext.path}/TermiPod');
+        // No in-app directory — downloads land in the system-level
+        // Download/TermiPod folder (Android MediaStore) or the Files
+        // app (iOS). The body renders an info card instead.
+        return null;
       case _Location.temp:
         return await getTemporaryDirectory();
     }
@@ -339,6 +342,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   }
 
   Widget _buildBody(AppLocalizations l10n) {
+    if (_location == _Location.downloads) {
+      return _buildDownloadsInfo(l10n);
+    }
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -388,6 +394,39 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           onTap: () => _onEntryTap(e),
         );
       },
+    );
+  }
+
+  /// Info card shown when the "Downloads" tab is selected. Public
+  /// downloads live outside the app sandbox now — we can't list them
+  /// here, so we tell the user where to look instead.
+  Widget _buildDownloadsInfo(AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    final body = Platform.isAndroid
+        ? l10n.fileBrowserDownloadsInfoAndroid
+        : Platform.isIOS
+            ? l10n.fileBrowserDownloadsInfoIos
+            : l10n.fileBrowserDownloadsInfoOther;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.folder_shared_outlined,
+              size: 56,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              body,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

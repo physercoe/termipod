@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:uuid/uuid.dart';
 
+import '../services/public_file_store.dart';
 import '../services/sftp/sftp_service.dart';
 import 'connection_provider.dart';
 import 'download_manager_provider.dart';
@@ -313,25 +314,29 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
     }
   }
 
-  /// Get the effective download directory.
-  /// Uses configured path if set, otherwise app external storage + TermiPod/.
-  Future<String> _getDownloadDir() async {
+  /// Local staging directory for an in-flight SFTP download.
+  ///
+  /// SFTP writes land here first (including the `.part` resume file).
+  /// On completion, [PublicFileStore.moveFile] promotes the finished
+  /// file into user-visible storage (public `Download/TermiPod/` on
+  /// Android, `Documents/` on iOS). Keeping the staging dir app-private
+  /// lets us preserve the existing resume logic unchanged — MediaStore
+  /// doesn't expose the random-access append semantics we'd need to
+  /// stream directly into it.
+  ///
+  /// A user-configured [settings.fileDownloadPath] still takes over if
+  /// set, for devs who want files in a specific place.
+  Future<String> _getDownloadStagingDir() async {
     final settings = ref.read(settingsProvider);
     if (settings.fileDownloadPath.isNotEmpty) {
       return settings.fileDownloadPath;
     }
-    // Default: app external storage / TermiPod
-    final extDir = await getExternalStorageDirectory();
-    if (extDir != null) {
-      final dlDir = Directory('${extDir.path}/TermiPod');
-      if (!dlDir.existsSync()) {
-        dlDir.createSync(recursive: true);
-      }
-      return dlDir.path;
-    }
-    // Fallback to temp
     final tempDir = await getTemporaryDirectory();
-    return tempDir.path;
+    final stagingDir = Directory('${tempDir.path}/TermiPod-downloads');
+    if (!stagingDir.existsSync()) {
+      stagingDir.createSync(recursive: true);
+    }
+    return stagingDir.path;
   }
 
   /// Download a remote file to configurable local directory.
@@ -383,27 +388,42 @@ class FileTransferNotifier extends Notifier<FileTransferState> {
 
       final sftp = await sshClient.openSftp();
       try {
-        final downloadDir = await _getDownloadDir();
+        final stagingDir = await _getDownloadStagingDir();
         final filename = remotePath.contains('/')
             ? remotePath.substring(remotePath.lastIndexOf('/') + 1)
             : remotePath;
-        final localPath = '$downloadDir/$filename';
+        final stagingPath = '$stagingDir/$filename';
 
-        // Ensure download directory exists
-        final dir = Directory(downloadDir);
+        final dir = Directory(stagingDir);
         if (!dir.existsSync()) {
           dir.createSync(recursive: true);
         }
 
-        final resultPath = await _sftpService.downloadToFile(
+        final completedPath = await _sftpService.downloadToFile(
           sftp: sftp,
           remotePath: remotePath,
-          localPath: localPath,
+          localPath: stagingPath,
           onProgress: (progress, received, total) {
             state = state.copyWith(downloadProgress: progress);
             dm.updateProgress(downloadId, progress, received, total);
           },
         );
+
+        // If the user pinned a custom fileDownloadPath, the staging
+        // dir IS the user's target — don't copy it elsewhere. Otherwise
+        // promote the completed file into the public store.
+        final settings = ref.read(settingsProvider);
+        String resultPath = completedPath;
+        if (settings.fileDownloadPath.isEmpty) {
+          final publicPath =
+              await PublicFileStore.moveFile(completedPath, filename);
+          if (publicPath != null) {
+            resultPath = publicPath;
+          }
+          // Promotion failure: leave the staged file where it is so the
+          // user can retry the download (SFTP layer becomes a no-op on
+          // the next attempt since the file already exists locally).
+        }
 
         dm.markCompleted(downloadId, resultPath);
 

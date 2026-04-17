@@ -64,6 +64,12 @@
 		<string>https</string>
 		<string>mailto</string>
 	</array>
+	<!-- Expose the app's Documents directory to the Files app so exports
+	     and downloads are user-visible under Files > On My iPhone > TermiPod. -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>SSH接続情報への安全なアクセスのためにFace IDを使用します</string>
 	<key>NSPhotoLibraryUsageDescription</key>

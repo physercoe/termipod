@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:media_store_plus/media_store_plus.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:termipod/providers/connection_provider.dart';
@@ -11,10 +13,18 @@ import 'package:termipod/screens/home_screen.dart';
 import 'package:termipod/screens/terminal/terminal_screen.dart';
 import 'package:termipod/services/deep_link/deep_link_service.dart';
 import 'package:termipod/services/license_service.dart';
+import 'package:termipod/services/public_file_store.dart';
 import 'package:termipod/theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // MediaStore for public Download/TermiPod writes. Android-only; the
+  // plugin errors on iOS if we call ensureInitialized there.
+  if (Platform.isAndroid) {
+    await MediaStore.ensureInitialized();
+    MediaStore.appFolder = PublicFileStore.appFolderName;
+  }
 
   // フォントライセンスを登録
   LicenseService.registerLicenses();

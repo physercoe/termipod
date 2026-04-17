@@ -2120,9 +2120,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
-      // ターミナル内容をクリアして再取得
-      _viewNotifier.value = _viewNotifier.value.copyWith(content: '');
+      // Hold previous content visible; skip the first incoming frame
+      // so the user sees a single swap rather than a blank flash.
       _hasInitialScrolled = false;
+      _armSkipApply();
     }
   }
 
@@ -2155,9 +2156,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
-      // ターミナル内容をクリアして再取得
-      _viewNotifier.value = _viewNotifier.value.copyWith(content: '');
+      // Hold previous content visible; skip the first incoming frame
+      // so the user sees a single swap rather than a blank flash.
       _hasInitialScrolled = false;
+      _armSkipApply();
     }
   }
 
@@ -2194,11 +2196,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       _viewNotifier.value = _viewNotifier.value.copyWith(
         paneWidth: activePane.width,
         paneHeight: activePane.height,
-        content: '',
       );
       // ペイン切り替え時は初回スクロールフラグをリセット
       // 次のコンテンツ受信時に最下部へスクロールされる
       _hasInitialScrolled = false;
+      // Hold the previous pane's content visible until the new pane's
+      // full-scrollback frame lands. Writing content:'' here would flash
+      // a blank screen for one paint cycle before the poll returns.
+      _armSkipApply();
 
       // 自動リサイズ: ペイン選択時に画面サイズに合わせてtmuxペインをリサイズ
       final settings = ref.read(settingsProvider);
@@ -2889,8 +2894,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
           updatedSession?.windows.where((w) => w.active).firstOrNull;
       if (activeWindow != null) {
         ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(activeWindow.index);
-        _viewNotifier.value = _viewNotifier.value.copyWith(content: '');
         _hasInitialScrolled = false;
+        _armSkipApply();
         final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
         if (activePaneId != null) {
           await _selectPane(activePaneId);

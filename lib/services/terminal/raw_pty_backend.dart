@@ -461,6 +461,24 @@ class RawPtyBackend implements TerminalBackend {
   }
 
   @override
+  void pausePolling() {
+    // No-op for raw PTY — there is no poll timer to pause. Destructive
+    // operations on tmux don't apply here; raw PTY's "operations" all
+    // go through the stream-driven SSH shell directly.
+  }
+
+  @override
+  void resumePolling() {
+    // No-op (see pausePolling).
+  }
+
+  @override
+  bool get isPolling => false;
+
+  @override
+  Stream<void> get pollHeartbeat => _contentController.stream;
+
+  @override
   Future<int> extendScrollback(int extraLines) async {
     // No-op: xterm.dart Terminal uses a fixed maxLines buffer that can't
     // be resized at runtime without reconstructing the whole terminal.

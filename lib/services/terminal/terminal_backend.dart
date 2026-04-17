@@ -51,6 +51,42 @@ abstract class TerminalBackend {
   /// Boost polling/refresh rate (called after key input for responsiveness).
   void boostRefresh();
 
+  /// Pause the backend's polling loop. Use around destructive SSH
+  /// operations (kill-pane, resize-pane, kill-window) that need exclusive
+  /// use of the persistent shell — concurrent capture-pane polls would
+  /// interleave output on the same shell and corrupt the META-delimited
+  /// parse. A poll already in flight is allowed to complete; only future
+  /// scheduling is suppressed.
+  ///
+  /// No-op for backends without a polling loop (raw PTY).
+  void pausePolling();
+
+  /// Resume polling after [pausePolling]. Idempotent — safe to call
+  /// without a matching pause, or multiple times.
+  ///
+  /// No-op for backends without a polling loop (raw PTY).
+  void resumePolling();
+
+  /// True while a poll is actively in flight on the backend's SSH channel.
+  /// Callers that share the same persistent shell (e.g. session-tree
+  /// refresh) should gate on this to avoid interleaving outputs.
+  ///
+  /// Always false for backends without a polling loop (raw PTY).
+  bool get isPolling;
+
+  /// Emits on every successful poll cycle, regardless of whether
+  /// [currentContent] changed. Unlike [contentUpdates] — which only fires
+  /// on content deltas — this stream is the correct signal for liveness
+  /// watchdogs: an idle shell produces no content deltas but is still a
+  /// live connection as long as polls succeed.
+  ///
+  /// For raw PTY the stream piggybacks on [contentUpdates] — there is no
+  /// true idle heartbeat because xterm is stream-driven. A connection
+  /// with no output will not emit. Watchdogs should account for this
+  /// (e.g. by considering the raw PTY connection live while the SSH
+  /// channel reports connected, independent of heartbeat silence).
+  Stream<void> get pollHeartbeat;
+
   /// Temporarily extend the scrollback window by [extraLines] additional
   /// history lines so the next capture/poll returns more context.
   ///

@@ -48,6 +48,9 @@ class TmuxBackend implements TerminalBackend {
   Timer? _pollTimer;
   bool _isPolling = false;
   bool _disposed = false;
+  bool _paused = false;
+
+  final _heartbeatController = StreamController<void>.broadcast();
 
   // Adaptive polling
   int _currentPollingInterval = 100;
@@ -303,7 +306,7 @@ class TmuxBackend implements TerminalBackend {
   }
 
   void _scheduleNextPoll() {
-    if (_disposed) return;
+    if (_disposed || _paused) return;
     _pollTimer?.cancel();
     _pollTimer = Timer(
       Duration(milliseconds: _currentPollingInterval),
@@ -313,6 +316,27 @@ class TmuxBackend implements TerminalBackend {
       },
     );
   }
+
+  @override
+  void pausePolling() {
+    _paused = true;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  @override
+  void resumePolling() {
+    if (!_paused) return;
+    _paused = false;
+    if (_disposed) return;
+    _scheduleNextPoll();
+  }
+
+  @override
+  bool get isPolling => _isPolling;
+
+  @override
+  Stream<void> get pollHeartbeat => _heartbeatController.stream;
 
   @override
   void boostRefresh() {
@@ -413,6 +437,10 @@ class TmuxBackend implements TerminalBackend {
       if (parsed == null) {
         _latency =
             DateTime.now().difference(startTime).inMilliseconds;
+        // Parse failure is a transient SSH/parse hiccup, not a dead
+        // connection — the pipe responded. Emit heartbeat so the
+        // stale watchdog doesn't trip on flaky parse frames.
+        if (!_disposed) _heartbeatController.add(null);
         _updatePollingInterval();
         return;
       }
@@ -499,6 +527,13 @@ class TmuxBackend implements TerminalBackend {
         _currentContent = processedOutput;
         _contentController.add(null);
       }
+
+      // Heartbeat fires on every successful poll — including idle frames
+      // where content was unchanged — so the stale-connection watchdog
+      // can track liveness independent of whether the shell is producing
+      // output. Must fire AFTER content emission so subscribers always
+      // see a consistent state when they read the backend.
+      if (!_disposed) _heartbeatController.add(null);
 
       _updatePollingInterval();
     } catch (_) {
@@ -612,6 +647,7 @@ class TmuxBackend implements TerminalBackend {
     _disposed = true;
     _pollTimer?.cancel();
     _contentController.close();
+    _heartbeatController.close();
   }
 }
 

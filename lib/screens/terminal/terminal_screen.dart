@@ -317,6 +317,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   // Terminal backend (tmux or raw PTY)
   TerminalBackend? _backend;
   StreamSubscription<void>? _backendContentSub;
+  StreamSubscription<void>? _backendHeartbeatSub;
 
   // Riverpodリスナー
   ProviderSubscription<SshState>? _sshSubscription;
@@ -731,6 +732,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted || _isDisposed) return;
       _onBackendContentUpdate();
     });
+    _backendHeartbeatSub = _backend!.pollHeartbeat.listen((_) {
+      if (!mounted || _isDisposed) return;
+      _onBackendHeartbeat();
+    });
   }
 
   /// Tmux backend setup — detect tmux, create/attach session, start polling.
@@ -894,6 +899,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (!mounted || _isDisposed) return;
       _onBackendContentUpdate();
     });
+    _backendHeartbeatSub = _backend!.pollHeartbeat.listen((_) {
+      if (!mounted || _isDisposed) return;
+      _onBackendHeartbeat();
+    });
 
     // Tree refresh timer
     _startTreeRefresh();
@@ -902,6 +911,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // socket still appears connected.
     _lastSuccessfulPoll = DateTime.now();
     _startStaleWatchdog();
+  }
+
+  /// Handle poll-heartbeat emission from backend. Fires on every
+  /// successful poll (tmux) or content delta (raw), regardless of
+  /// content change. Used by the stale-connection watchdog so idle
+  /// terminals don't trip false-stale after the legacy poll is retired.
+  void _onBackendHeartbeat() {
+    _lastSuccessfulPoll = DateTime.now();
+    if (_isConnectionStale && mounted && !_isDisposed) {
+      setState(() => _isConnectionStale = false);
+    }
   }
 
   /// Handle content update from backend (both tmux and raw).
@@ -1015,10 +1035,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _treeRefreshTimer = Timer.periodic(
       const Duration(seconds: 10),
       (_) {
-        // ポーリング中はSSH競合を回避するためスキップ
-        if (!_isPolling) {
-          _refreshSessionTree();
-        }
+        // Skip while either polling path is in flight — tree refresh
+        // shares the persistent SSH shell with the poll commands, and
+        // interleaved output would corrupt the META-delimited parse.
+        // Check both the screen's legacy poll and the backend's poll
+        // during the bake period; after PR 2 only the backend check
+        // will remain.
+        if (_isPolling) return;
+        if (_backend?.isPolling == true) return;
+        _refreshSessionTree();
       },
     );
   }
@@ -1703,6 +1728,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // Backend cleanup
     _backendContentSub?.cancel();
     _backendContentSub = null;
+    _backendHeartbeatSub?.cancel();
+    _backendHeartbeatSub = null;
     _backend?.dispose();
     _backend = null;
     // タイマーを停止
@@ -3093,6 +3120,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     _isResizing = true;
     _pollTimer?.cancel();
+    _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null || !sshClient.isConnected) return;
@@ -3109,6 +3137,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } finally {
       _isResizing = false;
       if (mounted && !_isDisposed) {
+        _backend?.resumePolling();
         _startPolling();
         // Defer scroll-to-bottom until first poll delivers new content
         _pendingScrollToBottom = true;
@@ -3148,6 +3177,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     _isResizing = true;
     _pollTimer?.cancel();
+    _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null) return;
@@ -3168,6 +3198,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
     } finally {
       _isResizing = false;
+      _backend?.resumePolling();
       if (mounted && !_isDisposed) _startPolling();
     }
   }
@@ -3207,6 +3238,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     _isResizing = true;
     _pollTimer?.cancel();
+    _backend?.pausePolling();
     try {
       final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
       if (sshClient == null) return;
@@ -3228,6 +3260,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
     } finally {
       _isResizing = false;
+      _backend?.resumePolling();
       if (mounted && !_isDisposed) _startPolling();
     }
   }
@@ -3250,6 +3283,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
     // ポーリング停止（SSH競合回避）
     _pollTimer?.cancel();
+    _backend?.pausePolling();
 
     try {
       await sshClient.exec(TmuxCommands.killPane(paneId));
@@ -3301,6 +3335,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
     } finally {
       // ポーリング再開
+      _backend?.resumePolling();
       if (mounted && !_isDisposed) {
         _startPolling();
       }

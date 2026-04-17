@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with twinkling star" width="140" height="140">
+  <img src="docs/logo/logo.svg" alt="TermiPod logo — chevron prompt with twinkling 4-point sparkle" width="140" height="140">
 </p>
 
 <h1 align="center">TermiPod</h1>

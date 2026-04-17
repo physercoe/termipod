@@ -55,9 +55,12 @@
       <animate attributeName="opacity" values="0.9;0.25;0.9" dur="2.2s" repeatCount="indefinite"/>
     </circle>
 
-    <!-- 5-point star, drawn around (0,0) so the scale animation breathes from its center -->
-    <polygon
-      points="0,-30 7,-9.5 28.5,-9.3 11.2,3.6 17.6,24.3 0,11.8 -17.6,24.3 -11.2,3.6 -28.5,-9.3 -7,-9.5"
+    <!-- 4-point sparkle (Gemini-style), drawn around (0,0) so the
+         scale animation breathes from its center. Quadratic curves
+         with control points near the center pull each side inward,
+         giving sharp points with concave waists. -->
+    <path
+      d="M 0,-34 Q 4.5,-4.5 34,0 Q 4.5,4.5 0,34 Q -4.5,4.5 -34,0 Q -4.5,-4.5 0,-34 Z"
       fill="url(#accent)"
     >
       <animate attributeName="opacity" values="1;0.4;1" dur="2.2s" repeatCount="indefinite"/>
@@ -68,6 +71,6 @@
         dur="2.2s"
         repeatCount="indefinite"
       />
-    </polygon>
+    </path>
   </g>
 </svg>

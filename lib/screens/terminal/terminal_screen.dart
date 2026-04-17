@@ -267,16 +267,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   bool _pendingScrollToTop = false;
   int _pendingScrollToTopBackstop = 0;
 
-  // Drop the next N `_applyUpdate` fires — used to suppress the sparse
-  // intermediate frame that lands between a transition (bootstrap,
-  // fullscreen→shell) and the follow-up poll that carries full
-  // scrollback. The two frames back-to-back read as a "splash". Holding
-  // the previous frame until the full one arrives collapses it to a
-  // single content swap. Guarded by [_skipApplyFallbackTimer] so a dead
-  // connection can't strand the user on a blank or stale screen.
-  int _pendingSkipApplyCount = 0;
-  Timer? _skipApplyFallbackTimer;
-
   // --- Scrollback auto-extension state -------------------------------------
   //
   // When the user scrolls up to the top of the captured buffer, we ask the
@@ -937,10 +927,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (wasFullscreen && !backendFullscreen) {
         _pendingScrollToBottom = true;
         _pendingScrollToBottomBackstop = 10;
-        // Drop the sparse transition frame so the user doesn't see
-        // the bare shell flash in before the reinflated history lands
-        // on the next poll.
-        _armSkipApply();
       } else if (!wasFullscreen && backendFullscreen) {
         // shell → vi / fullscreen TUI. The alternate-buffer content
         // is exactly the pane (scrollback=0), so the cursor is at
@@ -950,8 +936,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         // cursor and any header text are immediately visible.
         _pendingScrollToTop = true;
         _pendingScrollToTopBackstop = 10;
-        _armSkipApply();
       }
+      // Apply the transition frame immediately — the backend's
+      // contentUpdates stream fires only on content delta, so dropping
+      // the transition frame would strand us on stale content when
+      // the subsequent frames are idle duplicates (e.g. vi sitting at
+      // a static editor screen emits no further deltas).
     }
 
     // For raw backend: push cursor directly into _viewNotifier so AnsiTextView
@@ -1066,43 +1056,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// Arm the skip-apply flag with a safety timeout so a dead connection
-  /// can't strand the user on a stale/blank frame. The timeout force-
-  /// clears the skip counter and re-applies whatever pending content is
-  /// currently buffered.
-  void _armSkipApply() {
-    _pendingSkipApplyCount = 1;
-    _skipApplyFallbackTimer?.cancel();
-    _skipApplyFallbackTimer = Timer(const Duration(milliseconds: 500), () {
-      if (!mounted || _isDisposed) return;
-      if (_pendingSkipApplyCount > 0) {
-        _pendingSkipApplyCount = 0;
-        _applyUpdate();
-      }
-    });
-  }
-
   /// 保留中の更新を適用
   void _applyUpdate() {
     if (!mounted || _isDisposed) return;
     _lastFrameTime = DateTime.now();
 
     final current = _viewNotifier.value;
-
-    // Drop the intermediate frame on a transition. The real frame lands
-    // on the next poll. Skip-apply is armed explicitly at transition
-    // sites (pane switch, fullscreen enter/exit); do NOT auto-arm on
-    // "empty scrollback" here — raw PTY and fresh tmux sessions legitimately
-    // have scrollbackSize=0, and auto-arming would strand them on a blank
-    // screen because every poll would re-arm the skip.
-    if (_pendingSkipApplyCount > 0) {
-      _pendingSkipApplyCount--;
-      if (_pendingSkipApplyCount == 0) {
-        _skipApplyFallbackTimer?.cancel();
-        _skipApplyFallbackTimer = null;
-      }
-      return;
-    }
 
     // Content unchanged — push a latency-only update so the indicator
     // stays live during idle periods, then bail without running the
@@ -1382,8 +1341,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _staleWatchdog = null;
     _autoResizeDebounceTimer?.cancel();
     _autoResizeDebounceTimer = null;
-    _skipApplyFallbackTimer?.cancel();
-    _skipApplyFallbackTimer = null;
     // (compose resources are managed by ComposeBar widget)
     // ValueNotifierを破棄
     _viewNotifier.dispose();
@@ -1785,10 +1742,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
-      // Hold previous content visible; skip the first incoming frame
-      // so the user sees a single swap rather than a blank flash.
+      // Hold previous content visible until the new frame lands.
+      // Boost poll rate so the gap is <50ms.
       _hasInitialScrolled = false;
-      _armSkipApply();
+      _backend?.boostRefresh();
     }
   }
 
@@ -1821,10 +1778,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (activePaneId != null) {
       await _selectPane(activePaneId);
     } else {
-      // Hold previous content visible; skip the first incoming frame
-      // so the user sees a single swap rather than a blank flash.
+      // Hold previous content visible until the new frame lands.
+      // Boost poll rate so the gap is <50ms.
       _hasInitialScrolled = false;
-      _armSkipApply();
+      _backend?.boostRefresh();
     }
   }
 
@@ -1865,10 +1822,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       // ペイン切り替え時は初回スクロールフラグをリセット
       // 次のコンテンツ受信時に最下部へスクロールされる
       _hasInitialScrolled = false;
-      // Hold the previous pane's content visible until the new pane's
-      // full-scrollback frame lands. Writing content:'' here would flash
-      // a blank screen for one paint cycle before the poll returns.
-      _armSkipApply();
+      // Boost poll rate so the new pane's content lands in <50ms.
+      // Do NOT skip-apply here: the backend dedupes emissions, so an
+      // idle new pane may not emit a second frame, stranding us on
+      // the previous pane's content.
+      _backend?.boostRefresh();
 
       // 自動リサイズ: ペイン選択時に画面サイズに合わせてtmuxペインをリサイズ
       final settings = ref.read(settingsProvider);
@@ -2560,7 +2518,6 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       if (activeWindow != null) {
         ref.read(tmuxProvider(widget.connectionId).notifier).setActiveWindow(activeWindow.index);
         _hasInitialScrolled = false;
-        _armSkipApply();
         final activePaneId = ref.read(tmuxProvider(widget.connectionId)).activePaneId;
         if (activePaneId != null) {
           await _selectPane(activePaneId);

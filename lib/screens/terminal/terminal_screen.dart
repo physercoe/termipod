@@ -901,6 +901,18 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (_isConnectionStale && mounted && !_isDisposed) {
       setState(() => _isConnectionStale = false);
     }
+    // Push the backend's current latency into the view so the
+    // indicator stays live on idle polls. contentUpdates fires only
+    // on content delta, so without this the latency number freezes
+    // whenever the pane is quiet — looking identical to a dead
+    // connection.
+    final backend = _backend;
+    if (backend is! TmuxBackend) return;
+    if (!mounted || _isDisposed) return;
+    final current = _viewNotifier.value;
+    if (backend.latency != current.latency) {
+      _viewNotifier.value = current.copyWith(latency: backend.latency);
+    }
   }
 
   /// Handle content update from backend (both tmux and raw).

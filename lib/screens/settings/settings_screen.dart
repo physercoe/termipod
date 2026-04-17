@@ -23,6 +23,7 @@ import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
 import '../../widgets/dialogs/theme_dialog.dart';
+import '../../services/update_service.dart';
 import '../../services/version_info.dart';
 import 'licenses_screen.dart';
 
@@ -549,6 +550,12 @@ class SettingsScreen extends ConsumerWidget {
                   leading: const Icon(Icons.info),
                   title: Text(l10n.settingVersion),
                   subtitle: Text(VersionInfo.version),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt),
+                  title: Text(l10n.settingCheckUpdate),
+                  subtitle: Text(l10n.settingCheckUpdateDesc),
+                  onTap: () => _handleCheckForUpdate(context),
                 ),
                 ListTile(
                   leading: const Icon(Icons.code),
@@ -1164,6 +1171,90 @@ class SettingsScreen extends ConsumerWidget {
               }
             },
             child: Text(l10n.buttonCreate),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleCheckForUpdate(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+    final checker = UpdateService.defaultChecker();
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    UpdateInfo? info;
+    String? errorMessage;
+    try {
+      info = await checker.checkForUpdateOrThrow(VersionInfo.version);
+    } catch (e) {
+      errorMessage = e.toString();
+    }
+
+    if (!context.mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // close spinner
+
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.updateCheckFailed(errorMessage))),
+      );
+      return;
+    }
+
+    if (info == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.updateUpToDate)),
+      );
+      return;
+    }
+
+    final update = info;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.updateAvailable),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(l10n.updateAvailableMessage(
+                  update.version, VersionInfo.version)),
+              if (update.releaseNotes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.updateReleaseNotes,
+                  style: Theme.of(ctx).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(update.releaseNotes),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(l10n.updateLater),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              // Prefer the direct install URL (APK on Android). Fall
+              // back to the release page so the user can pick an asset
+              // manually or follow store-linked redirects later.
+              final target =
+                  update.downloadUrl ?? update.releasePageUrl;
+              final uri = Uri.parse(target);
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            child: Text(update.downloadUrl != null
+                ? l10n.updateDownload
+                : l10n.updateViewRelease),
           ),
         ],
       ),

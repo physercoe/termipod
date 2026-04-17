@@ -237,12 +237,17 @@ class _VersionParts {
 }
 
 _VersionParts _splitVersion(String v) {
-  var core = v;
+  // CI ships APP_VERSION as the raw tag name (e.g. "v1.0.27-alpha"),
+  // while remote tag_name goes through _stripLeadingV before reaching
+  // here. Normalize both sides so int.tryParse('v1') doesn't fall back
+  // to 0 and make the local build look older than itself.
+  final normalized = _stripLeadingV(v);
+  var core = normalized;
   var pre = '';
-  final dash = v.indexOf('-');
+  final dash = normalized.indexOf('-');
   if (dash >= 0) {
-    core = v.substring(0, dash);
-    pre = v.substring(dash + 1);
+    core = normalized.substring(0, dash);
+    pre = normalized.substring(dash + 1);
   }
   final parts = core.split('.');
   final nums = <int>[0, 0, 0];

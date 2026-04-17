@@ -522,6 +522,27 @@ class TmuxBackend implements TerminalBackend {
       final endTime = DateTime.now();
       _latency = endTime.difference(startTime).inMilliseconds;
 
+      // Sparse-transition suppression: this poll captured with
+      // effectiveScrollback=0 (previous frame was fullscreen, or bootstrap),
+      // but post-parse we're on a shell with history available. Emitting
+      // the pane-only frame would flash in for one cadence before the
+      // next poll pulls the full history. Skip the emit and force an
+      // immediate re-poll — the next cycle uses effectiveScrollback > 0,
+      // differs from stored content, and emits cleanly.
+      //
+      // Heartbeat still fires so the liveness watchdog sees the poll.
+      final detectedFullscreenAfter =
+          _isAlternateScreen || _isFullscreenCommand;
+      final isSparseTransition = effectiveScrollback == 0 &&
+          !detectedFullscreenAfter &&
+          _scrollbackLines > 0 &&
+          _scrollbackSize > 0;
+      if (isSparseTransition) {
+        if (!_disposed) _heartbeatController.add(null);
+        boostRefresh();
+        return;
+      }
+
       // Update content only when it actually changed.
       if (processedOutput != _currentContent) {
         _currentContent = processedOutput;

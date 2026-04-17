@@ -287,6 +287,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   double _scrollbackExtendOldPixels = 0;
   DateTime _lastScrollbackExtendTime =
       DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastScrollbackResetTime =
+      DateTime.fromMillisecondsSinceEpoch(0);
 
   // 自動リサイズのdebounceタイマー（画面サイズ変更時）
   Timer? _autoResizeDebounceTimer;
@@ -925,6 +927,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     if (backendFullscreen != _pollIsFullscreen) {
       _pollIsFullscreen = backendFullscreen;
       if (wasFullscreen && !backendFullscreen) {
+        // Clear any in-flight scroll-to-top backstop from the prior
+        // shell→vi transition. Without this, a fast vi-exit (< 10
+        // frames after entry) leaves both flags active; _applyUpdate
+        // honors top AFTER bottom in the same cycle, pinning the
+        // viewport to 0 and leaving the primary-buffer shell cursor
+        // off-screen with trailing empty rows below ("blank screen
+        // except cursor and ':q!'" on raw PTY).
+        _pendingScrollToTop = false;
+        _pendingScrollToTopBackstop = 0;
         _pendingScrollToBottom = true;
         _pendingScrollToBottomBackstop = 10;
       } else if (!wasFullscreen && backendFullscreen) {
@@ -934,6 +945,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         // the prior shell view would leave the vi cursor off-screen
         // (typically row 1, above the viewport). Pin to top so the
         // cursor and any header text are immediately visible.
+        _pendingScrollToBottom = false;
+        _pendingScrollToBottomBackstop = 0;
         _pendingScrollToTop = true;
         _pendingScrollToTopBackstop = 10;
       }
@@ -1252,6 +1265,39 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       }
     }
     _maybeExtendScrollback();
+    _maybeResetScrollbackAtBottom();
+  }
+
+  /// When the user manually scrolls back to the bottom of the buffer,
+  /// drop any runtime scrollback extension and re-anchor to the cursor.
+  /// Without this, the user lands at raw `maxScrollExtent`, which can
+  /// sit past the cursor when the pane has trailing empty rows (vi/less
+  /// scratchpads, fresh prompts), leaving the cursor off-screen and
+  /// forcing a second tap on jump-to-end. Symmetric with
+  /// [_maybeExtendScrollback] at the top edge.
+  void _maybeResetScrollbackAtBottom() {
+    if (_isDisposed) return;
+    final backend = _backend;
+    if (backend is! TmuxBackend) return;
+    if (!_terminalScrollController.hasClients) return;
+
+    final position = _terminalScrollController.position;
+    if (position.userScrollDirection == ScrollDirection.idle) return;
+
+    final lineHeight = _ansiTextViewKey.currentState?.lineHeight ?? 20.0;
+    final bottomThreshold = position.maxScrollExtent - lineHeight * 2;
+    if (position.pixels < bottomThreshold) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastScrollbackResetTime) <
+        _scrollbackExtendCooldown) {
+      return;
+    }
+    _lastScrollbackResetTime = now;
+
+    _pendingScrollbackCompensation = false;
+    backend.resetScrollback();
+    _ansiTextViewKey.currentState?.scrollToBottom();
   }
 
   /// When the user scrolls within ~2 line-heights of the top of the

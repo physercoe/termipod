@@ -70,8 +70,17 @@ const _tmuxCheatSheet = <String, List<_TmuxEntry>>{
   ],
 };
 
-/// Show the help bottom sheet
-void showHelpSheet(BuildContext context, WidgetRef ref) {
+/// Show the help bottom sheet.
+///
+/// [panelKey] scopes the "Action Bar" tab to the profile active on
+/// that pane (per-pane profiles are real — see [ActionBarState.profileForPanel]).
+/// Passing null falls back to the global default profile; that's only
+/// correct from screens with no pane context, like settings.
+void showHelpSheet(
+  BuildContext context,
+  WidgetRef ref, {
+  String? panelKey,
+}) {
   final isDark = Theme.of(context).brightness == Brightness.dark;
   final bgColor = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
 
@@ -90,6 +99,7 @@ void showHelpSheet(BuildContext context, WidgetRef ref) {
       builder: (context, scrollController) => _HelpSheetContent(
         scrollController: scrollController,
         ref: ref,
+        panelKey: panelKey,
       ),
     ),
   );
@@ -98,10 +108,12 @@ void showHelpSheet(BuildContext context, WidgetRef ref) {
 class _HelpSheetContent extends StatelessWidget {
   final ScrollController scrollController;
   final WidgetRef ref;
+  final String? panelKey;
 
   const _HelpSheetContent({
     required this.scrollController,
     required this.ref,
+    required this.panelKey,
   });
 
   @override
@@ -178,19 +190,46 @@ class _HelpSheetContent extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : Colors.black87;
     final mutedColor = isDark ? Colors.white54 : Colors.black54;
+    // Scope to the pane the user opened help from — profiles are
+    // per-pane, so reading the global activeGroups would show the
+    // wrong profile (e.g. vim) when the current pane is running
+    // something else (e.g. Claude Code).
     final actionBarState = ref.read(actionBarProvider);
-    final groups = actionBarState.activeGroups;
+    final profile = actionBarState.profileForPanel(panelKey);
+    final groups = profile.groups;
 
+    // +1 for the profile-name header row that tells the user which
+    // profile they're looking at.
     return ListView.builder(
       controller: scrollController,
       padding: const EdgeInsets.all(16),
-      itemCount: groups.length,
-      itemBuilder: (context, groupIndex) {
-        final group = groups[groupIndex];
+      itemCount: groups.length + 1,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Icon(Icons.view_module,
+                    size: 14, color: DesignColors.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Profile: ${profile.name}',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: mutedColor,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final group = groups[index - 1];
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (groupIndex > 0) const SizedBox(height: 16),
+            if (index > 1) const SizedBox(height: 16),
             Text(
               group.name.toUpperCase(),
               style: GoogleFonts.spaceGrotesk(

@@ -221,7 +221,7 @@ class ProfileSheet extends ConsumerWidget {
           IconButton(
             onPressed: () {
               HapticFeedback.selectionClick();
-              showHelpSheet(context, ref);
+              showHelpSheet(context, ref, panelKey: panelKey);
             },
             icon: const Icon(Icons.help_outline, size: 18),
             color: DesignColors.primary,

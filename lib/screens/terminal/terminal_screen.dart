@@ -3247,7 +3247,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       tooltip: 'Help',
                       onPressed: () {
                         Navigator.pop(context);
-                        showHelpSheet(context, ref);
+                        final paneId = ref
+                            .read(tmuxProvider(widget.connectionId))
+                            .activePane
+                            ?.id;
+                        final panelKey = paneId == null
+                            ? null
+                            : '${widget.connectionId}|$paneId';
+                        showHelpSheet(context, ref, panelKey: panelKey);
                       },
                     ),
                   ],

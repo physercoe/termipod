@@ -325,6 +325,8 @@ class _HelpSheetContent extends StatelessWidget {
         _TmuxEntry('Confirm Hold', 'Send literal only (no Enter)'),
         _TmuxEntry('Ctrl / Alt Tap', 'Arm modifier (one-shot)'),
         _TmuxEntry('Ctrl / Alt ×2', 'Lock modifier (sticky)'),
+        _TmuxEntry('Bolt ⚡ Tap', 'Open snippet picker'),
+        _TmuxEntry('Bolt ⚡ Hold', 'Save current compose text as snippet'),
       ],
       'Navigation Pad': [
         _TmuxEntry('D-pad/Joystick', 'Arrow keys (hold to repeat)'),
@@ -341,6 +343,9 @@ class _HelpSheetContent extends StatelessWidget {
         _TmuxEntry('Backspace Hold', 'Auto-repeat delete'),
         _TmuxEntry('Arrow Hold', 'Auto-repeat cursor move'),
         _TmuxEntry('#+=', 'Switch to extra symbols page'),
+        _TmuxEntry('Live Strip', 'Home / End / PgUp / PgDn / Del'),
+        _TmuxEntry('● dot', 'Direct input mode is live'),
+        _TmuxEntry('Arrow Row', 'Auto-hides when nav pad / joystick is on'),
       ],
       'Scroll Mode': [
         _TmuxEntry('Scroll Up', 'Enter scroll / tmux copy mode'),

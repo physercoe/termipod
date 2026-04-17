@@ -578,37 +578,60 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
   /// custom keyboard captures input directly — this chip simply signals
   /// that direct mode is live so the compose bar still feels "active".
   Widget _buildLiveStatusChip(bool isDark) {
+    // Direct-input mode used to show a static "LIVE" pill here — pure
+    // decoration. The space is now repurposed for nav/edit keys that
+    // are otherwise unreachable from the custom keyboard (Home/End,
+    // PgUp/PgDn, Del). Small pulsing dot on the right preserves the
+    // "input is live" affordance.
     return Container(
       height: 36,
-      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: DesignColors.success.withValues(alpha: 0.12),
+        color: DesignColors.success.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: DesignColors.success.withValues(alpha: 0.3),
+          color: DesignColors.success.withValues(alpha: 0.35),
           width: 1,
         ),
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.keyboard_rounded,
-            size: 14,
-            color: DesignColors.success,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            AppLocalizations.of(context)!.customKeyboardLive,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: DesignColors.success,
-              letterSpacing: 0.5,
-            ),
-          ),
+          Expanded(child: _stripKey('Home', 'Home', isDark)),
+          Expanded(child: _stripKey('End', 'End', isDark)),
+          Expanded(child: _stripKey('PgUp', 'PPage', isDark)),
+          Expanded(child: _stripKey('PgDn', 'NPage', isDark)),
+          Expanded(child: _stripKey('Del', 'DC', isDark)),
+          const SizedBox(width: 4),
+          _LivePulseDot(),
+          const SizedBox(width: 4),
         ],
+      ),
+    );
+  }
+
+  Widget _stripKey(String label, String tmuxKey, bool isDark) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (widget.hapticFeedback) HapticFeedback.selectionClick();
+        widget.onSpecialKeyPressed?.call(tmuxKey);
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 1, vertical: 3),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: DesignColors.success.withValues(alpha: 0.08),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: DesignColors.success,
+            letterSpacing: 0.3,
+          ),
+        ),
       ),
     );
   }
@@ -656,6 +679,52 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
           size: 20,
         ),
       ),
+    );
+  }
+}
+
+/// Small breathing dot used as the "live mode" affordance on the
+/// direct-input strip. Slow opacity cycle so it reads as ambient and
+/// doesn't compete with key labels.
+class _LivePulseDot extends StatefulWidget {
+  @override
+  State<_LivePulseDot> createState() => _LivePulseDotState();
+}
+
+class _LivePulseDotState extends State<_LivePulseDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, __) {
+        return Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: DesignColors.success
+                .withValues(alpha: 0.35 + 0.65 * _ctrl.value),
+          ),
+        );
+      },
     );
   }
 }

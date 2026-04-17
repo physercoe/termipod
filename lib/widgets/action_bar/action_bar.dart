@@ -26,6 +26,10 @@ class ActionBar extends ConsumerStatefulWidget {
   final VoidCallback? onFileTransfer;
   final VoidCallback? onImageTransfer;
   final VoidCallback? onSnippetPicker;
+  /// Long-press shortcut for the bolt button — saves the current
+  /// compose-bar text as a new snippet (drafts category). Skipped if
+  /// null or compose is empty.
+  final VoidCallback? onSaveAsSnippet;
   final VoidCallback? onDirectInputToggle;
   final VoidCallback? onProfileSettings;
 
@@ -46,6 +50,7 @@ class ActionBar extends ConsumerStatefulWidget {
     this.onFileTransfer,
     this.onImageTransfer,
     this.onSnippetPicker,
+    this.onSaveAsSnippet,
     this.onDirectInputToggle,
     this.onProfileSettings,
     this.hapticFeedback = true,
@@ -126,6 +131,14 @@ class _ActionBarState extends ConsumerState<ActionBar> {
 
       case ActionBarButtonType.modifier:
         // Long-press on modifier is handled by double-tap logic in toggleCtrl/Alt
+        break;
+
+      case ActionBarButtonType.action:
+        // Bolt (snippet picker) long-press → save current compose text
+        // as a snippet. Other action buttons have no long-press today.
+        if (button.value == 'snippet') {
+          widget.onSaveAsSnippet?.call();
+        }
         break;
 
       default:

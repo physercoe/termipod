@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/action_bar_provider.dart';
+import '../providers/settings_provider.dart';
 import '../theme/design_colors.dart';
 
 /// Flutter-native QWERTY keyboard for direct input mode.
@@ -289,6 +290,12 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
     final state = ref.watch(actionBarProvider);
     final ctrlActive = state.ctrlArmed || state.ctrlLocked;
     final altActive = state.altArmed || state.altLocked;
+    // Auto-hide arrow row when nav pad or floating joystick is active —
+    // arrows are duplicated by those affordances. Space migrates onto
+    // row 4 in that mode so we don't lose it.
+    final settings = ref.watch(settingsProvider);
+    final hasNavAlt =
+        settings.navPadMode != 'off' || settings.floatingPadEnabled;
 
     return Focus(
       focusNode: _focusNode,
@@ -315,9 +322,11 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
             _buildRow3(isDark),
             const SizedBox(height: 4),
             _buildRow4(isDark, ctrlActive, altActive, state.ctrlLocked,
-                state.altLocked),
-            const SizedBox(height: 4),
-            _buildRow5(isDark),
+                state.altLocked, includeSpace: hasNavAlt),
+            if (!hasNavAlt) ...[
+              const SizedBox(height: 4),
+              _buildRow5(isDark),
+            ],
           ],
         ),
       ),
@@ -475,7 +484,8 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
   }
 
   Widget _buildRow4(bool isDark, bool ctrlActive, bool altActive,
-      bool ctrlLocked, bool altLocked) {
+      bool ctrlLocked, bool altLocked,
+      {bool includeSpace = false}) {
     return Row(
       children: [
         Expanded(
@@ -532,7 +542,7 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
           ),
         ),
         Expanded(
-          flex: 4,
+          flex: includeSpace ? 3 : 4,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
             child: _KeyboardKey(
@@ -543,6 +553,19 @@ class _CustomKeyboardState extends ConsumerState<CustomKeyboard> {
             ),
           ),
         ),
+        if (includeSpace)
+          Expanded(
+            flex: 6,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: _KeyboardKey(
+                label: '␣',
+                isFlashing: _flashingKey == ' ',
+                onTap: () => _onLetterKey(' '),
+                isDark: isDark,
+              ),
+            ),
+          ),
       ],
     );
   }

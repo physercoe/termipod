@@ -1617,6 +1617,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                     onImageTransfer: _handleImageTransfer,
                     onSnippetPicker: () =>
                         _showSnippetPicker(context, panelKey: panelKey),
+                    onSaveAsSnippet: () => _handleSaveSnippet(context),
                     onDirectInputToggle: () {
                       ref.read(actionBarProvider.notifier).toggleInputMode();
                     },
@@ -1674,8 +1675,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                 final useCustom = ref.watch(
                   settingsProvider.select((s) => s.useCustomKeyboard),
                 );
-                // Custom keyboard is ~220dp; shift joystick up when visible
-                final kbOffset = (!composeMode && useCustom) ? 220.0 : 0.0;
+                // Custom keyboard with row 5 is ~220dp; without (nav-pad
+                // or floating pad on) it drops to ~175dp since the arrow
+                // row is hidden. Shift joystick up accordingly.
+                final kbOffset = (!composeMode && useCustom) ? 175.0 : 0.0;
                 return FloatingJoystick(
                   onSpecialKeyPressed: _dispatchSpecialKey,
                   haptic: ref.watch(settingsProvider).navPadHaptic,

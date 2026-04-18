@@ -581,6 +581,23 @@ class TmuxBackend implements TerminalBackend {
   }
 
   @override
+  Future<void> pasteText(String text) async {
+    if (!_sshClient.isConnected) return;
+    final target = _getCurrentTarget();
+    if (target == null) return;
+
+    // Unique per-call buffer name so concurrent pastes (rare but
+    // possible if the user mashes send) don't overwrite each other
+    // before paste-buffer reads it.
+    final bufferName = 'mux_${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      await _sshClient.exec(TmuxCommands.setBuffer(bufferName, text));
+      await _sshClient.exec(TmuxCommands.pasteBuffer(target, bufferName));
+      boostRefresh();
+    } catch (_) {}
+  }
+
+  @override
   Future<void> sendSpecialKey(String tmuxKey, {String? escapeSequence}) async {
     if (!_sshClient.isConnected) return;
     final target = _getCurrentTarget();

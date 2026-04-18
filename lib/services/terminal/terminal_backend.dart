@@ -37,6 +37,19 @@ abstract class TerminalBackend {
   /// Send literal text input.
   Future<void> sendText(String text);
 
+  /// Send a multi-line block as a single paste operation.
+  ///
+  /// Used for compose-bar input that contains embedded newlines: sending
+  /// each line via [sendText]+Enter would let the shell execute every
+  /// line as a separate command. This path stages the whole block so the
+  /// receiving program (shell, REPL, AI agent prompt) sees one paste
+  /// event with the newlines intact.
+  ///
+  /// - TmuxBackend: `tmux set-buffer` + `tmux paste-buffer -p` (bracketed
+  ///   paste mode, so apps that honor it treat the block atomically).
+  /// - RawPtyBackend: writes `\x1b[200~ ... \x1b[201~` directly.
+  Future<void> pasteText(String text);
+
   /// Send a special key.
   /// [tmuxKey]: tmux key name (e.g. 'Enter', 'C-c') - used by TmuxBackend.
   /// [escapeSequence]: VT escape bytes (e.g. '\x1b[A') - used by RawPtyBackend.

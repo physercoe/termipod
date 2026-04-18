@@ -4303,15 +4303,28 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     });
   }
 
-  /// Send multiline text without appending a final Enter
+  /// Send multiline text without appending a final Enter.
+  ///
+  /// Routes through the backend's bracketed-paste path so embedded
+  /// newlines arrive as one paste event, not N command submissions —
+  /// the previous line-by-line + Enter loop fragmented multi-line
+  /// prompts (e.g. AI agent input) into separate executions.
   Future<void> _sendMultilineTextNoEnter(String text) async {
+    if (text.isEmpty) return;
+    final backend = _backend;
+    if (backend != null) {
+      await backend.pasteText(text);
+      return;
+    }
+    // Fallback (no backend yet): preserve the legacy line-loop. This
+    // path is only hit during init before _backend is wired up; callers
+    // shouldn't reach here in practice.
     final lines = text.split('\n');
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
       if (line.isNotEmpty) {
         await _sendKey(line);
       }
-      // Send Enter between lines, but NOT after the last line
       if (i < lines.length - 1) {
         await _sendSpecialKey('Enter');
       }
@@ -4448,24 +4461,35 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// 複数行テキストを送信（行ごとにテキスト+Enterを送信）
+  /// Send multi-line text and submit with a single trailing Enter.
   ///
-  /// 注: _sendKey/_sendSpecialKeyを直接呼び出す。
-  /// オーバーレイラッパーを経由しないため、複数行送信時にオーバーレイは表示されない。
-  /// これは意図的な動作。
+  /// Uses the backend's bracketed-paste path so embedded newlines reach
+  /// the receiving program (shell, REPL, AI agent prompt) as one paste
+  /// event with literal `\n` separators — the program decides what to
+  /// do with them. The final Enter outside the paste submits the block.
+  /// Previously this method split on `\n` and sent each line + Enter,
+  /// which caused the shell to execute every line as its own command.
   Future<void> _sendMultilineText(String text) async {
+    final backend = _backend;
+    if (backend != null) {
+      if (text.isNotEmpty) {
+        await backend.pasteText(text);
+      }
+      await _sendSpecialKey('Enter');
+      return;
+    }
+    // Fallback (no backend yet): legacy line-loop. Only reached during
+    // init before _backend is wired up.
     final lines = text.split('\n');
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
       if (line.isNotEmpty) {
         await _sendKey(line);
       }
-      // 最後の行以外はEnterを送信、または空行でもEnterを送信
       if (i < lines.length - 1 || line.isEmpty) {
         await _sendSpecialKey('Enter');
       }
     }
-    // 最後の行が空でなければEnterを送信
     if (lines.isNotEmpty && lines.last.isNotEmpty) {
       await _sendSpecialKey('Enter');
     }

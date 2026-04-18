@@ -259,6 +259,42 @@ class TmuxCommands {
     return 'tmux send-keys -t ${_escapeArg(paneId)} $tokens';
   }
 
+  /// Stage [content] in a named tmux paste buffer.
+  ///
+  /// Use together with [pasteBuffer] to ship a multi-line block to a
+  /// pane atomically: `set-buffer` writes the bytes, `paste-buffer -p`
+  /// emits them in bracketed-paste mode so the shell/REPL/agent sees a
+  /// single paste event instead of N separate `Enter`-terminated lines.
+  ///
+  /// Buffer names should be unique per call (e.g. include a timestamp)
+  /// so concurrent pastes don't clobber each other. Pair with
+  /// `pasteBuffer(..., deleteAfter: true)` to clean up.
+  static String setBuffer(String name, String content) {
+    return 'tmux set-buffer -b ${_escapeArg(name)} -- ${_escapeArg(content)}';
+  }
+
+  /// Paste a previously [setBuffer]-staged buffer into [target].
+  ///
+  /// [bracketed] wraps the paste in `\x1b[200~ ... \x1b[201~` so apps
+  /// that support bracketed-paste mode (bash, zsh, vim, most modern
+  /// REPLs) treat the block as one paste event — no per-line execution.
+  /// [deleteAfter] drops the buffer after pasting so it doesn't leak
+  /// into the user's `tmux list-buffers` output.
+  static String pasteBuffer(
+    String target,
+    String name, {
+    bool bracketed = true,
+    bool deleteAfter = true,
+  }) {
+    final flags = <String>[
+      if (bracketed) '-p',
+      if (deleteAfter) '-d',
+      '-b', _escapeArg(name),
+      '-t', _escapeArg(target),
+    ];
+    return 'tmux paste-buffer ${flags.join(' ')}';
+  }
+
   /// Enterキーを送信
   static String sendEnter(String paneId) {
     return 'tmux send-keys -t ${_escapeArg(paneId)} Enter';

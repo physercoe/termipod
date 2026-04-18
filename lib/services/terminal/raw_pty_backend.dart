@@ -384,6 +384,15 @@ class RawPtyBackend implements TerminalBackend {
   }
 
   @override
+  Future<void> pasteText(String text) async {
+    if (!_sshClient.isConnected) return;
+    // Bracketed paste: apps that opted in (bash, zsh, vim, most REPLs)
+    // see one paste event with the newlines preserved instead of N
+    // separate command submissions.
+    _sshClient.write('\x1b[200~$text\x1b[201~');
+  }
+
+  @override
   Future<void> sendSpecialKey(String tmuxKey, {String? escapeSequence}) async {
     if (!_sshClient.isConnected) return;
 

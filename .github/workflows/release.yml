@@ -60,7 +60,7 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
 
-      - name: Build APK
+      - name: Build APKs (split per ABI)
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -71,19 +71,37 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NUM%%-*}"
           BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
-          flutter build apk --release \
+          # --split-per-abi emits one APK per ABI (~30 MB each) instead of
+          # a ~90 MB fat APK that bundles native libs for all three.
+          # --obfuscate + --split-debug-info strips Dart symbols for a
+          # few more MB; the mapping lives under build/symbols/.
+          flutter build apk --release --split-per-abi \
+            --obfuscate --split-debug-info=build/symbols \
             --build-name="$VERSION_NUM" \
             --build-number="$BUILD_NUMBER" \
             --dart-define=APP_VERSION="$VERSION" \
             --dart-define=GIT_REF="$GIT_REF"
 
-      - name: Rename APK
+      - name: Rename APKs
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-android.apk
+          cd build/app/outputs/flutter-apk
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            mv "app-${abi}-release.apk" \
+               "termipod-${{ github.ref_name }}-${abi}.apk"
+          done
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-android.apk
+          files: |
+            build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk
+            build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-armeabi-v7a.apk
+            build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-x86_64.apk
+          body: |
+            **Pick the APK matching your device:**
+            - `arm64-v8a` — almost every modern phone/tablet (Android 8+, 64-bit ARM). **Default choice.**
+            - `armeabi-v7a` — older 32-bit ARM devices.
+            - `x86_64` — emulators / ChromeOS / rare Intel tablets.
+
+            Not sure? Grab `arm64-v8a`.
           generate_release_notes: true

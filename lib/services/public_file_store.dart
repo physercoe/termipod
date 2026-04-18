@@ -41,14 +41,18 @@ class PublicFileStore {
         dirType: DirType.download,
         dirName: DirName.download,
       );
-      if (info == null || !info.isSuccessful) return null;
+      // info == null is the only true failure. SaveStatus.duplicated still
+      // wrote the file — Android just appended " (1)" because the plugin's
+      // pre-insert delete couldn't clear the prior copy. Use info.name so
+      // the path we report matches what's actually on disk.
+      if (info == null) return null;
       // saveFile copies; the temp source stays until we delete it.
       try {
         src.deleteSync();
       } catch (_) {
         // Leave the temp file on failure — Android cache-evicts it later.
       }
-      return 'Download/$appFolderName/$filename';
+      return 'Download/$appFolderName/${info.name}';
     }
 
     if (Platform.isIOS) {

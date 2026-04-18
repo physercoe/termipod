@@ -95,10 +95,10 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 | Component | What it does |
 |-----------|-------------|
 | **Action bar** | Swipeable button groups per profile — ESC, Tab, Ctrl+C, arrows, one tap away |
-| **Compose bar** | Multi-line text field with send button. Long-press send to omit Enter |
-| **Custom keyboard** | Flutter-native QWERTY with Ctrl/Alt/Esc/arrows. Toggle off for CJK input |
+| **Compose bar** | Multi-line text field with send button. Multi-line input ships as **one bracketed paste** so AI agents and shells see the block intact, not N separate commands. Long-press send to omit Enter |
+| **Custom keyboard** | Flutter-native QWERTY with Ctrl/Alt/Esc/arrows. Built-in **live key strip** (Home / End / PgUp / PgDn / Del + pulse indicator) replaces the wasted compose-row gap. Arrow row auto-hides when nav pad / joystick is on. Toggle off entirely for CJK / voice input |
 | **Navigation pad** | D-pad, joystick, or gesture surface for arrow keys + action buttons |
-| **Snippets** | Slash commands with dropdowns for enums, text fields for free-form args |
+| **Snippets** | Slash commands with dropdowns for enums, text fields for free-form args. **Long-press the bolt key** to stash the current compose text as a draft snippet |
 | **Modifier keys** | Ctrl / Alt as toggle buttons — tap to arm, double-tap to lock |
 
 **4 built-in profiles** — Claude Code, Codex, General Terminal, tmux — each with optimized button groups. Create custom profiles for any CLI. Each pane remembers its profile and auto-detects from `pane_current_command`.
@@ -110,6 +110,8 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 ### Other
 - **Notification alerts** — monitor bell/activity/silence flags across all connections
 - **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
+- **Built-in file browser** — manage SFTP downloads and app storage from Settings, share or delete files in place
+- **Update checker** — Settings → Check for updates queries GitHub releases and links to the latest APK
 - **Help & onboarding** — cheat sheet for action bar + tmux keybindings, 4-card walkthrough
 - **Deep linking** — `termipod://` URL scheme for direct session access from external apps
 - **Tablet & foldable** adaptive layout
@@ -180,7 +182,6 @@ flutter build ios --release
 - Hybrid xterm mode — PTY stream rendering + tmux session navigation
 - Mosh support — UDP transport with IP roaming, best-in-class for flaky mobile networks
 - Agent output monitoring — redesigned Notify tab that watches panes for patterns (prompts, failures, completion) from Claude Code / Codex
-- Built-in file manager — browse and manage SFTP downloads and app storage
 - Local echo — predictive character display for low-latency feel
 - Cursor alignment — font glyph width calibration
 - iOS TestFlight / App Store distribution

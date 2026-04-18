@@ -379,11 +379,33 @@ enum ConnectionSortOption {
 
 /// ソートオプションを管理するNotifier
 class ConnectionSortNotifier extends Notifier<ConnectionSortOption> {
+  static const _prefsKey = 'connection_sort_option';
+
   @override
-  ConnectionSortOption build() => ConnectionSortOption.lastConnectedDesc;
+  ConnectionSortOption build() {
+    // Synchronous default; loaded value replaces it once SharedPreferences
+    // resolves. The list view re-sorts when state changes, so a momentary
+    // default flash is fine.
+    _loadFromPrefs();
+    return ConnectionSortOption.lastConnectedDesc;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_prefsKey);
+    if (stored == null) return;
+    final option = ConnectionSortOption.values
+        .where((o) => o.name == stored)
+        .firstOrNull;
+    if (option != null && option != state) {
+      state = option;
+    }
+  }
 
   void setSort(ConnectionSortOption option) {
     state = option;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setString(_prefsKey, option.name));
   }
 }
 

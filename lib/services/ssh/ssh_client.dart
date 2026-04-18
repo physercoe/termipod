@@ -110,21 +110,31 @@ class SshEvents {
   /// エラー発生時
   final void Function(Object error)? onError;
 
+  /// Fires when the interactive shell session started by [SshClient.startShell]
+  /// reaches EOF (user typed `exit` / `logout`, Ctrl-D, or the remote shell
+  /// crashed). Raw-PTY mode uses this to pop the terminal screen instead of
+  /// silently waiting for the keep-alive watchdog to misread the exit as a
+  /// network drop and trigger a reconnect into a brand-new shell.
+  final void Function()? onShellEnd;
+
   const SshEvents({
     this.onData,
     this.onClose,
     this.onError,
+    this.onShellEnd,
   });
 
   SshEvents copyWith({
     void Function(Uint8List data)? onData,
     void Function()? onClose,
     void Function(Object error)? onError,
+    void Function()? onShellEnd,
   }) {
     return SshEvents(
       onData: onData ?? this.onData,
       onClose: onClose ?? this.onClose,
       onError: onError ?? this.onError,
+      onShellEnd: onShellEnd ?? this.onShellEnd,
     );
   }
 }
@@ -674,6 +684,11 @@ class SshClient {
   /// 完了ハンドラ
   void _handleDone() {
     _state = SshConnectionState.disconnected;
+    // Fire the dedicated shell-end signal first so consumers (raw PTY
+    // backend → terminal screen) can route a clean disconnect *before*
+    // the generic onClose listeners or any background watchdog can
+    // misread this as a transport failure and queue a reconnect.
+    _events.onShellEnd?.call();
     _events.onClose?.call();
   }
 
@@ -898,11 +913,13 @@ class SshClient {
     void Function(Uint8List data)? onData,
     void Function()? onClose,
     void Function(Object error)? onError,
+    void Function()? onShellEnd,
   }) {
     _events = _events.copyWith(
       onData: onData,
       onClose: onClose,
       onError: onError,
+      onShellEnd: onShellEnd,
     );
   }
 

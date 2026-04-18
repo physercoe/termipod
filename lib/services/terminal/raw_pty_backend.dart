@@ -15,6 +15,16 @@ import 'terminal_backend.dart';
 class RawPtyBackend implements TerminalBackend {
   SshClient _sshClient;
   final _contentController = StreamController<void>.broadcast();
+  final _shellExitedController = StreamController<void>.broadcast();
+
+  /// Fires when the interactive shell session ends (user typed `exit` /
+  /// `logout`, hit Ctrl-D, or the remote shell crashed). The terminal
+  /// screen subscribes to this in raw-PTY mode so it can disconnect
+  /// cleanly and pop back to the previous screen — without this signal
+  /// the shell EOF would silently set the SSH state to disconnected and
+  /// then keep-alive's eventual failure would queue an auto-reconnect
+  /// that drops the user into a fresh shell instead of leaving.
+  Stream<void> get shellExited => _shellExitedController.stream;
 
   late final Terminal _terminal;
   int _cols;
@@ -173,12 +183,20 @@ class RawPtyBackend implements TerminalBackend {
     }
 
     // Start interactive PTY shell
-    _sshClient.updateEventHandlers(onData: _onShellData);
+    _sshClient.updateEventHandlers(
+      onData: _onShellData,
+      onShellEnd: _onShellEnd,
+    );
     await _sshClient.startShell(ShellOptions(
       term: 'xterm-256color',
       cols: cols,
       rows: rows,
     ));
+  }
+
+  void _onShellEnd() {
+    if (_disposed || _shellExitedController.isClosed) return;
+    _shellExitedController.add(null);
   }
 
   @override
@@ -189,7 +207,10 @@ class RawPtyBackend implements TerminalBackend {
     // The xterm.dart Terminal buffer is kept intact so users don't lose
     // on-screen content or scrollback across the reconnect.
     _sshClient = newClient;
-    _sshClient.updateEventHandlers(onData: _onShellData);
+    _sshClient.updateEventHandlers(
+      onData: _onShellData,
+      onShellEnd: _onShellEnd,
+    );
 
     // Re-probe $HOME on the new client. Failure is non-fatal — the
     // previous value (if any) is kept as a best-effort fallback.
@@ -507,5 +528,6 @@ class RawPtyBackend implements TerminalBackend {
   void dispose() {
     _disposed = true;
     _contentController.close();
+    _shellExitedController.close();
   }
 }

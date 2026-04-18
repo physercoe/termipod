@@ -300,6 +300,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   TerminalBackend? _backend;
   StreamSubscription<void>? _backendContentSub;
   StreamSubscription<void>? _backendHeartbeatSub;
+  StreamSubscription<void>? _shellExitedSub;
 
   // Riverpodリスナー
   ProviderSubscription<SshState>? _sshSubscription;
@@ -694,12 +695,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     final rows = displayState.paneHeight > 0 ? displayState.paneHeight : 24;
     final settings = ref.read(settingsProvider);
 
-    _backend = RawPtyBackend(
+    final rawBackend = RawPtyBackend(
       sshClient: sshClient,
       cols: cols,
       rows: rows,
       scrollbackLines: settings.scrollbackLines,
     );
+    _backend = rawBackend;
     await _backend!.initialize(cols: cols, rows: rows);
 
     _viewNotifier.value = _viewNotifier.value.copyWith(
@@ -714,6 +716,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _backendHeartbeatSub = _backend!.pollHeartbeat.listen((_) {
       if (!mounted || _isDisposed) return;
       _onBackendHeartbeat();
+    });
+    // Raw-PTY shell EOF (user typed `exit` / `logout` / Ctrl-D, or the
+    // shell crashed). Tear the connection down and pop back instead of
+    // letting the keep-alive watchdog misread this as a network drop
+    // and reconnect into a brand-new shell — that behavior surprised
+    // users who expected `exit` to mean "I'm done".
+    _shellExitedSub = rawBackend.shellExited.listen((_) {
+      if (!mounted || _isDisposed) return;
+      _disconnect();
     });
   }
 
@@ -1396,6 +1407,8 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     _backendContentSub = null;
     _backendHeartbeatSub?.cancel();
     _backendHeartbeatSub = null;
+    _shellExitedSub?.cancel();
+    _shellExitedSub = null;
     _backend?.dispose();
     _backend = null;
     // タイマーを停止

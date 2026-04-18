@@ -417,12 +417,23 @@ class TmuxCommands {
 
   // ===== ユーティリティ =====
 
-  /// 引数をエスケープ
+  /// Shell-escape a single argument for `sh -c`-style remote execution.
+  ///
+  /// The trigger set covers every byte that `sh` would interpret at parse
+  /// time — whitespace, quotes, backslash, variable/command expansion,
+  /// history (`!`), brace/bracket groups, redirections, pipes, background
+  /// (`&`), statement separators (`;`), subshells, **comments (`#`),
+  /// globs (`*`, `?`), tilde expansion, and assignment (`=`)**. Inside
+  /// double quotes the shell only re-expands `\`, `"`, `$`, and `` ` ``,
+  /// so escaping those four and wrapping is sufficient.
+  ///
+  /// Prior to the broadened regex, single-tap `#` was stripped as a
+  /// comment and `*` was glob-expanded to filenames on the remote before
+  /// reaching tmux — both showed up as "send-keys does nothing" or
+  /// "send-keys types random text".
   static String _escapeArg(String arg) {
-    // シェルの特殊文字をエスケープ
-    // 特殊文字: スペース、クォート、バックスラッシュ、変数展開、バッククォート、その他
-    if (arg.contains(RegExp(r'[\s"' "'" r'\\$`!{}\[\]<>|&;()]'))) {
-      // ダブルクォートでラップし、内部の特殊文字をエスケープ
+    if (arg.isEmpty ||
+        arg.contains(RegExp(r'''[\s"'\\$`!{}\[\]<>|&;()#*?~=]'''))) {
       final escaped = arg
           .replaceAll(r'\', r'\\')
           .replaceAll('"', r'\"')

@@ -188,6 +188,31 @@ void main() {
           'tmux send-keys -t %0 Enter',
         );
       });
+
+      test('quotes # so remote shell does not strip it as a comment', () {
+        expect(
+          TmuxCommands.sendKeys('%0', '#', literal: true),
+          'tmux send-keys -t %0 -l "#"',
+        );
+      });
+
+      test('quotes * so remote shell does not glob-expand it', () {
+        expect(
+          TmuxCommands.sendKeys('%0', '*', literal: true),
+          'tmux send-keys -t %0 -l "*"',
+        );
+      });
+
+      test('quotes ? and ~ (glob + tilde-expansion metachars)', () {
+        expect(
+          TmuxCommands.sendKeys('%0', '?', literal: true),
+          'tmux send-keys -t %0 -l "?"',
+        );
+        expect(
+          TmuxCommands.sendKeys('%0', '~', literal: true),
+          'tmux send-keys -t %0 -l "~"',
+        );
+      });
     });
 
     group('chain', () {

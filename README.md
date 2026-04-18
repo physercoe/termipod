@@ -56,12 +56,15 @@
 
 Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how developers actually use terminals on mobile:
 
+- **Zero server setup** — works with any host running `sshd`. No agents, no daemons, nothing to install on the server side
 - **Navigate tmux visually** — tap through sessions, windows, and panes instead of memorizing `Ctrl-b` keybindings
+- **Dashboard with one-tap reconnect** — recent sessions sorted by last access, with relative timestamps; tap to jump straight back to the last window and pane you were on
 - **Run AI coding agents** (Claude Code, Codex, Aider) with pre-configured button layouts and structured slash-command snippets — pick `/model`, `/effort`, `/permissions` from dropdowns instead of typing them
 - **Per-pane profiles** — each tmux pane remembers its own action bar layout, auto-switching when you move between panes
 - **Custom keyboard** — Flutter-native QWERTY with Ctrl/Alt/Esc/arrows built in, no more hunting through the system IME
 - **Transfer files** via SFTP — upload from phone, download, browse remote directories
 - **Jump hosts & proxies** — SSH ProxyJump and SOCKS5 for machines behind NAT or firewalls
+- **Survives flaky networks** — auto-reconnect with exponential backoff, input queued while offline so nothing is lost
 
 ### Who is this for?
 
@@ -77,17 +80,25 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 ## Features
 
 ### SSH & Connectivity
-- **Ed25519 / RSA keys** — generate on-device or import, stored in Android Keystore / iOS Keychain
+- **Ed25519 / RSA keys** — generate on-device (RSA 2048 / 3072 / 4096) or import, stored in Android Keystore / iOS Keychain with optional passphrase, one-tap public-key copy
 - **SSH ProxyJump** — connect through bastion/jump hosts to internal machines
 - **SOCKS5 proxy** — route through corporate proxies, VPNs, or Shadowsocks/Clash
 - **Raw PTY mode** — direct shell access for servers without tmux, with a one-tap shortcut from any tmux connection card
 - **Connection testing** — verify SSH + tmux before saving
+- **Auto-reconnect with exponential backoff** — up to 5 retries; commands you type while disconnected are queued and flushed automatically once the link is back
+- **Latency indicator** — live ping in the header (color-coded: green &lt; 100 ms, red &gt; 500 ms) so you know whether the lag is your fingers or the network
+- **Adaptive polling** — refresh rate ramps from 50 ms (active) down to 500 ms (idle) to save battery
+- **Background connection service** — Android foreground service keeps SSH alive while the app is backgrounded; optional keep-screen-on for long sessions
 
 ### tmux Session Management
+- **Dashboard** — recent sessions sorted by last access with relative timestamps ("Just now", "5 min ago"); one tap reconnects and restores the last window + pane
 - **Visual navigation** — breadcrumb header: tap Session > Window > Pane to switch
-- **Pane layout view** — accurate proportional split visualization
+- **Pane layout view** — accurate proportional split visualization, tap any pane to focus
 - **Two-finger swipe** between panes
+- **Pinch to zoom** the terminal (50%–500%) for quick readability bumps
+- **Copy / scroll mode** — toggle to select text without the screen jumping; updates buffer until you exit and copy lands in the system clipboard
 - **Create / rename / close** sessions and windows
+- **Bell / Activity / Silence alerts** — tmux window flags monitored across all connections; tap any alert to jump straight to that window and pane (alert auto-clears)
 - **256-color ANSI** terminal rendering with auto-extend scrollback
 
 ### Input UX (Mobile-Optimized)
@@ -96,6 +107,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 |-----------|-------------|
 | **Action bar** | Swipeable button groups per profile — ESC, Tab, Ctrl+C, arrows, one tap away |
 | **Compose bar** | Multi-line text field with send button. Multi-line input ships as **one bracketed paste** so AI agents and shells see the block intact, not N separate commands. Long-press send to omit Enter |
+| **Direct Input mode** | Real-time keystroke streaming with a live indicator — every tap goes straight to the pty, ideal for vim, less, htop, REPLs |
 | **Custom keyboard** | Flutter-native QWERTY with Ctrl/Alt/Esc/arrows. Built-in **live key strip** (Home / End / PgUp / PgDn / Del + pulse indicator) replaces the wasted compose-row gap. Arrow row auto-hides when nav pad / joystick is on. Toggle off entirely for CJK / voice input |
 | **Navigation pad** | D-pad, joystick, or gesture surface for arrow keys + action buttons |
 | **Snippets** | Slash commands with dropdowns for enums, text fields for free-form args. **Long-press the bolt key** to stash the current compose text as a draft snippet |
@@ -108,12 +120,11 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **Image transfer** with format conversion, resize presets, and path injection
 
 ### Other
-- **Notification alerts** — monitor bell/activity/silence flags across all connections
 - **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
 - **Built-in file browser** — manage SFTP downloads and app storage from Settings, share or delete files in place
 - **Update checker** — Settings → Check for updates queries GitHub releases and links to the latest APK
 - **Help & onboarding** — cheat sheet for action bar + tmux keybindings, 4-card walkthrough
-- **Deep linking** — `termipod://` URL scheme for direct session access from external apps
+- **Deep linking** — `termipod://connect?server=<id>&session=<n>&window=<n>&pane=<i>` opens a specific server / session / window / pane from external apps. Each connection has a stable **Deep Link ID** (set in Edit) so URLs survive renames; pairs with [claude-telegram-notify](https://github.com/launch52-ai/claude-telegram-notify) to tap a Telegram alert straight into the right pane. Legacy `muxpod://` URLs still resolve
 - **Tablet & foldable** adaptive layout
 - **i18n** — English and Chinese, follows system locale
 

@@ -302,12 +302,11 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
   StreamSubscription<void>? _backendHeartbeatSub;
   StreamSubscription<void>? _shellExitedSub;
 
-  // Riverpodリスナー
-  ProviderSubscription<SshState>? _sshSubscription;
-  ProviderSubscription<TmuxState>? _tmuxSubscription;
-  ProviderSubscription<AppSettings>? _settingsSubscription;
-  ProviderSubscription<AsyncValue<NetworkStatus>>? _networkSubscription;
-  ProviderSubscription<ActionBarState>? _actionBarSubscription;
+  // Always-on Riverpod listeners. All set up in _setupListeners and
+  // torn down together in dispose, so we keep them in one list rather
+  // than parallel field/init/close trios. Lazy listeners that need
+  // double-init guards (image/file transfer) stay as separate fields.
+  final List<ProviderSubscription> _subscriptions = [];
 
   @override
   void initState() {
@@ -467,10 +466,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
+  /// Adds a provider subscription to the always-on list. Tear-down is
+  /// centralised in dispose, so callers don't manage a field per sub.
+  void _addSubscription<T>(
+    ProviderListenable<T> provider,
+    void Function(T? previous, T next) listener, {
+    bool fireImmediately = false,
+  }) {
+    _subscriptions.add(
+      ref.listenManual<T>(provider, listener, fireImmediately: fireImmediately),
+    );
+  }
+
   /// Providerのリスナーを設定
   void _setupListeners() {
     // SSH状態の変化を監視
-    _sshSubscription = ref.listenManual<SshState>(
+    _addSubscription<SshState>(
       sshProvider(widget.connectionId),
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -485,7 +496,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // 注意: 親のsetState()は不要。ブレッドクラムやペインインジケーターは
     // Consumer widgetでtmuxProviderを直接watchするため、
     // サブツリー内でのみリビルドされる。
-    _tmuxSubscription = ref.listenManual<TmuxState>(
+    _addSubscription<TmuxState>(
       tmuxProvider(widget.connectionId),
       (previous, next) {
         // Profile auto-detection from pane_current_command. Writes
@@ -511,7 +522,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
 
     // 設定の変化を監視（Keep screen on / directInput用）
-    _settingsSubscription = ref.listenManual<AppSettings>(
+    _addSubscription<AppSettings>(
       settingsProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -529,7 +540,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // no viewInsets change), so the cursor ends up hidden under the
     // newly-shown keyboard unless we re-anchor. Fire scroll-to-bottom
     // after the layout pass so the cursor row stays above the keyboard.
-    _actionBarSubscription = ref.listenManual<ActionBarState>(
+    _addSubscription<ActionBarState>(
       actionBarProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -550,7 +561,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // Action bar state is managed by actionBarProvider
 
     // ネットワーク状態の変化を監視（実際の接続状態変化時のみ更新）
-    _networkSubscription = ref.listenManual<AsyncValue<NetworkStatus>>(
+    _addSubscription<AsyncValue<NetworkStatus>>(
       networkStatusProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -1391,16 +1402,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // WakeLockを無効化
     WakelockPlus.disable();
     // Riverpodサブスクリプションをキャンセル
-    _sshSubscription?.close();
-    _sshSubscription = null;
-    _tmuxSubscription?.close();
-    _tmuxSubscription = null;
-    _settingsSubscription?.close();
-    _settingsSubscription = null;
-    _actionBarSubscription?.close();
-    _actionBarSubscription = null;
-    _networkSubscription?.close();
-    _networkSubscription = null;
+    for (final sub in _subscriptions) {
+      sub.close();
+    }
+    _subscriptions.clear();
     _imageTransferSub?.close();
     _imageTransferSub = null;
     _fileTransferSub?.close();

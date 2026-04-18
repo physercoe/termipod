@@ -1786,26 +1786,30 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     return rawDirections;
   }
 
-  /// キーデータをtmux send-keysで送信
+  /// Send literal key bytes through the active backend.
+  ///
+  /// Used by the direct-input stream from [AnsiTextView] and by the
+  /// queued-input flush after reconnect. Both tmux and raw PTY
+  /// backends accept literal text via [TerminalBackend.sendText]; the
+  /// tmux backend wraps it in `tmux send-keys -l`, the raw PTY backend
+  /// writes the bytes straight to the SSH shell stream. Routing through
+  /// the backend lets raw-PTY mode receive direct input at all (the
+  /// previous direct-tmux implementation silently dropped it because
+  /// raw-PTY connections have no tmux target).
   Future<void> _sendKeyData(String data) async {
     final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-
-    // 接続が切れている場合はキューに追加
     if (sshClient == null || !sshClient.isConnected) {
       _inputQueue.enqueue(data);
-      if (mounted) setState(() {}); // キューイング状態を更新
+      if (mounted) setState(() {});
       return;
     }
-
-    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-    if (target == null) return;
-
+    if (_backend == null) return;
     try {
-      // エスケープシーケンスや特殊キーはリテラルで送信
-      await sshClient.exec(TmuxCommands.sendKeys(target, data, literal: true));
-      _backend?.boostRefresh();
+      await _backend!.sendText(data);
+      _backend!.boostRefresh();
     } catch (_) {
-      // キー送信エラーは静かに無視
+      // Send errors are surfaced via the latency/stale indicators; a
+      // transient failure here shouldn't lock the UI.
     }
   }
 
@@ -3940,77 +3944,44 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     );
   }
 
-  /// tmux send-keysでキーを送信
+  /// Send a single key through the active backend.
   ///
-  /// [key] 送信するキー
-  /// [literal] trueの場合はリテラル送信（-l フラグ）
+  /// [literal] true → pass the text verbatim via [TerminalBackend.sendText]
+  /// (shell/tmux won't interpret it as a key name). false → resolve it as
+  /// a symbolic key name like "Enter", "C-c", "F1" via
+  /// [TerminalBackend.sendSpecialKey], which the backend maps to the
+  /// right wire format (tmux key token or VT escape sequence).
+  ///
+  /// Before backend init completes, `_backend` is null; callers during
+  /// that window either queue their input ([InputQueue]) or are simply
+  /// dropped, since there's nothing actionable to do with a key that
+  /// has no target.
   Future<void> _sendKey(String key, {bool literal = true}) async {
-    if (_backend != null) {
-      try {
-        if (literal) {
-          await _backend!.sendText(key);
-        } else {
-          await _backend!.sendSpecialKey(key);
-        }
-        _backend!.boostRefresh();
-      } catch (_) {}
-      return;
-    }
-
-    // Fallback: direct tmux path (used during init before backend is ready)
-    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-
-    if (sshClient == null || !sshClient.isConnected) {
-      if (literal) {
-        _inputQueue.enqueue(key);
-        if (mounted) setState(() {});
-      }
-      return;
-    }
-
-    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-    if (target == null) return;
-
+    if (_backend == null) return;
     try {
-      await sshClient.exec(TmuxCommands.sendKeys(target, key, literal: literal));
-      _backend?.boostRefresh();
+      if (literal) {
+        await _backend!.sendText(key);
+      } else {
+        await _backend!.sendSpecialKey(key);
+      }
+      _backend!.boostRefresh();
     } catch (_) {}
   }
 
-  /// Enter tmux copy-mode (tmux backend only).
+  /// Enter tmux copy-mode (tmux backend only; no-op on raw PTY).
   Future<void> _enterTmuxCopyMode() async {
     final backend = _backend;
     if (backend is TmuxBackend) {
       await backend.enterCopyMode();
-      return;
     }
-    // Fallback
-    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-    if (sshClient == null || !sshClient.isConnected) return;
-    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-    if (target == null) return;
-    try {
-      await sshClient.exec(TmuxCommands.enterCopyMode(target));
-      _backend?.boostRefresh();
-    } catch (_) {}
   }
 
-  /// Cancel tmux copy-mode (tmux backend only).
+  /// Cancel tmux copy-mode (tmux backend only; no-op on raw PTY).
   Future<void> _cancelTmuxCopyMode() async {
     final backend = _backend;
     if (backend is TmuxBackend) {
       await backend.cancelCopyMode();
-      return;
     }
-    // Fallback
-    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-    if (sshClient == null || !sshClient.isConnected) return;
-    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-    if (target == null) return;
-    try {
-      await sshClient.exec(TmuxCommands.cancelCopyMode(target));
-      _backend?.boostRefresh();
-    } catch (_) {}
   }
 
   /// Toggle gesture surface mode on/off.
@@ -4036,24 +4007,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// Send a special key (Ctrl+C, Escape, arrows, etc.) via backend.
+  /// Send a special key (Ctrl+C, Escape, arrows, etc.) via the active
+  /// backend. No-op before backend init completes.
   Future<void> _sendSpecialKey(String tmuxKey) async {
-    if (_backend != null) {
-      try {
-        await _backend!.sendSpecialKey(tmuxKey);
-        _backend!.boostRefresh();
-      } catch (_) {}
-      return;
-    }
-
-    // Fallback: direct tmux path
-    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
-    if (sshClient == null || !sshClient.isConnected) return;
-    final target = ref.read(tmuxProvider(widget.connectionId).notifier).currentTarget;
-    if (target == null) return;
+    if (_backend == null) return;
     try {
-      await sshClient.exec(TmuxCommands.sendKeys(target, tmuxKey, literal: false));
-      _backend?.boostRefresh();
+      await _backend!.sendSpecialKey(tmuxKey);
+      _backend!.boostRefresh();
     } catch (_) {}
   }
 

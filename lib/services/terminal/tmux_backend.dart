@@ -288,6 +288,7 @@ class TmuxBackend implements TerminalBackend {
     // Stop polling against the dead client, swap in the new one, and
     // reset polling state so the next tick hits the fresh socket.
     _pollTimer?.cancel();
+    _pollTimer = null;
     _isPolling = false;
     _sshClient = newClient;
     _currentPollingInterval = _minPollingInterval;
@@ -302,6 +303,7 @@ class TmuxBackend implements TerminalBackend {
 
   void _startPolling() {
     _pollTimer?.cancel();
+    _pollTimer = null;
     _scheduleNextPoll();
   }
 
@@ -311,7 +313,14 @@ class TmuxBackend implements TerminalBackend {
     _pollTimer = Timer(
       Duration(milliseconds: _currentPollingInterval),
       () async {
+        // Recheck guards after the delay — the backend may have been
+        // disposed or paused while the timer was pending, and we don't
+        // want a stale closure to fire a poll (or reschedule another
+        // one) against a dead client.
+        _pollTimer = null;
+        if (_disposed || _paused) return;
         await _pollPaneContent();
+        if (_disposed || _paused) return;
         _scheduleNextPoll();
       },
     );
@@ -342,6 +351,7 @@ class TmuxBackend implements TerminalBackend {
   void boostRefresh() {
     _currentPollingInterval = _minPollingInterval;
     _pollTimer?.cancel();
+    _pollTimer = null;
     _scheduleNextPoll();
   }
 
@@ -684,6 +694,7 @@ class TmuxBackend implements TerminalBackend {
   void dispose() {
     _disposed = true;
     _pollTimer?.cancel();
+    _pollTimer = null;
     _contentController.close();
     _heartbeatController.close();
   }

@@ -470,22 +470,16 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     }
   }
 
-  /// Adds a provider subscription to the always-on list. Tear-down is
-  /// centralised in dispose, so callers don't manage a field per sub.
-  void _addSubscription<T>(
-    ProviderListenable<T> provider,
-    void Function(T? previous, T next) listener, {
-    bool fireImmediately = false,
-  }) {
-    _subscriptions.add(
-      ref.listenManual<T>(provider, listener, fireImmediately: fireImmediately),
-    );
+  /// Tracks a provider subscription for centralised tear-down in dispose,
+  /// so callers don't have to maintain a field-per-listener trio.
+  void _track(ProviderSubscription sub) {
+    _subscriptions.add(sub);
   }
 
   /// Providerのリスナーを設定
   void _setupListeners() {
     // SSH状態の変化を監視
-    _addSubscription<SshState>(
+    _track(ref.listenManual<SshState>(
       sshProvider(widget.connectionId),
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -494,13 +488,13 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         });
       },
       fireImmediately: true,
-    );
+    ));
 
     // Tmux状態の変化を監視
     // 注意: 親のsetState()は不要。ブレッドクラムやペインインジケーターは
     // Consumer widgetでtmuxProviderを直接watchするため、
     // サブツリー内でのみリビルドされる。
-    _addSubscription<TmuxState>(
+    _track(ref.listenManual<TmuxState>(
       tmuxProvider(widget.connectionId),
       (previous, next) {
         // Profile auto-detection from pane_current_command. Writes
@@ -523,10 +517,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
             .setActiveProfileForPanel(panelKey, suggestedId);
       },
       fireImmediately: true,
-    );
+    ));
 
     // 設定の変化を監視（Keep screen on / directInput用）
-    _addSubscription<AppSettings>(
+    _track(ref.listenManual<AppSettings>(
       settingsProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -536,7 +530,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         // (directInputEnabled moved to action_bar_provider)
       },
       fireImmediately: false,
-    );
+    ));
 
     // Input-mode toggle: custom keyboard appears/disappears inline
     // (~220dp of bottom space). That shrinks or grows the terminal
@@ -544,7 +538,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     // no viewInsets change), so the cursor ends up hidden under the
     // newly-shown keyboard unless we re-anchor. Fire scroll-to-bottom
     // after the layout pass so the cursor row stays above the keyboard.
-    _addSubscription<ActionBarState>(
+    _track(ref.listenManual<ActionBarState>(
       actionBarProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -560,12 +554,12 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         });
       },
       fireImmediately: false,
-    );
+    ));
 
     // Action bar state is managed by actionBarProvider
 
     // ネットワーク状態の変化を監視（実際の接続状態変化時のみ更新）
-    _addSubscription<AsyncValue<NetworkStatus>>(
+    _track(ref.listenManual<AsyncValue<NetworkStatus>>(
       networkStatusProvider,
       (previous, next) {
         if (!mounted || _isDisposed) return;
@@ -576,7 +570,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         }
       },
       fireImmediately: true,
-    );
+    ));
 
     // 再接続成功時の処理を設定
     final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);

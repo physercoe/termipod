@@ -570,54 +570,57 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
 
   /// 再接続成功時の処理
   Future<void> _onReconnectSuccess() async {
+    // Guard philosophy: check `!mounted || _isDisposed` after every
+    // await. `mounted` catches Navigator.pop; `_isDisposed` catches the
+    // small window inside our own `dispose()` where the widget is
+    // still technically mounted but we've already torn timers/streams
+    // down. Both must hold for the rest of the function to be safe.
     if (!mounted || _isDisposed) return;
+
+    // Capture all provider reads up front. Re-reading after awaits
+    // risks touching a ref whose notifier was disposed between checks.
+    final newClient =
+        ref.read(sshProvider(widget.connectionId).notifier).client;
+    final backend = _backend;
+    final supportsNav = backend?.supportsNavigation ?? false;
 
     // Rebind the backend to the newly-created SshClient. The backend
     // captured the old client at construction and would otherwise keep
     // polling (tmux) or holding a dead shell stream (raw PTY) against
     // a disposed socket — that's why latency can tick while the
     // terminal content stays frozen across a reconnect.
-    final sshNotifier = ref.read(sshProvider(widget.connectionId).notifier);
-    final newClient = sshNotifier.client;
-    if (newClient != null && _backend != null) {
+    if (newClient != null && backend != null) {
       try {
-        await _backend!.rebindSshClient(newClient);
+        await backend.rebindSshClient(newClient);
       } catch (e) {
         debugPrint('[Terminal] Backend rebind failed: $e');
       }
     }
-
     if (!mounted || _isDisposed) return;
 
     _lastSuccessfulPoll = DateTime.now();
-    if (_isConnectionStale && mounted) {
+    if (_isConnectionStale) {
       setState(() => _isConnectionStale = false);
     }
 
-    // ポーリングを再開
-    _backend?.resumePolling();
+    backend?.resumePolling();
 
-    // tmux モードではセッションツリーを即座に再取得して、
-    // リコネクト後に欠落しているウィンドウ/ペイン情報を補う。
-    // Raw PTY では不要（ツリーという概念がない）。
-    if (_backend?.supportsNavigation ?? false) {
+    // tmux mode: refetch the session tree so windows/panes that
+    // appeared while we were disconnected show up. Raw PTY has no
+    // tree concept, so skip.
+    if (supportsNav) {
       await _refreshSessionTree();
-      _backend?.boostRefresh();
+      if (!mounted || _isDisposed) return;
+      backend?.boostRefresh();
     }
 
-    if (!mounted || _isDisposed) return;
-
-    // セッションツリー周期更新を再開
     _startTreeRefresh();
-
-    // 接続状態監視ウォッチドッグを再開
     _startStaleWatchdog();
 
-    // キューされた入力を送信
     await _flushInputQueue();
+    if (!mounted || _isDisposed) return;
 
-    // UIを更新
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   /// キューされた入力を送信

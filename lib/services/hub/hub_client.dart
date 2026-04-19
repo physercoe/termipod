@@ -132,6 +132,12 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listAgents() =>
       _listJson('/v1/teams/${cfg.teamId}/agents');
 
+  /// Parent→child spawn edges. Each row has `parent_agent_id`,
+  /// `child_agent_id`, `handle`, `kind`, `status`, plus the original
+  /// spawn metadata. Used to render the agent org chart.
+  Future<List<Map<String, dynamic>>> listSpawns() =>
+      _listJson('/v1/teams/${cfg.teamId}/agents/spawns');
+
   Future<List<Map<String, dynamic>>> listProjects() =>
       _listJson('/v1/teams/${cfg.teamId}/projects');
 

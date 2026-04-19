@@ -26,6 +26,7 @@ class HubState {
   final List<Map<String, dynamic>> agents;
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> templates;
+  final List<Map<String, dynamic>> spawns;
 
   /// Server-declared version from /v1/_info. Null until we've probed.
   final String? serverVersion;
@@ -39,6 +40,7 @@ class HubState {
     this.agents = const [],
     this.projects = const [],
     this.templates = const [],
+    this.spawns = const [],
     this.serverVersion,
   });
 
@@ -53,6 +55,7 @@ class HubState {
     List<Map<String, dynamic>>? agents,
     List<Map<String, dynamic>>? projects,
     List<Map<String, dynamic>>? templates,
+    List<Map<String, dynamic>>? spawns,
     String? serverVersion,
     bool clearConfig = false,
     bool clearError = false,
@@ -66,6 +69,7 @@ class HubState {
         agents: agents ?? this.agents,
         projects: projects ?? this.projects,
         templates: templates ?? this.templates,
+        spawns: spawns ?? this.spawns,
         serverVersion: serverVersion ?? this.serverVersion,
       );
 }
@@ -147,6 +151,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
         client.listAgents(),
         client.listProjects(),
         client.listTemplates(),
+        client.listSpawns(),
       ]);
       state = AsyncData(prev.copyWith(
         loading: false,
@@ -155,6 +160,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
         agents: results[2],
         projects: results[3],
         templates: results[4],
+        spawns: results[5],
       ));
     } on HubApiError catch (e) {
       state = AsyncData(prev.copyWith(loading: false, error: e.toString()));

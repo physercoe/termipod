@@ -113,7 +113,10 @@ class _HubScreenState extends ConsumerState<HubScreen>
                     _FeedTab(projects: st.projects),
                     _TasksTab(projects: st.projects),
                     _TemplatesTab(items: st.templates),
-                    _AgentsTab(items: st.agents, hosts: st.hosts),
+                    _AgentsTab(
+                        items: st.agents,
+                        hosts: st.hosts,
+                        spawns: st.spawns),
                     _HostsTab(items: st.hosts),
                     _ProjectsTab(items: st.projects),
                   ],
@@ -687,6 +690,19 @@ class _TasksTabState extends ConsumerState<_TasksTab> {
                                 ),
                               );
                             }
+                            // Index lookups for parent title + subtask count
+                            // so the card can surface task hierarchy inline.
+                            final byId = {
+                              for (final t in _tasks)
+                                (t['id']?.toString() ?? ''): t,
+                            };
+                            final childCounts = <String, int>{};
+                            for (final t in _tasks) {
+                              final pid =
+                                  t['parent_task_id']?.toString() ?? '';
+                              if (pid.isEmpty) continue;
+                              childCounts[pid] = (childCounts[pid] ?? 0) + 1;
+                            }
                             return RefreshIndicator(
                               onRefresh: _load,
                               child: ListView.separated(
@@ -694,14 +710,27 @@ class _TasksTabState extends ConsumerState<_TasksTab> {
                                 itemCount: bucket.length,
                                 separatorBuilder: (_, __) =>
                                     const SizedBox(height: 8),
-                                itemBuilder: (_, j) => _SwipableTaskCard(
-                                  key: ValueKey(
-                                      'task-${bucket[j]['id']}-$status'),
-                                  task: bucket[j],
-                                  columnIndex: i,
-                                  onAdvance: (s) =>
-                                      _patchStatus(bucket[j], s),
-                                ),
+                                itemBuilder: (_, j) {
+                                  final task = bucket[j];
+                                  final pid =
+                                      task['parent_task_id']?.toString() ??
+                                          '';
+                                  final parentTitle = pid.isEmpty
+                                      ? null
+                                      : byId[pid]?['title']?.toString();
+                                  final childCount = childCounts[
+                                          task['id']?.toString() ?? ''] ??
+                                      0;
+                                  return _SwipableTaskCard(
+                                    key: ValueKey(
+                                        'task-${task['id']}-$status'),
+                                    task: task,
+                                    columnIndex: i,
+                                    onAdvance: (s) => _patchStatus(task, s),
+                                    parentTitle: parentTitle,
+                                    childCount: childCount,
+                                  );
+                                },
                               ),
                             );
                           },
@@ -814,11 +843,15 @@ class _SwipableTaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
   final int columnIndex;
   final void Function(String) onAdvance;
+  final String? parentTitle;
+  final int childCount;
   const _SwipableTaskCard({
     super.key,
     required this.task,
     required this.columnIndex,
     required this.onAdvance,
+    this.parentTitle,
+    this.childCount = 0,
   });
 
   @override
@@ -862,6 +895,8 @@ class _SwipableTaskCard extends StatelessWidget {
       child: _TaskCard(
         task: task,
         onAdvance: onAdvance,
+        parentTitle: parentTitle,
+        childCount: childCount,
       ),
     );
   }
@@ -900,7 +935,14 @@ class _SwipableTaskCard extends StatelessWidget {
 class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> task;
   final void Function(String) onAdvance;
-  const _TaskCard({required this.task, required this.onAdvance});
+  final String? parentTitle;
+  final int childCount;
+  const _TaskCard({
+    required this.task,
+    required this.onAdvance,
+    this.parentTitle,
+    this.childCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -925,6 +967,13 @@ class _TaskCard extends StatelessWidget {
           Row(
             children: [
               _Chip(text: status, color: _statusColor(status)),
+              if (childCount > 0) ...[
+                const SizedBox(width: 6),
+                _Chip(
+                  text: '$childCount subtask${childCount == 1 ? '' : 's'}',
+                  color: DesignColors.primary,
+                ),
+              ],
               const Spacer(),
               Text(_shortTs(updated),
                   style: GoogleFonts.jetBrainsMono(
@@ -934,6 +983,33 @@ class _TaskCard extends StatelessWidget {
                           : DesignColors.textMutedLight)),
             ],
           ),
+          if (parentTitle != null && parentTitle!.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  Icons.subdirectory_arrow_right,
+                  size: 14,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    parentTitle!,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 6),
           Text(title,
               style: GoogleFonts.spaceGrotesk(
@@ -1100,40 +1176,51 @@ class _TemplateViewer extends StatelessWidget {
 // Agents / Hosts / Projects tabs — read-only tables
 // ---------------------------------------------------------------------
 
-class _AgentsTab extends ConsumerWidget {
+class _AgentsTab extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> items;
   final List<Map<String, dynamic>> hosts;
-  const _AgentsTab({required this.items, required this.hosts});
+  final List<Map<String, dynamic>> spawns;
+  const _AgentsTab({
+    required this.items,
+    required this.hosts,
+    required this.spawns,
+  });
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AgentsTab> createState() => _AgentsTabState();
+}
+
+class _AgentsTabState extends ConsumerState<_AgentsTab> {
+  bool _treeView = false;
+
+  @override
+  Widget build(BuildContext context) {
     // Bootstrap: hub has hosts registered but no agents yet — prompt the
     // operator to spawn a Steward so there's someone to hand tasks to.
-    if (items.isEmpty && hosts.isNotEmpty) {
+    if (widget.items.isEmpty && widget.hosts.isNotEmpty) {
       return Stack(
         children: [
-          _SpawnStewardCard(hosts: hosts),
-          _SpawnAgentFab(hosts: hosts),
+          _SpawnStewardCard(hosts: widget.hosts),
+          _SpawnAgentFab(hosts: widget.hosts),
         ],
       );
     }
-    if (items.isEmpty) {
+    if (widget.items.isEmpty) {
       return Stack(
         children: [
           const _EmptyText(text: 'No agents registered'),
-          if (hosts.isNotEmpty) _SpawnAgentFab(hosts: hosts),
+          if (widget.hosts.isNotEmpty) _SpawnAgentFab(hosts: widget.hosts),
         ],
       );
     }
-    return Stack(
-      children: [
-        RefreshIndicator(
-          onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
-            itemCount: items.length,
+    final body = _treeView
+        ? _AgentOrgChart(agents: widget.items, spawns: widget.spawns)
+        : ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+            itemCount: widget.items.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (_, i) {
-              final a = items[i];
+              final a = widget.items[i];
               return _InfoTile(
                 title: a['handle']?.toString() ?? '?',
                 subtitle: '${a['kind'] ?? ''} · ${a['status'] ?? ''}',
@@ -1142,11 +1229,192 @@ class _AgentsTab extends ConsumerWidget {
                     : null,
               );
             },
-          ),
+          );
+
+    return Stack(
+      children: [
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment<bool>(
+                          value: false,
+                          label: Text('List'),
+                          icon: Icon(Icons.view_list, size: 18),
+                        ),
+                        ButtonSegment<bool>(
+                          value: true,
+                          label: Text('Tree'),
+                          icon: Icon(Icons.account_tree, size: 18),
+                        ),
+                      ],
+                      selected: {_treeView},
+                      onSelectionChanged: (sel) =>
+                          setState(() => _treeView = sel.first),
+                      showSelectedIcon: false,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
+                child: body,
+              ),
+            ),
+          ],
         ),
-        if (hosts.isNotEmpty) _SpawnAgentFab(hosts: hosts),
+        if (widget.hosts.isNotEmpty) _SpawnAgentFab(hosts: widget.hosts),
       ],
     );
+  }
+}
+
+/// Indented tree view of agent_spawns. Roots are agents with no spawn edge
+/// pointing to them (steward, hand-registered agents). Children are grouped
+/// by parent_agent_id. Depth is capped soft via the indent arithmetic —
+/// the renderer will keep going if someone spawns a pathological chain.
+class _AgentOrgChart extends StatelessWidget {
+  final List<Map<String, dynamic>> agents;
+  final List<Map<String, dynamic>> spawns;
+  const _AgentOrgChart({required this.agents, required this.spawns});
+
+  @override
+  Widget build(BuildContext context) {
+    final byId = {
+      for (final a in agents) (a['id']?.toString() ?? ''): a,
+    };
+    // Build parent → [children] using spawns. An agent with no inbound edge
+    // is a root.
+    final children = <String, List<String>>{};
+    final hasParent = <String>{};
+    for (final sp in spawns) {
+      final parent = sp['parent_agent_id']?.toString() ?? '';
+      final child = sp['child_agent_id']?.toString() ?? '';
+      if (child.isEmpty) continue;
+      if (parent.isEmpty) continue;
+      children.putIfAbsent(parent, () => []).add(child);
+      hasParent.add(child);
+    }
+    final roots = [
+      for (final a in agents)
+        if (!hasParent.contains(a['id']?.toString() ?? '')) a,
+    ];
+    if (roots.isEmpty) {
+      return const _EmptyText(
+          text: 'No spawn edges yet — agents will appear as they delegate');
+    }
+
+    final rows = <Widget>[];
+    final seen = <String>{};
+    void walk(String id, int depth) {
+      if (!seen.add(id)) return; // guard against cycles
+      final a = byId[id];
+      if (a == null) return;
+      rows.add(_OrgRow(agent: a, depth: depth));
+      for (final cid in children[id] ?? const []) {
+        walk(cid, depth + 1);
+      }
+    }
+
+    for (final r in roots) {
+      walk(r['id']?.toString() ?? '', 0);
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
+      itemCount: rows.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 6),
+      itemBuilder: (_, i) => rows[i],
+    );
+  }
+}
+
+class _OrgRow extends StatelessWidget {
+  final Map<String, dynamic> agent;
+  final int depth;
+  const _OrgRow({required this.agent, required this.depth});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final status = agent['status']?.toString() ?? '';
+    final paused =
+        (agent['pause_state']?.toString() ?? 'running') == 'paused';
+    return Padding(
+      padding: EdgeInsets.only(left: (depth * 20).toDouble()),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+          ),
+        ),
+        child: Row(
+          children: [
+            if (depth > 0)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(
+                  Icons.subdirectory_arrow_right,
+                  size: 16,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    agent['handle']?.toString() ?? '?',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    '${agent['kind'] ?? ''} · $status'
+                    '${paused ? ' · paused' : ''}',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _Chip(text: status, color: _agentStatusColor(status)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Color _agentStatusColor(String status) {
+  switch (status) {
+    case 'running':
+    case 'active':
+      return Colors.green;
+    case 'pending':
+    case 'idle':
+      return Colors.orange;
+    case 'failed':
+    case 'terminated':
+      return DesignColors.error;
+    default:
+      return DesignColors.primary;
   }
 }
 

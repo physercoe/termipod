@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import 'hub_bootstrap_screen.dart';
 
@@ -1457,6 +1458,8 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>>? _templates;
+  final _presetSvc = SpawnPresetService();
+  List<SpawnPreset> _presets = const [];
 
   @override
   void initState() {
@@ -1467,6 +1470,104 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     );
     _hostId = (online.isNotEmpty ? online.first : widget.hosts.first)['id']
         ?.toString();
+    _loadPresets();
+  }
+
+  Future<void> _loadPresets() async {
+    final items = await _presetSvc.load();
+    if (!mounted) return;
+    setState(() => _presets = items);
+  }
+
+  void _applyPreset(SpawnPreset p) {
+    setState(() {
+      _handleCtl.text = p.handle;
+      _kindCtl.text = p.kind;
+      _yamlCtl.text = p.yaml;
+    });
+  }
+
+  Future<void> _deletePreset(SpawnPreset p) async {
+    final items = await _presetSvc.delete(p.id);
+    if (!mounted) return;
+    setState(() => _presets = items);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Preset "${p.name}" deleted')));
+  }
+
+  Future<void> _confirmDeletePreset(SpawnPreset p) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete preset "${p.name}"?'),
+        content: const Text('This only removes it from this device.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _deletePreset(p);
+  }
+
+  Future<void> _saveAsPreset() async {
+    final handle = _handleCtl.text.trim();
+    final kind = _kindCtl.text.trim();
+    final yaml = _yamlCtl.text;
+    if (handle.isEmpty || kind.isEmpty || yaml.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill handle, kind, and YAML first')),
+      );
+      return;
+    }
+    final nameCtl = TextEditingController(text: handle);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save spawn preset'),
+        content: TextField(
+          controller: nameCtl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Preset name',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(nameCtl.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    final preset = SpawnPreset(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: name,
+      handle: handle,
+      kind: kind,
+      yaml: yaml,
+    );
+    final items = await _presetSvc.upsert(preset);
+    if (!mounted) return;
+    setState(() => _presets = items);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Saved preset "$name"')));
   }
 
   @override
@@ -1595,6 +1696,45 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                 controller: scroll,
                 padding: const EdgeInsets.all(16),
                 children: [
+                  if (_presets.isNotEmpty) ...[
+                    Row(
+                      children: [
+                        const Text('Presets',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        const Spacer(),
+                        Text('long-press to delete',
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 10,
+                              color: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.color
+                                  ?.withValues(alpha: 0.7),
+                            )),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    SizedBox(
+                      height: 36,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _presets.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 6),
+                        itemBuilder: (_, i) {
+                          final p = _presets[i];
+                          return GestureDetector(
+                            onLongPress: () => _confirmDeletePreset(p),
+                            child: ActionChip(
+                              avatar: const Icon(Icons.bolt, size: 16),
+                              label: Text(p.name),
+                              onPressed: () => _applyPreset(p),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextField(
                     controller: _handleCtl,
                     decoration: const InputDecoration(
@@ -1639,9 +1779,15 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                           style: TextStyle(fontWeight: FontWeight.w600)),
                       const Spacer(),
                       TextButton.icon(
+                        onPressed: _saveAsPreset,
+                        icon: const Icon(Icons.bookmark_add_outlined,
+                            size: 18),
+                        label: const Text('Save preset'),
+                      ),
+                      TextButton.icon(
                         onPressed: _loadTemplate,
                         icon: const Icon(Icons.file_open, size: 18),
-                        label: const Text('Load template'),
+                        label: const Text('Template'),
                       ),
                     ],
                   ),

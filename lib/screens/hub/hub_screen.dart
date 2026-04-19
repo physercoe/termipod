@@ -545,12 +545,23 @@ class _TasksTab extends ConsumerStatefulWidget {
   ConsumerState<_TasksTab> createState() => _TasksTabState();
 }
 
+// Kanban columns, left-to-right. Swiping end→start on a card advances it
+// one column to the right; start→end reverses it.
+const List<String> _kanbanStatuses = ['open', 'in_progress', 'done'];
+
 class _TasksTabState extends ConsumerState<_TasksTab> {
   String? _projectId;
-  String _statusFilter = 'all';
   List<Map<String, dynamic>> _tasks = const [];
   bool _loading = false;
   String? _error;
+  final PageController _pages = PageController();
+  int _currentColumn = 0;
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
 
   Future<void> _load() async {
     final client = ref.read(hubProvider.notifier).client;
@@ -561,10 +572,9 @@ class _TasksTabState extends ConsumerState<_TasksTab> {
       _error = null;
     });
     try {
-      final items = await client.listTasks(
-        pid,
-        status: _statusFilter == 'all' ? null : _statusFilter,
-      );
+      // Pull every status once and bucket locally — lets us show counts and
+      // move cards between columns without refetching on every swipe.
+      final items = await client.listTasks(pid);
       if (!mounted) return;
       setState(() {
         _tasks = items;
@@ -584,19 +594,27 @@ class _TasksTabState extends ConsumerState<_TasksTab> {
     final pid = _projectId;
     final tid = task['id']?.toString();
     if (client == null || pid == null || tid == null) return;
+    // Optimistic: flip the card locally so the board updates immediately.
+    final prev = task['status']?.toString() ?? 'open';
+    setState(() => task['status'] = status);
     try {
       await client.patchTask(pid, tid, status: status);
-      await _load();
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('Task → $status')));
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Update failed: $e')));
-      }
+      if (!mounted) return;
+      setState(() => task['status'] = prev);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Update failed: $e')));
     }
+  }
+
+  List<Map<String, dynamic>> _tasksIn(String status) {
+    return _tasks
+        .where((t) => (t['status']?.toString() ?? 'open') == status)
+        .toList();
   }
 
   @override
@@ -605,81 +623,276 @@ class _TasksTabState extends ConsumerState<_TasksTab> {
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: DropdownButtonFormField<String>(
-                  initialValue: _projectId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Project',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: widget.projects
-                      .map((p) => DropdownMenuItem<String>(
-                            value: p['id']?.toString(),
-                            child: Text(p['name']?.toString() ?? '?'),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() => _projectId = v);
-                    if (v != null) _load();
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _statusFilter,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Status',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('all')),
-                    DropdownMenuItem(value: 'open', child: Text('open')),
-                    DropdownMenuItem(
-                        value: 'in_progress', child: Text('in_progress')),
-                    DropdownMenuItem(value: 'done', child: Text('done')),
-                  ],
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _statusFilter = v);
-                    _load();
-                  },
-                ),
-              ),
-            ],
+          child: DropdownButtonFormField<String>(
+            initialValue: _projectId,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Project',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: widget.projects
+                .map((p) => DropdownMenuItem<String>(
+                      value: p['id']?.toString(),
+                      child: Text(p['name']?.toString() ?? '?'),
+                    ))
+                .toList(),
+            onChanged: (v) {
+              setState(() => _projectId = v);
+              if (v != null) _load();
+            },
           ),
+        ),
+        _KanbanHeader(
+          currentIndex: _currentColumn,
+          counts: {
+            for (final s in _kanbanStatuses) s: _tasksIn(s).length,
+          },
+          onTap: (i) {
+            setState(() => _currentColumn = i);
+            _pages.animateToPage(
+              i,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          },
         ),
         const Divider(height: 1),
         Expanded(
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-                  ? _EmptyText(text: _error!)
-                  : _tasks.isEmpty
-                      ? const _EmptyText(
-                          text: 'Pick a project to list its tasks')
-                      : RefreshIndicator(
-                          onRefresh: _load,
-                          child: ListView.separated(
-                            padding: const EdgeInsets.all(12),
-                            itemCount: _tasks.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (_, i) => _TaskCard(
-                              task: _tasks[i],
-                              onAdvance: (s) => _patchStatus(_tasks[i], s),
-                            ),
-                          ),
+          child: _projectId == null
+              ? const _EmptyText(text: 'Pick a project to list its tasks')
+              : _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                      ? _EmptyText(text: _error!)
+                      : PageView.builder(
+                          controller: _pages,
+                          itemCount: _kanbanStatuses.length,
+                          onPageChanged: (i) =>
+                              setState(() => _currentColumn = i),
+                          itemBuilder: (_, i) {
+                            final status = _kanbanStatuses[i];
+                            final bucket = _tasksIn(status);
+                            if (bucket.isEmpty) {
+                              return RefreshIndicator(
+                                onRefresh: _load,
+                                child: ListView(
+                                  children: [
+                                    SizedBox(
+                                      height: 240,
+                                      child: _EmptyText(
+                                          text: 'No $status tasks'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                            return RefreshIndicator(
+                              onRefresh: _load,
+                              child: ListView.separated(
+                                padding: const EdgeInsets.all(12),
+                                itemCount: bucket.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (_, j) => _SwipableTaskCard(
+                                  key: ValueKey(
+                                      'task-${bucket[j]['id']}-$status'),
+                                  task: bucket[j],
+                                  columnIndex: i,
+                                  onAdvance: (s) =>
+                                      _patchStatus(bucket[j], s),
+                                ),
+                              ),
+                            );
+                          },
                         ),
         ),
       ],
+    );
+  }
+}
+
+class _KanbanHeader extends StatelessWidget {
+  final int currentIndex;
+  final Map<String, int> counts;
+  final ValueChanged<int> onTap;
+  const _KanbanHeader({
+    required this.currentIndex,
+    required this.counts,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          for (var i = 0; i < _kanbanStatuses.length; i++)
+            Expanded(
+              child: _KanbanPill(
+                status: _kanbanStatuses[i],
+                count: counts[_kanbanStatuses[i]] ?? 0,
+                selected: i == currentIndex,
+                onTap: () => onTap(i),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _KanbanPill extends StatelessWidget {
+  final String status;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+  const _KanbanPill({
+    required this.status,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = _statusPillColor(status);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected
+              ? color.withValues(alpha: 0.18)
+              : (isDark
+                  ? DesignColors.surfaceDark
+                  : DesignColors.surfaceLight),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected
+                ? color
+                : (isDark
+                    ? DesignColors.borderDark
+                    : DesignColors.borderLight),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(status,
+                style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: selected ? color : null)),
+            Text('$count',
+                style: GoogleFonts.jetBrainsMono(
+                    fontSize: 14, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Color _statusPillColor(String status) {
+  switch (status) {
+    case 'done':
+      return Colors.green;
+    case 'in_progress':
+      return Colors.orange;
+    case 'open':
+    default:
+      return DesignColors.primary;
+  }
+}
+
+class _SwipableTaskCard extends StatelessWidget {
+  final Map<String, dynamic> task;
+  final int columnIndex;
+  final void Function(String) onAdvance;
+  const _SwipableTaskCard({
+    super.key,
+    required this.task,
+    required this.columnIndex,
+    required this.onAdvance,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasNext = columnIndex < _kanbanStatuses.length - 1;
+    final hasPrev = columnIndex > 0;
+    return Dismissible(
+      key: ValueKey('dismiss-${task['id']}-$columnIndex'),
+      direction: hasNext && hasPrev
+          ? DismissDirection.horizontal
+          : hasNext
+              ? DismissDirection.endToStart
+              : DismissDirection.startToEnd,
+      background: _swipeBackground(
+        alignment: Alignment.centerLeft,
+        color: DesignColors.primary,
+        icon: Icons.arrow_back,
+        label: hasPrev
+            ? 'Move to ${_kanbanStatuses[columnIndex - 1]}'
+            : '',
+      ),
+      secondaryBackground: _swipeBackground(
+        alignment: Alignment.centerRight,
+        color: _statusPillColor(
+            hasNext ? _kanbanStatuses[columnIndex + 1] : 'done'),
+        icon: Icons.arrow_forward,
+        label: hasNext
+            ? 'Move to ${_kanbanStatuses[columnIndex + 1]}'
+            : '',
+      ),
+      confirmDismiss: (dir) async {
+        if (dir == DismissDirection.endToStart && hasNext) {
+          onAdvance(_kanbanStatuses[columnIndex + 1]);
+        } else if (dir == DismissDirection.startToEnd && hasPrev) {
+          onAdvance(_kanbanStatuses[columnIndex - 1]);
+        }
+        // Return false so Dismissible snaps back and we can manage the list
+        // ourselves via the optimistic status flip.
+        return false;
+      },
+      child: _TaskCard(
+        task: task,
+        onAdvance: onAdvance,
+      ),
+    );
+  }
+
+  Widget _swipeBackground({
+    required Alignment alignment,
+    required Color color,
+    required IconData icon,
+    required String label,
+  }) {
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (alignment == Alignment.centerLeft) Icon(icon, color: color),
+          if (label.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(label,
+                  style: GoogleFonts.spaceGrotesk(
+                      color: color, fontWeight: FontWeight.w600)),
+            ),
+          if (alignment == Alignment.centerRight) Icon(icon, color: color),
+        ],
+      ),
     );
   }
 }

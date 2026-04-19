@@ -1,0 +1,30 @@
+# Built-in steward template. Copied to team/templates/agents/ on first init.
+# User edits win — subsequent init calls never overwrite.
+template: agents.steward
+version: 1
+extends: null
+
+backend:
+  kind: claude-code
+  model: opus-4-7
+  default_workdir: ~/hub-work
+
+default_role: team.coordinator
+display_label: "Steward"
+
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.v1.md
+
+default_channels:
+  hub-meta: full

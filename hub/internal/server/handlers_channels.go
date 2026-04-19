@@ -1,0 +1,84 @@
+package server
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+type channelIn struct {
+	Name string `json:"name"`
+}
+
+type channelOut struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id,omitempty"`
+	ScopeKind string `json:"scope_kind"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
+	proj := chi.URLParam(r, "project")
+	var in channelIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name required")
+		return
+	}
+	id := NewID()
+	now := NowUTC()
+	_, err := s.db.ExecContext(r.Context(), `
+		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
+		VALUES (?, ?, 'project', ?, ?)`, id, proj, in.Name, now)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, channelOut{
+		ID: id, ProjectID: proj, ScopeKind: "project", Name: in.Name, CreatedAt: now,
+	})
+}
+
+func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
+	proj := chi.URLParam(r, "project")
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
+		FROM channels WHERE project_id = ? ORDER BY created_at`, proj)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []channelOut{}
+	for rows.Next() {
+		var c channelOut
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out = append(out, c)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
+	proj := chi.URLParam(r, "project")
+	ch := chi.URLParam(r, "channel")
+	var c channelOut
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
+		FROM channels WHERE project_id = ? AND id = ?`, proj, ch).Scan(
+		&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}

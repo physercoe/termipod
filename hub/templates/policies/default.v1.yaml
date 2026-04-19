@@ -1,0 +1,6 @@
+# Default approval tiers. Steward can auto-act up to "significant";
+# "critical" always escalates to principal.
+tiers:
+  trivial:      { auto_approve: true  }
+  significant:  { auto_approve: true  }
+  critical:     { auto_approve: false }

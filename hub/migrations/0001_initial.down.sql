@@ -1,0 +1,19 @@
+DROP TRIGGER IF EXISTS events_fts_update;
+DROP TRIGGER IF EXISTS events_fts_delete;
+DROP TRIGGER IF EXISTS events_fts_insert;
+DROP TABLE IF EXISTS events_fts;
+
+DROP TABLE IF EXISTS blobs;
+DROP TABLE IF EXISTS agent_schedules;
+DROP TABLE IF EXISTS agent_spawns;
+DROP TABLE IF EXISTS attention_items;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS milestones;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS channel_members;
+DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS hosts;
+DROP TABLE IF EXISTS auth_tokens;
+DROP TABLE IF EXISTS teams;

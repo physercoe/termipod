@@ -245,6 +245,24 @@ func mcpToolDefs() []map[string]any {
 				"properties": map[string]any{"scope": map[string]any{"type": "string"}},
 			},
 		},
+		{
+			"name": "post_excerpt",
+			"description": "Post an excerpt from this agent's own pane as an event. " +
+				"The agent supplies the captured text; the hub records the " +
+				"line range and a one-line summary so the dashboard can render " +
+				"a compact card with a link back to the source pane.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"channel_id": map[string]any{"type": "string"},
+					"line_from":  map[string]any{"type": "integer"},
+					"line_to":    map[string]any{"type": "integer"},
+					"content":    map[string]any{"type": "string"},
+					"summary":    map[string]any{"type": "string"},
+				},
+				"required": []string{"channel_id", "content"},
+			},
+		},
 	}
 }
 
@@ -277,6 +295,8 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 		return s.mcpGetProjectDoc(ctx, scope.Team, call.Arguments)
 	case "get_attention":
 		return s.mcpGetAttention(ctx, call.Arguments)
+	case "post_excerpt":
+		return s.mcpPostExcerpt(ctx, agentID, call.Arguments)
 	default:
 		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}
@@ -536,6 +556,87 @@ func (s *Server) mcpGetAttention(ctx context.Context, raw json.RawMessage) (any,
 		})
 	}
 	return mcpResultJSON(out), nil
+}
+
+type postExcerptArgs struct {
+	ChannelID string `json:"channel_id"`
+	LineFrom  int    `json:"line_from"`
+	LineTo    int    `json:"line_to"`
+	Content   string `json:"content"`
+	Summary   string `json:"summary"`
+}
+
+// mcpPostExcerpt records a slice of the calling agent's own pane as an
+// event with kind='excerpt'. The agent supplies the captured text — hub
+// does not shell out to tmux itself (that would require a host round-trip
+// we deliberately avoid in the MCP path). The pane_ref is populated from
+// the agent's registered pane_id / host_id so the dashboard's "↗ open pane"
+// affordance can resolve the source.
+//
+// Design choice: content is stored inline (parts_json.excerpt.content)
+// rather than uploaded as a blob. Excerpts are expected to be ≤ a few
+// hundred lines — the channel feed shouldn't fan out a blob lookup for
+// every read.
+func (s *Server) mcpPostExcerpt(ctx context.Context, agentID string, raw json.RawMessage) (any, *jrpcError) {
+	var a postExcerptArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.ChannelID == "" || a.Content == "" {
+		return nil, &jrpcError{Code: -32602, Message: "channel_id and content required"}
+	}
+
+	// Look up the agent's pane binding so the dashboard can jump back to
+	// the source. An agent that has no pane (e.g. a service bot) still gets
+	// a useful record — we leave pane_id/host_id empty and surface only the
+	// excerpt content.
+	var paneID, hostID sql.NullString
+	_ = s.db.QueryRowContext(ctx,
+		`SELECT pane_id, host_id FROM agents WHERE id = ?`, agentID,
+	).Scan(&paneID, &hostID)
+
+	now := time.Now().UTC()
+	paneRef := events.PaneRef{
+		HostID:   hostID.String,
+		PaneID:   paneID.String,
+		TsAnchor: now,
+	}
+	excerpt := events.PaneExcerpt{
+		PaneRef:  paneRef,
+		LineFrom: a.LineFrom,
+		LineTo:   a.LineTo,
+		Content:  a.Content,
+	}
+	parts := []events.Part{
+		{Kind: "excerpt", Excerpt: &excerpt},
+	}
+	if strings.TrimSpace(a.Summary) != "" {
+		parts = append([]events.Part{{Kind: "text", Text: a.Summary}}, parts...)
+	}
+	partsJSON, _ := json.Marshal(parts)
+	paneRefJSON, _ := json.Marshal(paneRef)
+
+	id := NewID()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO events (
+			id, schema_version, ts, received_ts, channel_id, type,
+			from_id, to_ids_json, parts_json, pane_ref_json, metadata_json
+		) VALUES (?, 1, ?, ?, ?, 'message',
+		          NULLIF(?, ''), '[]', ?, ?, '{}')`,
+		id, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
+		a.ChannelID, agentID, string(partsJSON), string(paneRefJSON))
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	evt := map[string]any{
+		"id": id, "channel_id": a.ChannelID, "type": "message",
+		"from_id":     agentID,
+		"parts":       parts,
+		"pane_ref":    paneRef,
+		"received_ts": now.Format(time.RFC3339Nano),
+	}
+	s.bus.Publish(a.ChannelID, evt)
+	return mcpResultJSON(map[string]any{
+		"id":          id,
+		"received_ts": evt["received_ts"],
+	}), nil
 }
 
 // --- helpers used across MCP + HTTP ---

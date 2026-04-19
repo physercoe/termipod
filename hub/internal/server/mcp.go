@@ -156,6 +156,11 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 // --- Tool catalog ---
 
 func mcpToolDefs() []map[string]any {
+	base := mcpToolDefsBase()
+	return append(base, mcpToolDefsExtra()...)
+}
+
+func mcpToolDefsBase() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "post_message",
@@ -297,6 +302,30 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 		return s.mcpGetAttention(ctx, call.Arguments)
 	case "post_excerpt":
 		return s.mcpPostExcerpt(ctx, agentID, call.Arguments)
+	case "delegate":
+		return s.mcpDelegate(ctx, agentID, call.Arguments)
+	case "request_approval":
+		return s.mcpRequestApproval(ctx, agentID, call.Arguments)
+	case "request_decision":
+		return s.mcpRequestDecision(ctx, agentID, call.Arguments)
+	case "attach":
+		return s.mcpAttach(ctx, call.Arguments)
+	case "get_event":
+		return s.mcpGetEvent(ctx, call.Arguments)
+	case "get_task":
+		return s.mcpGetTask(ctx, call.Arguments)
+	case "get_parent_thread":
+		return s.mcpGetParentThread(ctx, agentID, call.Arguments)
+	case "list_agents":
+		return s.mcpListAgents(ctx, scope.Team, call.Arguments)
+	case "update_own_task_status":
+		return s.mcpUpdateOwnTaskStatus(ctx, agentID, call.Arguments)
+	case "templates_propose", "templates.propose":
+		return s.mcpTemplatesPropose(ctx, agentID, call.Arguments)
+	case "pause_self":
+		return s.mcpPauseSelf(ctx, agentID, call.Arguments)
+	case "shutdown_self":
+		return s.mcpShutdownSelf(ctx, agentID, call.Arguments)
 	default:
 		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}

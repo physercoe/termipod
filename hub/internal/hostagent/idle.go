@@ -1,10 +1,8 @@
 package hostagent
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -25,7 +23,7 @@ type IdleDetector struct {
 }
 
 var defaultIdleRegex = regexp.MustCompile(
-	`(?m)(\[yYnN/]+\]\s*$|^[?>$#%]\s*$|password:\s*$|Password:\s*$|\(y/n\)\s*$|Continue\??\s*$)`,
+	`(?m)(\[[yYnN/]+\]\s*$|^[?>$#%]\s*$|(?i:password:\s*$)|\(y/n\)\s*$|Continue\??\s*$)`,
 )
 
 func NewIdleDetector(threshold time.Duration) *IdleDetector {
@@ -79,21 +77,6 @@ func tailLines(s string, n int) string {
 		return s
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
-}
-
-// raiseIdleAttention POSTs an attention_items row describing the stuck pane.
-// The hub exposes it to approvers like any other attention item.
-func (c *Client) raiseIdleAttention(ctx context.Context, agentID, paneID, tail string) error {
-	body := map[string]any{
-		"scope_kind": "team",
-		"kind":       "idle",
-		"summary":    "agent idle at prompt: " + firstLine(tail),
-		"severity":   "minor",
-		"assignees":  []string{},
-	}
-	b, _ := json.Marshal(body)
-	_ = b
-	return c.do(ctx, "POST", "/v1/teams/"+c.Team+"/attention", body, nil)
 }
 
 func firstLine(s string) string {

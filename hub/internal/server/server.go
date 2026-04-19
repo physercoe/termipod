@@ -7,6 +7,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -66,6 +69,25 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.log.Warn("scheduler start failed", "err", err)
 	}
 	defer s.sched.Stop()
+
+	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
+	// signal the daemon without restarting and losing in-flight connections.
+	hupCh := make(chan os.Signal, 1)
+	signal.Notify(hupCh, syscall.SIGHUP)
+	defer signal.Stop(hupCh)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hupCh:
+				if s.policy != nil {
+					s.policy.reload()
+					s.log.Info("policy reloaded")
+				}
+			}
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {

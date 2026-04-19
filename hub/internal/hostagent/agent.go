@@ -23,6 +23,10 @@ type Agent struct {
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
+	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
+
+	idle  *IdleDetector
+	panes map[string]paneState // keyed by agent id
 }
 
 func (a *Agent) defaults() {
@@ -37,6 +41,12 @@ func (a *Agent) defaults() {
 	}
 	if a.Launcher == nil {
 		a.Launcher = StubLauncher{Log: a.Log}
+	}
+	if a.idle == nil {
+		a.idle = NewIdleDetector(a.IdleThreshold)
+	}
+	if a.panes == nil {
+		a.panes = map[string]paneState{}
 	}
 }
 
@@ -73,6 +83,51 @@ func (a *Agent) Start(ctx context.Context) error {
 		case <-poll.C:
 			a.tickPoll(ctx)
 			a.tickCommands(ctx)
+			a.tickIdle(ctx)
+		}
+	}
+}
+
+// tickIdle captures each running pane, runs the idle detector, and raises
+// an attention item per stuck pane (deduped by hash inside Inspect).
+// Errors on a single pane are logged and skipped — one bad pane shouldn't
+// prevent us from watching the others.
+func (a *Agent) tickIdle(ctx context.Context) {
+	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	seen := map[string]struct{}{}
+	for _, ag := range agents {
+		seen[ag.ID] = struct{}{}
+		if ag.PaneID == "" || ag.PauseState == "paused" {
+			continue
+		}
+		text, err := runTmux(ctx, "capture-pane", "-p", "-J", "-t", ag.PaneID)
+		if err != nil {
+			a.Log.Debug("capture for idle failed", "agent", ag.ID, "err", err)
+			continue
+		}
+		prev := a.panes[ag.ID]
+		next, raise := a.idle.Inspect(text, prev, now)
+		a.panes[ag.ID] = next
+		if raise {
+			tail := tailLines(text, 5)
+			_ = a.Client.PostAttention(ctx, AttentionIn{
+				ScopeKind: "team",
+				Kind:      "idle",
+				Summary:   "agent idle at prompt: " + firstLine(tail),
+				Severity:  "minor",
+			})
+			a.Log.Info("idle attention raised", "agent", ag.ID, "handle", ag.Handle)
+		}
+	}
+	// Drop state for panes that no longer report running — on respawn the hash
+	// would spuriously match the stale entry and suppress a legit idle alert.
+	for id := range a.panes {
+		if _, ok := seen[id]; !ok {
+			delete(a.panes, id)
 		}
 	}
 }

@@ -81,14 +81,25 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
-	rows, err := s.db.QueryContext(r.Context(), `
+	q := `
 		SELECT id, team_id, handle, kind, backend_json, capabilities_json,
 		       COALESCE(parent_agent_id, ''), COALESCE(host_id, ''),
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
 		       created_at, terminated_at
-		FROM agents WHERE team_id = ? ORDER BY created_at`, team)
+		FROM agents WHERE team_id = ?`
+	args := []any{team}
+	if host := r.URL.Query().Get("host_id"); host != "" {
+		q += " AND host_id = ?"
+		args = append(args, host)
+	}
+	if st := r.URL.Query().Get("status"); st != "" {
+		q += " AND status = ?"
+		args = append(args, st)
+	}
+	q += " ORDER BY created_at"
+	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

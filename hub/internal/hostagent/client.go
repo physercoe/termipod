@@ -73,6 +73,38 @@ func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn,
 	return out, err
 }
 
+type Agent2 struct {
+	ID         string `json:"id"`
+	Handle     string `json:"handle"`
+	Status     string `json:"status"`
+	HostID     string `json:"host_id"`
+	PaneID     string `json:"pane_id"`
+	PauseState string `json:"pause_state"`
+}
+
+// ListRunningAgents returns the agents currently host-launched on this host.
+// Used by the idle detector to know which panes to watch.
+func (c *Client) ListRunningAgents(ctx context.Context, hostID string) ([]Agent2, error) {
+	path := fmt.Sprintf("/v1/teams/%s/agents?host_id=%s&status=running", c.Team, hostID)
+	var out []Agent2
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
+type AttentionIn struct {
+	ScopeKind string   `json:"scope_kind"`
+	ScopeID   string   `json:"scope_id,omitempty"`
+	Kind      string   `json:"kind"`
+	Summary   string   `json:"summary"`
+	Severity  string   `json:"severity,omitempty"`
+	Assignees []string `json:"assignees,omitempty"`
+}
+
+func (c *Client) PostAttention(ctx context.Context, in AttentionIn) error {
+	return c.do(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/teams/%s/attention", c.Team), in, nil)
+}
+
 type AgentPatch struct {
 	Status     *string `json:"status,omitempty"`
 	PauseState *string `json:"pause_state,omitempty"`

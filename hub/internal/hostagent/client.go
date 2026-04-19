@@ -144,8 +144,8 @@ func (c *Client) PatchCommand(ctx context.Context, cmdID string, patch CommandPa
 }
 
 // EventIn is the minimum payload shape required by handlePostEvent.
-// Parts is a slice of {type,text} objects; marker forwarding only ever emits
-// a single text part so callers normally construct this inline.
+// Parts is a slice of {type,text|file} objects; marker forwarding typically
+// emits a single text part, or a file part for attach markers.
 type EventIn struct {
 	Type   string        `json:"type"`
 	FromID string        `json:"from_id,omitempty"`
@@ -153,8 +153,57 @@ type EventIn struct {
 }
 
 type EventInPart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	// Kind is the part discriminator ("text" | "file" | "image"). The hub's
+	// events.Part reads this as the top-level kind field; matching the JSON
+	// tag keeps marker forwarding round-trippable without translation.
+	Kind string       `json:"kind"`
+	Text string       `json:"text,omitempty"`
+	File *BlobRefWire `json:"file,omitempty"`
+}
+
+// BlobRefWire mirrors events.BlobRef for the subset host-agent needs. Kept
+// separate from the server's struct to avoid importing the server package.
+type BlobRefWire struct {
+	URI  string `json:"uri"`
+	Mime string `json:"mime,omitempty"`
+	Size int64  `json:"size,omitempty"`
+}
+
+// BlobUploadOut is the response from POST /v1/blobs.
+type BlobUploadOut struct {
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Mime   string `json:"mime"`
+}
+
+// UploadBlob POSTs raw bytes to /v1/blobs and returns the content-addressed
+// identifier. Duplicate bytes dedup server-side, so re-uploading the same
+// file is cheap.
+func (c *Client) UploadBlob(ctx context.Context, body []byte, mime string) (BlobUploadOut, error) {
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.BaseURL+"/v1/blobs", bytes.NewReader(body))
+	if err != nil {
+		return BlobUploadOut{}, err
+	}
+	req.Header.Set("Content-Type", mime)
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return BlobUploadOut{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return BlobUploadOut{}, fmt.Errorf("upload blob: %d %s", resp.StatusCode, string(b))
+	}
+	var out BlobUploadOut
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return BlobUploadOut{}, err
+	}
+	return out, nil
 }
 
 // PostEvent forwards a marker-derived event to the project/channel feed.

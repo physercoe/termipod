@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -111,8 +113,86 @@ func TestTailer_ForwardsPostMessage(t *testing.T) {
 		t.Fatalf("parts len = %d, want 1", len(parts))
 	}
 	first, _ := parts[0].(map[string]any)
+	if first["kind"] != "text" {
+		t.Errorf("part kind = %v, want text", first["kind"])
+	}
 	if first["text"] != "hello from pane" {
 		t.Errorf("text = %v, want hello from pane", first["text"])
+	}
+}
+
+// TestTailer_AttachMarker verifies the full attach path: read → upload blob
+// → emit attach event carrying a BlobRef. Uses a fake hub that records both
+// the blob POST and the event POST in order.
+func TestTailer_AttachMarker(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		blobHit  bool
+		eventHit bool
+		gotBody  map[string]any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/v1/blobs"):
+			blobHit = true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"sha256":"deadbeef","size":5,"mime":"text/plain"}`))
+		case strings.Contains(r.URL.Path, "/events"):
+			eventHit = true
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, &gotBody)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	// Write a small file the marker will reference.
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "note.txt")
+	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tl := &Tailer{
+		AgentID:   "agt_a",
+		ProjectID: "proj_x",
+		ChannelID: "chn_bound",
+		Client:    NewClient(srv.URL, "tok", "team_t"),
+	}
+	marker := []byte(`{"path":"` + filePath + `","mime":"text/plain","note":"see attached"}`)
+	tl.handleMarker("attach", marker)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !blobHit {
+		t.Error("blob upload was never called")
+	}
+	if !eventHit {
+		t.Fatal("event post was never called")
+	}
+	if gotBody["type"] != "attach" {
+		t.Errorf("event type = %v, want attach", gotBody["type"])
+	}
+	parts, _ := gotBody["parts"].([]any)
+	if len(parts) != 2 {
+		t.Fatalf("parts len = %d, want 2 (file + note text)", len(parts))
+	}
+	file, _ := parts[0].(map[string]any)
+	if file["kind"] != "file" {
+		t.Errorf("part[0].kind = %v, want file", file["kind"])
+	}
+	ref, _ := file["file"].(map[string]any)
+	if ref["uri"] != "hub-blob://deadbeef" {
+		t.Errorf("uri = %v, want hub-blob://deadbeef", ref["uri"])
+	}
+	note, _ := parts[1].(map[string]any)
+	if note["text"] != "see attached" {
+		t.Errorf("note text = %v, want see attached", note["text"])
 	}
 }
 

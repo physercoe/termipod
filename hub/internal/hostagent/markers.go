@@ -153,7 +153,7 @@ func (t *Tailer) handleMarker(kind string, body []byte) {
 		if err := t.Client.PostEvent(context.Background(), t.ProjectID, ch, EventIn{
 			Type:   "message",
 			FromID: t.AgentID,
-			Parts:  []EventInPart{{Type: "text", Text: p.Text}},
+			Parts:  []EventInPart{{Kind: "text", Text: p.Text}},
 		}); err != nil {
 			t.Log.Warn("forward post_message failed", "err", err)
 		}
@@ -166,8 +166,64 @@ func (t *Tailer) handleMarker(kind string, body []byte) {
 		}); err != nil {
 			t.Log.Debug("forward ping failed", "err", err)
 		}
+	case "attach":
+		t.handleAttach(body)
 	default:
 		t.Log.Debug("unhandled marker kind", "kind", kind)
+	}
+}
+
+// handleAttach reads a file from the host's filesystem, uploads it to the
+// hub as a content-addressed blob, and emits an `attach` event whose single
+// part carries a BlobRef. Large files are rejected upstream (25 MiB cap in
+// handleUploadBlob); we surface the error as a log line so the tap script
+// author can see it without the marker stream going silent.
+//
+// The file path MUST be absolute (or relative to the tmux pane's cwd, which
+// is not deterministic from here) — resolution happens in the pane's shell
+// where the marker was emitted; we just read what the tap scripts tells us.
+func (t *Tailer) handleAttach(body []byte) {
+	var p struct {
+		Path      string `json:"path"`
+		Mime      string `json:"mime"`
+		ChannelID string `json:"channel_id"`
+		Note      string `json:"note"` // optional text part alongside the file
+	}
+	if err := json.Unmarshal(body, &p); err != nil || p.Path == "" {
+		t.Log.Debug("attach marker: bad json", "err", err)
+		return
+	}
+	data, err := os.ReadFile(p.Path)
+	if err != nil {
+		t.Log.Warn("attach: read failed", "path", p.Path, "err", err)
+		return
+	}
+	out, err := t.Client.UploadBlob(context.Background(), data, p.Mime)
+	if err != nil {
+		t.Log.Warn("attach: upload failed", "path", p.Path, "err", err)
+		return
+	}
+	ch := p.ChannelID
+	if ch == "" {
+		ch = t.ChannelID
+	}
+	parts := []EventInPart{{
+		Kind: "file",
+		File: &BlobRefWire{
+			URI:  "hub-blob://" + out.SHA256,
+			Mime: out.Mime,
+			Size: out.Size,
+		},
+	}}
+	if p.Note != "" {
+		parts = append(parts, EventInPart{Kind: "text", Text: p.Note})
+	}
+	if err := t.Client.PostEvent(context.Background(), t.ProjectID, ch, EventIn{
+		Type:   "attach",
+		FromID: t.AgentID,
+		Parts:  parts,
+	}); err != nil {
+		t.Log.Warn("attach: post event failed", "err", err)
 	}
 }
 

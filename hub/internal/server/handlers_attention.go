@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -118,6 +119,107 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 			a.ResolvedAt = &resolvedAt.String
 		}
 		out = append(out, a)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type attentionDecideIn struct {
+	Decision string `json:"decision"` // 'approve' | 'reject'
+	By       string `json:"by,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+type attentionDecideOut struct {
+	AttentionID string          `json:"attention_id"`
+	Decision    string          `json:"decision"`
+	Resolved    bool            `json:"resolved"`
+	Executed    json.RawMessage `json:"executed,omitempty"` // populated when an approve triggers an action
+}
+
+// handleDecideAttention records an approve/reject on an attention_item.
+// Quorum-1 is hardcoded for now — first approve wins. When the gated action
+// has a pending_payload, this handler executes it (currently: spawn) so the
+// caller can observe the downstream effect in a single call.
+func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "id")
+	var in attentionDecideIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.Decision != "approve" && in.Decision != "reject" {
+		writeErr(w, http.StatusBadRequest, "decision must be approve|reject")
+		return
+	}
+
+	var kind, tier, payload, decisions, status, scopeID string
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT kind, COALESCE(tier, ''), COALESCE(pending_payload_json, ''),
+		       decisions_json, status, COALESCE(scope_id, '')
+		FROM attention_items WHERE id = ?`, id).
+		Scan(&kind, &tier, &payload, &decisions, &status, &scopeID)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "attention not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if status != "open" {
+		writeErr(w, http.StatusConflict, "attention already resolved")
+		return
+	}
+
+	// Append the decision to decisions_json.
+	var list []map[string]any
+	_ = json.Unmarshal([]byte(decisions), &list)
+	now := NowUTC()
+	list = append(list, map[string]any{
+		"at":       now,
+		"by":       in.By,
+		"decision": in.Decision,
+		"reason":   in.Reason,
+	})
+	newDecisions, _ := json.Marshal(list)
+
+	// Single-approver quorum: first approve resolves, a reject always resolves.
+	// resolved_by has a FK to agents(id); in.By is a handle used only for the
+	// decision trail, so it lands in decisions_json, not the FK column.
+	_, err = s.db.ExecContext(r.Context(), `
+		UPDATE attention_items SET
+			decisions_json = ?,
+			status = 'resolved',
+			resolved_at = ?
+		WHERE id = ?`, string(newDecisions), now, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	out := attentionDecideOut{AttentionID: id, Decision: in.Decision, Resolved: true}
+	if in.Decision == "approve" && kind == "approval_request" && payload != "" {
+		// Dispatch the gated action. Today we only understand spawn payloads.
+		var sp spawnIn
+		if err := json.Unmarshal([]byte(payload), &sp); err == nil && sp.ChildHandle != "" {
+			result, _, err := s.DoSpawn(r.Context(), team, sp)
+			if err == nil {
+				b, _ := json.Marshal(map[string]any{
+					"kind":      "spawn",
+					"spawn_id":  result.SpawnID,
+					"agent_id":  result.AgentID,
+					"spawned_at": result.SpawnedAt,
+				})
+				out.Executed = b
+			} else {
+				b, _ := json.Marshal(map[string]any{
+					"kind":  "spawn",
+					"error": err.Error(),
+				})
+				out.Executed = b
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

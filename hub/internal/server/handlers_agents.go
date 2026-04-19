@@ -194,13 +194,18 @@ type spawnIn struct {
 }
 
 type spawnOut struct {
-	SpawnID    string `json:"spawn_id"`
-	AgentID    string `json:"agent_id"`
-	SpawnedAt  string `json:"spawned_at"`
+	SpawnID     string `json:"spawn_id,omitempty"`
+	AgentID     string `json:"agent_id,omitempty"`
+	SpawnedAt   string `json:"spawned_at,omitempty"`
+	Status      string `json:"status,omitempty"`          // "spawned" | "pending_approval"
+	AttentionID string `json:"attention_id,omitempty"`    // set when gated on approval
+	Tier        string `json:"tier,omitempty"`
 }
 
-// handleSpawn creates a pending agent + an agent_spawns audit row.
-// The host-agent picks up pending agents for its host and launches the backend.
+// handleSpawn creates a pending agent + an agent_spawns audit row, unless
+// policy gates the action behind an approval_request attention. In the
+// gated case we return 202 + attention_id and the actual spawn happens on
+// approve.
 func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	var in spawnIn
@@ -208,12 +213,62 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if s.policy != nil {
+		tier := s.policy.Decide("spawn")
+		if tier != "" && tier != TierAuto {
+			approvers := s.policy.ApproversFor(tier)
+			if len(approvers) > 0 {
+				attID, err := s.createSpawnApproval(r.Context(), team, tier, approvers, in)
+				if err != nil {
+					writeErr(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				writeJSON(w, http.StatusAccepted, spawnOut{
+					Status:      "pending_approval",
+					AttentionID: attID,
+					Tier:        tier,
+				})
+				return
+			}
+		}
+	}
 	out, status, err := s.DoSpawn(r.Context(), team, in)
 	if err != nil {
 		writeErr(w, status, err.Error())
 		return
 	}
+	out.Status = "spawned"
 	writeJSON(w, status, out)
+}
+
+// createSpawnApproval inserts an attention_items row tagged with tier and a
+// pending_payload_json holding the spawnIn, ready for the approval-decide
+// handler to dispatch once quorum is reached.
+func (s *Server) createSpawnApproval(ctx context.Context, team, tier string, approvers []string, in spawnIn) (string, error) {
+	id := NewID()
+	payload, err := json.Marshal(in)
+	if err != nil {
+		return "", err
+	}
+	assignees, _ := json.Marshal(approvers)
+	severity := "major"
+	if tier == TierCritical {
+		severity = "critical"
+	}
+	summary := "spawn " + in.ChildHandle + " (" + in.Kind + ")"
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind,
+			summary, severity, tier,
+			current_assignees_json, pending_payload_json,
+			status, created_at
+		) VALUES (?, NULL, 'team', ?, 'approval_request',
+		          ?, ?, ?,
+		          ?, ?,
+		          'open', ?)`,
+		id, team, summary, severity, tier,
+		string(assignees), string(payload), NowUTC())
+	return id, err
 }
 
 // DoSpawn is the reusable core called by both the HTTP handler and the

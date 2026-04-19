@@ -60,6 +60,7 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	// Kick off an immediate poll so bootstrap isn't delayed by the first tick.
 	a.tickPoll(ctx)
+	a.tickCommands(ctx)
 
 	for {
 		select {
@@ -71,7 +72,19 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 		case <-poll.C:
 			a.tickPoll(ctx)
+			a.tickCommands(ctx)
 		}
+	}
+}
+
+func (a *Agent) tickCommands(ctx context.Context) {
+	cmds, err := a.Client.ListPendingCommands(ctx, a.HostID)
+	if err != nil {
+		a.Log.Warn("list commands failed", "err", err)
+		return
+	}
+	for _, c := range cmds {
+		a.runCommand(ctx, c)
 	}
 }
 

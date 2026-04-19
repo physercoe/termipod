@@ -34,6 +34,7 @@ type Server struct {
 	log    *slog.Logger
 	bus    *eventBus
 	sched  *Scheduler
+	policy *policyStore
 }
 
 func New(cfg Config) (*Server, error) {
@@ -45,6 +46,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
+	s.policy = newPolicyStore(cfg.DataRoot)
 	s.sched = NewScheduler(s, cfg.Logger)
 	s.router = s.buildRouter()
 	return s, nil
@@ -116,8 +118,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{host}", func(r chi.Router) {
 				r.Get("/", s.handleGetHost)
 				r.Post("/heartbeat", s.handleHostHeartbeat)
+				r.Get("/commands", s.handleListHostCommands)
 			})
 		})
+		r.Patch("/commands/{cmd}", s.handlePatchHostCommand)
 		r.Route("/agents", func(r chi.Router) {
 			r.Post("/", s.handleCreateAgent)
 			r.Get("/", s.handleListAgents)
@@ -128,6 +132,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Patch("/", s.handlePatchAgent)
 				r.Get("/journal", s.handleReadJournal)
 				r.Post("/journal", s.handleAppendJournal)
+				r.Post("/pause", s.handlePauseAgent)
+				r.Post("/resume", s.handleResumeAgent)
+				r.Get("/pane", s.handleGetAgentPane)
 			})
 		})
 		r.Route("/templates", func(r chi.Router) {
@@ -168,6 +175,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)
 			r.Post("/{id}/resolve", s.handleResolveAttention)
+			r.Post("/{id}/decide", s.handleDecideAttention)
 		})
 		r.Route("/schedules", func(r chi.Router) {
 			r.Post("/", s.handleCreateSchedule)

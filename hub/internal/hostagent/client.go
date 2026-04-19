@@ -84,6 +84,33 @@ func (c *Client) PatchAgent(ctx context.Context, agentID string, patch AgentPatc
 		fmt.Sprintf("/v1/teams/%s/agents/%s", c.Team, agentID), patch, nil)
 }
 
+type HostCommand struct {
+	ID      string          `json:"id"`
+	HostID  string          `json:"host_id"`
+	AgentID string          `json:"agent_id,omitempty"`
+	Kind    string          `json:"kind"`
+	Args    json.RawMessage `json:"args"`
+	Status  string          `json:"status"`
+}
+
+func (c *Client) ListPendingCommands(ctx context.Context, hostID string) ([]HostCommand, error) {
+	path := fmt.Sprintf("/v1/teams/%s/hosts/%s/commands?status=pending", c.Team, hostID)
+	var out []HostCommand
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
+type CommandPatch struct {
+	Status string          `json:"status"` // 'done'|'failed'
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  string          `json:"error,omitempty"`
+}
+
+func (c *Client) PatchCommand(ctx context.Context, cmdID string, patch CommandPatch) error {
+	return c.do(ctx, http.MethodPatch,
+		fmt.Sprintf("/v1/teams/%s/commands/%s", c.Team, cmdID), patch, nil)
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

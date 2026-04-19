@@ -89,11 +89,11 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the event carries usage cost, accumulate onto the sender agent.
+	// If the event carries usage cost, accumulate onto the sender agent
+	// and auto-pause if spent ≥ budget. Enforcement is inline so there's no
+	// race between "over budget" and the next tool call spending more.
 	if in.UsageTokens != nil && in.UsageTokens.CostCents != 0 && in.FromID != "" {
-		_, _ = s.db.ExecContext(r.Context(), `
-			UPDATE agents SET spent_cents = spent_cents + ?
-			WHERE id = ?`, in.UsageTokens.CostCents, in.FromID)
+		s.accumulateSpend(r.Context(), in.FromID, in.UsageTokens.CostCents)
 	}
 
 	evt := map[string]any{

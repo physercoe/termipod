@@ -119,6 +119,20 @@
 - **SFTP 上传/下载** — 带进度追踪和远程目录浏览
 - **图片传输** — 发送照片，支持格式转换、尺寸调整和路径注入
 
+### Termipod Hub（可选）
+
+面向团队协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后，TermiPod 将启用 7 个标签的 Hub 仪表盘：
+
+- **Attention** — 待处理的审批 / 决策 / 闲置项，一键 Approve / Reject / Resolve，支持 AI worker 提交的模板提案
+- **Feed** — 频道 SSE 实时流，代码片段内嵌行号栏渲染
+- **Tasks** — 三列看板（open / in_progress / done）。滑动推进状态，卡片显示父任务链接与子任务计数
+- **Templates** — 浏览团队共享的 agent / prompt / policy YAML
+- **Agents** — List / Tree 视图可切换；Tree 按 `agent_spawns` 渲染父→子组织图。FAB 打开 YAML **Spawn Agent** 表单，支持模板选择、主机选择与端侧 **保存预设**（handle + kind + YAML）
+- **Hosts** — Host-agent 签到与最近在线时间
+- **Projects** — 项目与频道清单
+
+Hub 本体是 `hub/` 下的独立 Go 守护进程，可通过 `go install` 或直接运行源码部署。详见 [docs/hub-mobile-test.md](docs/hub-mobile-test.md)。
+
 ### 其他
 - **数据导出/导入** — 将连接、密钥、代码片段、历史记录和设置导出为 JSON 备份文件，支持跨设备恢复和从旧版 MuxPod 迁移
 - **内置文件浏览器** — 在设置中管理 SFTP 下载与应用存储，可直接分享或删除

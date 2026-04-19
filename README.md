@@ -119,6 +119,20 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 - **SFTP upload/download** with progress tracking and remote directory browser
 - **Image transfer** with format conversion, resize presets, and path injection
 
+### Termipod Hub (optional)
+
+Opt-in coordination layer for teams running multiple AI coding agents. Paste a hub URL + bearer token in **Settings → Hub** and TermiPod gains a Hub dashboard with seven tabs:
+
+- **Attention** — open approval / decision / idle items; one-tap Approve / Reject / Resolve, including template proposals from AI workers
+- **Feed** — live SSE stream of a channel; code excerpts render inline with a line-number gutter
+- **Tasks** — three-column Kanban (open / in_progress / done) with swipe-to-advance; cards show parent-task links and subtask counts
+- **Templates** — browse team-wide agent / prompt / policy YAML, tap to view
+- **Agents** — list or tree view; the tree walks `agent_spawns` for a parent→child org chart. FAB opens a YAML **Spawn Agent** form with a template picker, host picker, and **saved presets** (handle + kind + YAML) stored per device
+- **Hosts** — host-agent check-ins with last-seen timestamps
+- **Projects** — project + channel inventory
+
+The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.
+
 ### Other
 - **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
 - **Built-in file browser** — manage SFTP downloads and app storage from Settings, share or delete files in place

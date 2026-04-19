@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/termipod/hub/internal/auth"
 )
 
 type agentIn struct {
@@ -291,6 +293,19 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusBadRequest,
 			errors.New("child_handle, kind, spawn_spec_yaml required")
 	}
+
+	// Expand template vars ({{handle}}, {{journal}}, {{principal}}, …) before
+	// persisting. Render failures are treated as client errors — a malformed
+	// placeholder means the spec can never spawn usefully, better to reject.
+	principal := "@principal"
+	if tok, ok := auth.FromContext(ctx); ok {
+		principal = principalFromScope(tok.ScopeJSON)
+	}
+	rendered, err := s.renderSpawnSpec(ctx, team, in, principal)
+	if err != nil {
+		return spawnOut{}, http.StatusBadRequest, err
+	}
+	in.SpawnSpec = rendered
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

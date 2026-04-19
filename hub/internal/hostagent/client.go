@@ -143,6 +143,29 @@ func (c *Client) PatchCommand(ctx context.Context, cmdID string, patch CommandPa
 		fmt.Sprintf("/v1/teams/%s/commands/%s", c.Team, cmdID), patch, nil)
 }
 
+// EventIn is the minimum payload shape required by handlePostEvent.
+// Parts is a slice of {type,text} objects; marker forwarding only ever emits
+// a single text part so callers normally construct this inline.
+type EventIn struct {
+	Type   string        `json:"type"`
+	FromID string        `json:"from_id,omitempty"`
+	Parts  []EventInPart `json:"parts,omitempty"`
+}
+
+type EventInPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// PostEvent forwards a marker-derived event to the project/channel feed.
+// Caller is responsible for resolving projectID/channelID from the spawn
+// spec — see SpawnSpec.ProjectID / ChannelID.
+func (c *Client) PostEvent(ctx context.Context, projectID, channelID string, in EventIn) error {
+	path := fmt.Sprintf("/v1/teams/%s/projects/%s/channels/%s/events",
+		c.Team, projectID, channelID)
+	return c.do(ctx, http.MethodPost, path, in, nil)
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

@@ -25,8 +25,9 @@ type Agent struct {
 	PollInterval      time.Duration
 	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
 
-	idle  *IdleDetector
-	panes map[string]paneState // keyed by agent id
+	idle    *IdleDetector
+	panes   map[string]paneState // keyed by agent id
+	tailers map[string]*Tailer   // keyed by agent id
 }
 
 func (a *Agent) defaults() {
@@ -47,6 +48,9 @@ func (a *Agent) defaults() {
 	}
 	if a.panes == nil {
 		a.panes = map[string]paneState{}
+	}
+	if a.tailers == nil {
+		a.tailers = map[string]*Tailer{}
 	}
 }
 
@@ -130,6 +134,13 @@ func (a *Agent) tickIdle(ctx context.Context) {
 			delete(a.panes, id)
 		}
 	}
+	// Same for tailers: once an agent is no longer in the running set, its
+	// FIFO + pipe-pane should be torn down so we don't leak fds / tmp files.
+	for id := range a.tailers {
+		if _, ok := seen[id]; !ok {
+			a.stopTailer(id)
+		}
+	}
 }
 
 func (a *Agent) tickCommands(ctx context.Context) {
@@ -171,4 +182,42 @@ func (a *Agent) launchOne(ctx context.Context, sp Spawn) {
 		return
 	}
 	a.Log.Info("agent running", "handle", sp.Handle, "pane", pane)
+
+	// Best-effort: bring up a marker tailer if the spawn spec bound the
+	// agent to a project/channel. Parse failures or missing IDs leave the
+	// pane visible in tmux without event forwarding — the backend can still
+	// speak MCP directly if that's configured elsewhere.
+	spec, err := ParseSpec(sp.SpawnSpec)
+	if err != nil {
+		a.Log.Warn("parse spawn spec failed", "handle", sp.Handle, "err", err)
+		return
+	}
+	if spec.ChannelID == "" || spec.ProjectID == "" {
+		return
+	}
+	t := &Tailer{
+		AgentID:   sp.ChildID,
+		PaneID:    pane,
+		ProjectID: spec.ProjectID,
+		ChannelID: spec.ChannelID,
+		Client:    a.Client,
+		Log:       a.Log,
+	}
+	if err := t.Start(ctx); err != nil {
+		a.Log.Warn("tailer start failed", "agent", sp.ChildID, "err", err)
+		return
+	}
+	a.tailers[sp.ChildID] = t
+}
+
+// stopTailer tears down marker forwarding for an agent that has left the
+// running set (terminated, stale, or reassigned to another host). Callers
+// must hold no lock — Stop is idempotent.
+func (a *Agent) stopTailer(agentID string) {
+	t, ok := a.tailers[agentID]
+	if !ok {
+		return
+	}
+	t.Stop()
+	delete(a.tailers, agentID)
 }

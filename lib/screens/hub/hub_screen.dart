@@ -113,7 +113,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
                     _FeedTab(projects: st.projects),
                     _TasksTab(projects: st.projects),
                     _TemplatesTab(items: st.templates),
-                    _AgentsTab(items: st.agents),
+                    _AgentsTab(items: st.agents, hosts: st.hosts),
                     _HostsTab(items: st.hosts),
                     _ProjectsTab(items: st.projects),
                   ],
@@ -887,9 +887,15 @@ class _TemplateViewer extends StatelessWidget {
 
 class _AgentsTab extends ConsumerWidget {
   final List<Map<String, dynamic>> items;
-  const _AgentsTab({required this.items});
+  final List<Map<String, dynamic>> hosts;
+  const _AgentsTab({required this.items, required this.hosts});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Bootstrap: hub has hosts registered but no agents yet — prompt the
+    // operator to spawn a Steward so there's someone to hand tasks to.
+    if (items.isEmpty && hosts.isNotEmpty) {
+      return _SpawnStewardCard(hosts: hosts);
+    }
     if (items.isEmpty) return const _EmptyText(text: 'No agents registered');
     return RefreshIndicator(
       onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
@@ -907,6 +913,108 @@ class _AgentsTab extends ConsumerWidget {
                 : null,
           );
         },
+      ),
+    );
+  }
+}
+
+class _SpawnStewardCard extends ConsumerStatefulWidget {
+  final List<Map<String, dynamic>> hosts;
+  const _SpawnStewardCard({required this.hosts});
+
+  @override
+  ConsumerState<_SpawnStewardCard> createState() => _SpawnStewardCardState();
+}
+
+class _SpawnStewardCardState extends ConsumerState<_SpawnStewardCard> {
+  bool _busy = false;
+  String? _lastError;
+
+  Future<void> _spawn() async {
+    setState(() {
+      _busy = true;
+      _lastError = null;
+    });
+    try {
+      final client = ref.read(hubProvider.notifier).client;
+      if (client == null) {
+        throw StateError('Hub not configured');
+      }
+      final yaml = await client.getTemplate('agents', 'steward.v1');
+      // Prefer an online host; fall back to whatever's listed first.
+      final host = widget.hosts.firstWhere(
+        (h) => (h['status']?.toString() ?? '') == 'online',
+        orElse: () => widget.hosts.first,
+      );
+      final res = await client.spawnAgent(
+        childHandle: 'steward',
+        kind: 'claude-code',
+        spawnSpecYaml: yaml,
+        hostId: host['id']?.toString(),
+      );
+      if (!mounted) return;
+      final status = res['status']?.toString() ?? '';
+      final msg = status == 'pending_approval'
+          ? 'Spawn request sent — awaiting approval.'
+          : 'Steward spawned.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await ref.read(hubProvider.notifier).refreshAll();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _lastError = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: const [
+                  Icon(Icons.auto_awesome, size: 28),
+                  SizedBox(width: 10),
+                  Text('Welcome to your hub',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+                ]),
+                const SizedBox(height: 12),
+                const Text(
+                  'A host is online but no agents are running yet. '
+                  'Spawn a Steward to coordinate work, take delegations, '
+                  'and hand out tasks to other agents.',
+                ),
+                const SizedBox(height: 16),
+                if (_lastError != null) ...[
+                  Text(_lastError!,
+                      style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  const SizedBox(height: 12),
+                ],
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _spawn,
+                    icon: _busy
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.play_arrow),
+                    label: Text(_busy ? 'Spawning…' : 'Spawn Steward'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

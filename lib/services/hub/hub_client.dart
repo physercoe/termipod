@@ -209,6 +209,32 @@ class HubClient {
     return (out as List).cast<Map<String, dynamic>>();
   }
 
+  // ---- spawn ----
+
+  /// Spawns a new agent on the given host using the provided YAML spec
+  /// body. Returns either the spawned agent (`status: spawned`) or an
+  /// approval handle (`status: pending_approval` + `attention_id`) when
+  /// policy gates the action.
+  Future<Map<String, dynamic>> spawnAgent({
+    required String childHandle,
+    required String kind,
+    required String spawnSpecYaml,
+    String? hostId,
+    String? parentAgentId,
+  }) async {
+    final body = <String, dynamic>{
+      'child_handle': childHandle,
+      'kind': kind,
+      'spawn_spec_yaml': spawnSpecYaml,
+    };
+    if (hostId != null && hostId.isNotEmpty) body['host_id'] = hostId;
+    if (parentAgentId != null && parentAgentId.isNotEmpty) {
+      body['parent_agent_id'] = parentAgentId;
+    }
+    final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
   // ---- attention actions ----
 
   Future<Map<String, dynamic>> decideAttention(

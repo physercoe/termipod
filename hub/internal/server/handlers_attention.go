@@ -4,7 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -221,7 +225,65 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if in.Decision == "approve" && kind == "template_proposal" && payload != "" {
+		// Install the proposed template body to team/templates/<cat>/<name>.
+		// Reviewer's approval is the authorization; we copy the blob, not the
+		// request content, so the on-disk file is byte-identical to what was
+		// reviewed even if the blob store is the source of truth.
+		installed, installErr := s.installProposedTemplate(payload)
+		if installErr == nil {
+			out.Executed = installed
+		} else {
+			b, _ := json.Marshal(map[string]any{
+				"kind":  "template_install",
+				"error": installErr.Error(),
+			})
+			out.Executed = b
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// installProposedTemplate reads the proposed blob and writes it to the
+// team's templates/<category>/<name> path. Returns the JSON-encoded result
+// so it can be surfaced to the reviewer.
+func (s *Server) installProposedTemplate(payload string) ([]byte, error) {
+	var p struct {
+		Category   string `json:"category"`
+		Name       string `json:"name"`
+		BlobSHA256 string `json:"blob_sha256"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return nil, fmt.Errorf("decode payload: %w", err)
+	}
+	if p.Category == "" || p.Name == "" || p.BlobSHA256 == "" {
+		return nil, errors.New("payload missing category/name/blob_sha256")
+	}
+	body, err := os.ReadFile(s.blobPath(p.BlobSHA256))
+	if err != nil {
+		return nil, fmt.Errorf("read blob: %w", err)
+	}
+	dstDir := filepath.Join(s.cfg.DataRoot, "team", "templates", p.Category)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return nil, err
+	}
+	// Trailing .yaml keeps the file discoverable by listTemplates; the
+	// agent's proposed "name" already includes a version suffix like v1.
+	name := p.Name
+	if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") {
+		name += ".yaml"
+	}
+	dst := filepath.Join(dstDir, name)
+	if err := os.WriteFile(dst, body, 0o644); err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{
+		"kind":     "template_install",
+		"category": p.Category,
+		"name":     p.Name,
+		"path":     dst,
+		"bytes":    len(body),
+	})
 }
 
 type attentionResolveIn struct {

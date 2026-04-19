@@ -626,15 +626,26 @@ func (s *Server) mcpTemplatesPropose(ctx context.Context, fromID string, raw jso
 	if a.Rationale != "" {
 		summary += " — " + a.Rationale
 	}
+	// pending_payload_json carries everything the decide handler needs to
+	// install the template on approve — no need to re-fetch from the blob
+	// table or parse the summary string.
+	payload, _ := json.Marshal(map[string]any{
+		"category":    a.Category,
+		"name":        a.Name,
+		"blob_sha256": sha,
+		"rationale":   a.Rationale,
+		"proposed_by": fromID,
+	})
 	id := NewID()
 	now := NowUTC()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
-			summary, severity, current_assignees_json, status, created_at
+			summary, severity, current_assignees_json,
+			pending_payload_json, status, created_at
 		) VALUES (?, NULL, 'team', NULL, 'template_proposal',
-		          ?, 'minor', '[]', 'open', ?)`,
-		id, summary, now)
+		          ?, 'minor', '[]', ?, 'open', ?)`,
+		id, summary, string(payload), now)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}

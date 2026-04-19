@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
+
+// osReadFile is a tiny indirection so the helper below doesn't need to
+// drag more imports into the call site.
+var osReadFile = os.ReadFile
 
 // Covers the second batch of MCP tools added in mcp_more.go. Each test
 // seeds the minimum schema it needs and then calls the dispatch helpers
@@ -193,6 +198,70 @@ func TestMCP_TemplatesPropose_FilesAttentionAndBlob(t *testing.T) {
 	).Scan(&size); err != nil || size == 0 {
 		t.Errorf("blob row missing / empty: err=%v size=%d", err, size)
 	}
+}
+
+// Approving a template_proposal installs the proposed body to
+// <dataRoot>/team/templates/<category>/<name>.yaml so the next
+// templates.list picks it up.
+func TestMCP_TemplatesPropose_ApproveInstalls(t *testing.T) {
+	s, dataRoot := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	body := "handle: nurse\nrole: support\n"
+	args, _ := json.Marshal(map[string]any{
+		"category": "agents",
+		"name":     "nurse.v1",
+		"content":  body,
+	})
+	out, jerr := s.mcpTemplatesPropose(context.Background(), agentID, args)
+	if jerr != nil {
+		t.Fatalf("propose: %+v", jerr)
+	}
+	attnID := firstFieldFromMCPResult(t, out, "attention_id")
+
+	// Simulate the reviewer pressing "Approve" in the mobile UI.
+	installed, err := s.installProposedTemplate(mustPendingPayload(t, s, attnID))
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	var res map[string]any
+	_ = json.Unmarshal(installed, &res)
+	path, _ := res["path"].(string)
+	if path == "" {
+		t.Fatalf("install result missing path: %s", installed)
+	}
+	got, err := readFile(t, path)
+	if err != nil {
+		t.Fatalf("read installed: %v", err)
+	}
+	if got != body {
+		t.Errorf("installed body mismatch:\nwant %q\ngot  %q", body, got)
+	}
+	// Sanity: file landed under the expected team templates dir.
+	if !strings.HasPrefix(path, dataRoot) {
+		t.Errorf("path outside dataRoot: %s (data=%s)", path, dataRoot)
+	}
+}
+
+func mustPendingPayload(t *testing.T, s *Server, attnID string) string {
+	t.Helper()
+	var payload string
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(pending_payload_json, '') FROM attention_items WHERE id = ?`,
+		attnID,
+	).Scan(&payload); err != nil {
+		t.Fatalf("read payload: %v", err)
+	}
+	if payload == "" {
+		t.Fatalf("attention %s has no pending_payload_json", attnID)
+	}
+	return payload
+}
+
+func readFile(t *testing.T, path string) (string, error) {
+	t.Helper()
+	b, err := osReadFile(path)
+	return string(b), err
 }
 
 // pause_self / shutdown_self require a host binding — otherwise the host

@@ -278,7 +278,9 @@ class _AttentionCard extends ConsumerWidget {
                 fontSize: 14, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 10),
-          if (kind == 'approval_request' || kind == 'decision')
+          if (kind == 'approval_request' ||
+              kind == 'decision' ||
+              kind == 'template_proposal')
             Row(
               children: [
                 OutlinedButton.icon(

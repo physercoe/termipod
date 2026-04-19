@@ -27,9 +27,20 @@ import (
 //	  moderate: 1
 //	  critical: 1
 type Policy struct {
-	Tiers     map[string]string   `yaml:"tiers"`
-	Approvers map[string][]string `yaml:"approvers"`
-	Quorum    map[string]int      `yaml:"quorum"`
+	Tiers     map[string]string           `yaml:"tiers"`
+	Approvers map[string][]string         `yaml:"approvers"`
+	Quorum    map[string]int              `yaml:"quorum"`
+	Escalate  map[string]EscalationPolicy `yaml:"escalation"`
+}
+
+// EscalationPolicy describes how to widen an attention item that hasn't been
+// resolved in time. After `After` elapses since created_at, the item's
+// current_assignees is replaced with `WidenTo` and an entry is appended to
+// escalation_history. One escalation per item — if a human still hasn't
+// acted after that, the item sits open until they do.
+type EscalationPolicy struct {
+	After   string   `yaml:"after"`    // duration string, e.g. "5m"
+	WidenTo []string `yaml:"widen_to"` // new assignee handle list
 }
 
 const (
@@ -99,4 +110,16 @@ func (p *policyStore) QuorumFor(tier string) int {
 		return n
 	}
 	return 1
+}
+
+// EscalationFor returns the escalation rule for a tier, or (_, false) if
+// the tier has no rule configured — in which case open items in that tier
+// simply stay open until a human acts.
+func (p *policyStore) EscalationFor(tier string) (EscalationPolicy, bool) {
+	pol := p.get()
+	rule, ok := pol.Escalate[tier]
+	if !ok || rule.After == "" || len(rule.WidenTo) == 0 {
+		return EscalationPolicy{}, false
+	}
+	return rule, true
 }

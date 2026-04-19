@@ -31,13 +31,14 @@ type Config struct {
 }
 
 type Server struct {
-	cfg    Config
-	db     *sql.DB
-	router chi.Router
-	log    *slog.Logger
-	bus    *eventBus
-	sched  *Scheduler
-	policy *policyStore
+	cfg       Config
+	db        *sql.DB
+	router    chi.Router
+	log       *slog.Logger
+	bus       *eventBus
+	sched     *Scheduler
+	policy    *policyStore
+	escalator *Escalator
 }
 
 func New(cfg Config) (*Server, error) {
@@ -51,6 +52,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
 	s.policy = newPolicyStore(cfg.DataRoot)
 	s.sched = NewScheduler(s, cfg.Logger)
+	s.escalator = NewEscalator(s, cfg.Logger, 0)
 	s.router = s.buildRouter()
 	return s, nil
 }
@@ -69,6 +71,8 @@ func (s *Server) Serve(ctx context.Context) error {
 		s.log.Warn("scheduler start failed", "err", err)
 	}
 	defer s.sched.Stop()
+	// Escalator shares the same ctx lifetime — no explicit Stop needed.
+	s.escalator.Start(ctx)
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
 	// signal the daemon without restarting and losing in-flight connections.

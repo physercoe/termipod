@@ -896,25 +896,321 @@ class _AgentsTab extends ConsumerWidget {
     // Bootstrap: hub has hosts registered but no agents yet — prompt the
     // operator to spawn a Steward so there's someone to hand tasks to.
     if (items.isEmpty && hosts.isNotEmpty) {
-      return _SpawnStewardCard(hosts: hosts);
+      return Stack(
+        children: [
+          _SpawnStewardCard(hosts: hosts),
+          _SpawnAgentFab(hosts: hosts),
+        ],
+      );
     }
-    if (items.isEmpty) return const _EmptyText(text: 'No agents registered');
-    return RefreshIndicator(
-      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final a = items[i];
-          return _InfoTile(
-            title: a['handle']?.toString() ?? '?',
-            subtitle: '${a['kind'] ?? ''} · ${a['status'] ?? ''}',
-            trailing: (a['pause_state']?.toString() ?? 'running') == 'paused'
-                ? 'paused'
-                : null,
-          );
-        },
+    if (items.isEmpty) {
+      return Stack(
+        children: [
+          const _EmptyText(text: 'No agents registered'),
+          if (hosts.isNotEmpty) _SpawnAgentFab(hosts: hosts),
+        ],
+      );
+    }
+    return Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final a = items[i];
+              return _InfoTile(
+                title: a['handle']?.toString() ?? '?',
+                subtitle: '${a['kind'] ?? ''} · ${a['status'] ?? ''}',
+                trailing: (a['pause_state']?.toString() ?? 'running') == 'paused'
+                    ? 'paused'
+                    : null,
+              );
+            },
+          ),
+        ),
+        if (hosts.isNotEmpty) _SpawnAgentFab(hosts: hosts),
+      ],
+    );
+  }
+}
+
+class _SpawnAgentFab extends ConsumerWidget {
+  final List<Map<String, dynamic>> hosts;
+  const _SpawnAgentFab({required this.hosts});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: FloatingActionButton.extended(
+        heroTag: 'spawn_agent_fab',
+        onPressed: () => showModalBottomSheet<void>(
+          context: context,
+          isScrollControlled: true,
+          builder: (_) => _SpawnAgentDialog(hosts: hosts),
+        ),
+        icon: const Icon(Icons.add),
+        label: const Text('Spawn Agent'),
+      ),
+    );
+  }
+}
+
+class _SpawnAgentDialog extends ConsumerStatefulWidget {
+  final List<Map<String, dynamic>> hosts;
+  const _SpawnAgentDialog({required this.hosts});
+
+  @override
+  ConsumerState<_SpawnAgentDialog> createState() => _SpawnAgentDialogState();
+}
+
+class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
+  final _handleCtl = TextEditingController();
+  final _kindCtl = TextEditingController(text: 'claude-code');
+  final _yamlCtl = TextEditingController();
+  String? _hostId;
+  bool _busy = false;
+  String? _error;
+  List<Map<String, dynamic>>? _templates;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefer an online host as the default.
+    final online = widget.hosts.where(
+      (h) => (h['status']?.toString() ?? '') == 'online',
+    );
+    _hostId = (online.isNotEmpty ? online.first : widget.hosts.first)['id']
+        ?.toString();
+  }
+
+  @override
+  void dispose() {
+    _handleCtl.dispose();
+    _kindCtl.dispose();
+    _yamlCtl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadTemplate() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      _templates ??= await client.listTemplates();
+      final agentTemplates = _templates!
+          .where((t) => (t['category']?.toString() ?? '') == 'agents')
+          .toList();
+      if (!mounted) return;
+      if (agentTemplates.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No agent templates on this hub')),
+        );
+        return;
+      }
+      final picked = await showModalBottomSheet<Map<String, dynamic>>(
+        context: context,
+        builder: (_) => ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Pick a template',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            const Divider(height: 1),
+            for (final t in agentTemplates)
+              ListTile(
+                title: Text(t['name']?.toString() ?? '?'),
+                subtitle: Text('${t['size'] ?? 0}B'),
+                onTap: () => Navigator.of(context).pop(t),
+              ),
+          ],
+        ),
+      );
+      if (picked == null || !mounted) return;
+      final name = picked['name']?.toString() ?? '';
+      final body = await client.getTemplate('agents', name);
+      if (!mounted) return;
+      setState(() => _yamlCtl.text = body);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Load template failed: $e')));
+    }
+  }
+
+  Future<void> _submit() async {
+    final handle = _handleCtl.text.trim();
+    final kind = _kindCtl.text.trim();
+    final yaml = _yamlCtl.text;
+    if (handle.isEmpty || kind.isEmpty || yaml.trim().isEmpty) {
+      setState(() => _error = 'handle, kind, and YAML spec are required');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final client = ref.read(hubProvider.notifier).client;
+      if (client == null) throw StateError('Hub not configured');
+      final res = await client.spawnAgent(
+        childHandle: handle,
+        kind: kind,
+        spawnSpecYaml: yaml,
+        hostId: _hostId,
+      );
+      if (!mounted) return;
+      final status = res['status']?.toString() ?? '';
+      final msg = status == 'pending_approval'
+          ? 'Spawn request sent — awaiting approval.'
+          : 'Agent "$handle" spawned.';
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      await ref.read(hubProvider.notifier).refreshAll();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.9,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scroll) => Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text('Spawn agent',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                controller: scroll,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  TextField(
+                    controller: _handleCtl,
+                    decoration: const InputDecoration(
+                      labelText: 'Handle',
+                      hintText: 'e.g. worker-fe',
+                      border: OutlineInputBorder(),
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _kindCtl,
+                    decoration: const InputDecoration(
+                      labelText: 'Kind',
+                      hintText: 'claude-code, kimi-code, …',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _hostId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Host',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: widget.hosts
+                        .map((h) => DropdownMenuItem<String>(
+                              value: h['id']?.toString(),
+                              child: Text(
+                                '${h['name'] ?? '?'} '
+                                '(${h['status'] ?? 'unknown'})',
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setState(() => _hostId = v),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Text('Spawn spec (YAML)',
+                          style: TextStyle(fontWeight: FontWeight.w600)),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _loadTemplate,
+                        icon: const Icon(Icons.file_open, size: 18),
+                        label: const Text('Load template'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: _yamlCtl,
+                    maxLines: 14,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 12),
+                    decoration: const InputDecoration(
+                      hintText:
+                          'template: agents.custom.v1\nhandle: {{handle}}\n…',
+                      border: OutlineInputBorder(),
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(_error!,
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                  ],
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed:
+                            _busy ? null : () => Navigator.of(context).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _submit,
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.play_arrow),
+                        label: Text(_busy ? 'Spawning…' : 'Spawn'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

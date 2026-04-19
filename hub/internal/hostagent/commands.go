@@ -97,7 +97,25 @@ func (a *Agent) terminatePane(ctx context.Context, cmd HostCommand) error {
 	if pane == "" {
 		return fmt.Errorf("terminate: pane_id required")
 	}
-	_, err := runTmux(ctx, "kill-pane", "-t", pane)
-	return err
+	if _, err := runTmux(ctx, "kill-pane", "-t", pane); err != nil {
+		return err
+	}
+	// Best-effort worktree cleanup. A dirty tree is preserved and flagged
+	// on the hub so a human can inspect before discarding — never silently
+	// destroy uncommitted work.
+	if cmd.AgentID != "" {
+		if wt, ok := a.worktrees[cmd.AgentID]; ok {
+			dirty, werr := RemoveWorktree(ctx, wt)
+			if werr != nil {
+				a.Log.Warn("worktree remove failed",
+					"agent", cmd.AgentID, "path", wt.Path, "err", werr)
+			} else if dirty {
+				a.Log.Info("worktree left in place (dirty)",
+					"agent", cmd.AgentID, "path", wt.Path)
+			}
+			delete(a.worktrees, cmd.AgentID)
+		}
+	}
+	return nil
 }
 

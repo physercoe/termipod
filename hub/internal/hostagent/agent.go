@@ -25,9 +25,10 @@ type Agent struct {
 	PollInterval      time.Duration
 	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
 
-	idle    *IdleDetector
-	panes   map[string]paneState // keyed by agent id
-	tailers map[string]*Tailer   // keyed by agent id
+	idle      *IdleDetector
+	panes     map[string]paneState    // keyed by agent id
+	tailers   map[string]*Tailer      // keyed by agent id
+	worktrees map[string]WorktreeSpec // keyed by agent id
 }
 
 func (a *Agent) defaults() {
@@ -51,6 +52,9 @@ func (a *Agent) defaults() {
 	}
 	if a.tailers == nil {
 		a.tailers = map[string]*Tailer{}
+	}
+	if a.worktrees == nil {
+		a.worktrees = map[string]WorktreeSpec{}
 	}
 }
 
@@ -141,6 +145,15 @@ func (a *Agent) tickIdle(ctx context.Context) {
 			a.stopTailer(id)
 		}
 	}
+	// Drop worktree bookkeeping for agents the hub no longer considers
+	// running. Anything the terminate handler missed (e.g. host-agent
+	// killed before cleanup) will be re-synced by `git worktree prune`
+	// on the next terminate for that repo.
+	for id := range a.worktrees {
+		if _, ok := seen[id]; !ok {
+			delete(a.worktrees, id)
+		}
+	}
 }
 
 func (a *Agent) tickCommands(ctx context.Context) {
@@ -166,6 +179,39 @@ func (a *Agent) tickPoll(ctx context.Context) {
 }
 
 func (a *Agent) launchOne(ctx context.Context, sp Spawn) {
+	// Parse the spec up front; ChannelID binding (tailer) and Worktree are
+	// both optional and we want to reason about them together.
+	spec, err := ParseSpec(sp.SpawnSpec)
+	if err != nil {
+		a.Log.Warn("parse spawn spec failed", "handle", sp.Handle, "err", err)
+		// Fall through — a bad YAML shouldn't block the pane itself; the
+		// spec-derived features (markers, worktree) just won't be wired.
+	}
+
+	// Ensure the worktree exists before we launch — the backend process
+	// will almost certainly cd into it, so having it ready avoids a race
+	// where the first command runs in a non-existent dir.
+	if sp.WorktreePath != "" && spec.Worktree.Repo != "" {
+		wt := WorktreeSpec{
+			Repo:   spec.Worktree.Repo,
+			Path:   sp.WorktreePath,
+			Branch: spec.Worktree.Branch,
+			Base:   spec.Worktree.Base,
+		}
+		created, werr := EnsureWorktree(ctx, wt)
+		if werr != nil {
+			a.Log.Warn("worktree ensure failed",
+				"handle", sp.Handle, "path", wt.Path, "err", werr)
+			// Continue: the pane still launches; the operator can retry
+			// by hand. Aborting here would leave the agent in pending
+			// forever, which is worse than "missing worktree".
+		} else if created {
+			a.Log.Info("worktree created",
+				"handle", sp.Handle, "path", wt.Path, "branch", wt.Branch)
+		}
+		a.worktrees[sp.ChildID] = wt
+	}
+
 	pane, err := a.Launcher.Launch(ctx, sp)
 	if err != nil {
 		a.Log.Error("launch failed", "handle", sp.Handle, "err", err)
@@ -184,14 +230,10 @@ func (a *Agent) launchOne(ctx context.Context, sp Spawn) {
 	a.Log.Info("agent running", "handle", sp.Handle, "pane", pane)
 
 	// Best-effort: bring up a marker tailer if the spawn spec bound the
-	// agent to a project/channel. Parse failures or missing IDs leave the
-	// pane visible in tmux without event forwarding — the backend can still
-	// speak MCP directly if that's configured elsewhere.
-	spec, err := ParseSpec(sp.SpawnSpec)
-	if err != nil {
-		a.Log.Warn("parse spawn spec failed", "handle", sp.Handle, "err", err)
-		return
-	}
+	// agent to a project/channel. Missing IDs leave the pane visible in
+	// tmux without event forwarding — the backend can still speak MCP
+	// directly if that's configured elsewhere. Spec was already parsed at
+	// the top of launchOne; reuse it.
 	if spec.ChannelID == "" || spec.ProjectID == "" {
 		return
 	}

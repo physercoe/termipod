@@ -17,6 +17,17 @@ type SpawnSpec struct {
 	Backend struct {
 		Cmd string `yaml:"cmd"`
 	} `yaml:"backend"`
+
+	// Worktree optionally requests a git worktree before the pane launches.
+	// Repo is the source checkout; Branch is the branch name (created if
+	// absent); Base is the starting point for a new branch (default HEAD).
+	// Path comes from the Spawn itself (WorktreePath) — kept out of the YAML
+	// so the hub can pre-validate uniqueness.
+	Worktree struct {
+		Repo   string `yaml:"repo"`
+		Branch string `yaml:"branch"`
+		Base   string `yaml:"base"`
+	} `yaml:"worktree"`
 }
 
 // ParseSpec tolerates empty input and returns a zero-valued spec so callers

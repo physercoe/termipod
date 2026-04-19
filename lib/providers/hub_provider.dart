@@ -200,6 +200,39 @@ final hubProvider = AsyncNotifierProvider<HubNotifier, HubState>(
 /// Summary of a hub event as surfaced in the feed tab. We decode the
 /// `parts` array into a single human-readable line so the list stays
 /// scannable on a phone — the terminal UI is where the raw stream belongs.
+/// A code excerpt attached to an event. `path`, `line_from`, `line_to`, and
+/// `content` are all optional — the hub only guarantees `content`. The
+/// feed row renders any missing fields as blanks instead of dropping the
+/// whole excerpt.
+class HubExcerpt {
+  final String path;
+  final int? lineFrom;
+  final int? lineTo;
+  final String content;
+  const HubExcerpt({
+    required this.path,
+    required this.lineFrom,
+    required this.lineTo,
+    required this.content,
+  });
+
+  factory HubExcerpt.fromMap(Map raw) {
+    int? toInt(Object? v) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
+    return HubExcerpt(
+      path: raw['path']?.toString() ?? raw['file']?.toString() ?? '',
+      lineFrom: toInt(raw['line_from']),
+      lineTo: toInt(raw['line_to']),
+      content: (raw['content'] as String?) ?? '',
+    );
+  }
+}
+
 class HubFeedEntry {
   final String id;
   final String type;
@@ -207,6 +240,7 @@ class HubFeedEntry {
   final DateTime? ts;
   final String preview;
   final String channelId;
+  final List<HubExcerpt> excerpts;
 
   const HubFeedEntry({
     required this.id,
@@ -215,11 +249,19 @@ class HubFeedEntry {
     required this.ts,
     required this.preview,
     required this.channelId,
+    this.excerpts = const [],
   });
 
   factory HubFeedEntry.fromEvent(Map<String, dynamic> evt) {
     final parts = (evt['parts'] as List?) ?? const [];
     final preview = _previewFromParts(parts);
+    final excerpts = <HubExcerpt>[];
+    for (final raw in parts) {
+      if (raw is! Map) continue;
+      if (raw['kind'] != 'excerpt') continue;
+      final ex = raw['excerpt'];
+      if (ex is Map) excerpts.add(HubExcerpt.fromMap(ex));
+    }
     DateTime? ts;
     final raw = evt['ts'] as String?;
     if (raw != null) {
@@ -232,6 +274,7 @@ class HubFeedEntry {
       ts: ts,
       preview: preview,
       channelId: evt['channel_id']?.toString() ?? '',
+      excerpts: excerpts,
     );
   }
 

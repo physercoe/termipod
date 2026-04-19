@@ -526,11 +526,106 @@ class _FeedRow extends StatelessWidget {
               ),
             ],
           ),
-          if (entry.preview.isNotEmpty) ...[
+          if (entry.preview.isNotEmpty && entry.excerpts.isEmpty) ...[
             const SizedBox(height: 6),
             Text(entry.preview,
                 style: GoogleFonts.jetBrainsMono(fontSize: 12)),
           ],
+          for (final ex in entry.excerpts) ...[
+            const SizedBox(height: 8),
+            _ExcerptBlock(excerpt: ex),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Renders an excerpt with a line-number gutter and a horizontally-
+/// scrollable monospace body so long lines don't wrap awkwardly. No
+/// syntax highlighting yet — a proper highlighter pulls in ~1 MB of
+/// grammar data, not worth it until users ask.
+class _ExcerptBlock extends StatelessWidget {
+  final HubExcerpt excerpt;
+  const _ExcerptBlock({required this.excerpt});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lines = excerpt.content.split('\n');
+    // Drop a trailing empty line — hub excerpts almost always end with
+    // one, and it just creates a bare line number.
+    if (lines.isNotEmpty && lines.last.isEmpty) lines.removeLast();
+    final startLine = excerpt.lineFrom ?? 1;
+    final gutterWidth = (startLine + lines.length).toString().length;
+    final headerBits = <String>[];
+    if (excerpt.path.isNotEmpty) headerBits.add(excerpt.path);
+    if (excerpt.lineFrom != null && excerpt.lineTo != null) {
+      headerBits.add('L${excerpt.lineFrom}-${excerpt.lineTo}');
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark
+            ? Colors.black.withValues(alpha: 0.35)
+            : DesignColors.surfaceLight,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (headerBits.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                headerBits.join(' · '),
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+              ),
+            ),
+          if (headerBits.isNotEmpty) const SizedBox(height: 4),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < lines.length; i++)
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: (gutterWidth * 8.0) + 8,
+                          child: Text(
+                            (startLine + i).toString(),
+                            textAlign: TextAlign.right,
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 11,
+                              color: isDark
+                                  ? DesignColors.textMuted
+                                  : DesignColors.textMutedLight,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          lines[i].isEmpty ? ' ' : lines[i],
+                          style: GoogleFonts.jetBrainsMono(fontSize: 12),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );

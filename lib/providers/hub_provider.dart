@@ -25,6 +25,7 @@ class HubState {
   final List<Map<String, dynamic>> hosts;
   final List<Map<String, dynamic>> agents;
   final List<Map<String, dynamic>> projects;
+  final List<Map<String, dynamic>> templates;
 
   /// Server-declared version from /v1/_info. Null until we've probed.
   final String? serverVersion;
@@ -37,6 +38,7 @@ class HubState {
     this.hosts = const [],
     this.agents = const [],
     this.projects = const [],
+    this.templates = const [],
     this.serverVersion,
   });
 
@@ -50,6 +52,7 @@ class HubState {
     List<Map<String, dynamic>>? hosts,
     List<Map<String, dynamic>>? agents,
     List<Map<String, dynamic>>? projects,
+    List<Map<String, dynamic>>? templates,
     String? serverVersion,
     bool clearConfig = false,
     bool clearError = false,
@@ -62,6 +65,7 @@ class HubState {
         hosts: hosts ?? this.hosts,
         agents: agents ?? this.agents,
         projects: projects ?? this.projects,
+        templates: templates ?? this.templates,
         serverVersion: serverVersion ?? this.serverVersion,
       );
 }
@@ -142,6 +146,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
         client.listHosts(),
         client.listAgents(),
         client.listProjects(),
+        client.listTemplates(),
       ]);
       state = AsyncData(prev.copyWith(
         loading: false,
@@ -149,6 +154,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
         hosts: results[1],
         agents: results[2],
         projects: results[3],
+        templates: results[4],
       ));
     } on HubApiError catch (e) {
       state = AsyncData(prev.copyWith(loading: false, error: e.toString()));
@@ -235,6 +241,18 @@ class HubFeedEntry {
       } else if (kind == 'image') {
         return '[image]';
       } else if (kind == 'excerpt') {
+        final ex = raw['excerpt'];
+        if (ex is Map) {
+          final from = ex['line_from'];
+          final to = ex['line_to'];
+          final content = (ex['content'] as String?) ?? '';
+          final firstLine = content.split('\n').firstWhere(
+                (l) => l.trim().isNotEmpty,
+                orElse: () => '',
+              );
+          final range = (from != null && to != null) ? ' L$from-$to' : '';
+          return '[excerpt$range] ${firstLine.trim()}'.trim();
+        }
         return '[excerpt]';
       } else if (kind == 'data') {
         final d = raw['data'];

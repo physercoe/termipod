@@ -144,6 +144,62 @@ class HubClient {
         query: status == null ? null : {'status': status},
       );
 
+  Future<List<Map<String, dynamic>>> listTasks(
+    String projectId, {
+    String? status,
+  }) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
+        query: status == null ? null : {'status': status},
+      );
+
+  Future<Map<String, dynamic>> getTask(String projectId, String taskId) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> patchTask(
+    String projectId,
+    String taskId, {
+    String? status,
+    String? title,
+    String? bodyMd,
+  }) async {
+    final body = <String, dynamic>{};
+    if (status != null) body['status'] = status;
+    if (title != null) body['title'] = title;
+    if (bodyMd != null) body['body_md'] = bodyMd;
+    final req = await _open(
+      'PATCH',
+      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
+    );
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode(body)));
+    final resp = await req.close();
+    final out = await _readJson(resp);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<List<Map<String, dynamic>>> listTemplates() =>
+      _listJson('/v1/teams/${cfg.teamId}/templates');
+
+  /// Returns raw template body (YAML / markdown / JSON — the endpoint
+  /// doesn't parse). Caller renders as text.
+  Future<String> getTemplate(String category, String name) async {
+    final req = await _open(
+      'GET',
+      '/v1/teams/${cfg.teamId}/templates/$category/$name',
+    );
+    final resp = await req.close();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      final msg = await resp.transform(utf8.decoder).join();
+      throw HubApiError(resp.statusCode, msg);
+    }
+    return resp.transform(utf8.decoder).join();
+  }
+
   Future<List<Map<String, dynamic>>> _listJson(
     String path, {
     Map<String, String>? query,

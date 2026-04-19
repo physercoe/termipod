@@ -6,9 +6,11 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'hub_bootstrap_screen.dart';
 
-/// Main dashboard for a configured Termipod Hub. Five tabs:
+/// Main dashboard for a configured Termipod Hub. Seven tabs:
 ///   - Attention: open attention_items (approvals, decisions, idle)
 ///   - Feed: live SSE of a chosen channel
+///   - Tasks: per-project task list with status filter
+///   - Templates: team-wide templates (agents/prompts/policies)
 ///   - Agents: kind/handle/status per agent
 ///   - Hosts: host-agents checking in
 ///   - Projects: project + channel inventory
@@ -30,7 +32,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 5, vsync: this);
+    _tabs = TabController(length: 7, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
@@ -86,6 +88,8 @@ class _HubScreenState extends ConsumerState<HubScreen>
             tabs: const [
               Tab(icon: Icon(Icons.error_outline), text: 'Attention'),
               Tab(icon: Icon(Icons.podcasts), text: 'Feed'),
+              Tab(icon: Icon(Icons.check_box_outlined), text: 'Tasks'),
+              Tab(icon: Icon(Icons.description_outlined), text: 'Templates'),
               Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Agents'),
               Tab(icon: Icon(Icons.dns_outlined), text: 'Hosts'),
               Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
@@ -107,6 +111,8 @@ class _HubScreenState extends ConsumerState<HubScreen>
                   children: [
                     _AttentionTab(items: st.attention),
                     _FeedTab(projects: st.projects),
+                    _TasksTab(projects: st.projects),
+                    _TemplatesTab(items: st.templates),
                     _AgentsTab(items: st.agents),
                     _HostsTab(items: st.hosts),
                     _ProjectsTab(items: st.projects),
@@ -526,6 +532,356 @@ class _FeedRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------
+// Tasks tab — pick a project, list tasks, tap to update status
+// ---------------------------------------------------------------------
+
+class _TasksTab extends ConsumerStatefulWidget {
+  final List<Map<String, dynamic>> projects;
+  const _TasksTab({required this.projects});
+
+  @override
+  ConsumerState<_TasksTab> createState() => _TasksTabState();
+}
+
+class _TasksTabState extends ConsumerState<_TasksTab> {
+  String? _projectId;
+  String _statusFilter = 'all';
+  List<Map<String, dynamic>> _tasks = const [];
+  bool _loading = false;
+  String? _error;
+
+  Future<void> _load() async {
+    final client = ref.read(hubProvider.notifier).client;
+    final pid = _projectId;
+    if (client == null || pid == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final items = await client.listTasks(
+        pid,
+        status: _statusFilter == 'all' ? null : _statusFilter,
+      );
+      if (!mounted) return;
+      setState(() {
+        _tasks = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _patchStatus(Map<String, dynamic> task, String status) async {
+    final client = ref.read(hubProvider.notifier).client;
+    final pid = _projectId;
+    final tid = task['id']?.toString();
+    if (client == null || pid == null || tid == null) return;
+    try {
+      await client.patchTask(pid, tid, status: status);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Task → $status')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _projectId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Project',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: widget.projects
+                      .map((p) => DropdownMenuItem<String>(
+                            value: p['id']?.toString(),
+                            child: Text(p['name']?.toString() ?? '?'),
+                          ))
+                      .toList(),
+                  onChanged: (v) {
+                    setState(() => _projectId = v);
+                    if (v != null) _load();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _statusFilter,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Status',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('all')),
+                    DropdownMenuItem(value: 'open', child: Text('open')),
+                    DropdownMenuItem(
+                        value: 'in_progress', child: Text('in_progress')),
+                    DropdownMenuItem(value: 'done', child: Text('done')),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _statusFilter = v);
+                    _load();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+                  ? _EmptyText(text: _error!)
+                  : _tasks.isEmpty
+                      ? const _EmptyText(
+                          text: 'Pick a project to list its tasks')
+                      : RefreshIndicator(
+                          onRefresh: _load,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: _tasks.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (_, i) => _TaskCard(
+                              task: _tasks[i],
+                              onAdvance: (s) => _patchStatus(_tasks[i], s),
+                            ),
+                          ),
+                        ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskCard extends StatelessWidget {
+  final Map<String, dynamic> task;
+  final void Function(String) onAdvance;
+  const _TaskCard({required this.task, required this.onAdvance});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final status = (task['status'] ?? 'open') as String;
+    final title = (task['title'] ?? '(untitled)') as String;
+    final body = (task['body_md'] ?? '') as String;
+    final updated = (task['updated_at'] ?? '') as String;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+            color:
+                isDark ? DesignColors.borderDark : DesignColors.borderLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _Chip(text: status, color: _statusColor(status)),
+              const Spacer(),
+              Text(_shortTs(updated),
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(title,
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14, fontWeight: FontWeight.w600)),
+          if (body.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              body,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: isDark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            children: [
+              if (status != 'in_progress')
+                OutlinedButton(
+                  onPressed: () => onAdvance('in_progress'),
+                  child: const Text('Start'),
+                ),
+              if (status != 'done')
+                OutlinedButton(
+                  onPressed: () => onAdvance('done'),
+                  child: const Text('Done'),
+                ),
+              if (status != 'open')
+                OutlinedButton(
+                  onPressed: () => onAdvance('open'),
+                  child: const Text('Reopen'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'done':
+        return Colors.green;
+      case 'in_progress':
+        return Colors.orange;
+      case 'open':
+        return DesignColors.primary;
+      default:
+        return DesignColors.primary;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Templates tab — list team templates; tap to view raw body
+// ---------------------------------------------------------------------
+
+class _TemplatesTab extends ConsumerWidget {
+  final List<Map<String, dynamic>> items;
+  const _TemplatesTab({required this.items});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (items.isEmpty) {
+      return const _EmptyText(text: 'No templates on this hub');
+    }
+    return RefreshIndicator(
+      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemBuilder: (_, i) {
+          final t = items[i];
+          final category = t['category']?.toString() ?? '';
+          final name = t['name']?.toString() ?? '?';
+          final size = t['size'] is int ? t['size'] as int : 0;
+          return _InfoTile(
+            title: name,
+            subtitle: '$category · ${size}B',
+            onTap: () => _openTemplate(context, ref, category, name),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openTemplate(
+      BuildContext context, WidgetRef ref, String category, String name) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final body = await client.getTemplate(category, name);
+      if (!context.mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => _TemplateViewer(
+          title: '$category/$name',
+          body: body,
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Fetch failed: $e')));
+      }
+    }
+  }
+}
+
+class _TemplateViewer extends StatelessWidget {
+  final String title;
+  final String body;
+  const _TemplateViewer({required this.title, required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (_, scroll) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(title,
+                      style: GoogleFonts.spaceGrotesk(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scroll,
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(
+                body,
+                style: GoogleFonts.jetBrainsMono(fontSize: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
 // Agents / Hosts / Projects tabs — read-only tables
 // ---------------------------------------------------------------------
 
@@ -638,15 +994,17 @@ class _InfoTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final String? trailing;
+  final VoidCallback? onTap;
   const _InfoTile({
     required this.title,
     required this.subtitle,
     this.trailing,
+    this.onTap,
   });
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
+    final tile = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
@@ -683,6 +1041,12 @@ class _InfoTile extends StatelessWidget {
                         : DesignColors.textMutedLight)),
         ],
       ),
+    );
+    if (onTap == null) return tile;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: tile,
     );
   }
 }

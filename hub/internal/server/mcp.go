@@ -369,6 +369,7 @@ func (s *Server) mcpPostMessage(ctx context.Context, fromID string, raw json.Raw
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
+	s.logEventJSONL(ctx, id)
 	evt := map[string]any{
 		"id": id, "channel_id": a.ChannelID, "type": "message",
 		"from_id": fromID, "parts": parts,
@@ -654,6 +655,7 @@ func (s *Server) mcpPostExcerpt(ctx context.Context, agentID string, raw json.Ra
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
+	s.logEventJSONL(ctx, id)
 	evt := map[string]any{
 		"id": id, "channel_id": a.ChannelID, "type": "message",
 		"from_id":     agentID,

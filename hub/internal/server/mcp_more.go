@@ -214,6 +214,7 @@ func (s *Server) mcpDelegate(ctx context.Context, fromID string, raw json.RawMes
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
+	s.logEventJSONL(ctx, id)
 	evt := map[string]any{
 		"id": id, "channel_id": a.ChannelID, "type": "delegate",
 		"from_id": fromID, "to_ids": []string{a.To},

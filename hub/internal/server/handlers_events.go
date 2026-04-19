@@ -88,6 +88,7 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.logEventJSONL(r.Context(), id)
 
 	// If the event carries usage cost, accumulate onto the sender agent
 	// and auto-pause if spent ≥ budget. Enforcement is inline so there's no

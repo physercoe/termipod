@@ -5,7 +5,7 @@
 //   serve               Run the HTTP API.
 //   tokens issue        Issue a new token for an agent or user.
 //   tokens list         List tokens (hash-only; plaintext is never stored).
-//   reconstruct-db      (stub) Rebuild events DB from event_log/ JSONL.
+//   reconstruct-db      Rebuild events DB from event_log/ JSONL.
 package main
 
 import (
@@ -38,8 +38,7 @@ func main() {
 	case "tokens":
 		runTokens(os.Args[2:], log)
 	case "reconstruct-db":
-		fmt.Fprintln(os.Stderr, "reconstruct-db: not implemented yet")
-		os.Exit(1)
+		runReconstructDB(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -57,7 +56,7 @@ Commands:
   serve             Run the HTTP API.
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
-  reconstruct-db    Rebuild DB from event_log/ JSONL (stub).
+  reconstruct-db    Rebuild DB from event_log/ JSONL.
 
 Run "hub-server <command> -h" for flags.`)
 }
@@ -201,6 +200,31 @@ func runTokensList(args []string, log *slog.Logger) {
 		fmt.Printf("%-28s %-8s %-30s %-30s %s\n", id, kind, created, expires, revoked)
 		_ = scope
 	}
+}
+
+// ---- reconstruct-db ----
+
+// runReconstructDB rebuilds an events DB by replaying every line under
+// <data>/event_log/*.jsonl into -db. The target is opened with migrations
+// applied; rows use ON CONFLICT DO NOTHING so it's safe to re-run.
+//
+// Typical use: the live DB is lost / corrupted. Point -db at a fresh file
+// and let the JSONL log be the source of truth.
+func runReconstructDB(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("reconstruct-db", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory (contains event_log/)")
+	dbPath := fs.String("db", "", "target sqlite path (default: <data>/hub.db)")
+	_ = fs.Parse(args)
+
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+	files, inserted, skipped, err := server.ReconstructDB(context.Background(), *dataRoot, *dbPath)
+	if err != nil {
+		log.Error("reconstruct failed", "err", err, "files", files, "inserted", inserted, "skipped", skipped)
+		os.Exit(1)
+	}
+	fmt.Printf("reconstruct-db: replayed %d file(s); inserted=%d skipped=%d\n", files, inserted, skipped)
 }
 
 // ---- helpers ----

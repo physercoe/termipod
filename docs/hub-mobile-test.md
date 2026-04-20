@@ -135,17 +135,20 @@ sudo systemctl enable --now termipod-hub
 sudo systemctl status termipod-hub
 ```
 
-### B.3 Install the nginx reverse proxy
+### B.3 Install the nginx bootstrap config (port 80 only)
 
-The sample config at `hub/deploy/nginx/termipod-hub.conf` terminates TLS
-and proxies to `127.0.0.1:8443`. It has two dedicated location blocks for
-SSE streams (`/v1/teams/*/stream` and the per-channel variant) with
-`proxy_buffering off` and `proxy_read_timeout 3600s` — without those,
-mobile Feed / Attention drop every ~60s.
+**Order matters.** The final config references cert files at
+`/etc/letsencrypt/live/<host>/` — those don't exist yet, so if you drop
+the full config in first, `nginx -t` fails with *"cannot load
+certificate"* and reload is rejected. Install a port-80-only bootstrap
+first so certbot's HTTP-01 challenge can land, then swap in the full
+config.
 
 ```bash
-sudo install -m 0644 hub/deploy/nginx/termipod-hub.conf \
-     /etc/nginx/sites-available/
+sudo apt install nginx certbot python3-certbot-nginx
+sudo install -d -m 0755 /var/www/html
+sudo install -m 0644 hub/deploy/nginx/termipod-hub-bootstrap.conf \
+     /etc/nginx/sites-available/termipod-hub.conf
 sudo ln -sf ../sites-available/termipod-hub.conf \
      /etc/nginx/sites-enabled/termipod-hub.conf
 sudoedit /etc/nginx/sites-available/termipod-hub.conf   # replace hub.example.com
@@ -153,18 +156,42 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+Sanity: `curl -fsS http://hub.example.com/` should return
+`termipod-hub bootstrap — awaiting TLS`. If it doesn't, fix DNS / the
+default server before continuing.
+
 ### B.4 Obtain a TLS cert
 
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d hub.example.com
-# accepts the terms, fetches a cert, rewrites the listen lines.
+sudo certbot certonly --webroot -w /var/www/html -d hub.example.com
+# — or —
+sudo certbot --nginx -d hub.example.com   # rewrites the config for you
 ```
 
-`certbot.timer` handles renewals. The nginx config keeps the
-`/.well-known/acme-challenge/` route on port 80 specifically for this.
+Confirm the cert landed at `/etc/letsencrypt/live/hub.example.com/fullchain.pem`.
+`certbot.timer` handles renewals.
 
-### B.5 Sanity check
+### B.5 Swap in the full reverse-proxy config
+
+Now that the cert files exist, replace the bootstrap with the real config.
+It terminates TLS and proxies to `127.0.0.1:8443`, with dedicated location
+blocks for SSE streams (`/v1/teams/*/stream` and the per-channel variant)
+that set `proxy_buffering off` and `proxy_read_timeout 3600s` — without
+those, mobile Feed / Attention drop every ~60s.
+
+```bash
+sudo install -m 0644 hub/deploy/nginx/termipod-hub.conf \
+     /etc/nginx/sites-available/termipod-hub.conf
+sudoedit /etc/nginx/sites-available/termipod-hub.conf   # replace hub.example.com
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+> **nginx < 1.25** (Ubuntu 22.04 default is 1.18) doesn't know the
+> standalone `http2 on;` directive. The shipped config uses the legacy
+> `listen 443 ssl http2;` form, which works on both old and new nginx.
+
+### B.6 Sanity check
 
 From any machine:
 

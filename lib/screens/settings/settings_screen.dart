@@ -19,7 +19,6 @@ import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_settings_screen.dart';
 import 'file_browser_screen.dart';
-import '../hub/hub_screen.dart';
 import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
@@ -532,21 +531,6 @@ class SettingsScreen extends ConsumerWidget {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => const FileBrowserScreen(),
-                      ),
-                    );
-                  },
-                ),
-                const Divider(),
-                const _SectionHeader(title: 'Termipod Hub'),
-                ListTile(
-                  leading: const Icon(Icons.hub_outlined),
-                  title: const Text('Open Hub Dashboard'),
-                  subtitle: const Text(
-                      'Attention, agents, hosts, and live channel feed'),
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const HubScreen(),
                       ),
                     );
                   },

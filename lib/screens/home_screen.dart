@@ -12,12 +12,12 @@ import '../theme/design_colors.dart';
 import 'connections/connections_screen.dart';
 import 'dashboard/dashboard_screen.dart';
 import 'vault/vault_screen.dart';
-import 'notifications/notification_panes_screen.dart';
+import 'hub/hub_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
 
 /// 現在のタブインデックス Notifier
-/// タブ順序: 0=Servers, 1=Vault, 2=Dashboard, 3=Notify, 4=Settings
+/// タブ順序: 0=Servers, 1=Vault, 2=Dashboard, 3=Hub, 4=Settings
 class CurrentTabNotifier extends Notifier<int> {
   @override
   int build() => 2; // Dashboard（中央）をデフォルトに
@@ -30,7 +30,7 @@ final currentTabProvider = NotifierProvider<CurrentTabNotifier, int>(
 );
 
 /// ホーム画面（Bottom Navigation付き）
-/// タブ順序: Servers | Vault | [Dashboard] | Notify | Settings
+/// タブ順序: Servers | Vault | [Dashboard] | Hub | Settings
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -42,11 +42,11 @@ class HomeScreen extends ConsumerWidget {
       body: IndexedStack(
         index: currentTab,
         children: const [
-          ConnectionsScreen(),        // 0: Servers
-          VaultScreen(),              // 1: Vault (Keys + Snippets)
-          DashboardScreen(),          // 2: Dashboard（中央）
-          NotificationPanesScreen(),  // 3: Alerts
-          SettingsScreen(),           // 4: Settings
+          ConnectionsScreen(),  // 0: Servers
+          VaultScreen(),        // 1: Vault (Keys + Snippets)
+          DashboardScreen(),    // 2: Dashboard（中央）
+          HubScreen(),          // 3: Hub
+          SettingsScreen(),     // 4: Settings
         ],
       ),
       bottomNavigationBar: _buildBottomNavigationBar(context, ref, currentTab),
@@ -101,13 +101,13 @@ class HomeScreen extends ConsumerWidget {
                   ),
                   // 中央スペーサー（Dashboardボタンの場所）
                   const SizedBox(width: 64),
-                  // Notify（右寄り）
+                  // Hub（右寄り）
                   _buildNavItem(
                     context,
                     ref,
                     index: 3,
-                    icon: Icons.notifications_outlined,
-                    label: AppLocalizations.of(context)!.tabNotify,
+                    icon: Icons.hub_outlined,
+                    label: AppLocalizations.of(context)!.tabHub,
                     isSelected: currentTab == 3,
                   ),
                   // Settings（右端）

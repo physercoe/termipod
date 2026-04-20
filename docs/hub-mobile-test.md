@@ -1,157 +1,308 @@
-# Termipod Hub — Mobile Dashboard Install / Test Guide
+# Termipod Hub — Setup & Mobile Dashboard Guide
 
-This guide walks through installing a test build of the TermiPod mobile app
-that includes the **Hub Dashboard** (Slice 3), connecting it to a running
-`hub-server`, and verifying each tab.
+End-to-end walkthrough for standing up `hub-server` and connecting the
+TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
+
+- **A. LAN / Tailscale quick test** — one command on a laptop, `http://`
+  over a trusted network overlay. Takes ~2 minutes.
+- **B. Public VPS with nginx + TLS** — systemd unit, nginx reverse proxy,
+  Let's Encrypt cert. The setup you want for anything longer-lived than a
+  demo.
+
+The current release used for testing is **v1.0.41-alpha**.
 
 ---
 
-## 1. Build the APK via GitHub Actions
+## 1. Get the mobile build
 
-The release workflow (`.github/workflows/release.yml`) is already wired up.
-Cutting a new tag triggers a release that builds **three APKs** (one per
-ABI) and attaches them to a GitHub Release.
-
-```bash
-# From the repo root, on the branch containing the hub changes
-git tag v1.0.39-alpha
-git push origin v1.0.39-alpha
-```
-
-Watch the workflow:
+The release workflow (`.github/workflows/release.yml`) fires on tag push
+and attaches three Android APKs plus an unsigned iOS IPA.
 
 ```bash
-gh run watch
-gh release view v1.0.39-alpha
+# From the repo root, on the branch containing the hub changes.
+git tag v1.0.41-alpha
+git push origin v1.0.41-alpha
+gh run watch                      # wait for the release build
+gh release view v1.0.41-alpha     # grab the asset URLs
 ```
 
-When the release is ready you'll see three assets:
+Assets:
 
-- `termipod-v1.0.39-alpha-arm64-v8a.apk`   ← pick this for modern phones
-- `termipod-v1.0.39-alpha-armeabi-v7a.apk` ← older 32-bit ARM only
-- `termipod-v1.0.39-alpha-x86_64.apk`      ← emulator / ChromeOS
+- `termipod-v1.0.41-alpha-arm64-v8a.apk`   ← modern phones
+- `termipod-v1.0.41-alpha-armeabi-v7a.apk` ← older 32-bit ARM
+- `termipod-v1.0.41-alpha-x86_64.apk`      ← emulator / ChromeOS
+- `termipod-v1.0.41-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
 
-## 2. Sideload on Android
+### Sideload on Android
 
-On the phone:
+1. Download `termipod-*-arm64-v8a.apk` in a mobile browser.
+2. Tap the file. Grant the browser "install unknown apps" permission.
+3. Accept the install prompt. Upgrades preserve data + settings.
 
-1. Open the release page in a mobile browser and download
-   `termipod-*-arm64-v8a.apk`.
-2. Tap the downloaded file. Android will ask you to allow this browser to
-   install unknown apps — grant the permission once.
-3. Accept the install prompt. If you already have TermiPod installed from
-   an earlier tag it upgrades in place; data and settings are preserved.
+---
 
-## 3. Bring up a hub for the phone to talk to
-
-Any machine the phone can reach over the network works. The simplest path
-is a LAN/Tailscale host:
+## 2. Build `hub-server`
 
 ```bash
 cd hub
 go build -o /tmp/hub-server ./cmd/hub-server
-/tmp/hub-server \
-  --listen 0.0.0.0:8443 \
-  --data-root ~/hub-test \
-  --db        ~/hub-test/hub.db
+/tmp/hub-server help
 ```
 
-Get a team + token:
+The binary is self-contained — no libc dependency beyond the platform
+default. Cross-compile for a VPS with e.g.
+`GOOS=linux GOARCH=amd64 go build -o hub-server-linux-amd64 ./cmd/hub-server`.
+
+---
+
+## Track A — LAN / Tailscale quick test
+
+### A.1 Initialize a data root and get the owner token
 
 ```bash
-# one-time bootstrap — prints a bearer token
-/tmp/hub-cli bootstrap --team team --label phone-test
+/tmp/hub-server init -data ~/hub-test
 ```
 
-Copy the token string. It won't be shown again — the hub stores only the
-SHA-256 hash.
+Output ends with:
 
-> **Networking:** if your hub is on a laptop, make sure the phone and
-> laptop are on the same Wi-Fi, or use Tailscale / ngrok to expose the
-> port. `https://` is strongly recommended; over LAN you can also use
-> `http://` for quick tests.
+```
+Owner token (shown once — store it in your TUI / mobile config):
 
-Seed a little data so the tabs have something to show:
+  <paste-me-into-the-app>
+```
+
+The hub stores only the SHA-256 hash. If you lose it, issue a new token
+with `tokens issue` (§5).
+
+### A.2 Serve on the LAN
 
 ```bash
-# Create a project + channel, post one event, file one attention item.
-HUB=http://<hub-host>:8443
-TOK=<paste token>
+/tmp/hub-server serve -listen 0.0.0.0:8443 -data ~/hub-test
+```
+
+> **Do not bind `0.0.0.0:8443` on a public network** without TLS. Over a
+> coffee-shop Wi-Fi that's a cleartext bearer token on the wire. For LAN
+> testing with known peers, or a Tailscale interface, it's fine.
+
+Tailscale variant — bind to the tailnet IP only:
+
+```bash
+TS_IP=$(tailscale ip -4)
+/tmp/hub-server serve -listen ${TS_IP}:8443 -data ~/hub-test
+```
+
+### A.3 (Optional) seed a little data
+
+So the tabs aren't empty:
+
+```bash
+HUB=http://<host>:8443
+TOK=<owner-token>
 curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
-  -X POST "$HUB/v1/teams/team/projects" \
-  -d '{"name":"test"}'
+  -X POST "$HUB/v1/teams/default/projects" -d '{"name":"test"}'
 curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
-  -X POST "$HUB/v1/teams/team/attention" \
+  -X POST "$HUB/v1/teams/default/attention" \
   -d '{"scope_kind":"team","kind":"decision","summary":"Approve staging deploy?","severity":"major"}'
 ```
 
-## 4. Configure the app
+Skip to §4 to configure the app.
 
-1. Open TermiPod. Tap **Settings** (bottom-right).
-2. Scroll to the **Termipod Hub** section → **Open Hub Dashboard**.
-3. The first time, the screen is empty with a *Configure Hub* button.
-   Tap it.
+---
+
+## Track B — VPS with nginx + Let's Encrypt
+
+### B.1 Install the binary and data dir
+
+```bash
+sudo install -o root -g root -m 0755 hub-server /usr/local/bin/hub-server
+sudo useradd --system --home /var/lib/termipod-hub --shell /usr/sbin/nologin termipod-hub
+sudo install -o termipod-hub -g termipod-hub -m 0750 -d /var/lib/termipod-hub
+sudo -u termipod-hub /usr/local/bin/hub-server init -data /var/lib/termipod-hub
+# ↑ prints the owner token — copy it now, it's not recoverable.
+```
+
+### B.2 Install the systemd unit
+
+The repo ships a hardened unit at `hub/deploy/systemd/termipod-hub.service`.
+It runs `hub-server serve -listen 127.0.0.1:8443` as the `termipod-hub`
+user with `ProtectSystem=strict` and `ReadWritePaths=/var/lib/termipod-hub`.
+
+```bash
+sudo install -m 0644 hub/deploy/systemd/termipod-hub.service \
+     /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now termipod-hub
+sudo systemctl status termipod-hub
+```
+
+### B.3 Install the nginx reverse proxy
+
+The sample config at `hub/deploy/nginx/termipod-hub.conf` terminates TLS
+and proxies to `127.0.0.1:8443`. It has two dedicated location blocks for
+SSE streams (`/v1/teams/*/stream` and the per-channel variant) with
+`proxy_buffering off` and `proxy_read_timeout 3600s` — without those,
+mobile Feed / Attention drop every ~60s.
+
+```bash
+sudo install -m 0644 hub/deploy/nginx/termipod-hub.conf \
+     /etc/nginx/sites-available/
+sudo ln -sf ../sites-available/termipod-hub.conf \
+     /etc/nginx/sites-enabled/termipod-hub.conf
+sudoedit /etc/nginx/sites-available/termipod-hub.conf   # replace hub.example.com
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### B.4 Obtain a TLS cert
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d hub.example.com
+# accepts the terms, fetches a cert, rewrites the listen lines.
+```
+
+`certbot.timer` handles renewals. The nginx config keeps the
+`/.well-known/acme-challenge/` route on port 80 specifically for this.
+
+### B.5 Sanity check
+
+From any machine:
+
+```bash
+curl -fsS -H "Authorization: Bearer <owner-token>" \
+     https://hub.example.com/v1/version
+```
+
+Expected: a JSON blob with the hub version.
+
+---
+
+## 3. Issue additional tokens
+
+The owner token is fine for the first phone. For additional devices,
+agents, or hosts, mint scoped tokens:
+
+```bash
+# Another user device on the default team
+hub-server tokens issue -kind user -team default -role member \
+     -data /var/lib/termipod-hub
+
+# An MCP agent, bound to a specific agent id
+hub-server tokens issue -kind agent -team default -role agent \
+     -agent-id claude-42 -data /var/lib/termipod-hub
+
+# A host-agent (collects process/load metrics)
+hub-server tokens issue -kind host -team default -role host \
+     -data /var/lib/termipod-hub
+
+hub-server tokens list -data /var/lib/termipod-hub
+```
+
+Plaintext is printed once. Only SHA-256 hashes land in `auth_tokens`.
+
+---
+
+## 4. Configure the mobile app
+
+1. Launch TermiPod → **Settings** (bottom-right).
+2. Scroll to **Termipod Hub** → **Open Hub Dashboard**.
+3. First run is empty with a *Configure Hub* button — tap it.
 4. Fill in:
-   - **Base URL**: `http://<hub-host>:8443` (use your LAN IP / Tailscale
-     name / ngrok host, *not* `localhost`)
-   - **Team ID**: `team` (default)
-   - **Bearer Token**: paste the token from step 3
-5. Tap **Probe URL** — should show a green banner with the hub version.
-6. Tap **Save & Connect** — returns to the dashboard.
+   - **Base URL**: `https://hub.example.com` (Track B) or
+     `http://<lan-ip>:8443` (Track A). Not `localhost`.
+   - **Team ID**: `default` (the value `init` writes; change if you
+     created other teams).
+   - **Bearer Token**: paste the token.
+5. Tap **Probe URL** → green banner with hub version = reachable.
+6. Tap **Save & Connect** → back to the dashboard.
 
-The token is written to the device keychain
-(`flutter_secure_storage`); the URL and team id go in SharedPreferences.
+Token → device keychain (`flutter_secure_storage`). URL + team id →
+SharedPreferences.
 
-## 5. Walk the tabs
+---
 
-The dashboard has five tabs across the top. Pull-to-refresh works on
-the list tabs.
+## 5. Walk the seven tabs
 
-| Tab | Expected |
-|-----|----------|
-| **Attention** | The `decision` item you created is listed. Severity chip is orange ("major"). **Approve** and **Reject** buttons record a decision and the row disappears. |
-| **Feed** | Pick *Project: test*, then a channel. Events posted to that channel stream in live (SSE). Each event shows type, sender, and a preview of the first text part. |
-| **Agents** | Empty until an agent is registered (`hub-cli spawn ...` or host-agent). |
-| **Hosts** | Empty until a host-agent registers. Once one is running you see its name and `last_seen_at`. |
-| **Projects** | Shows `test` with its created timestamp. |
+Pull-to-refresh works on every list tab. Streams come in via SSE so
+Feed / Attention update live.
 
-## 6. Round-trip smoke test
+| Tab | What to try |
+|-----|-------------|
+| **Attention** | The `decision` item you seeded shows up, with an orange severity chip. Tap **Approve** or **Reject** — the row disappears and a decision is recorded. |
+| **Feed** | Pick *Project: test* → pick a channel. Events stream live. Text-part previews render inline; excerpt parts render with a monospace line-number gutter (feature added in v1.0.41). Scroll back to load history. |
+| **Tasks** | Swipeable kanban: **Open / In progress / Done**. Swipe right to promote, left to demote. Tap a card to see its subtasks. Cards with a parent show a chevron to jump up. |
+| **Templates** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
+| **Agents** | **List / Tree** toggle in the app bar. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
+| **Hosts** | Hosts running `host-agent` with a host-kind token show up here with `last_seen_at`. |
+| **Projects** | Project cards with created timestamps. Tap to jump to the channel list. |
 
-From the dev machine, with the app open on the Feed tab of channel `X`:
+### Round-trip smoke test
+
+Open the Feed tab on channel `C` while running on the dev machine:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
-  -X POST "$HUB/v1/teams/team/projects/<pid>/channels/<cid>/events" \
+  -X POST "$HUB/v1/teams/default/projects/<pid>/channels/<cid>/events" \
   -d '{"type":"message","from_id":"@ops","parts":[{"kind":"text","text":"hello phone"}]}'
 ```
 
-Expected: the row appears within a second at the top of the Feed tab.
+Expected: a new row at the top of the feed within a second.
+
+---
+
+## 6. Operations
+
+### Backups
+
+The `<dataRoot>/` directory holds everything: `hub.db` (sqlite) plus an
+append-only `event_log/*.jsonl`. A tarball of the whole tree is a full
+backup. `hub-server reconstruct-db -data <dataRoot>` rebuilds the DB from
+the JSONL log when the sqlite file is lost or corrupted.
+
+`hub/deploy/litestream/` is a future spot for a continuous-replication
+config (currently empty).
+
+### Upgrades
+
+1. Build the new `hub-server`.
+2. `sudo systemctl stop termipod-hub`
+3. `sudo install -m 0755 hub-server /usr/local/bin/hub-server`
+4. `sudo systemctl start termipod-hub`
+
+Migrations run on start. Data root layout is stable — no dump/restore
+needed between alpha builds so far.
+
+### Rotating a token
+
+There is no `tokens rotate` yet. Issue a new token with `tokens issue`,
+update the app, and let the old token age out (revocation is a future
+task — currently deleting the row in `auth_tokens` is the workaround).
+
+---
 
 ## 7. Known caveats
 
-- **Token handling**: the bearer token is stored in the OS keychain; the
-  *app* never displays it back. If you forget it, issue a fresh token from
-  the hub and re-enter it in **Settings → Termipod Hub → Open Hub
-  Dashboard → ⚙ → Save & Connect**.
-- **Self-signed TLS**: `dart:io.HttpClient` rejects invalid certs by
-  default. For test-only deployments, use plain `http://` over a trusted
-  network overlay (Tailscale). A proper TLS opt-out is a future task.
-- **Stream backpressure**: the feed is capped at 200 entries in memory so
-  a chatty channel doesn't OOM the phone. Older events drop silently; use
-  the hub backfill API if you need a full history.
-- **Approvals**: tapping *Approve* on an `approval_request` that carries a
-  `pending_payload` (like a gated `spawn`) executes the action on the
-  hub. The app reports "Decision recorded" — inspect the hub logs or the
-  Feed tab to see the downstream effect.
+- **Token recovery**: bearer tokens are stored hashed. Lose one, issue a
+  fresh one — there is no recovery flow.
+- **Self-signed TLS**: `dart:io.HttpClient` rejects invalid certs. Use
+  Let's Encrypt (Track B) or a trusted network overlay with plain `http://`
+  (Track A). A proper TLS opt-out in-app is a future task.
+- **Stream memory cap**: the Feed keeps 200 entries in memory. Older
+  events drop silently — use the hub's backfill API for full history.
+- **Approvals**: tapping *Approve* on an `approval_request` that carries
+  a `pending_payload` (e.g. a gated spawn) executes the action on the
+  hub. Confirm via hub logs or a new Feed entry.
+- **Push notifications**: not yet — the app only updates while the Hub
+  Dashboard is foreground. Design is deferred pending FCM config
+  decisions.
+
+---
 
 ## 8. CI verification
 
 Every push to `main` runs `flutter analyze --no-fatal-infos` and
-`flutter test` via `.github/workflows/ci.yml`. The hub files contribute
-~1 kLoC of Dart and should be picked up by the analyzer automatically —
-no new dependencies were added.
-
-To run the CI manually on a branch:
+`flutter test` (`.github/workflows/ci.yml`) plus the Go hub tests
+(`.github/workflows/hub.yml`).
 
 ```bash
 gh workflow run CI --ref <branch>

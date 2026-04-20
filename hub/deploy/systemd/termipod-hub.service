@@ -1,0 +1,42 @@
+# Termipod Hub — systemd unit
+#
+# Install:
+#   sudo useradd --system --home /var/lib/termipod-hub --shell /usr/sbin/nologin termipod-hub
+#   sudo install -o termipod-hub -g termipod-hub -m 0750 -d /var/lib/termipod-hub
+#   sudo install -o root -g root -m 0755 hub-server /usr/local/bin/hub-server
+#   sudo -u termipod-hub /usr/local/bin/hub-server init -data /var/lib/termipod-hub
+#     # (copy the owner token from stdout — shown once)
+#   sudo install -m 0644 termipod-hub.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now termipod-hub
+
+[Unit]
+Description=Termipod Hub API server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=termipod-hub
+Group=termipod-hub
+Environment=HUB_DATA=/var/lib/termipod-hub
+ExecStart=/usr/local/bin/hub-server serve -listen 127.0.0.1:8443 -data /var/lib/termipod-hub
+Restart=on-failure
+RestartSec=2s
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/termipod-hub
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

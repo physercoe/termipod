@@ -614,6 +614,21 @@ class HubClient {
     return out;
   }
 
+  // ---- search ----
+
+  /// Full-text search over event parts. Returns matching events newest-
+  /// first, each with `id`, `received_ts`, `channel_id`, `type`, `from_id`,
+  /// and `parts` (the original event parts JSON). The hub uses SQLite
+  /// FTS5; the `q` string accepts FTS5 match syntax.
+  Future<List<Map<String, dynamic>>> searchEvents(
+    String q, {
+    int? limit,
+  }) {
+    final query = <String, String>{'q': q};
+    if (limit != null) query['limit'] = '$limit';
+    return _listJson('/v1/search', query: query);
+  }
+
   // ---- SSE event stream ----
 
   /// Streams events for one channel as parsed JSON objects. The hub sends

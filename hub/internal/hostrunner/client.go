@@ -91,6 +91,16 @@ func (c *Client) ListRunningAgents(ctx context.Context, hostID string) ([]Agent2
 	return out, err
 }
 
+// ListHostAgents returns every agent row assigned to this host, regardless
+// of status. Used by the reconcile loop which needs to see pending / stale
+// rows to promote them (or demote running rows whose CLI died).
+func (c *Client) ListHostAgents(ctx context.Context, hostID string) ([]Agent2, error) {
+	path := fmt.Sprintf("/v1/teams/%s/agents?host_id=%s", c.Team, hostID)
+	var out []Agent2
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
 type AttentionIn struct {
 	ScopeKind string   `json:"scope_kind"`
 	ScopeID   string   `json:"scope_id,omitempty"`

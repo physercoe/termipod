@@ -192,9 +192,10 @@ AppBar actions: **Steward pill**, **Team** (people icon), **Refresh**,
 ### 5.4 Hosts tab
 
 1. **Expected:** rows for every host that has ever registered, with
-   `last_seen_at` in the trailing column. Treat this timestamp as the
-   authoritative health signal — `status` is advisory (see the
-   `TODO host-offline-sweeper` caveat in `hub-host-setup.md` §5).
+   `last_seen_at` in the trailing column and `status: online` /
+   `status: offline` in the subtitle. The server sweeps hosts to
+   `offline` when `last_seen_at` falls more than 90 s behind; wait
+   ~2 min after stopping a host-runner to see the flip.
 2. Swipe a host (or tap it → **Delete host**). **Expected:** 409
    Conflict if any non-terminated agents still reference it;
    otherwise the row disappears and an audit row is written (see §6
@@ -421,8 +422,13 @@ Not feature areas but things easy to break:
 Do **not** file these as test-plan failures — they're tracked
 roadmap / caveats:
 
-- **Hosts never flip to `offline`.** No sweeper yet; `last_seen_at`
-  is the true signal (`hub-host-setup.md` §5).
+- **Host offline detection is ~90–120 s lagged** (sweeper tick is 30 s
+  and threshold is 90 s past `last_seen_at`).
+- **Agent status lags by one poll tick (~3 s)** after the backing CLI
+  starts, exits cleanly, or falls back to the shell. The `crashed`
+  state replaces the old "stale running" behaviour: if a pane
+  disappears or the CLI exits, the host-runner reconcile loop will
+  flip the row on its next tick.
 - **Stream memory cap.** Inbox / project channels keep ~200 events
   in memory.
 - **No push notifications.** The app updates while foreground only.

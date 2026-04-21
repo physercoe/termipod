@@ -91,6 +91,7 @@ func (a *Runner) Start(ctx context.Context) error {
 		case <-poll.C:
 			a.tickPoll(ctx)
 			a.tickCommands(ctx)
+			a.tickReconcile(ctx)
 			a.tickIdle(ctx)
 		}
 	}
@@ -219,15 +220,17 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
 		return
 	}
-	status := "running"
+	// Record the pane id but leave status='pending'. The reconcile tick
+	// owns the pending → running transition: it flips only once tmux
+	// reports a non-shell foreground command, so a pane whose CLI failed
+	// to start is correctly distinguished from a working one.
 	if err := a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{
-		Status: &status,
 		PaneID: &pane,
 	}); err != nil {
 		a.Log.Error("patch agent failed", "handle", sp.Handle, "err", err)
 		return
 	}
-	a.Log.Info("agent running", "handle", sp.Handle, "pane", pane)
+	a.Log.Info("agent pane created", "handle", sp.Handle, "pane", pane)
 
 	// Best-effort: bring up a marker tailer if the spawn spec bound the
 	// agent to a project/channel. Missing IDs leave the pane visible in

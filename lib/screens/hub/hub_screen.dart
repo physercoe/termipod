@@ -146,21 +146,36 @@ class _HubScreenState extends ConsumerState<HubScreen>
 /// (the principal↔steward room). Lazily looks up the channel id on tap —
 /// no state plumbing needed because the channel list is small and the
 /// hub auto-seeds hub-meta.
+///
+/// The chip dims itself when no steward agent is currently running on the
+/// hub — a live-colour pill on an empty channel was misleading users into
+/// thinking an assistant was there. Tapping a dim chip still works (opens
+/// the channel) but makes it obvious you'd be talking to nobody.
 class _StewardChip extends ConsumerWidget {
   const _StewardChip();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final configured = ref.watch(hubProvider).value?.configured ?? false;
-    if (!configured) return const SizedBox.shrink();
+    final hub = ref.watch(hubProvider).value;
+    if (hub == null || !hub.configured) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final bg = scheme.primaryContainer;
-    final fg = scheme.onPrimaryContainer;
+    final present = _stewardPresent(hub.agents);
+    final Color bg;
+    final Color fg;
+    if (present) {
+      bg = scheme.primaryContainer;
+      fg = scheme.onPrimaryContainer;
+    } else {
+      bg = scheme.surfaceContainerHighest;
+      fg = scheme.onSurfaceVariant;
+    }
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Tooltip(
-          message: 'Open #hub-meta (steward)',
+          message: present
+              ? 'Open #hub-meta (steward)'
+              : 'Open #hub-meta — no steward running',
           child: Material(
             color: bg,
             borderRadius: BorderRadius.circular(16),
@@ -173,10 +188,16 @@ class _StewardChip extends ConsumerWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.auto_awesome, size: 16, color: fg),
+                    Icon(
+                      present
+                          ? Icons.auto_awesome
+                          : Icons.auto_awesome_outlined,
+                      size: 16,
+                      color: fg,
+                    ),
                     const SizedBox(width: 6),
                     Text(
-                      'Steward',
+                      present ? 'Steward' : 'No steward',
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -191,6 +212,19 @@ class _StewardChip extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// A steward counts as "present" when any agent with handle=='steward'
+  /// is in an active lifecycle state (pending or running). We include
+  /// 'pending' because a freshly-spawned steward is on its way up — no
+  /// reason to flash "No steward" during the 3s reconcile window.
+  static bool _stewardPresent(List<Map<String, dynamic>> agents) {
+    for (final a in agents) {
+      if ((a['handle'] ?? '').toString() != 'steward') continue;
+      final s = (a['status'] ?? '').toString();
+      if (s == 'running' || s == 'pending') return true;
+    }
+    return false;
   }
 
   Future<void> _openSteward(BuildContext context, WidgetRef ref) async {
@@ -656,6 +690,7 @@ Color _agentStatusColor(String status) {
     case 'pending':
     case 'idle':
       return Colors.orange;
+    case 'crashed':
     case 'failed':
     case 'terminated':
       return DesignColors.error;

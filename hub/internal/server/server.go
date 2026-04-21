@@ -73,6 +73,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer s.sched.Stop()
 	// Escalator shares the same ctx lifetime — no explicit Stop needed.
 	s.escalator.Start(ctx)
+	// Host-liveness sweep: flip hosts to 'offline' when heartbeats stop.
+	// Runs until ctx is cancelled, no Stop handle needed.
+	go s.runHostSweep(ctx)
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
 	// signal the daemon without restarting and losing in-flight connections.

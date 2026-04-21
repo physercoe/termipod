@@ -162,7 +162,9 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	if in.Status != nil {
 		sets = append(sets, "status = ?")
 		args = append(args, *in.Status)
-		if *in.Status == "terminated" {
+		// Stamp terminated_at for any terminal state so the row's
+		// lifecycle is self-describing without reading history.
+		if *in.Status == "terminated" || *in.Status == "crashed" || *in.Status == "failed" {
 			sets = append(sets, "terminated_at = ?")
 			args = append(args, NowUTC())
 		}

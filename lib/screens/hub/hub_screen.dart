@@ -1323,6 +1323,7 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
                 trailing: (a['pause_state']?.toString() ?? 'running') == 'paused'
                     ? 'paused'
                     : null,
+                onTap: () => _openAgentDetail(context, a),
               );
             },
           );
@@ -1413,7 +1414,13 @@ class _AgentOrgChart extends StatelessWidget {
       if (!seen.add(id)) return; // guard against cycles
       final a = byId[id];
       if (a == null) return;
-      rows.add(_OrgRow(agent: a, depth: depth));
+      rows.add(Builder(
+        builder: (ctx) => InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _openAgentDetail(ctx, a),
+          child: _OrgRow(agent: a, depth: depth),
+        ),
+      ));
       for (final cid in children[id] ?? const []) {
         walk(cid, depth + 1);
       }
@@ -2062,6 +2069,7 @@ class _HostsTab extends ConsumerWidget {
             title: h['name']?.toString() ?? '?',
             subtitle: 'status: ${h['status'] ?? 'unknown'}',
             trailing: _shortTs((h['last_seen_at'] ?? '') as String),
+            onTap: () => _openHostDetail(context, h),
           );
         },
       ),
@@ -2200,6 +2208,510 @@ class _Chip extends StatelessWidget {
         text,
         style: GoogleFonts.jetBrainsMono(
             fontSize: 10, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------
+// Agent / Host detail sheets — Pause, Resume, Terminate, pane preview,
+// journal read/append, host delete. Shown via showModalBottomSheet from
+// the Agents and Hosts tabs.
+// ---------------------------------------------------------------------
+
+void _openAgentDetail(BuildContext context, Map<String, dynamic> agent) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => _AgentDetailSheet(agent: agent),
+  );
+}
+
+void _openHostDetail(BuildContext context, Map<String, dynamic> host) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+    ),
+    builder: (_) => _HostDetailSheet(host: host),
+  );
+}
+
+class _AgentDetailSheet extends ConsumerStatefulWidget {
+  final Map<String, dynamic> agent;
+  const _AgentDetailSheet({required this.agent});
+  @override
+  ConsumerState<_AgentDetailSheet> createState() => _AgentDetailSheetState();
+}
+
+class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
+  bool _busy = false;
+  String? _error;
+  String? _paneText;
+  String? _paneCapturedAt;
+  String? _journal;
+  bool _journalLoaded = false;
+  final _noteCtl = TextEditingController();
+
+  String get _id => widget.agent['id']?.toString() ?? '';
+  String get _handle => widget.agent['handle']?.toString() ?? '?';
+  String get _status => widget.agent['status']?.toString() ?? 'unknown';
+  String get _pauseState =>
+      widget.agent['pause_state']?.toString() ?? 'running';
+  bool get _isPaused => _pauseState == 'paused';
+  bool get _isDead =>
+      _status == 'terminated' || _status == 'failed';
+  bool get _hasPane =>
+      (widget.agent['pane_id']?.toString() ?? '').isNotEmpty;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPane();
+  }
+
+  @override
+  void dispose() {
+    _noteCtl.dispose();
+    super.dispose();
+  }
+
+  Future<T?> _guard<T>(Future<T> Function() op) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      return await op();
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+      return null;
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _loadPane({bool refresh = false}) async {
+    if (!_hasPane) return;
+    final client = ref.read(hubProvider.notifier).client;
+    final out = await _guard(() => client.getAgentPane(_id, refresh: refresh));
+    if (out == null || !mounted) return;
+    setState(() {
+      _paneText = out['text']?.toString();
+      _paneCapturedAt = out['captured_at']?.toString();
+    });
+  }
+
+  Future<void> _loadJournal() async {
+    final client = ref.read(hubProvider.notifier).client;
+    final out = await _guard(() => client.readAgentJournal(_id));
+    if (!mounted) return;
+    setState(() {
+      _journal = out ?? '';
+      _journalLoaded = true;
+    });
+  }
+
+  Future<void> _appendJournal() async {
+    final entry = _noteCtl.text.trim();
+    if (entry.isEmpty) return;
+    final client = ref.read(hubProvider.notifier).client;
+    final ok =
+        await _guard(() => client.appendAgentJournal(_id, entry)) != null;
+    if (!mounted || !ok) return;
+    _noteCtl.clear();
+    await _loadJournal();
+  }
+
+  Future<void> _pauseOrResume() async {
+    final client = ref.read(hubProvider.notifier).client;
+    final ok = await _guard(() =>
+        _isPaused ? client.resumeAgent(_id) : client.pauseAgent(_id));
+    if (ok == null || !mounted) return;
+    // Command is enqueued; the host-runner flips pause_state after it runs.
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(_isPaused
+          ? 'Resume command enqueued'
+          : 'Pause command enqueued'),
+    ));
+    await ref.read(hubProvider.notifier).refreshAll();
+  }
+
+  Future<void> _terminate() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Terminate "$_handle"?'),
+        content: const Text(
+            'Marks status=terminated. The host-runner kills the pane and '
+            'cleans up any clean worktree; dirty worktrees are preserved.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Terminate'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final client = ref.read(hubProvider.notifier).client;
+    final done = await _guard(() => client.terminateAgent(_id));
+    if (done == null || !mounted) return;
+    await ref.read(hubProvider.notifier).refreshAll();
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: FractionallySizedBox(
+        heightFactor: 0.9,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(_handle,
+                        style: GoogleFonts.spaceGrotesk(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                  ),
+                  _Chip(text: _status, color: _agentStatusColor(_status)),
+                  if (_isPaused) ...[
+                    const SizedBox(width: 6),
+                    const _Chip(text: 'paused', color: Colors.orange),
+                  ],
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                '${widget.agent['kind'] ?? ''}'
+                '${widget.agent['host_id'] != null ? ' · host ${widget.agent['host_id']}' : ''}',
+                style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11, color: mutedColor),
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(_error!,
+                    style: const TextStyle(color: DesignColors.error)),
+              ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: (_busy || _isDead || !_hasPane)
+                        ? null
+                        : _pauseOrResume,
+                    icon: Icon(
+                        _isPaused ? Icons.play_arrow : Icons.pause),
+                    label: Text(_isPaused ? 'Resume' : 'Pause'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: (_busy || _isDead) ? null : _terminate,
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.error,
+                    ),
+                    icon: const Icon(Icons.stop_circle_outlined),
+                    label: const Text('Terminate'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  _SectionHeader(
+                    title: 'Pane capture',
+                    trailing: _hasPane
+                        ? TextButton.icon(
+                            onPressed:
+                                _busy ? null : () => _loadPane(refresh: true),
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('Refresh'),
+                          )
+                        : null,
+                  ),
+                  if (!_hasPane)
+                    Text('No pane attached yet.',
+                        style: TextStyle(color: mutedColor))
+                  else
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? DesignColors.surfaceDark
+                            : DesignColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDark
+                              ? DesignColors.borderDark
+                              : DesignColors.borderLight,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _paneCapturedAt == null
+                                ? '(no capture yet)'
+                                : 'captured ${_shortTs(_paneCapturedAt!)} ago',
+                            style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10, color: mutedColor),
+                          ),
+                          const SizedBox(height: 6),
+                          SelectableText(
+                            _paneText == null || _paneText!.isEmpty
+                                ? '(empty — hit Refresh to request a fresh capture)'
+                                : _paneText!,
+                            style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+                  _SectionHeader(
+                    title: 'Journal',
+                    trailing: TextButton.icon(
+                      onPressed: _busy ? null : _loadJournal,
+                      icon: Icon(
+                          _journalLoaded ? Icons.refresh : Icons.download,
+                          size: 18),
+                      label: Text(_journalLoaded ? 'Refresh' : 'Load'),
+                    ),
+                  ),
+                  if (_journalLoaded)
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? DesignColors.surfaceDark
+                            : DesignColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDark
+                              ? DesignColors.borderDark
+                              : DesignColors.borderLight,
+                        ),
+                      ),
+                      child: SelectableText(
+                        (_journal ?? '').isEmpty
+                            ? '(empty — the agent hasn\'t written a journal yet)'
+                            : _journal!,
+                        style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _noteCtl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'Append a note to the journal…',
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.send),
+                        tooltip: 'Append',
+                        onPressed: _busy ? null : _appendJournal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HostDetailSheet extends ConsumerStatefulWidget {
+  final Map<String, dynamic> host;
+  const _HostDetailSheet({required this.host});
+  @override
+  ConsumerState<_HostDetailSheet> createState() => _HostDetailSheetState();
+}
+
+class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _delete() async {
+    final name = widget.host['name']?.toString() ?? 'this host';
+    final id = widget.host['id']?.toString() ?? '';
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "$name"?'),
+        content: const Text(
+          'Removes the host row from the hub. The host-runner, if still '
+          'running, will register a fresh row on its next boot. The hub '
+          'refuses the delete if any agents are still alive on this host.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref.read(hubProvider.notifier).client.deleteHost(id);
+      if (!mounted) return;
+      await ref.read(hubProvider.notifier).refreshAll();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final h = widget.host;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final status = h['status']?.toString() ?? 'unknown';
+    final lastSeen = h['last_seen_at']?.toString() ?? '';
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(h['name']?.toString() ?? '?',
+                      style: GoogleFonts.spaceGrotesk(
+                          fontSize: 18, fontWeight: FontWeight.w700)),
+                ),
+                _Chip(text: status, color: _agentStatusColor(status)),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _kv('Host ID', h['id']?.toString() ?? '', mutedColor),
+            _kv(
+                'Last seen',
+                lastSeen.isEmpty
+                    ? 'never'
+                    : '${_shortTs(lastSeen)} ago · $lastSeen',
+                mutedColor),
+            _kv('Created', h['created_at']?.toString() ?? '', mutedColor),
+            _kv('Capabilities',
+                h['capabilities']?.toString() ?? '{}', mutedColor),
+            const SizedBox(height: 16),
+            if (_error != null) ...[
+              Text(_error!,
+                  style: const TextStyle(color: DesignColors.error)),
+              const SizedBox(height: 8),
+            ],
+            FilledButton.icon(
+              onPressed: _busy ? null : _delete,
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Delete host'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _kv(String k, String v, Color mutedColor) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 96,
+              child: Text(k,
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11, color: mutedColor)),
+            ),
+            Expanded(
+              child: SelectableText(v,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 11)),
+            ),
+          ],
+        ),
+      );
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final Widget? trailing;
+  const _SectionHeader({required this.title, this.trailing});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6, top: 4),
+      child: Row(
+        children: [
+          Text(title,
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 13, fontWeight: FontWeight.w700)),
+          const Spacer(),
+          if (trailing != null) trailing!,
+        ],
       ),
     );
   }

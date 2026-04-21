@@ -109,6 +109,24 @@ class HubClient {
     return _readJson(resp);
   }
 
+  Future<dynamic> _patch(String path, Object body) async {
+    final req = await _open('PATCH', path);
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode(body)));
+    final resp = await req.close();
+    return _readJson(resp);
+  }
+
+  Future<void> _delete(String path) async {
+    final req = await _open('DELETE', path);
+    final resp = await req.close();
+    // Drain body so the connection can be reused.
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+  }
+
   // ---- info / probe ----
 
   /// Probe the hub. Doesn't require a token, so we use it from the bootstrap
@@ -239,6 +257,78 @@ class HubClient {
     }
     final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
     return (out as Map).cast<String, dynamic>();
+  }
+
+  // ---- agent lifecycle ----
+
+  /// Terminates an agent by patching status=terminated. The host-runner
+  /// will pick up the kill on its next poll.
+  Future<void> terminateAgent(String agentId) async {
+    await _patch('/v1/teams/${cfg.teamId}/agents/$agentId',
+        {'status': 'terminated'});
+  }
+
+  /// Enqueues a SIGSTOP against the agent's pane process group. Returns
+  /// the command id so callers can poll status if needed.
+  Future<Map<String, dynamic>> pauseAgent(String agentId) async {
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/agents/$agentId/pause', const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> resumeAgent(String agentId) async {
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/agents/$agentId/resume', const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Returns the most recent pane capture for this agent. Pass
+  /// `refresh: true` to also enqueue a fresh capture; the current call
+  /// still returns the previous cached capture — fetch again after a
+  /// beat to see the new one.
+  Future<Map<String, dynamic>> getAgentPane(
+    String agentId, {
+    bool refresh = false,
+  }) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/agents/$agentId/pane',
+      query: refresh ? {'refresh': '1'} : null,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Reads the agent's markdown journal. Returns the raw markdown text;
+  /// an empty string means the journal file hasn't been written yet.
+  Future<String> readAgentJournal(String agentId) async {
+    final req = await _open(
+        'GET', '/v1/teams/${cfg.teamId}/agents/$agentId/journal');
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
+  /// Appends a markdown note to the agent's journal. The hub prepends a
+  /// UTC timestamp header unless [header] is supplied.
+  Future<void> appendAgentJournal(
+    String agentId,
+    String entry, {
+    String? header,
+  }) async {
+    final body = <String, dynamic>{'entry': entry};
+    if (header != null && header.isNotEmpty) body['header'] = header;
+    await _post('/v1/teams/${cfg.teamId}/agents/$agentId/journal', body);
+  }
+
+  // ---- host lifecycle ----
+
+  /// Removes a host row. The hub refuses if the host still has active
+  /// agents (anything not terminated/failed); the UI should surface the
+  /// 409 to the operator.
+  Future<void> deleteHost(String hostId) async {
+    await _delete('/v1/teams/${cfg.teamId}/hosts/$hostId');
   }
 
   // ---- attention actions ----

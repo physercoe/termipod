@@ -192,18 +192,28 @@ HTTP endpoint — including policy gating.
 
 ## 8. Lifecycle knobs on an existing agent
 
-Once spawned, mobile and REST can:
+Tap an agent row on the Agents tab to open the detail sheet; each verb
+also exists as REST.
 
 | Action | Endpoint | Mobile |
 |--------|----------|--------|
-| Pause | `POST /v1/teams/{team}/agents/{id}/pause` | Not yet in UI |
-| Resume | `POST /v1/teams/{team}/agents/{id}/resume` | Not yet in UI |
-| Terminate | `PATCH …/agents/{id}` with `{"status":"terminated"}` | Not yet in UI |
-| Read pane | `GET …/agents/{id}/pane` | Not yet in UI |
-| Journal | `GET /journal`, `POST /journal` | Not yet in UI |
+| Pause | `POST /v1/teams/{team}/agents/{id}/pause` | Pause button |
+| Resume | `POST /v1/teams/{team}/agents/{id}/resume` | Resume button |
+| Terminate | `PATCH …/agents/{id}` with `{"status":"terminated"}` | Terminate button |
+| Read pane | `GET …/agents/{id}/pane` | "Pane capture" section |
+| Journal | `GET /journal`, `POST /journal` | "Journal" section + note field |
 
-The REST verbs exist; the Agents-tab card currently only *displays*
-status. Pause / resume / terminate from mobile is a planned follow-up.
+**How `terminate` reaches the pane.** `PATCH status=terminated` is the
+single source of truth — the handler updates the row *and* enqueues a
+`terminate` host_command against the agent's host. The host-runner
+kills the pane and attempts best-effort worktree cleanup. MCP
+`shutdown_self` converges on the same host_command.
+
+**Pane capture semantics.** `GET /pane` returns the *last cached*
+capture (cached on the `agents` row by a prior capture command). Adding
+`?refresh=1` enqueues a new capture; the current call still returns the
+previous text, so the mobile sheet shows the stale value and then lets
+you tap Refresh again after ~3s to pull the fresh one.
 
 ## 9. Status indicators on mobile — what exists today
 

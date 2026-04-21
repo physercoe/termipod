@@ -8,6 +8,10 @@ backend:
   kind: claude-code
   model: opus-4-7
   default_workdir: ~/hub-work
+  # cmd is what host-runner actually launches in the pane. Without it the
+  # TmuxLauncher falls back to a placeholder shell that prints
+  # "pane ready; no backend configured".
+  cmd: "claude --model opus-4-7"
 
 default_role: team.coordinator
 display_label: "Steward"

@@ -143,6 +143,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Get("/", s.handleListHosts)
 			r.Route("/{host}", func(r chi.Router) {
 				r.Get("/", s.handleGetHost)
+				r.Delete("/", s.handleDeleteHost)
 				r.Post("/heartbeat", s.handleHostHeartbeat)
 				r.Get("/commands", s.handleListHostCommands)
 			})

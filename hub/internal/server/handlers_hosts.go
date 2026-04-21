@@ -101,6 +101,41 @@ func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleDeleteHost removes a host row. Refuses if any agents on this host
+// are still alive (status not in terminated/failed) — otherwise those rows
+// would silently lose their host_id via the ON DELETE SET NULL edge and
+// confuse the org chart. host_commands cascade-delete.
+func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	host := chi.URLParam(r, "host")
+	var alive int
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT COUNT(*) FROM agents
+		WHERE team_id = ? AND host_id = ?
+		  AND status NOT IN ('terminated','failed')`, team, host).Scan(&alive)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if alive > 0 {
+		writeErr(w, http.StatusConflict,
+			"host still has active agents — terminate them first")
+		return
+	}
+	res, err := s.db.ExecContext(r.Context(),
+		`DELETE FROM hosts WHERE team_id = ? AND id = ?`, team, host)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "host not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := chi.URLParam(r, "host")

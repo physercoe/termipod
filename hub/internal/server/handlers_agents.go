@@ -191,6 +191,20 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
 	}
+	// A status=terminated PATCH from the UI marks the row, but without
+	// also enqueuing a host-side kill the pane stays alive. Mirror the
+	// MCP shutdown_self path so both entrypoints converge on the same
+	// host-runner cleanup.
+	if in.Status != nil && *in.Status == "terminated" {
+		var hostID, paneID sql.NullString
+		qerr := s.db.QueryRowContext(r.Context(),
+			`SELECT host_id, pane_id FROM agents WHERE team_id = ? AND id = ?`,
+			team, id).Scan(&hostID, &paneID)
+		if qerr == nil && hostID.Valid && hostID.String != "" {
+			_, _ = s.enqueueHostCommand(r.Context(), hostID.String, id,
+				"terminate", map[string]any{"pane_id": paneID.String})
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

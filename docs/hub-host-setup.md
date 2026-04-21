@@ -238,7 +238,24 @@ curl -fsS -H "Authorization: Bearer $TOK" \
   | jq '.[] | {name, status, last_seen_at}'
 ```
 
-## 6. Troubleshooting
+## 6. Deleting a host
+
+Use when you've decommissioned a box or want to retire a stale row
+(e.g. the hostname changed). Two equivalent paths:
+
+- **Mobile:** Hub → Hosts → tap the row → **Delete host**.
+- **REST:** `DELETE /v1/teams/{team}/hosts/{host_id}`.
+
+The hub refuses the delete with `409 Conflict` if any agents on this
+host are still alive (status not in `terminated`/`failed`). Terminate
+them from the Agents tab first — terminating also tells the host-runner
+to kill the pane, so the row flips cleanly once cleanup completes.
+
+`host_commands` cascade-delete with the host row. Agents that were
+attached keep their history but lose their `host_id` (ON DELETE SET
+NULL), so the org chart still shows the record.
+
+## 7. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to
   the wrong team. List tokens with

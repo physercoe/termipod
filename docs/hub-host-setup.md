@@ -54,125 +54,109 @@ across restarts.
 - Go 1.23+ **only if you build from source**; prebuilt binaries land
   next to the hub-server in the release workflow (planned).
 
-## 3. Issue a host token
+## 3. Issue a host token (on the hub machine)
 
-On the hub machine:
+Same pattern as the VPS hub setup in `hub-mobile-test.md` §5 — run the
+issuer as the hub's service user against the hub's data root:
 
 ```bash
-hub-server tokens issue \
-  -data /var/lib/termipod-hub \
-  -kind host \
-  -team default \
-  -role host
+sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
+     -data /var/lib/termipod-hub \
+     -kind host -team default -role host
 ```
 
-The plaintext token is printed once. Copy it to the host box via any
-secure channel (scp, password manager, `ssh … 'cat > ~/.termipod-host.token'`).
-
-The `kind=host` scope authorizes the register / heartbeat / spawn-list /
-command-list / agent-patch endpoints and nothing else; do not reuse an
-owner token for this.
-
-## 4. Build and install host-agent on the host
-
-From the repo root on the host (or cross-compile and scp):
+The plaintext token is printed once. Transfer it to the host box over
+a secure channel; a common pattern is:
 
 ```bash
+# On the hub, copy the token to the clipboard or a pastebin-style store,
+# then on the host:
+sudo install -d -o root -g termipod-host -m 0750 /etc/termipod-host
+printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=%s\n' \
+       "paste-the-plaintext-token-here" \
+    | sudo install -o root -g termipod-host -m 0640 /dev/stdin /etc/termipod-host/env
+```
+
+`kind=host` scopes the token to register / heartbeat / spawn-list /
+command-list / agent-patch and nothing else. Never reuse an owner
+token here.
+
+## 4. Build and install `host-agent`
+
+Mirror of hub-mobile-test.md §2 + §B.1 — build in a scratch location,
+then `sudo install` the static binary into `/usr/local/bin`. The
+binary is self-contained; cross-compile from a dev box if the target
+architecture differs.
+
+```bash
+# On a builder box (Go 1.23+):
 cd hub
-go build -o /usr/local/bin/host-agent ./cmd/host-agent
-host-agent --help
+go build -o /tmp/host-agent ./cmd/host-agent
+
+# Copy /tmp/host-agent to the target host (scp / rsync / release asset),
+# then on the target:
+sudo install -o root -g root -m 0755 /tmp/host-agent /usr/local/bin/host-agent
+/usr/local/bin/host-agent --help
 ```
 
-Quick one-shot test before wiring systemd:
+Create a system user with a **real home directory** — backend CLIs
+(claude, codex, git) expect `~/.claude`, `~/.codex`, `~/.gitconfig`,
+`~/.ssh` to be readable and writable:
 
 ```bash
-host-agent run \
-  --hub https://hub.example.com \
-  --token "$(cat ~/.termipod-host.token)" \
-  --team default \
-  --name "$(hostname)" \
-  --launcher tmux \
-  --tmux-session hub-agents
+sudo useradd --system --create-home \
+             --home /var/lib/termipod-host \
+             --shell /bin/bash \
+             termipod-host
 ```
 
-Expected stderr:
+(Hub uses `--shell /usr/sbin/nologin` because nothing runs shell
+commands as `termipod-hub`. Host needs `/bin/bash` so tmux /
+subprocess PATH resolution works normally.)
 
-```
-host registered host_id=h_… name=…
-```
-
-Verify from the mobile (or curl):
+### Quick one-shot test before wiring systemd
 
 ```bash
-curl -fsS -H "Authorization: Bearer $TOK" \
-  https://hub.example.com/v1/teams/default/hosts
-# → [{"id":"h_…","name":"…","status":"online","last_seen_at":"…"}]
+sudo -u termipod-host env $(cat /etc/termipod-host/env | xargs) \
+     /usr/local/bin/host-agent run \
+       --hub   "$HUB_URL" \
+       --team  "$HUB_TEAM" \
+       --token "$HUB_TOKEN" \
+       --name  "$(hostname)" \
+       --launcher tmux --tmux-session hub-agents
 ```
 
-On the mobile, **Hub → Hosts** now lists the host with a recent
-`last_seen_at`.
-
-## 5. Run it under systemd
-
-Copy the token to a root-owned file so only the service user can read:
+Expected stderr: `host registered host_id=h_… name=…`. Verify from
+mobile (Hub → Hosts tab) or:
 
 ```bash
-sudo install -o termipod-host -g termipod-host -m 0600 \
-  ~/.termipod-host.token /etc/termipod-host/token
+curl -fsS -H "Authorization: Bearer <owner-or-user-token>" \
+     https://hub.example.com/v1/teams/default/hosts | jq
 ```
 
-Install a unit (save as `/etc/systemd/system/termipod-host.service`):
+Ctrl-C out of the one-shot before moving to systemd.
 
-```ini
-[Unit]
-Description=Termipod host-agent
-After=network-online.target
-Wants=network-online.target
+## 5. Install the shipped systemd unit
 
-[Service]
-Type=simple
-User=termipod-host
-Group=termipod-host
-# Keep the token out of the command line / proc listing.
-Environment=HUB_URL=https://hub.example.com
-Environment=HUB_TEAM=default
-EnvironmentFile=/etc/termipod-host/env
-ExecStart=/usr/local/bin/host-agent run \
-          --hub ${HUB_URL} \
-          --team ${HUB_TEAM} \
-          --token ${HUB_TOKEN} \
-          --name %H \
-          --launcher tmux \
-          --tmux-session hub-agents
-Restart=on-failure
-RestartSec=3s
-
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=yes
-ReadWritePaths=/home/termipod-host
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Where `/etc/termipod-host/env` is:
-
-```
-HUB_TOKEN=paste-the-plaintext-token-here
-```
-
-Then:
+The repo ships a unit at `hub/deploy/systemd/termipod-host.service`
+(the host counterpart to `termipod-hub.service`). It reads the
+env-file from §3, runs as `termipod-host`, and keeps hardening light
+enough for Node-JIT backends (claude-code) to function — see the
+unit's own comment header for the rationale.
 
 ```bash
+sudo install -m 0644 hub/deploy/systemd/termipod-host.service \
+     /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now termipod-host
+sudo systemctl status termipod-host
 sudo journalctl -fu termipod-host
 ```
 
-`%H` is the unit hostname specifier — expands to the machine's
-hostname at start time.
+`%H` in the unit's `--name %H` is the systemd hostname specifier —
+expands to the machine's hostname at start time, so you get a
+human-readable row on the mobile **Hub → Hosts** tab without hard-
+coding the name.
 
 ## 6. Health: how to tell if a host is alive
 

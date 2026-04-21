@@ -240,9 +240,10 @@ See also: `TODO hub-connectivity-indicator` and
 
 ```bash
 # 0. Register a host (see hub-host-setup.md §4) — keep host-agent running.
-# 1. Issue a user token for yourself.
-TOK=$(hub-server tokens issue -kind user -team default -role member \
-        -data /var/lib/termipod-hub | awk '/^  /{print $1}')
+# 1. Issue a user token for yourself (run on the hub box, as the hub service user).
+TOK=$(sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
+        -data /var/lib/termipod-hub \
+        -kind user -team default -role member | awk '/^  /{print $1}')
 HOST_ID=$(curl -fsS -H "Authorization: Bearer $TOK" \
           https://hub.example.com/v1/teams/default/hosts | jq -r '.[0].id')
 

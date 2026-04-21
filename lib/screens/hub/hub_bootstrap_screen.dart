@@ -20,7 +20,7 @@ class HubBootstrapScreen extends ConsumerStatefulWidget {
 
 class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
   final _urlCtrl = TextEditingController();
-  final _teamCtrl = TextEditingController(text: 'team');
+  final _teamCtrl = TextEditingController(text: 'default');
   final _tokenCtrl = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
@@ -169,7 +169,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
                 autocorrect: false,
                 decoration: const InputDecoration(
                   labelText: 'Team ID',
-                  helperText: 'Defaults to "team" for a single-team install',
+                  helperText: 'Defaults to "default" for a single-team install',
                   border: OutlineInputBorder(),
                 ),
                 validator: (v) =>

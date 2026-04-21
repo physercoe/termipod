@@ -1548,7 +1548,9 @@ class _SpawnAgentDialog extends ConsumerStatefulWidget {
 class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
   final _handleCtl = TextEditingController();
   final _kindCtl = TextEditingController(text: 'claude-code');
-  final _yamlCtl = TextEditingController();
+  final _yamlCtl = TextEditingController(
+    text: 'backend:\n  cmd: "claude --model opus-4-7 --no-update"\n',
+  );
   String? _hostId;
   bool _busy = false;
   String? _error;
@@ -1870,19 +1872,21 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      const Text('Spawn spec (YAML)',
-                          style: TextStyle(fontWeight: FontWeight.w600)),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: _saveAsPreset,
-                        icon: const Icon(Icons.bookmark_add_outlined,
-                            size: 18),
-                        label: const Text('Save preset'),
+                      const Expanded(
+                        child: Text('Spawn spec (YAML)',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                       ),
-                      TextButton.icon(
+                      IconButton(
+                        onPressed: _saveAsPreset,
+                        icon: const Icon(Icons.bookmark_add_outlined, size: 20),
+                        tooltip: 'Save as preset',
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      IconButton(
                         onPressed: _loadTemplate,
-                        icon: const Icon(Icons.file_open, size: 18),
-                        label: const Text('Template'),
+                        icon: const Icon(Icons.file_open, size: 20),
+                        tooltip: 'Load template',
+                        visualDensity: VisualDensity.compact,
                       ),
                     ],
                   ),
@@ -1893,7 +1897,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
                     style: GoogleFonts.jetBrainsMono(fontSize: 12),
                     decoration: const InputDecoration(
                       hintText:
-                          'template: agents.custom.v1\nhandle: {{handle}}\n…',
+                          'backend:\n  cmd: "claude --model opus-4-7"\n',
                       border: OutlineInputBorder(),
                       alignLabelWithHint: true,
                     ),

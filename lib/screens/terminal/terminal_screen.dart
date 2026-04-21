@@ -2594,10 +2594,22 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
       final session = ref.read(tmuxProvider(widget.connectionId)).activeSession;
       if (session == null) return;
 
-      await sshClient.exec(TmuxCommands.newWindow(
+      final result = await sshClient.exec(TmuxCommands.newWindow(
         sessionName: session.name,
         windowName: windowName,
       ));
+      // Successful new-window prints nothing; tmux routes errors like
+      // "duplicate window name" or "can't find session" to stderr, which
+      // exec() folds into the returned string. Surface that so the user
+      // can see why nothing appeared.
+      if (result.trim().isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result.trim())),
+          );
+        }
+        return;
+      }
       await _refreshSessionTree();
       if (!mounted) return;
 

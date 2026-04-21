@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
 
 /// Team-level surface. Four sub-tabs:
@@ -483,8 +484,19 @@ class _SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _EmptyText(
-      text: 'Team-level settings are pending; see hub-server tokens CLI.',
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      children: [
+        ListTile(
+          leading: const Icon(Icons.schedule),
+          title: const Text('Schedules'),
+          subtitle: const Text('Cron-driven agent spawns'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const SchedulesScreen(),
+          )),
+        ),
+      ],
     );
   }
 }

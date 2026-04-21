@@ -6,15 +6,21 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import 'hub_bootstrap_screen.dart';
+import 'project_create_sheet.dart';
+import 'project_detail_screen.dart';
+import 'team_channel_screen.dart';
+import 'team_screen.dart';
 
-/// Main dashboard for a configured Termipod Hub. Seven tabs:
-///   - Attention: open attention_items (approvals, decisions, idle)
-///   - Feed: live SSE of a chosen channel
-///   - Tasks: per-project task list with status filter
-///   - Templates: team-wide templates (agents/prompts/policies)
-///   - Agents: kind/handle/status per agent
-///   - Hosts: host-runners checking in
-///   - Projects: project + channel inventory
+/// Main dashboard for a configured Termipod Hub. Four tabs:
+///   - Projects: project inventory; FAB creates; tap opens detail.
+///   - Agents:   kind/handle/status per agent, spawn actions.
+///   - Hosts:    host-runners checking in.
+///   - Templates: team-wide templates (agents/prompts/policies).
+///
+/// Attention/Feed/Tasks moved out: approvals land in the Inbox tab,
+/// per-channel Feed and per-project Tasks live inside Project detail.
+/// Header carries a Steward chip (shortcut to #hub-meta team channel) and
+/// a Team icon (members/policies/channels/settings).
 ///
 /// If the hub isn't configured yet, we push [HubBootstrapScreen] from the
 /// empty state; once it pops true, the provider rebuilds and the real
@@ -33,7 +39,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 7, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
@@ -64,6 +70,18 @@ class _HubScreenState extends ConsumerState<HubScreen>
           ),
         ),
         actions: [
+          const _StewardChip(),
+          IconButton(
+            tooltip: 'Team',
+            icon: const Icon(Icons.group_outlined),
+            onPressed: async.value?.configured == true
+                ? () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const TeamScreen(),
+                    ));
+                  }
+                : null,
+          ),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
@@ -85,15 +103,11 @@ class _HubScreenState extends ConsumerState<HubScreen>
           preferredSize: const Size.fromHeight(48),
           child: TabBar(
             controller: _tabs,
-            isScrollable: true,
             tabs: const [
-              Tab(icon: Icon(Icons.error_outline), text: 'Attention'),
-              Tab(icon: Icon(Icons.podcasts), text: 'Feed'),
-              Tab(icon: Icon(Icons.check_box_outlined), text: 'Tasks'),
-              Tab(icon: Icon(Icons.description_outlined), text: 'Templates'),
+              Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
               Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Agents'),
               Tab(icon: Icon(Icons.dns_outlined), text: 'Hosts'),
-              Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
+              Tab(icon: Icon(Icons.description_outlined), text: 'Templates'),
             ],
           ),
         ),
@@ -110,16 +124,13 @@ class _HubScreenState extends ConsumerState<HubScreen>
                 child: TabBarView(
                   controller: _tabs,
                   children: [
-                    _AttentionTab(items: st.attention),
-                    _FeedTab(projects: st.projects),
-                    _TasksTab(projects: st.projects),
-                    _TemplatesTab(items: st.templates),
+                    _ProjectsTab(items: st.projects),
                     _AgentsTab(
                         items: st.agents,
                         hosts: st.hosts,
                         spawns: st.spawns),
                     _HostsTab(items: st.hosts),
-                    _ProjectsTab(items: st.projects),
+                    _TemplatesTab(items: st.templates),
                   ],
                 ),
               ),
@@ -128,6 +139,84 @@ class _HubScreenState extends ConsumerState<HubScreen>
         },
       ),
     );
+  }
+}
+
+/// Tiny pill in the AppBar that opens the team-scope `#hub-meta` channel
+/// (the principal↔steward room). Lazily looks up the channel id on tap —
+/// no state plumbing needed because the channel list is small and the
+/// hub auto-seeds hub-meta.
+class _StewardChip extends ConsumerWidget {
+  const _StewardChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final configured = ref.watch(hubProvider).value?.configured ?? false;
+    if (!configured) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+      child: Material(
+        color: DesignColors.primary.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _openSteward(context, ref),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome,
+                    size: 14, color: DesignColors.primary),
+                const SizedBox(width: 6),
+                Text(
+                  'Steward',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: DesignColors.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openSteward(BuildContext context, WidgetRef ref) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final channels = await client.listTeamChannels();
+      final meta = channels.firstWhere(
+        (c) => c['name'] == 'hub-meta',
+        orElse: () => const {},
+      );
+      if (meta.isEmpty) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('#hub-meta channel not found')),
+          );
+        }
+        return;
+      }
+      if (context.mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => TeamChannelScreen(
+            channelId: (meta['id'] ?? '').toString(),
+            channelName: (meta['name'] ?? '').toString(),
+          ),
+        ));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Open steward failed: $e')),
+        );
+      }
+    }
   }
 }
 
@@ -206,960 +295,6 @@ class _ErrorBanner extends StatelessWidget {
           style: GoogleFonts.jetBrainsMono(
               fontSize: 11, color: DesignColors.error)),
     );
-  }
-}
-
-// ---------------------------------------------------------------------
-// Attention tab — approve / reject / resolve
-// ---------------------------------------------------------------------
-
-class _AttentionTab extends ConsumerWidget {
-  final List<Map<String, dynamic>> items;
-  const _AttentionTab({required this.items});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (items.isEmpty) {
-      return const _EmptyText(text: 'No open attention items');
-    }
-    return RefreshIndicator(
-      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (_, i) => _AttentionCard(item: items[i]),
-      ),
-    );
-  }
-}
-
-class _AttentionCard extends ConsumerWidget {
-  final Map<String, dynamic> item;
-  const _AttentionCard({required this.item});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final severity = (item['severity'] ?? 'minor') as String;
-    final kind = (item['kind'] ?? '') as String;
-    final summary = (item['summary'] ?? '') as String;
-    final id = (item['id'] ?? '') as String;
-    final createdAt = (item['created_at'] ?? '') as String;
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: _severityColor(severity).withValues(alpha: 0.5),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _Chip(text: kind, color: DesignColors.primary),
-              const SizedBox(width: 6),
-              _Chip(text: severity, color: _severityColor(severity)),
-              const Spacer(),
-              Text(
-                _shortTs(createdAt),
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    color: isDark
-                        ? DesignColors.textMuted
-                        : DesignColors.textMutedLight),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            summary,
-            style: GoogleFonts.spaceGrotesk(
-                fontSize: 14, fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 10),
-          if (kind == 'approval_request' ||
-              kind == 'decision' ||
-              kind == 'template_proposal')
-            Row(
-              children: [
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.check, size: 16),
-                  label: const Text('Approve'),
-                  onPressed: () => _decide(context, ref, id, 'approve'),
-                ),
-                const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.close, size: 16),
-                  label: const Text('Reject'),
-                  style: OutlinedButton.styleFrom(
-                      foregroundColor: DesignColors.error),
-                  onPressed: () => _decide(context, ref, id, 'reject'),
-                ),
-              ],
-            )
-          else
-            OutlinedButton.icon(
-              icon: const Icon(Icons.done, size: 16),
-              label: const Text('Resolve'),
-              onPressed: () => _resolve(context, ref, id),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _decide(
-      BuildContext context, WidgetRef ref, String id, String decision) async {
-    try {
-      await ref.read(hubProvider.notifier).decide(id, decision, by: '@mobile');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decision recorded: $decision')),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Decide failed: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _resolve(BuildContext context, WidgetRef ref, String id) async {
-    try {
-      await ref.read(hubProvider.notifier).resolve(id, by: '@mobile');
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Resolved')));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Resolve failed: $e')),
-        );
-      }
-    }
-  }
-
-  Color _severityColor(String s) {
-    switch (s) {
-      case 'critical':
-        return DesignColors.error;
-      case 'major':
-        return Colors.orange;
-      case 'minor':
-        return DesignColors.primary;
-      default:
-        return DesignColors.primary;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------
-// Feed tab — pick a channel, subscribe to SSE
-// ---------------------------------------------------------------------
-
-class _FeedTab extends ConsumerStatefulWidget {
-  final List<Map<String, dynamic>> projects;
-  const _FeedTab({required this.projects});
-
-  @override
-  ConsumerState<_FeedTab> createState() => _FeedTabState();
-}
-
-class _FeedTabState extends ConsumerState<_FeedTab> {
-  String? _projectId;
-  String? _channelId;
-  List<Map<String, dynamic>> _channels = const [];
-
-  @override
-  void dispose() {
-    ref.read(hubFeedProvider.notifier).stop();
-    super.dispose();
-  }
-
-  Future<void> _loadChannels(String projectId) async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      final chans = await client.listChannels(projectId);
-      if (!mounted) return;
-      setState(() {
-        _channels = chans;
-        _channelId = null;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _channels = const []);
-    }
-  }
-
-  void _subscribe() {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null || _projectId == null || _channelId == null) return;
-    ref.read(hubFeedProvider.notifier).subscribe(
-          client: client,
-          projectId: _projectId!,
-          channelId: _channelId!,
-        );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final feed = ref.watch(hubFeedProvider);
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _projectId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Project',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: widget.projects
-                      .map((p) => DropdownMenuItem<String>(
-                            value: p['id']?.toString(),
-                            child: Text(p['name']?.toString() ?? '?'),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() => _projectId = v);
-                    if (v != null) _loadChannels(v);
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: _channelId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Channel',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  items: _channels
-                      .map((c) => DropdownMenuItem<String>(
-                            value: c['id']?.toString(),
-                            child: Text(c['name']?.toString() ?? '?'),
-                          ))
-                      .toList(),
-                  onChanged: (v) {
-                    setState(() => _channelId = v);
-                    _subscribe();
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: feed.isEmpty
-              ? const _EmptyText(
-                  text: 'Pick a project and channel to stream events')
-              : ListView.separated(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: feed.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _FeedRow(entry: feed[i]),
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FeedRow extends StatelessWidget {
-  final HubFeedEntry entry;
-  const _FeedRow({required this.entry});
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: isDark
-                ? DesignColors.borderDark
-                : DesignColors.borderLight),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _Chip(text: entry.type, color: DesignColors.primary),
-              const SizedBox(width: 6),
-              if (entry.fromId.isNotEmpty)
-                Flexible(
-                  child: Text(entry.fromId,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.jetBrainsMono(fontSize: 11)),
-                ),
-              const Spacer(),
-              Text(
-                entry.ts == null
-                    ? ''
-                    : '${entry.ts!.hour.toString().padLeft(2, '0')}:'
-                        '${entry.ts!.minute.toString().padLeft(2, '0')}:'
-                        '${entry.ts!.second.toString().padLeft(2, '0')}',
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    color: isDark
-                        ? DesignColors.textMuted
-                        : DesignColors.textMutedLight),
-              ),
-            ],
-          ),
-          if (entry.preview.isNotEmpty && entry.excerpts.isEmpty) ...[
-            const SizedBox(height: 6),
-            Text(entry.preview,
-                style: GoogleFonts.jetBrainsMono(fontSize: 12)),
-          ],
-          for (final ex in entry.excerpts) ...[
-            const SizedBox(height: 8),
-            _ExcerptBlock(excerpt: ex),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// Renders an excerpt with a line-number gutter and a horizontally-
-/// scrollable monospace body so long lines don't wrap awkwardly. No
-/// syntax highlighting yet — a proper highlighter pulls in ~1 MB of
-/// grammar data, not worth it until users ask.
-class _ExcerptBlock extends StatelessWidget {
-  final HubExcerpt excerpt;
-  const _ExcerptBlock({required this.excerpt});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final lines = excerpt.content.split('\n');
-    // Drop a trailing empty line — hub excerpts almost always end with
-    // one, and it just creates a bare line number.
-    if (lines.isNotEmpty && lines.last.isEmpty) lines.removeLast();
-    final startLine = excerpt.lineFrom ?? 1;
-    final gutterWidth = (startLine + lines.length).toString().length;
-    final headerBits = <String>[];
-    if (excerpt.path.isNotEmpty) headerBits.add(excerpt.path);
-    if (excerpt.lineFrom != null && excerpt.lineTo != null) {
-      headerBits.add('L${excerpt.lineFrom}-${excerpt.lineTo}');
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.black.withValues(alpha: 0.35)
-            : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (headerBits.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text(
-                headerBits.join(' · '),
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  color: isDark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight,
-                ),
-              ),
-            ),
-          if (headerBits.isNotEmpty) const SizedBox(height: 4),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var i = 0; i < lines.length; i++)
-                    Row(
-                      children: [
-                        SizedBox(
-                          width: (gutterWidth * 8.0) + 8,
-                          child: Text(
-                            (startLine + i).toString(),
-                            textAlign: TextAlign.right,
-                            style: GoogleFonts.jetBrainsMono(
-                              fontSize: 11,
-                              color: isDark
-                                  ? DesignColors.textMuted
-                                  : DesignColors.textMutedLight,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          lines[i].isEmpty ? ' ' : lines[i],
-                          style: GoogleFonts.jetBrainsMono(fontSize: 12),
-                        ),
-                      ],
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------
-// Tasks tab — pick a project, list tasks, tap to update status
-// ---------------------------------------------------------------------
-
-class _TasksTab extends ConsumerStatefulWidget {
-  final List<Map<String, dynamic>> projects;
-  const _TasksTab({required this.projects});
-
-  @override
-  ConsumerState<_TasksTab> createState() => _TasksTabState();
-}
-
-// Kanban columns, left-to-right. Swiping end→start on a card advances it
-// one column to the right; start→end reverses it.
-const List<String> _kanbanStatuses = ['open', 'in_progress', 'done'];
-
-class _TasksTabState extends ConsumerState<_TasksTab> {
-  String? _projectId;
-  List<Map<String, dynamic>> _tasks = const [];
-  bool _loading = false;
-  String? _error;
-  final PageController _pages = PageController();
-  int _currentColumn = 0;
-
-  @override
-  void dispose() {
-    _pages.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final client = ref.read(hubProvider.notifier).client;
-    final pid = _projectId;
-    if (client == null || pid == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      // Pull every status once and bucket locally — lets us show counts and
-      // move cards between columns without refetching on every swipe.
-      final items = await client.listTasks(pid);
-      if (!mounted) return;
-      setState(() {
-        _tasks = items;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = '$e';
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _patchStatus(Map<String, dynamic> task, String status) async {
-    final client = ref.read(hubProvider.notifier).client;
-    final pid = _projectId;
-    final tid = task['id']?.toString();
-    if (client == null || pid == null || tid == null) return;
-    // Optimistic: flip the card locally so the board updates immediately.
-    final prev = task['status']?.toString() ?? 'open';
-    setState(() => task['status'] = status);
-    try {
-      await client.patchTask(pid, tid, status: status);
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Task → $status')));
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => task['status'] = prev);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Update failed: $e')));
-    }
-  }
-
-  List<Map<String, dynamic>> _tasksIn(String status) {
-    return _tasks
-        .where((t) => (t['status']?.toString() ?? 'open') == status)
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: DropdownButtonFormField<String>(
-            initialValue: _projectId,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: 'Project',
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
-            items: widget.projects
-                .map((p) => DropdownMenuItem<String>(
-                      value: p['id']?.toString(),
-                      child: Text(p['name']?.toString() ?? '?'),
-                    ))
-                .toList(),
-            onChanged: (v) {
-              setState(() => _projectId = v);
-              if (v != null) _load();
-            },
-          ),
-        ),
-        _KanbanHeader(
-          currentIndex: _currentColumn,
-          counts: {
-            for (final s in _kanbanStatuses) s: _tasksIn(s).length,
-          },
-          onTap: (i) {
-            setState(() => _currentColumn = i);
-            _pages.animateToPage(
-              i,
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-            );
-          },
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: _projectId == null
-              ? const _EmptyText(text: 'Pick a project to list its tasks')
-              : _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                      ? _EmptyText(text: _error!)
-                      : PageView.builder(
-                          controller: _pages,
-                          itemCount: _kanbanStatuses.length,
-                          onPageChanged: (i) =>
-                              setState(() => _currentColumn = i),
-                          itemBuilder: (_, i) {
-                            final status = _kanbanStatuses[i];
-                            final bucket = _tasksIn(status);
-                            if (bucket.isEmpty) {
-                              return RefreshIndicator(
-                                onRefresh: _load,
-                                child: ListView(
-                                  children: [
-                                    SizedBox(
-                                      height: 240,
-                                      child: _EmptyText(
-                                          text: 'No $status tasks'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }
-                            // Index lookups for parent title + subtask count
-                            // so the card can surface task hierarchy inline.
-                            final byId = {
-                              for (final t in _tasks)
-                                (t['id']?.toString() ?? ''): t,
-                            };
-                            final childCounts = <String, int>{};
-                            for (final t in _tasks) {
-                              final pid =
-                                  t['parent_task_id']?.toString() ?? '';
-                              if (pid.isEmpty) continue;
-                              childCounts[pid] = (childCounts[pid] ?? 0) + 1;
-                            }
-                            return RefreshIndicator(
-                              onRefresh: _load,
-                              child: ListView.separated(
-                                padding: const EdgeInsets.all(12),
-                                itemCount: bucket.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 8),
-                                itemBuilder: (_, j) {
-                                  final task = bucket[j];
-                                  final pid =
-                                      task['parent_task_id']?.toString() ??
-                                          '';
-                                  final parentTitle = pid.isEmpty
-                                      ? null
-                                      : byId[pid]?['title']?.toString();
-                                  final childCount = childCounts[
-                                          task['id']?.toString() ?? ''] ??
-                                      0;
-                                  return _SwipableTaskCard(
-                                    key: ValueKey(
-                                        'task-${task['id']}-$status'),
-                                    task: task,
-                                    columnIndex: i,
-                                    onAdvance: (s) => _patchStatus(task, s),
-                                    parentTitle: parentTitle,
-                                    childCount: childCount,
-                                  );
-                                },
-                              ),
-                            );
-                          },
-                        ),
-        ),
-      ],
-    );
-  }
-}
-
-class _KanbanHeader extends StatelessWidget {
-  final int currentIndex;
-  final Map<String, int> counts;
-  final ValueChanged<int> onTap;
-  const _KanbanHeader({
-    required this.currentIndex,
-    required this.counts,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          for (var i = 0; i < _kanbanStatuses.length; i++)
-            Expanded(
-              child: _KanbanPill(
-                status: _kanbanStatuses[i],
-                count: counts[_kanbanStatuses[i]] ?? 0,
-                selected: i == currentIndex,
-                onTap: () => onTap(i),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _KanbanPill extends StatelessWidget {
-  final String status;
-  final int count;
-  final bool selected;
-  final VoidCallback onTap;
-  const _KanbanPill({
-    required this.status,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = _statusPillColor(status);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected
-              ? color.withValues(alpha: 0.18)
-              : (isDark
-                  ? DesignColors.surfaceDark
-                  : DesignColors.surfaceLight),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(
-            color: selected
-                ? color
-                : (isDark
-                    ? DesignColors.borderDark
-                    : DesignColors.borderLight),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(status,
-                style: GoogleFonts.spaceGrotesk(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: selected ? color : null)),
-            Text('$count',
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 14, fontWeight: FontWeight.w700)),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-Color _statusPillColor(String status) {
-  switch (status) {
-    case 'done':
-      return Colors.green;
-    case 'in_progress':
-      return Colors.orange;
-    case 'open':
-    default:
-      return DesignColors.primary;
-  }
-}
-
-class _SwipableTaskCard extends StatelessWidget {
-  final Map<String, dynamic> task;
-  final int columnIndex;
-  final void Function(String) onAdvance;
-  final String? parentTitle;
-  final int childCount;
-  const _SwipableTaskCard({
-    super.key,
-    required this.task,
-    required this.columnIndex,
-    required this.onAdvance,
-    this.parentTitle,
-    this.childCount = 0,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasNext = columnIndex < _kanbanStatuses.length - 1;
-    final hasPrev = columnIndex > 0;
-    return Dismissible(
-      key: ValueKey('dismiss-${task['id']}-$columnIndex'),
-      direction: hasNext && hasPrev
-          ? DismissDirection.horizontal
-          : hasNext
-              ? DismissDirection.endToStart
-              : DismissDirection.startToEnd,
-      background: _swipeBackground(
-        alignment: Alignment.centerLeft,
-        color: DesignColors.primary,
-        icon: Icons.arrow_back,
-        label: hasPrev
-            ? 'Move to ${_kanbanStatuses[columnIndex - 1]}'
-            : '',
-      ),
-      secondaryBackground: _swipeBackground(
-        alignment: Alignment.centerRight,
-        color: _statusPillColor(
-            hasNext ? _kanbanStatuses[columnIndex + 1] : 'done'),
-        icon: Icons.arrow_forward,
-        label: hasNext
-            ? 'Move to ${_kanbanStatuses[columnIndex + 1]}'
-            : '',
-      ),
-      confirmDismiss: (dir) async {
-        if (dir == DismissDirection.endToStart && hasNext) {
-          onAdvance(_kanbanStatuses[columnIndex + 1]);
-        } else if (dir == DismissDirection.startToEnd && hasPrev) {
-          onAdvance(_kanbanStatuses[columnIndex - 1]);
-        }
-        // Return false so Dismissible snaps back and we can manage the list
-        // ourselves via the optimistic status flip.
-        return false;
-      },
-      child: _TaskCard(
-        task: task,
-        onAdvance: onAdvance,
-        parentTitle: parentTitle,
-        childCount: childCount,
-      ),
-    );
-  }
-
-  Widget _swipeBackground({
-    required Alignment alignment,
-    required Color color,
-    required IconData icon,
-    required String label,
-  }) {
-    return Container(
-      alignment: alignment,
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (alignment == Alignment.centerLeft) Icon(icon, color: color),
-          if (label.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(label,
-                  style: GoogleFonts.spaceGrotesk(
-                      color: color, fontWeight: FontWeight.w600)),
-            ),
-          if (alignment == Alignment.centerRight) Icon(icon, color: color),
-        ],
-      ),
-    );
-  }
-}
-
-class _TaskCard extends StatelessWidget {
-  final Map<String, dynamic> task;
-  final void Function(String) onAdvance;
-  final String? parentTitle;
-  final int childCount;
-  const _TaskCard({
-    required this.task,
-    required this.onAdvance,
-    this.parentTitle,
-    this.childCount = 0,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final status = (task['status'] ?? 'open') as String;
-    final title = (task['title'] ?? '(untitled)') as String;
-    final body = (task['body_md'] ?? '') as String;
-    final updated = (task['updated_at'] ?? '') as String;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-            color:
-                isDark ? DesignColors.borderDark : DesignColors.borderLight),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              _Chip(text: status, color: _statusColor(status)),
-              if (childCount > 0) ...[
-                const SizedBox(width: 6),
-                _Chip(
-                  text: '$childCount subtask${childCount == 1 ? '' : 's'}',
-                  color: DesignColors.primary,
-                ),
-              ],
-              const Spacer(),
-              Text(_shortTs(updated),
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight)),
-            ],
-          ),
-          if (parentTitle != null && parentTitle!.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Icon(
-                  Icons.subdirectory_arrow_right,
-                  size: 14,
-                  color: isDark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    parentTitle!,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-          const SizedBox(height: 6),
-          Text(title,
-              style: GoogleFonts.spaceGrotesk(
-                  fontSize: 14, fontWeight: FontWeight.w600)),
-          if (body.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              body,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  color: isDark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            children: [
-              if (status != 'in_progress')
-                OutlinedButton(
-                  onPressed: () => onAdvance('in_progress'),
-                  child: const Text('Start'),
-                ),
-              if (status != 'done')
-                OutlinedButton(
-                  onPressed: () => onAdvance('done'),
-                  child: const Text('Done'),
-                ),
-              if (status != 'open')
-                OutlinedButton(
-                  onPressed: () => onAdvance('open'),
-                  child: const Text('Reopen'),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'done':
-        return Colors.green;
-      case 'in_progress':
-        return Colors.orange;
-      case 'open':
-        return DesignColors.primary;
-      default:
-        return DesignColors.primary;
-    }
   }
 }
 
@@ -2082,23 +1217,54 @@ class _ProjectsTab extends ConsumerWidget {
   const _ProjectsTab({required this.items});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (items.isEmpty) return const _EmptyText(text: 'No projects yet');
-    return RefreshIndicator(
-      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final p = items[i];
-          return _InfoTile(
-            title: p['name']?.toString() ?? '?',
-            subtitle: p['status']?.toString() ?? '',
-            trailing: _shortTs((p['created_at'] ?? '') as String),
+    final body = items.isEmpty
+        ? const _EmptyText(text: 'No projects yet — tap + to create one')
+        : RefreshIndicator(
+            onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (_, i) {
+                final p = items[i];
+                return _InfoTile(
+                  title: p['name']?.toString() ?? '?',
+                  subtitle: p['status']?.toString() ?? '',
+                  trailing: _shortTs((p['created_at'] ?? '') as String),
+                  onTap: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ProjectDetailScreen(project: p),
+                    ));
+                  },
+                );
+              },
+            ),
           );
-        },
-      ),
+    return Stack(
+      children: [
+        Positioned.fill(child: body),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton(
+            heroTag: 'hub-projects-fab',
+            onPressed: () => _openCreateSheet(context, ref),
+            child: const Icon(Icons.add),
+          ),
+        ),
+      ],
     );
+  }
+
+  Future<void> _openCreateSheet(BuildContext context, WidgetRef ref) async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const ProjectCreateSheet(),
+    );
+    if (created == true) {
+      await ref.read(hubProvider.notifier).refreshAll();
+    }
   }
 }
 

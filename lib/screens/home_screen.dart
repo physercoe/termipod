@@ -10,17 +10,17 @@ import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
 import 'connections/connections_screen.dart';
-import 'dashboard/dashboard_screen.dart';
+import 'inbox/inbox_screen.dart';
 import 'vault/vault_screen.dart';
 import 'hub/hub_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
 
 /// 現在のタブインデックス Notifier
-/// タブ順序: 0=Servers, 1=Vault, 2=Dashboard, 3=Hub, 4=Settings
+/// タブ順序: 0=Servers, 1=Vault, 2=Inbox, 3=Hub, 4=Settings
 class CurrentTabNotifier extends Notifier<int> {
   @override
-  int build() => 2; // Dashboard（中央）をデフォルトに
+  int build() => 2; // Inbox（中央）をデフォルトに
 
   void setTab(int index) => state = index;
 }
@@ -30,7 +30,7 @@ final currentTabProvider = NotifierProvider<CurrentTabNotifier, int>(
 );
 
 /// ホーム画面（Bottom Navigation付き）
-/// タブ順序: Servers | Vault | [Dashboard] | Hub | Settings
+/// タブ順序: Servers | Vault | [Inbox] | Hub | Settings
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -44,7 +44,7 @@ class HomeScreen extends ConsumerWidget {
         children: const [
           ConnectionsScreen(),  // 0: Servers
           VaultScreen(),        // 1: Vault (Keys + Snippets)
-          DashboardScreen(),    // 2: Dashboard（中央）
+          InboxScreen(),        // 2: Inbox（中央）
           HubScreen(),          // 3: Hub
           SettingsScreen(),     // 4: Settings
         ],

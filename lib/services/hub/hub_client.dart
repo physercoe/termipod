@@ -162,6 +162,26 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listChannels(String projectId) =>
       _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
 
+  /// Team-scope channels (project_id NULL, scope_kind='team'). `#hub-meta`
+  /// is auto-seeded by hub init — it's the principal↔steward room.
+  Future<List<Map<String, dynamic>>> listTeamChannels() =>
+      _listJson('/v1/teams/${cfg.teamId}/channels');
+
+  Future<Map<String, dynamic>> createTeamChannel(String name) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/channels',
+      {'name': name},
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Humans don't have a dedicated table; they're tracked as `auth_tokens`
+  /// rows with `scope.role='principal'`. This endpoint coalesces by
+  /// `scope.handle`, returning one row per unique handle plus a bucket for
+  /// unnamed tokens.
+  Future<List<Map<String, dynamic>>> listPrincipals() =>
+      _listJson('/v1/teams/${cfg.teamId}/principals');
+
   Future<List<Map<String, dynamic>>> listAttention({String? status}) =>
       _listJson(
         '/v1/teams/${cfg.teamId}/attention',
@@ -231,6 +251,152 @@ class HubClient {
     final out = await _get(path, query: query);
     if (out == null) return const [];
     return (out as List).cast<Map<String, dynamic>>();
+  }
+
+  // ---- project / task / channel writes ----
+
+  Future<Map<String, dynamic>> createProject({
+    required String name,
+    String? docsRoot,
+    String? configYaml,
+  }) async {
+    final body = <String, dynamic>{'name': name};
+    if (docsRoot != null && docsRoot.isNotEmpty) body['docs_root'] = docsRoot;
+    if (configYaml != null && configYaml.isNotEmpty) {
+      body['config_yaml'] = configYaml;
+    }
+    final out = await _post('/v1/teams/${cfg.teamId}/projects', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> archiveProject(String projectId) async {
+    await _delete('/v1/teams/${cfg.teamId}/projects/$projectId');
+  }
+
+  Future<Map<String, dynamic>> createTask(
+    String projectId, {
+    required String title,
+    String? bodyMd,
+    String? assigneeId,
+    String? parentTaskId,
+    String? status,
+  }) async {
+    final body = <String, dynamic>{'title': title};
+    if (bodyMd != null && bodyMd.isNotEmpty) body['body_md'] = bodyMd;
+    if (assigneeId != null && assigneeId.isNotEmpty) {
+      body['assignee_id'] = assigneeId;
+    }
+    if (parentTaskId != null && parentTaskId.isNotEmpty) {
+      body['parent_task_id'] = parentTaskId;
+    }
+    if (status != null && status.isNotEmpty) body['status'] = status;
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
+      body,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> createChannel(
+    String projectId,
+    String name,
+  ) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/channels',
+      {'name': name},
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Shared POST for both project- and team-scope channels. [path] is the
+  /// channel events URL the server mounts the reused [handlePostEvent] on.
+  Future<Map<String, dynamic>> _postEvent(
+    String path, {
+    required String type,
+    List<Map<String, dynamic>>? parts,
+    String? fromId,
+    List<String>? toIds,
+    String? taskId,
+    String? correlationId,
+  }) async {
+    final body = <String, dynamic>{'type': type};
+    if (parts != null) body['parts'] = parts;
+    if (fromId != null && fromId.isNotEmpty) body['from_id'] = fromId;
+    if (toIds != null && toIds.isNotEmpty) body['to_ids'] = toIds;
+    if (taskId != null && taskId.isNotEmpty) body['task_id'] = taskId;
+    if (correlationId != null && correlationId.isNotEmpty) {
+      body['correlation_id'] = correlationId;
+    }
+    final out = await _post(path, body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> postProjectChannelEvent(
+    String projectId,
+    String channelId, {
+    required String type,
+    List<Map<String, dynamic>>? parts,
+    String? fromId,
+    List<String>? toIds,
+    String? taskId,
+    String? correlationId,
+  }) =>
+      _postEvent(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
+        type: type,
+        parts: parts,
+        fromId: fromId,
+        toIds: toIds,
+        taskId: taskId,
+        correlationId: correlationId,
+      );
+
+  Future<Map<String, dynamic>> postTeamChannelEvent(
+    String channelId, {
+    required String type,
+    List<Map<String, dynamic>>? parts,
+    String? fromId,
+    List<String>? toIds,
+    String? taskId,
+    String? correlationId,
+  }) =>
+      _postEvent(
+        '/v1/teams/${cfg.teamId}/channels/$channelId/events',
+        type: type,
+        parts: parts,
+        fromId: fromId,
+        toIds: toIds,
+        taskId: taskId,
+        correlationId: correlationId,
+      );
+
+  Future<List<Map<String, dynamic>>> listTeamChannelEvents(
+    String channelId, {
+    String? since,
+    int? limit,
+  }) {
+    final q = <String, String>{};
+    if (since != null && since.isNotEmpty) q['since'] = since;
+    if (limit != null) q['limit'] = '$limit';
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/channels/$channelId/events',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> listProjectChannelEvents(
+    String projectId,
+    String channelId, {
+    String? since,
+    int? limit,
+  }) {
+    final q = <String, String>{};
+    if (since != null && since.isNotEmpty) q['since'] = since;
+    if (limit != null) q['limit'] = '$limit';
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
+      query: q.isEmpty ? null : q,
+    );
   }
 
   // ---- spawn ----
@@ -371,10 +537,28 @@ class HubClient {
     String projectId,
     String channelId, {
     String? since,
+  }) =>
+      _streamPath(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/stream',
+        since: since,
+      );
+
+  Stream<Map<String, dynamic>> streamTeamEvents(
+    String channelId, {
+    String? since,
+  }) =>
+      _streamPath(
+        '/v1/teams/${cfg.teamId}/channels/$channelId/stream',
+        since: since,
+      );
+
+  Stream<Map<String, dynamic>> _streamPath(
+    String path, {
+    String? since,
   }) async* {
     final req = await _open(
       'GET',
-      '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/stream',
+      path,
       query: since == null ? null : {'since': since},
     );
     req.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');

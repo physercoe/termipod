@@ -35,7 +35,7 @@ import 'package:termipod/providers/notification_panes_provider.dart';
 import 'package:termipod/providers/settings_provider.dart';
 import 'package:termipod/providers/snippet_provider.dart';
 import 'package:termipod/screens/connections/connections_screen.dart';
-import 'package:termipod/screens/dashboard/dashboard_screen.dart';
+import 'package:termipod/screens/inbox/inbox_screen.dart';
 import 'package:termipod/screens/notifications/notification_panes_screen.dart';
 import 'package:termipod/screens/settings/settings_screen.dart';
 import 'package:termipod/screens/vault/vault_screen.dart';
@@ -299,7 +299,7 @@ void main() {
 
   group('Screenshots', () {
     testWidgets('dashboard_dark', (tester) async {
-      await _captureScreenshot(tester, _buildScreenshot(child: const DashboardScreen()), 'goldens/dashboard_dark.png');
+      await _captureScreenshot(tester, _buildScreenshot(child: const InboxScreen()), 'goldens/dashboard_dark.png');
     });
 
     testWidgets('servers_dark', (tester) async {
@@ -319,7 +319,7 @@ void main() {
     });
 
     testWidgets('dashboard_light', (tester) async {
-      await _captureScreenshot(tester, _buildScreenshot(child: const DashboardScreen(), dark: false), 'goldens/dashboard_light.png');
+      await _captureScreenshot(tester, _buildScreenshot(child: const InboxScreen(), dark: false), 'goldens/dashboard_light.png');
     });
 
     testWidgets('servers_light', (tester) async {

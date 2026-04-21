@@ -1466,6 +1466,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   Future<void> _loadPane({bool refresh = false}) async {
     if (!_hasPane) return;
     final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
     final out = await _guard(() => client.getAgentPane(_id, refresh: refresh));
     if (out == null || !mounted) return;
     setState(() {
@@ -1476,6 +1477,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
 
   Future<void> _loadJournal() async {
     final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
     final out = await _guard(() => client.readAgentJournal(_id));
     if (!mounted) return;
     setState(() {
@@ -1488,15 +1490,19 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     final entry = _noteCtl.text.trim();
     if (entry.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
-    final ok =
-        await _guard(() => client.appendAgentJournal(_id, entry)) != null;
-    if (!mounted || !ok) return;
+    if (client == null) return;
+    final ok = await _guard(() async {
+      await client.appendAgentJournal(_id, entry);
+      return true;
+    });
+    if (!mounted || ok != true) return;
     _noteCtl.clear();
     await _loadJournal();
   }
 
   Future<void> _pauseOrResume() async {
     final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
     final ok = await _guard(() =>
         _isPaused ? client.resumeAgent(_id) : client.pauseAgent(_id));
     if (ok == null || !mounted) return;
@@ -1533,8 +1539,12 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     );
     if (ok != true) return;
     final client = ref.read(hubProvider.notifier).client;
-    final done = await _guard(() => client.terminateAgent(_id));
-    if (done == null || !mounted) return;
+    if (client == null) return;
+    final done = await _guard(() async {
+      await client.terminateAgent(_id);
+      return true;
+    });
+    if (done != true || !mounted) return;
     await ref.read(hubProvider.notifier).refreshAll();
     if (mounted) Navigator.pop(context);
   }
@@ -1769,7 +1779,9 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
       _error = null;
     });
     try {
-      await ref.read(hubProvider.notifier).client.deleteHost(id);
+      final client = ref.read(hubProvider.notifier).client;
+      if (client == null) return;
+      await client.deleteHost(id);
       if (!mounted) return;
       await ref.read(hubProvider.notifier).refreshAll();
       if (mounted) Navigator.pop(context);

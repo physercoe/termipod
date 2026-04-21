@@ -204,10 +204,10 @@ From any machine:
 
 ```bash
 curl -fsS -H "Authorization: Bearer <owner-token>" \
-     https://hub.example.com/v1/version
+     https://hub.example.com/v1/_info
 ```
 
-Expected: a JSON blob with the hub version.
+Expected: `{"server_version":"…","supported_api_versions":["v1"],"schema_versions_supported":[1]}`.
 
 ---
 
@@ -216,23 +216,34 @@ Expected: a JSON blob with the hub version.
 The owner token is fine for the first phone. For additional devices,
 agents, or hosts, mint scoped tokens:
 
+Run the issuer as the hub's service user so it can read the sqlite DB
+under `/var/lib/termipod-hub` (owned by `termipod-hub`, mode `0750`).
+Bare `hub-server tokens ...` from your login shell will fail with
+`sqlite: unable to open database file`:
+
 ```bash
 # Another user device on the default team
-hub-server tokens issue -kind user -team default -role member \
-     -data /var/lib/termipod-hub
+sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
+     -data /var/lib/termipod-hub \
+     -kind user -team default -role member
 
 # An MCP agent, bound to a specific agent id
-hub-server tokens issue -kind agent -team default -role agent \
-     -agent-id claude-42 -data /var/lib/termipod-hub
+sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
+     -data /var/lib/termipod-hub \
+     -kind agent -team default -role agent -agent-id claude-42
 
-# A host-runner (collects process/load metrics)
-hub-server tokens issue -kind host -team default -role host \
+# A host-runner
+sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
+     -data /var/lib/termipod-hub \
+     -kind host -team default -role host
+
+sudo -u termipod-hub /usr/local/bin/hub-server tokens list \
      -data /var/lib/termipod-hub
-
-hub-server tokens list -data /var/lib/termipod-hub
 ```
 
 Plaintext is printed once. Only SHA-256 hashes land in `auth_tokens`.
+(Track A / LAN test is simpler — if the data root is in your own
+`$HOME`, just run `hub-server tokens …` directly without sudo.)
 
 ---
 

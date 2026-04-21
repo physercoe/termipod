@@ -72,14 +72,99 @@ sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
      -kind host -team default -role host
 ```
 
-The plaintext token is printed once. Issue **one token per host-runner
-instance** (so one per login user if you plan to run multiple on a
-box) — tokens bind 1:1 to the `host_id` the runner registers under.
+The plaintext token is printed once — copy it now. `kind=host` scopes
+the token to register / heartbeat / spawn-list / command-list /
+agent-patch and nothing else; never reuse an owner token here.
 
-Transfer each token to the target host over a secure channel. The env
-file lives at `/etc/termipod-host/<username>.env` — the basename must
-match the Linux login user the instance will run as, because the
-systemd template reads `EnvironmentFile=/etc/termipod-host/%i.env`:
+Issue **one token per host-runner instance** (so one per login user if
+you plan to run multiple on a box) — tokens bind 1:1 to the `host_id`
+the runner registers under.
+
+How the token reaches the host depends on which track you pick below:
+Track A pastes it on the command line, Track B writes it to an env
+file that systemd reads.
+
+## 4. Build the binary
+
+```bash
+# On any box with Go 1.23+ (cross-compile for a different target via
+# GOOS=linux GOARCH=amd64):
+cd hub
+go build -o ~/host-runner ./cmd/host-runner
+```
+
+Copy `~/host-runner` to the target host via scp / rsync / release
+asset. Two install paths follow — pick one.
+
+---
+
+## Track A — Quick start inside tmux (no sudo, no systemd)
+
+For beginners, a local dev box, or trying things out. You end up with
+a host-runner process attached to your **current** tmux session,
+spawning agents into new windows alongside whatever else you're doing.
+
+**What you need:** the host token from §3, a running tmux session,
+and the binary somewhere on `$PATH` (or a direct path to `~/host-runner`).
+
+```bash
+# Inside a tmux session (attach first with `tmux attach` or start one
+# with `tmux new -s work`):
+
+~/host-runner run \
+  --hub   https://hub.example.com \
+  --team  default \
+  --token <paste-the-host-token> \
+  --tmux-session "$(tmux display-message -p '#S')"
+```
+
+That's it. What the flags do:
+
+- `--hub` / `--team` / `--token` — where to connect and who you are.
+- `--tmux-session "$(tmux display-message -p '#S')"` — the magic bit.
+  Tells the runner to use the tmux session you're **already in**, so
+  spawned agents appear as new windows in that session instead of a
+  separate `hub-agents` session you'd have to attach to.
+
+Leave the shell running (or detach the whole tmux session with
+`Ctrl-b d` and reattach later). The runner heartbeats every 10s and
+polls for spawns every 3s. Each spawn becomes a new window in your
+current session — switch to it with `Ctrl-b n` / `Ctrl-b <N>` or via
+the mobile app's tmux viewer.
+
+**Stopping:** `Ctrl-C` in the runner's pane. The agents it already
+launched keep running in their own windows — close them with
+`Ctrl-b &` or let them finish.
+
+**Limits of Track A.** No auto-restart if the runner crashes, no boot
+persistence, no isolation from your shell environment. Fine for trying
+things out; move to Track B for a long-lived host.
+
+---
+
+## Track B — Systemd template (production, multi-user)
+
+For a host that should come up on boot and survive crashes. Uses the
+shipped template unit so one box can host multiple instances (one per
+login user — see the multi-user section below).
+
+### Install the binary system-wide
+
+```bash
+sudo install -o root -g root -m 0755 ~/host-runner /usr/local/bin/host-runner
+/usr/local/bin/host-runner --help
+```
+
+No system user to create — the runner uses an existing login account
+(`ubuntu`, `admin`, whatever you already SSH as from TermiPod). Backend
+CLIs (claude, codex, git) will find `~/.claude`, `~/.codex`,
+`~/.gitconfig`, `~/.ssh` under that user's real home.
+
+### Drop the token into an env file
+
+The systemd template reads `/etc/termipod-host/%i.env`, where `%i` is
+the Linux login user the instance will run as. The file basename must
+match:
 
 ```bash
 # On the host, as root. Replace "ubuntu" with the target login user.
@@ -89,67 +174,17 @@ printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=%s\n' \
     | sudo install -o root -g ubuntu -m 0640 /dev/stdin /etc/termipod-host/ubuntu.env
 ```
 
-The file is group-readable by the login user, mode `0640`. Re-run with
-a different username + token for each additional instance.
+Mode `0640`, group-readable by the login user. Re-run with a different
+username + token for each additional instance.
 
-`kind=host` scopes the token to register / heartbeat / spawn-list /
-command-list / agent-patch and nothing else. Never reuse an owner
-token here.
-
-## 4. Build and install `host-runner`
-
-Mirror of hub-mobile-test.md §2 + §B.1 — build in a scratch location,
-then `sudo install` the static binary into `/usr/local/bin`. The
-binary is self-contained; cross-compile from a dev box if the target
-architecture differs.
-
-```bash
-# On a builder box (Go 1.23+):
-cd hub
-go build -o /tmp/host-runner ./cmd/host-runner
-
-# Copy /tmp/host-runner to the target host (scp / rsync / release asset),
-# then on the target:
-sudo install -o root -g root -m 0755 /tmp/host-runner /usr/local/bin/host-runner
-/usr/local/bin/host-runner --help
-```
-
-No system user to create — the runner uses an existing login account
-(`ubuntu`, `admin`, whatever you already SSH as from TermiPod). Backend
-CLIs (claude, codex, git) will find `~/.claude`, `~/.codex`,
-`~/.gitconfig`, `~/.ssh` under that user's real home.
-
-### Quick one-shot test before wiring systemd
-
-```bash
-# As the login user the runner will run as (here, "ubuntu"):
-sudo -u ubuntu env $(cat /etc/termipod-host/ubuntu.env | xargs) \
-     /usr/local/bin/host-runner run \
-       --hub   "$HUB_URL" \
-       --team  "$HUB_TEAM" \
-       --token "$HUB_TOKEN" \
-       --name  "$(hostname)-ubuntu" \
-       --launcher tmux --tmux-session hub-agents
-```
-
-Expected stderr: `host registered host_id=h_… name=…`. Verify from
-mobile (Hub → Hosts tab) or:
-
-```bash
-curl -fsS -H "Authorization: Bearer <owner-or-user-token>" \
-     https://hub.example.com/v1/teams/default/hosts | jq
-```
-
-Ctrl-C out of the one-shot before moving to systemd.
-
-## 5. Install the shipped systemd template unit
+### Install the shipped systemd template unit
 
 The repo ships a **template unit** at
 `hub/deploy/systemd/termipod-host@.service`. The `@` means the instance
 name is the login user it runs as: `termipod-host@ubuntu`,
-`termipod-host@admin`, etc. The unit reads
-`/etc/termipod-host/%i.env`, runs as `User=%i`, and registers under the
-name `%H-%i` so each instance shows up distinctly on the Hosts tab.
+`termipod-host@admin`, etc. The unit runs as `User=%i` and registers
+under the name `%H-%i` so each instance shows up distinctly on the
+Hosts tab.
 
 ```bash
 sudo install -m 0644 hub/deploy/systemd/termipod-host@.service \
@@ -185,7 +220,7 @@ Hub now sees `host-01-ubuntu` **and** `host-01-admin` as distinct host
 rows. The mobile app, with two separate TermiPod connections (one for
 each user), can view/drive each user's tmux panes independently.
 
-## 6. Health: how to tell if a host is alive
+## 5. Health: how to tell if a host is alive
 
 There are three signals, in decreasing reliability:
 
@@ -203,10 +238,12 @@ curl -fsS -H "Authorization: Bearer $TOK" \
   | jq '.[] | {name, status, last_seen_at}'
 ```
 
-## 7. Troubleshooting
+## 6. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to
-  the wrong team. Check `hub-server tokens list`; reissue if needed.
+  the wrong team. List tokens with
+  `sudo -u termipod-hub /usr/local/bin/hub-server tokens list -data /var/lib/termipod-hub`;
+  reissue if needed (see §3).
 - **Host registers, then disappears from logs.** The daemon exited.
   `journalctl -u termipod-host@<user>` will show the error. Most
   common: no `tmux` on PATH for that login user, or the `--hub` URL

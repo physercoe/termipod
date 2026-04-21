@@ -128,7 +128,7 @@ Opt-in coordination layer for teams running multiple AI coding agents. Paste a h
 - **Tasks** — three-column Kanban (open / in_progress / done) with swipe-to-advance; cards show parent-task links and subtask counts
 - **Templates** — browse team-wide agent / prompt / policy YAML, tap to view
 - **Agents** — list or tree view; the tree walks `agent_spawns` for a parent→child org chart. FAB opens a YAML **Spawn Agent** form with a template picker, host picker, and **saved presets** (handle + kind + YAML) stored per device
-- **Hosts** — host-agent check-ins with last-seen timestamps
+- **Hosts** — host-runner check-ins with last-seen timestamps
 - **Projects** — project + channel inventory
 
 The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.

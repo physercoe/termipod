@@ -1,10 +1,10 @@
-// Package hostagent implements the host-side daemon that launches backend
+// Package hostrunner implements the host-side daemon that launches backend
 // processes (claude-code, codex) in tmux panes on behalf of the hub.
 //
 // The client here is a thin HTTP wrapper — one function per hub endpoint
-// host-agent cares about. Centralising it keeps retry / auth / JSON encoding
+// host-runner cares about. Centralising it keeps retry / auth / JSON encoding
 // in one place so the main loop stays small.
-package hostagent
+package hostrunner
 
 import (
 	"bytes"
@@ -161,7 +161,7 @@ type EventInPart struct {
 	File *BlobRefWire `json:"file,omitempty"`
 }
 
-// BlobRefWire mirrors events.BlobRef for the subset host-agent needs. Kept
+// BlobRefWire mirrors events.BlobRef for the subset host-runner needs. Kept
 // separate from the server's struct to avoid importing the server package.
 type BlobRefWire struct {
 	URI  string `json:"uri"`

@@ -148,7 +148,7 @@ type agentPatchIn struct {
 	PaneID     *string `json:"pane_id,omitempty"`
 }
 
-// handlePatchAgent lets host-agents / steward update lifecycle fields
+// handlePatchAgent lets host-runners / steward update lifecycle fields
 // as the backing process moves through its states.
 func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
@@ -364,7 +364,7 @@ type spawnListOut struct {
 }
 
 // handleListSpawns returns agent_spawns rows, filtered by host and/or status.
-// Primary caller is the host-agent polling for agents pending launch on its box.
+// Primary caller is the host-runner polling for agents pending launch on its box.
 func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := r.URL.Query().Get("host_id")

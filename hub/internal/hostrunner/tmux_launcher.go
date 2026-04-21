@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 // TmuxLauncher places each spawned agent in a dedicated tmux window under
 // a shared session (default "hub-agents"). The mobile client's `↗ pane`
-// chip renders the returned pane target; the host-agent itself is not in
+// chip renders the returned pane target; the host-runner itself is not in
 // the hot path for pane output (viewers SSH to tmux directly, plan §5).
 //
 // Backend choice: for now every pane runs DefaultCmd. A real launcher would
@@ -27,7 +27,7 @@ func NewTmuxLauncher(session, defaultCmd string, log *slog.Logger) *TmuxLauncher
 		session = "hub-agents"
 	}
 	if defaultCmd == "" {
-		defaultCmd = `bash -c 'echo "[host-agent] pane ready; no backend configured"; exec bash'`
+		defaultCmd = `bash -c 'echo "[host-runner] pane ready; no backend configured"; exec bash'`
 	}
 	return &TmuxLauncher{Session: session, DefaultCmd: defaultCmd, Log: log}
 }

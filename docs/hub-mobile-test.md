@@ -14,7 +14,7 @@ The current release used for testing is **v1.0.42-alpha**.
 **Companion docs:**
 
 - [`hub-host-setup.md`](hub-host-setup.md) — register a host so agents
-  have somewhere to run (host-agent daemon, token, systemd).
+  have somewhere to run (host-runner daemon, token, systemd).
 - [`hub-agents.md`](hub-agents.md) — spawn agents from mobile, REST,
   MCP, or on a schedule; spec YAML schema; lifecycle knobs.
 
@@ -225,7 +225,7 @@ hub-server tokens issue -kind user -team default -role member \
 hub-server tokens issue -kind agent -team default -role agent \
      -agent-id claude-42 -data /var/lib/termipod-hub
 
-# A host-agent (collects process/load metrics)
+# A host-runner (collects process/load metrics)
 hub-server tokens issue -kind host -team default -role host \
      -data /var/lib/termipod-hub
 
@@ -267,7 +267,7 @@ Feed / Attention update live.
 | **Tasks** | Swipeable kanban: **Open / In progress / Done**. Swipe right to promote, left to demote. Tap a card to see its subtasks. Cards with a parent show a chevron to jump up. |
 | **Templates** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
 | **Agents** | **List / Tree** toggle in the app bar. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
-| **Hosts** | Hosts running `host-agent` with a host-kind token show up here with `last_seen_at`. |
+| **Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`. |
 | **Projects** | Project cards with created timestamps. Tap to jump to the channel list. |
 
 ### Round-trip smoke test

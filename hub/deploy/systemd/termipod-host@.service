@@ -1,0 +1,74 @@
+# Termipod host-runner — systemd template unit
+#
+# Pairs with termipod-hub.service. Same install pattern, different role:
+# this runs the daemon that launches backend CLIs (claude, codex) inside
+# tmux panes on this machine.
+#
+# Template unit: the instance name (%i) is the Unix login user that owns
+# the tmux session. This lets multiple users co-exist on one host — each
+# instance registers as its own Hosts-tab row and spawns into that user's
+# tmux socket. The TermiPod mobile app, when SSH'd in as that user, sees
+# the panes natively.
+#
+# Why User=%i instead of a dedicated system user: backend CLIs expect
+# ~/.claude/, ~/.codex/, ~/.gitconfig, ~/.ssh/ under a real login home,
+# and the mobile's tmux attach needs to hit the same /tmp/tmux-<uid>/
+# socket the runner is writing to. One user = one matching home/socket.
+#
+# Install (per login user on the host):
+#
+#   # 1. Build (on any Linux box with Go 1.23+; cross-compile if target differs).
+#   cd hub && go build -o /tmp/host-runner ./cmd/host-runner
+#   sudo install -o root -g root -m 0755 /tmp/host-runner /usr/local/bin/host-runner
+#
+#   # 2. Per-user env file. Name it <username>.env to match the instance.
+#   #    Token comes from:  hub-server tokens issue -kind host …
+#   sudo install -d -o root -g root -m 0755 /etc/termipod-host
+#   printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=paste-here\n' \
+#       | sudo install -o root -g ubuntu -m 0640 /dev/stdin /etc/termipod-host/ubuntu.env
+#
+#   # 3. Install unit + enable the instance.
+#   sudo install -m 0644 termipod-host@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now termipod-host@ubuntu
+#   sudo journalctl -fu termipod-host@ubuntu
+#
+# For a second login user on the same box, repeat step 2 with a new env
+# file (e.g. admin.env, group=admin) and step 3 with termipod-host@admin.
+#
+# Hardening note: this unit is deliberately looser than termipod-hub.service
+# because the daemon shells out to Node.js-based CLIs (claude-code) that need
+# JIT — MemoryDenyWriteExecute and ProtectHome would break them. Tighten only
+# if you know your backend tolerates it.
+
+[Unit]
+Description=Termipod host-runner for %i (launches backend CLIs in tmux)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+EnvironmentFile=/etc/termipod-host/%i.env
+ExecStart=/usr/local/bin/host-runner run \
+          --hub ${HUB_URL} \
+          --team ${HUB_TEAM} \
+          --token ${HUB_TOKEN} \
+          --name %H-%i \
+          --launcher tmux \
+          --tmux-session hub-agents
+Restart=on-failure
+RestartSec=3s
+
+NoNewPrivileges=true
+PrivateTmp=false
+# PrivateTmp=false is required because tmux sockets live in /tmp/tmux-<uid>/
+# and the mobile app (SSH'd in as %i) needs to attach to the same socket
+# this unit is writing to. PrivateTmp would give the unit its own /tmp.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

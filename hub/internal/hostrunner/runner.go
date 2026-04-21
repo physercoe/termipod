@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"context"
@@ -6,15 +6,15 @@ import (
 	"time"
 )
 
-// Agent is the long-running host-agent loop. It registers the host with the
+// Runner is the long-running host-runner loop. It registers the host with the
 // hub (first boot), heartbeats every HeartbeatInterval, and polls every
 // PollInterval for pending spawns on this host. For each spawn it calls
 // Launcher.Launch, then PATCHes the child agent to status=running with the
 // tmux pane id.
 //
-// The hub is the source of truth: host-agent carries no local state across
+// The hub is the source of truth: host-runner carries no local state across
 // restarts, it just re-derives the world from /v1/teams/.../agents/spawns.
-type Agent struct {
+type Runner struct {
 	Client   *Client
 	HostName string
 	HostID   string // filled in on Start() if empty
@@ -31,7 +31,7 @@ type Agent struct {
 	worktrees map[string]WorktreeSpec // keyed by agent id
 }
 
-func (a *Agent) defaults() {
+func (a *Runner) defaults() {
 	if a.HeartbeatInterval == 0 {
 		a.HeartbeatInterval = 10 * time.Second
 	}
@@ -59,7 +59,7 @@ func (a *Agent) defaults() {
 }
 
 // Start registers the host (if HostID is empty) and runs until ctx is done.
-func (a *Agent) Start(ctx context.Context) error {
+func (a *Runner) Start(ctx context.Context) error {
 	a.defaults()
 
 	if a.HostID == "" {
@@ -100,7 +100,7 @@ func (a *Agent) Start(ctx context.Context) error {
 // an attention item per stuck pane (deduped by hash inside Inspect).
 // Errors on a single pane are logged and skipped — one bad pane shouldn't
 // prevent us from watching the others.
-func (a *Agent) tickIdle(ctx context.Context) {
+func (a *Runner) tickIdle(ctx context.Context) {
 	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
 	if err != nil {
 		return
@@ -146,7 +146,7 @@ func (a *Agent) tickIdle(ctx context.Context) {
 		}
 	}
 	// Drop worktree bookkeeping for agents the hub no longer considers
-	// running. Anything the terminate handler missed (e.g. host-agent
+	// running. Anything the terminate handler missed (e.g. host-runner
 	// killed before cleanup) will be re-synced by `git worktree prune`
 	// on the next terminate for that repo.
 	for id := range a.worktrees {
@@ -156,7 +156,7 @@ func (a *Agent) tickIdle(ctx context.Context) {
 	}
 }
 
-func (a *Agent) tickCommands(ctx context.Context) {
+func (a *Runner) tickCommands(ctx context.Context) {
 	cmds, err := a.Client.ListPendingCommands(ctx, a.HostID)
 	if err != nil {
 		a.Log.Warn("list commands failed", "err", err)
@@ -167,7 +167,7 @@ func (a *Agent) tickCommands(ctx context.Context) {
 	}
 }
 
-func (a *Agent) tickPoll(ctx context.Context) {
+func (a *Runner) tickPoll(ctx context.Context) {
 	spawns, err := a.Client.ListPendingSpawns(ctx, a.HostID)
 	if err != nil {
 		a.Log.Warn("list pending failed", "err", err)
@@ -178,7 +178,7 @@ func (a *Agent) tickPoll(ctx context.Context) {
 	}
 }
 
-func (a *Agent) launchOne(ctx context.Context, sp Spawn) {
+func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	// Parse the spec up front; ChannelID binding (tailer) and Worktree are
 	// both optional and we want to reason about them together.
 	spec, err := ParseSpec(sp.SpawnSpec)
@@ -255,7 +255,7 @@ func (a *Agent) launchOne(ctx context.Context, sp Spawn) {
 // stopTailer tears down marker forwarding for an agent that has left the
 // running set (terminated, stale, or reassigned to another host). Callers
 // must hold no lock — Stop is idempotent.
-func (a *Agent) stopTailer(agentID string) {
+func (a *Runner) stopTailer(agentID string) {
 	t, ok := a.tailers[agentID]
 	if !ok {
 		return

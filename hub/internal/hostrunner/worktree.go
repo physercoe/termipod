@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"context"
@@ -27,7 +27,7 @@ type WorktreeSpec struct {
 
 // EnsureWorktree creates Path as a worktree of Repo on Branch. If Path
 // already exists and is already a worktree of Repo, it's treated as a
-// no-op — this makes host-agent safe to restart without double-creating.
+// no-op — this makes host-runner safe to restart without double-creating.
 //
 // Returns (created bool, err). `created` distinguishes "we just made it"
 // from "it was already there" for logging; callers usually don't branch

@@ -1,5 +1,5 @@
 # Locally-built Go binaries — we ship via the release workflow, not the
 # source tree. Anything matching a cmd/ directory name is fair game.
-/host-agent
+/host-runner
 /hub-server
 /hub-mcp-bridge

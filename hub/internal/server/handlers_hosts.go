@@ -82,7 +82,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHostHeartbeat updates last_seen_at and keeps status = online.
-// Called every ~10s by the host-agent loop.
+// Called every ~10s by the host-runner loop.
 func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := chi.URLParam(r, "host")

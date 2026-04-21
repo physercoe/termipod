@@ -10,10 +10,10 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Host commands are the hub→host-agent work queue (see migration 0002).
-// The host-agent pulls pending commands on its poll tick, applies them
+// Host commands are the hub→host-runner work queue (see migration 0002).
+// The host-runner pulls pending commands on its poll tick, applies them
 // locally (SIGSTOP on a pane, tmux capture-pane, etc.), and PATCHes the
-// result back. Keeping it pull-only means host-agents behind NAT work
+// result back. Keeping it pull-only means host-runners behind NAT work
 // without any hub-initiated connection.
 
 type commandOut struct {
@@ -31,7 +31,7 @@ type commandOut struct {
 }
 
 // handleListHostCommands returns pending commands for a host and atomically
-// flips them to 'delivered'. host-agent calls this on each poll tick.
+// flips them to 'delivered'. host-runner calls this on each poll tick.
 func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) {
 	hostID := chi.URLParam(r, "host")
 	status := r.URL.Query().Get("status")
@@ -85,7 +85,7 @@ func (s *Server) handleListHostCommands(w http.ResponseWriter, r *http.Request) 
 			strings_repeat(",?", len(ids)-1) + ")"
 		args := append([]any{now}, ids...)
 		if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
-			// Non-fatal: worst case host-agent re-reads the same command next tick,
+			// Non-fatal: worst case host-runner re-reads the same command next tick,
 			// and its PATCH is idempotent.
 			s.log.Warn("mark delivered failed", "err", err)
 		}
@@ -99,7 +99,7 @@ type commandPatchIn struct {
 	Error  string          `json:"error,omitempty"`
 }
 
-// handlePatchHostCommand lets the host-agent report completion / failure.
+// handlePatchHostCommand lets the host-runner report completion / failure.
 // On a successful 'capture' we also cache the pane content on the agent row
 // so API callers can read it without queuing another capture command.
 func (s *Server) handlePatchHostCommand(w http.ResponseWriter, r *http.Request) {

@@ -30,17 +30,17 @@ handler then:
    - an `agents` row with `status='pending'` + `pause_state='running'`,
    - an `agent_spawns` audit row capturing the parent/child edge +
      the rendered spec + authority blob.
-4. **Poll.** The target `host-agent` sees the pending spawn on its
+4. **Poll.** The target `host-runner` sees the pending spawn on its
    next poll tick (≤3s), materializes a worktree if requested, opens
    a tmux pane, launches `backend.cmd`, and PATCHes the agent to
    `status='running'` with the pane id.
 
 See `hub/internal/server/handlers_agents.go:222` (`handleSpawn`) and
-`hub/internal/hostagent/agent.go:170` (`tickPoll`).
+`hub/internal/hostrunner/runner.go:170` (`tickPoll`).
 
 ## 3. Spawn spec YAML
 
-Only a handful of keys are read by `host-agent`; extras are tolerated
+Only a handful of keys are read by `host-runner`; extras are tolerated
 for forward compat.
 
 ```yaml
@@ -218,7 +218,7 @@ Hosts carry:
 
 - `status`: only ever flipped to `'online'` on register / heartbeat.
   **There is no sweeper that flips it to `offline`**, so after a
-  host-agent exits the row persists at `online` indefinitely. Treat
+  host-runner exits the row persists at `online` indefinitely. Treat
   the status chip as advisory and use `last_seen_at` (rendered in the
   trailing column) as the real health signal.
 
@@ -239,7 +239,7 @@ See also: `TODO hub-connectivity-indicator` and
 ## 10. End-to-end smoke
 
 ```bash
-# 0. Register a host (see hub-host-setup.md §4) — keep host-agent running.
+# 0. Register a host (see hub-host-setup.md §4) — keep host-runner running.
 # 1. Issue a user token for yourself (run on the hub box, as the hub service user).
 TOK=$(sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
         -data /var/lib/termipod-hub \

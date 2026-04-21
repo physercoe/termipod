@@ -13,7 +13,7 @@ import 'hub_bootstrap_screen.dart';
 ///   - Tasks: per-project task list with status filter
 ///   - Templates: team-wide templates (agents/prompts/policies)
 ///   - Agents: kind/handle/status per agent
-///   - Hosts: host-agents checking in
+///   - Hosts: host-runners checking in
 ///   - Projects: project + channel inventory
 ///
 /// If the hub isn't configured yet, we push [HubBootstrapScreen] from the

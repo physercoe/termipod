@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 // pane id so the spawn loop can complete end-to-end without a TTY.
 type Launcher interface {
 	// Launch returns the tmux pane target (e.g. "hub-agents:@worker-1.0") where
-	// the backend process is now running. The host-agent PATCHes this back to
+	// the backend process is now running. The host-runner PATCHes this back to
 	// the hub so the mobile client's `↗ pane` link works.
 	Launch(ctx context.Context, sp Spawn) (paneID string, err error)
 }

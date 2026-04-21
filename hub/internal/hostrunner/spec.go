@@ -1,8 +1,8 @@
-package hostagent
+package hostrunner
 
 import "gopkg.in/yaml.v3"
 
-// SpawnSpec is the subset of spawn_spec_yaml host-agent needs to wire up a
+// SpawnSpec is the subset of spawn_spec_yaml host-runner needs to wire up a
 // pane. The canonical schema lives in the plan doc; we only decode the keys
 // we actually use here to stay forward-compatible with future fields.
 type SpawnSpec struct {

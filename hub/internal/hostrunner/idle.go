@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"crypto/sha256"

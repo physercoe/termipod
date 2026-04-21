@@ -158,7 +158,7 @@ func mcpToolDefsExtra() []map[string]any {
 		},
 		{
 			"name":        "pause_self",
-			"description": "Ask the host-agent to SIGSTOP this agent's pane. Owner must resume manually.",
+			"description": "Ask the host-runner to SIGSTOP this agent's pane. Owner must resume manually.",
 			"inputSchema": map[string]any{
 				"type":       "object",
 				"properties": map[string]any{"reason": map[string]any{"type": "string"}},

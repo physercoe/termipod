@@ -110,7 +110,7 @@ func TestE2E_AcceptanceScenario(t *testing.T) {
 	})
 
 	// Step 3 — Host-agent registers. Heartbeat is covered separately in
-	// hostagent tests; here we just confirm the register roundtrip.
+	// hostrunner tests; here we just confirm the register roundtrip.
 	var hostID string
 	t.Run("03_host_register", func(t *testing.T) {
 		status, body := c.call("POST", "/v1/teams/"+c.teamID+"/hosts", map[string]any{

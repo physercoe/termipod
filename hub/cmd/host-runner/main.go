@@ -1,10 +1,10 @@
-// host-agent — bridges the hub to backend CLI processes running on this box.
+// host-runner — bridges the hub to backend CLI processes running on this box.
 //
-//	host-agent run --hub https://hub.example.com --token <host> --name <hostname>
+//	host-runner run --hub https://hub.example.com --token <host> --name <hostname>
 //
 // On first run it registers this host with the hub; subsequent runs pass
-// --host-id to skip registration. For now the launcher is a stub — real
-// tmux / claude-code wiring lands in the next slice.
+// --host-id to skip registration. Launches spawned agents into tmux panes
+// on behalf of the hub — not an agent itself (no row in the agents table).
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/termipod/hub/internal/hostagent"
+	"github.com/termipod/hub/internal/hostrunner"
 )
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `host-agent <command> [flags]
+	fmt.Fprintln(os.Stderr, `host-runner <command> [flags]
 
 Commands:
   register   Register this host with the hub, print host_id.
@@ -57,7 +57,7 @@ func runRegister(args []string) {
 	if *token == "" {
 		die("--token required")
 	}
-	c := hostagent.NewClient(*hub, *token, *team)
+	c := hostrunner.NewClient(*hub, *token, *team)
 	id, err := c.RegisterHost(context.Background(), *name, nil)
 	if err != nil {
 		die("register: " + err.Error())
@@ -82,18 +82,18 @@ func runDaemon(args []string) {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	var lnch hostagent.Launcher
+	var lnch hostrunner.Launcher
 	switch *launcher {
 	case "stub":
-		lnch = hostagent.StubLauncher{Log: log}
+		lnch = hostrunner.StubLauncher{Log: log}
 	case "tmux":
-		lnch = hostagent.NewTmuxLauncher(*session, *backendCmd, log)
+		lnch = hostrunner.NewTmuxLauncher(*session, *backendCmd, log)
 	default:
 		die("unknown --launcher: " + *launcher)
 	}
 
-	ag := &hostagent.Agent{
-		Client:   hostagent.NewClient(*hub, *token, *team),
+	r := &hostrunner.Runner{
+		Client:   hostrunner.NewClient(*hub, *token, *team),
 		HostName: *name,
 		HostID:   *hostID,
 		Launcher: lnch,
@@ -103,8 +103,8 @@ func runDaemon(args []string) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := ag.Start(ctx); err != nil {
-		log.Error("host-agent exited", "err", err)
+	if err := r.Start(ctx); err != nil {
+		log.Error("host-runner exited", "err", err)
 		os.Exit(1)
 	}
 }

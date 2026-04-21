@@ -15,7 +15,7 @@ import (
 // variables so spawn YAML can reference state that only exists at spawn
 // time — most notably the parent agent's journal and the principal handle
 // requesting the spawn. Rendering is pre-YAML: the result is then persisted
-// and handed to host-agent verbatim.
+// and handed to host-runner verbatim.
 //
 // Variable shape: {{name}}. We intentionally do not support expressions,
 // filters, or control flow — spawn specs should stay declarative. If a var
@@ -91,7 +91,7 @@ func (s *Server) lookupParentContext(ctx context.Context, team, parentID string)
 }
 
 // principalFromScope pulls the role out of an auth token's scope JSON.
-// Tokens used by the hub CLI are tagged role:"principal"; host-agent tokens
+// Tokens used by the hub CLI are tagged role:"principal"; host-runner tokens
 // are role:"host". We surface the role as `@role` so templates that drop
 // {{principal}} into an assignee list render a valid handle.
 func principalFromScope(scopeJSON string) string {

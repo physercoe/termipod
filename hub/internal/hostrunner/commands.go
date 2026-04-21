@@ -1,4 +1,4 @@
-package hostagent
+package hostrunner
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 // to the hub. Supported kinds: pause, resume, capture, terminate. Each maps
 // to a tmux/POSIX primitive; unknown kinds fail fast with a clear error so
 // the operator sees why.
-func (a *Agent) runCommand(ctx context.Context, cmd HostCommand) {
+func (a *Runner) runCommand(ctx context.Context, cmd HostCommand) {
 	var (
 		result map[string]any
 		err    error
@@ -57,7 +57,7 @@ func paneTarget(args json.RawMessage) string {
 	return ""
 }
 
-func (a *Agent) signalPane(ctx context.Context, cmd HostCommand, sig syscall.Signal) error {
+func (a *Runner) signalPane(ctx context.Context, cmd HostCommand, sig syscall.Signal) error {
 	pane := paneTarget(cmd.Args)
 	if pane == "" {
 		return fmt.Errorf("pause/resume: pane_id required")
@@ -78,7 +78,7 @@ func (a *Agent) signalPane(ctx context.Context, cmd HostCommand, sig syscall.Sig
 	return nil
 }
 
-func (a *Agent) capturePane(ctx context.Context, cmd HostCommand) (map[string]any, error) {
+func (a *Runner) capturePane(ctx context.Context, cmd HostCommand) (map[string]any, error) {
 	pane := paneTarget(cmd.Args)
 	if pane == "" {
 		return nil, fmt.Errorf("capture: pane_id required")
@@ -92,7 +92,7 @@ func (a *Agent) capturePane(ctx context.Context, cmd HostCommand) (map[string]an
 	return map[string]any{"text": text}, nil
 }
 
-func (a *Agent) terminatePane(ctx context.Context, cmd HostCommand) error {
+func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 	pane := paneTarget(cmd.Args)
 	if pane == "" {
 		return fmt.Errorf("terminate: pane_id required")

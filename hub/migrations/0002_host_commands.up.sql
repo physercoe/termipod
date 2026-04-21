@@ -1,9 +1,9 @@
 -- Slice 2: host-directed command queue + pane capture cache.
 --
--- host_commands is the hub→host-agent work queue. Hub inserts rows and
--- host-agent polls (GET /hosts/:id/commands?status=pending), applies them
+-- host_commands is the hub→host-runner work queue. Hub inserts rows and
+-- host-runner polls (GET /hosts/:id/commands?status=pending), applies them
 -- locally, and PATCHes back result_json + status. The design is pull-only
--- so a host-agent behind NAT never needs the hub to reach it.
+-- so a host-runner behind NAT never needs the hub to reach it.
 
 CREATE TABLE host_commands (
     id           TEXT PRIMARY KEY,
@@ -22,7 +22,7 @@ CREATE INDEX idx_host_commands_host_status ON host_commands(host_id, status);
 CREATE INDEX idx_host_commands_agent ON host_commands(agent_id);
 
 -- Cache the most recent pane capture so /pane reads are O(1) without
--- another host round-trip. host-agent writes this via result_json on a
+-- another host round-trip. host-runner writes this via result_json on a
 -- capture command; hub copies it to agents.last_capture.
 ALTER TABLE agents ADD COLUMN last_capture TEXT;
 ALTER TABLE agents ADD COLUMN last_capture_at TEXT;

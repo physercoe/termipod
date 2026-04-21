@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -376,16 +377,17 @@ class _TemplatesTab extends ConsumerWidget {
 
   Future<void> _openTemplate(
       BuildContext context, WidgetRef ref, String category, String name) async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
     try {
-      final body = await client.getTemplate(category, name);
+      final body = await ref
+          .read(hubProvider.notifier)
+          .getTemplateBody(category, name);
       if (!context.mounted) return;
       showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         builder: (_) => _TemplateViewer(
-          title: '$category/$name',
+          category: category,
+          name: name,
           body: body,
         ),
       );
@@ -398,13 +400,49 @@ class _TemplatesTab extends ConsumerWidget {
   }
 }
 
-class _TemplateViewer extends StatelessWidget {
-  final String title;
+class _TemplateViewer extends ConsumerStatefulWidget {
+  final String category;
+  final String name;
   final String body;
-  const _TemplateViewer({required this.title, required this.body});
+  const _TemplateViewer({
+    required this.category,
+    required this.name,
+    required this.body,
+  });
+
+  @override
+  ConsumerState<_TemplateViewer> createState() => _TemplateViewerState();
+}
+
+class _TemplateViewerState extends ConsumerState<_TemplateViewer> {
+  late String _body = widget.body;
+  bool _refreshing = false;
+
+  bool get _isMarkdown => widget.name.toLowerCase().endsWith('.md');
+
+  Future<void> _forceRefresh() async {
+    setState(() => _refreshing = true);
+    try {
+      final fresh = await ref.read(hubProvider.notifier).getTemplateBody(
+            widget.category,
+            widget.name,
+            forceRefresh: true,
+          );
+      if (!mounted) return;
+      setState(() => _body = fresh);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Refresh failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final title = '${widget.category}/${widget.name}';
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.4,
@@ -422,6 +460,17 @@ class _TemplateViewer extends StatelessWidget {
                           fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
                 IconButton(
+                  tooltip: 'Re-fetch from hub',
+                  icon: _refreshing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  onPressed: _refreshing ? null : _forceRefresh,
+                ),
+                IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
@@ -433,10 +482,12 @@ class _TemplateViewer extends StatelessWidget {
             child: SingleChildScrollView(
               controller: scroll,
               padding: const EdgeInsets.all(16),
-              child: SelectableText(
-                body,
-                style: GoogleFonts.jetBrainsMono(fontSize: 12),
-              ),
+              child: _isMarkdown
+                  ? MarkdownBody(data: _body, selectable: true)
+                  : SelectableText(
+                      _body,
+                      style: GoogleFonts.jetBrainsMono(fontSize: 12),
+                    ),
             ),
           ),
         ],
@@ -486,17 +537,29 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
         ],
       );
     }
+    // Keep the steward row pinned at the top so the operator can see its
+    // status at a glance without scrolling past other agents. The chip in
+    // the AppBar only encodes presence; the row shows running/crashed/etc.
+    final sorted = _sortedAgents(widget.items);
     final body = _treeView
         ? _AgentOrgChart(agents: widget.items, spawns: widget.spawns)
         : ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
-            itemCount: widget.items.length,
+            itemCount: sorted.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (_, i) {
-              final a = widget.items[i];
+              final a = sorted[i];
+              final isSteward = (a['handle']?.toString() ?? '') == 'steward';
               return _InfoTile(
                 title: a['handle']?.toString() ?? '?',
                 subtitle: '${a['kind'] ?? ''} · ${a['status'] ?? ''}',
+                leading: isSteward
+                    ? Icon(
+                        Icons.auto_awesome,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      )
+                    : null,
                 trailing: (a['pause_state']?.toString() ?? 'running') == 'paused'
                     ? 'paused'
                     : null,
@@ -680,6 +743,23 @@ class _OrgRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Returns a list with the steward row pinned first. Relative order of the
+/// other rows is preserved so sort behaviour is stable across refreshes.
+/// Input list is not mutated.
+List<Map<String, dynamic>> _sortedAgents(List<Map<String, dynamic>> items) {
+  Map<String, dynamic>? steward;
+  final rest = <Map<String, dynamic>>[];
+  for (final a in items) {
+    if (steward == null && (a['handle']?.toString() ?? '') == 'steward') {
+      steward = a;
+    } else {
+      rest.add(a);
+    }
+  }
+  if (steward == null) return items;
+  return [steward, ...rest];
 }
 
 Color _agentStatusColor(String status) {
@@ -1343,11 +1423,13 @@ class _InfoTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final String? trailing;
+  final Widget? leading;
   final VoidCallback? onTap;
   const _InfoTile({
     required this.title,
     required this.subtitle,
     this.trailing,
+    this.leading,
     this.onTap,
   });
   @override
@@ -1364,6 +1446,10 @@ class _InfoTile extends StatelessWidget {
       ),
       child: Row(
         children: [
+          if (leading != null) ...[
+            leading!,
+            const SizedBox(width: 10),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

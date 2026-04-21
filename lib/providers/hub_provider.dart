@@ -77,14 +77,47 @@ class HubState {
 class HubNotifier extends AsyncNotifier<HubState> {
   HubClient? _client;
 
+  /// In-memory cache of template bodies keyed by "$category/$name". Templates
+  /// only change when an operator edits the YAML/MD on the hub, so caching
+  /// aggressively and exposing a forceRefresh toggle is a better tradeoff
+  /// than re-fetching on every tap. Cleared on refreshAll and clearConfig.
+  final Map<String, String> _templateBodyCache = {};
+
   @override
   Future<HubState> build() async {
     ref.onDispose(() {
       _client?.close();
       _client = null;
+      _templateBodyCache.clear();
     });
     return _loadConfig();
   }
+
+  /// Fetch a template body, serving from the in-memory cache when possible.
+  /// Pass forceRefresh=true to bypass the cache (the viewer's Refresh icon).
+  Future<String> getTemplateBody(
+    String category,
+    String name, {
+    bool forceRefresh = false,
+  }) async {
+    final client = _client;
+    if (client == null) {
+      throw StateError('hub not configured');
+    }
+    final key = '$category/$name';
+    if (!forceRefresh) {
+      final cached = _templateBodyCache[key];
+      if (cached != null) return cached;
+    }
+    final body = await client.getTemplate(category, name);
+    _templateBodyCache[key] = body;
+    return body;
+  }
+
+  /// Clear all template body cache entries. Called implicitly by refreshAll;
+  /// expose for rare cases (e.g. after a template edit) where a caller needs
+  /// to drop cached bytes without a full refresh.
+  void clearTemplateBodyCache() => _templateBodyCache.clear();
 
   Future<HubState> _loadConfig() async {
     final prefs = await SharedPreferences.getInstance();
@@ -131,6 +164,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
     await secure.delete(key: _kHubTokenKey);
     _client?.close();
     _client = null;
+    _templateBodyCache.clear();
     state = const AsyncData(HubState());
   }
 
@@ -144,6 +178,9 @@ class HubNotifier extends AsyncNotifier<HubState> {
     if (client == null) return;
     final prev = state.value ?? const HubState();
     state = AsyncData(prev.copyWith(loading: true, clearError: true));
+    // A refresh is the user asking "give me the latest of everything" — drop
+    // cached template bodies so the next Templates-tab tap actually re-fetches.
+    _templateBodyCache.clear();
     try {
       final results = await Future.wait([
         client.listAttention(status: 'open'),

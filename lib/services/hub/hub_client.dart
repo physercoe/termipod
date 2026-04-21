@@ -524,6 +524,96 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  // ---- schedules (team-scoped) ----
+
+  Future<List<Map<String, dynamic>>> listSchedules() =>
+      _listJson('/v1/teams/${cfg.teamId}/schedules');
+
+  /// Creates a cron schedule that spawns an agent when it fires. [spawn]
+  /// is the full spawn spec map (child_handle/kind/spawn_spec_yaml/etc.)
+  /// serialized as-is — see [spawnAgent] for the shape.
+  Future<Map<String, dynamic>> createSchedule({
+    required String name,
+    required String cronExpr,
+    required Map<String, dynamic> spawn,
+    bool? enabled,
+  }) async {
+    final body = <String, dynamic>{
+      'name': name,
+      'cron_expr': cronExpr,
+      'spawn': spawn,
+    };
+    if (enabled != null) body['enabled'] = enabled;
+    final out = await _post('/v1/teams/${cfg.teamId}/schedules', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> patchSchedule(String id, {required bool enabled}) async {
+    await _patch(
+      '/v1/teams/${cfg.teamId}/schedules/$id',
+      {'enabled': enabled},
+    );
+  }
+
+  Future<void> deleteSchedule(String id) =>
+      _delete('/v1/teams/${cfg.teamId}/schedules/$id');
+
+  // ---- project docs (read-only) ----
+
+  /// Flat list of doc entries under the project's docs_root. Each entry
+  /// has `path` (relative), `size`, `mod_time`, and optional `is_dir`.
+  /// Returns an empty list if the project has no docs_root configured.
+  Future<List<Map<String, dynamic>>> listProjectDocs(String projectId) =>
+      _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/docs');
+
+  /// Reads a single doc as a UTF-8 string. The hub serves any file type;
+  /// caller decides how to render based on extension.
+  Future<String> getProjectDoc(String projectId, String relPath) async {
+    final req = await _open(
+      'GET',
+      '/v1/teams/${cfg.teamId}/projects/$projectId/docs/$relPath',
+    );
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
+  // ---- blobs (content-addressed) ----
+
+  /// Uploads raw bytes; returns `{sha256, size, mime}`. Dedup is automatic
+  /// server-side — same bytes → same sha → no duplicate row. 25 MiB cap.
+  Future<Map<String, dynamic>> uploadBlob(
+    List<int> bytes, {
+    String? mime,
+  }) async {
+    final req = await _open('POST', '/v1/blobs');
+    req.headers.contentType = ContentType.parse(mime ?? 'application/octet-stream');
+    req.add(bytes);
+    final resp = await req.close();
+    final out = await _readJson(resp);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Downloads blob bytes by sha. Caller is responsible for writing to
+  /// disk / piping to share_plus; we keep the full payload in memory since
+  /// the server caps uploads at 25 MiB anyway.
+  Future<List<int>> downloadBlob(String sha) async {
+    final req = await _open('GET', '/v1/blobs/$sha');
+    final resp = await req.close();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      final msg = await resp.transform(utf8.decoder).join();
+      throw HubApiError(resp.statusCode, msg);
+    }
+    final out = <int>[];
+    await for (final chunk in resp) {
+      out.addAll(chunk);
+    }
+    return out;
+  }
+
   // ---- SSE event stream ----
 
   /// Streams events for one channel as parsed JSON objects. The hub sends

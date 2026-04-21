@@ -1,0 +1,270 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
+import '../../providers/hub_provider.dart';
+import '../../services/hub/blob_cache.dart';
+import '../../theme/design_colors.dart';
+
+/// Blobs section inside ProjectDetail's PageView. Blobs are content-addressed
+/// and team-global — the records shown here are a device-local cache of
+/// every blob this device has touched (uploads + attachments we've
+/// downloaded). The actual bytes live on the hub; [BlobCache] is just a
+/// convenience index so the UI can list what you've seen without replaying
+/// every chat.
+class BlobsSection extends ConsumerStatefulWidget {
+  const BlobsSection({super.key});
+
+  @override
+  ConsumerState<BlobsSection> createState() => _BlobsSectionState();
+}
+
+class _BlobsSectionState extends ConsumerState<BlobsSection> {
+  bool _loading = true;
+  bool _uploading = false;
+  List<BlobRecord> _records = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final rows = await BlobCache.instance.list();
+    if (!mounted) return;
+    setState(() {
+      _records = rows;
+      _loading = false;
+    });
+  }
+
+  Future<void> _download(BlobRecord rec) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final bytes = await client.downloadBlob(rec.sha);
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/${rec.name}';
+      final file = File(path);
+      await file.writeAsBytes(bytes);
+      await Share.shareXFiles([XFile(path)], text: rec.name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Download failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _confirmRemove(BlobRecord rec) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove from cache?'),
+        content: const Text('The blob stays on the server.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await BlobCache.instance.remove(rec.sha);
+    await _load();
+  }
+
+  Future<void> _upload() async {
+    if (_uploading) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: false,
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final f = picked.files.single;
+    setState(() => _uploading = true);
+    try {
+      List<int> bytes;
+      if (f.bytes != null) {
+        bytes = f.bytes!;
+      } else if (f.path != null) {
+        bytes = await File(f.path!).readAsBytes();
+      } else {
+        throw StateError('No bytes or path for picked file');
+      }
+      final mime = _guessMime(f.extension);
+      final out = await client.uploadBlob(bytes, mime: mime);
+      final sha = (out['sha256'] ?? '').toString();
+      final size = (out['size'] is int)
+          ? out['size'] as int
+          : int.tryParse('${out['size']}') ?? bytes.length;
+      final outMime = (out['mime'] ?? mime).toString();
+      await BlobCache.instance.add(BlobRecord(
+        sha: sha,
+        name: f.name,
+        mime: outMime,
+        size: size,
+        uploadedAt: DateTime.now().toUtc().toIso8601String(),
+      ));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Upload failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final body = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _records.isEmpty
+            ? _buildEmpty(context)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 96),
+                  itemCount: _records.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 4),
+                  itemBuilder: (_, i) => _BlobTile(
+                    rec: _records[i],
+                    onTap: () => _download(_records[i]),
+                    onLongPress: () => _confirmRemove(_records[i]),
+                    onDownload: () => _download(_records[i]),
+                  ),
+                ),
+              );
+    return Stack(
+      children: [
+        Positioned.fill(child: body),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.extended(
+            heroTag: 'hub-blobs-fab',
+            onPressed: _uploading ? null : _upload,
+            icon: _uploading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.add),
+            label: const Text('Upload'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmpty(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.folder_zip, size: 48, color: muted),
+            const SizedBox(height: 12),
+            Text(
+              'No blobs uploaded yet.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Upload files once; attach them by sha in any chat.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BlobTile extends StatelessWidget {
+  final BlobRecord rec;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback onDownload;
+  const _BlobTile({
+    required this.rec,
+    required this.onTap,
+    required this.onLongPress,
+    required this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final shaShort = rec.sha.length >= 12 ? rec.sha.substring(0, 12) : rec.sha;
+    return ListTile(
+      leading: Icon(_iconFor(rec.mime), color: DesignColors.primary),
+      title: Text(
+        rec.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.spaceGrotesk(
+            fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+      subtitle: Text(
+        '${rec.size}B • $shaShort…',
+        style: GoogleFonts.jetBrainsMono(fontSize: 11),
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.download),
+        onPressed: onDownload,
+      ),
+      onTap: onTap,
+      onLongPress: onLongPress,
+    );
+  }
+
+  IconData _iconFor(String mime) {
+    if (mime.startsWith('image/')) return Icons.image;
+    if (mime.startsWith('text/')) return Icons.description;
+    return Icons.insert_drive_file;
+  }
+}
+
+/// Maps common file extensions onto MIME types. Reused verbatim by the
+/// chat composer attachment flow — keep the two in sync if the table
+/// grows. Unknown extensions fall through to `application/octet-stream`.
+String _guessMime(String? ext) {
+  if (ext == null || ext.isEmpty) return 'application/octet-stream';
+  final e = ext.toLowerCase();
+  if (e == 'png' || e == 'jpg' || e == 'jpeg' || e == 'gif' || e == 'webp') {
+    return 'image/$e';
+  }
+  if (e == 'md' || e == 'markdown') return 'text/markdown';
+  if (e == 'txt') return 'text/plain';
+  if (e == 'json') return 'application/json';
+  if (e == 'yaml' || e == 'yml') return 'application/yaml';
+  return 'application/octet-stream';
+}

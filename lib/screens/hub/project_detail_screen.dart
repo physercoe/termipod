@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'project_task_create_sheet.dart';
 import 'task_detail_screen.dart';
@@ -20,8 +21,8 @@ import 'task_detail_screen.dart';
 ///                — we only stream the single channel the feed opens).
 ///   1 Tasks    — Kanban over the project's tasks; FAB creates.
 ///   2 Agents   — agents whose channel's project matches this one.
-///   3 Docs     — placeholder (docs browser is a roadmap item).
-///   4 Blobs    — placeholder.
+///   3 Docs     — read-only tree of the project's docs_root.
+///   4 Blobs    — cached device-local blob list; upload + share.
 ///   5 Info     — name, id, docs_root, config_yaml; archive action.
 class ProjectDetailScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> project;
@@ -88,7 +89,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                 _TasksView(projectId: projectId),
                 _AgentsView(projectId: projectId),
                 DocsSection(projectId: projectId),
-                const _Placeholder(text: 'Blobs coming soon'),
+                const BlobsSection(),
                 _InfoView(project: widget.project),
               ],
             ),

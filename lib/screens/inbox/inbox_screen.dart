@@ -6,6 +6,7 @@ import '../../providers/active_session_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/session_history_provider.dart';
 import '../../theme/design_colors.dart';
+import '../hub/search_screen.dart';
 import '../terminal/terminal_screen.dart';
 
 /// Inbox: single surface that collapses everything that wants the user's
@@ -73,6 +74,17 @@ class InboxScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  tooltip: 'Search events',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SearchScreen(),
+                    ),
+                  ),
+                ),
+              ],
             ),
             SliverToBoxAdapter(
               child: _FilterBar(

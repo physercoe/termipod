@@ -153,31 +153,39 @@ class _StewardChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final configured = ref.watch(hubProvider).value?.configured ?? false;
     if (!configured) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-      child: Material(
-        color: DesignColors.primary.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _openSteward(context, ref),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.auto_awesome,
-                    size: 14, color: DesignColors.primary),
-                const SizedBox(width: 6),
-                Text(
-                  'Steward',
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: DesignColors.primary,
-                  ),
+    final scheme = Theme.of(context).colorScheme;
+    final bg = scheme.primaryContainer;
+    final fg = scheme.onPrimaryContainer;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Tooltip(
+          message: 'Open #hub-meta (steward)',
+          child: Material(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => _openSteward(context, ref),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome, size: 16, color: fg),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Steward',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: fg,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

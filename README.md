@@ -121,15 +121,17 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 ### Termipod Hub (optional)
 
-Opt-in coordination layer for teams running multiple AI coding agents. Paste a hub URL + bearer token in **Settings → Hub** and TermiPod gains a Hub dashboard with seven tabs:
+Opt-in coordination layer for teams running multiple AI coding agents. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
 
-- **Attention** — open approval / decision / idle items; one-tap Approve / Reject / Resolve, including template proposals from AI workers
-- **Feed** — live SSE stream of a channel; code excerpts render inline with a line-number gutter
-- **Tasks** — three-column Kanban (open / in_progress / done) with swipe-to-advance; cards show parent-task links and subtask counts
-- **Templates** — browse team-wide agent / prompt / policy YAML, tap to view
-- **Agents** — list or tree view; the tree walks `agent_spawns` for a parent→child org chart. FAB opens a YAML **Spawn Agent** form with a template picker, host picker, and **saved presets** (handle + kind + YAML) stored per device
+**Inbox** — unified triage: approvals, agent states (idle / errored), messages, and SSH sessions in one filterable feed. Tap a pending approval to Approve / Reject inline; tap the magnifier to full-text search across all hub events.
+
+**Hub** — four sub-tabs:
+- **Projects** — Linear-style project detail with Activity / Tasks / Agents / Docs / Blobs / Info pill sections. Activity chat streams via SSE; Tasks are a Kanban with full-screen detail; Docs are a read-only browser over the project's `docs_root` with a markdown viewer; Blobs are cached device-local uploads shareable by any chat
+- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets
 - **Hosts** — host-runner check-ins with last-seen timestamps
-- **Projects** — project + channel inventory
+- **Templates** — browse team-wide agent / prompt / policy YAML
+
+**Team** screen (header icon on Hub) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and **Settings** with cron **Schedules** and per-agent **Usage / budget** rollups.
 
 The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.
 

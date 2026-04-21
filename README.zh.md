@@ -121,15 +121,14 @@
 
 ### Termipod Hub（可选）
 
-面向团队协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后，TermiPod 将启用 7 个标签的 Hub 仪表盘：
+面向团队协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后，TermiPod 将启用一整套工作区界面：
 
-- **Attention** — 待处理的审批 / 决策 / 闲置项，一键 Approve / Reject / Resolve，支持 AI worker 提交的模板提案
-- **Feed** — 频道 SSE 实时流，代码片段内嵌行号栏渲染
-- **Tasks** — 三列看板（open / in_progress / done）。滑动推进状态，卡片显示父任务链接与子任务计数
-- **Templates** — 浏览团队共享的 agent / prompt / policy YAML
+- **Inbox**（首页）— 整合 attention 项、未读频道、最近任务的统一工作流收件箱，支持搜索，顶部有待处理项 SliverAppBar
+- **Projects** — 项目清单与 Linear 风格详情页（概览 / 任务 / 频道 / Docs / Blobs）。支持任务创建、Markdown Docs 只读查看、Blob 附件上传与下载
 - **Agents** — List / Tree 视图可切换；Tree 按 `agent_spawns` 渲染父→子组织图。FAB 打开 YAML **Spawn Agent** 表单，支持模板选择、主机选择与端侧 **保存预设**（handle + kind + YAML）
 - **Hosts** — Host-agent 签到与最近在线时间
-- **Projects** — 项目与频道清单
+- **Templates** — 浏览团队共享的 agent / prompt / policy YAML
+- **Team** 设置屏 — **Schedules**（cron 触发定时 spawn）、**Usage**（按项目 / 代理汇总的预算仪表盘）、Members、Policies、Channels
 
 Hub 本体是 `hub/` 下的独立 Go 守护进程，可通过 `go install` 或直接运行源码部署。详见 [docs/hub-mobile-test.md](docs/hub-mobile-test.md)。
 

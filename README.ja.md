@@ -121,15 +121,17 @@
 
 ### Termipod Hub（オプション）
 
-複数の AI コーディングエージェントをチームで運用するための調整レイヤーです。**設定 → Hub** で hub URL と bearer トークンを貼り付けると、7 タブの Hub ダッシュボードが有効化されます：
+複数の AI コーディングエージェントをチームで運用するための調整レイヤーです。**設定 → Hub** で hub URL と bearer トークンを貼り付けると、下部ナビの **Inbox** タブと **Hub** タブが有効化されます。
 
-- **Attention** — 承認 / 決定 / アイドルの未処理項目。Approve / Reject / Resolve をワンタップで処理、AI ワーカーからのテンプレート提案にも対応
-- **Feed** — チャネルの SSE ライブストリーム。コード抜粋は行番号ガター付きで表示
-- **Tasks** — 3 列カンバン（open / in_progress / done）。スワイプで進捗遷移、親タスクへのリンクとサブタスク数を表示
-- **Templates** — チーム全体のエージェント / プロンプト / ポリシー YAML を閲覧
-- **Agents** — リスト表示／ツリー表示を切替可能。ツリーは `agent_spawns` を辿って親→子のオーガチャートを描画。FAB から **Spawn Agent** フォームを開き、テンプレート選択・ホスト選択・端末ローカルの **保存済みプリセット**（handle + kind + YAML）で一発生成
-- **Hosts** — ホストエージェントのチェックイン状況と last-seen
-- **Projects** — プロジェクト・チャネル一覧
+**Inbox** — 承認待ち / エージェント状態（アイドル・エラー）/ メッセージ / SSH セッションを一つのフィードに統合し、チップで絞り込み可能。承認はその場で Approve / Reject、ルーペから全イベント横断の全文検索へ。
+
+**Hub** — 4 つのサブタブ：
+- **Projects** — Linear スタイルのプロジェクト詳細。Activity / Tasks / Agents / Docs / Blobs / Info のピル切替。Activity は SSE でチャットをストリーム、Tasks はフルスクリーン詳細付きカンバン、Docs はプロジェクトの `docs_root` をマークダウンビューアで閲覧、Blobs は端末ローカルにキャッシュしたアップロードを任意のチャットへ共有
+- **Agents** — リスト表示／ツリー表示を切替。ツリーは `agent_spawns` を辿って親→子のオーガチャートを描画。FAB から YAML の **Spawn Agent** フォーム（テンプレート選択・ホスト選択・保存済みプリセット）
+- **Hosts** — host-runner のチェックイン状況と last-seen
+- **Templates** — チーム全体のエージェント / プロンプト / ポリシー YAML
+
+**Team** 画面（Hub ヘッダーのアイコンから起動） — メンバー、ポリシー、チーム範囲のチャネル（`#hub-meta` のスチュワードルームへは AppBar のチップから）、そして **Settings** に cron ベースの **Schedules** とエージェント別の **Usage / 予算** サマリー。
 
 Hub 本体は `hub/` 配下の Go デーモンとして別途配布されます。`go install` または `go run` で起動してください。セットアップと各タブの検証手順は [docs/hub-mobile-test.md](docs/hub-mobile-test.md) を参照。
 

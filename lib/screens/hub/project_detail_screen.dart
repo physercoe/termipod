@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'docs_section.dart';
 import 'project_task_create_sheet.dart';
 import 'task_detail_screen.dart';
 
@@ -86,7 +87,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                 _ActivityView(projectId: projectId),
                 _TasksView(projectId: projectId),
                 _AgentsView(projectId: projectId),
-                const _Placeholder(text: 'Docs coming soon'),
+                DocsSection(projectId: projectId),
                 const _Placeholder(text: 'Blobs coming soon'),
                 _InfoView(project: widget.project),
               ],

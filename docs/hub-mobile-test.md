@@ -9,7 +9,14 @@ TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
   Let's Encrypt cert. The setup you want for anything longer-lived than a
   demo.
 
-The current release used for testing is **v1.0.41-alpha**.
+The current release used for testing is **v1.0.42-alpha**.
+
+**Companion docs:**
+
+- [`hub-host-setup.md`](hub-host-setup.md) — register a host so agents
+  have somewhere to run (host-agent daemon, token, systemd).
+- [`hub-agents.md`](hub-agents.md) — spawn agents from mobile, REST,
+  MCP, or on a schedule; spec YAML schema; lifecycle knobs.
 
 ---
 

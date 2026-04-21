@@ -146,6 +146,7 @@ func runTokensIssue(args []string, log *slog.Logger) {
 	team := fs.String("team", "default", "team scope")
 	role := fs.String("role", "agent", "role within team")
 	agentID := fs.String("agent-id", "", "agent id to bind the token to (for kind=agent / MCP)")
+	handle := fs.String("handle", "", "display handle for role=principal tokens (e.g. physercoe); shown on the Members tab")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -165,6 +166,9 @@ func runTokensIssue(args []string, log *slog.Logger) {
 	scopeMap := map[string]any{"team": *team, "role": *role}
 	if *agentID != "" {
 		scopeMap["agent_id"] = *agentID
+	}
+	if *handle != "" {
+		scopeMap["handle"] = *handle
 	}
 	scope, _ := json.Marshal(scopeMap)
 	if err := auth.InsertToken(context.Background(), db, *kind, string(scope), plain, server.NewID(), server.NowUTC()); err != nil {

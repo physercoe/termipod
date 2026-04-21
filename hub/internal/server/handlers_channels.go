@@ -82,3 +82,70 @@ func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, c)
 }
+
+// ---- team-scope channels ----
+//
+// Team-scope channels have project_id NULL and scope_kind='team'. They
+// carry cross-project traffic (most importantly `#hub-meta`, the principal
+// ↔ steward room). Event read/post/stream reuse the project-scope handlers
+// — those only consume the channel URL param, never the project param.
+
+func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request) {
+	var in channelIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+		writeErr(w, http.StatusBadRequest, "name required")
+		return
+	}
+	id := NewID()
+	now := NowUTC()
+	_, err := s.db.ExecContext(r.Context(), `
+		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
+		VALUES (?, NULL, 'team', ?, ?)`, id, in.Name, now)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, channelOut{
+		ID: id, ScopeKind: "team", Name: in.Name, CreatedAt: now,
+	})
+}
+
+func (s *Server) handleListTeamChannels(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
+		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL
+		ORDER BY created_at`)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []channelOut{}
+	for rows.Next() {
+		var c channelOut
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out = append(out, c)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleGetTeamChannel(w http.ResponseWriter, r *http.Request) {
+	ch := chi.URLParam(r, "channel")
+	var c channelOut
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT id, COALESCE(project_id, ''), scope_kind, name, created_at
+		FROM channels WHERE scope_kind = 'team' AND project_id IS NULL AND id = ?`,
+		ch).Scan(&c.ID, &c.ProjectID, &c.ScopeKind, &c.Name, &c.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "channel not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, c)
+}

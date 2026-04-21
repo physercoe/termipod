@@ -212,6 +212,20 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Delete("/", s.handleDeleteSchedule)
 			})
 		})
+		// Team-scope channels (project_id NULL, scope_kind='team'). Events +
+		// stream reuse the project-scope handlers — they only consume the
+		// channel URL param.
+		r.Route("/channels", func(r chi.Router) {
+			r.Post("/", s.handleCreateTeamChannel)
+			r.Get("/", s.handleListTeamChannels)
+			r.Route("/{channel}", func(r chi.Router) {
+				r.Get("/", s.handleGetTeamChannel)
+				r.Post("/events", s.handlePostEvent)
+				r.Get("/events", s.handleListEvents)
+				r.Get("/stream", s.handleStreamEvents)
+			})
+		})
+		r.Get("/principals", s.handleListPrincipals)
 	})
 
 	r.Route("/v1/blobs", func(r chi.Router) {

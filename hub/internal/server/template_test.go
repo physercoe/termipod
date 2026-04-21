@@ -121,8 +121,10 @@ func TestRenderSpawnSpec_NoPlaceholdersShortCircuits(t *testing.T) {
 
 func TestPrincipalFromScope(t *testing.T) {
 	cases := []struct{ scope, want string }{
+		{`{"role":"principal","team":"t","handle":"physercoe"}`, "@physercoe"},
 		{`{"role":"principal","team":"t"}`, "@principal"},
 		{`{"role":"steward"}`, "@steward"},
+		{`{"handle":"solo"}`, "@solo"}, // handle wins even without role
 		{`{}`, "@principal"},
 		{``, "@principal"},
 		{`not json`, "@principal"},

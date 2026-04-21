@@ -76,6 +76,11 @@ The plaintext token is printed once — copy it now. `kind=host` scopes
 the token to register / heartbeat / spawn-list / command-list /
 agent-patch and nothing else; never reuse an owner token here.
 
+> **Principal tokens and `-handle`.** Human tokens (`-role principal`) should
+> also pass a `-handle <name>` so the Members tab shows `@<name>` rather
+> than `@principal (unnamed)`. Host-role tokens don't need a handle; they
+> aren't shown on Members.
+
 Issue **one token per host-runner instance** (so one per login user if
 you plan to run multiple on a box) — tokens bind 1:1 to the `host_id`
 the runner registers under.

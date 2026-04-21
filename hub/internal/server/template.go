@@ -90,21 +90,28 @@ func (s *Server) lookupParentContext(ctx context.Context, team, parentID string)
 	return handle, string(body), nil
 }
 
-// principalFromScope pulls the role out of an auth token's scope JSON.
-// Tokens used by the hub CLI are tagged role:"principal"; host-runner tokens
-// are role:"host". We surface the role as `@role` so templates that drop
-// {{principal}} into an assignee list render a valid handle.
+// principalFromScope pulls the caller handle out of an auth token's scope
+// JSON. Tokens issued with -handle carry scope.handle (e.g. "physercoe"); we
+// prefer that so templates rendering {{principal}} point at a real human.
+// Older tokens fall back to `@role` (e.g. `@principal`, `@host`).
 func principalFromScope(scopeJSON string) string {
 	if scopeJSON == "" {
 		return "@principal"
 	}
 	var s struct {
-		Role string `json:"role"`
+		Role   string `json:"role"`
+		Handle string `json:"handle"`
 	}
-	if err := json.Unmarshal([]byte(scopeJSON), &s); err != nil || s.Role == "" {
+	if err := json.Unmarshal([]byte(scopeJSON), &s); err != nil {
 		return "@principal"
 	}
-	return "@" + s.Role
+	if s.Handle != "" {
+		return "@" + s.Handle
+	}
+	if s.Role != "" {
+		return "@" + s.Role
+	}
+	return "@principal"
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/termipod/hub/internal/auth"
@@ -93,6 +95,10 @@ func runServe(args []string, log *slog.Logger) {
 	if *dbPath == "" {
 		*dbPath = filepath.Join(*dataRoot, "hub.db")
 	}
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
 	srv, err := server.New(server.Config{
 		Listen:   *listen,
 		DBPath:   *dbPath,
@@ -145,9 +151,12 @@ func runTokensIssue(args []string, log *slog.Logger) {
 	if *dbPath == "" {
 		*dbPath = filepath.Join(*dataRoot, "hub.db")
 	}
-	db, err := server.OpenDB(*dbPath)
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
+	db, err := openDBWithHint(*dbPath, log)
 	if err != nil {
-		log.Error("open db", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -174,9 +183,12 @@ func runTokensList(args []string, log *slog.Logger) {
 	if *dbPath == "" {
 		*dbPath = filepath.Join(*dataRoot, "hub.db")
 	}
-	db, err := server.OpenDB(*dbPath)
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
+	db, err := openDBWithHint(*dbPath, log)
 	if err != nil {
-		log.Error("open db", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -219,6 +231,10 @@ func runReconstructDB(args []string, log *slog.Logger) {
 	if *dbPath == "" {
 		*dbPath = filepath.Join(*dataRoot, "hub.db")
 	}
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
 	files, inserted, skipped, err := server.ReconstructDB(context.Background(), *dataRoot, *dbPath)
 	if err != nil {
 		log.Error("reconstruct failed", "err", err, "files", files, "inserted", inserted, "skipped", skipped)
@@ -228,6 +244,43 @@ func runReconstructDB(args []string, log *slog.Logger) {
 }
 
 // ---- helpers ----
+
+// ensureDBDir guarantees the directory holding the sqlite file exists,
+// because OpenDB will not create parents on its own. Without this the
+// modernc driver surfaces SQLITE_CANTOPEN (code 14) as the unhelpful
+// string "out of memory (14)" and people chase ghosts.
+func ensureDBDir(dbPath string) error {
+	return os.MkdirAll(filepath.Dir(dbPath), 0o700)
+}
+
+// openDBWithHint wraps server.OpenDB to turn the bare driver error into
+// something operators can act on when the path is unreadable / unwritable
+// / missing. Exit status is left to the caller.
+func openDBWithHint(path string, log *slog.Logger) (_ *serverDB, err error) {
+	db, err := server.OpenDB(path)
+	if err != nil {
+		hint := ""
+		msg := err.Error()
+		// modernc.org/sqlite reports CANTOPEN with an incorrect "out of
+		// memory (14)" prefix. Match on the numeric tail so we catch it
+		// even if upstream ever fixes the string.
+		if strings.Contains(msg, "(14)") || strings.Contains(msg, "unable to open database file") {
+			hint = "sqlite cannot open " + path +
+				" — ensure the directory exists and is writable by this user (did you run `hub-server init` first?)"
+		}
+		if hint != "" {
+			log.Error("open db", "err", msg, "hint", hint)
+		} else {
+			log.Error("open db", "err", msg)
+		}
+		return nil, err
+	}
+	return db, nil
+}
+
+// serverDB is an alias so the helper signature matches the caller's
+// expectation (*sql.DB) without a second import in this file.
+type serverDB = sql.DB
 
 func defaultDataRoot() string {
 	if v := os.Getenv("HUB_DATA"); v != "" {

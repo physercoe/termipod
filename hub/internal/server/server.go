@@ -230,6 +230,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		})
 		r.Get("/principals", s.handleListPrincipals)
 		r.Get("/audit", s.handleListAudit)
+		r.Get("/policy", s.handleGetPolicy)
+		r.Put("/policy", s.handlePutPolicy)
 	})
 
 	r.Route("/v1/blobs", func(r chi.Router) {

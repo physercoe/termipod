@@ -296,14 +296,184 @@ class _CountBadge extends StatelessWidget {
 
 // ---- Policies ----
 
-class _PoliciesView extends StatelessWidget {
+/// Live view + editor for <dataRoot>/team/policy.yaml. PUT triggers an
+/// in-memory reload on the hub — no daemon restart required.
+class _PoliciesView extends ConsumerStatefulWidget {
   const _PoliciesView();
 
   @override
+  ConsumerState<_PoliciesView> createState() => _PoliciesViewState();
+}
+
+class _PoliciesViewState extends ConsumerState<_PoliciesView> {
+  final TextEditingController _ctrl = TextEditingController();
+  String _lastSaved = '';
+  bool _loading = false;
+  bool _saving = false;
+  String? _error;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final body = await client.getPolicy();
+      if (!mounted) return;
+      setState(() {
+        _ctrl.text = body;
+        _lastSaved = body;
+        _loaded = true;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = '$e';
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final body = _ctrl.text;
+    setState(() => _saving = true);
+    try {
+      await client.putPolicy(body);
+      if (!mounted) return;
+      setState(() {
+        _lastSaved = body;
+        _saving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Policy saved · hub reloaded in-place')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Save failed: $e')),
+      );
+    }
+  }
+
+  void _discard() {
+    setState(() => _ctrl.text = _lastSaved);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const _EmptyText(
-      text:
-          'Policies view is read-only and pending wiring.\nCheck server logs for active policy.yaml.',
+    if (!_loaded && _loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && !_loaded) {
+      return _ErrorText(text: _error!);
+    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dirty = _ctrl.text != _lastSaved;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: DesignColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline,
+                    size: 16, color: DesignColors.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Saved changes apply immediately — no hub-server restart.',
+                    style: GoogleFonts.spaceGrotesk(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? DesignColors.surfaceDark
+                    : DesignColors.surfaceLight,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDark
+                      ? DesignColors.borderDark
+                      : DesignColors.borderLight,
+                ),
+              ),
+              padding: const EdgeInsets.all(10),
+              child: TextField(
+                controller: _ctrl,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                keyboardType: TextInputType.multiline,
+                style: GoogleFonts.jetBrainsMono(fontSize: 13),
+                decoration: const InputDecoration(
+                  isCollapsed: true,
+                  border: InputBorder.none,
+                  hintText:
+                      '# Example:\ntiers:\n  spawn: moderate\napprovers:\n  moderate: ["@steward"]\n',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              TextButton.icon(
+                onPressed: _loading || _saving ? null : _load,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Reload'),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: !dirty || _saving ? null : _discard,
+                child: const Text('Discard'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: !dirty || _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save, size: 18),
+                label: const Text('Save'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

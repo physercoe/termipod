@@ -244,6 +244,34 @@ class HubClient {
     return resp.transform(utf8.decoder).join();
   }
 
+  /// Fetches the raw team policy.yaml. Returns an empty string when the
+  /// hub has no policy file yet — the editor treats that as a blank canvas.
+  Future<String> getPolicy() async {
+    final req = await _open('GET', '/v1/teams/${cfg.teamId}/policy');
+    req.headers.set(HttpHeaders.acceptHeader, 'application/yaml');
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
+  /// Writes team policy.yaml atomically and triggers an in-memory reload.
+  /// Parse errors are surfaced as HubApiError(400) so the caller can show
+  /// the YAML diagnostic to the user without overwriting the good file.
+  Future<void> putPolicy(String yaml) async {
+    final req = await _open('PUT', '/v1/teams/${cfg.teamId}/policy');
+    req.headers.contentType =
+        ContentType('application', 'yaml', charset: 'utf-8');
+    req.add(utf8.encode(yaml));
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+  }
+
   Future<List<Map<String, dynamic>>> _listJson(
     String path, {
     Map<String, String>? query,

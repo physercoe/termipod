@@ -74,7 +74,8 @@ Template expansion runs server-side. Useful placeholders:
 ## 4. Spawning from mobile
 
 **Prebuilt.** Open the TermiPod app → **Hub** tab (bottom nav) →
-**Agents** tab → bottom-right **Spawn Agent** FAB.
+**Agents** tab (one of four: Projects · Agents · Hosts · Templates) →
+bottom-right **Spawn Agent** FAB.
 
 The sheet has:
 
@@ -97,8 +98,8 @@ Submit → one of two outcomes:
   to running once the host picks it up.
 - `"Spawn request sent — awaiting approval."` — policy-gated; an
   `approval_request` attention item is filed. Approvers (including
-  you, if you're on the list) can approve from the Attention tab;
-  the real spawn then happens.
+  you, if you're on the list) can approve from the Inbox (attention
+  section); the real spawn then happens.
 
 ### Can I spawn from mobile today?
 
@@ -112,7 +113,7 @@ What you cannot do yet from mobile:
 - Create a brand-new template; only *use* server-side templates or
   save device-local presets.
 - Approve-in-place on the spawn dialog — approvals live in the
-  Attention tab.
+  Inbox's attention section.
 
 ## 5. Spawning from the REST API
 
@@ -170,11 +171,13 @@ tracked as a follow-up.
 ## 7. Spawning on a schedule
 
 `hub-server` supports cron-style schedules that spawn agents
-unattended. Endpoints:
+unattended. Manage them from mobile at **Hub → Team (people icon) →
+Schedules**, or via REST:
 
 - `POST /v1/teams/{team}/schedules` — create
 - `GET  /v1/teams/{team}/schedules` — list
 - `PATCH /v1/teams/{team}/schedules/{id}` — enable / disable / edit
+- `DELETE /v1/teams/{team}/schedules/{id}` — delete
 
 Payload:
 

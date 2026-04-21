@@ -9,7 +9,7 @@ TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
   Let's Encrypt cert. The setup you want for anything longer-lived than a
   demo.
 
-The current release used for testing is **v1.0.42-alpha**.
+The current release used for testing is **v1.0.47-alpha**.
 
 **Companion docs:**
 
@@ -27,18 +27,18 @@ and attaches three Android APKs plus an unsigned iOS IPA.
 
 ```bash
 # From the repo root, on the branch containing the hub changes.
-git tag v1.0.41-alpha
-git push origin v1.0.41-alpha
+git tag v1.0.47-alpha
+git push origin v1.0.47-alpha
 gh run watch                      # wait for the release build
-gh release view v1.0.41-alpha     # grab the asset URLs
+gh release view v1.0.47-alpha     # grab the asset URLs
 ```
 
 Assets:
 
-- `termipod-v1.0.41-alpha-arm64-v8a.apk`   ← modern phones
-- `termipod-v1.0.41-alpha-armeabi-v7a.apk` ← older 32-bit ARM
-- `termipod-v1.0.41-alpha-x86_64.apk`      ← emulator / ChromeOS
-- `termipod-v1.0.41-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
+- `termipod-v1.0.47-alpha-arm64-v8a.apk`   ← modern phones
+- `termipod-v1.0.47-alpha-armeabi-v7a.apk` ← older 32-bit ARM
+- `termipod-v1.0.47-alpha-x86_64.apk`      ← emulator / ChromeOS
+- `termipod-v1.0.47-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
 
 ### Sideload on Android
 
@@ -266,24 +266,37 @@ SharedPreferences.
 
 ---
 
-## 5. Walk the seven tabs
+## 5. Walk the workspace
 
-Pull-to-refresh works on every list tab. Streams come in via SSE so
-Feed / Attention update live.
+The app splits Hub functionality across three surfaces:
 
-| Tab | What to try |
-|-----|-------------|
-| **Attention** | The `decision` item you seeded shows up, with an orange severity chip. Tap **Approve** or **Reject** — the row disappears and a decision is recorded. |
-| **Feed** | Pick *Project: test* → pick a channel. Events stream live. Text-part previews render inline; excerpt parts render with a monospace line-number gutter (feature added in v1.0.41). Scroll back to load history. |
-| **Tasks** | Swipeable kanban: **Open / In progress / Done**. Swipe right to promote, left to demote. Tap a card to see its subtasks. Cards with a parent show a chevron to jump up. |
-| **Templates** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
-| **Agents** | **List / Tree** toggle in the app bar. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
-| **Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`. |
-| **Projects** | Project cards with created timestamps. Tap to jump to the channel list. |
+- **Inbox** (bottom-nav center tab) — unified workflow feed. Attention
+  items, unread channels, and recent tasks roll up here. Search icon
+  in the app bar hits `/v1/search`.
+- **Hub** (bottom-nav tab) — four tabs over the registered inventory:
+  Projects · Agents · Hosts · Templates.
+- **Team settings** — people-icon button in the Hub app bar. Holds
+  Schedules, Usage, Members, Policies, Channels.
+
+Pull-to-refresh works on every list view. SSE keeps the Inbox and
+project channels live.
+
+| Surface | What to try |
+|---------|-------------|
+| **Inbox → Attention section** | The `decision` item you seeded shows up, with an orange severity chip. Tap **Approve** or **Reject** — the row disappears and a decision is recorded. |
+| **Inbox → search icon** | Full-text search over events, tasks, attention items. 350 ms debounce, autofocus TextField. |
+| **Hub → Projects → tap a project** | Linear-style detail page with Overview · Tasks · Channels · Docs · Blobs. Channel events stream live; excerpt parts render with a monospace line-number gutter. Docs renders markdown read-only. Blobs uploads / downloads content-addressed attachments (25 MiB cap, sha256 dedup). |
+| **Hub → Projects → tap a task** | Subtasks and parent chevron navigation. Create tasks with the project-scoped FAB. |
+| **Hub → Agents** | **List / Tree** toggle in the app bar. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
+| **Hub → Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`. |
+| **Hub → Templates** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
+| **Hub → Team → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |
+| **Hub → Team → Usage** | Per-project and per-agent budget rollup with progress bars (`spent_cents` / `budget_cents`). |
 
 ### Round-trip smoke test
 
-Open the Feed tab on channel `C` while running on the dev machine:
+Open the project detail Channels tab (Hub → Projects → your project →
+Channels → pick one) while running on the dev machine:
 
 ```bash
 curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \

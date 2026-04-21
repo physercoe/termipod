@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'budget_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
 
@@ -494,6 +495,15 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const SchedulesScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.account_balance_wallet_outlined),
+          title: const Text('Usage'),
+          subtitle: const Text('Agent budgets and spend'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const BudgetScreen(),
           )),
         ),
       ],

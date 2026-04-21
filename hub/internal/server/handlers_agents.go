@@ -197,13 +197,16 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	// host-runner cleanup.
 	if in.Status != nil && *in.Status == "terminated" {
 		var hostID, paneID sql.NullString
+		var handle string
 		qerr := s.db.QueryRowContext(r.Context(),
-			`SELECT host_id, pane_id FROM agents WHERE team_id = ? AND id = ?`,
-			team, id).Scan(&hostID, &paneID)
+			`SELECT host_id, pane_id, handle FROM agents WHERE team_id = ? AND id = ?`,
+			team, id).Scan(&hostID, &paneID, &handle)
 		if qerr == nil && hostID.Valid && hostID.String != "" {
 			_, _ = s.enqueueHostCommand(r.Context(), hostID.String, id,
 				"terminate", map[string]any{"pane_id": paneID.String})
 		}
+		s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
+			"terminate "+handle, map[string]any{"handle": handle})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -265,6 +268,10 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Status = "spawned"
+	s.recordAudit(r.Context(), team, "agent.spawn", "agent", out.AgentID,
+		"spawn "+in.ChildHandle+" ("+in.Kind+")",
+		map[string]any{"handle": in.ChildHandle, "kind": in.Kind, "host_id": in.HostID},
+	)
 	writeJSON(w, status, out)
 }
 

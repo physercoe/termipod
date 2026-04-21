@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'audit_screen.dart';
 import 'budget_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
@@ -504,6 +505,15 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const BudgetScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('Audit Log'),
+          subtitle: const Text('Sensitive action history'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const AuditScreen(),
           )),
         ),
       ],

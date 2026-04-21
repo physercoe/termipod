@@ -65,6 +65,10 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	s.recordAudit(r.Context(), team, "schedule.create", "schedule", id,
+		"create schedule "+in.Name,
+		map[string]any{"name": in.Name, "cron_expr": in.CronExpr, "enabled": enabled},
+	)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "created_at": now, "enabled": enabled,
 	})
@@ -153,6 +157,10 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "schedule")
+	var name string
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT name FROM agent_schedules WHERE team_id = ? AND id = ?`,
+		team, id).Scan(&name)
 	res, err := s.db.ExecContext(r.Context(),
 		`DELETE FROM agent_schedules WHERE team_id = ? AND id = ?`, team, id)
 	if err != nil {
@@ -167,6 +175,12 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	if s.sched != nil {
 		s.sched.Unregister(id)
 	}
+	summary := "delete schedule"
+	if name != "" {
+		summary = "delete schedule " + name
+	}
+	s.recordAudit(r.Context(), team, "schedule.delete", "schedule", id,
+		summary, map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
 }
 

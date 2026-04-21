@@ -122,6 +122,9 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 			"host still has active agents — terminate them first")
 		return
 	}
+	var name string
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT name FROM hosts WHERE team_id = ? AND id = ?`, team, host).Scan(&name)
 	res, err := s.db.ExecContext(r.Context(),
 		`DELETE FROM hosts WHERE team_id = ? AND id = ?`, team, host)
 	if err != nil {
@@ -133,6 +136,12 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "host not found")
 		return
 	}
+	summary := "delete host"
+	if name != "" {
+		summary = "delete host " + name
+	}
+	s.recordAudit(r.Context(), team, "host.delete", "host", host,
+		summary, map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
 }
 

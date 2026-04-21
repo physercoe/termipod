@@ -241,6 +241,15 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			out.Executed = b
 		}
 	}
+	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,
+		in.Decision+" attention ("+kind+")",
+		map[string]any{
+			"decision": in.Decision,
+			"kind":     kind,
+			"tier":     tier,
+			"by":       in.By,
+			"reason":   in.Reason,
+		})
 	writeJSON(w, http.StatusOK, out)
 }
 

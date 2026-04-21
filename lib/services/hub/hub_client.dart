@@ -629,6 +629,28 @@ class HubClient {
     return _listJson('/v1/search', query: query);
   }
 
+  /// Lists audit events for the configured team, newest first. Each row
+  /// has `id`, `ts`, `actor_kind`, `actor_handle`, `action`, `target_kind`,
+  /// `target_id`, `summary`, and optional `meta`.
+  ///
+  /// [action] filters to an exact action string (e.g. `agent.spawn`).
+  /// [since] is an ISO-8601 UTC timestamp lower bound. [limit] is clamped
+  /// to 500 by the server.
+  Future<List<Map<String, dynamic>>> listAuditEvents({
+    String? action,
+    String? since,
+    int? limit,
+  }) {
+    final query = <String, String>{};
+    if (action != null && action.isNotEmpty) query['action'] = action;
+    if (since != null && since.isNotEmpty) query['since'] = since;
+    if (limit != null) query['limit'] = '$limit';
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/audit',
+      query: query.isEmpty ? null : query,
+    );
+  }
+
   // ---- SSE event stream ----
 
   /// Streams events for one channel as parsed JSON objects. The hub sends

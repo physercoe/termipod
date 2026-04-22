@@ -9,6 +9,7 @@ import 'budget_screen.dart';
 import 'plans_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
+import 'templates_screen.dart';
 import 'tokens_screen.dart';
 
 /// Team-level surface. Four sub-tabs:
@@ -661,6 +662,15 @@ class _SettingsView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        ListTile(
+          leading: const Icon(Icons.description_outlined),
+          title: const Text('Templates'),
+          subtitle: const Text('Agent recipes, prompts, and policies'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const TemplatesScreen(),
+          )),
+        ),
         ListTile(
           leading: const Icon(Icons.schedule),
           title: const Text('Schedules'),

@@ -33,8 +33,15 @@ func NewTmuxLauncher(session, defaultCmd string, log *slog.Logger) *TmuxLauncher
 }
 
 func (t *TmuxLauncher) Launch(ctx context.Context, sp Spawn) (string, error) {
+	return t.LaunchCmd(ctx, sp, t.DefaultCmd)
+}
+
+func (t *TmuxLauncher) LaunchCmd(ctx context.Context, sp Spawn, cmd string) (string, error) {
 	if err := t.ensureSession(ctx); err != nil {
 		return "", err
+	}
+	if cmd == "" {
+		cmd = t.DefaultCmd
 	}
 	window := sanitizeWindowName(sp.Handle)
 	// -d: don't switch the client, -n: window name, -P + -F: print target
@@ -42,7 +49,7 @@ func (t *TmuxLauncher) Launch(ctx context.Context, sp Spawn) (string, error) {
 		"new-window", "-d", "-t", t.Session+":",
 		"-n", window,
 		"-P", "-F", "#{session_name}:#{window_index}.#{pane_index}",
-		t.DefaultCmd,
+		cmd,
 	)
 	if err != nil {
 		return "", fmt.Errorf("new-window: %w", err)

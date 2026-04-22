@@ -249,37 +249,80 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		a.worktrees[sp.ChildID] = wt
 	}
 
-	pane, err := a.Launcher.Launch(ctx, sp)
-	if err != nil {
-		a.Log.Error("launch failed", "handle", sp.Handle, "err", err)
-		status := "failed"
-		_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
-		return
+	// Dispatch by resolved driving mode. The hub is authoritative — it
+	// resolves mode against host capabilities + billing before the spawn
+	// lands here. An empty Mode means "hub had no opinion" (opt-in
+	// column) and we default to M4 so unmigrated clients keep working.
+	mode := sp.Mode
+	if mode == "" {
+		mode = "M4"
 	}
+
+	var pane string
+	var drv Driver
+	switch mode {
+	case "M2":
+		res, m2err := launchM2(ctx, M2LaunchConfig{
+			Spawn:    sp,
+			Launcher: a.Launcher,
+			Client:   a.Client,
+		})
+		if m2err != nil {
+			a.Log.Warn("M2 launch failed; falling back to M4",
+				"handle", sp.Handle, "err", m2err)
+			mode = "M4"
+			break
+		}
+		pane = res.PaneID
+		drv = res.Driver
+	case "M1":
+		// M1 launcher not implemented yet (blueprint P1.?). Fall through to
+		// M4 so the pane still exists; mark the drop in the log.
+		a.Log.Warn("M1 launcher not implemented; using M4 fallback",
+			"agent", sp.ChildID, "handle", sp.Handle)
+		mode = "M4"
+	}
+
+	if mode == "M4" && drv == nil {
+		p, err := a.Launcher.Launch(ctx, sp)
+		if err != nil {
+			a.Log.Error("launch failed", "handle", sp.Handle, "err", err)
+			status := "failed"
+			_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
+			return
+		}
+		pane = p
+		drv = &PaneDriver{
+			AgentID: sp.ChildID,
+			PaneID:  pane,
+			Poster:  a.Client,
+			Log:     a.Log,
+		}
+	}
+
 	// Record the pane id but leave status='pending'. The reconcile tick
 	// owns the pending → running transition: it flips only once tmux
 	// reports a non-shell foreground command, so a pane whose CLI failed
 	// to start is correctly distinguished from a working one.
-	if err := a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{
-		PaneID: &pane,
-	}); err != nil {
-		a.Log.Error("patch agent failed", "handle", sp.Handle, "err", err)
-		return
+	if pane != "" {
+		if err := a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{
+			PaneID: &pane,
+		}); err != nil {
+			a.Log.Error("patch agent failed", "handle", sp.Handle, "err", err)
+			return
+		}
 	}
-	a.Log.Info("agent pane created", "handle", sp.Handle, "pane", pane)
+	a.Log.Info("agent pane created", "handle", sp.Handle, "pane", pane, "mode", mode)
 
-	// P1.1 pass A: start an M4 pane driver for every agent, unconditionally.
-	// This is the minimum wire-up — future passes will consult mode resolution
-	// (P1.4) and pick M1/M2 when the template + capabilities agree.
-	drv := &PaneDriver{
-		AgentID: sp.ChildID,
-		PaneID:  pane,
-		Poster:  a.Client,
-		Log:     a.Log,
+	// M2's driver is already Start()ed inside launchM2; M4's is not — keep
+	// the start conditional so we don't double-emit lifecycle.started.
+	if _, ok := drv.(*PaneDriver); ok {
+		if err := drv.Start(ctx); err != nil {
+			a.Log.Warn("driver start failed", "agent", sp.ChildID, "err", err)
+			drv = nil
+		}
 	}
-	if err := drv.Start(ctx); err != nil {
-		a.Log.Warn("driver start failed", "agent", sp.ChildID, "err", err)
-	} else {
+	if drv != nil {
 		a.drivers[sp.ChildID] = drv
 	}
 

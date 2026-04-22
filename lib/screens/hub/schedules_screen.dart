@@ -5,9 +5,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'schedule_create_sheet.dart';
+import 'schedule_edit_sheet.dart';
 
-/// Full-screen list of team cron schedules. Edits aren't supported server-side
-/// yet, so users toggle enabled, delete, or create a replacement.
+/// Full-screen list of team cron schedules. Each tile toggles enabled,
+/// runs-now, edits cron/parameters in place, duplicates, or deletes.
 class SchedulesScreen extends ConsumerStatefulWidget {
   const SchedulesScreen({super.key});
 
@@ -128,6 +129,16 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     if (created == true) await _load();
   }
 
+  Future<void> _openEdit(Map<String, dynamic> row) async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ScheduleEditSheet(schedule: row),
+    );
+    if (updated == true) await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -216,23 +227,11 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                 (row['id'] ?? '').toString(),
                 (row['template_id'] ?? row['id'] ?? '').toString(),
               ),
+              onEdit: () => _openEdit(row),
               onDuplicate: () => _openCreate(initial: row),
             ),
             const SizedBox(height: 8),
           ],
-        Padding(
-          padding: const EdgeInsets.only(top: 16),
-          child: Text(
-            'Edits require delete + recreate. Use Duplicate to seed a new one from an existing schedule.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 12,
-              color: isDark
-                  ? DesignColors.textMuted
-                  : DesignColors.textMutedLight,
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -244,6 +243,7 @@ class _ScheduleTile extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
   final VoidCallback onRunNow;
+  final VoidCallback onEdit;
   final VoidCallback onDuplicate;
   const _ScheduleTile({
     required this.row,
@@ -251,6 +251,7 @@ class _ScheduleTile extends StatelessWidget {
     required this.onToggle,
     required this.onDelete,
     required this.onRunNow,
+    required this.onEdit,
     required this.onDuplicate,
   });
 
@@ -333,10 +334,20 @@ class _ScheduleTile extends StatelessWidget {
             tooltip: 'More',
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
+              if (v == 'edit') onEdit();
               if (v == 'duplicate') onDuplicate();
               if (v == 'delete') onDelete();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'edit',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.edit_outlined, size: 20),
+                  title: Text('Edit'),
+                ),
+              ),
               PopupMenuItem(
                 value: 'duplicate',
                 child: ListTile(

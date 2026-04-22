@@ -23,6 +23,7 @@ type Runner struct {
 
 	HeartbeatInterval time.Duration
 	PollInterval      time.Duration
+	ProbeInterval     time.Duration // 0 = 15 min
 	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
 
 	// StateDir, when non-empty, caches host_id after the first register so
@@ -41,6 +42,9 @@ func (a *Runner) defaults() {
 	}
 	if a.PollInterval == 0 {
 		a.PollInterval = 3 * time.Second
+	}
+	if a.ProbeInterval == 0 {
+		a.ProbeInterval = 15 * time.Minute
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()
@@ -90,6 +94,11 @@ func (a *Runner) Start(ctx context.Context) error {
 	defer hb.Stop()
 	poll := time.NewTicker(a.PollInterval)
 	defer poll.Stop()
+
+	// Capability probing runs on its own goroutine so a slow --version call
+	// can't stall heartbeats. Push on change only; the hub stores the last
+	// payload verbatim and we want to avoid write amplification.
+	go a.probeLoop(ctx)
 
 	// Kick off an immediate poll so bootstrap isn't delayed by the first tick.
 	a.tickPoll(ctx)
@@ -268,6 +277,37 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		return
 	}
 	a.tailers[sp.ChildID] = t
+}
+
+// probeLoop runs an initial capability probe and re-probes every
+// ProbeInterval. A PUT is issued only when the hash changes, so the hub
+// sees one write per genuine binary install/upgrade rather than one per tick.
+func (a *Runner) probeLoop(ctx context.Context) {
+	var lastHash string
+	push := func() {
+		caps := ProbeCapabilities(ctx)
+		h := caps.Hash()
+		if h == lastHash {
+			return
+		}
+		if err := a.Client.PutCapabilities(ctx, a.HostID, caps); err != nil {
+			a.Log.Warn("capability push failed", "err", err)
+			return
+		}
+		lastHash = h
+		a.Log.Info("capabilities published", "host", a.HostName, "hash", h[:12])
+	}
+	push()
+	t := time.NewTicker(a.ProbeInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			push()
+		}
+	}
 }
 
 // stopTailer tears down marker forwarding for an agent that has left the

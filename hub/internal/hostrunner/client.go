@@ -52,6 +52,14 @@ func (c *Client) Heartbeat(ctx context.Context, hostID string) error {
 	return c.post(ctx, fmt.Sprintf("/v1/teams/%s/hosts/%s/heartbeat", c.Team, hostID), nil, nil)
 }
 
+// PutCapabilities uploads the latest capability probe to the hub. Body is any
+// value that marshals to the shape handleUpdateHostCapabilities accepts;
+// Capabilities{} from capabilities.go is the canonical caller.
+func (c *Client) PutCapabilities(ctx context.Context, hostID string, caps any) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/hosts/%s/capabilities", c.Team, hostID), caps, nil)
+}
+
 type Spawn struct {
 	SpawnID      string          `json:"spawn_id"`
 	ChildID      string          `json:"child_agent_id"`

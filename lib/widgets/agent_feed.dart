@@ -223,6 +223,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // approval_request card renders in a disabled/resolved state instead
     // of offering the buttons again.
     final resolvedApprovals = <String, String>{}; // request_id → decision
+    // Latest tool_call_update per toolCallId, folded into the parent
+    // tool_call card below. Individual tool_call_update events are hidden
+    // from the feed — rendering every progress tick floods the list.
+    final toolUpdates = <String, Map<String, dynamic>>{};
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -231,12 +235,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         final id = p['id']?.toString() ?? '';
         final name = p['name']?.toString() ?? '';
         if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
+      } else if (kind == 'tool_call_update') {
+        final id = (p['toolCallId'] ?? p['tool_call_id'] ?? '').toString();
+        if (id.isNotEmpty) toolUpdates[id] = p.cast<String, dynamic>();
       } else if (kind == 'input.approval') {
         final rid = p['request_id']?.toString() ?? '';
         final dec = p['decision']?.toString() ?? '';
         if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
       }
     }
+    // Build the visible event list: drop tool_call_update since their
+    // content is now carried on the parent tool_call card.
+    final visible = <Map<String, dynamic>>[
+      for (final e in _events)
+        if ((e['kind'] ?? '').toString() != 'tool_call_update') e,
+    ];
     return Column(
       children: [
         Expanded(
@@ -245,11 +258,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               ListView.separated(
                 controller: _scroll,
                 padding: widget.padding,
-                itemCount: _events.length,
+                itemCount: visible.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) => AgentEventCard(
-                  event: _events[i],
+                  event: visible[i],
                   toolNames: toolNames,
+                  toolUpdates: toolUpdates,
                   resolvedApprovals: resolvedApprovals,
                   agentId: widget.agentId,
                 ),
@@ -348,6 +362,10 @@ class AgentEventCard extends StatelessWidget {
   // tool_call events so tool_result cards can show the human name
   // instead of a 24-char id. Empty when no context is available.
   final Map<String, String> toolNames;
+  // toolCallId → latest tool_call_update payload. The tool_call body
+  // pulls status/content from here so progress ticks don't need their
+  // own card.
+  final Map<String, Map<String, dynamic>> toolUpdates;
   // request_id → prior decision. Present entries mean the user already
   // answered this approval, so we render the chip but not the buttons.
   final Map<String, String> resolvedApprovals;
@@ -357,6 +375,7 @@ class AgentEventCard extends StatelessWidget {
     super.key,
     required this.event,
     this.toolNames = const {},
+    this.toolUpdates = const {},
     this.resolvedApprovals = const {},
     this.agentId,
   });
@@ -506,12 +525,38 @@ class AgentEventCard extends StatelessWidget {
     final name = p['name']?.toString() ?? '?';
     final id = p['id']?.toString() ?? '';
     final input = p['input'];
+    // Fold the latest tool_call_update so a single card shows the end
+    // state (status + optional content preview) without a second row.
+    final update = id.isNotEmpty ? toolUpdates[id] : null;
+    final status = (update?['status'] ?? p['status'] ?? '').toString();
+    // ACP tool_call_update.content is a list of content blocks; pull the
+    // first text block for a compact preview. Larger outputs land in
+    // tool_result anyway so this is just for at-a-glance progress.
+    String? preview;
+    final content = update?['content'];
+    if (content is List) {
+      for (final b in content) {
+        if (b is Map && b['type'] == 'content') {
+          final inner = b['content'];
+          if (inner is Map && inner['type'] == 'text') {
+            preview = inner['text']?.toString();
+            break;
+          }
+        }
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'id', id),
+        if (status.isNotEmpty) _kv(ctx, 'status', status),
         if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
+        if (preview != null && preview.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: _CollapsibleMono(text: preview),
+          ),
       ],
     );
   }

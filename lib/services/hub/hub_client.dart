@@ -648,6 +648,31 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Posts structured user input to an agent (P1.8). Lands in
+  /// agent_events as producer='user' with kind='input.<kind>'; driver
+  /// dispatch is the hub's job downstream. Returns {id, seq, ts}.
+  Future<Map<String, dynamic>> postAgentInput(
+    String agentId, {
+    required String kind,
+    String? body,
+    String? decision,
+    String? requestId,
+    String? note,
+    String? reason,
+    String? documentId,
+  }) async {
+    final req = <String, dynamic>{'kind': kind};
+    if (body != null) req['body'] = body;
+    if (decision != null) req['decision'] = decision;
+    if (requestId != null) req['request_id'] = requestId;
+    if (note != null) req['note'] = note;
+    if (reason != null) req['reason'] = reason;
+    if (documentId != null) req['document_id'] = documentId;
+    final out =
+        await _post('/v1/teams/${cfg.teamId}/agents/$agentId/input', req);
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Backfill events by monotonic seq. `since` is exclusive (seq > since).
   Future<List<Map<String, dynamic>>> listAgentEvents(
     String agentId, {

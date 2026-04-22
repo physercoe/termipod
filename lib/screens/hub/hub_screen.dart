@@ -14,6 +14,7 @@ import '../../widgets/agent_feed.dart';
 import '../connections/connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
 import 'archived_agents_screen.dart';
+import 'host_edit_sheet.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
@@ -2299,6 +2300,20 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _edit() async {
+    final updated = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => HostEditSheet(host: widget.host),
+    );
+    if (updated == true && mounted) {
+      // The host row in widget.host is stale after a write; pop the sheet
+      // so the caller re-opens against the refreshed list.
+      Navigator.of(context).pop();
+    }
+  }
+
   Future<void> _delete() async {
     final name = widget.host['name']?.toString() ?? 'this host';
     final id = widget.host['id']?.toString() ?? '';
@@ -2370,6 +2385,11 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                           fontSize: 18, fontWeight: FontWeight.w700)),
                 ),
                 _Chip(text: status, color: _agentStatusColor(status)),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  tooltip: 'Edit host',
+                  onPressed: _busy ? null : _edit,
+                ),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(context),

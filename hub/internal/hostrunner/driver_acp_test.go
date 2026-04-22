@@ -111,6 +111,44 @@ func (f *fakeACPAgent) findReceived(method string) map[string]any {
 	return nil
 }
 
+// findResponse finds a response (no method, has result or error) whose
+// id matches the numeric rpcID the fake previously sent. Used by the
+// permission test to assert the driver's reply.
+func (f *fakeACPAgent) findResponse(rpcID float64) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.received {
+		if _, hasMethod := m["method"]; hasMethod {
+			continue
+		}
+		id, ok := m["id"].(float64)
+		if !ok {
+			continue
+		}
+		if id == rpcID {
+			return m
+		}
+	}
+	return nil
+}
+
+// sendRequest is like notify but with an id — used to model the agent
+// calling back into the client (e.g. session/request_permission).
+func (f *fakeACPAgent) sendRequest(id int64, method string, params map[string]any) {
+	b, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+		"params":  params,
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+	_, _ = f.hostWrite.Write(append(b, '\n'))
+}
+
 func (f *fakeACPAgent) close() {
 	f.mu.Lock()
 	f.closed = true
@@ -380,6 +418,197 @@ func TestACPDriver_InputCancelSendsNotification(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("session/cancel never arrived")
+}
+
+// TestACPDriver_PermissionAllowRoundTrip: the agent sends
+// session/request_permission with id=99; the driver emits an
+// approval_request event carrying request_id; the operator responds via
+// Input(kind=approval, decision=allow); the driver writes a JSON-RPC
+// response with id=99 and outcome={selected, optionId=allow}.
+func TestACPDriver_PermissionAllowRoundTrip(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-perm-allow")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-perm",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Agent asks for permission.
+	fake.sendRequest(99, "session/request_permission", map[string]any{
+		"sessionId": "sess-perm-allow",
+		"toolCall":  map[string]any{"name": "bash", "args": "rm -rf /tmp/x"},
+		"options": []any{
+			map[string]any{"optionId": "allow", "name": "Allow"},
+			map[string]any{"optionId": "deny", "name": "Deny"},
+		},
+	})
+
+	// Driver should emit an approval_request event with request_id="99".
+	deadline := time.Now().Add(2 * time.Second)
+	var reqEvt *postedEvent
+	for time.Now().Before(deadline) {
+		for _, ev := range poster.snapshot() {
+			if ev.Kind == "approval_request" {
+				e := ev
+				reqEvt = &e
+				break
+			}
+		}
+		if reqEvt != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if reqEvt == nil {
+		t.Fatal("approval_request event never emitted")
+	}
+	reqID, _ := reqEvt.Payload["request_id"].(string)
+	if reqID != "99" {
+		t.Fatalf("request_id = %q; want \"99\"", reqID)
+	}
+	if reqEvt.Producer != "agent" {
+		t.Fatalf("producer = %q; want agent", reqEvt.Producer)
+	}
+
+	// Operator decides.
+	if err := drv.Input(context.Background(), "approval", map[string]any{
+		"request_id": reqID,
+		"decision":   "allow",
+		"option_id":  "allow",
+	}); err != nil {
+		t.Fatalf("Input approval: %v", err)
+	}
+
+	// Driver should have written a JSON-RPC response back to the agent.
+	var resp map[string]any
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := fake.findResponse(99); m != nil {
+			resp = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver never wrote a permission response")
+	}
+	result, _ := resp["result"].(map[string]any)
+	outcome, _ := result["outcome"].(map[string]any)
+	if outcome["outcome"] != "selected" || outcome["optionId"] != "allow" {
+		t.Fatalf("outcome wrong: %+v", outcome)
+	}
+}
+
+// TestACPDriver_PermissionCancelRoundTrip: a "cancel" decision maps to
+// ACP's cancelled outcome (no optionId required).
+func TestACPDriver_PermissionCancelRoundTrip(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-perm-cancel")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID: "agent-perm-cancel",
+		Poster:  poster,
+		Stdin:   hostInW,
+		Stdout:  hostOutR,
+		Closer:  func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	fake.sendRequest(7, "session/request_permission", map[string]any{})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		hit := false
+		for _, ev := range poster.snapshot() {
+			if ev.Kind == "approval_request" {
+				hit = true
+				break
+			}
+		}
+		if hit {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if err := drv.Input(context.Background(), "approval", map[string]any{
+		"request_id": "7",
+		"decision":   "cancel",
+	}); err != nil {
+		t.Fatalf("Input approval cancel: %v", err)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findResponse(7); m != nil {
+			resp = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver never wrote a permission response for cancel")
+	}
+	result, _ := resp["result"].(map[string]any)
+	outcome, _ := result["outcome"].(map[string]any)
+	if outcome["outcome"] != "cancelled" {
+		t.Fatalf("outcome wrong: %+v (want cancelled)", outcome)
+	}
+}
+
+// TestACPDriver_ApprovalRejectsUnknownRequestID: if a phone sends a
+// stale or bogus request_id, the driver must refuse rather than writing
+// a response with no matching JSON-RPC id.
+func TestACPDriver_ApprovalRejectsUnknownRequestID(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-perm-none")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID: "agent-perm-none",
+		Poster:  &fakePoster{},
+		Stdin:   hostInW,
+		Stdout:  hostOutR,
+		Closer:  func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	err := drv.Input(context.Background(), "approval", map[string]any{
+		"request_id": "does-not-exist",
+		"decision":   "allow",
+	})
+	if err == nil {
+		t.Fatal("want error for unknown request_id")
+	}
 }
 
 func TestACPDriver_InputRejectsBeforeHandshake(t *testing.T) {

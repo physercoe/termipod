@@ -48,7 +48,11 @@ type ACPDriver struct {
 	nextID    atomic.Int64
 	pendingMu sync.Mutex
 	pending   map[int64]chan acpResponse
-	sessionID string
+	// permMu protects pendingPerm; we need a separate lock because the
+	// reader (recording a request_id) and Input (resolving it) can race.
+	permMu      sync.Mutex
+	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
+	sessionID   string
 }
 
 type acpResponse struct {
@@ -85,6 +89,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	d.started = true
 	d.pending = make(map[int64]chan acpResponse)
+	d.pendingPerm = make(map[string]json.RawMessage)
 	d.mu.Unlock()
 
 	if d.Log == nil {
@@ -155,6 +160,11 @@ func (d *ACPDriver) Stop() {
 		delete(d.pending, id)
 	}
 	d.pendingMu.Unlock()
+	// Abandoned permission requests get dropped — the agent will unblock
+	// when we close stdin, treating it as a cancellation.
+	d.permMu.Lock()
+	d.pendingPerm = nil
+	d.permMu.Unlock()
 
 	shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -233,8 +243,14 @@ func (d *ACPDriver) readLoop(ctx context.Context) {
 			d.deliverResponse(msg)
 			continue
 		}
-		// Request from agent (has id + method): reject with method-not-found.
+		// Request from agent (has id + method).
 		if msg.ID != nil && msg.Method != "" {
+			if msg.Method == "session/request_permission" {
+				d.handlePermissionRequest(ctx, *msg.ID, msg.Params)
+				continue
+			}
+			// Everything else: reject with method-not-found. Agents are
+			// expected to fall back to internal tooling.
 			_ = d.writeMsg(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      json.RawMessage(*msg.ID),
@@ -336,10 +352,12 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 // Input implements Inputter for M1 (ACP). Translations:
 //   - text:     session/prompt with a text content block against d.sessionID.
 //   - cancel:   session/cancel notification against d.sessionID.
-//   - approval: not yet wired — ACP's permission flow uses client-handled
-//               session/request_permission RPCs that this shim currently
-//               rejects. Surfaces an explicit error so the router logs it
-//               rather than silently dropping operator intent.
+//   - approval: resolves a pending session/request_permission call that
+//               the agent initiated; request_id must match the one the
+//               driver emitted in its approval_request event. decision
+//               of "cancel" maps to ACP's "cancelled" outcome, any other
+//               value to "selected" with optionId taken from payload
+//               (defaults to the decision string itself).
 //   - attach:   surfaced as a text prompt with a document_id marker; the
 //               agent has no fs capability from this client yet.
 //
@@ -383,10 +401,75 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		})
 		return err
 	case "approval":
-		return fmt.Errorf("acp driver: approval input not implemented (requires client-side permission flow)")
+		reqID, _ := payload["request_id"].(string)
+		if reqID == "" {
+			return fmt.Errorf("acp driver: approval missing request_id")
+		}
+		decision, _ := payload["decision"].(string)
+		d.permMu.Lock()
+		rpcID, ok := d.pendingPerm[reqID]
+		if ok {
+			delete(d.pendingPerm, reqID)
+		}
+		d.permMu.Unlock()
+		if !ok {
+			return fmt.Errorf("acp driver: no pending permission request %q", reqID)
+		}
+		// ACP permission outcome shape: a "selected" option by id, or
+		// "cancelled". We map operator intent to the minimum vocabulary
+		// an agent ought to understand: "allow" / "deny" → selected,
+		// "cancel" → cancelled. optionId lets the agent remember which
+		// button a human clicked when it rendered multiple choices.
+		optionID, _ := payload["option_id"].(string)
+		if optionID == "" {
+			optionID = decision
+		}
+		var outcome map[string]any
+		switch decision {
+		case "cancel":
+			outcome = map[string]any{"outcome": "cancelled"}
+		default:
+			outcome = map[string]any{
+				"outcome":  "selected",
+				"optionId": optionID,
+			}
+		}
+		return d.writeMsg(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      rpcID,
+			"result":  map[string]any{"outcome": outcome},
+		})
 	default:
 		return fmt.Errorf("acp driver: unsupported input kind %q", kind)
 	}
+}
+
+// handlePermissionRequest captures an agent's session/request_permission
+// RPC, emits a matching approval_request agent_event, and parks the
+// JSON-RPC id until a user input.approval resolves it. If the phone
+// never responds, the agent's call blocks until the driver is stopped —
+// Stop closes stdin which the agent should treat as a cancellation.
+func (d *ACPDriver) handlePermissionRequest(ctx context.Context, rpcID json.RawMessage, params json.RawMessage) {
+	// request_id visible to the phone: stringified JSON of the rpc id so
+	// it round-trips without parsing (the id may be numeric or string).
+	reqID := string(rpcID)
+	d.permMu.Lock()
+	d.pendingPerm[reqID] = append(json.RawMessage(nil), rpcID...)
+	d.permMu.Unlock()
+
+	// Decode the params loosely so the event payload carries whatever the
+	// agent sent (toolCall summary, option list, sessionId). We don't
+	// validate the shape — the phone gets the raw structure and can
+	// render it however it wants.
+	var p map[string]any
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	payload := map[string]any{
+		"request_id": reqID,
+		"params":     p,
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "approval_request", "agent", payload)
 }
 
 // extractContentText pulls a text payload out of an ACP content block.

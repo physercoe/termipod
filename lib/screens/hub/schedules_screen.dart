@@ -266,8 +266,8 @@ class _ScheduleTile extends StatelessWidget {
         : trigger;
 
     final meta = <String>[];
-    if (nextRun.isNotEmpty) meta.add('next $nextRun');
-    if (lastRun.isNotEmpty) meta.add('last $lastRun');
+    if (nextRun.isNotEmpty) meta.add('next ${_fmtRel(nextRun)}');
+    if (lastRun.isNotEmpty) meta.add('last ${_fmtRel(lastRun)}');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -335,4 +335,29 @@ class _ScheduleTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// Turns an ISO-8601 timestamp into a compact relative string. Falls
+// back to the raw value on parse failure so a surprising format still
+// shows *something* rather than nothing.
+String _fmtRel(String iso) {
+  final dt = DateTime.tryParse(iso);
+  if (dt == null) return iso;
+  final now = DateTime.now();
+  final diff = dt.difference(now);
+  final abs = diff.abs();
+  final future = diff.isNegative == false;
+  String mag;
+  if (abs.inSeconds < 60) {
+    mag = '<1m';
+  } else if (abs.inMinutes < 60) {
+    mag = '${abs.inMinutes}m';
+  } else if (abs.inHours < 24) {
+    mag = '${abs.inHours}h';
+  } else if (abs.inDays < 30) {
+    mag = '${abs.inDays}d';
+  } else {
+    return iso.split('T').first;
+  }
+  return future ? 'in $mag' : '$mag ago';
 }

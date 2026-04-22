@@ -600,7 +600,7 @@ class _StepDetailSheet extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 16),
-          _kvBlock(context, 'Spec', spec),
+          ..._specBlocks(context, spec),
           _kvBlock(context, 'Inputs', inputs),
           _kvBlock(context, 'Outputs', outputs),
           const SizedBox(height: 16),
@@ -632,6 +632,131 @@ class _StepDetailSheet extends StatelessWidget {
                   ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Structured renderer for a step's spec_json: pulls well-known
+  /// long-text fields (the actual command/prompt/script the step runs)
+  /// into labeled code blocks so a human reviewing a plan can see what
+  /// each step actually does without squinting at a JSON tree. The
+  /// remaining scalar fields render as a compact kv block; anything
+  /// left (nested objects, arrays) falls into the raw JSON tail.
+  List<Widget> _specBlocks(BuildContext context, dynamic raw) {
+    if (raw == null) return const [];
+    if (raw is! Map) return [_kvBlock(context, 'Spec', raw)];
+    if (raw.isEmpty) return const [];
+
+    // Known verbose fields, in display order. command/cmd/script tend to
+    // be shell-ish (mono), prompt/question/body/description lean prose.
+    const textKeys = <String>[
+      'command',
+      'cmd',
+      'script',
+      'prompt',
+      'question',
+      'body',
+      'description',
+    ];
+    final textBlocks = <MapEntry<String, String>>[];
+    final scalars = <MapEntry<String, dynamic>>[];
+    final other = <String, dynamic>{};
+
+    raw.forEach((k, v) {
+      final key = k.toString();
+      if (v is String && v.isNotEmpty && textKeys.contains(key)) {
+        textBlocks.add(MapEntry(key, v));
+      } else if (v is String || v is num || v is bool) {
+        scalars.add(MapEntry(key, v));
+      } else if (v != null) {
+        other[key] = v;
+      }
+    });
+
+    final out = <Widget>[];
+    for (final block in textBlocks) {
+      out.add(_codeBlock(context, block.key, block.value));
+    }
+    if (scalars.isNotEmpty) {
+      out.add(_scalarGrid(context, scalars));
+    }
+    if (other.isNotEmpty) {
+      out.add(_kvBlock(context, 'Other', other));
+    }
+    if (out.isEmpty) {
+      // Pure-map spec with no recognised fields (rare): still show it.
+      out.add(_kvBlock(context, 'Spec', raw));
+    }
+    return out;
+  }
+
+  Widget _codeBlock(BuildContext context, String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: DesignColors.borderDark),
+            ),
+            child: SelectableText(
+              content,
+              style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _scalarGrid(
+      BuildContext context, List<MapEntry<String, dynamic>> scalars) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final e in scalars)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 100,
+                    child: Text(
+                      e.key,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: SelectableText(
+                      e.value.toString(),
+                      style:
+                          GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

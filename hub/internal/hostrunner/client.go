@@ -250,6 +250,35 @@ func (c *Client) PostAgentEvent(ctx context.Context, agentID, kind, producer str
 	return c.do(ctx, http.MethodPost, path, body, nil)
 }
 
+// AgentEvent is the client-side projection of an agent_events row. Payload
+// is a raw JSON object the caller decodes per-kind; keeping it opaque here
+// means new event kinds don't need a client change.
+type AgentEvent struct {
+	ID       string          `json:"id"`
+	AgentID  string          `json:"agent_id"`
+	Seq      int64           `json:"seq"`
+	TS       string          `json:"ts"`
+	Kind     string          `json:"kind"`
+	Producer string          `json:"producer"`
+	Payload  json.RawMessage `json:"payload"`
+}
+
+// ListAgentEvents pulls a slice of events newer than sinceSeq. Used by the
+// input router to pick up producer='user' rows and dispatch them to the
+// driver; limit is server-capped at 1000. Passing 0 for sinceSeq backfills
+// the whole queue — generally you want to initialise from a prior seq so
+// the agent doesn't re-execute old user input on host-runner restart.
+func (c *Client) ListAgentEvents(ctx context.Context, agentID string, sinceSeq int64, limit int) ([]AgentEvent, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	path := fmt.Sprintf("/v1/teams/%s/agents/%s/events?since=%d&limit=%d",
+		c.Team, agentID, sinceSeq, limit)
+	var out []AgentEvent
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

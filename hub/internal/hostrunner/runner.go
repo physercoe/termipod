@@ -35,6 +35,7 @@ type Runner struct {
 	tailers   map[string]*Tailer      // keyed by agent id
 	drivers   map[string]Driver       // keyed by agent id (P1.1)
 	worktrees map[string]WorktreeSpec // keyed by agent id
+	inputs    *InputRouter            // P1.8 — dispatches producer=user events
 }
 
 func (a *Runner) defaults() {
@@ -67,6 +68,9 @@ func (a *Runner) defaults() {
 	}
 	if a.worktrees == nil {
 		a.worktrees = map[string]WorktreeSpec{}
+	}
+	if a.inputs == nil {
+		a.inputs = NewInputRouter(a.Client, a.Log)
 	}
 }
 
@@ -324,6 +328,12 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	}
 	if drv != nil {
 		a.drivers[sp.ChildID] = drv
+		// Attach the input router if this driver speaks Inputter. Missing
+		// interface just means no user→agent routing for this mode, which
+		// is fine — Stop will still be called normally.
+		if inp, ok := drv.(Inputter); ok {
+			a.inputs.Attach(ctx, sp.ChildID, inp, 0)
+		}
 	}
 
 	// Best-effort: bring up a marker tailer if the spawn spec bound the
@@ -398,6 +408,12 @@ func (a *Runner) stopDriver(agentID string) {
 	d, ok := a.drivers[agentID]
 	if !ok {
 		return
+	}
+	// Detach the input router first so no more Input calls land on a
+	// driver that's about to Stop. Detach blocks until the router's
+	// goroutine drains, which is the ordering we want.
+	if a.inputs != nil {
+		a.inputs.Detach(agentID)
 	}
 	d.Stop()
 	delete(a.drivers, agentID)

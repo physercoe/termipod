@@ -552,9 +552,12 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
             itemBuilder: (_, i) {
               final a = sorted[i];
               final isSteward = (a['handle']?.toString() ?? '') == 'steward';
+              final mode = (a['mode'] ?? '').toString();
+              final modeSuffix = mode.isEmpty ? '' : ' · $mode';
               return _InfoTile(
                 title: a['handle']?.toString() ?? '?',
-                subtitle: '${a['kind'] ?? ''} · ${a['status'] ?? ''}',
+                subtitle:
+                    '${a['kind'] ?? ''} · ${a['status'] ?? ''}$modeSuffix',
                 leading: isSteward
                     ? Icon(
                         Icons.auto_awesome,
@@ -700,6 +703,7 @@ class _OrgRow extends StatelessWidget {
     final status = agent['status']?.toString() ?? '';
     final paused =
         (agent['pause_state']?.toString() ?? 'running') == 'paused';
+    final mode = (agent['mode'] ?? '').toString();
     return Padding(
       padding: EdgeInsets.only(left: (depth * 20).toDouble()),
       child: Container(
@@ -748,11 +752,28 @@ class _OrgRow extends StatelessWidget {
                 ],
               ),
             ),
+            if (mode.isNotEmpty) ...[
+              _Chip(text: mode, color: _agentModeColor(mode)),
+              const SizedBox(width: 4),
+            ],
             _Chip(text: status, color: _agentStatusColor(status)),
           ],
         ),
       ),
     );
+  }
+}
+
+Color _agentModeColor(String mode) {
+  switch (mode) {
+    case 'M1':
+      return DesignColors.secondary;
+    case 'M2':
+      return DesignColors.terminalBlue;
+    case 'M4':
+      return DesignColors.textMuted;
+    default:
+      return DesignColors.textMuted;
   }
 }
 

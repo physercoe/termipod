@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'plan_create_sheet.dart';
 import 'plan_viewer_screen.dart';
 
 /// Read-only list of team plans (blueprint §6.2, P2.4). Plans are the
@@ -62,6 +63,27 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     }
   }
 
+  Future<void> _createPlan() async {
+    final plan = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const PlanCreateSheet(),
+    );
+    if (!mounted || plan == null) return;
+    final planId = (plan['id'] ?? '').toString();
+    final projectId = (plan['project_id'] ?? '').toString();
+    await _load();
+    if (!mounted || planId.isEmpty) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PlanViewerScreen(
+        planId: planId,
+        projectId: projectId,
+      ),
+    ));
+    if (mounted) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -82,6 +104,12 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
         ],
       ),
       body: _body(),
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'plans-fab',
+        onPressed: _createPlan,
+        tooltip: 'Start a plan',
+        child: const Icon(Icons.add),
+      ),
     );
   }
 

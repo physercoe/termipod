@@ -354,6 +354,18 @@ and critic agents can exchange 4 clarifying turns inside a single "review"
 task, with provenance preserved. Multilateral group chat is not A2A's
 concern; use hub channels via MCP post.
 
+**A2A observability.** A2A is agent-to-agent wire, but humans still need to
+watch it. When an agent invokes or responds over A2A, the host-runner emits
+the call and result as events into the **calling agent's AG-UI stream** —
+event kinds `a2a.invoke` (outbound task with target agent-card, capability,
+task summary) and `a2a.response` (inbound result / error / turn). The
+events join the same SSE feed the phone already renders for that agent, so
+A2A activity appears inline in the agent's channel card alongside thoughts
+and tool calls. No parallel observability channel, no extra subscription.
+Bilateral multi-turn A2A discussions surface as a sequence of `a2a.invoke` /
+`a2a.response` pairs on both agents' streams, keyed by the shared task id so
+a future UI can collapse them into a threaded view.
+
 ### 5.5 AG-UI is the broker's output wire
 
 The hub is the sole translator from internal protocols (ACP, A2A task

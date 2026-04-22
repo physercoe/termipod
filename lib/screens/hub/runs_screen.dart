@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'run_create_sheet.dart';
 
 /// Experiment runs browser (blueprint §6.5).
 ///
@@ -77,6 +78,23 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     }
   }
 
+  Future<void> _createRun() async {
+    final created = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => RunCreateSheet(projectId: widget.projectId),
+    );
+    if (!mounted || created == null) return;
+    await _load();
+    final runId = (created['id'] ?? '').toString();
+    if (!mounted || runId.isEmpty) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => RunDetailScreen(runId: runId, summary: created),
+    ));
+    if (mounted) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -108,6 +126,12 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
           ),
           Expanded(child: _body()),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'runs-fab',
+        onPressed: _createRun,
+        tooltip: 'New run',
+        child: const Icon(Icons.add),
       ),
     );
   }

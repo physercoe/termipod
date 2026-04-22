@@ -203,6 +203,18 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				})
 			})
 		})
+		// Runs (§6.5): team-scoped; filter by project via ?project= query
+		// param. Sits alongside /projects, not nested inside it, because the
+		// parent scope is the team (runs cross projects via parent_run_id).
+		r.Route("/runs", func(r chi.Router) {
+			r.Get("/", s.handleListRuns)
+			r.Post("/", s.handleCreateRun)
+			r.Route("/{run}", func(r chi.Router) {
+				r.Get("/", s.handleGetRun)
+				r.Post("/complete", s.handleCompleteRun)
+				r.Post("/metric_uri", s.handleAttachMetricURI)
+			})
+		})
 		r.Route("/attention", func(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)

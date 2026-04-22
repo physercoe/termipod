@@ -141,6 +141,129 @@ func TestPaneDriver_EmitsLifecycleAndTextDelta(t *testing.T) {
 	}
 }
 
+// recordedSend captures every (text, literal) pair the driver sent through
+// the SendKeys seam so tests can assert on the exact wire shape.
+type recordedSend struct {
+	text    string
+	literal bool
+}
+
+func TestPaneDriver_InputTranslations(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    string
+		payload map[string]any
+		want    []recordedSend
+		wantErr bool
+	}{
+		{
+			name:    "text",
+			kind:    "text",
+			payload: map[string]any{"body": "ls -la"},
+			want:    []recordedSend{{"ls -la", true}, {"Enter", false}},
+		},
+		{
+			name:    "cancel",
+			kind:    "cancel",
+			payload: map[string]any{"reason": "stop"},
+			want:    []recordedSend{{"C-c", false}},
+		},
+		{
+			name:    "approval with note",
+			kind:    "approval",
+			payload: map[string]any{"decision": "allow", "note": "ok"},
+			want:    []recordedSend{{"allow: ok", true}, {"Enter", false}},
+		},
+		{
+			name:    "approval no note",
+			kind:    "approval",
+			payload: map[string]any{"decision": "deny"},
+			want:    []recordedSend{{"deny", true}, {"Enter", false}},
+		},
+		{
+			name:    "attach",
+			kind:    "attach",
+			payload: map[string]any{"document_id": "doc-1"},
+			want: []recordedSend{
+				{"# attach requested: document_id=doc-1", true},
+				{"Enter", false},
+			},
+		},
+		{
+			name:    "text missing body",
+			kind:    "text",
+			payload: map[string]any{},
+			wantErr: true,
+		},
+		{
+			name:    "approval missing decision",
+			kind:    "approval",
+			payload: map[string]any{},
+			wantErr: true,
+		},
+		{
+			name:    "attach missing doc",
+			kind:    "attach",
+			payload: map[string]any{},
+			wantErr: true,
+		},
+		{
+			name:    "unknown kind",
+			kind:    "bogus",
+			payload: map[string]any{},
+			wantErr: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var got []recordedSend
+			drv := &PaneDriver{
+				AgentID: "agent-input",
+				PaneID:  "pane-xyz",
+				Poster:  &fakePoster{},
+				SendKeys: func(_ context.Context, pane, text string, literal bool) error {
+					if pane != "pane-xyz" {
+						t.Errorf("pane target = %q; want pane-xyz", pane)
+					}
+					mu.Lock()
+					got = append(got, recordedSend{text, literal})
+					mu.Unlock()
+					return nil
+				},
+			}
+			err := drv.Input(context.Background(), c.kind, c.payload)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("want error; got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Input: %v", err)
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("len(sends) = %d; want %d (%+v)", len(got), len(c.want), got)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("send[%d] = %+v; want %+v", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestPaneDriver_InputRejectsMissingPane(t *testing.T) {
+	drv := &PaneDriver{
+		AgentID: "agent-nopane",
+		Poster:  &fakePoster{},
+	}
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "x"}); err == nil {
+		t.Fatal("expected error when PaneID is empty")
+	}
+}
+
 func TestPaneDriver_StopIsIdempotent(t *testing.T) {
 	poster := &fakePoster{}
 	drv := &PaneDriver{

@@ -137,6 +137,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		AgentID: cfg.Spawn.ChildID,
 		Poster:  cfg.Client,
 		Stdout:  teed,
+		Stdin:   stdin,
 		Closer: func() {
 			kill()
 			_ = stdin.Close()

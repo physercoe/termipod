@@ -333,6 +333,62 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 	}
 }
 
+// Input implements Inputter for M1 (ACP). Translations:
+//   - text:     session/prompt with a text content block against d.sessionID.
+//   - cancel:   session/cancel notification against d.sessionID.
+//   - approval: not yet wired — ACP's permission flow uses client-handled
+//               session/request_permission RPCs that this shim currently
+//               rejects. Surfaces an explicit error so the router logs it
+//               rather than silently dropping operator intent.
+//   - attach:   surfaced as a text prompt with a document_id marker; the
+//               agent has no fs capability from this client yet.
+//
+// Missing sessionID means Start never succeeded; treat as a config error.
+func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]any) error {
+	d.mu.Lock()
+	sid := d.sessionID
+	d.mu.Unlock()
+	if sid == "" {
+		return fmt.Errorf("acp driver: no session (handshake incomplete)")
+	}
+	switch kind {
+	case "text":
+		body, _ := payload["body"].(string)
+		if body == "" {
+			return fmt.Errorf("acp driver: text input missing body")
+		}
+		_, err := d.call(ctx, "session/prompt", map[string]any{
+			"sessionId": sid,
+			"prompt":    []map[string]any{{"type": "text", "text": body}},
+		})
+		return err
+	case "cancel":
+		// session/cancel is a notification (no id) per the ACP spec.
+		return d.writeMsg(map[string]any{
+			"jsonrpc": "2.0",
+			"method":  "session/cancel",
+			"params":  map[string]any{"sessionId": sid},
+		})
+	case "attach":
+		docID, _ := payload["document_id"].(string)
+		if docID == "" {
+			return fmt.Errorf("acp driver: attach missing document_id")
+		}
+		_, err := d.call(ctx, "session/prompt", map[string]any{
+			"sessionId": sid,
+			"prompt": []map[string]any{{
+				"type": "text",
+				"text": "[attach] document_id=" + docID,
+			}},
+		})
+		return err
+	case "approval":
+		return fmt.Errorf("acp driver: approval input not implemented (requires client-side permission flow)")
+	default:
+		return fmt.Errorf("acp driver: unsupported input kind %q", kind)
+	}
+}
+
 // extractContentText pulls a text payload out of an ACP content block.
 // ACP content is shaped like { type: "text", text: "..." }; we also
 // tolerate the shape appearing as a list of such blocks.

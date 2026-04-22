@@ -17,6 +17,7 @@ package hostrunner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -43,6 +44,9 @@ type PaneDriver struct {
 	Capture  PaneCaptureFunc // nil → tmuxCapturePane
 	Interval time.Duration   // 0 → defaultPaneCaptureInterval
 	Log      *slog.Logger
+	// SendKeys lets tests inject a fake for tmux send-keys; nil defaults
+	// to the real tmuxSendKeys below. Used by Input (P1.8) for M4 input.
+	SendKeys PaneSendKeysFunc
 
 	mu      sync.Mutex
 	started bool
@@ -51,6 +55,11 @@ type PaneDriver struct {
 	wg      sync.WaitGroup
 	lastCap string
 }
+
+// PaneSendKeysFunc is the tmux send-keys seam. `literal` requests -l
+// (literal bytes, no keyname translation); false lets tmux interpret the
+// string (so "Enter"/"C-c" behave as usual).
+type PaneSendKeysFunc func(ctx context.Context, paneID, text string, literal bool) error
 
 // Start emits a lifecycle.started event and launches the capture loop.
 // It returns immediately; capture happens in a background goroutine so a
@@ -182,4 +191,77 @@ func tmuxCapturePane(ctx context.Context, paneID string) (string, error) {
 		return "", err
 	}
 	return string(out), nil
+}
+
+// tmuxSendKeys is the default PaneSendKeysFunc. `literal` maps to -l; we
+// always send to the pane target verbatim so a pane_id with special
+// characters still addresses unambiguously.
+func tmuxSendKeys(ctx context.Context, paneID, text string, literal bool) error {
+	args := []string{"send-keys", "-t", paneID}
+	if literal {
+		args = append(args, "-l")
+	}
+	args = append(args, text)
+	return exec.CommandContext(ctx, "tmux", args...).Run()
+}
+
+// Input implements Inputter for M4. Translations:
+//   - text:     send-keys -l <body>; send-keys Enter
+//   - cancel:   send-keys C-c  (tmux interprets the keyname)
+//   - approval: send-keys -l <decision[: note]>; send-keys Enter
+//     (M4 has no way to correlate a request_id back to the pane; the
+//     operator is expected to use approvals only while the agent is
+//     prompting for one)
+//   - attach:   not meaningful for a pane — surfaced as text marker so
+//     the user sees that an attachment was requested but has to act on
+//     it manually.
+func (d *PaneDriver) Input(ctx context.Context, kind string, payload map[string]any) error {
+	if d.PaneID == "" {
+		return fmt.Errorf("pane driver: no pane wired")
+	}
+	send := d.SendKeys
+	if send == nil {
+		send = tmuxSendKeys
+	}
+	switch kind {
+	case "text":
+		body, _ := payload["body"].(string)
+		if body == "" {
+			return fmt.Errorf("pane driver: text input missing body")
+		}
+		if err := send(ctx, d.PaneID, body, true); err != nil {
+			return err
+		}
+		return send(ctx, d.PaneID, "Enter", false)
+	case "cancel":
+		return send(ctx, d.PaneID, "C-c", false)
+	case "approval":
+		decision, _ := payload["decision"].(string)
+		note, _ := payload["note"].(string)
+		if decision == "" {
+			return fmt.Errorf("pane driver: approval missing decision")
+		}
+		body := decision
+		if note != "" {
+			body = decision + ": " + note
+		}
+		if err := send(ctx, d.PaneID, body, true); err != nil {
+			return err
+		}
+		return send(ctx, d.PaneID, "Enter", false)
+	case "attach":
+		docID, _ := payload["document_id"].(string)
+		if docID == "" {
+			return fmt.Errorf("pane driver: attach missing document_id")
+		}
+		// Leave the operator a visible marker instead of silently
+		// no-oping; they can paste the referenced content themselves.
+		text := "# attach requested: document_id=" + docID
+		if err := send(ctx, d.PaneID, text, true); err != nil {
+			return err
+		}
+		return send(ctx, d.PaneID, "Enter", false)
+	default:
+		return fmt.Errorf("pane driver: unsupported input kind %q", kind)
+	}
 }

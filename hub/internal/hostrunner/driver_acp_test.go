@@ -20,9 +20,10 @@ type fakeACPAgent struct {
 	hostWrite io.Writer     // writes into the driver's stdout
 	sessionID string
 
-	mu      sync.Mutex
-	closed  bool
-	initCh  chan struct{} // closed when handshake completes
+	mu       sync.Mutex
+	closed   bool
+	initCh   chan struct{} // closed when handshake completes
+	received []map[string]any
 }
 
 func newFakeACPAgent(t *testing.T, driverStdin io.Reader, driverStdout io.Writer, sessionID string) *fakeACPAgent {
@@ -45,19 +46,25 @@ func (f *fakeACPAgent) serve() {
 		if err := json.Unmarshal(line, &msg); err != nil {
 			continue
 		}
+		f.mu.Lock()
+		f.received = append(f.received, msg)
+		f.mu.Unlock()
 		method, _ := msg["method"].(string)
 		id := msg["id"]
 		switch method {
 		case "initialize":
 			f.respond(id, map[string]any{
-				"protocolVersion":    1,
-				"agentCapabilities":  map[string]any{},
+				"protocolVersion":   1,
+				"agentCapabilities": map[string]any{},
 			})
 		case "session/new":
 			f.respond(id, map[string]any{"sessionId": f.sessionID})
 			close(f.initCh)
+		case "session/prompt":
+			f.respond(id, map[string]any{"stopReason": "end_turn"})
 		default:
-			// Unknown method from driver: respond with empty result.
+			// Unknown method from driver: respond with empty result if it
+			// was a request (had an id). Notifications get no reply.
 			if id != nil {
 				f.respond(id, map[string]any{})
 			}
@@ -91,6 +98,17 @@ func (f *fakeACPAgent) notify(method string, params map[string]any) {
 		return
 	}
 	_, _ = f.hostWrite.Write(append(b, '\n'))
+}
+
+func (f *fakeACPAgent) findReceived(method string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, m := range f.received {
+		if mth, _ := m["method"].(string); mth == method {
+			return m
+		}
+	}
+	return nil
 }
 
 func (f *fakeACPAgent) close() {
@@ -263,6 +281,111 @@ func TestACPDriver_RejectsAgentRequests(t *testing.T) {
 	last := evs[len(evs)-1]
 	if last.Kind != "lifecycle" || last.Payload["phase"] != "stopped" {
 		t.Fatalf("want lifecycle.stopped after rejected agent request; got %+v", last)
+	}
+}
+
+// TestACPDriver_InputTextPrompts drives a handshake then fires Input text
+// and asserts a session/prompt JSON-RPC call lands on the agent side with
+// the right sessionId + content block.
+func TestACPDriver_InputTextPrompts(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-input-1")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-input",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hello agent"}); err != nil {
+		t.Fatalf("Input text: %v", err)
+	}
+
+	// Poll for the prompt to arrive on the fake side.
+	deadline := time.Now().Add(2 * time.Second)
+	var prompt map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/prompt"); m != nil {
+			prompt = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if prompt == nil {
+		t.Fatal("session/prompt never arrived on the agent side")
+	}
+	params, _ := prompt["params"].(map[string]any)
+	if params["sessionId"] != "sess-input-1" {
+		t.Fatalf("prompt sessionId = %v; want sess-input-1", params["sessionId"])
+	}
+	promptArr, _ := params["prompt"].([]any)
+	if len(promptArr) == 0 {
+		t.Fatalf("prompt array empty: %+v", params)
+	}
+	block, _ := promptArr[0].(map[string]any)
+	if block["type"] != "text" || block["text"] != "hello agent" {
+		t.Fatalf("prompt block wrong: %+v", block)
+	}
+}
+
+// TestACPDriver_InputCancelSendsNotification verifies cancel emits a
+// session/cancel message without an id (notification semantics).
+func TestACPDriver_InputCancelSendsNotification(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-cancel-1")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID: "agent-cancel",
+		Poster:  &fakePoster{},
+		Stdin:   hostInW,
+		Stdout:  hostOutR,
+		Closer:  func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "cancel", nil); err != nil {
+		t.Fatalf("Input cancel: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/cancel"); m != nil {
+			if m["id"] != nil {
+				t.Fatalf("session/cancel must be a notification (no id); got %+v", m)
+			}
+			params, _ := m["params"].(map[string]any)
+			if params["sessionId"] != "sess-cancel-1" {
+				t.Fatalf("cancel sessionId = %v; want sess-cancel-1", params["sessionId"])
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("session/cancel never arrived")
+}
+
+func TestACPDriver_InputRejectsBeforeHandshake(t *testing.T) {
+	drv := &ACPDriver{AgentID: "pre-handshake", Poster: &fakePoster{}}
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "x"}); err == nil {
+		t.Fatal("want error when session id is empty")
 	}
 }
 

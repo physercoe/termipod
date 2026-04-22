@@ -1,9 +1,12 @@
 package hostrunner
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -123,6 +126,182 @@ func TestStdioDriver_NonJSONLineForwardedAsRaw(t *testing.T) {
 	}
 	if !strings.Contains(rawText, "not json") {
 		t.Fatalf("expected raw event with non-JSON text; got events=%+v", evs)
+	}
+}
+
+// syncBuf is a thread-safe bytes.Buffer so Input writes and test reads
+// don't race the scanner goroutine.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) Bytes() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]byte, s.buf.Len())
+	copy(out, s.buf.Bytes())
+	return out
+}
+
+// TestStdioDriver_InputFrames asserts Input translates each kind into the
+// stream-json user frame shape Claude Code expects on stdin.
+func TestStdioDriver_InputFrames(t *testing.T) {
+	cases := []struct {
+		name    string
+		kind    string
+		payload map[string]any
+		check   func(t *testing.T, frame map[string]any)
+	}{
+		{
+			name:    "text",
+			kind:    "text",
+			payload: map[string]any{"body": "hello agent"},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				content := msg["content"].([]any)
+				block := content[0].(map[string]any)
+				if block["type"] != "text" || block["text"] != "hello agent" {
+					t.Fatalf("text block wrong: %+v", block)
+				}
+			},
+		},
+		{
+			name: "approval",
+			kind: "approval",
+			payload: map[string]any{
+				"request_id": "toolu_42",
+				"decision":   "allow",
+				"note":       "looks fine",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				if block["type"] != "tool_result" || block["tool_use_id"] != "toolu_42" ||
+					block["content"] != "allow: looks fine" || block["is_error"] != false {
+					t.Fatalf("approval block wrong: %+v", block)
+				}
+			},
+		},
+		{
+			name: "approval deny",
+			kind: "approval",
+			payload: map[string]any{
+				"request_id": "toolu_99",
+				"decision":   "deny",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				if block["is_error"] != true {
+					t.Fatalf("deny should set is_error=true; got %+v", block)
+				}
+			},
+		},
+		{
+			name:    "cancel",
+			kind:    "cancel",
+			payload: map[string]any{"reason": "too slow"},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				if block["type"] != "text" || !strings.Contains(block["text"].(string), "too slow") {
+					t.Fatalf("cancel block wrong: %+v", block)
+				}
+			},
+		},
+		{
+			name:    "attach",
+			kind:    "attach",
+			payload: map[string]any{"document_id": "doc-7"},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				if !strings.Contains(block["text"].(string), "doc-7") {
+					t.Fatalf("attach block missing doc-7: %+v", block)
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b, err := buildStreamJSONInputFrame(c.kind, c.payload)
+			if err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			if len(b) == 0 || b[len(b)-1] != '\n' {
+				t.Fatal("frame must end with newline")
+			}
+			var frame map[string]any
+			if err := json.Unmarshal(b, &frame); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if frame["type"] != "user" {
+				t.Fatalf("want type=user; got %v", frame["type"])
+			}
+			c.check(t, frame)
+		})
+	}
+}
+
+func TestStdioDriver_InputMissingFields(t *testing.T) {
+	if _, err := buildStreamJSONInputFrame("text", map[string]any{}); err == nil {
+		t.Fatal("text without body should error")
+	}
+	if _, err := buildStreamJSONInputFrame("approval", map[string]any{"decision": "allow"}); err == nil {
+		t.Fatal("approval without request_id should error")
+	}
+	if _, err := buildStreamJSONInputFrame("attach", map[string]any{}); err == nil {
+		t.Fatal("attach without document_id should error")
+	}
+	if _, err := buildStreamJSONInputFrame("bogus", map[string]any{}); err == nil {
+		t.Fatal("unknown kind should error")
+	}
+}
+
+func TestStdioDriver_InputWritesToStdin(t *testing.T) {
+	sink := &syncBuf{}
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	drv := &StdioDriver{
+		AgentID: "agent-input",
+		Poster:  &fakePoster{},
+		Stdout:  pr,
+		Stdin:   sink,
+		Closer:  func() { _ = pw.Close() },
+	}
+	_ = drv.Start(context.Background())
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	got := string(sink.Bytes())
+	if !strings.Contains(got, `"type":"user"`) || !strings.Contains(got, `"text":"hi"`) {
+		t.Fatalf("stdin missing expected frame; got %q", got)
+	}
+}
+
+func TestStdioDriver_InputRejectsWithoutStdin(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pw.Close()
+	drv := &StdioDriver{
+		AgentID: "agent-nostdin",
+		Poster:  &fakePoster{},
+		Stdout:  pr,
+		Closer:  func() { _ = pw.Close() },
+	}
+	_ = drv.Start(context.Background())
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err == nil {
+		t.Fatal("expected error when Stdin is nil")
 	}
 }
 

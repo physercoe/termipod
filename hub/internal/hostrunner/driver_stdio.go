@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -29,6 +30,11 @@ type StdioDriver struct {
 	AgentID string
 	Poster  AgentEventPoster
 	Stdout  io.Reader // child stdout (line-delimited stream-json)
+	// Stdin, if non-nil, is the child's stdin. Input (blueprint P1.8)
+	// writes a stream-json user frame here per event. Drivers wired
+	// without Stdin simply reject Input calls so the router logs the
+	// gap instead of silently dropping user messages.
+	Stdin io.Writer
 	// Closer, if non-nil, is invoked by Stop to unblock a blocked reader
 	// (typically the child's stdin + a kill on the *exec.Cmd).
 	Closer func()
@@ -38,6 +44,7 @@ type StdioDriver struct {
 	started bool
 	stopped bool
 	wg      sync.WaitGroup
+	inputMu sync.Mutex // serializes concurrent Input calls
 }
 
 // Start emits lifecycle.started and launches the reader goroutine. Returns
@@ -194,4 +201,95 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		// Unknown frame type — forward verbatim so the app can decide.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", frame)
 	}
+}
+
+// Input implements Inputter for M2. text/cancel/approval/attach translate
+// into the shapes Claude Code's stream-json reader accepts on stdin:
+//   - text:     a "user" frame with content=[{type:"text", text:body}]
+//   - approval: a "user" frame with content=[{type:"tool_result", …}] so
+//               an approval for a pending tool_use clears through the
+//               same channel the agent emitted the call on.
+//   - cancel:   a "user" frame with a plain-text "cancel: <reason>" body.
+//               Claude Code's CLI has no first-class cancel over stdio;
+//               an explicit hub-level kill is handled by Stop() elsewhere.
+//   - attach:   tool_result with a reference to the attached document id.
+//
+// Missing Stdin is a configuration error, not a runtime one — we surface
+// it so the router can flag the agent instead of buffering forever.
+func (d *StdioDriver) Input(ctx context.Context, kind string, payload map[string]any) error {
+	if d.Stdin == nil {
+		return fmt.Errorf("stdio driver: stdin not wired")
+	}
+	frame, err := buildStreamJSONInputFrame(kind, payload)
+	if err != nil {
+		return err
+	}
+	d.inputMu.Lock()
+	defer d.inputMu.Unlock()
+	// Context cancellation doesn't preempt the Write; a wedged child is
+	// the operator's problem to kill via Stop. The lock keeps two
+	// concurrent Input calls from interleaving bytes on stdin.
+	_, werr := d.Stdin.Write(frame)
+	return werr
+}
+
+// buildStreamJSONInputFrame produces the JSON-line bytes (with trailing
+// newline) that Claude Code expects for a user-side message. Factored out
+// so tests don't need a live pipe to assert on the wire shape.
+func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, error) {
+	var content []map[string]any
+	switch kind {
+	case "text":
+		body, _ := payload["body"].(string)
+		if body == "" {
+			return nil, fmt.Errorf("stdio driver: text input missing body")
+		}
+		content = []map[string]any{{"type": "text", "text": body}}
+	case "approval":
+		reqID, _ := payload["request_id"].(string)
+		decision, _ := payload["decision"].(string)
+		if reqID == "" || decision == "" {
+			return nil, fmt.Errorf("stdio driver: approval missing request_id/decision")
+		}
+		note, _ := payload["note"].(string)
+		text := decision
+		if note != "" {
+			text = decision + ": " + note
+		}
+		content = []map[string]any{{
+			"type":        "tool_result",
+			"tool_use_id": reqID,
+			"content":     text,
+			"is_error":    decision == "deny",
+		}}
+	case "cancel":
+		reason, _ := payload["reason"].(string)
+		if reason == "" {
+			reason = "user requested cancel"
+		}
+		content = []map[string]any{{"type": "text", "text": "cancel: " + reason}}
+	case "attach":
+		docID, _ := payload["document_id"].(string)
+		if docID == "" {
+			return nil, fmt.Errorf("stdio driver: attach missing document_id")
+		}
+		content = []map[string]any{{
+			"type": "text",
+			"text": "[attach] document_id=" + docID,
+		}}
+	default:
+		return nil, fmt.Errorf("stdio driver: unsupported input kind %q", kind)
+	}
+	frame := map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": content,
+		},
+	}
+	b, err := json.Marshal(frame)
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
 }

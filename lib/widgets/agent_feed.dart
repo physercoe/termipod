@@ -218,13 +218,24 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // "tool: git_log" in their header instead of a bare id. Cheap — only
     // scans tool_call events, and the Feed is O(dozens) of events.
     final toolNames = <String, String>{};
+    // Already-answered approval requests: any input.approval the user has
+    // sent gets its request_id recorded here so the matching
+    // approval_request card renders in a disabled/resolved state instead
+    // of offering the buttons again.
+    final resolvedApprovals = <String, String>{}; // request_id → decision
     for (final e in _events) {
-      if ((e['kind'] ?? '') != 'tool_call') continue;
+      final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
       if (p is! Map) continue;
-      final id = p['id']?.toString() ?? '';
-      final name = p['name']?.toString() ?? '';
-      if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
+      if (kind == 'tool_call') {
+        final id = p['id']?.toString() ?? '';
+        final name = p['name']?.toString() ?? '';
+        if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
+      } else if (kind == 'input.approval') {
+        final rid = p['request_id']?.toString() ?? '';
+        final dec = p['decision']?.toString() ?? '';
+        if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
+      }
     }
     return Column(
       children: [
@@ -239,6 +250,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 itemBuilder: (ctx, i) => AgentEventCard(
                   event: _events[i],
                   toolNames: toolNames,
+                  resolvedApprovals: resolvedApprovals,
+                  agentId: widget.agentId,
                 ),
               ),
               if (_error != null)
@@ -335,10 +348,17 @@ class AgentEventCard extends StatelessWidget {
   // tool_call events so tool_result cards can show the human name
   // instead of a 24-char id. Empty when no context is available.
   final Map<String, String> toolNames;
+  // request_id → prior decision. Present entries mean the user already
+  // answered this approval, so we render the chip but not the buttons.
+  final Map<String, String> resolvedApprovals;
+  // Needed for the approval card so it can call postAgentInput.
+  final String? agentId;
   const AgentEventCard({
     super.key,
     required this.event,
     this.toolNames = const {},
+    this.resolvedApprovals = const {},
+    this.agentId,
   });
 
   @override
@@ -409,6 +429,8 @@ class AgentEventCard extends StatelessWidget {
         return _completionBody(ctx, payload);
       case 'error':
         return _errorBody(ctx, payload);
+      case 'approval_request':
+        return _approvalRequestBody(ctx, payload);
       case 'input.text':
         return _inputTextBody(ctx, payload);
       case 'input.cancel':
@@ -527,6 +549,20 @@ class AgentEventCard extends StatelessWidget {
   Widget _errorBody(BuildContext ctx, Map<String, dynamic> p) {
     final msg = (p['error'] ?? p['message'] ?? _jsonPretty(p)).toString();
     return _mono(ctx, msg, color: DesignColors.error);
+  }
+
+  Widget _approvalRequestBody(BuildContext ctx, Map<String, dynamic> p) {
+    final requestId = p['request_id']?.toString() ?? '';
+    final params = (p['params'] is Map)
+        ? (p['params'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+    final priorDecision = resolvedApprovals[requestId];
+    return _ApprovalCard(
+      agentId: agentId,
+      requestId: requestId,
+      params: params,
+      priorDecision: priorDecision,
+    );
   }
 
   Widget _textBody(BuildContext ctx, String s) => _mono(ctx, s);
@@ -664,6 +700,8 @@ class AgentEventCard extends StatelessWidget {
         return DesignColors.warning;
       case 'session.init':
         return DesignColors.secondary;
+      case 'approval_request':
+        return DesignColors.warning;
       default:
         return producer == 'user'
             ? DesignColors.terminalYellow
@@ -729,6 +767,242 @@ class _CardHeader extends StatelessWidget {
     final local = dt.toLocal();
     String two(int n) => n < 10 ? '0$n' : '$n';
     return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+  }
+}
+
+/// Interactive approval card rendered for agent_events of kind
+/// `approval_request`. Buttons come from the payload's options list;
+/// tapping posts an input.approval back to the hub, which the
+/// InputRouter then forwards to ACPDriver.Input → JSON-RPC response.
+/// Once answered, the card collapses to a decision chip so reopening
+/// the feed doesn't show the buttons again.
+class _ApprovalCard extends ConsumerStatefulWidget {
+  final String? agentId;
+  final String requestId;
+  final Map<String, dynamic> params;
+  final String? priorDecision;
+  const _ApprovalCard({
+    required this.agentId,
+    required this.requestId,
+    required this.params,
+    required this.priorDecision,
+  });
+
+  @override
+  ConsumerState<_ApprovalCard> createState() => _ApprovalCardState();
+}
+
+class _ApprovalCardState extends ConsumerState<_ApprovalCard> {
+  bool _sending = false;
+  String? _error;
+  String? _localDecision;
+
+  String? get _effectiveDecision => _localDecision ?? widget.priorDecision;
+
+  Future<void> _send(String decision, {String? optionId}) async {
+    final agentId = widget.agentId;
+    if (agentId == null || widget.requestId.isEmpty) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      setState(() => _error = 'Not connected');
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await client.postAgentInput(
+        agentId,
+        kind: 'approval',
+        requestId: widget.requestId,
+        decision: decision,
+        optionId: optionId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _localDecision = decision;
+      });
+    } on HubApiError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = 'Send failed (${e.status})';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = 'Send failed: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final toolCall = widget.params['toolCall'];
+    String? toolSummary;
+    if (toolCall is Map) {
+      final name = toolCall['name']?.toString();
+      if (name != null && name.isNotEmpty) toolSummary = name;
+    }
+    // Options may arrive as a list of {optionId, name} maps. Fall back to
+    // a hard-coded allow/deny pair so the card still works with agents
+    // that skip the options block.
+    final rawOptions = widget.params['options'];
+    final options = <_ApprovalOption>[];
+    if (rawOptions is List) {
+      for (final o in rawOptions) {
+        if (o is Map) {
+          final id = o['optionId']?.toString() ?? o['id']?.toString() ?? '';
+          final label = o['name']?.toString() ?? o['label']?.toString() ?? id;
+          if (id.isNotEmpty) {
+            options.add(_ApprovalOption(id: id, label: label));
+          }
+        }
+      }
+    }
+    if (options.isEmpty) {
+      options.addAll(const [
+        _ApprovalOption(id: 'allow', label: 'Allow'),
+        _ApprovalOption(id: 'deny', label: 'Deny'),
+      ]);
+    }
+
+    final decided = _effectiveDecision;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (toolSummary != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: RichText(
+              text: TextSpan(
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: isDark
+                      ? DesignColors.textSecondary
+                      : DesignColors.textSecondaryLight,
+                ),
+                children: [
+                  TextSpan(
+                      text: 'tool: ',
+                      style: TextStyle(color: muted)),
+                  TextSpan(text: toolSummary),
+                ],
+              ),
+            ),
+          ),
+        if (widget.params.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _CollapsibleMono(
+              text: AgentEventCard._jsonPretty(widget.params),
+            ),
+          ),
+        if (decided != null)
+          _DecisionChip(decision: decided)
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final o in options)
+                FilledButton(
+                  onPressed: _sending ? null : () => _send(o.id, optionId: o.id),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: o.id == 'allow'
+                        ? DesignColors.success
+                        : (o.id == 'deny'
+                            ? DesignColors.error
+                            : DesignColors.primary),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    o.label,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              OutlinedButton(
+                onPressed: _sending ? null : () => _send('cancel'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    color: muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _error!,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: DesignColors.error),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ApprovalOption {
+  final String id;
+  final String label;
+  const _ApprovalOption({required this.id, required this.label});
+}
+
+class _DecisionChip extends StatelessWidget {
+  final String decision;
+  const _DecisionChip({required this.decision});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (decision) {
+      'allow' => DesignColors.success,
+      'deny' => DesignColors.error,
+      'cancel' => DesignColors.textMuted,
+      _ => DesignColors.primary,
+    };
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(
+          'decided: $decision',
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ),
+    );
   }
 }
 

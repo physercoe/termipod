@@ -416,13 +416,20 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			return fmt.Errorf("acp driver: no pending permission request %q", reqID)
 		}
 		// ACP permission outcome shape: a "selected" option by id, or
-		// "cancelled". We map operator intent to the minimum vocabulary
-		// an agent ought to understand: "allow" / "deny" → selected,
-		// "cancel" → cancelled. optionId lets the agent remember which
-		// button a human clicked when it rendered multiple choices.
+		// "cancelled". Hub accepts approve|allow|deny|cancel; any non-
+		// cancel value maps to "selected" with optionId. Prefer an
+		// explicit option_id from the caller (matches the option list
+		// the agent sent); fall back to the decision string so agents
+		// that ignore optionId still get meaningful intent.
 		optionID, _ := payload["option_id"].(string)
 		if optionID == "" {
 			optionID = decision
+			// Normalize "approve" to "allow" when synthesizing an option
+			// id — ACP-native agents (Claude Code, Zed) expose "allow"
+			// in their options list, not "approve".
+			if optionID == "approve" {
+				optionID = "allow"
+			}
 		}
 		var outcome map[string]any
 		switch decision {

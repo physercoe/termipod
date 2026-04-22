@@ -657,6 +657,7 @@ class HubClient {
     String? body,
     String? decision,
     String? requestId,
+    String? optionId,
     String? note,
     String? reason,
     String? documentId,
@@ -665,6 +666,7 @@ class HubClient {
     if (body != null) req['body'] = body;
     if (decision != null) req['decision'] = decision;
     if (requestId != null) req['request_id'] = requestId;
+    if (optionId != null) req['option_id'] = optionId;
     if (note != null) req['note'] = note;
     if (reason != null) req['reason'] = reason;
     if (documentId != null) req['document_id'] = documentId;

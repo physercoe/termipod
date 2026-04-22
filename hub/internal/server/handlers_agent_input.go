@@ -20,6 +20,10 @@ type agentInputIn struct {
 	Decision  string `json:"decision,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 	Note      string `json:"note,omitempty"`
+	// OptionID lets the phone pass the exact ACP/agent-assigned option
+	// identifier; M1 drivers forward it as the `optionId` in
+	// session/request_permission's response outcome.
+	OptionID string `json:"option_id,omitempty"`
 	// cancel
 	Reason string `json:"reason,omitempty"`
 	// attach
@@ -48,8 +52,15 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		}
 		payloadMap["body"] = in.Body
 	case "approval":
-		if in.Decision != "approve" && in.Decision != "deny" {
-			writeErr(w, http.StatusBadRequest, "decision must be approve|deny")
+		// Valid decisions: approve/allow/deny map to "selected" on the
+		// M1 wire; cancel maps to "cancelled". "approve" and "allow" are
+		// aliases — "allow" matches Claude Code / ACP option naming,
+		// "approve" was the original hub vocabulary before M1 landed.
+		switch in.Decision {
+		case "approve", "allow", "deny", "cancel":
+		default:
+			writeErr(w, http.StatusBadRequest,
+				"decision must be approve|allow|deny|cancel")
 			return
 		}
 		if in.RequestID == "" {
@@ -60,6 +71,9 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		payloadMap["request_id"] = in.RequestID
 		if in.Note != "" {
 			payloadMap["note"] = in.Note
+		}
+		if in.OptionID != "" {
+			payloadMap["option_id"] = in.OptionID
 		}
 	case "cancel":
 		if in.Reason != "" {

@@ -438,8 +438,7 @@ class AgentEventCard extends StatelessWidget {
           isThought: kind == 'thought',
         );
       case 'raw':
-        return _textBody(
-            ctx, (payload['text'] ?? _jsonPretty(payload)).toString());
+        return _rawBody(ctx, payload);
       case 'tool_call':
         return _toolCallBody(ctx, payload);
       case 'tool_result':
@@ -727,6 +726,30 @@ class AgentEventCard extends StatelessWidget {
   }
 
   Widget _textBody(BuildContext ctx, String s) => _mono(ctx, s);
+
+  // `raw` covers three shapes from driver_acp.go:
+  //   {"text": "..."}                         — scanner/unmarshal failure
+  //   {"method": "x", "params": ...}          — unknown JSON-RPC notification
+  //   {"sessionUpdate": "x", ...}             — unhandled session/update kind
+  // Show the identifying field at the top so an unknown frame is legible
+  // at a glance; hide the rest behind CollapsibleMono.
+  Widget _rawBody(BuildContext ctx, Map<String, dynamic> p) {
+    final text = p['text']?.toString();
+    if (text != null && text.isNotEmpty && p.length == 1) {
+      return _mono(ctx, text);
+    }
+    final method = p['method']?.toString();
+    final sessionUpdate = p['sessionUpdate']?.toString();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (method != null && method.isNotEmpty) _kv(ctx, 'method', method),
+        if (sessionUpdate != null && sessionUpdate.isNotEmpty)
+          _kv(ctx, 'update', sessionUpdate),
+        _CollapsibleMono(text: _jsonPretty(p)),
+      ],
+    );
+  }
 
   // Agents (Claude Code especially) emit markdown heavily — bullet lists,
   // fenced code blocks, headers. Rendering as plain mono text buries the

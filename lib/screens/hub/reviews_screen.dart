@@ -23,7 +23,9 @@ class ReviewsScreen extends ConsumerStatefulWidget {
 class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   // null = all statuses; otherwise one of the known review states.
   String? _filter = 'pending';
+  String? _projectFilter;
   List<Map<String, dynamic>>? _rows;
+  List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
 
@@ -34,6 +36,8 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     'rejected',
     null,
   ];
+
+  bool get _showProjectFilter => widget.projectId == null;
 
   @override
   void initState() {
@@ -55,10 +59,18 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
       return;
     }
     try {
-      final rows = await client.listReviews(
-        status: _filter,
-        projectId: widget.projectId,
-      );
+      final effectiveProject = widget.projectId ?? _projectFilter;
+      final results = await Future.wait([
+        client.listReviews(
+          status: _filter,
+          projectId: effectiveProject,
+        ),
+        if (_showProjectFilter && _projects == null) client.listProjects(),
+      ]);
+      final rows = results[0];
+      if (_showProjectFilter && _projects == null && results.length > 1) {
+        _projects = results[1];
+      }
       rows.sort((a, b) => (b['created_at'] ?? '')
           .toString()
           .compareTo((a['created_at'] ?? '').toString()));
@@ -74,6 +86,33 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
         _error = '$e';
       });
     }
+  }
+
+  Future<void> _pickProject() async {
+    final projects = _projects ?? const [];
+    final picked = await showModalBottomSheet<_ProjectPick>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProjectFilterSheet(
+        projects: projects,
+        selectedId: _projectFilter,
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _projectFilter = picked.clear ? null : picked.id);
+    _load();
+  }
+
+  String _projectFilterLabel() {
+    final id = _projectFilter;
+    if (id == null) return 'All projects';
+    for (final p in _projects ?? const <Map<String, dynamic>>[]) {
+      if ((p['id'] ?? '').toString() == id) {
+        return (p['name'] ?? id).toString();
+      }
+    }
+    return id;
   }
 
   Future<void> _openReview(Map<String, dynamic> row) async {
@@ -118,6 +157,10 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
               setState(() => _filter = v);
               _load();
             },
+            showProjectFilter: _showProjectFilter,
+            projectLabel: _projectFilterLabel(),
+            projectIsActive: _projectFilter != null,
+            onProjectTap: _pickProject,
           ),
           Expanded(child: _body()),
         ],
@@ -141,13 +184,16 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     }
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
+      final narrowed = _projectFilter != null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            _filter == 'pending'
-                ? 'Inbox zero — no pending reviews.'
-                : 'No reviews with this status.',
+            narrowed
+                ? 'No reviews match the current filters.'
+                : _filter == 'pending'
+                    ? 'Inbox zero — no pending reviews.'
+                    : 'No reviews with this status.',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -176,28 +222,171 @@ class _FilterBar extends StatelessWidget {
   final List<String?> filters;
   final String? selected;
   final ValueChanged<String?> onChanged;
+  final bool showProjectFilter;
+  final String projectLabel;
+  final bool projectIsActive;
+  final VoidCallback onProjectTap;
   const _FilterBar({
     required this.filters,
     required this.selected,
     required this.onChanged,
+    required this.showProjectFilter,
+    required this.projectLabel,
+    required this.projectIsActive,
+    required this.onProjectTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final f in filters) ...[
-            _FilterChipPill(
-              label: f ?? 'all',
-              selected: f == selected,
-              onTap: () => onChanged(f),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final f in filters) ...[
+                  _FilterChipPill(
+                    label: f ?? 'all',
+                    selected: f == selected,
+                    onTap: () => onChanged(f),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ],
             ),
-            const SizedBox(width: 6),
+          ),
+          if (showProjectFilter) ...[
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: onProjectTap,
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: projectIsActive ? DesignColors.primary : border,
+                  ),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      projectIsActive
+                          ? Icons.filter_alt
+                          : Icons.filter_alt_outlined,
+                      size: 14,
+                      color: projectIsActive
+                          ? DesignColors.primary
+                          : DesignColors.textMuted,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        projectLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: projectIsActive
+                              ? DesignColors.primary
+                              : DesignColors.textMuted,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down,
+                        size: 16, color: DesignColors.textMuted),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _ProjectPick {
+  final String? id;
+  final bool clear;
+  const _ProjectPick({this.id, this.clear = false});
+}
+
+class _ProjectFilterSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> projects;
+  final String? selectedId;
+  const _ProjectFilterSheet({
+    required this.projects,
+    required this.selectedId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (_, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: DesignColors.surfaceDark,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+        child: ListView.separated(
+          controller: scroll,
+          itemCount: projects.length + 1,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (_, i) {
+            if (i == 0) {
+              return ListTile(
+                leading: const Icon(Icons.clear, size: 18),
+                title: Text(
+                  'All projects',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                selected: selectedId == null,
+                onTap: () =>
+                    Navigator.of(context).pop(const _ProjectPick(clear: true)),
+              );
+            }
+            final p = projects[i - 1];
+            final id = (p['id'] ?? '').toString();
+            final name = (p['name'] ?? id).toString();
+            final kind = (p['kind'] ?? '').toString();
+            return ListTile(
+              title: Text(
+                name,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                [if (kind.isNotEmpty) kind, id].join(' · '),
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+              selected: selectedId == id,
+              onTap: () => Navigator.of(context).pop(_ProjectPick(id: id)),
+            );
+          },
+        ),
       ),
     );
   }

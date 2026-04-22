@@ -39,13 +39,27 @@ type ACPDriver struct {
 
 	// HandshakeTimeout caps initialize + session/new. 0 → 10s.
 	HandshakeTimeout time.Duration
+	// WriteTimeout caps the time any single outbound frame may spend
+	// blocked — both in the queue (backpressure) and in the final
+	// Stdin.Write (child stuck not reading). 0 → 5s. On timeout the
+	// caller gets an error immediately; any orphaned blocked Write
+	// unwinds when Stop closes the transport.
+	WriteTimeout time.Duration
 
-	mu        sync.Mutex
-	started   bool
-	stopped   bool
-	writerMu  sync.Mutex // serialises stdin writes
-	wg        sync.WaitGroup
-	nextID    atomic.Int64
+	mu      sync.Mutex
+	started bool
+	stopped bool
+	wg      sync.WaitGroup
+	nextID  atomic.Int64
+
+	// writeQ + done decouple callers from the actual stdin write. A
+	// single writerLoop goroutine drains writeQ, which means we never
+	// fan out goroutines blocked on a stuck pipe — callers just see a
+	// backpressure error and stop calling. done is a one-shot tombstone
+	// closed by Stop so every select in writeMsg unblocks.
+	writeQ chan *acpWriteReq
+	done   chan struct{}
+
 	pendingMu sync.Mutex
 	pending   map[int64]chan acpResponse
 	// permMu protects pendingPerm; we need a separate lock because the
@@ -53,6 +67,13 @@ type ACPDriver struct {
 	permMu      sync.Mutex
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
 	sessionID   string
+}
+
+type acpWriteReq struct {
+	frame []byte
+	// done is buffered (cap 1) — the writer does a non-blocking send so
+	// a caller that timed out doesn't strand the writerLoop.
+	done chan error
 }
 
 type acpResponse struct {
@@ -90,6 +111,8 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	d.started = true
 	d.pending = make(map[int64]chan acpResponse)
 	d.pendingPerm = make(map[string]json.RawMessage)
+	d.writeQ = make(chan *acpWriteReq, 32)
+	d.done = make(chan struct{})
 	d.mu.Unlock()
 
 	if d.Log == nil {
@@ -98,9 +121,13 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	if d.HandshakeTimeout == 0 {
 		d.HandshakeTimeout = 10 * time.Second
 	}
+	if d.WriteTimeout == 0 {
+		d.WriteTimeout = 5 * time.Second
+	}
 
-	d.wg.Add(1)
+	d.wg.Add(2)
 	go d.readLoop(parent)
+	go d.writerLoop()
 
 	hsCtx, cancel := context.WithTimeout(parent, d.HandshakeTimeout)
 	defer cancel()
@@ -146,6 +173,10 @@ func (d *ACPDriver) Stop() {
 	}
 	d.stopped = true
 	closer := d.Closer
+	// Close done under the lock so callers blocked in writeMsg wake up
+	// before Stop returns. Closer() below unblocks the actual Write in
+	// writerLoop so wg can complete.
+	close(d.done)
 	d.mu.Unlock()
 
 	if closer != nil {
@@ -215,12 +246,60 @@ func (d *ACPDriver) writeMsg(m any) error {
 	if err != nil {
 		return err
 	}
-	d.writerMu.Lock()
-	defer d.writerMu.Unlock()
-	if _, err := d.Stdin.Write(append(b, '\n')); err != nil {
-		return err
+	req := &acpWriteReq{
+		frame: append(b, '\n'),
+		done:  make(chan error, 1),
 	}
-	return nil
+	timer := time.NewTimer(d.WriteTimeout)
+	defer timer.Stop()
+	// Phase 1: get onto the queue. If writerLoop is stuck on a prior
+	// Write the queue fills and this select times out instead of
+	// spawning another blocked goroutine.
+	select {
+	case d.writeQ <- req:
+	case <-d.done:
+		return fmt.Errorf("acp driver: stopped")
+	case <-timer.C:
+		return fmt.Errorf("acp driver: stdin queue timeout after %s", d.WriteTimeout)
+	}
+	// Phase 2: wait for the write result. Stop draining may happen here;
+	// done closing unblocks us immediately even if the pipe is wedged.
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(d.WriteTimeout)
+	select {
+	case err := <-req.done:
+		return err
+	case <-d.done:
+		return fmt.Errorf("acp driver: stopped")
+	case <-timer.C:
+		return fmt.Errorf("acp driver: stdin write timeout after %s", d.WriteTimeout)
+	}
+}
+
+// writerLoop is the single goroutine that touches d.Stdin. Serialising
+// all writes through one goroutine means we never need a writerMu and
+// callers never fan out goroutines on a stuck pipe — backpressure is
+// encoded in the bounded writeQ.
+func (d *ACPDriver) writerLoop() {
+	defer d.wg.Done()
+	for {
+		select {
+		case req := <-d.writeQ:
+			_, err := d.Stdin.Write(req.frame)
+			// Non-blocking: if the caller timed out and left, drop.
+			select {
+			case req.done <- err:
+			default:
+			}
+		case <-d.done:
+			return
+		}
+	}
 }
 
 func (d *ACPDriver) readLoop(ctx context.Context) {

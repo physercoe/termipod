@@ -648,3 +648,57 @@ func TestACPDriver_HandshakeTimeout(t *testing.T) {
 	_ = hostInW.Close()
 	_ = hostOutW.Close()
 }
+
+// TestACPDriver_WriteTimeout guards the path where the child agent has
+// stopped reading its stdin (deadlocked, paused, OOMing). Without a
+// timeout a single bad agent could block every subsequent Input call
+// forever; the writer queue + WriteTimeout cap how long a caller waits
+// before giving up.
+func TestACPDriver_WriteTimeout(t *testing.T) {
+	// A pipe with nobody reading → every Write blocks indefinitely.
+	hostInR, hostInW := io.Pipe()
+	hostOutR, _ := io.Pipe()
+	_ = hostInR // intentionally never read
+
+	drv := &ACPDriver{
+		AgentID:      "agent-m1-wto",
+		Poster:       &fakePoster{},
+		Stdin:        hostInW,
+		Stdout:       hostOutR,
+		Closer:       func() { _ = hostInW.Close() },
+		WriteTimeout: 80 * time.Millisecond,
+	}
+
+	// Skip the handshake and stand up just enough state to exercise
+	// writeMsg. This isolates the timeout path from session/new (which
+	// would itself time out but via the handshake timeout, not the
+	// write timeout we want to test).
+	drv.started = true
+	drv.done = make(chan struct{})
+	drv.writeQ = make(chan *acpWriteReq, 32)
+	drv.pending = make(map[int64]chan acpResponse)
+	drv.pendingPerm = make(map[string]json.RawMessage)
+	drv.wg.Add(1)
+	go drv.writerLoop()
+
+	start := time.Now()
+	err := drv.writeMsg(map[string]any{"jsonrpc": "2.0", "method": "ping"})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected write timeout error; got nil")
+	}
+	if !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("expected timeout error; got %v", err)
+	}
+	// The timer should fire within a reasonable envelope — 80ms target,
+	// allow 2x slack for CI scheduling noise.
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("writeMsg took %v, expected ~80ms", elapsed)
+	}
+
+	// Stop the driver cleanly so the writerLoop goroutine unwinds.
+	close(drv.done)
+	_ = hostInW.Close() // unblock any in-flight Write
+	drv.wg.Wait()
+}

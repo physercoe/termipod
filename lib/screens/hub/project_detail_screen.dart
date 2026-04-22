@@ -7,6 +7,7 @@ import '../../theme/design_colors.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
+import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
 import 'runs_screen.dart';
@@ -39,6 +40,7 @@ class ProjectDetailScreen extends ConsumerStatefulWidget {
 class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   final _pager = PageController();
   int _index = 0;
+  late Map<String, dynamic> _project;
 
   static const _labels = [
     'Activity',
@@ -48,6 +50,12 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     'Blobs',
     'Info',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _project = Map<String, dynamic>.from(widget.project);
+  }
 
   @override
   void dispose() {
@@ -64,11 +72,23 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     );
   }
 
+  Future<void> _edit() async {
+    final updated = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ProjectEditSheet(project: _project),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _project = Map<String, dynamic>.from(updated));
+    await ref.read(hubProvider.notifier).refreshAll();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final name = (widget.project['name'] ?? 'Project').toString();
-    final projectId = (widget.project['id'] ?? '').toString();
-    final kind = (widget.project['kind'] ?? 'goal').toString();
+    final name = (_project['name'] ?? 'Project').toString();
+    final projectId = (_project['id'] ?? '').toString();
+    final kind = (_project['kind'] ?? 'goal').toString();
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -86,6 +106,13 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
             _ProjectKindChip(kind: kind),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit project',
+            onPressed: _edit,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -104,7 +131,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                 _AgentsView(projectId: projectId),
                 DocsSection(projectId: projectId),
                 const BlobsSection(),
-                _InfoView(project: widget.project),
+                _InfoView(project: _project),
               ],
             ),
           ),

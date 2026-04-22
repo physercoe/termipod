@@ -149,6 +149,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Delete("/", s.handleDeleteHost)
 				r.Post("/heartbeat", s.handleHostHeartbeat)
 				r.Get("/commands", s.handleListHostCommands)
+				r.Patch("/ssh_hint", s.handleUpdateHostSSHHint)
+				r.Put("/capabilities", s.handleUpdateHostCapabilities)
 			})
 		})
 		r.Patch("/commands/{cmd}", s.handlePatchHostCommand)

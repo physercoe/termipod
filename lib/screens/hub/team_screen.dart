@@ -11,6 +11,7 @@ import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
 import 'templates_screen.dart';
 import 'tokens_screen.dart';
+import 'workflows_screen.dart';
 
 /// Team-level surface. Four sub-tabs:
 ///   - Members — coalesced principals (one row per `scope.handle`).
@@ -662,6 +663,15 @@ class _SettingsView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        ListTile(
+          leading: const Icon(Icons.hub_outlined),
+          title: const Text('Workflows'),
+          subtitle: const Text('Templates + schedules + recent runs, all in one'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const WorkflowsScreen(),
+          )),
+        ),
         ListTile(
           leading: const Icon(Icons.description_outlined),
           title: const Text('Templates'),

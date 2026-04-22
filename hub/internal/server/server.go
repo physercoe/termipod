@@ -215,6 +215,25 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/metric_uri", s.handleAttachMetricURI)
 			})
 		})
+		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project
+		// via ?project=. Sits at team scope (not nested under /projects) so
+		// that cross-project review queues can be listed with a single query.
+		r.Route("/documents", func(r chi.Router) {
+			r.Get("/", s.handleListDocuments)
+			r.Post("/", s.handleCreateDocument)
+			r.Route("/{doc}", func(r chi.Router) {
+				r.Get("/", s.handleGetDocument)
+				r.Get("/versions", s.handleListDocumentVersions)
+			})
+		})
+		r.Route("/reviews", func(r chi.Router) {
+			r.Get("/", s.handleListReviews)
+			r.Post("/", s.handleCreateReview)
+			r.Route("/{review}", func(r chi.Router) {
+				r.Get("/", s.handleGetReview)
+				r.Post("/decide", s.handleDecideReview)
+			})
+		})
 		r.Route("/attention", func(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)

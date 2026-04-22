@@ -43,12 +43,10 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
         text: (widget.project['on_create_template_id'] ?? '').toString());
     _docsRoot = TextEditingController(
         text: (widget.project['docs_root'] ?? '').toString());
-    _originalBudgetCents =
-        (widget.project['budget_cents'] as num?)?.toInt();
+    final origCents = (widget.project['budget_cents'] as num?)?.toInt();
+    _originalBudgetCents = origCents;
     _budgetUsd = TextEditingController(
-      text: _originalBudgetCents == null
-          ? ''
-          : (_originalBudgetCents! / 100).toStringAsFixed(2),
+      text: origCents == null ? '' : (origCents / 100).toStringAsFixed(2),
     );
   }
 

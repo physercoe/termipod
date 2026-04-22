@@ -15,12 +15,25 @@ import '../../services/ssh/ssh_client.dart';
 import '../../theme/design_colors.dart';
 
 /// 接続編集画面
+///
+/// On create, Navigator.pop returns the new connection id (String) on
+/// success, `null` on cancel. Callers that want to record a side-binding
+/// (e.g. hub host → local connection) can `await` the pop to get the id.
+/// On edit, pop returns `true` on save / `null` on cancel — the id is
+/// already known to the caller.
 class ConnectionFormScreen extends ConsumerStatefulWidget {
   final String? connectionId;
+
+  /// Pre-fill for a new connection. Accepted keys (all optional):
+  /// `name`, `host`, `port` (int or String), `username`. Ignored on edit.
+  /// Used by the hub's host detail sheet to seed a form from the host's
+  /// non-secret `ssh_hint_json`.
+  final Map<String, dynamic>? initialHint;
 
   const ConnectionFormScreen({
     super.key,
     this.connectionId,
+    this.initialHint,
   });
 
   bool get isEditing => connectionId != null;
@@ -66,6 +79,23 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
     super.initState();
     if (widget.isEditing) {
       _loadExistingConnection();
+    } else if (widget.initialHint != null) {
+      _applyInitialHint(widget.initialHint!);
+    }
+  }
+
+  void _applyInitialHint(Map<String, dynamic> hint) {
+    final name = hint['name']?.toString().trim() ?? '';
+    final host = hint['host']?.toString().trim() ?? '';
+    final user = hint['username']?.toString().trim() ?? '';
+    if (name.isNotEmpty) _nameController.text = name;
+    if (host.isNotEmpty) _hostController.text = host;
+    if (user.isNotEmpty) _usernameController.text = user;
+    final port = hint['port'];
+    if (port is int) {
+      _portController.text = port.toString();
+    } else if (port is String && port.trim().isNotEmpty) {
+      _portController.text = port.trim();
     }
   }
 
@@ -1506,7 +1536,10 @@ class _ConnectionFormScreenState extends ConsumerState<ConnectionFormScreen> {
 
       developer.log('Save completed, popping navigator...', name: 'ConnectionForm');
       if (mounted) {
-        Navigator.of(context).pop(true);
+        // On create, return the new id so callers (e.g. the hub host
+        // detail sheet) can record a binding. On edit, keep the legacy
+        // `true` signal — the id is already known to the caller.
+        Navigator.of(context).pop(widget.isEditing ? true : connectionId);
         developer.log('Navigator popped', name: 'ConnectionForm');
       }
     } catch (e, stackTrace) {

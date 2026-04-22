@@ -1,12 +1,18 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/connection_provider.dart';
+import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../connections/connection_form_screen.dart';
+import '../terminal/terminal_screen.dart';
 import 'archived_agents_screen.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
@@ -2228,6 +2234,71 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
   bool _busy = false;
   String? _error;
 
+  Map<String, dynamic> _parsedHint() {
+    final raw = widget.host['ssh_hint_json'];
+    if (raw == null) return const {};
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {
+        // Fall through — a malformed hint shouldn't crash the sheet.
+      }
+    }
+    return const {};
+  }
+
+  Future<void> _enterPane() async {
+    final hostId = widget.host['id']?.toString() ?? '';
+    if (hostId.isEmpty) return;
+    final bindings = ref.read(hostBindingsProvider.notifier);
+    final connections = ref.read(connectionsProvider);
+    final existingId = bindings.connectionIdFor(hostId);
+    String? connectionId;
+    if (existingId != null &&
+        connections.connections.any((c) => c.id == existingId)) {
+      connectionId = existingId;
+    } else {
+      // No binding yet (or it points to a deleted connection) — open the
+      // form pre-filled from the host's non-secret hint. The form pops
+      // the new connection id on save; record it as the binding.
+      final hint = {
+        'name': widget.host['name']?.toString() ?? '',
+        ..._parsedHint(),
+      };
+      final result = await Navigator.of(context).push<Object?>(
+        MaterialPageRoute(
+          builder: (_) => ConnectionFormScreen(initialHint: hint),
+        ),
+      );
+      if (!mounted) return;
+      if (result is String && result.isNotEmpty) {
+        await bindings.bind(hostId, result);
+        connectionId = result;
+      } else {
+        return;
+      }
+    }
+    if (!mounted) return;
+    // Capture the root navigator before popping the bottom sheet — this
+    // context will be unmounted as soon as we pop.
+    final rootNav = Navigator.of(context, rootNavigator: true);
+    Navigator.of(context).pop();
+    rootNav.push(
+      MaterialPageRoute(
+        builder: (_) => TerminalScreen(connectionId: connectionId!),
+      ),
+    );
+  }
+
+  Future<void> _unbind() async {
+    final hostId = widget.host['id']?.toString() ?? '';
+    if (hostId.isEmpty) return;
+    await ref.read(hostBindingsProvider.notifier).unbind(hostId);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _delete() async {
     final name = widget.host['name']?.toString() ?? 'this host';
     final id = widget.host['id']?.toString() ?? '';
@@ -2316,12 +2387,53 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
             _kv('Created', h['created_at']?.toString() ?? '', mutedColor),
             _kv('Capabilities',
                 h['capabilities']?.toString() ?? '{}', mutedColor),
+            if (_parsedHint().isNotEmpty)
+              _kv('SSH hint', _formatHint(_parsedHint()), mutedColor),
+            Builder(builder: (_) {
+              final hostId = h['id']?.toString() ?? '';
+              final bindingId = ref.watch(hostBindingsProvider)[hostId];
+              if (bindingId == null) return _kv('Bound', 'none', mutedColor);
+              final conns = ref.watch(connectionsProvider).connections;
+              Connection? bound;
+              for (final c in conns) {
+                if (c.id == bindingId) {
+                  bound = c;
+                  break;
+                }
+              }
+              if (bound == null) return _kv('Bound', 'none', mutedColor);
+              return _kv('Bound', '${bound.name} (${bound.host})', mutedColor);
+            }),
             const SizedBox(height: 16),
             if (_error != null) ...[
               Text(_error!,
                   style: const TextStyle(color: DesignColors.error)),
               const SizedBox(height: 8),
             ],
+            FilledButton.icon(
+              onPressed: _busy ? null : _enterPane,
+              style: FilledButton.styleFrom(
+                backgroundColor: DesignColors.terminalCyan,
+                foregroundColor: Colors.white,
+              ),
+              icon: const Icon(Icons.terminal),
+              label: const Text('Enter pane'),
+            ),
+            const SizedBox(height: 8),
+            Builder(builder: (_) {
+              final hostId = h['id']?.toString() ?? '';
+              final hasBinding =
+                  ref.watch(hostBindingsProvider).containsKey(hostId);
+              if (!hasBinding) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : _unbind,
+                  icon: const Icon(Icons.link_off, size: 18),
+                  label: const Text('Unbind connection'),
+                ),
+              );
+            }),
             FilledButton.icon(
               onPressed: _busy ? null : _delete,
               style: FilledButton.styleFrom(
@@ -2334,6 +2446,25 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
         ),
       ),
     );
+  }
+
+  // Compact one-line rendering of the parsed ssh_hint_json object, e.g.
+  // `user@host:2222`. Falls back to a raw key=value join when the common
+  // shorthand fields aren't present.
+  String _formatHint(Map<String, dynamic> hint) {
+    final host = hint['host']?.toString() ?? '';
+    final user = hint['username']?.toString() ?? '';
+    final port = hint['port'];
+    if (host.isNotEmpty) {
+      final buf = StringBuffer();
+      if (user.isNotEmpty) buf.write('$user@');
+      buf.write(host);
+      if (port != null && port.toString() != '22') {
+        buf.write(':$port');
+      }
+      return buf.toString();
+    }
+    return hint.entries.map((e) => '${e.key}=${e.value}').join(' · ');
   }
 
   Widget _kv(String k, String v, Color mutedColor) => Padding(

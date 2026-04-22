@@ -436,11 +436,13 @@ class ConnectionsScreen extends ConsumerWidget {
 
   void _addConnection(BuildContext context, WidgetRef ref) async {
     developer.log('_addConnection() - navigating to ConnectionFormScreen', name: 'ConnectionsScreen');
-    final result = await Navigator.of(context).push<bool>(
+    // The form pops the new connection id (String) on create success,
+    // `null` on cancel. Any non-null result means we should refresh.
+    final result = await Navigator.of(context).push<Object?>(
       MaterialPageRoute(builder: (context) => const ConnectionFormScreen()),
     );
     developer.log('_addConnection() - returned with result: $result', name: 'ConnectionsScreen');
-    if (result == true) {
+    if (result != null) {
       developer.log('_addConnection() - invalidating connectionsProvider', name: 'ConnectionsScreen');
       ref.invalidate(connectionsProvider);
     }

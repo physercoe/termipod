@@ -33,6 +33,7 @@ type Runner struct {
 	idle      *IdleDetector
 	panes     map[string]paneState    // keyed by agent id
 	tailers   map[string]*Tailer      // keyed by agent id
+	drivers   map[string]Driver       // keyed by agent id (P1.1)
 	worktrees map[string]WorktreeSpec // keyed by agent id
 }
 
@@ -60,6 +61,9 @@ func (a *Runner) defaults() {
 	}
 	if a.tailers == nil {
 		a.tailers = map[string]*Tailer{}
+	}
+	if a.drivers == nil {
+		a.drivers = map[string]Driver{}
 	}
 	if a.worktrees == nil {
 		a.worktrees = map[string]WorktreeSpec{}
@@ -170,6 +174,14 @@ func (a *Runner) tickIdle(ctx context.Context) {
 			a.stopTailer(id)
 		}
 	}
+	// Drivers follow the same lifetime — stop emits a lifecycle.stopped
+	// event so clients see the transition without waiting for the agent
+	// row to be archived.
+	for id := range a.drivers {
+		if _, ok := seen[id]; !ok {
+			a.stopDriver(id)
+		}
+	}
 	// Drop worktree bookkeeping for agents the hub no longer considers
 	// running. Anything the terminate handler missed (e.g. host-runner
 	// killed before cleanup) will be re-synced by `git worktree prune`
@@ -256,6 +268,21 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	}
 	a.Log.Info("agent pane created", "handle", sp.Handle, "pane", pane)
 
+	// P1.1 pass A: start an M4 pane driver for every agent, unconditionally.
+	// This is the minimum wire-up — future passes will consult mode resolution
+	// (P1.4) and pick M1/M2 when the template + capabilities agree.
+	drv := &PaneDriver{
+		AgentID: sp.ChildID,
+		PaneID:  pane,
+		Poster:  a.Client,
+		Log:     a.Log,
+	}
+	if err := drv.Start(ctx); err != nil {
+		a.Log.Warn("driver start failed", "agent", sp.ChildID, "err", err)
+	} else {
+		a.drivers[sp.ChildID] = drv
+	}
+
 	// Best-effort: bring up a marker tailer if the spawn spec bound the
 	// agent to a project/channel. Missing IDs leave the pane visible in
 	// tmux without event forwarding — the backend can still speak MCP
@@ -320,4 +347,15 @@ func (a *Runner) stopTailer(agentID string) {
 	}
 	t.Stop()
 	delete(a.tailers, agentID)
+}
+
+// stopDriver tears down the M4 driver (or whichever mode is wired) for an
+// agent leaving the running set. Emits lifecycle.stopped as a side effect.
+func (a *Runner) stopDriver(agentID string) {
+	d, ok := a.drivers[agentID]
+	if !ok {
+		return
+	}
+	d.Stop()
+	delete(a.drivers, agentID)
 }

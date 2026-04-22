@@ -233,6 +233,19 @@ func (c *Client) PostEvent(ctx context.Context, projectID, channelID string, in 
 	return c.do(ctx, http.MethodPost, path, in, nil)
 }
 
+// PostAgentEvent appends an event to the per-agent queue (P1.7). Used by the
+// driver (P1.1) to stream pane-derived text and lifecycle events; payload is
+// opaque to the hub so the driver owns its own vocabulary per kind.
+func (c *Client) PostAgentEvent(ctx context.Context, agentID, kind, producer string, payload any) error {
+	body := struct {
+		Kind     string `json:"kind"`
+		Producer string `json:"producer,omitempty"`
+		Payload  any    `json:"payload,omitempty"`
+	}{kind, producer, payload}
+	path := fmt.Sprintf("/v1/teams/%s/agents/%s/events", c.Team, agentID)
+	return c.do(ctx, http.MethodPost, path, body, nil)
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

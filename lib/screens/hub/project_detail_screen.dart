@@ -65,12 +65,23 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   Widget build(BuildContext context) {
     final name = (widget.project['name'] ?? 'Project').toString();
     final projectId = (widget.project['id'] ?? '').toString();
+    final kind = (widget.project['kind'] ?? 'goal').toString();
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          name,
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 18, fontWeight: FontWeight.w700),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                name,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _ProjectKindChip(kind: kind),
+          ],
         ),
       ),
       body: Column(
@@ -622,7 +633,15 @@ class _InfoView extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final rows = <MapEntry<String, String>>[
       MapEntry('Name', (project['name'] ?? '').toString()),
+      MapEntry('Kind', (project['kind'] ?? 'goal').toString()),
       MapEntry('Status', (project['status'] ?? '').toString()),
+      if ((project['goal'] ?? '').toString().isNotEmpty)
+        MapEntry('Goal', (project['goal'] ?? '').toString()),
+      if ((project['template_id'] ?? '').toString().isNotEmpty)
+        MapEntry('Steward template', (project['template_id'] ?? '').toString()),
+      if ((project['on_create_template_id'] ?? '').toString().isNotEmpty)
+        MapEntry('On-create template',
+            (project['on_create_template_id'] ?? '').toString()),
       MapEntry('ID', (project['id'] ?? '').toString()),
       MapEntry('Docs root', (project['docs_root'] ?? '').toString()),
       MapEntry('Created', (project['created_at'] ?? '').toString()),
@@ -697,6 +716,36 @@ class _InfoView extends ConsumerWidget {
         );
       }
     }
+  }
+}
+
+class _ProjectKindChip extends StatelessWidget {
+  final String kind;
+  const _ProjectKindChip({required this.kind});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (kind) {
+      'goal' => DesignColors.terminalCyan,
+      'standing' => DesignColors.warning,
+      _ => DesignColors.textMuted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        kind,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
   }
 }
 

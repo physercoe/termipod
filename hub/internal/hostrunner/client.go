@@ -72,6 +72,10 @@ type Spawn struct {
 	Task         json.RawMessage `json:"task,omitempty"`
 	WorktreePath string          `json:"worktree_path,omitempty"`
 	SpawnedAt    string          `json:"spawned_at"`
+	// Mode is the concrete driving mode the hub resolved for this spawn
+	// (M1|M2|M4). Empty means the hub had no mode info and host-runner
+	// falls back to M4 on launch.
+	Mode string `json:"mode,omitempty"`
 }
 
 func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn, error) {

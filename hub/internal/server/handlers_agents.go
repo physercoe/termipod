@@ -296,6 +296,10 @@ type spawnIn struct {
 	Task         json.RawMessage `json:"task,omitempty"`
 	WorktreePath string          `json:"worktree_path,omitempty"`
 	BudgetCents  *int            `json:"budget_cents,omitempty"`
+	// Mode is an optional override of the template's driving_mode.
+	// When set it's strict — the resolver tries only this candidate,
+	// no fallback. Empty means "use template + fallbacks".
+	Mode string `json:"mode,omitempty"`
 }
 
 type spawnOut struct {
@@ -305,6 +309,10 @@ type spawnOut struct {
 	Status      string `json:"status,omitempty"`          // "spawned" | "pending_approval"
 	AttentionID string `json:"attention_id,omitempty"`    // set when gated on approval
 	Tier        string `json:"tier,omitempty"`
+	// Mode is the concrete driving mode the resolver picked (M1|M2|M4).
+	// Empty when no mode info was declared anywhere — host-runner stays
+	// on its default M4 in that case.
+	Mode string `json:"mode,omitempty"`
 }
 
 // handleSpawn creates a pending agent + an agent_spawns audit row, unless
@@ -403,6 +411,14 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	}
 	in.SpawnSpec = rendered
 
+	// Resolve the driving mode before we open the tx so a 400 exits
+	// without a rollback. Empty mode is legal (opt-in): DoSpawn stores
+	// NULL and host-runner defaults to M4 at launch time.
+	mode, err := s.resolveSpawnMode(ctx, in)
+	if err != nil {
+		return spawnOut{}, http.StatusBadRequest, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
@@ -417,13 +433,15 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		INSERT INTO agents (
 			id, team_id, handle, kind, backend_json, capabilities_json,
 			parent_agent_id, host_id, budget_cents, worktree_path,
+			driving_mode,
 			status, pause_state, created_at
 		) VALUES (?, ?, ?, ?, '{}', '[]',
 		          NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''),
+		          NULLIF(?, ''),
 		          'pending', 'running', ?)`,
 		agentID, team, in.ChildHandle, in.Kind,
 		in.ParentID, in.HostID, nullableInt(in.BudgetCents),
-		in.WorktreePath, now); err != nil {
+		in.WorktreePath, mode, now); err != nil {
 		return spawnOut{}, http.StatusConflict, err
 	}
 
@@ -441,7 +459,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	if err := tx.Commit(); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
 	}
-	return spawnOut{SpawnID: spawnID, AgentID: agentID, SpawnedAt: now}, http.StatusCreated, nil
+	return spawnOut{SpawnID: spawnID, AgentID: agentID, SpawnedAt: now, Mode: mode}, http.StatusCreated, nil
 }
 
 type spawnListOut struct {
@@ -457,6 +475,8 @@ type spawnListOut struct {
 	Task         json.RawMessage `json:"task,omitempty"`
 	WorktreePath string          `json:"worktree_path,omitempty"`
 	SpawnedAt    string          `json:"spawned_at"`
+	// Mode is the resolved driving mode; empty if no mode was declared.
+	Mode string `json:"mode,omitempty"`
 }
 
 // handleListSpawns returns agent_spawns rows, filtered by host and/or status.
@@ -470,7 +490,8 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		SELECT sp.id, COALESCE(sp.parent_agent_id, ''), sp.child_agent_id,
 		       a.handle, a.kind, COALESCE(a.host_id, ''), a.status,
 		       sp.spawn_spec_yaml, sp.spawn_authority_json, sp.task_json,
-		       COALESCE(sp.worktree_path, ''), sp.spawned_at
+		       COALESCE(sp.worktree_path, ''), sp.spawned_at,
+		       COALESCE(a.driving_mode, '')
 		FROM agent_spawns sp
 		JOIN agents a ON a.id = sp.child_agent_id
 		WHERE a.team_id = ?`
@@ -499,7 +520,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&sp.SpawnID, &sp.ParentID, &sp.ChildID,
 			&sp.Handle, &sp.Kind, &sp.HostID, &sp.Status,
 			&sp.SpawnSpec, &authority, &task,
-			&sp.WorktreePath, &sp.SpawnedAt); err != nil {
+			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

@@ -26,6 +26,8 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
   late final TextEditingController _template;
   late final TextEditingController _onCreate;
   late final TextEditingController _docsRoot;
+  late final TextEditingController _budgetUsd;
+  late final int? _originalBudgetCents;
   bool _submitting = false;
 
   @override
@@ -41,6 +43,13 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
         text: (widget.project['on_create_template_id'] ?? '').toString());
     _docsRoot = TextEditingController(
         text: (widget.project['docs_root'] ?? '').toString());
+    _originalBudgetCents =
+        (widget.project['budget_cents'] as num?)?.toInt();
+    _budgetUsd = TextEditingController(
+      text: _originalBudgetCents == null
+          ? ''
+          : (_originalBudgetCents! / 100).toStringAsFixed(2),
+    );
   }
 
   @override
@@ -50,6 +59,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     _template.dispose();
     _onCreate.dispose();
     _docsRoot.dispose();
+    _budgetUsd.dispose();
     super.dispose();
   }
 
@@ -57,6 +67,20 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     final c = current.trim();
     if (c == original.trim()) return null;
     return c;
+  }
+
+  /// Parses the USD budget field and returns the cents delta, or null if
+  /// unchanged. A blank field means "keep current" — clearing a budget
+  /// isn't supported from this sheet because updateProject omits null
+  /// values rather than sending SQL NULL.
+  int? _budgetCentsChange() {
+    final raw = _budgetUsd.text.trim();
+    if (raw.isEmpty) return null;
+    final dollars = double.tryParse(raw);
+    if (dollars == null) return null;
+    final cents = (dollars * 100).round();
+    if (cents == _originalBudgetCents) return null;
+    return cents;
   }
 
   Future<void> _submit() async {
@@ -75,6 +99,17 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
         (widget.project['on_create_template_id'] ?? '').toString());
     final docsRootChange = _diffOrNull(
         _docsRoot.text, (widget.project['docs_root'] ?? '').toString());
+    final budgetChange = _budgetCentsChange();
+
+    // Catch parse-errors early so invalid budget input doesn't silently
+    // no-op after the user hit Save.
+    final budgetRaw = _budgetUsd.text.trim();
+    if (budgetRaw.isNotEmpty && double.tryParse(budgetRaw) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Budget must be a dollar amount')),
+      );
+      return;
+    }
 
     final anyChange = [
       nameChange,
@@ -82,7 +117,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
       templateChange,
       onCreateChange,
       docsRootChange,
-    ].any((v) => v != null);
+    ].any((v) => v != null) || budgetChange != null;
     if (!anyChange) {
       Navigator.of(context).pop();
       return;
@@ -97,6 +132,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
         templateId: templateChange,
         onCreateTemplateId: onCreateChange,
         docsRoot: docsRootChange,
+        budgetCents: budgetChange,
       );
       if (!mounted) return;
       Navigator.of(context).pop(updated);
@@ -178,6 +214,13 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
               hint: 'relative path under the hub dataRoot',
               mono: true,
             ),
+            _field(
+              label: 'Budget (USD)',
+              controller: _budgetUsd,
+              hint: 'e.g. 25.00 — leave blank to keep current',
+              mono: true,
+              keyboard: const TextInputType.numberWithOptions(decimal: true),
+            ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _submitting ? null : _submit,
@@ -201,6 +244,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
     String? hint,
     int maxLines = 1,
     bool mono = false,
+    TextInputType? keyboard,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -224,6 +268,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
             enabled: !_submitting,
             minLines: 1,
             maxLines: maxLines,
+            keyboardType: keyboard,
             style: mono
                 ? GoogleFonts.jetBrainsMono(fontSize: 13)
                 : GoogleFonts.spaceGrotesk(fontSize: 14),

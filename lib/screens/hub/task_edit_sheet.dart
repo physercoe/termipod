@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -28,6 +29,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
   late final TextEditingController _title;
   late final TextEditingController _body;
   bool _submitting = false;
+  bool _preview = false;
 
   @override
   void initState() {
@@ -136,13 +138,7 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
               controller: _title,
               hint: 'Short task name',
             ),
-            _field(
-              label: 'Body (markdown)',
-              controller: _body,
-              hint: 'Details, acceptance criteria, links…',
-              maxLines: 12,
-              mono: true,
-            ),
+            _bodyField(),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _submitting ? null : _submit,
@@ -156,6 +152,91 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _bodyField() {
+    // Edit ↔ preview toggle keeps the body editor honest — authors can
+    // check that their headings, lists, and code fences render before
+    // saving without leaving the sheet.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Text(
+                  'Body (markdown)',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: DesignColors.textMuted,
+                  ),
+                ),
+                const Spacer(),
+                _ModeSegment(
+                  preview: _preview,
+                  onChanged: (v) => setState(() => _preview = v),
+                ),
+              ],
+            ),
+          ),
+          if (_preview)
+            Container(
+              constraints: const BoxConstraints(minHeight: 120),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: DesignColors.borderDark),
+              ),
+              child: _body.text.trim().isEmpty
+                  ? Text(
+                      '(empty)',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        color: DesignColors.textMuted,
+                      ),
+                    )
+                  : MarkdownBody(
+                      data: _body.text,
+                      selectable: true,
+                      styleSheet: MarkdownStyleSheet(
+                        p: GoogleFonts.spaceGrotesk(
+                            fontSize: 13, height: 1.4),
+                        code: GoogleFonts.jetBrainsMono(fontSize: 12),
+                        h1: GoogleFonts.spaceGrotesk(
+                            fontSize: 18, fontWeight: FontWeight.w700),
+                        h2: GoogleFonts.spaceGrotesk(
+                            fontSize: 16, fontWeight: FontWeight.w700),
+                        h3: GoogleFonts.spaceGrotesk(
+                            fontSize: 14, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+            )
+          else
+            TextField(
+              controller: _body,
+              enabled: !_submitting,
+              minLines: 6,
+              maxLines: 14,
+              style: GoogleFonts.jetBrainsMono(fontSize: 13),
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                isDense: true,
+                hintText: 'Details, acceptance criteria, links…',
+                hintStyle: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -203,6 +284,48 @@ class _TaskEditSheetState extends ConsumerState<TaskEditSheet> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ModeSegment extends StatelessWidget {
+  final bool preview;
+  final ValueChanged<bool> onChanged;
+  const _ModeSegment({required this.preview, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: DesignColors.borderDark),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _seg('Edit', !preview, () => onChanged(false)),
+          Container(width: 1, height: 22, color: DesignColors.borderDark),
+          _seg('Preview', preview, () => onChanged(true)),
+        ],
+      ),
+    );
+  }
+
+  Widget _seg(String label, bool selected, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Text(
+          label,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color:
+                selected ? DesignColors.primary : DesignColors.textMuted,
+          ),
+        ),
       ),
     );
   }

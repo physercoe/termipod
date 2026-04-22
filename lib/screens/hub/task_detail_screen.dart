@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -169,14 +170,55 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
                     : DesignColors.borderLight,
               ),
             ),
-            child: Text(
-              body.isEmpty ? '(no body)' : body,
-              style:
-                  GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
-            ),
+            child: _TaskBody(body: body),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Renders a task body either as markdown (when it contains common
+/// markdown markers) or as mono-spaced plain text. Mirrors the
+/// heuristic already used by the Documents viewer so behaviour is
+/// consistent across task/doc bodies.
+class _TaskBody extends StatelessWidget {
+  final String body;
+  const _TaskBody({required this.body});
+
+  @override
+  Widget build(BuildContext context) {
+    if (body.isEmpty) {
+      return Text(
+        '(no body)',
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 13,
+          height: 1.4,
+          color: DesignColors.textMuted,
+        ),
+      );
+    }
+    final looksMd =
+        RegExp(r'(^|\n)(#|- |\* |\d+\. |```|> )').hasMatch(body);
+    if (looksMd) {
+      return MarkdownBody(
+        data: body,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet(
+          p: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
+          code: GoogleFonts.jetBrainsMono(fontSize: 12),
+          h1: GoogleFonts.spaceGrotesk(
+              fontSize: 18, fontWeight: FontWeight.w700),
+          h2: GoogleFonts.spaceGrotesk(
+              fontSize: 16, fontWeight: FontWeight.w700),
+          h3: GoogleFonts.spaceGrotesk(
+              fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+    return SelectableText(
+      body,
+      style: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
     );
   }
 }

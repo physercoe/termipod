@@ -9,6 +9,7 @@ import 'budget_screen.dart';
 import 'documents_screen.dart';
 import 'plans_screen.dart';
 import 'reviews_screen.dart';
+import 'runs_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
 import 'templates_screen.dart';
@@ -699,6 +700,15 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const PlansScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.science_outlined),
+          title: const Text('Runs'),
+          subtitle: const Text('Experiment runs with metric dashboards'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const RunsScreen(),
           )),
         ),
         ListTile(

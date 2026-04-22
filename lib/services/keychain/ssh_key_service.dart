@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -60,9 +61,17 @@ class SshKeyService {
   }) async {
     assert(bits == 2048 || bits == 3072 || bits == 4096);
 
+    // Seed Fortuna with 32 bytes from the OS CSPRNG. The previous
+    // implementation filled all 32 bytes with `millisecondsSinceEpoch %
+    // 256`, so every byte was identical and two generations within the
+    // same millisecond produced the same RSA key — both a CI flake
+    // source and a real security issue.
+    final rng = Random.secure();
+    final seed = Uint8List.fromList(
+      List<int>.generate(32, (_) => rng.nextInt(256)),
+    );
     final secureRandom = pc.FortunaRandom();
-    final seedSource = List<int>.generate(32, (i) => DateTime.now().millisecondsSinceEpoch % 256);
-    secureRandom.seed(pc.KeyParameter(Uint8List.fromList(seedSource)));
+    secureRandom.seed(pc.KeyParameter(seed));
 
     final keyGen = pc.RSAKeyGenerator()
       ..init(pc.ParametersWithRandom(

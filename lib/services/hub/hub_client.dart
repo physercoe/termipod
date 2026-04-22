@@ -629,6 +629,51 @@ class HubClient {
     await _post('/v1/teams/${cfg.teamId}/agents/$agentId/journal', body);
   }
 
+  // ---- agent events (P1.7 AG-UI broker) ----
+
+  /// Appends an event to the agent's per-agent queue. Producer defaults to
+  /// `agent`; use `user` for approvals/input and `system` for status blips.
+  /// Returns {id, seq, ts} so callers can order locally without re-listing.
+  Future<Map<String, dynamic>> postAgentEvent(
+    String agentId, {
+    required String kind,
+    String? producer,
+    Map<String, dynamic>? payload,
+  }) async {
+    final body = <String, dynamic>{'kind': kind};
+    if (producer != null && producer.isNotEmpty) body['producer'] = producer;
+    if (payload != null) body['payload'] = payload;
+    final out =
+        await _post('/v1/teams/${cfg.teamId}/agents/$agentId/events', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Backfill events by monotonic seq. `since` is exclusive (seq > since).
+  Future<List<Map<String, dynamic>>> listAgentEvents(
+    String agentId, {
+    int? since,
+    int? limit,
+  }) {
+    final q = <String, String>{};
+    if (since != null) q['since'] = '$since';
+    if (limit != null) q['limit'] = '$limit';
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/agents/$agentId/events',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  /// SSE tail of the agent's event queue. Subscribes before replaying
+  /// backfill from [sinceSeq] so no live event is missed in the gap.
+  Stream<Map<String, dynamic>> streamAgentEvents(
+    String agentId, {
+    int? sinceSeq,
+  }) =>
+      _streamPath(
+        '/v1/teams/${cfg.teamId}/agents/$agentId/stream',
+        since: sinceSeq == null ? null : '$sinceSeq',
+      );
+
   // ---- host lifecycle ----
 
   /// Removes a host row. The hub refuses if the host still has active

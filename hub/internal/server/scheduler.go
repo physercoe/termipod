@@ -2,7 +2,8 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,14 +11,13 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// Scheduler owns the running cron engine. On Start it loads enabled
-// agent_schedules, registers each as a cron entry that calls DoSpawn at
-// tick time, and records last_run_status / next_run_at back to the row.
+// Scheduler owns the running cron engine. On Start it loads enabled cron
+// schedules and registers each as a cron entry. On tick the scheduler calls
+// fireSchedule, which creates a plan row (status='ready') from the schedule's
+// template. Host-runner's plan executor (Phase 1) picks up ready plans.
 //
-// Spec storage: the schedule's spawn_spec_yaml column holds a JSON-encoded
-// spawnIn (which is valid YAML). That keeps us off a YAML parser until the
-// real template engine lands; also means the scheduler speaks the same
-// dialect as /v1/.../agents/spawn.
+// Manual and on_create schedules do not attach to the cron engine; they're
+// fired explicitly — manual via /run, on_create at project creation time.
 type Scheduler struct {
 	s   *Server
 	log *slog.Logger
@@ -51,9 +51,11 @@ func (sc *Scheduler) Stop() {
 	<-sc.cron.Stop().Done()
 }
 
-// Register adds or updates a schedule in the running cron. Called both at
-// Start (for each row) and by the HTTP handler when a new schedule POSTs.
-func (sc *Scheduler) Register(id, team, cronExpr, specJSON string) error {
+// Register attaches a cron schedule to the running engine. Called both at
+// Start (for each row) and by the HTTP handler when a new cron schedule is
+// created or re-enabled. The team param is informational; fire() re-reads
+// the schedule row at tick time.
+func (sc *Scheduler) Register(id, team, cronExpr string) error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 
@@ -61,21 +63,18 @@ func (sc *Scheduler) Register(id, team, cronExpr, specJSON string) error {
 		sc.cron.Remove(prev)
 		delete(sc.ids, id)
 	}
-	entryID, err := sc.cron.AddFunc(cronExpr, func() { sc.fire(id, team, specJSON) })
+	entryID, err := sc.cron.AddFunc(cronExpr, func() { sc.tick(id) })
 	if err != nil {
 		return fmt.Errorf("bad cron expression %q: %w", cronExpr, err)
 	}
 	sc.ids[id] = entryID
 
-	// Update next_run_at on the row so API callers see when it'll fire.
 	next := sc.cron.Entry(entryID).Next
-	_, _ = sc.s.db.Exec(`UPDATE agent_schedules SET next_run_at = ? WHERE id = ?`,
+	_, _ = sc.s.db.Exec(`UPDATE schedules SET next_run_at = ? WHERE id = ?`,
 		next.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"), id)
 	return nil
 }
 
-// Unregister removes a schedule from the running cron. The row stays in the
-// DB; caller is responsible for deleting or disabling it.
 func (sc *Scheduler) Unregister(id string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -85,23 +84,17 @@ func (sc *Scheduler) Unregister(id string) {
 	}
 }
 
-func (sc *Scheduler) fire(id, team, specJSON string) {
-	var in spawnIn
-	if err := json.Unmarshal([]byte(specJSON), &in); err != nil {
-		sc.markRun(id, "decode-failed: "+err.Error())
-		return
-	}
+func (sc *Scheduler) tick(id string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	out, _, err := sc.s.DoSpawn(ctx, team, in)
+	planID, err := sc.s.fireSchedule(ctx, id)
 	if err != nil {
-		sc.markRun(id, "spawn-failed: "+err.Error())
-		return
+		sc.log.Warn("schedule fire failed", "id", id, "err", err)
 	}
-	sc.markRun(id, "ok:"+out.AgentID)
+	sc.updateRunStamps(id, planID)
 }
 
-func (sc *Scheduler) markRun(id, status string) {
+func (sc *Scheduler) updateRunStamps(id, planID string) {
 	now := NowUTC()
 	sc.mu.Lock()
 	entryID, ok := sc.ids[id]
@@ -111,32 +104,73 @@ func (sc *Scheduler) markRun(id, status string) {
 		next = sc.cron.Entry(entryID).Next.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
 	}
 	_, err := sc.s.db.Exec(`
-		UPDATE agent_schedules
-		SET last_run_at = ?, last_run_status = ?, next_run_at = ?
-		WHERE id = ?`, now, status, next, id)
+		UPDATE schedules
+		   SET last_run_at = ?, last_plan_id = ?, next_run_at = ?
+		 WHERE id = ?`, now, nullIfEmpty(planID), nullIfEmpty(next), id)
 	if err != nil {
-		sc.log.Warn("markRun failed", "id", id, "err", err)
+		sc.log.Warn("schedule stamp failed", "id", id, "err", err)
 	}
 }
 
 func (sc *Scheduler) loadAll(ctx context.Context) error {
 	rows, err := sc.s.db.QueryContext(ctx, `
-		SELECT id, team_id, cron_expr, spawn_spec_yaml
-		FROM agent_schedules WHERE enabled = 1`)
+		SELECT s.id, p.team_id, s.cron_expr
+		  FROM schedules s JOIN projects p ON p.id = s.project_id
+		 WHERE s.enabled = 1 AND s.trigger_kind = 'cron' AND s.cron_expr IS NOT NULL`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id, team, expr, spec string
-		if err := rows.Scan(&id, &team, &expr, &spec); err != nil {
+		var id, team string
+		var expr sql.NullString
+		if err := rows.Scan(&id, &team, &expr); err != nil {
 			return err
 		}
-		if err := sc.Register(id, team, expr, spec); err != nil {
+		if !expr.Valid {
+			continue
+		}
+		if err := sc.Register(id, team, expr.String); err != nil {
 			sc.log.Warn("schedule load failed", "id", id, "err", err)
 		}
 	}
 	return nil
+}
+
+// fireSchedule instantiates a plan from a schedule's template and returns
+// the new plan id. Shared between cron ticks and manual /run invocations.
+// Plan spec_json starts empty — the plan executor reads the template off
+// disk when running. Schedule parameters are copied onto the plan so the
+// executor has the bound values even if the schedule is later edited.
+func (s *Server) fireSchedule(ctx context.Context, scheduleID string) (string, error) {
+	var (
+		projectID, templateID, params string
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT project_id, template_id, parameters_json
+		  FROM schedules WHERE id = ?`, scheduleID).
+		Scan(&projectID, &templateID, &params)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("schedule %s not found", scheduleID)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	planID := NewID()
+	now := NowUTC()
+	specJSON := `{"parameters":` + params + `}`
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO plans (
+			id, project_id, template_id, version, spec_json, status, created_at
+		) VALUES (?, ?, ?, ?, ?, 'ready', ?)`,
+		planID, projectID, templateID, 1, specJSON, now); err != nil {
+		return "", err
+	}
+	_, _ = s.db.ExecContext(ctx, `
+		UPDATE schedules SET last_run_at = ?, last_plan_id = ? WHERE id = ?`,
+		now, planID, scheduleID)
+	return planID, nil
 }
 
 // ---- swallow cron's verbose logging ----

@@ -262,6 +262,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{schedule}", func(r chi.Router) {
 				r.Patch("/", s.handlePatchSchedule)
 				r.Delete("/", s.handleDeleteSchedule)
+				r.Post("/run", s.handleRunSchedule)
 			})
 		})
 		// Team-scope channels (project_id NULL, scope_kind='team'). Events +

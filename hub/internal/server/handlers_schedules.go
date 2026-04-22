@@ -9,24 +9,36 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// Blueprint §6.3: schedules trigger a plan from a template. They never spawn
+// agents directly (§7 forbidden pattern). On fire, the scheduler creates a
+// plan row with status='ready'; host-runner's plan executor (Phase 1) picks
+// it up.
+
 type scheduleIn struct {
-	Name     string  `json:"name"`
-	CronExpr string  `json:"cron_expr"`
-	Spawn    spawnIn `json:"spawn"`
-	Enabled  *bool   `json:"enabled,omitempty"`
+	ProjectID      string          `json:"project_id"`
+	TemplateID     string          `json:"template_id"`
+	TriggerKind    string          `json:"trigger_kind"`
+	CronExpr       string          `json:"cron_expr,omitempty"`
+	ParametersJSON json.RawMessage `json:"parameters_json,omitempty"`
+	Enabled        *bool           `json:"enabled,omitempty"`
 }
 
 type scheduleOut struct {
-	ID            string  `json:"id"`
-	TeamID        string  `json:"team_id"`
-	Name          string  `json:"name"`
-	CronExpr      string  `json:"cron_expr"`
-	Enabled       bool    `json:"enabled"`
-	LastRunAt     *string `json:"last_run_at,omitempty"`
-	LastRunStatus string  `json:"last_run_status,omitempty"`
-	NextRunAt     *string `json:"next_run_at,omitempty"`
-	CreatedAt     string  `json:"created_at"`
-	Spawn         json.RawMessage `json:"spawn"`
+	ID             string          `json:"id"`
+	ProjectID      string          `json:"project_id"`
+	TemplateID     string          `json:"template_id"`
+	TriggerKind    string          `json:"trigger_kind"`
+	CronExpr       string          `json:"cron_expr,omitempty"`
+	ParametersJSON json.RawMessage `json:"parameters_json"`
+	Enabled        bool            `json:"enabled"`
+	NextRunAt      *string         `json:"next_run_at,omitempty"`
+	LastRunAt      *string         `json:"last_run_at,omitempty"`
+	LastPlanID     *string         `json:"last_plan_id,omitempty"`
+	CreatedAt      string          `json:"created_at"`
+}
+
+func validTriggerKind(k string) bool {
+	return k == "cron" || k == "manual" || k == "on_create"
 }
 
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
@@ -36,38 +48,69 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if in.Name == "" || in.CronExpr == "" || in.Spawn.ChildHandle == "" {
-		writeErr(w, http.StatusBadRequest, "name, cron_expr, spawn.child_handle required")
+	if in.ProjectID == "" || in.TemplateID == "" || in.TriggerKind == "" {
+		writeErr(w, http.StatusBadRequest, "project_id, template_id, trigger_kind required")
 		return
 	}
-	specJSON, _ := json.Marshal(in.Spawn)
+	if !validTriggerKind(in.TriggerKind) {
+		writeErr(w, http.StatusBadRequest, "trigger_kind must be cron|manual|on_create")
+		return
+	}
+	if in.TriggerKind == "cron" && in.CronExpr == "" {
+		writeErr(w, http.StatusBadRequest, "cron_expr required when trigger_kind='cron'")
+		return
+	}
+	ok, err := s.projectBelongsToTeam(r, team, in.ProjectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	paramsJSON := "{}"
+	if len(in.ParametersJSON) > 0 {
+		paramsJSON = string(in.ParametersJSON)
+	}
 	enabled := true
 	if in.Enabled != nil {
 		enabled = *in.Enabled
 	}
 	id := NewID()
 	now := NowUTC()
-	_, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO agent_schedules (
-			id, team_id, name, cron_expr, spawn_spec_yaml, enabled, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, team, in.Name, in.CronExpr, string(specJSON), boolToInt(enabled), now)
+	_, err = s.db.ExecContext(r.Context(), `
+		INSERT INTO schedules (
+			id, project_id, template_id, trigger_kind, cron_expr,
+			parameters_json, enabled, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, in.ProjectID, in.TemplateID, in.TriggerKind,
+		nullIfEmpty(in.CronExpr), paramsJSON, boolToInt(enabled), now)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
-	if enabled && s.sched != nil {
-		if err := s.sched.Register(id, team, in.CronExpr, string(specJSON)); err != nil {
-			// Register failure is user-visible: bad cron expression.
+
+	// Only cron schedules attach to the running cron engine; manual and
+	// on_create are fired explicitly (by /run endpoint or project create).
+	if enabled && in.TriggerKind == "cron" && s.sched != nil {
+		if err := s.sched.Register(id, team, in.CronExpr); err != nil {
 			_, _ = s.db.ExecContext(r.Context(),
-				`DELETE FROM agent_schedules WHERE id = ?`, id)
+				`DELETE FROM schedules WHERE id = ?`, id)
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	s.recordAudit(r.Context(), team, "schedule.create", "schedule", id,
-		"create schedule "+in.Name,
-		map[string]any{"name": in.Name, "cron_expr": in.CronExpr, "enabled": enabled},
+		"create schedule for project "+in.ProjectID,
+		map[string]any{
+			"project_id":   in.ProjectID,
+			"template_id":  in.TemplateID,
+			"trigger_kind": in.TriggerKind,
+			"cron_expr":    in.CronExpr,
+			"enabled":      enabled,
+		},
 	)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "created_at": now, "enabled": enabled,
@@ -76,11 +119,20 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
-	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT id, team_id, name, cron_expr, spawn_spec_yaml, enabled,
-		       last_run_at, COALESCE(last_run_status, ''),
-		       next_run_at, created_at
-		FROM agent_schedules WHERE team_id = ? ORDER BY created_at`, team)
+	project := r.URL.Query().Get("project")
+	args := []any{team}
+	q := `SELECT s.id, s.project_id, s.template_id, s.trigger_kind,
+	             COALESCE(s.cron_expr, ''), s.parameters_json, s.enabled,
+	             s.next_run_at, s.last_run_at, s.last_plan_id, s.created_at
+	        FROM schedules s
+	        JOIN projects p ON p.id = s.project_id
+	       WHERE p.team_id = ?`
+	if project != "" {
+		q += ` AND s.project_id = ?`
+		args = append(args, project)
+	}
+	q += ` ORDER BY s.created_at`
+	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -89,21 +141,27 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 	out := []scheduleOut{}
 	for rows.Next() {
 		var sch scheduleOut
-		var spec string
+		var params string
 		var enabled int
-		var lastAt, nextAt sql.NullString
-		if err := rows.Scan(&sch.ID, &sch.TeamID, &sch.Name, &sch.CronExpr,
-			&spec, &enabled, &lastAt, &sch.LastRunStatus, &nextAt, &sch.CreatedAt); err != nil {
+		var nextAt, lastAt, lastPlan sql.NullString
+		if err := rows.Scan(
+			&sch.ID, &sch.ProjectID, &sch.TemplateID, &sch.TriggerKind,
+			&sch.CronExpr, &params, &enabled,
+			&nextAt, &lastAt, &lastPlan, &sch.CreatedAt,
+		); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		sch.Spawn = json.RawMessage(spec)
+		sch.ParametersJSON = json.RawMessage(params)
 		sch.Enabled = enabled == 1
+		if nextAt.Valid {
+			sch.NextRunAt = &nextAt.String
+		}
 		if lastAt.Valid {
 			sch.LastRunAt = &lastAt.String
 		}
-		if nextAt.Valid {
-			sch.NextRunAt = &nextAt.String
+		if lastPlan.Valid {
+			sch.LastPlanID = &lastPlan.String
 		}
 		out = append(out, sch)
 	}
@@ -111,7 +169,9 @@ func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 }
 
 type schedulePatchIn struct {
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled        *bool           `json:"enabled,omitempty"`
+	CronExpr       *string         `json:"cron_expr,omitempty"`
+	ParametersJSON json.RawMessage `json:"parameters_json,omitempty"`
 }
 
 func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
@@ -122,14 +182,16 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if in.Enabled == nil {
-		writeErr(w, http.StatusBadRequest, "enabled required")
-		return
-	}
-	var expr, spec string
-	err := s.db.QueryRowContext(r.Context(),
-		`SELECT cron_expr, spawn_spec_yaml FROM agent_schedules WHERE team_id = ? AND id = ?`,
-		team, id).Scan(&expr, &spec)
+
+	var (
+		triggerKind, cronExpr string
+		enabled               int
+	)
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT s.trigger_kind, COALESCE(s.cron_expr, ''), s.enabled
+		  FROM schedules s JOIN projects p ON p.id = s.project_id
+		 WHERE s.id = ? AND p.team_id = ?`, id, team).
+		Scan(&triggerKind, &cronExpr, &enabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
@@ -138,15 +200,41 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if _, err := s.db.ExecContext(r.Context(),
-		`UPDATE agent_schedules SET enabled = ? WHERE team_id = ? AND id = ?`,
-		boolToInt(*in.Enabled), team, id); err != nil {
+
+	sets := []string{}
+	args := []any{}
+	if in.Enabled != nil {
+		sets = append(sets, "enabled = ?")
+		args = append(args, boolToInt(*in.Enabled))
+		enabled = boolToInt(*in.Enabled)
+	}
+	if in.CronExpr != nil {
+		if triggerKind != "cron" {
+			writeErr(w, http.StatusBadRequest, "cron_expr only valid for trigger_kind='cron'")
+			return
+		}
+		sets = append(sets, "cron_expr = ?")
+		args = append(args, nullIfEmpty(*in.CronExpr))
+		cronExpr = *in.CronExpr
+	}
+	if len(in.ParametersJSON) > 0 {
+		sets = append(sets, "parameters_json = ?")
+		args = append(args, string(in.ParametersJSON))
+	}
+	if len(sets) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	args = append(args, id)
+	q := `UPDATE schedules SET ` + joinCSV(sets) + ` WHERE id = ?`
+	if _, err := s.db.ExecContext(r.Context(), q, args...); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if s.sched != nil {
-		if *in.Enabled {
-			_ = s.sched.Register(id, team, expr, spec)
+
+	if triggerKind == "cron" && s.sched != nil {
+		if enabled == 1 && cronExpr != "" {
+			_ = s.sched.Register(id, team, cronExpr)
 		} else {
 			s.sched.Unregister(id)
 		}
@@ -157,12 +245,10 @@ func (s *Server) handlePatchSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "schedule")
-	var name string
-	_ = s.db.QueryRowContext(r.Context(),
-		`SELECT name FROM agent_schedules WHERE team_id = ? AND id = ?`,
-		team, id).Scan(&name)
-	res, err := s.db.ExecContext(r.Context(),
-		`DELETE FROM agent_schedules WHERE team_id = ? AND id = ?`, team, id)
+	res, err := s.db.ExecContext(r.Context(), `
+		DELETE FROM schedules
+		 WHERE id = ? AND project_id IN (SELECT id FROM projects WHERE team_id = ?)`,
+		id, team)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -175,13 +261,47 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	if s.sched != nil {
 		s.sched.Unregister(id)
 	}
-	summary := "delete schedule"
-	if name != "" {
-		summary = "delete schedule " + name
-	}
 	s.recordAudit(r.Context(), team, "schedule.delete", "schedule", id,
-		summary, map[string]any{"name": name})
+		"delete schedule", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRunSchedule manually fires a schedule — equivalent to a cron tick but
+// user-initiated. Works for any trigger_kind.
+func (s *Server) handleRunSchedule(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "schedule")
+	var n int
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT COUNT(1) FROM schedules s JOIN projects p ON p.id = s.project_id
+		 WHERE s.id = ? AND p.team_id = ?`, id, team).Scan(&n)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "schedule not found")
+		return
+	}
+	planID, err := s.fireSchedule(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.recordAudit(r.Context(), team, "schedule.run", "schedule", id,
+		"run schedule", map[string]any{"plan_id": planID})
+	writeJSON(w, http.StatusOK, map[string]any{"plan_id": planID})
+}
+
+func joinCSV(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += ", "
+		}
+		out += p
+	}
+	return out
 }
 
 func boolToInt(b bool) int {

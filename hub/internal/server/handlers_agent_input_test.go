@@ -126,6 +126,72 @@ func TestPostAgentInput_ValidationErrors(t *testing.T) {
 	}
 }
 
+func TestPostAgentInput_ApprovalOptionID(t *testing.T) {
+	// v1.0.82 widened approval vocabulary from approve|deny to
+	// approve|allow|deny|cancel and added option_id so the phone can
+	// forward the exact ACP-assigned choice. Verify all four decisions
+	// accept an option_id and persist it into the payload.
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	cases := []struct {
+		name     string
+		decision string
+		optionID string
+	}{
+		{"allow_with_option", "allow", "bash-run"},
+		{"approve_with_option", "approve", "allow-once"},
+		{"deny_with_option", "deny", "reject-once"},
+		{"cancel_with_option", "cancel", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{
+				"kind":       "approval",
+				"decision":   tc.decision,
+				"request_id": "req-" + tc.name,
+			}
+			if tc.optionID != "" {
+				body["option_id"] = tc.optionID
+			}
+			status, raw := postInput(t, h, defaultTeamID, agentID, body)
+			if status != http.StatusCreated {
+				t.Fatalf("status=%d body=%s", status, raw)
+			}
+			var out map[string]any
+			_ = json.Unmarshal(raw, &out)
+
+			var payloadRaw string
+			if err := s.db.QueryRow(
+				`SELECT payload_json FROM agent_events WHERE id = ?`,
+				out["id"],
+			).Scan(&payloadRaw); err != nil {
+				t.Fatalf("select payload: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
+				t.Fatalf("payload decode: %v", err)
+			}
+			if payload["decision"] != tc.decision {
+				t.Errorf("decision = %v, want %q", payload["decision"], tc.decision)
+			}
+			if payload["request_id"] != "req-"+tc.name {
+				t.Errorf("request_id = %v", payload["request_id"])
+			}
+			if tc.optionID != "" {
+				if payload["option_id"] != tc.optionID {
+					t.Errorf("option_id = %v, want %q",
+						payload["option_id"], tc.optionID)
+				}
+			} else if _, present := payload["option_id"]; present {
+				t.Errorf("option_id should be absent when not provided, got %v",
+					payload["option_id"])
+			}
+		})
+	}
+}
+
 func TestPostAgentInput_UnknownKindMessage(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := newInputRouter(s)

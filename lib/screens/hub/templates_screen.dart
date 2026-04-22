@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -241,14 +242,27 @@ class _TemplateViewerScreenState extends ConsumerState<TemplateViewerScreen> {
                       style: GoogleFonts.jetBrainsMono(
                           color: DesignColors.error, fontSize: 12)),
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: SelectableText(
-                    _body,
-                    style: GoogleFonts.jetBrainsMono(
-                        fontSize: 12, height: 1.4),
-                  ),
-                ),
+              : _viewerBody(),
+    );
+  }
+
+  Widget _viewerBody() {
+    final lower = widget.name.toLowerCase();
+    final isMarkdown =
+        lower.endsWith('.md') || lower.endsWith('.markdown');
+    if (isMarkdown) {
+      return Markdown(
+        data: _body,
+        selectable: true,
+        padding: const EdgeInsets.all(16),
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        _body,
+        style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
+      ),
     );
   }
 }

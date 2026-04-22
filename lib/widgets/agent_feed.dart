@@ -5,6 +5,7 @@
 // to a raw JSON card so the transcript is never silently dropped.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,6 +41,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   StreamSubscription<Map<String, dynamic>>? _sub;
   final ScrollController _scroll = ScrollController();
   bool _followTail = true;
+  // Reconnect bookkeeping: exponential backoff (1, 2, 4, 8, 16s cap) so a
+  // flaky hub connection doesn't hammer the server. Reset to 0 the moment
+  // we successfully receive an event.
+  int _reconnectAttempt = 0;
+  Timer? _reconnectTimer;
 
   @override
   void initState() {
@@ -50,6 +56,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -106,6 +113,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   void _subscribe(HubClient client) {
+    _reconnectTimer?.cancel();
     _sub?.cancel();
     _sub = client
         .streamAgentEvents(widget.agentId, sinceSeq: _maxSeq)
@@ -115,16 +123,37 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // The hub replays from `since` inclusive on some endpoints; guard
       // against dupes deterministically by seq.
       if (seq > 0 && seq <= _maxSeq) return;
+      // First successful delivery after a drop clears the banner and the
+      // backoff counter so the next drop starts over at 1s.
+      final clearedError = _error != null;
       setState(() {
         _events.add(evt);
         if (seq > _maxSeq) _maxSeq = seq;
+        if (clearedError) _error = null;
       });
+      _reconnectAttempt = 0;
       if (_followTail) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
       }
     }, onError: (e) {
+      _scheduleReconnect(client, reason: '$e');
+    }, onDone: () {
+      _scheduleReconnect(client, reason: 'stream closed');
+    });
+  }
+
+  void _scheduleReconnect(HubClient client, {required String reason}) {
+    if (!mounted) return;
+    // Cap at 16s — fast enough that a recovered hub is picked up quickly,
+    // slow enough that a genuinely-down hub doesn't get hammered.
+    final delaySecs = math.min(16, 1 << _reconnectAttempt);
+    _reconnectAttempt += 1;
+    setState(() =>
+        _error = 'Stream dropped ($reason) · retrying in ${delaySecs}s');
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: delaySecs), () {
       if (!mounted) return;
-      setState(() => _error = 'Stream dropped: $e');
+      _subscribe(client);
     });
   }
 

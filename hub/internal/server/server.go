@@ -177,6 +177,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Get("/", s.handleListProjects)
 			r.Route("/{project}", func(r chi.Router) {
 				r.Get("/", s.handleGetProject)
+				r.Patch("/", s.handleUpdateProject)
 				r.Delete("/", s.handleArchiveProject)
 				r.Route("/channels", func(r chi.Router) {
 					r.Post("/", s.handleCreateChannel)

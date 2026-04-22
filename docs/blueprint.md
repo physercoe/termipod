@@ -727,8 +727,12 @@ the research MVP pitch.
 
 ### Phase 3 — integrations
 
-- P3.1 Trackio embedded per host-runner; verify
-  `import trackio as wandb` works end-to-end.
+- P3.1 Host-runner reads the run's metrics over a wandb/trackio-
+  compatible HTTP endpoint. For MVP, trackio is assumed installed and
+  self-hosted on the host (operator installs `pip install trackio` and
+  runs it as a local service); the host-runner does not implement a
+  native Go endpoint — it only consumes the existing HTTP contract.
+  Verify `import trackio as wandb` in user code works end-to-end.
 - P3.2 A2A server on host-runner; publish agent-cards to hub directory.
 - P3.3 Hub A2A directory + reverse-tunnel relay.
 - P3.4 Cross-hub federation smoke test (two termipod hubs exchanging

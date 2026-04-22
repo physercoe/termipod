@@ -47,6 +47,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // we successfully receive an event.
   int _reconnectAttempt = 0;
   Timer? _reconnectTimer;
+  // Counter for events that arrived while the user had scrolled away
+  // from the tail. Powers the "N new ↓" pill so users know the feed is
+  // alive without being yanked back to the bottom.
+  int _newWhileAway = 0;
 
   @override
   void initState() {
@@ -71,8 +75,21 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     final atBottom = _scroll.position.pixels >=
         _scroll.position.maxScrollExtent - 40;
     if (_followTail != atBottom) {
-      setState(() => _followTail = atBottom);
+      setState(() {
+        _followTail = atBottom;
+        // Returning to the tail clears the pending-event counter; the
+        // pill disappears on the same frame.
+        if (atBottom) _newWhileAway = 0;
+      });
     }
+  }
+
+  void _jumpToLatest() {
+    _scrollToTail();
+    setState(() {
+      _followTail = true;
+      _newWhileAway = 0;
+    });
   }
 
   Future<void> _bootstrap() async {
@@ -131,6 +148,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         _events.add(evt);
         if (seq > _maxSeq) _maxSeq = seq;
         if (clearedError) _error = null;
+        if (!_followTail) _newWhileAway += 1;
       });
       _reconnectAttempt = 0;
       if (_followTail) {
@@ -239,11 +257,71 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     ),
                   ),
                 ),
+              if (!_followTail && _newWhileAway > 0)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 12,
+                  child: Center(
+                    child: _NewEventsPill(
+                      count: _newWhileAway,
+                      onTap: _jumpToLatest,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
         compose,
       ],
+    );
+  }
+}
+
+class _NewEventsPill extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _NewEventsPill({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: DesignColors.primary,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$count new',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.arrow_downward,
+                  size: 14, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

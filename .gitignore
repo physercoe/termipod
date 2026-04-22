@@ -1,3 +1,10 @@
+# Claude Code local state — worktrees, scheduled tasks, memory.
+# Keep tracked slash-command definitions under .claude/commands/.
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/plans/
+.claude/memory/
+
 # Miscellaneous
 *.class
 *.log

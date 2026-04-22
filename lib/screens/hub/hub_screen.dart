@@ -518,6 +518,10 @@ class _AgentsTab extends ConsumerStatefulWidget {
 
 class _AgentsTabState extends ConsumerState<_AgentsTab> {
   bool _treeView = false;
+  // null = show all; otherwise keep only rows whose 'mode' matches exactly.
+  // Empty string filters to agents with no resolved mode (stdio-attached,
+  // pre-boot, etc.) so the operator can see which agents still need one.
+  String? _modeFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -539,12 +543,24 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
         ],
       );
     }
+    // Mode filter only earns its row when there's variety to filter on —
+    // a fleet of all-M1 agents doesn't benefit from a chip bar.
+    final presentModes = <String>{
+      for (final a in widget.items) (a['mode'] ?? '').toString(),
+    };
+    final showModeFilter = presentModes.length > 1;
     // Keep the steward row pinned at the top so the operator can see its
     // status at a glance without scrolling past other agents. The chip in
     // the AppBar only encodes presence; the row shows running/crashed/etc.
-    final sorted = _sortedAgents(widget.items);
+    final filteredItems = _modeFilter == null
+        ? widget.items
+        : [
+            for (final a in widget.items)
+              if ((a['mode'] ?? '').toString() == _modeFilter) a,
+          ];
+    final sorted = _sortedAgents(filteredItems);
     final body = _treeView
-        ? _AgentOrgChart(agents: widget.items, spawns: widget.spawns)
+        ? _AgentOrgChart(agents: filteredItems, spawns: widget.spawns)
         : ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
             itemCount: sorted.length,
@@ -613,10 +629,26 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
                 ],
               ),
             ),
+            if (showModeFilter)
+              _AgentModeFilterBar(
+                presentModes: presentModes,
+                selected: _modeFilter,
+                onChanged: (m) => setState(() => _modeFilter = m),
+              ),
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-                child: body,
+                child: sorted.isEmpty
+                    ? ListView(
+                        // ListView keeps pull-to-refresh usable even when
+                        // the filter excludes every agent.
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: const [
+                          SizedBox(height: 120),
+                          _EmptyText(text: 'No agents match this filter'),
+                        ],
+                      )
+                    : body,
               ),
             ),
           ],
@@ -758,6 +790,91 @@ class _OrgRow extends StatelessWidget {
             ],
             _Chip(text: status, color: _agentStatusColor(status)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AgentModeFilterBar extends StatelessWidget {
+  final Set<String> presentModes;
+  final String? selected;
+  final ValueChanged<String?> onChanged;
+  const _AgentModeFilterBar({
+    required this.presentModes,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Canonical order: M1 → M2 → M4 → none. Filter to modes that actually
+    // appear so we don't render dead chips.
+    const order = ['M1', 'M2', 'M4', ''];
+    final modes = [for (final m in order) if (presentModes.contains(m)) m];
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          _FilterChipPill(
+            label: 'All',
+            selected: selected == null,
+            color: DesignColors.textMuted,
+            onTap: () => onChanged(null),
+          ),
+          for (final m in modes) ...[
+            const SizedBox(width: 6),
+            _FilterChipPill(
+              label: m.isEmpty ? 'None' : m,
+              selected: selected == m,
+              color: _agentModeColor(m),
+              onTap: () => onChanged(selected == m ? null : m),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FilterChipPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final Color color;
+  final VoidCallback onTap;
+  const _FilterChipPill({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.18) : Colors.transparent,
+          border: Border.all(
+            color: selected ? color : color.withValues(alpha: 0.35),
+            width: selected ? 1.2 : 1.0,
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              color: selected ? color : DesignColors.textSecondary,
+            ),
+          ),
         ),
       ),
     );

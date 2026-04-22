@@ -549,7 +549,8 @@ class AgentEventCard extends StatelessWidget {
       children: [
         _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'id', id),
-        if (status.isNotEmpty) _kv(ctx, 'status', status),
+        if (status.isNotEmpty)
+          _kv(ctx, 'status', status, valueColor: _statusColor(status)),
         if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
         if (preview != null && preview.isNotEmpty)
           Padding(
@@ -817,7 +818,7 @@ class AgentEventCard extends StatelessWidget {
     );
   }
 
-  Widget _kv(BuildContext ctx, String k, String v) {
+  Widget _kv(BuildContext ctx, String k, String v, {Color? valueColor}) {
     final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
@@ -838,11 +839,29 @@ class AgentEventCard extends StatelessWidget {
                     : DesignColors.textMutedLight,
               ),
             ),
-            TextSpan(text: v),
+            TextSpan(
+              text: v,
+              style: valueColor == null ? null : TextStyle(color: valueColor),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  // Known ACP tool_call statuses: pending, in_progress, completed, failed.
+  // Colored so the feed is scannable without reading every status string.
+  Color? _statusColor(String s) {
+    switch (s) {
+      case 'failed':
+        return DesignColors.error;
+      case 'completed':
+        return DesignColors.success;
+      case 'in_progress':
+        return DesignColors.terminalCyan;
+      default:
+        return null;
+    }
   }
 
   Widget _mono(BuildContext ctx, String s, {Color? color}) {

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'plan_step_create_sheet.dart';
 import 'plans_screen.dart';
 
 /// Read-write viewer for a single plan (blueprint §6.2, P2.4). Shows the
@@ -127,6 +128,39 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
     }
   }
 
+  Future<void> _openStepCreateSheet() async {
+    // Default the new step to phase 0 / step (max+1) within phase 0, or
+    // whatever the last phase is if the plan already has steps. Keeps the
+    // default sensible while letting the user edit either field.
+    int defaultPhase = 0;
+    int defaultStep = 0;
+    if (_steps.isNotEmpty) {
+      defaultPhase = _steps
+          .map((s) => (s['phase_idx'] as num?)?.toInt() ?? 0)
+          .reduce((a, b) => a > b ? a : b);
+      final inPhase = _steps.where(
+          (s) => ((s['phase_idx'] as num?)?.toInt() ?? 0) == defaultPhase);
+      if (inPhase.isNotEmpty) {
+        defaultStep = inPhase
+                .map((s) => (s['step_idx'] as num?)?.toInt() ?? 0)
+                .reduce((a, b) => a > b ? a : b) +
+            1;
+      }
+    }
+    final created = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => PlanStepCreateSheet(
+        planId: widget.planId,
+        defaultPhaseIdx: defaultPhase,
+        defaultStepIdx: defaultStep,
+      ),
+    );
+    if (created == null || !mounted) return;
+    await _load();
+  }
+
   void _openStepSheet(Map<String, dynamic> step) {
     showModalBottomSheet<void>(
       context: context,
@@ -194,6 +228,14 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         ],
       ),
       body: _body(),
+      floatingActionButton: _plan == null
+          ? null
+          : FloatingActionButton.small(
+              heroTag: 'plan-step-fab',
+              onPressed: _busy ? null : _openStepCreateSheet,
+              tooltip: 'Add step',
+              child: const Icon(Icons.add),
+            ),
     );
   }
 

@@ -8,10 +8,12 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'plans_screen.dart';
 
-/// Read-only viewer for a single plan (blueprint §6.2, P2.4). Shows the
-/// plan's meta, its spec, and its steps grouped by phase_idx. Editing and
-/// step-advance come later — for now this is a review surface so a human
-/// director can inspect what an agent or steward emitted.
+/// Read-write viewer for a single plan (blueprint §6.2, P2.4). Shows the
+/// plan's meta, progress across steps, the spec, and the steps grouped by
+/// phase_idx. Tapping a step opens a detail sheet that supports status
+/// transitions (e.g. mark blocked, mark done) for the cases where a human
+/// director needs to override an agent. Plan-level lifecycle moves
+/// (ready/running/cancelled/...) live behind a popup menu on the app bar.
 class PlanViewerScreen extends ConsumerStatefulWidget {
   final String planId;
   final String projectId;
@@ -25,10 +27,17 @@ class PlanViewerScreen extends ConsumerStatefulWidget {
   ConsumerState<PlanViewerScreen> createState() => _PlanViewerScreenState();
 }
 
+// Server-side enums (hub/internal/server/handlers_plans.go).
+// Step statuses are not validated server-side but the blueprint names
+// these; keeping them here as the canonical set shown in the UI.
+const _planStatuses = ['draft', 'ready', 'running', 'completed', 'failed', 'cancelled'];
+const _stepStatuses = ['pending', 'running', 'completed', 'failed', 'blocked', 'skipped'];
+
 class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   Map<String, dynamic>? _plan;
   List<Map<String, dynamic>> _steps = const [];
   bool _loading = true;
+  bool _busy = false;
   String? _error;
 
   @override
@@ -51,7 +60,6 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       return;
     }
     try {
-      // Parallel fetches — the plan meta and its steps are independent.
       final results = await Future.wait([
         client.getPlan(widget.planId),
         client.listPlanSteps(widget.planId),
@@ -59,8 +67,6 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       if (!mounted) return;
       final plan = results[0] as Map<String, dynamic>;
       final steps = (results[1] as List<Map<String, dynamic>>).toList();
-      // Steps arrive ordered by phase then step in the API but sort
-      // defensively so the viewer stays deterministic.
       steps.sort((a, b) {
         final ap = (a['phase_idx'] as num?)?.toInt() ?? 0;
         final bp = (b['phase_idx'] as num?)?.toInt() ?? 0;
@@ -81,6 +87,62 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         _error = '$e';
       });
     }
+  }
+
+  Future<void> _setPlanStatus(String status) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await client.updatePlan(widget.planId, status: status);
+      if (!mounted) return;
+      messenger.showSnackBar(
+          SnackBar(content: Text('Plan → $status')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Update failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _setStepStatus(String stepId, String status) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await client.updatePlanStep(
+        widget.planId,
+        stepId,
+        status: status,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Step → $status')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Update failed: $e')));
+    }
+  }
+
+  void _openStepSheet(Map<String, dynamic> step) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _StepDetailSheet(
+        step: step,
+        onTransition: (newStatus) {
+          Navigator.of(context).pop();
+          _setStepStatus((step['id'] ?? '').toString(), newStatus);
+        },
+      ),
+    );
   }
 
   @override
@@ -109,6 +171,26 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
             tooltip: 'Refresh',
             onPressed: _loading ? null : _load,
           ),
+          PopupMenuButton<String>(
+            tooltip: 'Plan actions',
+            enabled: !_busy && _plan != null,
+            icon: const Icon(Icons.more_vert),
+            onSelected: _setPlanStatus,
+            itemBuilder: (_) => [
+              for (final s in _planStatuses)
+                if (s != status)
+                  PopupMenuItem(
+                    value: s,
+                    child: Row(
+                      children: [
+                        PlanStatusChip(status: s),
+                        const SizedBox(width: 8),
+                        Text('Set $s'),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
         ],
       ),
       body: _body(),
@@ -132,12 +214,75 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
+          _progressSection(),
+          const SizedBox(height: 12),
           _header(plan),
           const SizedBox(height: 12),
           _specSection(plan),
           const SizedBox(height: 16),
           _stepsSection(),
         ],
+      ),
+    );
+  }
+
+  Widget _progressSection() {
+    final total = _steps.length;
+    if (total == 0) return const SizedBox.shrink();
+    int done = 0, running = 0, failed = 0, blocked = 0;
+    for (final s in _steps) {
+      final st = (s['status'] ?? '').toString().toLowerCase();
+      if (st == 'completed' || st == 'done' || st == 'succeeded') done++;
+      if (st == 'running') running++;
+      if (st == 'failed' || st == 'error') failed++;
+      if (st == 'blocked') blocked++;
+    }
+    final pct = total == 0 ? 0.0 : done / total;
+    return _Section(
+      title: 'Progress ($done / $total)',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 6,
+              backgroundColor:
+                  DesignColors.textMuted.withValues(alpha: 0.2),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                  DesignColors.success),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            children: [
+              _pill('done', done, DesignColors.success),
+              if (running > 0)
+                _pill('running', running, DesignColors.terminalBlue),
+              if (blocked > 0)
+                _pill('blocked', blocked, DesignColors.warning),
+              if (failed > 0) _pill('failed', failed, DesignColors.error),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '$label · $count',
+        style: GoogleFonts.jetBrainsMono(
+            fontSize: 10, fontWeight: FontWeight.w700, color: color),
       ),
     );
   }
@@ -192,7 +337,6 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         ),
       );
     }
-    // Group by phase_idx so phases can be shown as sub-headers.
     final byPhase = <int, List<Map<String, dynamic>>>{};
     for (final s in _steps) {
       final ph = (s['phase_idx'] as num?)?.toInt() ?? 0;
@@ -216,7 +360,8 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
                 ),
               ),
             ),
-            for (final s in byPhase[ph]!) _StepRow(step: s),
+            for (final s in byPhase[ph]!)
+              _StepRow(step: s, onTap: () => _openStepSheet(s)),
           ],
         ],
       ),
@@ -284,7 +429,8 @@ class _Section extends StatelessWidget {
 
 class _StepRow extends StatelessWidget {
   final Map<String, dynamic> step;
-  const _StepRow({required this.step});
+  final VoidCallback onTap;
+  const _StepRow({required this.step, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -292,48 +438,115 @@ class _StepRow extends StatelessWidget {
     final status = (step['status'] ?? '').toString();
     final idx = (step['step_idx'] ?? 0).toString();
     final agentId = (step['agent_id'] ?? '').toString();
-    final spec = step['spec_json'];
-    String? specPreview;
-    if (spec is Map && spec.isNotEmpty) {
-      try {
-        specPreview = const JsonEncoder.withIndent('  ').convert(spec);
-      } catch (_) {
-        specPreview = spec.toString();
-      }
-    }
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: DesignColors.surfaceDark.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: DesignColors.borderDark),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: DesignColors.surfaceDark.withValues(alpha: 0.4),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: DesignColors.borderDark),
+        ),
+        child: Row(
+          children: [
+            PlanStatusChip(status: status),
+            const SizedBox(width: 8),
+            Text(
+              '#$idx',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    kind,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (agentId.isNotEmpty)
+                    Text(
+                      'agent: $agentId',
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                size: 16, color: DesignColors.textMuted),
+          ],
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    );
+  }
+}
+
+class _StepDetailSheet extends StatelessWidget {
+  final Map<String, dynamic> step;
+  final ValueChanged<String> onTransition;
+  const _StepDetailSheet({
+    required this.step,
+    required this.onTransition,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = (step['kind'] ?? '').toString();
+    final status = (step['status'] ?? '').toString();
+    final phase = (step['phase_idx'] ?? 0).toString();
+    final idx = (step['step_idx'] ?? 0).toString();
+    final agentId = (step['agent_id'] ?? '').toString();
+    final spec = step['spec_json'];
+    final inputs = step['input_refs_json'];
+    final outputs = step['output_refs_json'];
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.55,
+      minChildSize: 0.3,
+      maxChildSize: 0.95,
+      builder: (_, controller) => ListView(
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           Row(
             children: [
-              PlanStatusChip(status: status),
-              const SizedBox(width: 8),
-              Text(
-                '#$idx',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  color: DesignColors.textMuted,
+              Expanded(
+                child: Row(
+                  children: [
+                    PlanStatusChip(status: status),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Phase $phase · step $idx',
+                      style: GoogleFonts.jetBrainsMono(
+                          fontSize: 12,
+                          color: DesignColors.textMuted),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  kind,
-                  style: GoogleFonts.jetBrainsMono(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            kind,
+            style: GoogleFonts.jetBrainsMono(
+                fontSize: 16, fontWeight: FontWeight.w700),
           ),
           if (agentId.isNotEmpty)
             Padding(
@@ -341,23 +554,85 @@ class _StepRow extends StatelessWidget {
               child: Text(
                 'agent: $agentId',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  color: DesignColors.textMuted,
-                ),
+                    fontSize: 11, color: DesignColors.textMuted),
               ),
             ),
-          if (specPreview != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: SelectableText(
-                specPreview,
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10,
-                  height: 1.4,
-                  color: DesignColors.textSecondary,
-                ),
-              ),
+          const SizedBox(height: 16),
+          _kvBlock(context, 'Spec', spec),
+          _kvBlock(context, 'Inputs', inputs),
+          _kvBlock(context, 'Outputs', outputs),
+          const SizedBox(height: 16),
+          Text(
+            'Set status',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.textMuted,
             ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final s in _stepStatuses)
+                if (s != status.toLowerCase())
+                  OutlinedButton(
+                    onPressed: () => onTransition(s),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        PlanStatusChip(status: s),
+                        const SizedBox(width: 6),
+                        Text(s),
+                      ],
+                    ),
+                  ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _kvBlock(BuildContext context, String title, dynamic value) {
+    if (value == null) return const SizedBox.shrink();
+    if (value is Map && value.isEmpty) return const SizedBox.shrink();
+    if (value is List && value.isEmpty) return const SizedBox.shrink();
+    String pretty;
+    try {
+      pretty = const JsonEncoder.withIndent('  ').convert(value);
+    } catch (_) {
+      pretty = value.toString();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.textMuted,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: DesignColors.surfaceDark.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: DesignColors.borderDark),
+            ),
+            child: SelectableText(
+              pretty,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, height: 1.4),
+            ),
+          ),
         ],
       ),
     );

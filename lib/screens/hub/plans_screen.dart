@@ -195,7 +195,9 @@ class PlanStatusChip extends StatelessWidget {
       'done' || 'completed' || 'succeeded' => DesignColors.success,
       'failed' || 'error' => DesignColors.error,
       'paused' || 'blocked' => DesignColors.warning,
-      'draft' || 'proposed' => DesignColors.textMuted,
+      'cancelled' || 'skipped' => DesignColors.textMuted,
+      'ready' => DesignColors.terminalCyan,
+      'draft' || 'proposed' || 'pending' => DesignColors.textMuted,
       _ => DesignColors.textMuted,
     };
     return Container(

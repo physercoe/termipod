@@ -196,6 +196,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         ],
       );
     }
+    // Precompute tool_use_id → tool name so tool_result cards can show
+    // "tool: git_log" in their header instead of a bare id. Cheap — only
+    // scans tool_call events, and the Feed is O(dozens) of events.
+    final toolNames = <String, String>{};
+    for (final e in _events) {
+      if ((e['kind'] ?? '') != 'tool_call') continue;
+      final p = e['payload'];
+      if (p is! Map) continue;
+      final id = p['id']?.toString() ?? '';
+      final name = p['name']?.toString() ?? '';
+      if (id.isNotEmpty && name.isNotEmpty) toolNames[id] = name;
+    }
     return Column(
       children: [
         Expanded(
@@ -206,7 +218,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 padding: widget.padding,
                 itemCount: _events.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (ctx, i) => AgentEventCard(event: _events[i]),
+                itemBuilder: (ctx, i) => AgentEventCard(
+                  event: _events[i],
+                  toolNames: toolNames,
+                ),
               ),
               if (_error != null)
                 Positioned(
@@ -238,7 +253,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
 /// stay forward-compatible with new event kinds the hub emits.
 class AgentEventCard extends StatelessWidget {
   final Map<String, dynamic> event;
-  const AgentEventCard({super.key, required this.event});
+  // tool_use_id → tool name map, built by the Feed from all visible
+  // tool_call events so tool_result cards can show the human name
+  // instead of a 24-char id. Empty when no context is available.
+  final Map<String, String> toolNames;
+  const AgentEventCard({
+    super.key,
+    required this.event,
+    this.toolNames = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -391,12 +414,14 @@ class AgentEventCard extends StatelessWidget {
 
   Widget _toolResultBody(BuildContext ctx, Map<String, dynamic> p) {
     final id = p['tool_use_id']?.toString() ?? '';
+    final name = id.isNotEmpty ? toolNames[id] : null;
     final isError = p['is_error'] == true;
     final content = p['content'];
     final text = content is String ? content : _jsonPretty(content);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (name != null) _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'tool_use_id', id),
         if (isError) _kv(ctx, 'is_error', 'true'),
         _CollapsibleMono(

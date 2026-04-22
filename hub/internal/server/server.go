@@ -171,6 +171,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/events", s.handlePostAgentEvent)
 				r.Get("/events", s.handleListAgentEvents)
 				r.Get("/stream", s.handleStreamAgentEvents)
+				r.Post("/input", s.handlePostAgentInput)
 			})
 		})
 		r.Route("/templates", func(r chi.Router) {

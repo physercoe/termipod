@@ -62,6 +62,7 @@ type McpGateway struct {
 
 	mu     sync.Mutex
 	closed bool
+	conns  map[net.Conn]struct{}
 	wg     sync.WaitGroup
 }
 
@@ -97,6 +98,7 @@ func StartGateway(ctx context.Context, agentID string, hubClient *Client) (*McpG
 		listener:   l,
 		hubClient:  hubClient,
 		httpClient: &http.Client{}, // no timeout: honour caller ctx instead
+		conns:      make(map[net.Conn]struct{}),
 	}
 	if hubClient != nil {
 		g.hubURL = strings.TrimRight(hubClient.BaseURL, "/")
@@ -131,6 +133,14 @@ func (g *McpGateway) Close() error {
 	if g.sockPath != "" {
 		_ = os.Remove(g.sockPath)
 	}
+	// Unblock any serveConn goroutines parked on ReadBytes by closing the
+	// active conns; Close() otherwise deadlocks waiting on clients that
+	// never shut their end (e.g. tests that tear down via cleanup()).
+	g.mu.Lock()
+	for c := range g.conns {
+		_ = c.Close()
+	}
+	g.mu.Unlock()
 	g.wg.Wait()
 	return err
 }
@@ -144,10 +154,23 @@ func (g *McpGateway) acceptLoop() {
 			// either way, the only sensible move is to stop accepting.
 			return
 		}
+		g.mu.Lock()
+		if g.closed {
+			g.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		g.conns[conn] = struct{}{}
+		g.mu.Unlock()
 		g.wg.Add(1)
 		go func() {
 			defer g.wg.Done()
-			defer conn.Close()
+			defer func() {
+				g.mu.Lock()
+				delete(g.conns, conn)
+				g.mu.Unlock()
+				_ = conn.Close()
+			}()
 			g.serveConn(conn)
 		}()
 	}

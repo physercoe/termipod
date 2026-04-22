@@ -433,6 +433,8 @@ class AgentEventCard extends StatelessWidget {
         return _approvalRequestBody(ctx, payload);
       case 'plan':
         return _planBody(ctx, payload);
+      case 'diff':
+        return _diffBody(ctx, payload);
       case 'input.text':
         return _inputTextBody(ctx, payload);
       case 'input.cancel':
@@ -610,6 +612,49 @@ class AgentEventCard extends StatelessWidget {
     }
   }
 
+  // ACP diff update: { sessionUpdate: "diff", path, oldText, newText }.
+  // Shows the file path + a +N/-N summary + a collapsible unified-diff
+  // preview (plain line-by-line comparison; not a real LCS diff).
+  Widget _diffBody(BuildContext ctx, Map<String, dynamic> p) {
+    final path = (p['path'] ?? '').toString();
+    final oldText = (p['oldText'] ?? p['old_text'] ?? '').toString();
+    final newText = (p['newText'] ?? p['new_text'] ?? '').toString();
+    final oldLines = oldText.isEmpty ? <String>[] : oldText.split('\n');
+    final newLines = newText.isEmpty ? <String>[] : newText.split('\n');
+    final buf = StringBuffer();
+    int adds = 0;
+    int dels = 0;
+    // Naive line-aligned diff: walk both lists in parallel. Adequate for
+    // the preview — the hub stores the authoritative texts, the operator
+    // can pull them on a real screen later.
+    final maxLen = math.max(oldLines.length, newLines.length);
+    for (var i = 0; i < maxLen; i++) {
+      final o = i < oldLines.length ? oldLines[i] : null;
+      final n = i < newLines.length ? newLines[i] : null;
+      if (o == n) {
+        buf.writeln('  ${o ?? ''}');
+      } else {
+        if (o != null) {
+          buf.writeln('- $o');
+          dels++;
+        }
+        if (n != null) {
+          buf.writeln('+ $n');
+          adds++;
+        }
+      }
+    }
+    final summary = '+$adds / -$dels';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (path.isNotEmpty) _kv(ctx, 'path', path),
+        _kv(ctx, 'change', summary),
+        if (buf.isNotEmpty) _CollapsibleMono(text: buf.toString().trimRight()),
+      ],
+    );
+  }
+
   static Color _planStatusColor(String status) {
     switch (status) {
       case 'completed':
@@ -775,6 +820,8 @@ class AgentEventCard extends StatelessWidget {
         return DesignColors.warning;
       case 'plan':
         return DesignColors.secondary;
+      case 'diff':
+        return DesignColors.terminalCyan;
       default:
         return producer == 'user'
             ? DesignColors.terminalYellow

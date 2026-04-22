@@ -6,7 +6,10 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
+import 'documents_screen.dart';
 import 'project_task_create_sheet.dart';
+import 'reviews_screen.dart';
+import 'runs_screen.dart';
 import 'task_detail_screen.dart';
 
 /// Linear-style project detail. Horizontal PageView over six sections —
@@ -646,9 +649,39 @@ class _InfoView extends ConsumerWidget {
       MapEntry('Docs root', (project['docs_root'] ?? '').toString()),
       MapEntry('Created', (project['created_at'] ?? '').toString()),
     ];
+    final projectId = (project['id'] ?? '').toString();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
+        if (projectId.isNotEmpty) ...[
+          _ShortcutTile(
+            icon: Icons.science_outlined,
+            label: 'Runs',
+            sub: 'Experiment runs in this project',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => RunsScreen(projectId: projectId),
+            )),
+          ),
+          _ShortcutTile(
+            icon: Icons.article_outlined,
+            label: 'Writeups',
+            sub: 'Memos, drafts, reports (§6.7)',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => DocumentsScreen(projectId: projectId),
+            )),
+          ),
+          _ShortcutTile(
+            icon: Icons.rate_review_outlined,
+            label: 'Reviews',
+            sub: 'Pending human decisions on this project',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ReviewsScreen(projectId: projectId),
+            )),
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 16),
+        ],
         for (final r in rows)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -716,6 +749,45 @@ class _InfoView extends ConsumerWidget {
         );
       }
     }
+  }
+}
+
+/// Compact navigation tile surfaced at the top of the Info tab. Routes
+/// to a screen scoped to this project via its `projectId` param.
+class _ShortcutTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String sub;
+  final VoidCallback onTap;
+  const _ShortcutTile({
+    required this.icon,
+    required this.label,
+    required this.sub,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: DesignColors.primary),
+      title: Text(
+        label,
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      subtitle: Text(
+        sub,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 11,
+          color: DesignColors.textMuted,
+        ),
+      ),
+      trailing: const Icon(Icons.chevron_right, size: 20),
+      onTap: onTap,
+    );
   }
 }
 

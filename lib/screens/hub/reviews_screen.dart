@@ -12,7 +12,9 @@ import '../../theme/design_colors.dart';
 /// clear their queue — default filter is `pending` so the list shows the
 /// work that actually needs a decision.
 class ReviewsScreen extends ConsumerStatefulWidget {
-  const ReviewsScreen({super.key});
+  /// Optional project scope. When null, shows all team reviews.
+  final String? projectId;
+  const ReviewsScreen({super.key, this.projectId});
 
   @override
   ConsumerState<ReviewsScreen> createState() => _ReviewsScreenState();
@@ -53,7 +55,10 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
       return;
     }
     try {
-      final rows = await client.listReviews(status: _filter);
+      final rows = await client.listReviews(
+        status: _filter,
+        projectId: widget.projectId,
+      );
       rows.sort((a, b) => (b['created_at'] ?? '')
           .toString()
           .compareTo((a['created_at'] ?? '').toString()));
@@ -88,7 +93,9 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Reviews',
+          widget.projectId == null
+              ? 'Reviews'
+              : 'Reviews · ${widget.projectId}',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,

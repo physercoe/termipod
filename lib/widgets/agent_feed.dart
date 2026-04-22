@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -291,6 +292,11 @@ class AgentEventCard extends StatelessWidget {
         return _sessionInitBody(ctx, payload);
       case 'text':
       case 'thought':
+        return _markdownBody(
+          ctx,
+          (payload['text'] ?? _jsonPretty(payload)).toString(),
+          isThought: kind == 'thought',
+        );
       case 'raw':
         return _textBody(
             ctx, (payload['text'] ?? _jsonPretty(payload)).toString());
@@ -421,6 +427,72 @@ class AgentEventCard extends StatelessWidget {
   }
 
   Widget _textBody(BuildContext ctx, String s) => _mono(ctx, s);
+
+  // Agents (Claude Code especially) emit markdown heavily — bullet lists,
+  // fenced code blocks, headers. Rendering as plain mono text buries the
+  // structure; rendering with a tight style sheet keeps the card compact
+  // while still reading like the agent's terminal output.
+  Widget _markdownBody(BuildContext ctx, String s, {bool isThought = false}) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+    final textColor = isThought
+        ? (isDark ? DesignColors.textMuted : DesignColors.textMutedLight)
+        : (isDark ? DesignColors.textPrimary : DesignColors.textPrimaryLight);
+    final codeBg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final codeBorder = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final base = GoogleFonts.spaceGrotesk(
+      fontSize: 13,
+      height: 1.35,
+      color: textColor,
+      fontStyle: isThought ? FontStyle.italic : FontStyle.normal,
+    );
+    final codeStyle = GoogleFonts.jetBrainsMono(
+      fontSize: 11,
+      height: 1.35,
+      color: textColor,
+    );
+    return MarkdownBody(
+      data: s,
+      selectable: true,
+      shrinkWrap: true,
+      // Keep paragraph and block spacing tight so cards don't balloon.
+      styleSheet: MarkdownStyleSheet(
+        p: base,
+        a: base.copyWith(color: DesignColors.primary),
+        strong: base.copyWith(fontWeight: FontWeight.w700),
+        em: base.copyWith(fontStyle: FontStyle.italic),
+        code: codeStyle,
+        codeblockPadding: const EdgeInsets.all(8),
+        codeblockDecoration: BoxDecoration(
+          color: codeBg,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: codeBorder),
+        ),
+        h1: base.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+        h2: base.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+        h3: base.copyWith(fontSize: 14, fontWeight: FontWeight.w700),
+        h4: base.copyWith(fontSize: 13, fontWeight: FontWeight.w700),
+        blockquote: base.copyWith(
+          color: isDark
+              ? DesignColors.textMuted
+              : DesignColors.textMutedLight,
+        ),
+        blockquoteDecoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: codeBorder, width: 3),
+          ),
+        ),
+        blockquotePadding: const EdgeInsets.only(left: 8),
+        listBullet: base,
+        tableHead: base.copyWith(fontWeight: FontWeight.w700),
+        tableBody: base,
+        pPadding: const EdgeInsets.only(bottom: 2),
+      ),
+    );
+  }
 
   Widget _kv(BuildContext ctx, String k, String v) {
     final isDark = Theme.of(ctx).brightness == Brightness.dark;

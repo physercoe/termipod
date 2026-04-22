@@ -10,7 +10,11 @@ import '../../providers/hub_provider.dart';
 /// a project to a template with a trigger. Cron schedules require cron_expr;
 /// manual and on_create schedules don't. Pops `true` on success.
 class ScheduleCreateSheet extends ConsumerStatefulWidget {
-  const ScheduleCreateSheet({super.key});
+  /// Pre-filled values for a duplicate flow. Keys match the hub row
+  /// shape returned by `listSchedules`: project_id, template_id,
+  /// trigger_kind, cron_expr, parameters (Map or JSON string).
+  final Map<String, dynamic>? initial;
+  const ScheduleCreateSheet({super.key, this.initial});
 
   @override
   ConsumerState<ScheduleCreateSheet> createState() =>
@@ -33,6 +37,19 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
   @override
   void initState() {
     super.initState();
+    final init = widget.initial;
+    if (init != null) {
+      _template.text = (init['template_id'] ?? '').toString();
+      _cron.text = (init['cron_expr'] ?? '').toString();
+      final trig = (init['trigger_kind'] ?? '').toString();
+      if (_triggers.contains(trig)) _triggerKind = trig;
+      final params = init['parameters'];
+      if (params is Map) {
+        _params.text = const JsonEncoder.withIndent('  ').convert(params);
+      } else if (params is String && params.isNotEmpty) {
+        _params.text = params;
+      }
+    }
     _loadProjects();
   }
 
@@ -42,9 +59,13 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
     try {
       final rows = await client.listProjects();
       if (!mounted) return;
+      final preferred = (widget.initial?['project_id'] ?? '').toString();
       setState(() {
         _projects = rows;
-        _projectId = rows.isNotEmpty ? (rows.first['id'] ?? '').toString() : null;
+        final ids = rows.map((r) => (r['id'] ?? '').toString()).toList();
+        _projectId = preferred.isNotEmpty && ids.contains(preferred)
+            ? preferred
+            : (rows.isNotEmpty ? ids.first : null);
         _loadingProjects = false;
       });
     } catch (e) {
@@ -125,7 +146,7 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('New schedule',
+              Text(widget.initial == null ? 'New schedule' : 'Duplicate schedule',
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),

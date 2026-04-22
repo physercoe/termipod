@@ -119,11 +119,11 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     }
   }
 
-  Future<void> _openCreate() async {
+  Future<void> _openCreate({Map<String, dynamic>? initial}) async {
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const ScheduleCreateSheet(),
+      builder: (_) => ScheduleCreateSheet(initial: initial),
     );
     if (created == true) await _load();
   }
@@ -216,13 +216,14 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                 (row['id'] ?? '').toString(),
                 (row['template_id'] ?? row['id'] ?? '').toString(),
               ),
+              onDuplicate: () => _openCreate(initial: row),
             ),
             const SizedBox(height: 8),
           ],
         Padding(
           padding: const EdgeInsets.only(top: 16),
           child: Text(
-            'Edits require delete + recreate.',
+            'Edits require delete + recreate. Use Duplicate to seed a new one from an existing schedule.',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
@@ -243,12 +244,14 @@ class _ScheduleTile extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
   final VoidCallback onRunNow;
+  final VoidCallback onDuplicate;
   const _ScheduleTile({
     required this.row,
     required this.running,
     required this.onToggle,
     required this.onDelete,
     required this.onRunNow,
+    required this.onDuplicate,
   });
 
   @override
@@ -326,10 +329,33 @@ class _ScheduleTile extends StatelessWidget {
             color: DesignColors.success,
             onPressed: running ? null : onRunNow,
           ),
-          IconButton(
-            icon: const Icon(Icons.delete),
-            color: DesignColors.error,
-            onPressed: onDelete,
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'duplicate') onDuplicate();
+              if (v == 'delete') onDelete();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'duplicate',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.copy, size: 20),
+                  title: Text('Duplicate'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete, color: DesignColors.error, size: 20),
+                  title: Text('Delete'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

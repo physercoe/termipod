@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'document_create_sheet.dart';
 
 /// Team-wide documents browser (blueprint §6.7).
 ///
@@ -76,6 +77,26 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
         .toList(growable: false);
   }
 
+  Future<void> _createDoc() async {
+    final doc = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DocumentCreateSheet(projectId: widget.projectId),
+    );
+    if (!mounted || doc == null) return;
+    final id = (doc['id'] ?? '').toString();
+    await _load();
+    if (!mounted || id.isEmpty) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DocumentDetailScreen(
+        documentId: id,
+        summary: doc,
+      ),
+    ));
+    if (mounted) _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -106,6 +127,12 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
           ),
           Expanded(child: _body()),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.small(
+        heroTag: 'documents-fab',
+        onPressed: _createDoc,
+        tooltip: 'New document',
+        child: const Icon(Icons.add),
       ),
     );
   }

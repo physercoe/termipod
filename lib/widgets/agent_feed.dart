@@ -431,6 +431,8 @@ class AgentEventCard extends StatelessWidget {
         return _errorBody(ctx, payload);
       case 'approval_request':
         return _approvalRequestBody(ctx, payload);
+      case 'plan':
+        return _planBody(ctx, payload);
       case 'input.text':
         return _inputTextBody(ctx, payload);
       case 'input.cancel':
@@ -549,6 +551,75 @@ class AgentEventCard extends StatelessWidget {
   Widget _errorBody(BuildContext ctx, Map<String, dynamic> p) {
     final msg = (p['error'] ?? p['message'] ?? _jsonPretty(p)).toString();
     return _mono(ctx, msg, color: DesignColors.error);
+  }
+
+  // ACP plan update: { sessionUpdate: "plan", entries: [{content, priority,
+  // status}] }. Render as a compact checklist so the operator can see what
+  // the agent is tracking without drilling into raw JSON.
+  Widget _planBody(BuildContext ctx, Map<String, dynamic> p) {
+    final entriesRaw = p['entries'];
+    if (entriesRaw is! List || entriesRaw.isEmpty) {
+      return _mono(ctx, _jsonPretty(p));
+    }
+    final rows = <Widget>[];
+    for (final e in entriesRaw) {
+      if (e is! Map) continue;
+      final status = (e['status'] ?? '').toString();
+      final content = (e['content'] ?? '').toString();
+      rows.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(_planStatusIcon(status),
+                size: 14, color: _planStatusColor(status)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                content,
+                style: TextStyle(
+                  fontSize: 13,
+                  decoration: status == 'completed'
+                      ? TextDecoration.lineThrough
+                      : null,
+                  color: status == 'completed'
+                      ? DesignColors.textMuted
+                      : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
+  }
+
+  static IconData _planStatusIcon(String status) {
+    switch (status) {
+      case 'completed':
+        return Icons.check_circle_outline;
+      case 'in_progress':
+        return Icons.radio_button_checked;
+      case 'pending':
+      default:
+        return Icons.radio_button_unchecked;
+    }
+  }
+
+  static Color _planStatusColor(String status) {
+    switch (status) {
+      case 'completed':
+        return DesignColors.success;
+      case 'in_progress':
+        return DesignColors.primary;
+      case 'pending':
+      default:
+        return DesignColors.textMuted;
+    }
   }
 
   Widget _approvalRequestBody(BuildContext ctx, Map<String, dynamic> p) {
@@ -702,6 +773,8 @@ class AgentEventCard extends StatelessWidget {
         return DesignColors.secondary;
       case 'approval_request':
         return DesignColors.warning;
+      case 'plan':
+        return DesignColors.secondary;
       default:
         return producer == 'user'
             ? DesignColors.terminalYellow

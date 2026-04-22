@@ -92,7 +92,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     } on HubApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = 'Feed error (${e.statusCode})';
+        _error = 'Feed error (${e.status})';
         _loading = false;
       });
     } catch (e) {

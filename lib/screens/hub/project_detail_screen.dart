@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -598,6 +600,17 @@ class _TasksViewState extends ConsumerState<_TasksView> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _tasks = const [];
+  String? _statusFilter;
+
+  // Kept in sync with task_detail_screen's lifecycle list so chips and
+  // detail-view transitions agree.
+  static const _statusFilters = <String?>[
+    null,
+    'todo',
+    'in_progress',
+    'blocked',
+    'done',
+  ];
 
   @override
   void initState() {
@@ -613,7 +626,8 @@ class _TasksViewState extends ConsumerState<_TasksView> {
       _error = null;
     });
     try {
-      final rows = await client.listTasks(widget.projectId);
+      final rows =
+          await client.listTasks(widget.projectId, status: _statusFilter);
       if (!mounted) return;
       setState(() {
         _tasks = rows;
@@ -650,8 +664,12 @@ class _TasksViewState extends ConsumerState<_TasksView> {
         ),
       );
     }
-    final body = _tasks.isEmpty
-        ? const _Placeholder(text: 'No tasks yet — tap + to create')
+    final list = _tasks.isEmpty
+        ? _Placeholder(
+            text: _statusFilter == null
+                ? 'No tasks yet — tap + to create'
+                : 'No $_statusFilter tasks.',
+          )
         : RefreshIndicator(
             onRefresh: _load,
             child: ListView.separated(
@@ -667,7 +685,22 @@ class _TasksViewState extends ConsumerState<_TasksView> {
           );
     return Stack(
       children: [
-        Positioned.fill(child: body),
+        Positioned.fill(
+          child: Column(
+            children: [
+              _TaskStatusBar(
+                statuses: _statusFilters,
+                selected: _statusFilter,
+                onChanged: (v) {
+                  if (_statusFilter == v) return;
+                  setState(() => _statusFilter = v);
+                  _load();
+                },
+              ),
+              Expanded(child: list),
+            ],
+          ),
+        ),
         Positioned(
           right: 16,
           bottom: 16,
@@ -678,6 +711,77 @@ class _TasksViewState extends ConsumerState<_TasksView> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TaskStatusBar extends StatelessWidget {
+  final List<String?> statuses;
+  final String? selected;
+  final ValueChanged<String?> onChanged;
+  const _TaskStatusBar({
+    required this.statuses,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Row(
+        children: [
+          for (final s in statuses) ...[
+            _TaskFilterPill(
+              label: s ?? 'all',
+              selected: s == selected,
+              onTap: () => onChanged(s),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskFilterPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _TaskFilterPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: selected
+              ? DesignColors.primary.withValues(alpha: 0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color:
+                selected ? DesignColors.primary : DesignColors.borderDark,
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? DesignColors.primary : DesignColors.textMuted,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -697,6 +801,7 @@ class _TaskTile extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final title = (task['title'] ?? '?').toString();
     final status = (task['status'] ?? '').toString();
+    final preview = _previewLine((task['body_md'] ?? '').toString());
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {
@@ -722,24 +827,69 @@ class _TaskTile extends StatelessWidget {
           ),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _StatusDot(status: status),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: _StatusDot(status: status),
+            ),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(title,
-                  style: GoogleFonts.spaceGrotesk(
-                      fontSize: 13, fontWeight: FontWeight.w600)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: GoogleFonts.spaceGrotesk(
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                  if (preview.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      preview,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 11,
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-            Text(status,
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 10,
-                    color: isDark
-                        ? DesignColors.textMuted
-                        : DesignColors.textMutedLight)),
+            const SizedBox(width: 8),
+            Padding(
+              padding: const EdgeInsets.only(top: 1),
+              child: Text(status,
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: isDark
+                          ? DesignColors.textMuted
+                          : DesignColors.textMutedLight)),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// First non-empty line of the body with common markdown leaders
+  /// stripped — enough to give scannable context without importing a
+  /// full markdown renderer into a tile.
+  String _previewLine(String body) {
+    if (body.isEmpty) return '';
+    for (final raw in const LineSplitter().convert(body)) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      final stripped = line
+          .replaceFirst(RegExp(r'^#{1,6}\s+'), '')
+          .replaceFirst(RegExp(r'^[-*+]\s+'), '')
+          .replaceFirst(RegExp(r'^\d+\.\s+'), '')
+          .replaceFirst(RegExp(r'^>\s+'), '');
+      if (stripped.isNotEmpty) return stripped;
+    }
+    return '';
   }
 }
 

@@ -15,6 +15,11 @@ import 'run_create_sheet.dart';
 /// Hub stores metadata + status + links to external dashboards
 /// (tensorboard, wandb/trackio). Bytes and live curves stay on-host;
 /// this screen lists, filters, and launches the external viewer.
+///
+/// The project filter only appears in the global listing (when no
+/// [projectId] is passed); when scoped to a specific project the caller
+/// has already narrowed the set, so an in-screen project filter would
+/// just be noise.
 class RunsScreen extends ConsumerStatefulWidget {
   final String? projectId;
   const RunsScreen({super.key, this.projectId});
@@ -25,7 +30,9 @@ class RunsScreen extends ConsumerStatefulWidget {
 
 class _RunsScreenState extends ConsumerState<RunsScreen> {
   String? _status;
+  String? _projectFilter;
   List<Map<String, dynamic>>? _rows;
+  List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
 
@@ -36,6 +43,8 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     'failed',
     'cancelled',
   ];
+
+  bool get _showProjectFilter => widget.projectId == null;
 
   @override
   void initState() {
@@ -57,10 +66,18 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
       return;
     }
     try {
-      final rows = await client.listRuns(
-        projectId: widget.projectId,
-        status: _status,
-      );
+      final effectiveProject = widget.projectId ?? _projectFilter;
+      final results = await Future.wait([
+        client.listRuns(
+          projectId: effectiveProject,
+          status: _status,
+        ),
+        if (_showProjectFilter && _projects == null) client.listProjects(),
+      ]);
+      final rows = results[0];
+      if (_showProjectFilter && _projects == null && results.length > 1) {
+        _projects = results[1];
+      }
       rows.sort((a, b) => (b['created_at'] ?? '')
           .toString()
           .compareTo((a['created_at'] ?? '').toString()));
@@ -78,12 +95,41 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     }
   }
 
+  Future<void> _pickProject() async {
+    final projects = _projects ?? const [];
+    final picked = await showModalBottomSheet<_ProjectPick>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ProjectFilterSheet(
+        projects: projects,
+        selectedId: _projectFilter,
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _projectFilter = picked.clear ? null : picked.id);
+    _load();
+  }
+
+  String _projectFilterLabel() {
+    final id = _projectFilter;
+    if (id == null) return 'All projects';
+    for (final p in _projects ?? const <Map<String, dynamic>>[]) {
+      if ((p['id'] ?? '').toString() == id) {
+        return (p['name'] ?? id).toString();
+      }
+    }
+    return id;
+  }
+
   Future<void> _createRun() async {
     final created = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => RunCreateSheet(projectId: widget.projectId),
+      builder: (_) => RunCreateSheet(
+        projectId: widget.projectId ?? _projectFilter,
+      ),
     );
     if (!mounted || created == null) return;
     await _load();
@@ -116,13 +162,18 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
       ),
       body: Column(
         children: [
-          _StatusBar(
+          _FilterBar(
             statuses: _statuses,
-            selected: _status,
-            onChanged: (v) {
+            statusSelected: _status,
+            onStatusSelected: (v) {
+              if (_status == v) return;
               setState(() => _status = v);
               _load();
             },
+            showProjectFilter: _showProjectFilter,
+            projectLabel: _projectFilterLabel(),
+            projectIsActive: _projectFilter != null,
+            onProjectTap: _pickProject,
           ),
           Expanded(child: _body()),
         ],
@@ -152,13 +203,16 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     }
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
+      final filtered = _status != null || _projectFilter != null;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            _status == null
-                ? 'No runs yet.'
-                : 'No $_status runs.',
+            filtered
+                ? 'No runs match the current filters.'
+                : _status == null
+                    ? 'No runs yet.'
+                    : 'No $_status runs.',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,
@@ -191,30 +245,97 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
   }
 }
 
-class _StatusBar extends StatelessWidget {
+class _FilterBar extends StatelessWidget {
   final List<String?> statuses;
-  final String? selected;
-  final ValueChanged<String?> onChanged;
-  const _StatusBar({
+  final String? statusSelected;
+  final ValueChanged<String?> onStatusSelected;
+  final bool showProjectFilter;
+  final String projectLabel;
+  final bool projectIsActive;
+  final VoidCallback onProjectTap;
+  const _FilterBar({
     required this.statuses,
-    required this.selected,
-    required this.onChanged,
+    required this.statusSelected,
+    required this.onStatusSelected,
+    required this.showProjectFilter,
+    required this.projectLabel,
+    required this.projectIsActive,
+    required this.onProjectTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          for (final s in statuses) ...[
-            _Pill(
-              label: s ?? 'all',
-              selected: s == selected,
-              onTap: () => onChanged(s),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final s in statuses) ...[
+                  _StatusChip(
+                    label: s ?? 'all',
+                    selected: statusSelected == s,
+                    onTap: () => onStatusSelected(s),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ],
             ),
-            const SizedBox(width: 6),
+          ),
+          if (showProjectFilter) ...[
+            const SizedBox(height: 6),
+            InkWell(
+              onTap: onProjectTap,
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: projectIsActive ? DesignColors.primary : border,
+                  ),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      projectIsActive
+                          ? Icons.filter_alt
+                          : Icons.filter_alt_outlined,
+                      size: 14,
+                      color: projectIsActive
+                          ? DesignColors.primary
+                          : DesignColors.textMuted,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        projectLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: projectIsActive
+                              ? DesignColors.primary
+                              : DesignColors.textMuted,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down,
+                        size: 16, color: DesignColors.textMuted),
+                  ],
+                ),
+              ),
+            ),
           ],
         ],
       ),
@@ -222,11 +343,11 @@ class _StatusBar extends StatelessWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
+class _StatusChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  const _Pill({
+  const _StatusChip({
     required this.label,
     required this.selected,
     required this.onTap,
@@ -255,6 +376,82 @@ class _Pill extends StatelessWidget {
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
             color: selected ? DesignColors.primary : DesignColors.textMuted,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProjectPick {
+  final String? id;
+  final bool clear;
+  const _ProjectPick({this.id, this.clear = false});
+}
+
+class _ProjectFilterSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> projects;
+  final String? selectedId;
+  const _ProjectFilterSheet({
+    required this.projects,
+    required this.selectedId,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      expand: false,
+      builder: (_, scroll) => Container(
+        decoration: const BoxDecoration(
+          color: DesignColors.surfaceDark,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
+        child: ListView.separated(
+          controller: scroll,
+          itemCount: projects.length + 1,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (_, i) {
+            if (i == 0) {
+              return ListTile(
+                leading: const Icon(Icons.clear, size: 18),
+                title: Text(
+                  'All projects',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                selected: selectedId == null,
+                onTap: () =>
+                    Navigator.of(context).pop(const _ProjectPick(clear: true)),
+              );
+            }
+            final p = projects[i - 1];
+            final id = (p['id'] ?? '').toString();
+            final name = (p['name'] ?? id).toString();
+            final kind = (p['kind'] ?? '').toString();
+            return ListTile(
+              title: Text(
+                name,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                [if (kind.isNotEmpty) kind, id].join(' · '),
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+              selected: selectedId == id,
+              onTap: () => Navigator.of(context).pop(_ProjectPick(id: id)),
+            );
+          },
         ),
       ),
     );

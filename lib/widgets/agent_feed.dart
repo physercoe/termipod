@@ -589,10 +589,26 @@ class AgentEventCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (sub != null && sub.isNotEmpty) _kv(ctx, 'subtype', sub),
-        if (dur != null) _kv(ctx, 'duration_ms', '$dur'),
+        if (dur is num) _kv(ctx, 'duration', _fmtDuration(dur.toInt())),
         if (res != null && res.isNotEmpty) _mono(ctx, res),
       ],
     );
+  }
+
+  // duration_ms comes through as a raw integer; "42357" is cognitive
+  // load when "42s" reads at a glance. Anything over a minute shows
+  // m+s; anything over an hour shows h+m.
+  String _fmtDuration(int ms) {
+    if (ms < 1000) return '${ms}ms';
+    final s = ms ~/ 1000;
+    if (s < 60) {
+      final tenths = (ms % 1000) ~/ 100;
+      return tenths == 0 ? '${s}s' : '$s.${tenths}s';
+    }
+    if (s < 3600) return '${s ~/ 60}m ${s % 60}s';
+    final h = s ~/ 3600;
+    final m = (s % 3600) ~/ 60;
+    return '${h}h ${m}m';
   }
 
   Widget _errorBody(BuildContext ctx, Map<String, dynamic> p) {

@@ -144,9 +144,27 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text(_error!,
-                        style: GoogleFonts.jetBrainsMono(
-                            color: DesignColors.error, fontSize: 12)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_error!,
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.jetBrainsMono(
+                                color: DesignColors.error, fontSize: 12)),
+                        const SizedBox(height: 16),
+                        FilledButton.tonalIcon(
+                          onPressed: () {
+                            setState(() {
+                              _loading = true;
+                              _error = null;
+                            });
+                            _load();
+                          },
+                          icon: const Icon(Icons.refresh, size: 16),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
                   ),
                 )
               : RefreshIndicator(

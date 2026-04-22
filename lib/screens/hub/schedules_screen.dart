@@ -93,6 +93,25 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     }
   }
 
+  Future<void> _runNow(String id, String name) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final planId = await client.runSchedule(id);
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(
+        content: Text(planId.isEmpty
+            ? 'Fired $name'
+            : 'Fired $name → plan $planId'),
+      ));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Run failed: $e')));
+    }
+  }
+
   Future<void> _openCreate() async {
     final created = await showModalBottomSheet<bool>(
       context: context,
@@ -167,6 +186,10 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                 (row['id'] ?? '').toString(),
                 (row['template_id'] ?? row['id'] ?? '').toString(),
               ),
+              onRunNow: () => _runNow(
+                (row['id'] ?? '').toString(),
+                (row['template_id'] ?? row['id'] ?? '').toString(),
+              ),
             ),
             const SizedBox(height: 8),
           ],
@@ -192,10 +215,12 @@ class _ScheduleTile extends StatelessWidget {
   final Map<String, dynamic> row;
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
+  final VoidCallback onRunNow;
   const _ScheduleTile({
     required this.row,
     required this.onToggle,
     required this.onDelete,
+    required this.onRunNow,
   });
 
   @override
@@ -257,6 +282,15 @@ class _ScheduleTile extends StatelessWidget {
                   ),
               ],
             ),
+          ),
+          // Run now works for disabled schedules too — the hub endpoint
+          // has no enabled gate and "test a disabled schedule" is a
+          // legitimate case.
+          IconButton(
+            tooltip: 'Run now',
+            icon: const Icon(Icons.play_arrow),
+            color: DesignColors.success,
+            onPressed: onRunNow,
           ),
           IconButton(
             icon: const Icon(Icons.delete),

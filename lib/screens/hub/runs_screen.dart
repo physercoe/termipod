@@ -345,6 +345,7 @@ class RunDetailScreen extends ConsumerStatefulWidget {
 class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Map<String, dynamic>? _run;
   bool _loading = true;
+  bool _busy = false;
   String? _error;
 
   @override
@@ -389,6 +390,60 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     }
   }
 
+  Future<void> _complete() async {
+    final result = await showDialog<_CompletePayload>(
+      context: context,
+      builder: (_) => const _CompleteRunDialog(),
+    );
+    if (result == null || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await client.completeRun(
+        widget.runId,
+        status: result.status,
+        summary: result.summary.isEmpty ? null : result.summary,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Run → ${result.status}')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Complete failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _attachMetric() async {
+    final result = await showDialog<_MetricPayload>(
+      context: context,
+      builder: (_) => const _AttachMetricDialog(),
+    );
+    if (result == null || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await client.attachRunMetricURI(
+        widget.runId,
+        kind: result.kind,
+        uri: result.uri,
+      );
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('Dashboard attached')));
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Attach failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   List<Map<String, dynamic>> _metricUris() {
     final r = _run ?? widget.summary ?? const <String, dynamic>{};
     final raw = r['metric_uris'];
@@ -405,7 +460,10 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Widget build(BuildContext context) {
     final r = _run ?? widget.summary ?? const <String, dynamic>{};
     final name = (r['name'] ?? r['id'] ?? '(run)').toString();
-    final status = (r['status'] ?? '').toString();
+    final status = (r['status'] ?? '').toString().toLowerCase();
+    final terminal = status == 'succeeded' ||
+        status == 'failed' ||
+        status == 'cancelled';
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -424,6 +482,19 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Attach dashboard',
+            icon: const Icon(Icons.link),
+            onPressed: _busy ? null : _attachMetric,
+          ),
+          if (!terminal)
+            IconButton(
+              tooltip: 'Mark complete',
+              icon: const Icon(Icons.flag_outlined),
+              onPressed: _busy ? null : _complete,
+            ),
+        ],
       ),
       body: _body(r),
     );
@@ -588,5 +659,155 @@ class _MetricURITile extends StatelessWidget {
     if (k.contains('tensor')) return Icons.insert_chart_outlined;
     if (k.contains('wandb') || k.contains('trackio')) return Icons.timeline;
     return Icons.bar_chart;
+  }
+}
+
+class _CompletePayload {
+  final String status;
+  final String summary;
+  const _CompletePayload(this.status, this.summary);
+}
+
+class _CompleteRunDialog extends StatefulWidget {
+  const _CompleteRunDialog();
+
+  @override
+  State<_CompleteRunDialog> createState() => _CompleteRunDialogState();
+}
+
+class _CompleteRunDialogState extends State<_CompleteRunDialog> {
+  String _status = 'succeeded';
+  final _summary = TextEditingController();
+
+  static const _options = ['succeeded', 'failed', 'cancelled'];
+
+  @override
+  void dispose() {
+    _summary.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Complete run'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final s in _options)
+                ChoiceChip(
+                  label: Text(s),
+                  selected: _status == s,
+                  onSelected: (_) => setState(() => _status = s),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _summary,
+            minLines: 2,
+            maxLines: 6,
+            style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
+            decoration: const InputDecoration(
+              labelText: 'Summary (optional)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(
+            _CompletePayload(_status, _summary.text.trim()),
+          ),
+          child: const Text('Complete'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricPayload {
+  final String kind;
+  final String uri;
+  const _MetricPayload(this.kind, this.uri);
+}
+
+class _AttachMetricDialog extends StatefulWidget {
+  const _AttachMetricDialog();
+
+  @override
+  State<_AttachMetricDialog> createState() => _AttachMetricDialogState();
+}
+
+class _AttachMetricDialogState extends State<_AttachMetricDialog> {
+  final _kind = TextEditingController(text: 'tensorboard');
+  final _uri = TextEditingController();
+
+  @override
+  void dispose() {
+    _kind.dispose();
+    _uri.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Attach dashboard'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _kind,
+            style: GoogleFonts.jetBrainsMono(fontSize: 13),
+            decoration: const InputDecoration(
+              labelText: 'Kind',
+              helperText: 'e.g. tensorboard, wandb, trackio',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _uri,
+            style: GoogleFonts.jetBrainsMono(fontSize: 12),
+            decoration: const InputDecoration(
+              labelText: 'URI',
+              hintText: 'https://...',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            keyboardType: TextInputType.url,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final kind = _kind.text.trim();
+            final uri = _uri.text.trim();
+            if (kind.isEmpty || uri.isEmpty) return;
+            Navigator.of(context).pop(_MetricPayload(kind, uri));
+          },
+          child: const Text('Attach'),
+        ),
+      ],
+    );
   }
 }

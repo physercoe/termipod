@@ -735,8 +735,12 @@ the research MVP pitch.
   Verify `import trackio as wandb` in user code works end-to-end.
 - P3.2 A2A server on host-runner; publish agent-cards to hub directory.
 - P3.3 Hub A2A directory + reverse-tunnel relay.
-- P3.4 Cross-hub federation smoke test (two termipod hubs exchanging
-  A2A tasks).
+- P3.4 Cross-host A2A smoke test: two host-runners under the same hub
+  route an A2A task through the hub's directory/relay (agent on host A
+  invokes a capability exposed by an agent on host B). This exercises
+  P3.2 + P3.3 on the realistic MVP deployment (one hub, many hosts).
+  Cross-hub federation (multiple hubs exchanging A2A tasks) is out of
+  MVP scope.
 
 ### Phase 4 — research demo
 

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'search_event_sheet.dart';
 
 /// Full-screen full-text search over hub events. Debounces keystrokes by
 /// 350ms so we aren't hammering the FTS endpoint on every character.
@@ -27,10 +28,34 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   static const int _minQueryLen = 2;
   static const Duration _debounceDur = Duration(milliseconds: 350);
 
+  // channel_id → channel name, populated once from listTeamChannels and
+  // handed to the result sheet so it can offer "Open channel" navigation
+  // for team-scoped message events.
+  Map<String, String> _teamChannels = const {};
+
   @override
   void initState() {
     super.initState();
     _q.addListener(_onChanged);
+    _loadTeamChannels();
+  }
+
+  Future<void> _loadTeamChannels() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final rows = await client.listTeamChannels();
+      if (!mounted) return;
+      final map = <String, String>{};
+      for (final r in rows) {
+        final id = (r['id'] ?? '').toString();
+        final name = (r['name'] ?? '').toString();
+        if (id.isNotEmpty) map[id] = name;
+      }
+      setState(() => _teamChannels = map);
+    } catch (_) {
+      // Best-effort — lookup simply falls back to raw channel_id.
+    }
   }
 
   @override
@@ -166,14 +191,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     return ListView.separated(
       itemCount: _results.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (_, i) => _ResultRow(event: _results[i]),
+      itemBuilder: (_, i) => _ResultRow(
+        event: _results[i],
+        teamChannels: _teamChannels,
+      ),
     );
   }
 }
 
 class _ResultRow extends StatelessWidget {
   final Map<String, dynamic> event;
-  const _ResultRow({required this.event});
+  final Map<String, String> teamChannels;
+  const _ResultRow({required this.event, required this.teamChannels});
 
   @override
   Widget build(BuildContext context) {
@@ -197,11 +226,15 @@ class _ResultRow extends StatelessWidget {
         '$fromId · ${_shortTs(ts)}',
         style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
       ),
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Navigate to event (TODO)')),
-        );
-      },
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => SearchEventSheet(
+          event: event,
+          teamChannels: teamChannels,
+        ),
+      ),
     );
   }
 

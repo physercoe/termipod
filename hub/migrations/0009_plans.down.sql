@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS plan_steps;
+DROP TABLE IF EXISTS plans;

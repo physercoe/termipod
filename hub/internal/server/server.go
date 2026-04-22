@@ -236,6 +236,20 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/decide", s.handleDecideReview)
 			})
 		})
+		// Plans (§6.2): shallow review-able scaffolds of phases.
+		r.Route("/plans", func(r chi.Router) {
+			r.Post("/", s.handleCreatePlan)
+			r.Get("/", s.handleListPlans)
+			r.Route("/{plan}", func(r chi.Router) {
+				r.Get("/", s.handleGetPlan)
+				r.Patch("/", s.handleUpdatePlan)
+				r.Route("/steps", func(r chi.Router) {
+					r.Post("/", s.handleCreatePlanStep)
+					r.Get("/", s.handleListPlanSteps)
+					r.Patch("/{step}", s.handleUpdatePlanStep)
+				})
+			})
+		})
 		r.Route("/attention", func(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)

@@ -7,6 +7,7 @@ import '../../theme/design_colors.dart';
 import 'audit_screen.dart';
 import 'budget_screen.dart';
 import 'plans_screen.dart';
+import 'reviews_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
 import 'templates_screen.dart';
@@ -699,6 +700,7 @@ class _SettingsView extends StatelessWidget {
             builder: (_) => const PlansScreen(),
           )),
         ),
+        const _ReviewsTile(),
         ListTile(
           leading: const Icon(Icons.account_balance_wallet_outlined),
           title: const Text('Usage'),
@@ -727,6 +729,83 @@ class _SettingsView extends StatelessWidget {
           )),
         ),
       ],
+    );
+  }
+}
+
+/// Reviews settings tile with a live pending-count badge. Fetches the
+/// count once on mount; the badge is best-effort context for the director
+/// and is not a real-time subscription — reloads happen when the user
+/// returns to this screen.
+class _ReviewsTile extends ConsumerStatefulWidget {
+  const _ReviewsTile();
+
+  @override
+  ConsumerState<_ReviewsTile> createState() => _ReviewsTileState();
+}
+
+class _ReviewsTileState extends ConsumerState<_ReviewsTile> {
+  int? _pending;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final rows = await client.listReviews(status: 'pending');
+      if (!mounted) return;
+      setState(() => _pending = rows.length);
+    } catch (_) {
+      // Silent — the tile still navigates fine without the badge.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = _pending ?? 0;
+    return ListTile(
+      leading: const Icon(Icons.rate_review_outlined),
+      title: const Text('Reviews'),
+      subtitle: Text(count > 0
+          ? '$count pending · human-decision queue'
+          : 'Human-decision queue for documents'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (count > 0)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: DesignColors.terminalCyan.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: DesignColors.terminalCyan.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Text(
+                '$count',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.terminalCyan,
+                ),
+              ),
+            ),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right),
+        ],
+      ),
+      onTap: () async {
+        await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const ReviewsScreen(),
+        ));
+        if (mounted) _fetch();
+      },
     );
   }
 }

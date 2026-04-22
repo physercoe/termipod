@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import 'agent_compose.dart';
 
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
@@ -138,49 +139,65 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return const Center(child: CircularProgressIndicator());
     }
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final compose = AgentCompose(agentId: widget.agentId);
     if (_events.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _error ??
-                'No events yet — the feed lights up once the agent '
-                'produces text, tool calls, or completions.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 12,
-              color: isDark
-                  ? DesignColors.textMuted
-                  : DesignColors.textMutedLight,
-            ),
-          ),
-        ),
-      );
-    }
-    return Stack(
-      children: [
-        ListView.separated(
-          controller: _scroll,
-          padding: widget.padding,
-          itemCount: _events.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 8),
-          itemBuilder: (ctx, i) => AgentEventCard(event: _events[i]),
-        ),
-        if (_error != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Container(
-              color: DesignColors.error.withValues(alpha: 0.12),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Text(
-                _error!,
-                style: GoogleFonts.jetBrainsMono(
-                    fontSize: 11, color: DesignColors.error),
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _error ??
+                      'No events yet — the feed lights up once the agent '
+                      'produces text, tool calls, or completions.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    color: isDark
+                        ? DesignColors.textMuted
+                        : DesignColors.textMutedLight,
+                  ),
+                ),
               ),
             ),
           ),
+          compose,
+        ],
+      );
+    }
+    return Column(
+      children: [
+        Expanded(
+          child: Stack(
+            children: [
+              ListView.separated(
+                controller: _scroll,
+                padding: widget.padding,
+                itemCount: _events.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (ctx, i) => AgentEventCard(event: _events[i]),
+              ),
+              if (_error != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    color: DesignColors.error.withValues(alpha: 0.12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+                    child: Text(
+                      _error!,
+                      style: GoogleFonts.jetBrainsMono(
+                          fontSize: 11, color: DesignColors.error),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        compose,
       ],
     );
   }

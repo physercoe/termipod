@@ -302,13 +302,47 @@ class AgentEventCard extends StatelessWidget {
         return _completionBody(ctx, payload);
       case 'error':
         return _errorBody(ctx, payload);
+      case 'input.text':
+        return _inputTextBody(ctx, payload);
+      case 'input.cancel':
+        return _inputCancelBody(ctx, payload);
+      case 'input.approval':
+        return _inputApprovalBody(ctx, payload);
       default:
-        // input.* (user) and any other hub-side kinds — render their
-        // text field when present, fall back to pretty JSON otherwise.
+        // Any other hub-side kinds — render their text field when present,
+        // fall back to pretty JSON otherwise.
         final t = payload['text']?.toString();
         if (t != null && t.isNotEmpty) return _textBody(ctx, t);
         return _textBody(ctx, _jsonPretty(payload));
     }
+  }
+
+  Widget _inputTextBody(BuildContext ctx, Map<String, dynamic> p) {
+    // InputRouter strips the "input." prefix before dispatch; the
+    // persisted event still has a body field matching AgentCompose's
+    // postAgentInput payload.
+    final body = (p['body'] ?? p['text'] ?? '').toString();
+    return _mono(ctx, body.isEmpty ? '(empty)' : body);
+  }
+
+  Widget _inputCancelBody(BuildContext ctx, Map<String, dynamic> p) {
+    final reason = p['reason']?.toString();
+    return _mono(
+      ctx,
+      (reason == null || reason.isEmpty) ? 'cancel' : 'cancel · $reason',
+    );
+  }
+
+  Widget _inputApprovalBody(BuildContext ctx, Map<String, dynamic> p) {
+    final decision = p['decision']?.toString() ?? '?';
+    final reqId = p['request_id']?.toString() ?? '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _kv(ctx, 'decision', decision),
+        if (reqId.isNotEmpty) _kv(ctx, 'request_id', reqId),
+      ],
+    );
   }
 
   Widget _lifecycleBody(BuildContext ctx, Map<String, dynamic> p) {

@@ -19,6 +19,9 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
   List<Map<String, dynamic>>? _rows;
   String? _error;
   bool _loading = true;
+  // Schedule ids with an in-flight runSchedule call. Gates the Run now
+  // button so a double-tap doesn't fire two plans.
+  final Set<String> _running = <String>{};
 
   @override
   void initState() {
@@ -94,9 +97,11 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
   }
 
   Future<void> _runNow(String id, String name) async {
+    if (_running.contains(id)) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     final messenger = ScaffoldMessenger.of(context);
+    setState(() => _running.add(id));
     try {
       final planId = await client.runSchedule(id);
       if (!mounted) return;
@@ -109,6 +114,8 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     } catch (e) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('Run failed: $e')));
+    } finally {
+      if (mounted) setState(() => _running.remove(id));
     }
   }
 
@@ -181,6 +188,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
           for (final row in rows) ...[
             _ScheduleTile(
               row: row,
+              running: _running.contains((row['id'] ?? '').toString()),
               onToggle: (v) => _toggle((row['id'] ?? '').toString(), v),
               onDelete: () => _confirmDelete(
                 (row['id'] ?? '').toString(),
@@ -213,11 +221,13 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
 
 class _ScheduleTile extends StatelessWidget {
   final Map<String, dynamic> row;
+  final bool running;
   final ValueChanged<bool> onToggle;
   final VoidCallback onDelete;
   final VoidCallback onRunNow;
   const _ScheduleTile({
     required this.row,
+    required this.running,
     required this.onToggle,
     required this.onDelete,
     required this.onRunNow,
@@ -288,9 +298,15 @@ class _ScheduleTile extends StatelessWidget {
           // legitimate case.
           IconButton(
             tooltip: 'Run now',
-            icon: const Icon(Icons.play_arrow),
+            icon: running
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.play_arrow),
             color: DesignColors.success,
-            onPressed: onRunNow,
+            onPressed: running ? null : onRunNow,
           ),
           IconButton(
             icon: const Icon(Icons.delete),

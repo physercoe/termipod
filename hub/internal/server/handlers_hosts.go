@@ -39,17 +39,36 @@ func (s *Server) handleRegisterHost(w http.ResponseWriter, r *http.Request) {
 	}
 	id := NewID()
 	now := NowUTC()
+	// Upsert on (team_id, name): a host-runner that crashes and restarts
+	// should re-bind to its existing row rather than 409'ing. The returned
+	// id is whichever row now exists, old or new.
 	_, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO hosts (id, team_id, name, status, capabilities_json, created_at)
-		VALUES (?, ?, ?, 'online', ?, ?)`,
-		id, team, in.Name, caps, now)
+		INSERT INTO hosts (id, team_id, name, status, last_seen_at, capabilities_json, created_at)
+		VALUES (?, ?, ?, 'online', ?, ?, ?)
+		ON CONFLICT(team_id, name) DO UPDATE SET
+		    status = 'online',
+		    last_seen_at = excluded.last_seen_at,
+		    capabilities_json = excluded.capabilities_json`,
+		id, team, in.Name, now, caps, now)
 	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Always read back: on conflict, the real id is the existing row's.
+	var (
+		outID     string
+		createdAt string
+	)
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT id, created_at FROM hosts WHERE team_id = ? AND name = ?`,
+		team, in.Name).Scan(&outID, &createdAt); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, hostOut{
-		ID: id, TeamID: team, Name: in.Name, Status: "online",
-		Capabilities: json.RawMessage(caps), CreatedAt: now,
+		ID: outID, TeamID: team, Name: in.Name, Status: "online",
+		LastSeenAt: &now,
+		Capabilities: json.RawMessage(caps), CreatedAt: createdAt,
 	})
 }
 

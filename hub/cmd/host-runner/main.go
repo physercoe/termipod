@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/termipod/hub/internal/hostrunner"
@@ -72,6 +73,7 @@ func runDaemon(args []string) {
 	team := fs.String("team", "default", "team id")
 	name := fs.String("name", hostname(), "host display name")
 	hostID := fs.String("host-id", "", "known host id (skips registration)")
+	stateDir := fs.String("state-dir", defaultStateDir(), "directory for runner state (caches host_id across restarts)")
 	launcher := fs.String("launcher", "tmux", "launcher kind: stub|tmux")
 	session := fs.String("tmux-session", "hub-agents", "tmux session name (tmux launcher)")
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
@@ -98,6 +100,7 @@ func runDaemon(args []string) {
 		HostID:   *hostID,
 		Launcher: lnch,
 		Log:      log,
+		StateDir: *stateDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -115,6 +118,21 @@ func hostname() string {
 		return "host-unknown"
 	}
 	return h
+}
+
+// defaultStateDir resolves ~/.cache/termipod/host-runner for XDG-style
+// caching. Returns "" if HOME is unset — the runner treats an empty
+// state-dir as "don't persist," which still works (server UPSERT handles
+// the re-register).
+func defaultStateDir() string {
+	if xdg := os.Getenv("XDG_CACHE_HOME"); xdg != "" {
+		return filepath.Join(xdg, "termipod", "host-runner")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".cache", "termipod", "host-runner")
 }
 
 func die(msg string) {

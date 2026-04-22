@@ -25,6 +25,10 @@ type Runner struct {
 	PollInterval      time.Duration
 	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
 
+	// StateDir, when non-empty, caches host_id after the first register so
+	// a restart skips the register round-trip. Keyed by (hub, team, name).
+	StateDir string
+
 	idle      *IdleDetector
 	panes     map[string]paneState    // keyed by agent id
 	tailers   map[string]*Tailer      // keyed by agent id
@@ -62,6 +66,12 @@ func (a *Runner) defaults() {
 func (a *Runner) Start(ctx context.Context) error {
 	a.defaults()
 
+	if a.HostID == "" && a.StateDir != "" {
+		if id, ok := loadStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName); ok {
+			a.HostID = id
+			a.Log.Info("host-id loaded from state", "host_id", id, "name", a.HostName)
+		}
+	}
 	if a.HostID == "" {
 		id, err := a.Client.RegisterHost(ctx, a.HostName, nil)
 		if err != nil {
@@ -69,6 +79,11 @@ func (a *Runner) Start(ctx context.Context) error {
 		}
 		a.HostID = id
 		a.Log.Info("host registered", "host_id", id, "name", a.HostName)
+		if a.StateDir != "" {
+			if err := saveStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName, id); err != nil {
+				a.Log.Warn("save host-id failed", "err", err)
+			}
+		}
 	}
 
 	hb := time.NewTicker(a.HeartbeatInterval)

@@ -43,6 +43,10 @@ type agentOut struct {
 	IdleSince    *string         `json:"idle_since,omitempty"`
 	CreatedAt    string          `json:"created_at"`
 	TerminatedAt *string         `json:"terminated_at,omitempty"`
+	// Populated on the single-agent GET by joining agent_spawns; omitted
+	// from list-agents to keep that payload small.
+	SpawnSpecYaml   string          `json:"spawn_spec_yaml,omitempty"`
+	SpawnAuthority  json.RawMessage `json:"spawn_authority,omitempty"`
 }
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
@@ -138,6 +142,26 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// Pull the original spawn spec so the UI can show and reuse it. Agents
+	// created outside the spawn flow (e.g. via handleCreateAgent) have no
+	// row here — in that case we just leave the fields empty.
+	var (
+		specYaml  sql.NullString
+		authority sql.NullString
+	)
+	if qerr := s.db.QueryRowContext(r.Context(), `
+		SELECT spawn_spec_yaml, spawn_authority_json
+		  FROM agent_spawns
+		 WHERE child_agent_id = ?
+		 ORDER BY spawned_at DESC LIMIT 1`, id).
+		Scan(&specYaml, &authority); qerr == nil {
+		if specYaml.Valid {
+			a.SpawnSpecYaml = specYaml.String
+		}
+		if authority.Valid && authority.String != "" {
+			a.SpawnAuthority = json.RawMessage(authority.String)
+		}
 	}
 	writeJSON(w, http.StatusOK, a)
 }

@@ -1553,6 +1553,9 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   String? _journal;
   bool _journalLoaded = false;
   final _noteCtl = TextEditingController();
+  // Full agent row (fetched via GET /agents/{id}) includes the
+  // spawn_spec_yaml join; the list payload omits it to stay small.
+  Map<String, dynamic>? _full;
 
   String get _id => widget.agent['id']?.toString() ?? '';
   String get _handle => widget.agent['handle']?.toString() ?? '?';
@@ -1569,6 +1572,84 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   void initState() {
     super.initState();
     _loadPane();
+    _loadFull();
+  }
+
+  Future<void> _loadFull() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final out = await client.getAgent(_id);
+      if (!mounted) return;
+      setState(() => _full = out);
+    } catch (_) {
+      // Spec-fetch failure is non-fatal — the sheet still works without it.
+    }
+  }
+
+  String get _specYaml =>
+      (_full?['spawn_spec_yaml'] ?? '').toString();
+
+  Future<void> _respawn() async {
+    final spec = _specYaml;
+    if (spec.isEmpty) return;
+    final kind = (widget.agent['kind'] ?? '').toString();
+    final hostId = (widget.agent['host_id'] ?? '').toString();
+    final suggested =
+        '$_handle-r${DateTime.now().millisecondsSinceEpoch % 10000}';
+    final ctrl = TextEditingController(text: suggested);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Respawn from spec'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Spawns a new agent using the same spec. The original row stays '
+              'untouched — terminate it first if you want to free the handle.',
+              style: GoogleFonts.spaceGrotesk(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'New handle'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Respawn')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final newHandle = ctrl.text.trim();
+    if (newHandle.isEmpty) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final done = await _guard(() async {
+      await client.spawnAgent(
+        childHandle: newHandle,
+        kind: kind,
+        spawnSpecYaml: spec,
+        hostId: hostId.isEmpty ? null : hostId,
+      );
+      return true;
+    });
+    if (done != true || !mounted) return;
+    await ref.read(hubProvider.notifier).refreshAll();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Respawn requested: $newHandle')),
+      );
+    }
   }
 
   @override
@@ -1752,6 +1833,12 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                     icon: const Icon(Icons.stop_circle_outlined),
                     label: const Text('Terminate'),
                   ),
+                  if (_specYaml.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _respawn,
+                      icon: const Icon(Icons.replay),
+                      label: const Text('Respawn'),
+                    ),
                 ],
               ),
             ),
@@ -1854,6 +1941,28 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                       ),
                     ),
                   ),
+                  if (_specYaml.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    const _SectionHeader(title: 'Spawn spec'),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? DesignColors.surfaceDark
+                            : DesignColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isDark
+                              ? DesignColors.borderDark
+                              : DesignColors.borderLight,
+                        ),
+                      ),
+                      child: SelectableText(
+                        _specYaml,
+                        style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

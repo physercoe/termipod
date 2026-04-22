@@ -150,6 +150,15 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listAgents() =>
       _listJson('/v1/teams/${cfg.teamId}/agents');
 
+  /// Single-agent fetch. Includes `spawn_spec_yaml` + `spawn_authority`
+  /// pulled from the agent_spawns join when the agent was created via
+  /// /spawn. Agents created by other means (hand-crafted inserts) simply
+  /// won't carry those fields.
+  Future<Map<String, dynamic>> getAgent(String agentId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/agents/$agentId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Parent→child spawn edges. Each row has `parent_agent_id`,
   /// `child_agent_id`, `handle`, `kind`, `status`, plus the original
   /// spawn metadata. Used to render the agent org chart.
@@ -242,6 +251,38 @@ class HubClient {
       throw HubApiError(resp.statusCode, msg);
     }
     return resp.transform(utf8.decoder).join();
+  }
+
+  // ---- tokens (owner-only) ----
+
+  /// Lists all tokens for the team (metadata only, no plaintext). Requires
+  /// the caller to hold an owner-kind token; non-owners get 403.
+  Future<List<Map<String, dynamic>>> listTokens() =>
+      _listJson('/v1/teams/${cfg.teamId}/tokens');
+
+  /// Issues a new token and returns the plaintext exactly once. Treat the
+  /// response's `plaintext` field as write-once: show it to the user, then
+  /// drop it from memory — the hub never stores it.
+  Future<Map<String, dynamic>> issueToken({
+    String kind = 'user',
+    String role = 'principal',
+    String? handle,
+    String? expiresAt,
+  }) async {
+    final body = <String, dynamic>{'kind': kind, 'role': role};
+    if (handle != null && handle.isNotEmpty) body['handle'] = handle;
+    if (expiresAt != null && expiresAt.isNotEmpty) {
+      body['expires_at'] = expiresAt;
+    }
+    final out = await _post('/v1/teams/${cfg.teamId}/tokens', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> revokeToken(String id) async {
+    await _post(
+      '/v1/teams/${cfg.teamId}/tokens/$id/revoke',
+      const <String, dynamic>{},
+    );
   }
 
   /// Fetches the raw team policy.yaml. Returns an empty string when the

@@ -8,6 +8,7 @@ import 'audit_screen.dart';
 import 'budget_screen.dart';
 import 'schedules_screen.dart';
 import 'team_channel_screen.dart';
+import 'tokens_screen.dart';
 
 /// Team-level surface. Four sub-tabs:
 ///   - Members — coalesced principals (one row per `scope.handle`).
@@ -684,6 +685,15 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const AuditScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.key),
+          title: const Text('Tokens'),
+          subtitle: const Text('Invite humans, rotate host/agent tokens'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const TokensScreen(),
           )),
         ),
       ],

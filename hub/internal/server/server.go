@@ -232,6 +232,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Get("/audit", s.handleListAudit)
 		r.Get("/policy", s.handleGetPolicy)
 		r.Put("/policy", s.handlePutPolicy)
+		r.Route("/tokens", func(r chi.Router) {
+			r.Get("/", s.handleListTokens)
+			r.Post("/", s.handleIssueToken)
+			r.Post("/{id}/revoke", s.handleRevokeToken)
+		})
 	})
 
 	r.Route("/v1/blobs", func(r chi.Router) {

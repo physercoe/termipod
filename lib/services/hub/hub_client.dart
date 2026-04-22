@@ -331,13 +331,75 @@ class HubClient {
     required String name,
     String? docsRoot,
     String? configYaml,
+    // Blueprint §6.1 fields (P0.1):
+    String? goal,
+    String? kind, // 'goal' | 'standing'
+    String? parentProjectId,
+    String? templateId,
+    Map<String, dynamic>? parameters,
+    bool? isTemplate,
+    int? budgetCents,
+    String? stewardAgentId,
+    String? onCreateTemplateId,
+    Map<String, dynamic>? policyOverrides,
   }) async {
     final body = <String, dynamic>{'name': name};
     if (docsRoot != null && docsRoot.isNotEmpty) body['docs_root'] = docsRoot;
     if (configYaml != null && configYaml.isNotEmpty) {
       body['config_yaml'] = configYaml;
     }
+    if (goal != null) body['goal'] = goal;
+    if (kind != null) body['kind'] = kind;
+    if (parentProjectId != null) body['parent_project_id'] = parentProjectId;
+    if (templateId != null) body['template_id'] = templateId;
+    if (parameters != null) body['parameters_json'] = parameters;
+    if (isTemplate != null) body['is_template'] = isTemplate;
+    if (budgetCents != null) body['budget_cents'] = budgetCents;
+    if (stewardAgentId != null) body['steward_agent_id'] = stewardAgentId;
+    if (onCreateTemplateId != null) {
+      body['on_create_template_id'] = onCreateTemplateId;
+    }
+    if (policyOverrides != null) {
+      body['policy_overrides_json'] = policyOverrides;
+    }
     final out = await _post('/v1/teams/${cfg.teamId}/projects', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// PATCHes mutable project fields (P0.1). Pass only the fields you're
+  /// changing — null-valued keys are omitted from the body.
+  Future<Map<String, dynamic>> updateProject(
+    String projectId, {
+    String? name,
+    String? goal,
+    String? kind,
+    String? templateId,
+    Map<String, dynamic>? parameters,
+    int? budgetCents,
+    String? stewardAgentId,
+    String? onCreateTemplateId,
+    Map<String, dynamic>? policyOverrides,
+    String? docsRoot,
+  }) async {
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (goal != null) body['goal'] = goal;
+    if (kind != null) body['kind'] = kind;
+    if (templateId != null) body['template_id'] = templateId;
+    if (parameters != null) body['parameters_json'] = parameters;
+    if (budgetCents != null) body['budget_cents'] = budgetCents;
+    if (stewardAgentId != null) body['steward_agent_id'] = stewardAgentId;
+    if (onCreateTemplateId != null) {
+      body['on_create_template_id'] = onCreateTemplateId;
+    }
+    if (policyOverrides != null) {
+      body['policy_overrides_json'] = policyOverrides;
+    }
+    if (docsRoot != null) body['docs_root'] = docsRoot;
+    final out = await _patch(
+      '/v1/teams/${cfg.teamId}/projects/$projectId',
+      body,
+    );
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -603,39 +665,328 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
-  // ---- schedules (team-scoped) ----
+  // ---- schedules (team-scoped, blueprint §6.3) ----
+  //
+  // Schedules trigger a plan from a template — they never spawn agents
+  // directly (§7 forbidden pattern). Pre-P0.3 clients that POSTed a `spawn`
+  // block will get 400; the wire shape is a hard break at alpha.
 
-  Future<List<Map<String, dynamic>>> listSchedules() =>
-      _listJson('/v1/teams/${cfg.teamId}/schedules');
+  Future<List<Map<String, dynamic>>> listSchedules({String? projectId}) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/schedules',
+        query: projectId == null ? null : {'project': projectId},
+      );
 
-  /// Creates a cron schedule that spawns an agent when it fires. [spawn]
-  /// is the full spawn spec map (child_handle/kind/spawn_spec_yaml/etc.)
-  /// serialized as-is — see [spawnAgent] for the shape.
   Future<Map<String, dynamic>> createSchedule({
-    required String name,
-    required String cronExpr,
-    required Map<String, dynamic> spawn,
+    required String projectId,
+    required String templateId,
+    required String triggerKind, // 'cron' | 'manual' | 'on_create'
+    String? cronExpr,
+    Map<String, dynamic>? parameters,
     bool? enabled,
   }) async {
     final body = <String, dynamic>{
-      'name': name,
-      'cron_expr': cronExpr,
-      'spawn': spawn,
+      'project_id': projectId,
+      'template_id': templateId,
+      'trigger_kind': triggerKind,
     };
+    if (cronExpr != null && cronExpr.isNotEmpty) body['cron_expr'] = cronExpr;
+    if (parameters != null) body['parameters_json'] = parameters;
     if (enabled != null) body['enabled'] = enabled;
     final out = await _post('/v1/teams/${cfg.teamId}/schedules', body);
     return (out as Map).cast<String, dynamic>();
   }
 
-  Future<void> patchSchedule(String id, {required bool enabled}) async {
-    await _patch(
-      '/v1/teams/${cfg.teamId}/schedules/$id',
-      {'enabled': enabled},
-    );
+  /// PATCHes an existing schedule. Only cron schedules accept [cronExpr].
+  Future<void> patchSchedule(
+    String id, {
+    bool? enabled,
+    String? cronExpr,
+    Map<String, dynamic>? parameters,
+  }) async {
+    final body = <String, dynamic>{};
+    if (enabled != null) body['enabled'] = enabled;
+    if (cronExpr != null) body['cron_expr'] = cronExpr;
+    if (parameters != null) body['parameters_json'] = parameters;
+    await _patch('/v1/teams/${cfg.teamId}/schedules/$id', body);
   }
 
   Future<void> deleteSchedule(String id) =>
       _delete('/v1/teams/${cfg.teamId}/schedules/$id');
+
+  /// Manually fires a schedule, creating a plan row. Works for any
+  /// trigger_kind. Returns the new plan id.
+  Future<String> runSchedule(String id) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/schedules/$id/run',
+      const <String, dynamic>{},
+    );
+    return ((out as Map).cast<String, dynamic>()['plan_id'] ?? '').toString();
+  }
+
+  // ---- runs (blueprint §6.5) ----
+  //
+  // Runs are hub's lightweight record of a compute activity. Bulk data
+  // (checkpoints, tb logs) lives on the producing host; hub only stores
+  // name/status/metric URIs.
+
+  Future<List<Map<String, dynamic>>> listRuns({
+    String? projectId,
+    String? status,
+    int? limit,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null && projectId.isNotEmpty) q['project'] = projectId;
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    if (limit != null) q['limit'] = '$limit';
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/runs',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  Future<Map<String, dynamic>> getRun(String runId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/runs/$runId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> createRun({
+    required String projectId,
+    required String kind, // e.g. 'train', 'eval', 'notebook'
+    String? agentId,
+    String? parentRunId,
+    String? name,
+    Map<String, dynamic>? metadata,
+  }) async {
+    final body = <String, dynamic>{'project_id': projectId, 'kind': kind};
+    if (agentId != null) body['agent_id'] = agentId;
+    if (parentRunId != null) body['parent_run_id'] = parentRunId;
+    if (name != null) body['name'] = name;
+    if (metadata != null) body['metadata_json'] = metadata;
+    final out = await _post('/v1/teams/${cfg.teamId}/runs', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> completeRun(
+    String runId, {
+    required String status, // 'succeeded' | 'failed' | 'cancelled'
+    String? summary,
+  }) async {
+    final body = <String, dynamic>{'status': status};
+    if (summary != null) body['summary'] = summary;
+    await _post('/v1/teams/${cfg.teamId}/runs/$runId/complete', body);
+  }
+
+  Future<void> attachRunMetricURI(
+    String runId, {
+    required String kind, // e.g. 'tensorboard', 'wandb'
+    required String uri,
+  }) async {
+    await _post(
+      '/v1/teams/${cfg.teamId}/runs/$runId/metric_uri',
+      {'kind': kind, 'uri': uri},
+    );
+  }
+
+  // ---- documents + reviews (blueprint §6.7, §6.8) ----
+
+  Future<List<Map<String, dynamic>>> listDocuments({String? projectId}) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/documents',
+        query: projectId == null ? null : {'project': projectId},
+      );
+
+  Future<Map<String, dynamic>> getDocument(String docId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/documents/$docId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Either [contentInline] or [artifactId] must be non-null (server enforces
+  /// a XOR CHECK constraint).
+  Future<Map<String, dynamic>> createDocument({
+    required String projectId,
+    required String kind, // e.g. 'report', 'design', 'note'
+    required String title,
+    String? contentInline,
+    String? artifactId,
+    String? authorAgentId,
+  }) async {
+    final body = <String, dynamic>{
+      'project_id': projectId,
+      'kind': kind,
+      'title': title,
+    };
+    if (contentInline != null) body['content_inline'] = contentInline;
+    if (artifactId != null) body['artifact_id'] = artifactId;
+    if (authorAgentId != null) body['author_agent_id'] = authorAgentId;
+    final out = await _post('/v1/teams/${cfg.teamId}/documents', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<List<Map<String, dynamic>>> listDocumentVersions(String docId) =>
+      _listJson('/v1/teams/${cfg.teamId}/documents/$docId/versions');
+
+  Future<List<Map<String, dynamic>>> listReviews({
+    String? projectId,
+    String? status,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (status != null) q['status'] = status;
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/reviews',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  Future<Map<String, dynamic>> getReview(String reviewId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/reviews/$reviewId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> createReview({
+    required String documentId,
+    String? reviewerHandle,
+    String? note,
+  }) async {
+    final body = <String, dynamic>{'document_id': documentId};
+    if (reviewerHandle != null) body['reviewer_handle'] = reviewerHandle;
+    if (note != null) body['note'] = note;
+    final out = await _post('/v1/teams/${cfg.teamId}/reviews', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> decideReview(
+    String reviewId, {
+    required String decision, // 'approved' | 'rejected' | 'needs_changes'
+    String? note,
+  }) async {
+    final body = <String, dynamic>{'decision': decision};
+    if (note != null) body['note'] = note;
+    await _post(
+      '/v1/teams/${cfg.teamId}/reviews/$reviewId/decide',
+      body,
+    );
+  }
+
+  // ---- plans + plan_steps (blueprint §6.2) ----
+
+  Future<List<Map<String, dynamic>>> listPlans({
+    String? projectId,
+    String? status,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (status != null) q['status'] = status;
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/plans',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  Future<Map<String, dynamic>> getPlan(String planId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/plans/$planId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> createPlan({
+    required String projectId,
+    String? templateId,
+    int? version,
+    Map<String, dynamic>? spec,
+  }) async {
+    final body = <String, dynamic>{'project_id': projectId};
+    if (templateId != null) body['template_id'] = templateId;
+    if (version != null) body['version'] = version;
+    if (spec != null) body['spec_json'] = spec;
+    final out = await _post('/v1/teams/${cfg.teamId}/plans', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> updatePlan(
+    String planId, {
+    String? status, // blueprint §6.2 lifecycle values
+    Map<String, dynamic>? spec,
+  }) async {
+    final body = <String, dynamic>{};
+    if (status != null) body['status'] = status;
+    if (spec != null) body['spec_json'] = spec;
+    await _patch('/v1/teams/${cfg.teamId}/plans/$planId', body);
+  }
+
+  Future<List<Map<String, dynamic>>> listPlanSteps(String planId) =>
+      _listJson('/v1/teams/${cfg.teamId}/plans/$planId/steps');
+
+  Future<Map<String, dynamic>> createPlanStep(
+    String planId, {
+    required int phaseIdx,
+    required int stepIdx,
+    required String kind, // 'agent_spawn' | 'llm_call' | 'shell' | 'mcp_call' | 'human_decision'
+    Map<String, dynamic>? spec,
+  }) async {
+    final body = <String, dynamic>{
+      'phase_idx': phaseIdx,
+      'step_idx': stepIdx,
+      'kind': kind,
+    };
+    if (spec != null) body['spec_json'] = spec;
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/plans/$planId/steps',
+      body,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> updatePlanStep(
+    String planId,
+    String stepId, {
+    String? status,
+    String? agentId,
+    Map<String, dynamic>? inputRefs,
+    Map<String, dynamic>? outputRefs,
+  }) async {
+    final body = <String, dynamic>{};
+    if (status != null) body['status'] = status;
+    if (agentId != null) body['agent_id'] = agentId;
+    if (inputRefs != null) body['input_refs_json'] = inputRefs;
+    if (outputRefs != null) body['output_refs_json'] = outputRefs;
+    await _patch(
+      '/v1/teams/${cfg.teamId}/plans/$planId/steps/$stepId',
+      body,
+    );
+  }
+
+  // ---- host mutations (blueprint §5.3.2 / §5.3.3, P0.6) ----
+
+  /// Non-secret SSH connection hints the hub stores to help the phone bind
+  /// a hub-registered host to a local Connection. Secret keys (password,
+  /// private_key, passphrase, secret, token) are rejected by the server.
+  Future<void> updateHostSSHHint(
+    String hostId,
+    Map<String, dynamic> hint,
+  ) async {
+    await _patch(
+      '/v1/teams/${cfg.teamId}/hosts/$hostId/ssh_hint',
+      {'ssh_hint_json': hint},
+    );
+  }
+
+  /// Replaces the host's capabilities map (binary presence/version). Probed
+  /// by host-runner and heartbeated up; clients read this to drive the
+  /// driving-mode fallback list.
+  Future<void> updateHostCapabilities(
+    String hostId,
+    Map<String, dynamic> capabilities,
+  ) async {
+    final req = await _open(
+      'PUT',
+      '/v1/teams/${cfg.teamId}/hosts/$hostId/capabilities',
+    );
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode({'capabilities_json': capabilities})));
+    final resp = await req.close();
+    await _readJson(resp);
+  }
 
   // ---- project docs (read-only) ----
 

@@ -165,7 +165,7 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
               onToggle: (v) => _toggle((row['id'] ?? '').toString(), v),
               onDelete: () => _confirmDelete(
                 (row['id'] ?? '').toString(),
-                (row['name'] ?? '').toString(),
+                (row['template_id'] ?? row['id'] ?? '').toString(),
               ),
             ),
             const SizedBox(height: 8),
@@ -201,11 +201,16 @@ class _ScheduleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final name = (row['name'] ?? '').toString();
+    final template = (row['template_id'] ?? '').toString();
+    final trigger = (row['trigger_kind'] ?? 'cron').toString();
     final cron = (row['cron_expr'] ?? '').toString();
     final enabled = row['enabled'] == true;
     final nextRun = (row['next_run_at'] ?? '').toString();
     final lastRun = (row['last_run_at'] ?? '').toString();
+    final header = template.isEmpty ? '(unknown template)' : template;
+    final detail = trigger == 'cron' && cron.isNotEmpty
+        ? '$trigger · $cron'
+        : trigger;
 
     final meta = <String>[];
     if (nextRun.isNotEmpty) meta.add('next $nextRun');
@@ -228,11 +233,11 @@ class _ScheduleTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name.isEmpty ? '(unnamed)' : name,
+                Text(header,
                     style: GoogleFonts.spaceGrotesk(
                         fontSize: 14, fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
-                Text(cron,
+                Text(detail,
                     style: GoogleFonts.jetBrainsMono(
                       fontSize: 11,
                       color: isDark

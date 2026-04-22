@@ -1,11 +1,14 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 
-/// Bottom sheet for creating a cron schedule. Pops `true` on success so the
-/// caller reloads the schedule list.
+/// Bottom sheet for creating a schedule (blueprint §6.3). A schedule binds
+/// a project to a template with a trigger. Cron schedules require cron_expr;
+/// manual and on_create schedules don't. Pops `true` on success.
 class ScheduleCreateSheet extends ConsumerStatefulWidget {
   const ScheduleCreateSheet({super.key});
 
@@ -15,39 +18,78 @@ class ScheduleCreateSheet extends ConsumerStatefulWidget {
 }
 
 class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
-  final _name = TextEditingController();
   final _cron = TextEditingController();
-  final _handle = TextEditingController();
-  final _yaml = TextEditingController();
-  String _kind = 'claude_code';
+  final _template = TextEditingController();
+  final _params = TextEditingController();
+  String _triggerKind = 'cron';
+  String? _projectId;
+  List<Map<String, dynamic>> _projects = const [];
+  bool _loadingProjects = true;
   bool _busy = false;
   String? _error;
 
-  static const _kinds = ['claude_code', 'kimi_code', 'other'];
+  static const _triggers = ['cron', 'manual', 'on_create'];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProjects();
+  }
+
+  Future<void> _loadProjects() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final rows = await client.listProjects();
+      if (!mounted) return;
+      setState(() {
+        _projects = rows;
+        _projectId = rows.isNotEmpty ? (rows.first['id'] ?? '').toString() : null;
+        _loadingProjects = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingProjects = false;
+        _error = 'Load projects: $e';
+      });
+    }
+  }
 
   @override
   void dispose() {
-    _name.dispose();
     _cron.dispose();
-    _handle.dispose();
-    _yaml.dispose();
+    _template.dispose();
+    _params.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
-    if (_name.text.trim().isEmpty) {
-      setState(() => _error = 'Name required');
+    if (_projectId == null || _projectId!.isEmpty) {
+      setState(() => _error = 'Project required');
       return;
     }
-    if (_cron.text.trim().isEmpty) {
-      setState(() => _error = 'Cron expression required');
+    if (_template.text.trim().isEmpty) {
+      setState(() => _error = 'Template id required');
       return;
     }
-    if (_handle.text.trim().isEmpty) {
-      setState(() => _error = 'Child handle required');
+    if (_triggerKind == 'cron' && _cron.text.trim().isEmpty) {
+      setState(() => _error = 'Cron expression required for cron trigger');
       return;
+    }
+    Map<String, dynamic>? parameters;
+    final paramsText = _params.text.trim();
+    if (paramsText.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(paramsText);
+        if (decoded is! Map) throw const FormatException('not an object');
+        parameters = decoded.cast<String, dynamic>();
+      } catch (e) {
+        setState(() => _error = 'Parameters must be JSON object: $e');
+        return;
+      }
     }
     setState(() {
       _busy = true;
@@ -55,13 +97,11 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
     });
     try {
       await client.createSchedule(
-        name: _name.text.trim(),
-        cronExpr: _cron.text.trim(),
-        spawn: {
-          'child_handle': _handle.text.trim(),
-          'kind': _kind,
-          'spawn_spec_yaml': _yaml.text,
-        },
+        projectId: _projectId!,
+        templateId: _template.text.trim(),
+        triggerKind: _triggerKind,
+        cronExpr: _triggerKind == 'cron' ? _cron.text.trim() : null,
+        parameters: parameters,
       );
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
@@ -89,53 +129,70 @@ class _ScheduleCreateSheetState extends ConsumerState<ScheduleCreateSheet> {
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
+              if (_loadingProjects)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: LinearProgressIndicator(),
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _projectId,
+                  decoration: const InputDecoration(
+                    labelText: 'Project',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final p in _projects)
+                      DropdownMenuItem(
+                        value: (p['id'] ?? '').toString(),
+                        child: Text((p['name'] ?? p['id'] ?? '').toString()),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => _projectId = v),
+                ),
+              const SizedBox(height: 12),
               TextField(
-                controller: _name,
+                controller: _template,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  labelText: 'Name',
+                  labelText: 'Template id',
+                  hintText: 'agents/steward.v1.yaml',
                   border: OutlineInputBorder(),
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _cron,
                 style: GoogleFonts.jetBrainsMono(fontSize: 13),
-                decoration: const InputDecoration(
-                  labelText: 'Cron expression',
-                  hintText: '0 9 * * *',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _handle,
-                decoration: const InputDecoration(
-                  labelText: 'Child handle',
-                  border: OutlineInputBorder(),
-                ),
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _kind,
+                value: _triggerKind,
                 decoration: const InputDecoration(
-                  labelText: 'Kind',
+                  labelText: 'Trigger',
                   border: OutlineInputBorder(),
                 ),
                 items: [
-                  for (final k in _kinds)
-                    DropdownMenuItem(value: k, child: Text(k)),
+                  for (final t in _triggers)
+                    DropdownMenuItem(value: t, child: Text(t)),
                 ],
-                onChanged: (v) => setState(() => _kind = v ?? 'claude_code'),
+                onChanged: (v) => setState(() => _triggerKind = v ?? 'cron'),
               ),
               const SizedBox(height: 12),
+              if (_triggerKind == 'cron')
+                TextField(
+                  controller: _cron,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 13),
+                  decoration: const InputDecoration(
+                    labelText: 'Cron expression',
+                    hintText: '0 9 * * *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              if (_triggerKind == 'cron') const SizedBox(height: 12),
               TextField(
-                controller: _yaml,
+                controller: _params,
                 maxLines: 4,
                 style: GoogleFonts.jetBrainsMono(fontSize: 12),
                 decoration: const InputDecoration(
-                  labelText: 'Spawn spec (optional)',
-                  hintText: 'YAML spawn spec',
+                  labelText: 'Parameters (JSON, optional)',
+                  hintText: '{"key": "value"}',
                   border: OutlineInputBorder(),
                 ),
               ),

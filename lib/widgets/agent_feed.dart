@@ -378,7 +378,7 @@ class AgentEventCard extends StatelessWidget {
       children: [
         _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'id', id),
-        if (input != null) _mono(ctx, _jsonPretty(input)),
+        if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
       ],
     );
   }
@@ -393,7 +393,10 @@ class AgentEventCard extends StatelessWidget {
       children: [
         if (id.isNotEmpty) _kv(ctx, 'tool_use_id', id),
         if (isError) _kv(ctx, 'is_error', 'true'),
-        _mono(ctx, text),
+        _CollapsibleMono(
+          text: text,
+          color: isError ? DesignColors.error : null,
+        ),
       ],
     );
   }
@@ -551,5 +554,70 @@ class _CardHeader extends StatelessWidget {
     final local = dt.toLocal();
     String two(int n) => n < 10 ? '0$n' : '$n';
     return '${two(local.hour)}:${two(local.minute)}:${two(local.second)}';
+  }
+}
+
+/// Mono text that collapses past _kCollapseLines with a toggle. Long
+/// tool_call inputs and tool_result outputs would otherwise dominate the
+/// feed — a single grep result can push everything else off-screen.
+class _CollapsibleMono extends StatefulWidget {
+  final String text;
+  final Color? color;
+  const _CollapsibleMono({required this.text, this.color});
+
+  @override
+  State<_CollapsibleMono> createState() => _CollapsibleMonoState();
+}
+
+const int _kCollapseLines = 12;
+
+class _CollapsibleMonoState extends State<_CollapsibleMono> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final lines = widget.text.split('\n');
+    final overflow = lines.length > _kCollapseLines;
+    final shown = (overflow && !_expanded)
+        ? lines.take(_kCollapseLines).join('\n')
+        : widget.text;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SelectableText(
+          shown,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 11,
+            color: widget.color ??
+                (isDark
+                    ? DesignColors.textPrimary
+                    : DesignColors.textPrimaryLight),
+          ),
+        ),
+        if (overflow)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                minimumSize: const Size(0, 24),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: muted,
+              ),
+              child: Text(
+                _expanded
+                    ? 'Collapse'
+                    : 'Show all (${lines.length} lines)',
+                style: GoogleFonts.jetBrainsMono(fontSize: 10),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }

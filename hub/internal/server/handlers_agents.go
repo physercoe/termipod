@@ -43,6 +43,9 @@ type agentOut struct {
 	IdleSince    *string         `json:"idle_since,omitempty"`
 	CreatedAt    string          `json:"created_at"`
 	TerminatedAt *string         `json:"terminated_at,omitempty"`
+	// Mode is the resolved driving mode (M1|M2|M4). Empty for legacy
+	// rows predating the resolver; host-runner interprets empty as M4.
+	Mode string `json:"mode,omitempty"`
 	// Populated on the single-agent GET by joining agent_spawns; omitted
 	// from list-agents to keep that payload small.
 	SpawnSpecYaml   string          `json:"spawn_spec_yaml,omitempty"`
@@ -93,7 +96,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
-		       created_at, terminated_at
+		       created_at, terminated_at, COALESCE(driving_mode, '')
 		FROM agents WHERE team_id = ?`
 	args := []any{team}
 	if host := r.URL.Query().Get("host_id"); host != "" {
@@ -139,7 +142,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
-		       created_at, terminated_at
+		       created_at, terminated_at, COALESCE(driving_mode, '')
 		FROM agents WHERE team_id = ? AND id = ?`, team, id)
 	a, err := scanAgent(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -550,7 +553,7 @@ func scanAgent(r rowScanner) (agentOut, error) {
 		&a.ParentID, &a.HostID, &a.Status, &a.PaneID,
 		&a.WorktreePath, &a.JournalPath,
 		&budget, &a.SpentCents, &a.PauseState, &idleSince,
-		&a.CreatedAt, &termAt); err != nil {
+		&a.CreatedAt, &termAt, &a.Mode); err != nil {
 		return a, err
 	}
 	a.Backend = json.RawMessage(backend)

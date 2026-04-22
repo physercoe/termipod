@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_feed.dart';
 import 'archived_agents_screen.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
@@ -1570,6 +1571,11 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   String get _id => widget.agent['id']?.toString() ?? '';
   String get _handle => widget.agent['handle']?.toString() ?? '?';
   String get _status => widget.agent['status']?.toString() ?? 'unknown';
+  // Mode lives on the list row (P1 resolver output). Prefer the
+  // freshly-fetched full row when available so a spawn that was
+  // pending at open time picks up its resolved mode on first load.
+  String get _mode =>
+      (_full?['mode'] ?? widget.agent['mode'] ?? '').toString();
   String get _pauseState =>
       widget.agent['pause_state']?.toString() ?? 'running';
   bool get _isPaused => _pauseState == 'paused';
@@ -1829,6 +1835,10 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                         style: GoogleFonts.spaceGrotesk(
                             fontSize: 18, fontWeight: FontWeight.w700)),
                   ),
+                  if (_mode.isNotEmpty) ...[
+                    _Chip(text: _mode, color: DesignColors.primary),
+                    const SizedBox(width: 6),
+                  ],
                   _Chip(text: _status, color: _agentStatusColor(_status)),
                   if (_isPaused) ...[
                     const SizedBox(width: 6),
@@ -1902,126 +1912,164 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                children: [
-                  _SectionHeader(
-                    title: 'Pane capture',
-                    trailing: _hasPane
-                        ? TextButton.icon(
-                            onPressed:
-                                _busy ? null : () => _loadPane(refresh: true),
-                            icon: const Icon(Icons.refresh, size: 18),
-                            label: const Text('Refresh'),
-                          )
-                        : null,
-                  ),
-                  if (!_hasPane)
-                    Text('No pane attached yet.',
-                        style: TextStyle(color: mutedColor))
-                  else
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? DesignColors.surfaceDark
-                            : DesignColors.surfaceLight,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: isDark
-                              ? DesignColors.borderDark
-                              : DesignColors.borderLight,
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+              child: DefaultTabController(
+                length: 3,
+                child: Column(
+                  children: [
+                    TabBar(
+                      isScrollable: true,
+                      tabs: const [
+                        Tab(text: 'Feed'),
+                        Tab(text: 'Pane'),
+                        Tab(text: 'Journal'),
+                      ],
+                    ),
+                    Expanded(
+                      child: TabBarView(
                         children: [
-                          Text(
-                            _paneCapturedAt == null
-                                ? '(no capture yet)'
-                                : 'captured ${_shortTs(_paneCapturedAt!)} ago',
-                            style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10, color: mutedColor),
+                          // --- Feed: live agent_events from P1.1 drivers.
+                          AgentFeed(agentId: _id),
+                          // --- Pane capture (legacy M4 view).
+                          ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                            children: [
+                              _SectionHeader(
+                                title: 'Pane capture',
+                                trailing: _hasPane
+                                    ? TextButton.icon(
+                                        onPressed: _busy
+                                            ? null
+                                            : () => _loadPane(refresh: true),
+                                        icon: const Icon(Icons.refresh, size: 18),
+                                        label: const Text('Refresh'),
+                                      )
+                                    : null,
+                              ),
+                              if (!_hasPane)
+                                Text('No pane attached yet.',
+                                    style: TextStyle(color: mutedColor))
+                              else
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? DesignColors.surfaceDark
+                                        : DesignColors.surfaceLight,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? DesignColors.borderDark
+                                          : DesignColors.borderLight,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _paneCapturedAt == null
+                                            ? '(no capture yet)'
+                                            : 'captured ${_shortTs(_paneCapturedAt!)} ago',
+                                        style: GoogleFonts.jetBrainsMono(
+                                            fontSize: 10, color: mutedColor),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      SelectableText(
+                                        _paneText == null || _paneText!.isEmpty
+                                            ? '(empty — hit Refresh to request a fresh capture)'
+                                            : _paneText!,
+                                        style: GoogleFonts.jetBrainsMono(
+                                            fontSize: 11),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (_specYaml.isNotEmpty) ...[
+                                const SizedBox(height: 16),
+                                const _SectionHeader(title: 'Spawn spec'),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? DesignColors.surfaceDark
+                                        : DesignColors.surfaceLight,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? DesignColors.borderDark
+                                          : DesignColors.borderLight,
+                                    ),
+                                  ),
+                                  child: SelectableText(
+                                    _specYaml,
+                                    style: GoogleFonts.jetBrainsMono(
+                                        fontSize: 11),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          const SizedBox(height: 6),
-                          SelectableText(
-                            _paneText == null || _paneText!.isEmpty
-                                ? '(empty — hit Refresh to request a fresh capture)'
-                                : _paneText!,
-                            style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                          // --- Journal.
+                          ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                            children: [
+                              _SectionHeader(
+                                title: 'Journal',
+                                trailing: TextButton.icon(
+                                  onPressed: _busy ? null : _loadJournal,
+                                  icon: Icon(
+                                      _journalLoaded
+                                          ? Icons.refresh
+                                          : Icons.download,
+                                      size: 18),
+                                  label: Text(
+                                      _journalLoaded ? 'Refresh' : 'Load'),
+                                ),
+                              ),
+                              if (_journalLoaded)
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? DesignColors.surfaceDark
+                                        : DesignColors.surfaceLight,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isDark
+                                          ? DesignColors.borderDark
+                                          : DesignColors.borderLight,
+                                    ),
+                                  ),
+                                  child: SelectableText(
+                                    (_journal ?? '').isEmpty
+                                        ? '(empty — the agent hasn\'t written a journal yet)'
+                                        : _journal!,
+                                    style: GoogleFonts.jetBrainsMono(
+                                        fontSize: 11),
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              TextField(
+                                controller: _noteCtl,
+                                maxLines: 3,
+                                decoration: InputDecoration(
+                                  hintText: 'Append a note to the journal…',
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: IconButton(
+                                    icon: const Icon(Icons.send),
+                                    tooltip: 'Append',
+                                    onPressed:
+                                        _busy ? null : _appendJournal,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                     ),
-                  const SizedBox(height: 16),
-                  _SectionHeader(
-                    title: 'Journal',
-                    trailing: TextButton.icon(
-                      onPressed: _busy ? null : _loadJournal,
-                      icon: Icon(
-                          _journalLoaded ? Icons.refresh : Icons.download,
-                          size: 18),
-                      label: Text(_journalLoaded ? 'Refresh' : 'Load'),
-                    ),
-                  ),
-                  if (_journalLoaded)
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? DesignColors.surfaceDark
-                            : DesignColors.surfaceLight,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: isDark
-                              ? DesignColors.borderDark
-                              : DesignColors.borderLight,
-                        ),
-                      ),
-                      child: SelectableText(
-                        (_journal ?? '').isEmpty
-                            ? '(empty — the agent hasn\'t written a journal yet)'
-                            : _journal!,
-                        style: GoogleFonts.jetBrainsMono(fontSize: 11),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _noteCtl,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      hintText: 'Append a note to the journal…',
-                      border: const OutlineInputBorder(),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.send),
-                        tooltip: 'Append',
-                        onPressed: _busy ? null : _appendJournal,
-                      ),
-                    ),
-                  ),
-                  if (_specYaml.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    const _SectionHeader(title: 'Spawn spec'),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? DesignColors.surfaceDark
-                            : DesignColors.surfaceLight,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: isDark
-                              ? DesignColors.borderDark
-                              : DesignColors.borderLight,
-                        ),
-                      ),
-                      child: SelectableText(
-                        _specYaml,
-                        style: GoogleFonts.jetBrainsMono(fontSize: 11),
-                      ),
-                    ),
                   ],
-                ],
+                ),
               ),
             ),
           ],

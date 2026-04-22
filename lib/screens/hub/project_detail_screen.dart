@@ -7,13 +7,15 @@ import '../../theme/design_colors.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
+import 'project_channel_create_sheet.dart';
+import 'project_channel_screen.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
 import 'runs_screen.dart';
 import 'task_detail_screen.dart';
 
-/// Linear-style project detail. Horizontal PageView over six sections —
+/// Linear-style project detail. Horizontal PageView over seven sections —
 /// the pill bar and the PageView are bound to the same index so either
 /// tapping a pill or swiping the body flips both.
 ///
@@ -21,13 +23,14 @@ import 'task_detail_screen.dart';
 /// recent events across every channel in the project into a single feed.
 ///
 /// Tabs:
-///   0 Activity — recent events from all channels (backfilled, no SSE yet
-///                — we only stream the single channel the feed opens).
-///   1 Tasks    — Kanban over the project's tasks; FAB creates.
-///   2 Agents   — agents whose channel's project matches this one.
-///   3 Docs     — read-only tree of the project's docs_root.
-///   4 Blobs    — cached device-local blob list; upload + share.
-///   5 Info     — name, id, docs_root, config_yaml; archive action.
+///   0 Activity  — recent events from all channels (backfilled, no SSE
+///                 — we only stream the single channel the feed opens).
+///   1 Channels  — channel list + per-channel composer; FAB creates.
+///   2 Tasks     — Kanban over the project's tasks; FAB creates.
+///   3 Agents    — agents whose channel's project matches this one.
+///   4 Docs      — read-only tree of the project's docs_root.
+///   5 Blobs     — cached device-local blob list; upload + share.
+///   6 Info      — name, id, docs_root, config_yaml; archive action.
 class ProjectDetailScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> project;
   const ProjectDetailScreen({super.key, required this.project});
@@ -44,6 +47,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
 
   static const _labels = [
     'Activity',
+    'Channels',
     'Tasks',
     'Agents',
     'Docs',
@@ -127,6 +131,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               onPageChanged: (i) => setState(() => _index = i),
               children: [
                 _ActivityView(projectId: projectId),
+                _ChannelsView(projectId: projectId),
                 _TasksView(projectId: projectId),
                 _AgentsView(projectId: projectId),
                 DocsSection(projectId: projectId),
@@ -399,6 +404,183 @@ class _ActivityRow extends StatelessWidget {
     if (diff.inHours < 24) return '${diff.inHours}h';
     if (diff.inDays < 7) return '${diff.inDays}d';
     return '${(diff.inDays / 7).floor()}w';
+  }
+}
+
+// ---- Channels ----
+
+class _ChannelsView extends ConsumerStatefulWidget {
+  final String projectId;
+  const _ChannelsView({required this.projectId});
+
+  @override
+  ConsumerState<_ChannelsView> createState() => _ChannelsViewState();
+}
+
+class _ChannelsViewState extends ConsumerState<_ChannelsView> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _channels = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await client.listChannels(widget.projectId);
+      if (!mounted) return;
+      setState(() {
+        _channels = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  Future<void> _create() async {
+    final created = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) =>
+          ProjectChannelCreateSheet(projectId: widget.projectId),
+    );
+    if (created == null || !mounted) return;
+    setState(() => _channels = [..._channels, created]);
+  }
+
+  void _open(Map<String, dynamic> row) {
+    final id = (row['id'] ?? '').toString();
+    final name = (row['name'] ?? id).toString();
+    if (id.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProjectChannelScreen(
+          projectId: widget.projectId,
+          channelId: id,
+          channelName: name,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(_error!,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: DesignColors.error)),
+        ),
+      );
+    }
+    final body = _channels.isEmpty
+        ? const _Placeholder(text: 'No channels yet — tap + to create')
+        : RefreshIndicator(
+            onRefresh: _load,
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+              itemCount: _channels.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (_, i) => _ChannelRow(
+                row: _channels[i],
+                onTap: () => _open(_channels[i]),
+              ),
+            ),
+          );
+    return Stack(
+      children: [
+        body,
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: FloatingActionButton.extended(
+            heroTag: 'project-channel-fab-${widget.projectId}',
+            onPressed: _create,
+            icon: const Icon(Icons.add),
+            label: const Text('Channel'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChannelRow extends StatelessWidget {
+  final Map<String, dynamic> row;
+  final VoidCallback onTap;
+  const _ChannelRow({required this.row, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final name = (row['name'] ?? '').toString();
+    final id = (row['id'] ?? '').toString();
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isDark
+              ? DesignColors.surfaceDark
+              : DesignColors.surfaceLight,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isDark
+                ? DesignColors.borderDark
+                : DesignColors.borderLight,
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.tag, size: 18, color: DesignColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? '(unnamed)' : name,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (id.isNotEmpty)
+                    Text(
+                      id,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
+      ),
+    );
   }
 }
 

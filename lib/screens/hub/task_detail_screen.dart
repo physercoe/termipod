@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'task_edit_sheet.dart';
 
 /// Full-screen task detail. Shows title, body, status, and a status picker
 /// at the top. Edits patch the task and refetch before rendering so stale
@@ -60,6 +61,23 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     }
   }
 
+  Future<void> _openEditSheet() async {
+    final task = _task;
+    if (task == null) return;
+    final updated = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => TaskEditSheet(
+        projectId: widget.projectId,
+        task: task,
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() => _task = updated);
+    }
+  }
+
   Future<void> _setStatus(String s) async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
@@ -85,6 +103,13 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Task'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Edit task',
+            onPressed: _task == null ? null : _openEditSheet,
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())

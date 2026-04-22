@@ -160,6 +160,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{agent}", func(r chi.Router) {
 				r.Get("/", s.handleGetAgent)
 				r.Patch("/", s.handlePatchAgent)
+				r.Delete("/", s.handleArchiveAgent)
 				r.Get("/journal", s.handleReadJournal)
 				r.Post("/journal", s.handleAppendJournal)
 				r.Post("/pause", s.handlePauseAgent)

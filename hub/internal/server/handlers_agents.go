@@ -104,6 +104,13 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		q += " AND status = ?"
 		args = append(args, st)
 	}
+	// Archived rows stay in the DB for audit/history resolution but drop
+	// out of the default list. Pass ?include_archived=1 to see them
+	// (mobile uses this when the operator taps "Show archived").
+	inc := r.URL.Query().Get("include_archived")
+	if inc != "1" && inc != "true" {
+		q += " AND archived_at IS NULL"
+	}
 	q += " ORDER BY created_at"
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
@@ -234,6 +241,48 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
 			"terminate "+handle, map[string]any{"handle": handle})
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleArchiveAgent soft-deletes a terminated/failed/crashed agent so
+// it drops off the live list. The row stays in the DB to keep audit
+// events and spawn history resolvable. Refuses to archive a live agent —
+// operators must terminate it first.
+func (s *Server) handleArchiveAgent(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "agent")
+	var status, handle string
+	var archived sql.NullString
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT status, handle, archived_at FROM agents WHERE team_id = ? AND id = ?`,
+		team, id).Scan(&status, &handle, &archived)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "agent not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if archived.Valid {
+		writeErr(w, http.StatusConflict, "already archived")
+		return
+	}
+	if status != "terminated" && status != "failed" && status != "crashed" {
+		writeErr(w, http.StatusConflict, "terminate the agent before archiving")
+		return
+	}
+	now := NowUTC()
+	if _, err := s.db.ExecContext(r.Context(),
+		`UPDATE agents SET archived_at = ? WHERE team_id = ? AND id = ?`,
+		now, team, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.recordAudit(r.Context(), team, "agent.archive", "agent", id,
+		"archive "+handle,
+		map[string]any{"handle": handle, "status": status},
+	)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
+import 'archived_agents_screen.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
@@ -594,6 +595,15 @@ class _AgentsTabState extends ConsumerState<_AgentsTab> {
                       onSelectionChanged: (sel) =>
                           setState(() => _treeView = sel.first),
                       showSelectedIcon: false,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Archived agents',
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ArchivedAgentsScreen(),
+                      ),
                     ),
                   ),
                 ],
@@ -1564,7 +1574,9 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
       widget.agent['pause_state']?.toString() ?? 'running';
   bool get _isPaused => _pauseState == 'paused';
   bool get _isDead =>
-      _status == 'terminated' || _status == 'failed';
+      _status == 'terminated' ||
+      _status == 'failed' ||
+      _status == 'crashed';
   bool get _hasPane =>
       (widget.agent['pane_id']?.toString() ?? '').isNotEmpty;
 
@@ -1725,6 +1737,41 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     await ref.read(hubProvider.notifier).refreshAll();
   }
 
+  Future<void> _archive() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete "$_handle"?'),
+        content: const Text(
+            'Moves this terminated agent off the live list. The row stays in '
+            'the database so spawn history and audit events still resolve. '
+            'You can review archived agents from the hub menu.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final done = await _guard(() async {
+      await client.archiveAgent(_id);
+      return true;
+    });
+    if (done != true || !mounted) return;
+    await ref.read(hubProvider.notifier).refreshAll();
+    if (mounted) Navigator.pop(context);
+  }
+
   Future<void> _terminate() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1824,15 +1871,26 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                         _isPaused ? Icons.play_arrow : Icons.pause),
                     label: Text(_isPaused ? 'Resume' : 'Pause'),
                   ),
-                  FilledButton.icon(
-                    onPressed: (_busy || _isDead) ? null : _terminate,
-                    style: FilledButton.styleFrom(
-                      backgroundColor:
-                          Theme.of(context).colorScheme.error,
+                  if (!_isDead)
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _terminate,
+                      style: FilledButton.styleFrom(
+                        backgroundColor:
+                            Theme.of(context).colorScheme.error,
+                      ),
+                      icon: const Icon(Icons.stop_circle_outlined),
+                      label: const Text('Terminate'),
                     ),
-                    icon: const Icon(Icons.stop_circle_outlined),
-                    label: const Text('Terminate'),
-                  ),
+                  if (_isDead)
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _archive,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor:
+                            Theme.of(context).colorScheme.error,
+                      ),
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                    ),
                   if (_specYaml.isNotEmpty)
                     OutlinedButton.icon(
                       onPressed: _busy ? null : _respawn,

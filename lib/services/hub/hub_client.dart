@@ -147,8 +147,11 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listHosts() =>
       _listJson('/v1/teams/${cfg.teamId}/hosts');
 
-  Future<List<Map<String, dynamic>>> listAgents() =>
-      _listJson('/v1/teams/${cfg.teamId}/agents');
+  Future<List<Map<String, dynamic>>> listAgents({bool includeArchived = false}) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/agents',
+        query: includeArchived ? {'include_archived': '1'} : null,
+      );
 
   /// Single-agent fetch. Includes `spawn_spec_yaml` + `spawn_authority`
   /// pulled from the agent_spawns join when the agent was created via
@@ -501,6 +504,13 @@ class HubClient {
   Future<void> terminateAgent(String agentId) async {
     await _patch('/v1/teams/${cfg.teamId}/agents/$agentId',
         {'status': 'terminated'});
+  }
+
+  /// Soft-archives a terminated agent so it drops out of the live list.
+  /// The row stays in the DB so audit history continues to resolve.
+  /// Hub refuses with 409 if the agent is still live.
+  Future<void> archiveAgent(String agentId) async {
+    await _delete('/v1/teams/${cfg.teamId}/agents/$agentId');
   }
 
   /// Enqueues a SIGSTOP against the agent's pane process group. Returns

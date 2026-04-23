@@ -21,17 +21,25 @@ func TestListProjects_IsTemplateFilter(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
+	// Isolate this test from built-in seeds in the default team by running in
+	// its own team — Init() seeds project-templates into `default`.
+	const testTeam = "projfilter-test"
 	now := NowUTC()
+	if _, err := s.db.Exec(
+		`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		testTeam, testTeam, now); err != nil {
+		t.Fatalf("seed team: %v", err)
+	}
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)
 		 VALUES (?, ?, ?, ?, 'goal', 0)`,
-		"proj-concrete", defaultTeamID, "concrete", now); err != nil {
+		"proj-concrete", testTeam, "concrete", now); err != nil {
 		t.Fatalf("seed concrete: %v", err)
 	}
 	if _, err := s.db.Exec(
 		`INSERT INTO projects (id, team_id, name, created_at, kind, is_template)
 		 VALUES (?, ?, ?, ?, 'goal', 1)`,
-		"proj-template", defaultTeamID, "ablation-sweep", now); err != nil {
+		"proj-template", testTeam, "ablation-sweep", now); err != nil {
 		t.Fatalf("seed template: %v", err)
 	}
 
@@ -50,7 +58,7 @@ func TestListProjects_IsTemplateFilter(t *testing.T) {
 
 	for _, c := range cases {
 		req := httptest.NewRequest(http.MethodGet,
-			"/v1/teams/"+defaultTeamID+"/projects"+c.query, nil)
+			"/v1/teams/"+testTeam+"/projects"+c.query, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		rr := httptest.NewRecorder()
 		s.router.ServeHTTP(rr, req)

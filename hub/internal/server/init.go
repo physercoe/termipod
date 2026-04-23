@@ -42,6 +42,9 @@ func Init(dataRoot, dbPath string) (string, error) {
 	if err := ensureTeamChannel(ctx, db, "hub-meta"); err != nil {
 		return "", err
 	}
+	if err := seedBuiltinProjectTemplates(ctx, db); err != nil {
+		return "", err
+	}
 	if err := writeBuiltinTemplates(dataRoot); err != nil {
 		return "", err
 	}
@@ -87,6 +90,55 @@ func ensureTeam(ctx context.Context, db *sql.DB, id, name string) error {
 	_, err = db.ExecContext(ctx, `INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
 		id, name, NowUTC())
 	return err
+}
+
+// seedBuiltinProjectTemplates inserts the built-in project-template rows
+// (blueprint §6.1: is_template=1 project rows that serve as instantiation
+// blueprints for concrete runs). Idempotent via UNIQUE(team_id, name) +
+// INSERT OR IGNORE — user edits to the row survive re-init.
+//
+// The `ablation-sweep` template is the research-demo entry point: the user
+// instantiates it with concrete parameters, and the steward decomposes the
+// sweep per the recipe in prompts/steward.v1.md.
+func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB) error {
+	type projectTemplate struct {
+		name          string
+		kind          string
+		goal          string
+		parameters    map[string]any
+		onCreateTmpl  string
+	}
+	templates := []projectTemplate{
+		{
+			name: "ablation-sweep",
+			kind: "goal",
+			goal: "Run an ablation sweep over model sizes and optimizers on the target training repo. " +
+				"Default: nanoGPT-Shakespeare, AdamW vs Lion, n_embd {128,256,384}, 1000 iters.",
+			parameters: map[string]any{
+				"model_sizes": []int{128, 256, 384},
+				"optimizers":  []string{"adamw", "lion"},
+				"iters":       1000,
+			},
+			onCreateTmpl: "agents.steward",
+		},
+	}
+	for _, t := range templates {
+		params, err := json.Marshal(t.parameters)
+		if err != nil {
+			return fmt.Errorf("marshal parameters for %s: %w", t.name, err)
+		}
+		_, err = db.ExecContext(ctx, `
+			INSERT OR IGNORE INTO projects
+				(id, team_id, name, status, config_yaml, created_at,
+				 goal, kind, is_template, parameters_json, on_create_template_id)
+			VALUES (?, ?, ?, 'active', '', ?, ?, ?, 1, ?, ?)`,
+			NewID(), defaultTeamID, t.name, NowUTC(),
+			t.goal, t.kind, string(params), t.onCreateTmpl)
+		if err != nil {
+			return fmt.Errorf("insert project template %s: %w", t.name, err)
+		}
+	}
+	return nil
 }
 
 // writeBuiltinTemplates copies embedded templates into the data root on first

@@ -24,28 +24,20 @@ in `blueprint.md` §10 (Non-goals) or gets deferred — not listed here.
 
 ## Demo-blocker gaps
 
-### P4.1 — built-in project templates
+### P4.1 — built-in project templates — **PARTIAL v1.0.138**
 
-No project rows with `is_template=1` are seeded. The blueprint calls for four
-canonical templates so the demo has a real on-ramp:
+Seed path added: `seedBuiltinProjectTemplates` in
+`hub/internal/server/init.go` inserts `is_template=1` project rows on first
+init (idempotent via `INSERT OR IGNORE`). The `ablation-sweep` row ships
+with `parameters_json = {model_sizes, optimizers, iters}` and
+`on_create_template_id = agents.steward`, matching the locked demo choice.
 
-- `reproduce-paper` — inputs: paper URL + reference implementation; outputs:
-  reproduction report + training curves
-- `ablation-sweep` — inputs: base config + ablation axes; outputs: sweep
-  summary + per-run metrics
-- `write-memo` — inputs: topic + target length; outputs: reviewable memo doc
-- `benchmark-comparison` — inputs: models + benchmark name; outputs: leaderboard
-
-**Concretely required:**
-1. Seed data in `hub/internal/server/init.go` (or an idempotent
-   `seedBuiltinProjectTemplates` helper) that inserts four `projects` rows
-   with `is_template=1`, `kind='goal'`, `goal` set to a parameterized
-   string, `parameters_json` describing the inputs, and
-   `on_create_template_id` pointing at `agents/steward.v1.yaml`.
-2. Handler + mobile client call `listProjects(is_template=true)` — a
-   filter that already exists server-side but isn't exposed on the client.
-3. The project-create template picker must use that list, not the YAML
-   template list. See next item.
+Still open:
+- Ship `reproduce-paper`, `write-memo`, `benchmark-comparison` templates if
+  the demo ever needs more than one entry point.
+- Project-create picker does not yet render `parameters_json` as an input
+  form — selecting the ablation-sweep template still doesn't prompt for
+  parameter values. Lands with the mobile parameter-form wedge.
 
 ### Mobile project-template picker — **DONE v1.0.134**
 
@@ -59,35 +51,34 @@ form — selecting a template does not prompt the user for parameter values.
 That lands with the P4.1 seed wedge (when the first template with
 parameters exists to drive the UI).
 
-### P4.2 — steward decomposition recipe
+### P4.2 — steward decomposition recipe — **DONE v1.0.137**
 
-`hub/templates/prompts/steward.v1.md` is a generic "spawn agents, be
-concise" prompt. It does not contain the concrete decomposition recipe the
-demo needs: read `project.goal` + the template's plan outline, call
-`plan.instantiate`, advance phases, spawn workers for each step.
+`hub/templates/prompts/steward.v1.md` now carries a concrete
+"Decomposition recipe: ablation sweep" section that names the exact MCP
+tool sequence (`plan.instantiate` → `a2a.invoke` × N on `worker.ml` →
+collect → hand off to briefing). `plan.instantiate`, `plan.advance`, and
+`a2a.invoke` are listed in the steward's tool set.
 
-**Fix:**
-1. Rewrite `steward.v1.md` with a step-by-step decomposition recipe that
-   names the exact MCP tools (`plan.instantiate`, `plan.advance`,
-   `agents.spawn`) and the order to call them.
-2. Each built-in project template ships a *plan outline* the steward reads
-   — a short YAML/markdown sketch stored on the template project's
-   `config_yaml` or a sibling `plans/<template>.v1.yaml`.
+Still open: plan outlines stored as data (rather than inline in the
+prompt). For the single demo template this is fine; revisit if more
+templates land.
 
-### P4.3 — briefing agent + overnight schedule
+### P4.3 — briefing agent + overnight schedule — **PARTIAL v1.0.137**
 
-No `briefing.v1.yaml` template exists. No cron schedule that fires the
-briefing is seeded. The demo hinges on the user waking up to a summary
-document they can review on their phone.
+Templates shipped:
+- `hub/templates/agents/briefing.v1.yaml` — writer role, docs + reviews
+  capabilities, spawn.descendants=0.
+- `hub/templates/prompts/briefing.v1.md` — runbook writes a Goal / What
+  ran / Plot / Takeaway / Caveats doc, calls `documents.create` +
+  `reviews.request` so it surfaces in the mobile Inbox.
+- Also shipped: `hub/templates/agents/ml-worker.v1.yaml` +
+  `ml-worker.v1.md` — GPU-host worker that executes one A2A
+  `train(config)` task, writes a `runs` row, attaches a trackio URI.
 
-**Fix:**
-1. Ship `hub/templates/agents/briefing.v1.yaml` and
-   `hub/templates/prompts/briefing.v1.md`.
-2. When a project is created from a built-in template, the
-   `on_create_template_id` plan includes an `overnight` schedule that
-   runs the briefing agent daily at e.g. 06:00 local.
-3. Briefing agent's output is a document + an auto-requested review, so it
-   shows up in the mobile Inbox as a pending approval.
+Still open:
+- Overnight cron schedule is not auto-seeded on project creation. The
+  steward spawns the briefing agent directly via `agents.spawn` at
+  end-of-sweep for now.
 
 ## Degrades-demo gaps
 

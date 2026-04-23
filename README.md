@@ -121,15 +121,17 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 ### Termipod Hub (optional)
 
-Opt-in coordination layer for teams running multiple AI coding agents. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
+Opt-in coordination layer for teams running multiple AI coding agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
+
+**Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. Templates for ablation sweeps, paper reproductions, and benchmark comparisons ship with the hub.
 
 **Inbox** — unified triage: approvals, agent states (idle / errored), messages, and SSH sessions in one filterable feed. Tap a pending approval to Approve / Reject inline; tap the magnifier to full-text search across all hub events.
 
 **Hub** — four sub-tabs:
 - **Projects** — Linear-style project detail with Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info pill sections. Activity chat streams via SSE; Tasks are a filter-by-status Kanban with full-screen detail and markdown body preview; Plans render structured step specs with inline code blocks for prompts / commands; Runs show duration and render summaries as markdown; Reviews are filterable by project; Docs are a read-only browser over the project's `docs_root` with a markdown viewer; Blobs are cached device-local uploads shareable by any chat. Project name / goal / template / docs root / budget are all editable inline
-- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets. Terminated agents can be archived to a separate tombstone list with full spawn-spec and journal post-mortem
-- **Hosts** — host-runner check-ins with last-seen timestamps
-- **Templates** — browse team-wide agent / prompt / policy YAML
+- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets. Terminated agents can be archived to a separate tombstone list with full spawn-spec and journal post-mortem. Metrics digests from **trackio / wandb / TensorBoard** auto-surface as inline sparklines on the run detail screen
+- **Hosts** — host-runner check-ins with last-seen timestamps; hosts behind NAT publish agent-cards to the hub directory and accept peer A2A calls via a **reverse-tunnel relay** so steward agents on a VPS can invoke workers on GPU machines end-to-end
+- **Templates** — browse team-wide agent / prompt / policy YAML. Everything that drives behaviour — project templates, agent skills, launcher commands — is data you can edit on disk; no code changes required to add a new agent kind
 
 **Team** screen (header icon on Hub) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and **Settings** with cron **Schedules**, per-agent **Usage / budget** rollups, and an **Audit log** of policy / template / agent-lifecycle events.
 
@@ -208,15 +210,27 @@ flutter build ios --release
 
 Termipod's MVP is the **research demo** described in `docs/blueprint.md` §9 Phase 4:
 user writes a directive → steward decomposes → fleet executes runs across hosts →
-briefing agent summarizes overnight → user reviews on phone. Roadmap is tracked
-against that demo; shipped phases (P0–P2) are folded into the feature list above.
+briefing agent summarizes overnight → user reviews on phone.
 
-- **Built-in project templates** (P4.1) — seed "reproduce paper", "ablation sweep", "write memo", "benchmark comparison" so every install has a concrete directive on-ramp
-- **Steward decomposition recipe** (P4.2) — concrete prompt that reads `project.goal` + template plan outline, instantiates a plan, spawns workers per step
-- **Briefing agent + overnight schedule** (P4.3) — agent template + cron schedule that summarizes a project's runs into a reviewable document each night
-- **Trackio metrics integration** (P3.1) — host-runner consumes wandb/trackio HTTP so runs surface training curves inline
-- **Cross-host A2A relay** (P3.2–3.4) — host-runner A2A server + hub directory + reverse-tunnel relay so agents on different hosts can call each other
-- **iOS TestFlight / App Store distribution** — phone side of the demo needs signed builds
+The demo path is shipped end-to-end: built-in project templates (ablation-sweep,
+reproduce-paper, benchmark-comparison, write-memo) as YAML overlays, a concrete
+steward decomposition recipe, a briefing agent with cron scheduling, cross-host
+A2A via reverse-tunnel relay for NAT'd GPU hosts, and metric digests from
+trackio / wandb / TensorBoard surfaced as inline sparklines on the run detail
+screen. Every hub CRUD surface on mobile is also reachable from the steward as
+an MCP tool, so the phone is a ratify/review surface on top of what the
+steward has already authored.
+
+Still open:
+
+- **iOS TestFlight / App Store distribution** — Android APK ships; iOS builds
+  are local-only today. TestFlight is the next distribution step.
+- **Activity feed on projects / channels tabs** — the reframed v1.0.160 hub
+  screens demote "+ New" into overflow menus; surfacing a unified recent-
+  activity stream (runs, docs, attention, schedule fires) on landing is the
+  follow-up that makes the ratify/review posture feel right.
+- **A2A peer auth** — per-agent tokens on the reverse-tunnel relay so cross-
+  team calls can be authenticated end-to-end.
 
 See [docs/research-demo-gaps.md](docs/research-demo-gaps.md) for the live gap list
 and [docs/blueprint.md](docs/blueprint.md) §9 for the full phase plan.

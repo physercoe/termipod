@@ -121,13 +121,15 @@
 
 ### Termipod Hub（可选）
 
-面向团队协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后，TermiPod 将启用一整套工作区界面：
+面向团队在多台机器上协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后,TermiPod 将启用一整套工作区界面:
+
+**研究 Demo 工作流:** 在手机上写下项目 directive → Steward 代理将其分解为 plan → 工人代理通过跨主机 A2A 在 GPU 主机上并行执行 runs → Briefing 代理在夜间汇总为可评审的文档。每一步都会浮到手机上;用户是审批/评审者而非操作者。Hub 内置 ablation sweep、论文复现、benchmark 对比等模板。
 
 - **Inbox**（首页）— 整合 attention 项、未读频道、最近任务的统一工作流收件箱，支持搜索，顶部有待处理项 SliverAppBar
 - **Projects** — 项目清单与 Linear 风格详情页（Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info）。Activity 通过 SSE 流式聊天；Tasks 支持按状态筛选的看板，任务正文可切换 Markdown 预览；Plans 以结构化方式渲染步骤规格，提示 / 命令以代码块呈现；Runs 显示执行时长与 Markdown 格式的摘要；Reviews 支持按项目筛选；Docs 以只读 Markdown 查看器浏览项目的 `docs_root`；Blobs 是端侧缓存的上传文件，可在任意聊天中共享。项目名称 / 目标 / 模板 / docs root / 预算均可原地编辑
-- **Agents** — List / Tree 视图可切换；Tree 按 `agent_spawns` 渲染父→子组织图。FAB 打开 YAML **Spawn Agent** 表单，支持模板选择、主机选择与端侧 **保存预设**（handle + kind + YAML）。已终止的代理可归档到独立的墓碑列表，保留完整 spawn spec 与日志用于事后审计
-- **Hosts** — Host-agent 签到与最近在线时间
-- **Templates** — 浏览团队共享的 agent / prompt / policy YAML
+- **Agents** — List / Tree 视图可切换；Tree 按 `agent_spawns` 渲染父→子组织图。FAB 打开 YAML **Spawn Agent** 表单，支持模板选择、主机选择与端侧 **保存预设**（handle + kind + YAML）。已终止的代理可归档到独立的墓碑列表，保留完整 spawn spec 与日志用于事后审计。**trackio / wandb / TensorBoard** 指标摘要会自动以内嵌 sparkline 形式出现在 run 详情页
+- **Hosts** — Host-agent 签到与最近在线时间。NAT 背后的主机会把代理卡片发布到 hub 目录,并通过**反向隧道中继**接收 peer A2A 调用,因此 VPS 上的 Steward 代理可以端到端地调用 GPU 机器上的工人
+- **Templates** — 浏览团队共享的 agent / prompt / policy YAML。决定行为的东西 — 项目模板、代理 skills、launcher 命令 — 都是磁盘上可编辑的数据;新增代理 kind 无需改代码
 - **Team** 设置屏 — **Schedules**（cron 触发定时 spawn）、**Usage**（按项目 / 代理汇总的预算仪表盘）、**审计日志**（策略 / 模板 / 代理生命周期事件）、Members、Policies、Channels
 
 Hub 本体是 `hub/` 下的独立 Go 守护进程，可通过 `go install` 或直接运行源码部署。详见 [docs/hub-mobile-test.md](docs/hub-mobile-test.md)。
@@ -207,12 +209,23 @@ TermiPod 的 MVP 是 `docs/blueprint.md` §9 Phase 4 的**研究 Demo**：
 Briefing 代理在夜间汇总 → 用户在手机上评审。路线图围绕该 Demo 跟踪；
 已发布的 P0–P2 已并入上方功能列表。
 
-- **内置项目模板** (P4.1) — 种子化 "reproduce paper" / "ablation sweep" / "write memo" / "benchmark comparison"，让每个安装都有具体的 directive 入口
-- **Steward 分解 Recipe** (P4.2) — 具体提示词：读取 `project.goal` + 模板 plan 大纲，调用 plan.instantiate，按步骤 spawn 工人
-- **Briefing 代理 + 夜间 schedule** (P4.3) — 代理模板 + cron，每晚把项目的 runs 汇总为可评审文档
-- **Trackio 指标集成** (P3.1) — host-runner 消费 wandb/trackio HTTP，训练曲线内嵌到 runs 中
-- **跨主机 A2A 中继** (P3.2–3.4) — host-runner A2A 服务器 + hub 目录 + 反向隧道中继，不同主机上的代理可相互调用
-- **iOS TestFlight / App Store 分发** — Demo 的手机端需要签名构建
+Demo 路径已端到端就绪:以 YAML overlay 方式内置的项目模板
+(ablation-sweep / reproduce-paper / benchmark-comparison / write-memo)、
+具体的 Steward 分解 recipe、带 cron 的 Briefing 代理、为 NAT 背后
+GPU 主机准备的反向隧道中继用于跨主机 A2A、以及在 run 详情页以内嵌
+sparkline 呈现的 trackio / wandb / TensorBoard 指标摘要。手机上每一个
+hub CRUD 界面都有对应的 Steward MCP 工具,因此手机是"审批/评审"的场所,
+而非"操作"的场所。
+
+尚未完成:
+
+- **iOS TestFlight / App Store 分发** — Android APK 已发布;iOS 目前仅支持
+  本地构建。TestFlight 是下一步分发工作。
+- **Projects / Channels 标签页的活动流** — v1.0.160 已将各屏幕的 "+ 新建"
+  降级到溢出菜单。要让审批/评审姿态真正到位,剩下的是在登录页展示统一的
+  近期活动流(runs / docs / attention / schedule 触发)。
+- **A2A peer 认证** — 为反向隧道中继添加按代理的 token,使跨团队调用能端
+  到端地被鉴权。
 
 差距状态见 [docs/research-demo-gaps.md](docs/research-demo-gaps.md)，
 完整阶段计划见 [docs/blueprint.md](docs/blueprint.md) §9。

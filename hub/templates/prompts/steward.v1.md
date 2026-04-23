@@ -103,3 +103,29 @@ If any worker fails (`status='failed'`), do not auto-retry. Call
 `channels.post_event(channel="hub-meta", type="message", parts=[...])`
 naming the failed config and wait for {{principal.handle}} to decide
 whether to re-queue. Workers are cheap; debugging a silent retry loop is not.
+
+## Decomposition recipe: write-memo
+
+When a project instantiated from the `write-memo` template lands in your
+queue, parameters carry `{topic: str, context_doc_ids: [str], length: str}`
+and the goal says "draft a memo". No agents spawned, no hosts touched —
+this is a hub-local recipe.
+
+1. **Read context.** For each id in `context_doc_ids`, the docs are
+   already in the hub; reference them rather than re-deriving. If the
+   list is empty, treat {{principal.handle}}'s goal text as the sole
+   brief.
+2. **Draft.** Call `documents.create(project, kind="memo",
+   title=<topic>, body=<memo body>)`. Structure as **Goal** (one line),
+   **Findings** (bulleted), **Open questions** (bulleted). Honour
+   `length`: short ≈ 200 words, medium ≈ 500, long ≈ 1000. Don't pad.
+3. **Request review.** `reviews.create(project, document_id=<new doc
+   id>, reviewer={{principal.handle}}, question="review and sign
+   off?")` so the memo lands in the principal's Inbox.
+4. **Announce.** `channels.post_event(channel="hub-meta", type="message",
+   parts=[{kind:"text", text:"memo drafted: <title> — review pending"}])`
+   so the memo is discoverable from the hub-meta feed.
+
+If the topic is ambiguous (missing parameter, contradictory context
+docs), stop after step 1 and post a clarification request to
+`#hub-meta` — don't guess.

@@ -121,6 +121,24 @@ func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB) error {
 			},
 			onCreateTmpl: "agents.steward",
 		},
+		{
+			// write-memo: a lightweight "quick brief" template. The steward
+			// reads any named context docs, drafts a Goal / Findings / Open
+			// questions memo via documents.create, and requests review so it
+			// surfaces in the principal's Inbox. No agents spawned, no hosts
+			// touched — entirely hub-local, so it's a cheap ad-hoc wedge
+			// alongside the ablation sweep.
+			name: "write-memo",
+			kind: "goal",
+			goal: "Draft a short memo on {topic}. Read any context docs in context_doc_ids, " +
+				"structure as Goal / Findings / Open questions, and request review when done.",
+			parameters: map[string]any{
+				"topic":            "",
+				"context_doc_ids":  []string{},
+				"length":           "short",
+			},
+			onCreateTmpl: "agents.steward",
+		},
 	}
 	for _, t := range templates {
 		params, err := json.Marshal(t.parameters)

@@ -127,7 +127,7 @@ to approve. It read like a tiny paper section."
   ("target: worker@gpu.train, config: adamw-128"). Runs tab shows 6
   runs registered, first one `running`, trackio URIs attached.
 - **10min** All 6 runs complete. Sparkline cards stream live.
-- **End (~12min)** Briefing doc posted; review card in Inbox;
+- **End (~12min)** Briefing doc posted; review card in Me tab;
   3 paragraphs + 1 plot; Approve -> done.
 
 **Fleet topology:**
@@ -182,7 +182,7 @@ curve next to the paper's curve. I approved it over breakfast."
 - **2min** Human-gated checkpoint: "does this config look right?"
   posted as an approval. One tap.
 - **10min** Worker training. Live loss curve streams.
-- **End** Repro memo doc in Inbox: paper's reported number vs ours,
+- **End** Repro memo doc in Me tab: paper's reported number vs ours,
   delta, caveats. Review + approve.
 
 **Fleet topology.**
@@ -235,7 +235,7 @@ needed to read. Approved in three taps."
 - **30s-2min** Steward decomposes into: lit-review (STORM-style) on
   VPS, tiny train on GPU, synthesize.
 - **Overnight** Scheduled briefing collates into a single doc.
-- **Morning** Review in Inbox. Approve.
+- **Morning** Review in Me tab. Approve.
 
 **Fleet topology.**
 - steward(vps) drives a STORM-style lit phase entirely on the VPS (pure

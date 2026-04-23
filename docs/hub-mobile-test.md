@@ -279,34 +279,44 @@ SharedPreferences.
 
 ## 5. Walk the workspace
 
-The app splits Hub functionality across three surfaces:
+The IA redesign (v1.0.175–v1.0.182) rebuilt the workspace around five
+top-level tabs — **Me · Projects · Activity · Hosts · Settings** —
+center-anchored on Me. Team-level configuration lives under the
+**TeamSwitcher pill** (top-left of every tab) which opens Team Settings.
 
-- **Inbox** (bottom-nav center tab) — unified workflow feed. Attention
-  items, unread channels, and recent tasks roll up here. Search icon
-  in the app bar hits `/v1/search`.
-- **Hub** (bottom-nav tab) — four tabs over the registered inventory:
-  Projects · Agents · Hosts · Templates.
-- **Team settings** — people-icon button in the Hub app bar. Holds
-  Schedules, Usage, Members, Policies, Channels.
+- **Me** — your attention items + "My Work" strip. Director-first view:
+  what's waiting on a human decision, what the steward raised
+  (StewardBadge lights up on `actor_kind='agent'` + `actor_handle='steward'`
+  rows since v1.0.183), and "Since you were last here" digest.
+- **Projects** — one home for projects and their templates. Tap a
+  project for Overview · Tasks · Channels · Docs · Blobs · Agents.
+- **Activity** — team-wide audit/event feed. Steward filter chip in
+  the app bar isolates agent-originated rows.
+- **Hosts** — unified host inventory (SSH connections ∪ hub-registered
+  hosts joined on `hostBindingsProvider`).
+- **Settings** — app + account settings; Team Settings is reached via
+  the TeamSwitcher pill (Steward Config, Councils stub, Schedules, etc.).
 
-Pull-to-refresh works on every list view. SSE keeps the Inbox and
-project channels live.
+Pull-to-refresh works on every list view. SSE keeps Me and project
+channels live.
 
 | Surface | What to try |
 |---------|-------------|
-| **Inbox → Attention section** | The `decision` item you seeded shows up, with an orange severity chip. Tap **Approve** or **Reject** — the row disappears and a decision is recorded. |
-| **Inbox → search icon** | Full-text search over events, tasks, attention items. 350 ms debounce, autofocus TextField. |
-| **Hub → Projects → tap a project** | Linear-style detail page with Overview · Tasks · Channels · Docs · Blobs. Channel events stream live; excerpt parts render with a monospace line-number gutter. Docs renders markdown read-only. Blobs uploads / downloads content-addressed attachments (25 MiB cap, sha256 dedup). |
-| **Hub → Projects → tap a task** | Subtasks and parent chevron navigation. Create tasks with the project-scoped FAB. |
-| **Hub → Agents** | **List / Tree** toggle in the app bar. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
-| **Hub → Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`. |
-| **Hub → Templates** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
-| **Hub → Team → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |
-| **Hub → Team → Usage** | Per-project and per-agent budget rollup with progress bars (`spent_cents` / `budget_cents`). |
+| **Me → Attention** | The `decision` item you seeded shows up, with an orange severity chip and a **StewardBadge** next to the actor. Tap **Approve** or **Reject** — the row disappears and a decision is recorded. |
+| **Me → search icon** | Full-text search over events, tasks, attention items. 350 ms debounce, autofocus TextField. |
+| **Projects → tap a project** | Linear-style detail page with Overview · Tasks · Channels · Docs · Blobs · Agents. Channel events stream live; excerpt parts render with a monospace line-number gutter. Docs renders markdown read-only. Blobs uploads / downloads content-addressed attachments (25 MiB cap, sha256 dedup). |
+| **Projects → tap a task** | Subtasks and parent chevron navigation. Create tasks with the project-scoped FAB. |
+| **Projects → project detail → Agents tab** | **List / Tree** toggle. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
+| **Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`, alongside any SSH-only connections. |
+| **Projects → Templates row** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
+| **TeamSwitcher pill → Team Settings → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |
+| **TeamSwitcher pill → Team Settings → Usage** | Per-project and per-agent budget rollup with progress bars (`spent_cents` / `budget_cents`). |
+| **TeamSwitcher pill → Team Settings → Steward Config** | Form to edit the team steward's principal handle, tone, constraints (SharedPreferences-local today — server round-trip is an open follow-up). |
+| **Activity → Steward filter chip** | Restricts the feed to rows where `actor_kind='agent'` AND `actor_handle='steward'`. |
 
 ### Round-trip smoke test
 
-Open the project detail Channels tab (Hub → Projects → your project →
+Open the project detail Channels tab (Projects → your project →
 Channels → pick one) while running on the dev machine:
 
 ```bash

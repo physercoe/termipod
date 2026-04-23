@@ -98,7 +98,7 @@ Submit → one of two outcomes:
   to running once the host picks it up.
 - `"Spawn request sent — awaiting approval."` — policy-gated; an
   `approval_request` attention item is filed. Approvers (including
-  you, if you're on the list) can approve from the Inbox (attention
+  you, if you're on the list) can approve from the Me tab (attention
   section); the real spawn then happens.
 
 ### Can I spawn from mobile today?
@@ -113,7 +113,7 @@ What you cannot do yet from mobile:
 - Create a brand-new template; only *use* server-side templates or
   save device-local presets.
 - Approve-in-place on the spawn dialog — approvals live in the
-  Inbox's attention section.
+  Me tab's attention section.
 
 ## 5. Spawning from the REST API
 
@@ -171,8 +171,8 @@ tracked as a follow-up.
 ## 7. Spawning on a schedule
 
 `hub-server` supports cron-style schedules that spawn agents
-unattended. Manage them from mobile at **Hub → Team (people icon) →
-Schedules**, or via REST:
+unattended. Manage them from mobile at **TeamSwitcher pill (top-left)
+→ Schedules**, or via REST:
 
 - `POST /v1/teams/{team}/schedules` — create
 - `GET  /v1/teams/{team}/schedules` — list
@@ -240,8 +240,8 @@ What the mobile does **not** yet show:
 - Hub reachability from the device (HTTP probe or SSE connection
   state). The bootstrap screen probes on save but there's no
   persistent indicator in the dashboard header. A red "hub offline"
-  banner and a green dot next to the Hub tab title when the SSE
-  stream is connected would close this gap.
+  banner and a green dot in the app bar when the SSE stream is
+  connected would close this gap.
 - Per-agent *live* heartbeat — agents don't heartbeat; they update
   state implicitly through pane captures, the feed, and attention
   items.
@@ -286,6 +286,7 @@ curl -fsS -X PATCH -H "Authorization: Bearer $TOK" \
   -d '{"status":"terminated"}'
 ```
 
-From the mobile, the same flow is: **Hub → Agents → Spawn Agent FAB**
+From the mobile, the same flow is: **Projects → tap a project → Agents
+sub-tab → Spawn Agent FAB**
 → set handle `smoke-1`, pick the host, paste the backend.cmd line,
 submit. Watch the row flip to green ~3s later.

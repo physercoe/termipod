@@ -57,11 +57,13 @@ seed-demo: inserted demo state.
 Re-running is a no-op (prints "project already exists (id=…)
 — nothing written").
 
-On the phone: open TermiPod → **Inbox** tab. The seeded decision
-("Approve nightly sweep budget…") shows up as an attention item. Tap
-through → **Hub** tab → **Projects** → `ablation-sweep-demo` → tap
-each of the 6 runs to see the synthetic loss sparkline (bigger embed
-+ Lion converges lowest).
+On the phone: open TermiPod → **Me** tab. The seeded decision
+("Approve nightly sweep budget…") shows up as an attention item,
+stamped with a **StewardBadge** (authoritative since v1.0.183 —
+`actor_kind='agent'` + `actor_handle='steward'` on the row). Tap
+through → **Projects** tab → `ablation-sweep-demo` → tap each of the
+6 runs to see the synthetic loss sparkline (bigger embed + Lion
+converges lowest).
 
 This covers the *review* surface. It does not exercise the host-runner
 poller — those `run_metrics` rows were written directly by seed-demo.
@@ -143,7 +145,7 @@ INFO registered with hub host_id=host-abc…
 INFO heartbeat ok
 ```
 
-On the phone, open **Hub → Hosts** tab. Your host should appear within
+On the phone, open the **Hosts** tab. Your host should appear within
 10 s with a green "online" pill. Note the **host_id** — you'll need it
 for the run you're about to create.
 
@@ -195,7 +197,7 @@ next step creates the file.
   --size 384 --optimizer lion --iters 1000 --interval-ms 500
 ```
 
-On the phone: **Hub → Projects → mock-live → tap the run**. Within
+On the phone: **Projects → mock-live → tap the run**. Within
 20 s the sparkline populates from the first digest. Every 20 s
 afterwards host-runner polls, downsamples, and PUTs the updated
 digest; the sparkline extends rightward in near-real-time.

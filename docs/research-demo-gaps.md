@@ -18,7 +18,7 @@ in `blueprint.md` §10 (Non-goals) or gets deferred — not listed here.
 - Plan-step executor (llm_call, shell, mcp_call, human_decision, agent_spawn)
 - Hub MCP server + host-runner MCP gateway
 - AG-UI broker + SSE stream + structured input
-- Mobile AgentFeed, AgentCompose, plan viewer, workflows tab, triage (Inbox),
+- Mobile AgentFeed, AgentCompose, plan viewer, workflows tab, triage (Me tab),
   project / task / plan / run / review detail screens, templates browser
 - Team settings: schedules, budgets, audit log
 
@@ -71,7 +71,7 @@ Templates shipped:
   capabilities, spawn.descendants=0.
 - `hub/templates/prompts/briefing.v1.md` — runbook writes a Goal / What
   ran / Plot / Takeaway / Caveats doc, calls `documents.create` +
-  `reviews.create` so it surfaces in the mobile Inbox.
+  `reviews.create` so it surfaces in the mobile Me tab.
 - Also shipped: `hub/templates/agents/ml-worker.v1.yaml` +
   `ml-worker.v1.md` — GPU-host worker that executes one A2A
   `train(config)` task, writes a `runs` row, attaches a trackio URI.

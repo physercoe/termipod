@@ -41,7 +41,7 @@ walkthroughs.
   project with 6 completed runs, a briefing memo, a pending
   review, and one open attention item. Idempotent. Good for
   reviewing the already-finished project UI (Project Detail →
-  Run Detail → Docs → Reviews → Inbox).
+  Run Detail → Docs → Reviews → Me).
 
   ```
   hub-server seed-demo --data <hub-data-root>
@@ -68,35 +68,43 @@ the full pipeline recipe.
 
 ## 1. Smoke — bottom navigation & app boot
 
-_Verified against v1.0.49-alpha._
+_Updated for the IA redesign (v1.0.175–v1.0.182). Replaces the old
+Servers / Vaults / Inbox / Hub / Settings layout._
 
-The home screen shows five tabs, center-anchored on **Inbox**:
+The home screen shows five tabs — **Projects · Activity · Me · Hosts ·
+Settings** — center-anchored on **Me** (index 2), rendered as the big
+outset button:
 
-| Index | Tab      | Expected initial view |
-|-------|----------|-----------------------|
-| 0     | Servers  | Connection list (empty state or saved connections). |
-| 1     | Vaults   | Keys + Snippets. |
-| 2     | Inbox    | Default tab. SliverAppBar with title "Inbox" + search icon; filter chips below (All · Approvals · Agents · Messages · SSH). |
-| 3     | Hub      | If unconfigured: "Configure Hub" CTA. If configured: four-tab layout (Projects · Agents · Hosts · Templates) with the Steward pill, Team, Refresh, and Hub-settings icons in the AppBar. |
-| 4     | Settings | Scrollable settings list. |
+| Index | Tab       | Expected initial view |
+|-------|-----------|-----------------------|
+| 0     | Projects  | Project cards + Templates row. FAB creates a project. Project detail opens Overview · Tasks · Channels · Docs · Blobs · Agents. |
+| 1     | Activity  | Team-wide audit/event feed. Steward filter chip in the app bar isolates rows where `actor_kind='agent'` AND `actor_handle='steward'`. |
+| 2     | Me        | Default landing tab. Attention items + "My Work" strip + "Since you were last here" digest. StewardBadge lights up on steward-stamped rows (v1.0.183+). |
+| 3     | Hosts     | Unified inventory: SSH connections ∪ hub-registered hosts, joined on `hostBindingsProvider`. |
+| 4     | Settings  | Scrollable settings list. Team Settings is reached via the TeamSwitcher pill (top-left of every tab), not from here. |
 
 **Steps**
 
-1. Cold-launch the app. **Expected:** lands on Inbox (index 2). Tab
-   bar underline sits under "Inbox".
+1. Cold-launch the app. **Expected:** lands on Me (index 2). Center
+   button is raised/outset and highlighted.
 2. Tap every other tab left-to-right. **Expected:** each view renders
    without jank; no crashes.
-3. Kill the app and re-open. **Expected:** lands on Inbox again (not
-   the last-selected tab — center tab is the default).
+3. Kill the app and re-open. **Expected:** lands on Me again (not the
+   last-selected tab — center tab is the default).
+4. Tap the **TeamSwitcher pill** (top-left of any tab). **Expected:**
+   opens Team Settings with Councils · Steward · Schedules · Usage ·
+   Members · Policies · Channels tiles.
 
 ---
 
 ## 2. SSH / tmux round-trip
 
-_Verified against v1.0.49-alpha. Unchanged from v1.0.2x._
+_Verified against v1.0.49-alpha. The host creation flow now lives on
+the unified **Hosts** tab (IA Wedge 2) — SSH-only entries show up
+alongside hub-registered hosts._
 
-1. **Servers tab → +** → fill Host / Port / Username / Auth method →
-   save. **Expected:** row appears in the list.
+1. **Hosts tab → +** → fill Host / Port / Username / Auth method →
+   save. **Expected:** row appears in the list with scope "personal".
 2. Tap the new connection → **Connect**. **Expected:** session list
    loads; if none, the "no tmux sessions" empty state shows a
    **Create session** button.
@@ -114,29 +122,34 @@ _Verified against v1.0.49-alpha. Unchanged from v1.0.2x._
 
 ## 3. Hub bootstrap
 
-_Verified against v1.0.49-alpha._
+_Updated for the IA redesign. The standalone "Hub tab → Configure Hub"
+CTA is gone — hub connectivity is assumed by the Projects / Activity /
+Hosts tabs, which each show an empty-state bootstrap prompt if the hub
+isn't configured yet._
 
-1. **Hub** tab → **Configure Hub**. (Or: Settings → Termipod Hub →
-   Open Hub Dashboard.)
+1. Open **Settings → Termipod Hub → Open Hub Dashboard**. (Or tap the
+   bootstrap prompt on any of Projects / Activity / Hosts.)
 2. Fill:
    - **Base URL:** `https://hub.example.com` or `http://<lan-ip>:8443`
    - **Team ID:** `default`
    - **Bearer Token:** paste the owner or user token.
 3. Tap **Probe URL**. **Expected:** green banner showing server
    version (e.g. `server_version: "0.4.x"`).
-4. Tap **Save & Connect**. **Expected:** returned to Hub tab, now
-   showing the 4-tab layout.
+4. Tap **Save & Connect**. **Expected:** returned to Settings; the
+   Projects / Activity / Hosts tabs now render their hub-backed lists.
 5. Kill + relaunch. **Expected:** configuration persists; no second
    bootstrap prompt.
 
 ---
 
-## 4. Inbox — unified attention/feed/tasks
+## 4. Me tab — unified attention/feed/tasks
 
-_Verified against v1.0.49-alpha._
+_Renamed from "Inbox" by the IA redesign (v1.0.175); same underlying
+feed, new framing as the director's personal desk._
 
-The Inbox collapses attention items, recent channel events, and
-in-progress tasks into one feed with filter chips.
+The Me tab collapses attention items, recent channel events, and
+in-progress tasks into one feed with filter chips, plus a "My Work"
+strip and a "Since you were last here" digest card.
 
 ### 4.1 Seed test data
 
@@ -159,7 +172,7 @@ curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
   -d '{"type":"message","from_id":"@ops","parts":[{"kind":"text","text":"hello inbox"}]}'
 ```
 
-### 4.2 Inbox behaviors
+### 4.2 Me tab behaviors
 
 1. Pull-to-refresh. **Expected:** items reload; newest at top.
 2. Tap chip **Approvals**. **Expected:** only the seeded decision item
@@ -174,7 +187,7 @@ curl -fsS -H "Authorization: Bearer $TOK" -H 'content-type: application/json' \
 
 _Search screen talks to `GET /v1/search` (SQLite FTS5)._
 
-1. Tap the **search icon** in the Inbox AppBar. **Expected:** opens
+1. Tap the **search icon** in the Me AppBar. **Expected:** opens
    a dedicated screen with an autofocused TextField.
 2. Type `hello`. **Expected:** after ~350 ms debounce, results show
    the "hello inbox" event with its channel + timestamp.
@@ -187,37 +200,44 @@ _Search screen talks to `GET /v1/search` (SQLite FTS5)._
 
 ---
 
-## 5. Hub tab — 4-tab layout
+## 5. Projects / Hosts — the hub-backed surfaces
 
-_Verified against v1.0.49-alpha._
+_Rewritten for the IA redesign. The old 4-tab "Hub" screen was
+flattened into top-level **Projects** and **Hosts** tabs; Agents moved
+into project detail; Templates live under Projects as a one-home row._
 
-Tabs in the Hub app bar: **Projects · Agents · Hosts · Templates**.
-AppBar actions: **Steward pill**, **Team** (people icon), **Refresh**,
-**Hub settings** (gear).
+Top-level app bar (any hub-backed tab) actions: **TeamSwitcher pill**
+(top-left — opens Team Settings), **StewardBadge** where applicable,
+**Refresh**, **search**.
 
-### 5.1 Steward pill
+### 5.1 TeamSwitcher pill + Steward
 
-1. Locate the Steward pill in the Hub AppBar (leftmost action).
-   **Expected:** centered vertically with the neighbouring icons,
-   readable contrast in both light and dark themes (chip bg uses
-   `primaryContainer`, text/icon uses `onPrimaryContainer`). Tooltip
-   on long-press reads "Open #hub-meta (steward)".
-2. Tap it. **Expected:** navigates to the `#hub-meta` team channel.
-   If the channel is missing, a SnackBar reports so.
+1. Locate the TeamSwitcher pill at the top-left of the app bar.
+   **Expected:** readable contrast in both light/dark themes. Long-press
+   tooltip shows the current team handle.
+2. Tap it. **Expected:** opens Team Settings with tiles for
+   **Councils · Steward · Schedules · Usage · Members · Policies ·
+   Channels**.
+3. Tap **Steward**. **Expected:** Steward Config form with principal
+   handle, tone, constraints (SharedPreferences-local today — server
+   round-trip is an open follow-up).
 
 ### 5.2 Projects tab
 
 1. Pull-to-refresh. **Expected:** project cards render with a
-   created-at timestamp; FAB is bottom-right.
+   created-at timestamp; FAB is bottom-right. A **Templates** row
+   underneath lists YAML agent templates grouped by category under
+   `<dataRoot>/default/templates/<category>/` — tap one for a raw
+   YAML preview.
 2. Tap the **+** FAB → enter a name → **Create**. **Expected:** new
    card appears at the top with the timestamp you just created.
-3. Tap the new card. **Expected:** Linear-style project detail
-   screen with a horizontal pill bar over six pages:
-   **Activity · Tasks · Agents · Docs · Blobs · Info**.
+3. Tap the new card. **Expected:** Linear-style project detail screen
+   with a horizontal pill bar over six pages:
+   **Overview · Tasks · Channels · Docs · Blobs · Agents**.
 
-### 5.3 Agents tab
+### 5.3 Project detail → Agents
 
-1. Toggle **List / Tree** in the app bar. **Expected:** List is a
+1. Toggle **List / Tree** in the sub-app-bar. **Expected:** List is a
    flat table; Tree renders `agent_spawns` parent → child graph with
    indent (cycle-safe).
 2. Long-press a preset chip (if any exist). **Expected:** delete
@@ -226,21 +246,16 @@ AppBar actions: **Steward pill**, **Team** (people icon), **Refresh**,
 
 ### 5.4 Hosts tab
 
-1. **Expected:** rows for every host that has ever registered, with
-   `last_seen_at` in the trailing column and `status: online` /
-   `status: offline` in the subtitle. The server sweeps hosts to
-   `offline` when `last_seen_at` falls more than 90 s behind; wait
-   ~2 min after stopping a host-runner to see the flip.
-2. Swipe a host (or tap it → **Delete host**). **Expected:** 409
-   Conflict if any non-terminated agents still reference it;
-   otherwise the row disappears and an audit row is written (see §6
-   on Audit Log).
-
-### 5.5 Templates tab
-
-1. **Expected:** templates grouped by category under
-   `<dataRoot>/default/templates/<category>/`. Tap one. **Expected:**
-   raw YAML preview in a sheet.
+1. **Expected:** unified list: SSH connections (from the old Servers
+   tab) ∪ hub-registered hosts, joined on `hostBindingsProvider`.
+   Hub-registered rows show `last_seen_at` and `status: online` /
+   `status: offline`; the server sweeps to `offline` when
+   `last_seen_at` falls > 90 s behind (~2 min after a host-runner
+   stops).
+2. Swipe a hub-registered host (or tap it → **Delete host**).
+   **Expected:** 409 Conflict if any non-terminated agents still
+   reference it; otherwise the row disappears and an audit row is
+   written (see §6 on Audit Log).
 
 ---
 
@@ -312,12 +327,12 @@ verify one row lands in the Audit Log under the right filter:
 
 | Action                | How to trigger                          | Filter     |
 |-----------------------|-----------------------------------------|------------|
-| `agent.spawn`         | Hub → Agents → Spawn Agent FAB          | Spawn      |
+| `agent.spawn`         | Projects → project → Agents → Spawn FAB | Spawn      |
 | `agent.terminate`     | Tap agent → Terminate (or PATCH status) | Terminate  |
-| `attention.decide`    | Inbox → Approve/Reject an attention row | Decide     |
-| `schedule.create`     | Team → Settings → Schedules → **+**     | Schedule   |
-| `schedule.delete`     | Team → Settings → Schedules → trash     | Schedule   |
-| `host.delete`         | Hub → Hosts → tap row → Delete host     | Host       |
+| `attention.decide`    | Me → Approve/Reject an attention row    | Decide     |
+| `schedule.create`     | TeamSwitcher pill → Schedules → **+**   | Schedule   |
+| `schedule.delete`     | TeamSwitcher pill → Schedules → trash   | Schedule   |
+| `host.delete`         | Hosts → tap row → Delete host           | Host       |
 
 Direct REST probe of the endpoint:
 
@@ -342,7 +357,7 @@ _Verified against v1.0.49-alpha._
 
 ### 7.1 Direct (no policy gate)
 
-1. Hub → Agents → **Spawn Agent** FAB.
+1. Projects → tap a project → **Agents** sub-tab → **Spawn Agent** FAB.
 2. Handle: `smoke-1`. Kind: `claude-code`. Host: pick an online host.
    Spec YAML:
 
@@ -365,7 +380,7 @@ _Verified against v1.0.49-alpha._
 1. Edit the team policy to set `spawn: significant` (requires an
    approver group). Restart `hub-server` (policy is loaded on boot).
 2. Repeat §7.1 step 2. **Expected:** SnackBar `Spawn request sent —
-   awaiting approval.` No `agents` row yet; a new Inbox row appears
+   awaiting approval.` No `agents` row yet; a new Me-tab row appears
    under **Approvals**.
 3. Open that attention row → **Approve**. **Expected:** real spawn
    fires, the agent row appears and flips to running. Audit Log
@@ -381,7 +396,7 @@ _Verified against v1.0.49-alpha._
 
 _Verified against v1.0.49-alpha (Phase 2)._
 
-From Hub → Projects → tap a project → horizontal pill bar:
+From Projects → tap a project → horizontal pill bar:
 **Activity · Tasks · Agents · Docs · Blobs · Info**.
 
 ### 8.1 Activity + composer
@@ -437,7 +452,7 @@ Not feature areas but things easy to break:
    chips are readable in both.
 2. **Offline re-open.** Kill the app in airplane mode → reopen.
    **Expected:** UI renders the last known state; error banners are
-   non-blocking; Inbox shows a "Failed to refresh" strip, not a full
+   non-blocking; Me tab shows a "Failed to refresh" strip, not a full
    crash screen.
 3. **Token rotation.** Swap the saved token for an invalid one in
    Hub settings. **Expected:** all REST calls 401; the app surfaces
@@ -464,7 +479,7 @@ roadmap / caveats:
   state replaces the old "stale running" behaviour: if a pane
   disappears or the CLI exits, the host-runner reconcile loop will
   flip the row on its next tick.
-- **Stream memory cap.** Inbox / project channels keep ~200 events
+- **Stream memory cap.** Me tab / project channels keep ~200 events
   in memory.
 - **No push notifications.** The app updates while foreground only.
 - **No token rotation UI.** Issue a new token via CLI and swap it in.

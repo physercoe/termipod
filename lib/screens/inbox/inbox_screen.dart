@@ -2,37 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../../providers/active_session_provider.dart';
-import '../../providers/hub_provider.dart';
-import '../../providers/session_history_provider.dart';
-import '../../theme/design_colors.dart';
-import '../hub/search_screen.dart';
-import '../terminal/terminal_screen.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
-/// Inbox: single surface that collapses everything that wants the user's
-/// attention into one scannable list. Replaces the old "recent sessions"
-/// dashboard which duplicated the Active Sessions tab.
+import '../../providers/hub_provider.dart';
+import '../../theme/design_colors.dart';
+import '../hub/project_detail_screen.dart';
+import '../hub/search_screen.dart';
+
+/// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
-/// Sources, by filter chip:
-///   - Approvals — attention items with kind in
-///     {approval_request, decision, template_proposal}.
-///   - Agents    — attention items with kind='idle' (host-runner flags agents
-///     whose pane output has been stable past threshold).
-///   - Messages  — every other attention kind (mentions, generic decisions).
-///   - SSH       — detached tmux sessions, surfaced so the user can
-///     reattach without hunting them down in the Servers tab.
+/// Sections, top-down:
+///   - My Work — horizontal strip of recent projects (tap → ProjectDetail).
+///   - Attention — open attention items assigned to or relevant to me,
+///     filterable by kind.
+///
+/// Wedge 3 scope: rename Inbox→Me, strip SSH reattach rows (moved to Hosts
+/// in Wedge 2), add the My Work strip. The "Since you were last here"
+/// digest lands in Wedge 5 when Activity gains a digest shape.
+///
+/// Attention sources by filter chip:
+///   - Approvals — kind ∈ {approval_request, decision, template_proposal}.
+///   - Agents    — kind='idle' / 'agent_error'.
+///   - Messages  — every other attention kind.
 class InboxScreen extends ConsumerWidget {
   const InboxScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hub = ref.watch(hubProvider);
-    final sessions = ref.watch(sessionHistoryProvider);
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
 
     final hubState = hub.value ?? const HubState();
-    final items = _buildItems(hubState.attention, sessions);
+    final items = _buildItems(hubState.attention);
+    final projects = _recentProjects(hubState.projects);
     final filter = ref.watch(_filterProvider);
     final filtered = items.where(filter.matches).toList();
 
@@ -65,7 +69,7 @@ class InboxScreen extends ConsumerWidget {
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    'Inbox',
+                    l10n.tabMe,
                     style: GoogleFonts.spaceGrotesk(
                       fontSize: 24,
                       fontWeight: FontWeight.w700,
@@ -85,6 +89,15 @@ class InboxScreen extends ConsumerWidget {
                   ),
                 ),
               ],
+            ),
+            if (projects.isNotEmpty)
+              SliverToBoxAdapter(
+                child: _MyWorkStrip(projects: projects),
+              ),
+            SliverToBoxAdapter(
+              child: _SectionLabel(
+                text: l10n.meAttentionSection,
+              ),
             ),
             SliverToBoxAdapter(
               child: _FilterBar(
@@ -118,19 +131,28 @@ class InboxScreen extends ConsumerWidget {
     );
   }
 
-  List<_InboxItem> _buildItems(
-    List<Map<String, dynamic>> attention,
-    List<ActiveSession> sessions,
-  ) {
+  List<_InboxItem> _buildItems(List<Map<String, dynamic>> attention) {
     final out = <_InboxItem>[];
     for (final a in attention) {
       out.add(_InboxItem.attention(a));
     }
-    for (final s in sessions.where((s) => !s.isAttached)) {
-      out.add(_InboxItem.ssh(s));
-    }
     out.sort((a, b) => b.ts.compareTo(a.ts));
     return out;
+  }
+
+  /// Most-recent projects for the "My Work" strip. Cap at 6 so the strip
+  /// fits one horizontal flick; full list still reachable from the Projects
+  /// tab.
+  List<Map<String, dynamic>> _recentProjects(
+      List<Map<String, dynamic>> projects) {
+    if (projects.isEmpty) return const [];
+    final sorted = [...projects];
+    sorted.sort((a, b) {
+      final ta = (a['updated_at'] ?? a['created_at'] ?? '').toString();
+      final tb = (b['updated_at'] ?? b['created_at'] ?? '').toString();
+      return tb.compareTo(ta);
+    });
+    return sorted.take(6).toList();
   }
 
   Map<_Filter, int> _countsByFilter(List<_InboxItem> items) {
@@ -144,7 +166,7 @@ class InboxScreen extends ConsumerWidget {
   }
 }
 
-enum _Filter { all, approvals, agents, messages, ssh }
+enum _Filter { all, approvals, agents, messages }
 
 extension _FilterX on _Filter {
   String get label {
@@ -157,8 +179,6 @@ extension _FilterX on _Filter {
         return 'Agents';
       case _Filter.messages:
         return 'Messages';
-      case _Filter.ssh:
-        return 'SSH';
     }
   }
 
@@ -185,9 +205,7 @@ class _InboxItem {
   final String? subtitle;
   final DateTime ts;
   final String? severity;
-  // Only one of these is set; drives which handler the card calls.
   final Map<String, dynamic>? attention;
-  final ActiveSession? sshSession;
 
   const _InboxItem({
     required this.id,
@@ -198,7 +216,6 @@ class _InboxItem {
     this.subtitle,
     this.severity,
     this.attention,
-    this.sshSession,
   });
 
   factory _InboxItem.attention(Map<String, dynamic> a) {
@@ -215,16 +232,6 @@ class _InboxItem {
       attention: a,
     );
   }
-
-  factory _InboxItem.ssh(ActiveSession s) => _InboxItem(
-        id: s.key,
-        filter: _Filter.ssh,
-        kind: 'ssh_detached',
-        title: '${s.connectionName}: ${s.sessionName}',
-        subtitle: s.host,
-        ts: s.lastAccessedAt ?? s.connectedAt,
-        sshSession: s,
-      );
 
   static _Filter _filterForAttention(String kind) {
     switch (kind) {
@@ -466,24 +473,6 @@ class _InboxCard extends ConsumerWidget {
   }
 
   void _primaryAction(BuildContext context, WidgetRef ref) {
-    final s = item.sshSession;
-    if (s != null) {
-      ref.read(activeSessionsProvider.notifier).touchSession(
-            s.connectionId,
-            s.sessionName,
-          );
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => TerminalScreen(
-            connectionId: s.connectionId,
-            sessionName: s.sessionName,
-            lastWindowIndex: s.lastWindowIndex,
-            lastPaneId: s.lastPaneId,
-          ),
-        ),
-      );
-      return;
-    }
     // For attention items the inline Approve/Reject/Resolve buttons do the
     // real work; tapping the card is a no-op for now. A future patch can
     // push a full-screen detail view here.
@@ -497,8 +486,6 @@ class _InboxCard extends ConsumerWidget {
         return Colors.orange;
       case _Filter.messages:
         return DesignColors.primary;
-      case _Filter.ssh:
-        return Colors.teal;
       case _Filter.all:
         return DesignColors.primary;
     }
@@ -578,6 +565,106 @@ class _ApprovalActions extends ConsumerWidget {
         );
       }
     }
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 2),
+      child: Text(
+        text.toUpperCase(),
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: muted,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
+
+class _MyWorkStrip extends StatelessWidget {
+  final List<Map<String, dynamic>> projects;
+  const _MyWorkStrip({required this.projects});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionLabel(text: l10n.meMyWorkSection),
+        SizedBox(
+          height: 76,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            itemCount: projects.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (ctx, i) {
+              final p = projects[i];
+              final name = p['name']?.toString() ?? '?';
+              final status = p['status']?.toString() ?? '';
+              return InkWell(
+                onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
+                  builder: (_) => ProjectDetailScreen(project: p),
+                )),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  width: 160,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (status.isNotEmpty)
+                        Text(
+                          status,
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10,
+                            color: muted,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 

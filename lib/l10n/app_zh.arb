@@ -23,6 +23,8 @@
   "hostsAddBookmark": "添加书签",
   "hostsTeamSection": "团队（通过 Hub 注册）",
   "hostsPersonalSection": "个人（本地书签）",
+  "meMyWorkSection": "我的工作",
+  "meAttentionSection": "需要关注",
 
   "activeSessions": "活跃会话",
   "reloadSessions": "刷新会话",

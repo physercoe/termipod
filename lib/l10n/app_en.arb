@@ -23,6 +23,8 @@
   "hostsAddBookmark": "Add bookmark",
   "hostsTeamSection": "Team (registered via hub)",
   "hostsPersonalSection": "Personal (local bookmarks)",
+  "meMyWorkSection": "My work",
+  "meAttentionSection": "Attention",
 
   "activeSessions": "Active Sessions",
   "reloadSessions": "Reload sessions",

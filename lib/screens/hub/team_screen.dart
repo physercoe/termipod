@@ -6,11 +6,13 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import 'audit_screen.dart';
 import 'budget_screen.dart';
+import 'councils_screen.dart';
 import 'documents_screen.dart';
 import 'plans_screen.dart';
 import 'reviews_screen.dart';
 import 'runs_screen.dart';
 import 'schedules_screen.dart';
+import 'steward_config_screen.dart';
 import 'team_channel_screen.dart';
 import 'templates_screen.dart';
 import 'tokens_screen.dart';
@@ -42,7 +44,7 @@ class _TeamScreenState extends ConsumerState<TeamScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          teamId.isEmpty ? 'Team' : 'Team · $teamId',
+          teamId.isEmpty ? 'Team Settings' : 'Team Settings · $teamId',
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -756,6 +758,24 @@ class _SettingsView extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const TokensScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.how_to_vote_outlined),
+          title: const Text('Councils'),
+          subtitle: const Text('Review panels, quorum, and rotation · soon'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const CouncilsScreen(),
+          )),
+        ),
+        ListTile(
+          leading: const Icon(Icons.smart_toy_outlined),
+          title: const Text('Steward'),
+          subtitle: const Text('Steward prompt, policy, and escalation · soon'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const StewardConfigScreen(),
           )),
         ),
       ],

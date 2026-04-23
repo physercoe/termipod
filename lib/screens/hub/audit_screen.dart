@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/team_switcher.dart';
 
 /// Activity tab body per `docs/ia-redesign.md` §6.3 — the team's mutation
 /// feed backed by `audit_events`. Chronological, filterable; a digest card
@@ -92,6 +93,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
         actions: [
+          const TeamSwitcher(),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),

@@ -8,6 +8,7 @@ import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/team_switcher.dart';
 import '../hub/project_detail_screen.dart';
 import '../hub/search_screen.dart';
 
@@ -82,6 +83,7 @@ class InboxScreen extends ConsumerWidget {
                 ],
               ),
               actions: [
+                const TeamSwitcher(),
                 IconButton(
                   icon: const Icon(Icons.search),
                   tooltip: 'Search events',

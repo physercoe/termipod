@@ -10,6 +10,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
 import 'archived_agents_screen.dart';
@@ -18,7 +19,6 @@ import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
 import 'team_channel_screen.dart';
-import 'team_screen.dart';
 import 'templates_screen.dart';
 
 /// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Two sub-tabs:
@@ -86,6 +86,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
         ),
         actions: [
           const _StewardChip(),
+          const TeamSwitcher(),
           IconButton(
             tooltip: 'Templates',
             icon: const Icon(Icons.description_outlined),
@@ -93,17 +94,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
                 ? () {
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => const TemplatesScreen(),
-                    ));
-                  }
-                : null,
-          ),
-          IconButton(
-            tooltip: 'Team',
-            icon: const Icon(Icons.group_outlined),
-            onPressed: async.value?.configured == true
-                ? () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const TeamScreen(),
                     ));
                   }
                 : null,

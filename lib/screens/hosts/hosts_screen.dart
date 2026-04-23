@@ -11,6 +11,7 @@ import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/keychain/secure_storage.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../hub/hub_screen.dart' show openHostDetail;
 import '../terminal/terminal_screen.dart';
@@ -92,6 +93,7 @@ class HostsScreen extends ConsumerWidget {
               ),
             ),
             actions: [
+              const TeamSwitcher(),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: 'Refresh',

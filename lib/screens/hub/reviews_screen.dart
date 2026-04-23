@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -711,10 +712,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
               borderRadius: BorderRadius.circular(6),
               border: Border.all(color: DesignColors.borderDark),
             ),
-            child: SelectableText(
-              docContent,
-              style: GoogleFonts.jetBrainsMono(fontSize: 12),
-            ),
+            child: _DocumentBody(content: docContent),
           ),
           const SizedBox(height: 12),
         ] else if (_document != null &&
@@ -829,4 +827,46 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
           ),
         ),
       );
+}
+
+/// Renders a reviewed document's inline content. Reviewed docs are usually
+/// markdown (policy notes, proposals, design briefs) — fall back to mono
+/// plain text when the content doesn't look like markdown so logs or config
+/// diffs stay readable.
+class _DocumentBody extends StatelessWidget {
+  final String content;
+  const _DocumentBody({required this.content});
+
+  @override
+  Widget build(BuildContext context) {
+    final looksMd =
+        RegExp(r'(^|\n)(#|- |\* |\d+\. |```|> )').hasMatch(content);
+    if (looksMd) {
+      return MarkdownBody(
+        data: content,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet(
+          p: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
+          h1: GoogleFonts.spaceGrotesk(
+              fontSize: 17, fontWeight: FontWeight.w700),
+          h2: GoogleFonts.spaceGrotesk(
+              fontSize: 15, fontWeight: FontWeight.w700),
+          h3: GoogleFonts.spaceGrotesk(
+              fontSize: 14, fontWeight: FontWeight.w700),
+          code: GoogleFonts.jetBrainsMono(
+            fontSize: 12,
+            backgroundColor: Colors.black.withValues(alpha: 0.35),
+          ),
+          codeblockDecoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.4),
+            borderRadius: BorderRadius.circular(4),
+          ),
+        ),
+      );
+    }
+    return SelectableText(
+      content,
+      style: GoogleFonts.jetBrainsMono(fontSize: 12),
+    );
+  }
 }

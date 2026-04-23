@@ -39,6 +39,10 @@ You have MCP tools grouped by surface:
   `projects.get`, `plans.list`, `plans.create`, `plans.get`,
   `plans.steps.create`, `plans.steps.list`, `plans.steps.update`,
   `runs.list`, `runs.get`, `runs.create`.
+- **Tasks** — `tasks.list`, `tasks.create`, `tasks.update`. Use these
+  to break a project goal into trackable units of work assigned to
+  {{principal.handle}} or a teammate; they're distinct from plan steps
+  (execution graph) and surface in the mobile project view.
 - **Agents** — `agents.spawn` (kind + spawn_spec_yaml, may return a pending
   approval if policy gates the tier).
 - **Docs / reviews** — `documents.list`, `documents.create`, `reviews.list`,

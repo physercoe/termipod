@@ -260,6 +260,90 @@ func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
 	}
 }
 
+// TestToolsCall_TasksCreate: tasks.create must POST to the project-scoped
+// path and strip project_id from the body.
+func TestToolsCall_TasksCreate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"t-new","title":"do it"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"tasks.create","arguments":{"project_id":"p1","title":"do it","status":"todo"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/projects/p1/tasks" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if strings.Contains(sawBody, `"project_id"`) {
+		t.Errorf("body should not include project_id: %q", sawBody)
+	}
+	if !strings.Contains(sawBody, `"title":"do it"`) {
+		t.Errorf("body missing title: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
+// TestToolsCall_TasksUpdate: tasks.update must PATCH the project-scoped
+// task URL and drop both routing keys from the body.
+func TestToolsCall_TasksUpdate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"tasks.update","arguments":{"project_id":"p1","task":"t1","status":"done"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/projects/p1/tasks/t1" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if strings.Contains(sawBody, `"project_id"`) || strings.Contains(sawBody, `"task"`) {
+		t.Errorf("body should not include routing keys: %q", sawBody)
+	}
+	if !strings.Contains(sawBody, `"status":"done"`) {
+		t.Errorf("body missing status: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
 // TestToolsCall_SchedulesRun: schedules.run must POST to
 // /schedules/{id}/run and surface the hub's plan_id response as the tool
 // result. Exercises the schedules surface end-to-end at protocol level.

@@ -434,6 +434,78 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "tasks.list",
+			Description: "List tasks for a project. Requires `project_id`. Optional `status` filter.",
+			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				if p == "" {
+					return nil, fmt.Errorf("project_id is required")
+				}
+				q := url.Values{}
+				if st, ok := args["status"].(string); ok && st != "" {
+					q.Set("status", st)
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "tasks.create",
+			Description: "Create a task under a project. Requires `project_id` and `title`. Optional `body_md`, `status` (default 'todo'), `assignee_id`, `parent_task_id`, `milestone_id`, `created_by_id`.",
+			InputSchema: schema(`{"type":"object","required":["project_id","title"],"properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"assignee_id":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"created_by_id":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				if p == "" {
+					return nil, fmt.Errorf("project_id is required")
+				}
+				if t, _ := args["title"].(string); t == "" {
+					return nil, fmt.Errorf("title is required")
+				}
+				body := make(map[string]any, len(args))
+				for k, v := range args {
+					if k == "project_id" {
+						continue
+					}
+					body[k] = v
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "tasks.update",
+			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `status`, `assignee_id` may be supplied.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"assignee_id":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				id, _ := args["task"].(string)
+				if p == "" || id == "" {
+					return nil, fmt.Errorf("project_id and task are required")
+				}
+				body := map[string]any{}
+				for k, v := range args {
+					if k == "project_id" || k == "task" {
+						continue
+					}
+					body[k] = v
+				}
+				if len(body) == 0 {
+					return nil, fmt.Errorf("at least one field to update is required")
+				}
+				if err := c.do("PATCH", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, body, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "project_id": p, "task": id}, nil
+			},
+		},
+		{
 			Name:        "schedules.list",
 			Description: "List schedules for the team. Optional `project` filters to one project.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),

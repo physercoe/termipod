@@ -220,15 +220,20 @@ steward-CEO audit (`docs/ux-steward-audit.md` §2) and unblocks P4.3
 overnight cron authoring without relying on the mobile UI. Steward
 prompt updated to list the schedules surface.
 
+**v1.0.154:** added `tasks.{list,create,update}` MCP wrappers so the
+steward can break a project goal into trackable units of work directly
+(distinct from plan_steps; these surface in the mobile project view).
+Closes audit-queue row 2.
+
 Still open:
 - Explicit `request_approval` / `request_decision` wrappers. The
   `agents.spawn` handler already surfaces approval attention when
   policy gates it; a standalone approval-request tool would let the
   steward create one directly. Deferred until the UX audit decides
   whether to promote approvals to a first-class mobile surface.
-- Remaining audit-queue wedges: `tasks.{create,update}`,
-  `project_channels.create`, `team_channels.create`, `projects.update`,
-  `hosts.update_ssh_hint` (see `docs/ux-steward-audit.md` §2).
+- Remaining audit-queue wedges: `project_channels.create`,
+  `team_channels.create`, `projects.update`, `hosts.update_ssh_hint`
+  (see `docs/ux-steward-audit.md` §2).
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

@@ -126,12 +126,12 @@
 **Inbox** — 承認待ち / エージェント状態（アイドル・エラー）/ メッセージ / SSH セッションを一つのフィードに統合し、チップで絞り込み可能。承認はその場で Approve / Reject、ルーペから全イベント横断の全文検索へ。
 
 **Hub** — 4 つのサブタブ：
-- **Projects** — Linear スタイルのプロジェクト詳細。Activity / Tasks / Agents / Docs / Blobs / Info のピル切替。Activity は SSE でチャットをストリーム、Tasks はフルスクリーン詳細付きカンバン、Docs はプロジェクトの `docs_root` をマークダウンビューアで閲覧、Blobs は端末ローカルにキャッシュしたアップロードを任意のチャットへ共有
-- **Agents** — リスト表示／ツリー表示を切替。ツリーは `agent_spawns` を辿って親→子のオーガチャートを描画。FAB から YAML の **Spawn Agent** フォーム（テンプレート選択・ホスト選択・保存済みプリセット）
+- **Projects** — Linear スタイルのプロジェクト詳細。Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info のピル切替。Activity は SSE でチャットをストリーム、Tasks はステータスでフィルタ可能なカンバン（本文プレビューとマークダウン表示付き）、Plans はステップ仕様を構造化表示してプロンプト/コマンドをコードブロックで描画、Runs は経過時間とマークダウン整形されたサマリーを表示、Reviews はプロジェクトで絞り込み可能、Docs はプロジェクトの `docs_root` をマークダウンビューアで閲覧、Blobs は端末ローカルにキャッシュしたアップロードを任意のチャットへ共有。プロジェクトの名前 / ゴール / テンプレート / docs root / 予算はその場で編集可能
+- **Agents** — リスト表示／ツリー表示を切替。ツリーは `agent_spawns` を辿って親→子のオーガチャートを描画。FAB から YAML の **Spawn Agent** フォーム（テンプレート選択・ホスト選択・保存済みプリセット）。終了済みエージェントはアーカイブして、spawn spec とジャーナル付きの墓碑スクリーンに退避可能
 - **Hosts** — host-runner のチェックイン状況と last-seen
 - **Templates** — チーム全体のエージェント / プロンプト / ポリシー YAML
 
-**Team** 画面（Hub ヘッダーのアイコンから起動） — メンバー、ポリシー、チーム範囲のチャネル（`#hub-meta` のスチュワードルームへは AppBar のチップから）、そして **Settings** に cron ベースの **Schedules** とエージェント別の **Usage / 予算** サマリー。
+**Team** 画面（Hub ヘッダーのアイコンから起動） — メンバー、ポリシー、チーム範囲のチャネル（`#hub-meta` のスチュワードルームへは AppBar のチップから）、そして **Settings** に cron ベースの **Schedules**、エージェント別の **Usage / 予算** サマリー、ポリシー / テンプレート / エージェントライフサイクルの **監査ログ**。
 
 Hub 本体は `hub/` 配下の Go デーモンとして別途配布されます。`go install` または `go run` で起動してください。セットアップと各タブの検証手順は [docs/hub-mobile-test.md](docs/hub-mobile-test.md) を参照。
 

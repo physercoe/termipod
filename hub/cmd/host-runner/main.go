@@ -80,6 +80,7 @@ func runDaemon(args []string) {
 	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
 	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
 	trackioDir := fs.String("trackio-dir", "", "trackio root dir (default: $TRACKIO_DIR or ~/.cache/huggingface/trackio); empty disables the metric-digest poller")
+	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
 	_ = fs.Parse(args)
 
 	if *token == "" {
@@ -98,15 +99,16 @@ func runDaemon(args []string) {
 	}
 
 	r := &hostrunner.Runner{
-		Client:       hostrunner.NewClient(*hub, *token, *team),
-		HostName:     *name,
-		HostID:       *hostID,
-		Launcher:     lnch,
-		Log:          log,
-		StateDir:     *stateDir,
-		A2AAddr:      *a2aAddr,
-		A2APublicURL: *a2aPublicURL,
-		TrackioDir:   *trackioDir,
+		Client:         hostrunner.NewClient(*hub, *token, *team),
+		HostName:       *name,
+		HostID:         *hostID,
+		Launcher:       lnch,
+		Log:            log,
+		StateDir:       *stateDir,
+		A2AAddr:        *a2aAddr,
+		A2APublicURL:   *a2aPublicURL,
+		TrackioDir:     *trackioDir,
+		TensorBoardDir: *tbDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

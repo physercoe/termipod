@@ -105,6 +105,14 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   (uniform stride, endpoints preserved) and PUT to the hub digest
   endpoint. `runs.trackio_run_uri` is canonicalised as
   `trackio://<project>/<run_name>`.
+- P3.1b — host-runner TensorBoard poller — **DONE v1.0.143**. Parallel
+  package `hub/internal/hostrunner/tbreader/` reads tfevents files
+  directly via a minimal hand-rolled TFRecord + protobuf decoder (no
+  `google.golang.org/protobuf`, no tensorflow/tensorboard deps). New
+  `--tb-dir` flag enables a second 20s poll loop that walks each run's
+  `<tb-dir>/<run-path>/events.out.tfevents.*` and PUTs the same digest
+  wire format as the trackio loop. URI scheme is `tb://<run-path>`.
+  The two readers are independent — a host may enable either or both.
 - P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
   screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
   each returned series.

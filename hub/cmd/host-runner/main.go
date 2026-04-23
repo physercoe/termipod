@@ -79,6 +79,7 @@ func runDaemon(args []string) {
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
 	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
 	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
+	trackioDir := fs.String("trackio-dir", "", "trackio root dir (default: $TRACKIO_DIR or ~/.cache/huggingface/trackio); empty disables the metric-digest poller")
 	_ = fs.Parse(args)
 
 	if *token == "" {
@@ -105,6 +106,7 @@ func runDaemon(args []string) {
 		StateDir:     *stateDir,
 		A2AAddr:      *a2aAddr,
 		A2APublicURL: *a2aPublicURL,
+		TrackioDir:   *trackioDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

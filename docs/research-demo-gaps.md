@@ -96,10 +96,18 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   Bodies are ≤~64 KiB per row — the poller splits metric families across
   rows. Hub stores digests only (blueprint §4 data-ownership law) — bulk
   time-series stay on the host.
-- P3.1b — host-runner trackio poller — OPEN. Next wedge: list runs with
-  `trackio_host_id == this host`, poll local trackio HTTP, downsample each
-  curve to ≤~100 points, PUT digests on heartbeat.
-- P3.1c — mobile sparkline UI reading the digest — OPEN.
+- P3.1b — host-runner trackio poller — **DONE v1.0.142**. New package
+  `hub/internal/hostrunner/trackio/` reads trackio's local SQLite store
+  directly (one `{project}.db` per project, metrics live as JSON blobs
+  keyed by step). Host-runner grows a `--trackio-dir` flag, a 20s poll
+  loop, and uses `GET /v1/teams/{team}/runs?trackio_host=<host>` to list
+  runs it should scrape. Each run's series is downsampled to ≤100 points
+  (uniform stride, endpoints preserved) and PUT to the hub digest
+  endpoint. `runs.trackio_run_uri` is canonicalised as
+  `trackio://<project>/<run_name>`.
+- P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
+  screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
+  each returned series.
 
 ### P3.2–3.4 — cross-host A2A (MVP-critical per 2026-04-23 lock)
 

@@ -191,6 +191,13 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		q += " AND r.agent_id = ?"
 		args = append(args, agent)
 	}
+	// ?trackio_host=<hostID> lets the host-runner trackio poller pull only
+	// the runs it's responsible for scraping — the hub stores
+	// trackio_host_id on the run row, so this is a direct equality match.
+	if trackHost := r.URL.Query().Get("trackio_host"); trackHost != "" {
+		q += " AND r.trackio_host_id = ?"
+		args = append(args, trackHost)
+	}
 	q += " ORDER BY r.created_at DESC"
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)

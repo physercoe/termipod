@@ -33,6 +33,18 @@ type Runner struct {
 	ProbeInterval        time.Duration // 0 = 15 min
 	IdleThreshold        time.Duration // 0 = use default from NewIdleDetector
 	A2ADirectoryInterval time.Duration // 0 = 30s; ignored if A2AAddr is empty
+	TrackioPollInterval  time.Duration // 0 = 20s; ignored if TrackioDir is empty
+
+	// TrackioDir, when non-empty, enables the trackio metric-digest poller:
+	// the runner periodically reads each run's {project}.db under this
+	// directory, downsamples every scalar series, and PUTs the digest to
+	// the hub for sparkline rendering. Set to trackio.DefaultDir() in the
+	// common case; leave empty to disable.
+	TrackioDir string
+
+	// TrackioMaxPoints caps the per-metric sample count uploaded to the
+	// hub. 0 falls back to 100 — the blueprint default (§6.5).
+	TrackioMaxPoints int
 
 	// StateDir, when non-empty, caches host_id after the first register so
 	// a restart skips the register round-trip. Keyed by (hub, team, name).
@@ -67,6 +79,12 @@ func (a *Runner) defaults() {
 	}
 	if a.A2ADirectoryInterval == 0 {
 		a.A2ADirectoryInterval = 30 * time.Second
+	}
+	if a.TrackioPollInterval == 0 {
+		a.TrackioPollInterval = 20 * time.Second
+	}
+	if a.TrackioMaxPoints == 0 {
+		a.TrackioMaxPoints = 100
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()
@@ -152,6 +170,10 @@ func (a *Runner) Start(ctx context.Context) error {
 		// a2a.Server.Handler() so relayed calls hit the exact same routes
 		// a direct peer would.
 		go a2a.RunTunnel(ctx, a.Client, a.HostID, srv.Handler(), a.Log)
+	}
+
+	if a.TrackioDir != "" {
+		go a.trackioPollLoop(ctx)
 	}
 
 	for {

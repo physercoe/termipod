@@ -290,6 +290,40 @@ and tunneled peers. Today only the agent-card path is implemented.
 
 Task endpoints (send / get / cancel) are a follow-up wedge.
 
+### Enabling the trackio metric-digest poller (optional, blueprint §6.5)
+
+When workers on this host log training curves to [trackio](https://github.com/gradio-app/trackio),
+the host-runner can read each run's local SQLite file, downsample every
+scalar series, and push a compact digest to the hub so the mobile app
+can render sparklines (§6.5, P3.1).
+
+Enable by adding one flag (or env var in the systemd unit):
+
+- `--trackio-dir /home/worker/.cache/huggingface/trackio` — trackio's
+  root dir. Falls back to `$TRACKIO_DIR` then `~/.cache/huggingface/trackio`
+  if unset; leave empty to disable the poller entirely. Must be the same
+  directory trackio itself uses; each project gets its own `{project}.db`
+  SQLite file under this root.
+
+The poller ticks every 20 s:
+
+1. Lists runs via `GET /v1/teams/{team}/runs?trackio_host=<host>`.
+2. For each run, parses `trackio_run_uri` (canonical form
+   `trackio://<project>/<run_name>`), opens `{project}.db` read-only, and
+   reads every `(step, metric_json)` row for the run.
+3. Splits the JSON blobs into one series per scalar key, downsamples to
+   ≤100 points per curve (uniform stride, first + last preserved), then
+   PUTs the digest to `PUT /v1/teams/{team}/runs/{run}/metrics`.
+
+`sample_count`, `last_step`, and `last_value` come from the raw,
+un-downsampled series so the mobile headline number matches trackio's
+own dashboard exactly. Non-numeric JSON values (strings, arrays, nested
+objects) are skipped silently — only sparkline-renderable scalars
+propagate.
+
+Blueprint §4 data-ownership law: the hub stores digest rows only. Bulk
+time-series never leaves the host.
+
 ## 5. Health: how to tell if a host is alive
 
 There are three signals, in decreasing reliability:

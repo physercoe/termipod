@@ -342,6 +342,46 @@ func (c *Client) PostTunnelResponse(ctx context.Context, hostID string, env *a2a
 		env, nil)
 }
 
+// Run is the trimmed projection of a /v1/teams/{team}/runs row that the
+// trackio poller cares about. Fields the poller doesn't use are dropped
+// to keep the wire struct honest — enrich it only when a caller needs
+// something more.
+type Run struct {
+	ID            string `json:"id"`
+	TrackioHostID string `json:"trackio_host_id,omitempty"`
+	TrackioRunURI string `json:"trackio_run_uri,omitempty"`
+	Status        string `json:"status"`
+}
+
+// ListRunsForHost returns every run in the team whose trackio_host_id
+// matches the given host. Caller should pass its own HostID so the hub
+// can filter server-side and skip rows this host wouldn't poll anyway.
+func (c *Client) ListRunsForHost(ctx context.Context, hostID string) ([]Run, error) {
+	path := fmt.Sprintf("/v1/teams/%s/runs?trackio_host=%s", c.Team, hostID)
+	var out []Run
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
+// MetricPoints is one downsampled series plus the last-observed snapshot
+// the mobile UI reads directly without having to parse points_json.
+type MetricPoints struct {
+	Name        string     `json:"name"`
+	Points      [][2]any   `json:"points"` // [[step, value], ...]
+	SampleCount int64      `json:"sample_count"`
+	LastStep    *int64     `json:"last_step,omitempty"`
+	LastValue   *float64   `json:"last_value,omitempty"`
+}
+
+// PutRunMetrics replaces the hub-side digest for one run with the given
+// set of downsampled series. Atomic on the hub side (delete + insert in
+// one tx).
+func (c *Client) PutRunMetrics(ctx context.Context, runID string, metrics []MetricPoints) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/runs/%s/metrics", c.Team, runID),
+		map[string]any{"metrics": metrics}, nil)
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

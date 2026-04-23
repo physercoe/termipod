@@ -136,7 +136,7 @@ class InboxScreen extends ConsumerWidget {
               child: _SectionLabel(text: l10n.meDigestSection),
             ),
             SliverToBoxAdapter(
-              child: ActivityDigestCard(events: audit.valueOrNull ?? const []),
+              child: ActivityDigestCard(events: audit.value ?? const []),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],

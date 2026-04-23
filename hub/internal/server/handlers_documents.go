@@ -46,6 +46,7 @@ func isValidDocKind(k string) bool {
 }
 
 func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	var in documentIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -108,6 +109,10 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	s.recordAudit(r.Context(), team, "document.create", "document", id,
+		in.Kind+" "+in.Title,
+		map[string]any{"project_id": in.ProjectID, "kind": in.Kind, "version": version})
 
 	out := documentOut{
 		ID: id, ProjectID: in.ProjectID, Kind: in.Kind, Title: in.Title,

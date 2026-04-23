@@ -49,6 +49,7 @@ func isValidDecisionState(s string) bool {
 }
 
 func (s *Server) handleCreateReview(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	var in reviewIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
@@ -75,6 +76,9 @@ func (s *Server) handleCreateReview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), team, "review.request", "review", id,
+		"request review of "+in.TargetKind+" "+in.TargetID,
+		map[string]any{"project_id": in.ProjectID, "target_kind": in.TargetKind, "target_id": in.TargetID})
 	writeJSON(w, http.StatusCreated, reviewOut{
 		ID: id, ProjectID: in.ProjectID,
 		TargetKind: in.TargetKind, TargetID: in.TargetID,
@@ -155,6 +159,7 @@ func (s *Server) handleGetReview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDecideReview(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	review := chi.URLParam(r, "review")
 	var in reviewDecideIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -202,6 +207,9 @@ func (s *Server) handleDecideReview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), team, "review.decide", "review", review,
+		"review "+in.State,
+		map[string]any{"state": in.State, "user_id": in.UserID})
 	writeJSON(w, http.StatusOK, rv)
 }
 

@@ -144,6 +144,10 @@ func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.recordAudit(r.Context(), team, "run.create", "run", id,
+		"create run in project "+in.ProjectID,
+		map[string]any{"project_id": in.ProjectID, "agent_id": in.AgentID})
+
 	writeJSON(w, http.StatusCreated, runOut{
 		ID:            id,
 		ProjectID:     in.ProjectID,
@@ -291,6 +295,8 @@ func (s *Server) handleCompleteRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "run not found")
 		return
 	}
+	s.recordAudit(r.Context(), team, "run.complete", "run", runID,
+		"run "+in.Status, map[string]any{"status": in.Status})
 	w.WriteHeader(http.StatusNoContent)
 }
 

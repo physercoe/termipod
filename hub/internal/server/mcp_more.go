@@ -172,6 +172,21 @@ func mcpToolDefsExtra() []map[string]any {
 				"properties": map[string]any{"reason": map[string]any{"type": "string"}},
 			},
 		},
+		{
+			"name": "get_audit",
+			"description": "List recent audit events for this team (activity timeline). " +
+				"Covers agent spawn/terminate/archive, run create/complete, document.create, " +
+				"review.request/decide, attention.decide, host.*, plan.*, schedule.*, policy.put, token.*. " +
+				"Filter by action (exact match) or since (ISO-8601).",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action": map[string]any{"type": "string"},
+					"since":  map[string]any{"type": "string"},
+					"limit":  map[string]any{"type": "integer"},
+				},
+			},
+		},
 	}
 }
 
@@ -701,4 +716,34 @@ func (s *Server) enqueueSelfLifecycle(ctx context.Context, agentID, cmd string, 
 		"command_id": cmdID,
 		"agent_id":   agentID,
 	}), nil
+}
+
+// ---------------------------------------------------------------------
+// get_audit — unified activity timeline
+// ---------------------------------------------------------------------
+
+type getAuditArgs struct {
+	Action string `json:"action"`
+	Since  string `json:"since"`
+	Limit  int    `json:"limit"`
+}
+
+func (s *Server) mcpGetAudit(ctx context.Context, team string, raw json.RawMessage) (any, *jrpcError) {
+	var a getAuditArgs
+	_ = json.Unmarshal(raw, &a)
+	if team == "" {
+		return nil, &jrpcError{Code: -32602, Message: "team scope required"}
+	}
+	limit := a.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	rows, err := s.listAuditEvents(ctx, team, a.Action, a.Since, limit)
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	if rows == nil {
+		rows = []AuditRow{}
+	}
+	return mcpResultJSON(rows), nil
 }

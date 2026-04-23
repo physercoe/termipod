@@ -326,6 +326,8 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 		return s.mcpPauseSelf(ctx, agentID, call.Arguments)
 	case "shutdown_self":
 		return s.mcpShutdownSelf(ctx, agentID, call.Arguments)
+	case "get_audit":
+		return s.mcpGetAudit(ctx, scope.Team, call.Arguments)
 	default:
 		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}

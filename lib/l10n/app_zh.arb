@@ -575,5 +575,11 @@
   "@fileActionDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
   "fileDeleted": "已删除",
   "fileDeleteFailed": "删除失败：{error}",
-  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } }
+  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } },
+  "activityDigest24h": "最近 24 小时",
+  "activityDigestEvents": "事件",
+  "activityDigestActors": "参与者",
+  "activityDigestKinds": "类型",
+  "activityDigestEmpty": "最近 24 小时没有活动。",
+  "meDigestSection": "自上次到访以来"
 }

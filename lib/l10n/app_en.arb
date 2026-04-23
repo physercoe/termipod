@@ -625,5 +625,11 @@
   "@fileActionDeleteConfirm": { "placeholders": { "name": { "type": "String" } } },
   "fileDeleted": "Deleted",
   "fileDeleteFailed": "Delete failed: {error}",
-  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } }
+  "@fileDeleteFailed": { "placeholders": { "error": { "type": "String" } } },
+  "activityDigest24h": "Last 24 hours",
+  "activityDigestEvents": "events",
+  "activityDigestActors": "actors",
+  "activityDigestKinds": "kinds",
+  "activityDigestEmpty": "No activity in the last 24 hours.",
+  "meDigestSection": "Since you were last here"
 }

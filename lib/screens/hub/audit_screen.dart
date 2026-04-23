@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/activity_digest_card.dart';
 
-/// Read-only audit log viewer for sensitive administrative actions —
-/// agent spawn/terminate, attention decisions, schedule & host deletes.
+/// Activity tab body per `docs/ia-redesign.md` §6.3 — the team's mutation
+/// feed backed by `audit_events`. Chronological, filterable; a digest card
+/// at the top summarises the last 24h and is mirrored on the Me tab.
 /// Rows come from `GET /v1/teams/{team}/audit` newest-first; the server
 /// caps the response at 500 rows.
 class AuditScreen extends ConsumerStatefulWidget {
@@ -79,10 +83,11 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Audit Log',
+          l10n.tabActivity,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -96,6 +101,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       ),
       body: Column(
         children: [
+          ActivityDigestCard(events: _rows),
           SizedBox(
             height: 44,
             child: ListView.separated(

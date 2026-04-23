@@ -4,8 +4,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:termipod/l10n/app_localizations.dart';
 
+import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/activity_digest_card.dart';
 import '../hub/project_detail_screen.dart';
 import '../hub/search_screen.dart';
 
@@ -16,9 +18,9 @@ import '../hub/search_screen.dart';
 ///   - Attention — open attention items assigned to or relevant to me,
 ///     filterable by kind.
 ///
-/// Wedge 3 scope: rename Inbox→Me, strip SSH reattach rows (moved to Hosts
-/// in Wedge 2), add the My Work strip. The "Since you were last here"
-/// digest lands in Wedge 5 when Activity gains a digest shape.
+/// Wedge 5 adds the "Since you were last here" digest at the bottom,
+/// mirroring the Activity tab's top-of-feed digest card (identical data;
+/// Activity is the firehose, Me is the summary).
 ///
 /// Attention sources by filter chip:
 ///   - Approvals — kind ∈ {approval_request, decision, template_proposal}.
@@ -39,6 +41,7 @@ class InboxScreen extends ConsumerWidget {
     final projects = _recentProjects(hubState.projects);
     final filter = ref.watch(_filterProvider);
     final filtered = items.where(filter.matches).toList();
+    final audit = ref.watch(recentAuditProvider);
 
     return Scaffold(
       body: RefreshIndicator(
@@ -107,24 +110,35 @@ class InboxScreen extends ConsumerWidget {
               ),
             ),
             if (hubState.loading && items.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: CircularProgressIndicator()),
+              const SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 240,
+                  child: Center(child: CircularProgressIndicator()),
+                ),
               )
             else if (filtered.isEmpty)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: _EmptyState(filter: filter),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 240,
+                  child: _EmptyState(filter: filter),
+                ),
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
                 sliver: SliverList.separated(
                   itemCount: filtered.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
                   itemBuilder: (_, i) => _InboxCard(item: filtered[i]),
                 ),
               ),
+            SliverToBoxAdapter(
+              child: _SectionLabel(text: l10n.meDigestSection),
+            ),
+            SliverToBoxAdapter(
+              child: ActivityDigestCard(events: audit.valueOrNull ?? const []),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],
         ),
       ),

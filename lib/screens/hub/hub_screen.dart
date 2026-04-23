@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -20,17 +19,17 @@ import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
 import 'team_channel_screen.dart';
 import 'team_screen.dart';
+import 'templates_screen.dart';
 
-/// Main "Projects" tab per `docs/ia-redesign.md` §6.2 (Wedge 1 — nav
-/// skeleton). Three sub-tabs:
-///   - Projects:  project inventory; FAB creates; tap opens detail.
-///   - Agents:    kind/handle/status per agent, spawn actions.
-///   - Templates: team-wide templates (agents/prompts/policies).
+/// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Two sub-tabs:
+///   - Projects: project inventory; FAB creates; tap opens detail.
+///   - Agents:   team-wide agent list (project-scoped view lives inside
+///               Project detail per IA-A2).
 ///
-/// The former Hosts sub-tab moved to the top-level Hosts bottom tab
-/// (Wedge 1). Wedge 4 will fold Agents under Project detail and promote
-/// Templates to a single home, collapsing this screen to a single
-/// projects list.
+/// Templates consolidated to a single home (TemplatesScreen) reached via
+/// the AppBar icon — Wedge 4 eliminated the inline Templates sub-tab so
+/// templates have exactly one canonical surface. Hosts sub-tab moved to
+/// the top-level Hosts bottom tab (Wedge 1).
 ///
 /// Attention/Feed/Tasks moved out: approvals land in the Me tab,
 /// per-channel Feed and per-project Tasks live inside Project detail.
@@ -55,7 +54,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
@@ -87,6 +86,17 @@ class _HubScreenState extends ConsumerState<HubScreen>
         ),
         actions: [
           const _StewardChip(),
+          IconButton(
+            tooltip: 'Templates',
+            icon: const Icon(Icons.description_outlined),
+            onPressed: async.value?.configured == true
+                ? () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const TemplatesScreen(),
+                    ));
+                  }
+                : null,
+          ),
           IconButton(
             tooltip: 'Team',
             icon: const Icon(Icons.group_outlined),
@@ -122,7 +132,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
             tabs: const [
               Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
               Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Agents'),
-              Tab(icon: Icon(Icons.description_outlined), text: 'Templates'),
             ],
           ),
         ),
@@ -144,7 +153,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
                         items: st.agents,
                         hosts: st.hosts,
                         spawns: st.spawns),
-                    _TemplatesTab(items: st.templates),
                   ],
                 ),
               ),
@@ -355,162 +363,9 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------
-// Templates tab — list team templates; tap to view raw body
-// ---------------------------------------------------------------------
-
-class _TemplatesTab extends ConsumerWidget {
-  final List<Map<String, dynamic>> items;
-  const _TemplatesTab({required this.items});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (items.isEmpty) {
-      return const _EmptyText(text: 'No templates on this hub');
-    }
-    return RefreshIndicator(
-      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final t = items[i];
-          final category = t['category']?.toString() ?? '';
-          final name = t['name']?.toString() ?? '?';
-          final size = t['size'] is int ? t['size'] as int : 0;
-          return _InfoTile(
-            title: name,
-            subtitle: '$category · ${size}B',
-            onTap: () => _openTemplate(context, ref, category, name),
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _openTemplate(
-      BuildContext context, WidgetRef ref, String category, String name) async {
-    try {
-      final body = await ref
-          .read(hubProvider.notifier)
-          .getTemplateBody(category, name);
-      if (!context.mounted) return;
-      showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        builder: (_) => _TemplateViewer(
-          category: category,
-          name: name,
-          body: body,
-        ),
-      );
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Fetch failed: $e')));
-      }
-    }
-  }
-}
-
-class _TemplateViewer extends ConsumerStatefulWidget {
-  final String category;
-  final String name;
-  final String body;
-  const _TemplateViewer({
-    required this.category,
-    required this.name,
-    required this.body,
-  });
-
-  @override
-  ConsumerState<_TemplateViewer> createState() => _TemplateViewerState();
-}
-
-class _TemplateViewerState extends ConsumerState<_TemplateViewer> {
-  late String _body = widget.body;
-  bool _refreshing = false;
-
-  bool get _isMarkdown => widget.name.toLowerCase().endsWith('.md');
-
-  Future<void> _forceRefresh() async {
-    setState(() => _refreshing = true);
-    try {
-      final fresh = await ref.read(hubProvider.notifier).getTemplateBody(
-            widget.category,
-            widget.name,
-            forceRefresh: true,
-          );
-      if (!mounted) return;
-      setState(() => _body = fresh);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Refresh failed: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _refreshing = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final title = '${widget.category}/${widget.name}';
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.4,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (_, scroll) => Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(title,
-                      style: GoogleFonts.spaceGrotesk(
-                          fontSize: 15, fontWeight: FontWeight.w700)),
-                ),
-                IconButton(
-                  tooltip: 'Re-fetch from hub',
-                  icon: _refreshing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  onPressed: _refreshing ? null : _forceRefresh,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: scroll,
-              padding: const EdgeInsets.all(16),
-              child: _isMarkdown
-                  ? MarkdownBody(data: _body, selectable: true)
-                  : SelectableText(
-                      _body,
-                      style: GoogleFonts.jetBrainsMono(fontSize: 12),
-                    ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------
-// Agents / Hosts / Projects tabs — read-only tables
+// Agents / Projects tabs — read-only tables
+// Templates live in TemplatesScreen (the single home per IA §6.2);
+// reach it via the AppBar icon.
 // ---------------------------------------------------------------------
 
 class _AgentsTab extends ConsumerStatefulWidget {

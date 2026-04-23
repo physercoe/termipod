@@ -1,0 +1,539 @@
+# termipod information architecture
+
+Authoritative reference for termipod's mobile IA: the philosophy the nav is
+derived from, the ontology of surfaces and roles, the single home of every
+primitive, and the migration plan from the current sprawl. Sister document to
+`blueprint.md` — blueprint defines *what the system is*; this doc defines
+*how a human encounters it on a phone*.
+
+Any PR that adds a screen, a tab, or a menu entry should trace its placement
+to one of the axioms or the entity matrix here. A proposal that cannot be
+traced is a candidate for rejection or an explicit amendment to this document.
+
+---
+
+## 1. Purpose
+
+termipod is a mobile-first control plane for a distributed fleet of AI
+agents (blueprint §1). The IA determines whether that control plane feels
+like a **cockpit** — glanceable, director-first, autopilot by default — or
+like a sprawling admin console. Current state is the latter: 35 hub screens
+plus 7 top-level sections, with primitives scattered across them
+(templates in two places, runs under member settings, SSH plumbing in the
+inbox). This document resets the structure.
+
+---
+
+## 2. Philosophy: six IA axioms
+
+Derived from the blueprint's three system axioms (A1 attention-scarce, A2
+spatially-bound, A3 stochastic-authority) but expressed in UI terms. Every
+screen and tab must be traceable to one of these.
+
+**IA-A1. The phone is opened in glances, not sessions.** Hundreds of
+sub-minute interactions per day, not eight hours at a desk. Tier-1 surfaces
+must answer "what needs me now?" within one tap, without a scavenger hunt.
+Multi-tap drill-down is fine; multi-tab scanning for the same kind of
+information is not.
+
+**IA-A2. One entity, one home.** Every primitive (project, run, host,
+template, review, agent, document, …) has exactly one canonical screen.
+Every other mention is a read-only pointer that navigates there. Duplicate
+access paths fragment the user's mental model and guarantee drift.
+
+**IA-A3. The director's attention is the north star.** The steward does
+the work; the director ratifies. Nav structure mirrors that priority —
+*attention* and *workspace* are primary surfaces; *plumbing* and
+*governance* recede until something goes wrong or is explicitly sought.
+
+**IA-A4. Scope follows ownership.** Team-owned state lives in team
+surfaces. Personal state lives in personal surfaces. Device-local state
+lives in device surfaces. Mixing scopes inside one screen (today: Settings
+contains audit, tokens, team management, and theme) destroys the user's
+predictive model of *where* things live.
+
+**IA-A5. Roles are affordance axes, not modes.** A director, steward,
+reviewer, or observer opens the *same* screens. What changes is which
+buttons render and which actions succeed. There is no mode switch and no
+role-specific UI stack. Permissions, not navigation, enforce roles.
+
+**IA-A6. SSH is a capability, not a tier.** Direct terminal access is a
+button on a Host, not a sibling of the hub. The hub is the cockpit; SSH
+is the maintenance hatch reachable from inside it. Terminal is always
+reachable (a button on any host, plus a command-palette launch) — never
+a competing top-level world.
+
+Six axioms, three forces: **glanceability** (A1, A3), **coherence** (A2,
+A4), **extensibility** (A5, A6).
+
+---
+
+## 3. Ontology of surfaces
+
+Every UI element is one of these four kinds. A new surface that doesn't
+fit a category is a design smell.
+
+### 3.1 Tab (bottom nav)
+
+The ≤5 top-level homes a user reaches from cold. Tabs represent *what I
+care about*, not *what entity type exists*. A new entity type does **not**
+get a new tab; it gets a home inside one.
+
+### 3.2 Screen
+
+A full-page view of a single entity or a list of entities. Screens are the
+default destination of navigation. Every primitive has exactly one screen
+it calls home (IA-A2).
+
+### 3.3 Sheet
+
+A modal for one focused action (create, edit, confirm). Sheets do not own
+state; they mutate the entity behind them and close. A screen that is
+persistently modal is a misplaced screen.
+
+### 3.4 Capability (cross-cutting)
+
+A feature reachable from many contexts but not a nav destination of its
+own: **terminal**, **search**, **command palette**, **share**, and the
+per-host **connect** action. Capabilities attach to the entity currently
+in view.
+
+### 3.5 Tiers
+
+Surfaces are organized in four attention tiers. A tier is not a visible
+label — it is a placement discipline.
+
+| Tier | Name | What belongs here | Default visibility |
+|---|---|---|---|
+| 0 | Me | Attention queue, my active work, search | Default landing |
+| 1 | Team | Projects, Activity, Hosts | One tap |
+| 2 | Governance | Members, roles, councils, team policy (future) | Entered from Team |
+| 3 | Settings | Device/personal prefs only | Entered from Me |
+
+Anything that is in Tier 0 today but is not *attention-bearing for me* is
+misplaced. Anything in Tier 3 today that is team-scoped is misplaced.
+
+---
+
+## 4. Ontology of roles
+
+The IA must not assume a single user. The axioms require roles to be
+*affordance axes* (IA-A5), which means the role set is part of the
+ontology even when only one exists in MVP.
+
+Role set (MVP has only **Director**; the rest are reserved slots):
+
+- **Director** — owns the goal. Ratifies autonomous decisions. Sees the
+  full attention queue. Can do any steward action manually.
+- **Steward** — runs operations on the director's behalf. The LLM steward
+  is the default operator; a human steward is a role a member can take.
+  Bounded by policy (blueprint A3).
+- **Reviewer** — consulted on specific documents or decisions. Has a
+  scoped inbox: reviews assigned to them, not the whole team's.
+- **Member** — participates in a team; can propose, comment, execute.
+  Default role on join.
+- **Observer** — read-only on everything the team permits.
+- **Council** — an N-of-M policy-bound approval group; not an individual
+  role but a construct that generalizes single-approver reviews. A
+  decision gated by council requires M of N members to approve.
+
+Role ↔ tab visibility (MVP: everyone is Director; this is the future matrix):
+
+| Role | Me | Projects | Activity | Hosts | Governance | Settings |
+|---|---|---|---|---|---|---|
+| Director | ✔ full | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Steward | ✔ scoped | ✔ | ✔ | ✔ ops | ─ | ✔ |
+| Reviewer | ✔ their reviews | ✔ read | ✔ scoped | ─ | ─ | ✔ |
+| Member | ✔ their items | ✔ | ✔ | ─ | ─ | ✔ |
+| Observer | ─ | ✔ read | ✔ read | ─ | ─ | ✔ |
+
+The same screens render for every role; non-applicable actions are hidden
+or disabled (IA-A5).
+
+---
+
+## 5. Host unification
+
+The current app has two parallel worlds: **Servers** (SSH bookmarks,
+top-level tab) and **Hub → Hosts** (team-registered compute). These are
+two views of the same physical machine. Collapsing them is the structural
+change that makes the rest of the IA coherent (IA-A6).
+
+### 5.1 One entity, two roles
+
+A `Host` row has a **scope**:
+
+- `personal` — local SSH bookmark only. Stored on this device. Terminal
+  works. Steward cannot touch it.
+- `team` — hub-registered. Has `host_id`, team-scoped, assignable to
+  agents. Terminal still works if this device has credentials for it.
+- `team+personal` — both flavors on the same row. Credentials are
+  device-local; team binding is hub-global.
+
+One row per physical machine. Promotion and demotion happen on the same
+row; no duplicate listings.
+
+### 5.2 Data ownership split
+
+- **Hub owns:** team identity, `host_id`, non-secret SSH hints
+  (hostname, port, default user), labels, assignability state. Global,
+  multi-client.
+- **Device owns:** SSH credentials (private keys, passwords,
+  passphrases). Live in secure storage. Never leave the device.
+
+The phone's Hosts list is `hub.team_hosts ∪ device.personal_bookmarks`,
+joined on `host_id` where both sides exist. Who registered it, and from
+which device, is an implementation detail — the row looks the same.
+
+### 5.3 Lifecycle
+
+```
+                      (Register to Hub)
+     personal    ─────────────────────────▶   team+personal
+        ▲                                           │
+        │                                           │
+        │             (Unregister from Hub)         │
+        └───────────────────────────────────────────┘
+
+                      (Registered from desktop)
+         ─────────────────────────────────────▶   team (no creds here)
+                                                     │
+                                              (Add SSH credentials)
+                                                     ▼
+                                                team+personal
+```
+
+### 5.4 Delete semantics (three distinct verbs)
+
+1. **Unregister from team.** Default "hub-side delete". Row demotes to
+   `personal`; terminal still works. Historical runs/artifacts referencing
+   the host remain, read-only. Reversible by re-registering.
+2. **Remove local bookmark.** Deletes this device's credentials for the
+   host. If the host is team-registered, the row stays visible (team
+   source of truth); terminal disables until creds are re-added.
+3. **Hard-delete from team (admin-gated).** Tombstones the host.
+   Historical references dim but survive. Not MVP.
+
+**Invariants:**
+
+- Hub delete never destroys SSH credentials on any device.
+- Local delete never affects team state.
+- `host_id` is the stable join key across renames, IP changes, credential
+  rotation.
+
+---
+
+## 6. The five tabs
+
+The bottom nav is the single most visible IA artifact. Five tabs, ordered
+left-to-right as the director's attention naturally flows. **Me** is
+centered as the default landing.
+
+| # | Tab | Tier | Primary intent |
+|---|---|---|---|
+| 1 | Projects | 1 | The workspace I steer |
+| 2 | Activity | 1 | What happened across the team |
+| 3 | **Me** (default) | 0 | What needs me now |
+| 4 | Hosts | 2 | Infra & terminal |
+| 5 | Settings | 3 | My prefs |
+
+Rationale for the order: flow axis left (work I initiate) → right (tools
+I fall back to). Default landing is center so the thumb arrives at "what
+needs me" with zero travel.
+
+### 6.1 Me (default)
+
+Tier-0. Three sections, scrollable:
+
+- **Attention** — open `attention_items` assigned to or relevant to me,
+  in priority order. Empty state is celebrated, not hidden.
+- **My work** — projects I own or recently touched, with a condensed run
+  status strip. Reviews awaiting my decision inline here.
+- **Since you were last here** — digest pulled from Activity for
+  projects I follow. Collapsible; dismiss marks seen.
+
+Plus: top-bar search (capability), command palette (capability).
+
+Not in Me: any team-wide feed (that's Activity), any settings, any SSH
+bookmarks, any templates.
+
+### 6.2 Projects
+
+Tier-1. List of projects, filterable by status, kind, role. Each project
+row opens the Project Detail screen (unchanged as a concept, improved in
+density). Project Detail nests, not sprawls:
+
+- Overview (goal, status, recent runs, attention summary)
+- Runs → run detail → metrics, artifacts, logs
+- Reviews → review detail
+- Documents → doc viewer
+- Agents (scoped to this project)
+- Channel (scoped to this project)
+- Schedules / plans / tasks (scoped to this project)
+- Templates link (read-only pointer to the one home under Projects)
+
+A single **Templates / Blueprints** screen lives here too — one home.
+Any other "templates" surface in the app is a pointer into it.
+
+### 6.3 Activity
+
+Tier-1. The team's mutation feed, backed by `audit_events`. Chronological,
+filterable (project, entity type, actor, time, "affects me"). See §9 for
+what is and isn't an Activity event.
+
+Top of this tab has a **digest card** mirroring the Me tab's "since you
+were last here" — identical data, but Activity is the firehose and Me is
+the summary.
+
+### 6.4 Hosts
+
+Tier-2. Unified list of team + personal hosts (§5). Each row:
+
+- Name, hints, scope badge (`team`, `personal`, or `team+personal`)
+- Terminal button (enabled iff device has creds)
+- Assign-work affordance (enabled iff scope is `team`)
+
+Host detail exposes: SSH hints, agent assignments, recent runs,
+credential status, attach/rotate keys. **Keys, credentials, and SSH
+identities attach to hosts here** — there is no separate top-level Keys
+or Vault tab. Snippets (a separate concept, attached to terminal
+sessions) live under a Snippets drawer entered from terminal screens.
+
+Bootstrap / debug affordances (host-runner install, SSH reachability
+test, health ping) live on host detail, entered only when something
+needs diagnosis.
+
+### 6.5 Settings
+
+Tier-3. Personal, device-local preferences only:
+
+- Theme, font, keyboard (custom keyboard toggle)
+- Language
+- Export / Import backup
+- About
+
+Emphatically **not in Settings** anymore: tokens, audit, team
+management, members, notification rules, action bar profiles (those move
+to per-screen configuration or to Governance). Settings becomes small
+and predictable.
+
+### 6.6 Governance (future, not a tab yet)
+
+Tier-2 surface entered from Projects or Team. Contains:
+
+- Members & roles
+- Councils (N-of-M approval groups)
+- Team policy (budgets, rate limits, scopes)
+- Team-level audit filters
+- Tokens (team-scoped API tokens)
+
+Reserved but not built in MVP. Introducing it later does **not** require
+a new tab — it slots under Team-level actions reached from Projects.
+
+---
+
+## 7. Entity × surface matrix
+
+Single source of truth for *where every primitive lives*. Each row is one
+entity. "Home" = canonical screen. "Referenced from" = read-only pointers
+that must navigate back to Home, never duplicate the data.
+
+| Entity | Scope | Home | Referenced from |
+|---|---|---|---|
+| Attention item | team/me | Me tab → item detail | Project overview, Activity, item source |
+| Project | team | Projects tab → Project detail | Me (my work), Activity |
+| Run | team (project-scoped) | Project detail → Runs → Run detail | Me, Activity, Host detail |
+| Review | team | Project detail → Reviews → Review detail | Me (when assigned), Activity |
+| Document | team (project-scoped) | Project detail → Documents → Doc viewer | Review detail, Activity |
+| Agent | team (project-scoped) | Project detail → Agents | Host detail (assignment), Activity |
+| Host | team and/or device | Hosts tab → Host detail | Project detail (assignments), Run detail (where it ran) |
+| SSH credential | device | Host detail → Credentials | — (device-local, no remote refs) |
+| SSH key | device | Host detail → Keys | — |
+| Vault / secrets | device-per-host | Host detail → Secrets | Terminal sheet |
+| Template / blueprint | team | Projects tab → Templates | Project create sheet, Plan create sheet |
+| Plan | team (project-scoped) | Project detail → Plans → Plan viewer | Schedule detail, Template detail |
+| Task | team (project-scoped) | Project detail → Tasks → Task detail | Plan viewer, Me (when assigned) |
+| Schedule | team (project-scoped) | Project detail → Schedules | Activity (firings) |
+| Audit event | team | Activity tab | Project detail (filtered), Run detail (filtered) |
+| Channel | team or project | Project detail → Channel (project) · Activity → Team Channel (team) | Attention item source |
+| Snippet | device | Terminal → Snippets drawer | Custom keyboard, action bar |
+| Command history | device | Terminal → History sheet | — |
+| Budget | team | Governance → Policy | Project detail (badge) |
+| Token | team or device | Governance → Tokens (team) · Settings → API tokens (device) | — |
+| Member | team | Governance → Members | Project detail (members chip) |
+| Role | team | Governance → Roles | Member detail |
+| Notification rule | device | Settings → Notifications **or** Host detail → Notifications | Attention item source (historical) |
+| Connection (legacy) | — | **Removed**; merged into Host | — |
+
+Any screen that surfaces an entity and is **not** on the "Home" row of
+this table is either a pointer or a misplacement. The migration table in
+§10 enumerates every current screen's status against this matrix.
+
+---
+
+## 8. Forbidden IA patterns
+
+Corollaries of the axioms and the entity matrix. Violation signals a
+regression and requires explicit amendment of this document first.
+
+1. **Two tabs rendering the same entity list.** Violates IA-A2.
+   (Example: templates appearing under both Hub and Settings today.)
+2. **Personal data under team surfaces, or team data under Settings.**
+   Violates IA-A4. (Example: tokens, team management, and audit
+   currently under Settings.)
+3. **Tier-1 surface that is not attention-bearing or workspace.**
+   Violates IA-A1 and IA-A3. (Example: SSH connection list as a
+   top-level tab.)
+4. **SSH or terminal as a parallel top-level tier alongside the hub.**
+   Violates IA-A6. Terminal is a capability on hosts.
+5. **Role-specific UI stack or mode switch.** Violates IA-A5. Roles
+   gate affordances; they do not fork navigation.
+6. **Settings screen that cannot be fully summarized as "device/personal
+   prefs only".** Violates IA-A4.
+7. **Duplicate create sheets for the same primitive reachable from
+   multiple tabs.** A primitive has one Home (§7); create affordance
+   lives there and is linked in from others.
+8. **Tier-0 surface wider than one-screen scroll of "what needs me
+   now" + my active work + digest.** Tier-0 is not a dashboard; it is
+   a triage surface (IA-A1).
+9. **Device-scoped state (credentials, snippets, theme) synced to hub.**
+   Violates data ownership (§5.2) and blueprint forbidden pattern #15.
+10. **A tab whose primary content is empty for role R.** The tab shape
+    must hold for every role defined in §4. If it's empty for a role,
+    that role shouldn't see it (role→tab matrix in §4).
+
+---
+
+## 9. What is and isn't an Activity event
+
+Activity is defined by the `audit_events` table. To keep the feed
+load-bearing rather than noisy:
+
+**In Activity (mutations of team-owned state):**
+
+- Project / run / review / document / agent / host / attention /
+  schedule / task / channel / budget / token / member / role state
+  changes
+- Steward decisions taken on the team's behalf
+- Policy changes
+
+**Not in Activity:**
+
+- SSH terminal sessions (ephemeral, device-local)
+- Personal settings changes (device-local)
+- Read / view events (not state changes)
+- Channel message contents (threads render themselves; Activity notes
+  only that a channel was created or a significant policy change
+  happened)
+- Run metrics arrival past initial "run started" (too noisy; metrics
+  live on run detail)
+
+---
+
+## 10. Migration table
+
+Every current surface, with its target under the new IA. A "move"
+preserves the screen; a "merge" collapses it into another; "delete"
+removes it.
+
+### 10.1 Top-level tabs
+
+| Current | Action | Destination |
+|---|---|---|
+| Servers | merge | Hosts (unified with hub-side hosts) |
+| Vault | split | Keys/credentials → Host detail; Snippets → Terminal drawer |
+| Inbox | rename + scope | **Me** (strip SSH plumbing; add My Work + digest) |
+| Hub | split | Projects tab · Activity tab · (Hosts tab absorbs hub hosts) |
+| Settings | shrink | Personal prefs only; team/tokens/audit move out |
+
+### 10.2 Hub sub-screens
+
+| Current screen | Action | Destination |
+|---|---|---|
+| `hub_screen.dart` | split | Top tabs Projects / Activity / (Hosts extracted) |
+| `hub_bootstrap_screen.dart` | move | Hosts tab → first-run flow |
+| `project_detail_screen.dart` | keep | Projects tab → Project detail (unchanged) |
+| `runs_screen.dart` | keep | Project detail → Runs |
+| `reviews_screen.dart` | keep | Project detail → Reviews |
+| `documents_screen.dart` | keep | Project detail → Documents |
+| `doc_viewer_screen.dart` | keep | Project detail → Documents → viewer |
+| `plans_screen.dart` | keep | Project detail → Plans |
+| `plan_viewer_screen.dart` | keep | Project detail → Plans → viewer |
+| `schedules_screen.dart` | keep | Project detail → Schedules |
+| `task_detail_screen.dart` | keep | Project detail → Tasks |
+| `templates_screen.dart` | promote | Projects tab → Templates (single home) |
+| `workflows_screen.dart` | evaluate | Merge into Templates if overlap, else Project detail → Workflows |
+| `audit_screen.dart` | promote | Activity tab |
+| `search_screen.dart` | promote | Capability (top bar on every tab) |
+| `search_event_sheet.dart` | keep | Capability sheet |
+| `archived_agents_screen.dart` | merge | Project detail → Agents → Archive filter |
+| `budget_screen.dart` | move | Governance → Policy (future) · per-project badge now |
+| `tokens_screen.dart` | move | Governance → Tokens (future) · Settings → API (device) |
+| `team_screen.dart` | move | Governance (future); MVP lives behind Projects top-bar button |
+| `team_channel_screen.dart` | move | Activity → Team Channel (top tab chip) |
+| `project_channel_screen.dart` | keep | Project detail → Channel |
+| `host_edit_sheet.dart` | keep | Hosts tab → Host detail sheet |
+| `blobs_section.dart` | keep | Referenced from Run detail & Host detail |
+| Create sheets (project/plan/run/task/schedule/channel/…) | keep | Launched from the primitive's Home |
+
+### 10.3 Non-hub top-level
+
+| Current | Action | Destination |
+|---|---|---|
+| `connections/` | delete as top-level | Hosts absorbs; connection = host with `personal` scope |
+| `keys/` | delete as top-level | Host detail → Credentials |
+| `vault/` | split | Keys → Host detail; Snippets → Terminal drawer |
+| `notifications/` | move | Settings → Notifications (device rules) |
+| `inbox/` | rename | Me |
+| `terminal/` | keep | Launched from Host detail (capability) |
+| `settings/` | shrink | Personal prefs only |
+
+---
+
+## 11. Execution plan
+
+The redesign ships as wedges, each its own tag and each smaller than a
+full rewrite. Order reflects decreasing structural leverage — the
+earliest wedges unblock the later ones.
+
+**Wedge 1 — Nav skeleton.** Rename Inbox→Me, Hub→Projects, add Activity
+tab, replace Servers with Hosts (stub; still lists current SSH
+bookmarks). Settings shrunk to prefs-only, with orphaned sub-pages
+linked from their new homes. No entity moves yet.
+
+**Wedge 2 — Host unification.** Hub's hosts and SSH bookmarks join on
+`host_id`. Introduce scope field. Terminal button on host detail. Keys
+& credentials attach to host. Delete `connections/`, `keys/`, `vault/`
+as top-level.
+
+**Wedge 3 — Me tab shape.** Attention + My Work + digest. Pull reviews
+and run-follows into Me. Strip non-attention noise.
+
+**Wedge 4 — Projects tab shape.** Consolidate templates to one home.
+Project detail density pass: nested sub-tabs instead of sprawl.
+
+**Wedge 5 — Activity tab shape.** Promote audit_screen to top tab.
+Filters, digest card mirror to Me.
+
+**Wedge 6 — Governance scaffold.** Empty shell reachable from Projects
+top-bar. Members/roles/tokens/budget move in as stubs (MVP single-user
+shows "you" only). Reserves the slot without building it.
+
+Each wedge is shippable on its own and leaves the app in a coherent
+state. No wedge blocks daily use.
+
+---
+
+## 12. Amendment process
+
+This document is the authority on IA. Changes to it require:
+
+1. A proposal describing the new axiom, entity placement, or surface
+   change, referencing which existing axiom it amends or extends.
+2. An update to the entity × surface matrix (§7) and the forbidden
+   patterns (§8) to reflect the change.
+3. A migration note if the change moves an existing primitive.
+
+PRs that add tabs, screens, or top-level menu items without citing a
+clause here are candidates for rejection. Silent drift is the failure
+mode this document exists to prevent.

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -23,7 +24,7 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 	defer db.Close()
 
 	ctx := context.Background()
-	res, err := SeedDemo(ctx, db)
+	res, err := SeedDemo(ctx, db, dir)
 	if err != nil {
 		t.Fatalf("SeedDemo: %v", err)
 	}
@@ -35,6 +36,9 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 	}
 	if len(res.RunIDs) != 6 {
 		t.Errorf("RunIDs len = %d, want 6", len(res.RunIDs))
+	}
+	if res.ImageCount != 18 {
+		t.Errorf("ImageCount = %d, want 18", res.ImageCount)
 	}
 
 	// Row-count assertions — keeps the test honest about scope.
@@ -85,6 +89,13 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		{"attention_open",
 			`SELECT COUNT(*) FROM attention_items WHERE project_id = ? AND status = 'open'`,
 			[]any{res.ProjectID}, 1},
+		{"run_images",
+			// 3 checkpoint PNGs per run × 6 runs = 18.
+			`SELECT COUNT(*) FROM run_images WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 18},
+		{"run_images_generations",
+			`SELECT COUNT(*) FROM run_images WHERE metric_name = 'samples/generations' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 18},
 	}
 	for _, c := range cases {
 		var n int
@@ -145,6 +156,42 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			t.Errorf("%s present in %d runs, want 6", name, n)
 		}
 	}
+
+	// Every run_images row must point at a blobs table entry and the
+	// corresponding file on disk must exist — the mobile client loads
+	// PNGs via GET /v1/blobs/{sha}, which hits the disk path.
+	imgRows, err := db.QueryContext(ctx, `
+		SELECT ri.blob_sha, b.scope_path, b.size, b.mime
+		FROM run_images ri
+		JOIN blobs b ON b.sha256 = ri.blob_sha
+		WHERE ri.run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+		res.ProjectID)
+	if err != nil {
+		t.Fatalf("join run_images+blobs: %v", err)
+	}
+	defer imgRows.Close()
+	var checked int
+	for imgRows.Next() {
+		var sha, path, mime string
+		var size int64
+		if err := imgRows.Scan(&sha, &path, &size, &mime); err != nil {
+			t.Errorf("scan run_images row: %v", err)
+			continue
+		}
+		if mime != "image/png" {
+			t.Errorf("blob %s mime = %q, want image/png", sha, mime)
+		}
+		if size <= 0 {
+			t.Errorf("blob %s size = %d, want >0", sha, size)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("blob %s on disk: %v", sha, err)
+		}
+		checked++
+	}
+	if checked != 18 {
+		t.Errorf("checked %d run_images+blobs rows, want 18", checked)
+	}
 }
 
 // TestResetDemo_WipesAndAllowsReSeed covers the -reset path: seed once,
@@ -163,7 +210,7 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 	defer db.Close()
 	ctx := context.Background()
 
-	first, err := SeedDemo(ctx, db)
+	first, err := SeedDemo(ctx, db, dir)
 	if err != nil {
 		t.Fatalf("first SeedDemo: %v", err)
 	}
@@ -188,6 +235,8 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 		{"attention_items", `SELECT COUNT(*) FROM attention_items WHERE project_id = ?`},
 		{"run_metrics (cascade)", `SELECT COUNT(*) FROM run_metrics
 			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
+		{"run_images (cascade)", `SELECT COUNT(*) FROM run_images
+			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
 	}
 	for _, c := range tables {
 		var n int
@@ -201,7 +250,7 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 	}
 
 	// Second seed must succeed and mint a new project id.
-	second, err := SeedDemo(ctx, db)
+	second, err := SeedDemo(ctx, db, dir)
 	if err != nil {
 		t.Fatalf("second SeedDemo: %v", err)
 	}
@@ -249,7 +298,7 @@ func TestSeedDemo_IsIdempotent(t *testing.T) {
 	defer db.Close()
 	ctx := context.Background()
 
-	first, err := SeedDemo(ctx, db)
+	first, err := SeedDemo(ctx, db, dir)
 	if err != nil {
 		t.Fatalf("first SeedDemo: %v", err)
 	}
@@ -257,7 +306,7 @@ func TestSeedDemo_IsIdempotent(t *testing.T) {
 		t.Fatalf("first call reported Skipped=true")
 	}
 
-	second, err := SeedDemo(ctx, db)
+	second, err := SeedDemo(ctx, db, dir)
 	if err != nil {
 		t.Fatalf("second SeedDemo: %v", err)
 	}

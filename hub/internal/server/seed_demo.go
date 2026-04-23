@@ -1,12 +1,21 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"math"
 	"math/rand"
+	"os"
+	"path/filepath"
 )
 
 // SeedDemoResult summarizes what seed-demo inserted (or skipped) so the
@@ -17,6 +26,7 @@ type SeedDemoResult struct {
 	DocumentID string
 	ReviewID   string
 	Attention  string
+	ImageCount int  // total run_images rows inserted (0 when dataRoot is empty)
 	Skipped    bool // true when the demo project already existed
 	Reset      bool // true when the prior demo rows were deleted before re-inserting
 }
@@ -56,8 +66,10 @@ func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 	defer func() { _ = tx.Rollback() }()
 
 	// Child tables with no FK cascade back to projects (see 0006_runs,
-	// 0007_documents_reviews): clear explicitly. run_metrics does
-	// cascade from runs (0014), so deleting runs is enough.
+	// 0007_documents_reviews): clear explicitly. run_metrics (0014) and
+	// run_images (0017) cascade from runs, so deleting runs is enough
+	// for those. Blob files on disk are left behind — they're content-
+	// addressed and harmless; a re-seed with identical inputs dedups.
 	steps := []struct {
 		label string
 		query string
@@ -111,7 +123,14 @@ const demoProjectName = "ablation-sweep-demo"
 //
 // Idempotent: if a project named demoProjectName already exists in team
 // defaultTeamID, returns Skipped=true without touching anything.
-func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
+//
+// dataRoot is the hub's on-disk data directory (same one used for the
+// content-addressed blobs store). When non-empty, seed-demo also writes
+// 3 placeholder PNG checkpoints per run into run_images so the mobile
+// Run Detail screen can exercise the image-panel archetype. Empty
+// dataRoot skips image seeding — useful in unit tests that don't need
+// filesystem side effects.
+func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("SeedDemo: nil db")
 	}
@@ -199,6 +218,32 @@ func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
 					len(c.points), c.lastStep, c.lastValue, now,
 				); err != nil {
 					return nil, fmt.Errorf("insert run_metrics %s: %w", c.name, err)
+				}
+			}
+
+			// Per-run image series (plot archetype: wandb-style "Images"
+			// panel). Three placeholder PNG checkpoints at steps 0, mid,
+			// final — content visibly evolves with training progress so
+			// the reviewer can scrub the slider and *see* a change.
+			if dataRoot != "" {
+				checkpoints := []int64{0, int64(iters) / 2, int64(iters) - 1}
+				for _, step := range checkpoints {
+					pngBytes := drawCheckpointPNG(step, int64(iters), size, opt)
+					sha, err := insertDemoBlob(ctx, tx, dataRoot, pngBytes, "image/png", now)
+					if err != nil {
+						return nil, fmt.Errorf("insert demo blob: %w", err)
+					}
+					caption := fmt.Sprintf("step %d · size=%d %s", step, size, opt)
+					if _, err := tx.ExecContext(ctx, `
+						INSERT INTO run_images (
+							id, run_id, metric_name, step, blob_sha,
+							caption, created_at
+						) VALUES (?, ?, 'samples/generations', ?, ?, ?, ?)`,
+						NewID(), runID, step, sha, caption, now,
+					); err != nil {
+						return nil, fmt.Errorf("insert run_images: %w", err)
+					}
+					res.ImageCount++
 				}
 			}
 
@@ -689,6 +734,83 @@ func synthLossCurve(rng *rand.Rand, size int, optimizer string, iters, points in
 	return out, step, roundTo(last, 4)
 }
 
+// insertDemoBlob writes bytes to the content-addressed blob store rooted
+// at dataRoot (same layout the real POST /v1/blobs handler uses) and
+// upserts the blobs table row. Safe to call multiple times with the
+// same bytes — disk write is skipped when the file already exists and
+// the INSERT is `OR IGNORE`.
+func insertDemoBlob(ctx context.Context, tx *sql.Tx, dataRoot string, data []byte, mime string, now string) (string, error) {
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+	path := filepath.Join(dataRoot, "blobs", sha[:2], sha[2:4], sha)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			return "", err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO blobs (sha256, scope_path, size, mime, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		sha, path, len(data), mime, now); err != nil {
+		return "", err
+	}
+	return sha, nil
+}
+
+// drawCheckpointPNG renders a 64x64 PNG that visibly evolves with
+// training progress — early steps look noisy, late steps show a clean
+// diagonal wave. (size, optimizer) perturb the color ramp slightly so
+// different runs produce different blobs (blob-dedup still kicks in on
+// identical inputs, which is the right behaviour).
+//
+// Deterministic: same (step, iters, size, optimizer) always yields the
+// same bytes, so re-seeding finds identical blobs and the INSERT OR
+// IGNORE paths stay quiet.
+func drawCheckpointPNG(step, iters int64, size int, optimizer string) []byte {
+	const w, h = 64, 64
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	frac := float64(step) / float64(iters-1)
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	// Noise seed depends on everything so runs diverge but a given cell
+	// in (step, size, opt) space is reproducible.
+	seed := step*1000 + int64(size)*7
+	if optimizer == "lion" {
+		seed += 3
+	}
+	rng := rand.New(rand.NewSource(seed))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			// Diagonal wave — representing the "structure" the model has
+			// learnt. Strength grows with training fraction.
+			structVal := 0.5 + 0.5*math.Sin(float64(x+y)/6.0)
+			noise := rng.Float64()
+			v := (1-frac)*noise + frac*structVal
+
+			// Color ramp: early training leans green/amber, late training
+			// leans blue/violet. Optimizer adds a subtle hue shift.
+			rCh := uint8(frac * 200)
+			gCh := uint8(v*200 + 40)
+			bCh := uint8((1-frac)*80 + v*140)
+			if optimizer == "lion" {
+				bCh = uint8(math.Min(255, float64(bCh)+30))
+			}
+			img.Set(x, y, color.RGBA{rCh, gCh, bCh, 255})
+		}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
 func roundTo(v float64, places int) float64 {
 	m := math.Pow(10, float64(places))
 	return math.Round(v*m) / m
@@ -715,7 +837,9 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"- `grokking/success_rate` — phase-transition curve (flat → sharp ramp)\n" +
 		"- `grads/{layer0..3}` — per-layer gradient norms\n" +
 		"- `learning_rate`, `grad_norm` — single-series scalars\n" +
-		"- `throughput/tokens_per_sec` — single-series scalar\n\n" +
+		"- `throughput/tokens_per_sec` — single-series scalar\n" +
+		"- `samples/generations` (image series) — three PNG checkpoints\n" +
+		"  per run, scrubbable via the step slider\n\n" +
 		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +
 		"style generations captured at checkpoints — the text-sample panel\n" +
 		"archetype.\n"

@@ -302,7 +302,7 @@ func runSeedDemo(args []string, log *slog.Logger) {
 		}
 	}
 
-	res, err := server.SeedDemo(ctx, db)
+	res, err := server.SeedDemo(ctx, db, *dataRoot)
 	if err != nil {
 		log.Error("seed-demo failed", "err", err)
 		os.Exit(1)
@@ -317,8 +317,8 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	if wasReset {
 		action = "reset + re-inserted"
 	}
-	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n",
-		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention)
+	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n",
+		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount)
 }
 
 // ---- helpers ----

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -595,6 +596,7 @@ class RunDetailScreen extends ConsumerStatefulWidget {
 class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Map<String, dynamic>? _run;
   List<Map<String, dynamic>> _metrics = const [];
+  List<Map<String, dynamic>> _images = const [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -616,18 +618,26 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     }
     try {
       final r = await client.getRun(widget.runId);
-      // Metric digests are optional — a run without an attached tracker
-      // (or before the poller's first tick) simply has no rows yet.
+      // Metric digests + image-panel entries are optional — a run without
+      // an attached tracker (or before the poller's first tick) simply has
+      // no rows yet. Fetch both in parallel; failures fall back to empty.
       List<Map<String, dynamic>> metrics = const [];
+      List<Map<String, dynamic>> images = const [];
       try {
-        metrics = await client.getRunMetrics(widget.runId);
+        final results = await Future.wait<List<Map<String, dynamic>>>([
+          client.getRunMetrics(widget.runId),
+          client.getRunImages(widget.runId),
+        ]);
+        metrics = results[0];
+        images = results[1];
       } catch (_) {
-        metrics = const [];
+        // Keep defaults; render the rest of the screen even if digests fail.
       }
       if (!mounted) return;
       setState(() {
         _run = r;
         _metrics = metrics;
+        _images = images;
         _loading = false;
       });
     } catch (e) {
@@ -820,6 +830,16 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
                 _MetricSparklineTile(row: g.rows.single)
               else
                 _MetricGroupTile(groupName: g.name, rows: g.rows),
+          ],
+          if (_images.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _sectionLabel('Images'),
+            for (final group in _groupImages(_images))
+              _ImageSeriesTile(
+                groupName: group.name,
+                rows: group.rows,
+                runId: widget.runId,
+              ),
           ],
           if (uris.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -1383,6 +1403,222 @@ class _MetricURITile extends StatelessWidget {
     if (k.contains('tensor')) return Icons.insert_chart_outlined;
     if (k.contains('wandb') || k.contains('trackio')) return Icons.timeline;
     return Icons.bar_chart;
+  }
+}
+
+/// Groups image rows by metric_name so the UI renders one scrubber per
+/// image series (e.g. `samples/generations`, `samples/attention`). Order
+/// follows first appearance in the input list.
+class _ImageGroup {
+  final String name;
+  final List<Map<String, dynamic>> rows;
+  _ImageGroup(this.name, this.rows);
+}
+
+List<_ImageGroup> _groupImages(List<Map<String, dynamic>> rows) {
+  final order = <String>[];
+  final byKey = <String, List<Map<String, dynamic>>>{};
+  for (final r in rows) {
+    final key = (r['metric_name'] ?? '').toString();
+    if (key.isEmpty) continue;
+    if (!byKey.containsKey(key)) {
+      order.add(key);
+      byKey[key] = [];
+    }
+    byKey[key]!.add(r);
+  }
+  // Sort each group by step so the slider scrubs in training order.
+  for (final k in order) {
+    byKey[k]!.sort(
+      (a, b) => ((a['step'] as num?)?.toInt() ?? 0)
+          .compareTo((b['step'] as num?)?.toInt() ?? 0),
+    );
+  }
+  return [for (final k in order) _ImageGroup(k, byKey[k]!)];
+}
+
+/// Renders one image series as a step-scrubbable panel. The Slider
+/// selects an index into the sorted rows; the preview below swaps as
+/// the index moves. Blob bytes are fetched lazily per step and cached
+/// in-memory for the lifetime of this widget (scrubbing back and forth
+/// then doesn't re-hit the network).
+///
+/// Bytes come from `/v1/blobs/{sha}`, so a long-poll disconnect or
+/// logged-out client degrades to an error placeholder rather than
+/// taking down the whole Run Detail screen.
+class _ImageSeriesTile extends ConsumerStatefulWidget {
+  final String groupName;
+  final List<Map<String, dynamic>> rows;
+  final String runId;
+  const _ImageSeriesTile({
+    required this.groupName,
+    required this.rows,
+    required this.runId,
+  });
+
+  @override
+  ConsumerState<_ImageSeriesTile> createState() => _ImageSeriesTileState();
+}
+
+class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
+  int _index = 0;
+  final Map<String, Uint8List> _cache = {};
+  final Map<String, String> _errors = {};
+  final Set<String> _loading = {};
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to the last (most-trained) frame — matches what the user
+    // usually wants to see first when opening a finished run.
+    if (widget.rows.isNotEmpty) {
+      _index = widget.rows.length - 1;
+      _ensureLoaded(widget.rows[_index]);
+    }
+  }
+
+  Future<void> _ensureLoaded(Map<String, dynamic> row) async {
+    final sha = (row['blob_sha'] ?? '').toString();
+    if (sha.isEmpty) return;
+    if (_cache.containsKey(sha) || _loading.contains(sha)) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    _loading.add(sha);
+    try {
+      final bytes = await client.downloadBlob(sha);
+      if (!mounted) return;
+      setState(() {
+        _cache[sha] = Uint8List.fromList(bytes);
+        _loading.remove(sha);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errors[sha] = '$e';
+        _loading.remove(sha);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.rows.isEmpty) return const SizedBox.shrink();
+    final row = widget.rows[_index];
+    final sha = (row['blob_sha'] ?? '').toString();
+    final step = (row['step'] as num?)?.toInt() ?? 0;
+    final caption = (row['caption'] ?? '').toString();
+    final bytes = _cache[sha];
+    final err = _errors[sha];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.groupName,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                'step $step',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: DesignColors.terminalCyan,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          AspectRatio(
+            aspectRatio: 1.0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: DesignColors.borderDark),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: _preview(bytes, err),
+            ),
+          ),
+          if (widget.rows.length >= 2) ...[
+            const SizedBox(height: 4),
+            Slider(
+              min: 0,
+              max: (widget.rows.length - 1).toDouble(),
+              divisions: widget.rows.length - 1,
+              value: _index.toDouble(),
+              label: 'step $step',
+              onChanged: (v) {
+                final i = v.round();
+                if (i == _index) return;
+                setState(() => _index = i);
+                _ensureLoaded(widget.rows[i]);
+              },
+            ),
+          ],
+          if (caption.isNotEmpty)
+            Text(
+              caption,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          Text(
+            '${widget.rows.length} checkpoints',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              color: DesignColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _preview(Uint8List? bytes, String? err) {
+    if (err != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Text(
+            'failed to load: $err',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 11,
+              color: DesignColors.error,
+            ),
+          ),
+        ),
+      );
+    }
+    if (bytes == null) {
+      return const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    // filterQuality=none preserves the pixel grid for tiny placeholder
+    // PNGs; the seed-demo images are 64×64 so linear filtering would
+    // blur them into mush at any realistic display size.
+    return Image.memory(
+      bytes,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+      filterQuality: FilterQuality.none,
+    );
   }
 }
 

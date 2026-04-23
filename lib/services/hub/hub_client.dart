@@ -888,6 +888,19 @@ class HubClient {
   Future<List<Map<String, dynamic>>> getRunMetrics(String runId) =>
       _listJson('/v1/teams/${cfg.teamId}/runs/$runId/metrics');
 
+  /// Lists a run's image-panel entries — the wandb "Images" equivalent.
+  /// Each row carries a `metric_name` + `step` + `blob_sha`. The mobile UI
+  /// groups by metric_name and fetches frame bytes lazily via
+  /// [downloadBlob] as the slider is scrubbed.
+  Future<List<Map<String, dynamic>>> getRunImages(
+    String runId, {
+    String? metric,
+  }) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/runs/$runId/images',
+        query: metric == null ? null : {'metric': metric},
+      );
+
   // ---- documents + reviews (blueprint §6.7, §6.8) ----
 
   Future<List<Map<String, dynamic>>> listDocuments({String? projectId}) =>

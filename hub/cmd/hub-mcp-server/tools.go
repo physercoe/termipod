@@ -434,6 +434,39 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "project_channels.create",
+			Description: "Create a channel scoped to one project. Requires `project_id` and `name`. Project channels carry project-local traffic; use team_channels.create for cross-project rooms like #hub-meta.",
+			InputSchema: schema(`{"type":"object","required":["project_id","name"],"properties":{"project_id":{"type":"string"},"name":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				name, _ := args["name"].(string)
+				if p == "" || name == "" {
+					return nil, fmt.Errorf("project_id and name are required")
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/projects/"+url.PathEscape(p)+"/channels"), nil, map[string]any{"name": name}, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "team_channels.create",
+			Description: "Create a team-scope channel (project_id=NULL, scope_kind='team'). Requires `name`. Use for cross-project rooms like #hub-meta.",
+			InputSchema: schema(`{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				name, _ := args["name"].(string)
+				if name == "" {
+					return nil, fmt.Errorf("name is required")
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/channels"), nil, map[string]any{"name": name}, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "tasks.list",
 			Description: "List tasks for a project. Requires `project_id`. Optional `status` filter.",
 			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"}}}`),

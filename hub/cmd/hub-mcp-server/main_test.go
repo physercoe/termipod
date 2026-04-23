@@ -260,6 +260,79 @@ func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
 	}
 }
 
+// TestToolsCall_ProjectChannelsCreate: project_channels.create must POST
+// to the project-scoped channels endpoint with just {"name": ...}.
+func TestToolsCall_ProjectChannelsCreate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"ch-1","scope_kind":"project","name":"ops"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":31,"method":"tools/call","params":{"name":"project_channels.create","arguments":{"project_id":"p1","name":"ops"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/projects/p1/channels" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if strings.Contains(sawBody, `"project_id"`) {
+		t.Errorf("body should not include project_id: %q", sawBody)
+	}
+	if !strings.Contains(sawBody, `"name":"ops"`) {
+		t.Errorf("body missing name: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
+// TestToolsCall_TeamChannelsCreate: team_channels.create must POST to
+// the team-scope /channels endpoint (no project prefix).
+func TestToolsCall_TeamChannelsCreate(t *testing.T) {
+	var sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"ch-team","scope_kind":"team","name":"hub-meta"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"name":"team_channels.create","arguments":{"name":"hub-meta"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawPath != "/v1/teams/team-alpha/channels" {
+		t.Errorf("path = %q, want team-scope /channels", sawPath)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
 // TestToolsCall_TasksCreate: tasks.create must POST to the project-scoped
 // path and strip project_id from the body.
 func TestToolsCall_TasksCreate(t *testing.T) {

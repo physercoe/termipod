@@ -44,6 +44,8 @@ the CEO principle.
 | Schedules list | list schedules | `schedules.list` (v1.0.153) |
 | `task_detail_screen.dart` | create / patch task | `tasks.create`, `tasks.update` (v1.0.154) |
 | Project tasks list | list tasks | `tasks.list` (v1.0.154) |
+| `project_channel_create_sheet.dart` | create project channel | `project_channels.create` (v1.0.155) |
+| `team_channel_screen.dart` | create team channel | `team_channels.create` (v1.0.155) |
 
 ## 2. Infra gaps — demo-critical
 
@@ -53,8 +55,6 @@ Each row is a future MCP wedge.
 | Screen | Action | REST | Proposed tool | Inputs |
 |---|---|---|---|---|
 | `project_edit_sheet.dart` | patch project | `PATCH /v1/teams/{t}/projects/{id}` | `projects.update` | project_id, name?, goal?, kind?, template_id?, parameters?, budget_cents? |
-| `project_channel_create_sheet.dart` | create project channel | `POST /v1/teams/{t}/projects/{p}/channels` | `project_channels.create` | project_id, name |
-| `team_channel_screen.dart` | create team channel | `POST /v1/teams/{t}/channels` | `team_channels.create` | name |
 | `host_edit_sheet.dart` | patch host SSH hint | `PATCH /v1/teams/{t}/hosts/{id}/ssh_hint` | `hosts.update_ssh_hint` | host_id, ssh_hint_json |
 
 ## 2a. Infra gaps — nice-to-have
@@ -95,7 +95,7 @@ layouts. Each row is a reframe suggestion, not a net-new wedge.
 Treating one wedge per logical hub surface so the steward regains parity:
 1. ~~**Scheduling surface** — `schedules.{list,create,update,delete,run}`.~~ **DONE v1.0.153.**
 2. ~~**Project tasks surface** — `tasks.{list,create,update}`.~~ **DONE v1.0.154.**
-3. **Channel authoring** — `channels.create` (both project- and team-scope). Steward needs this before posting.
+3. ~~**Channel authoring** — `project_channels.create` + `team_channels.create`.~~ **DONE v1.0.155.**
 4. **Project + host patch** — `projects.update`, `hosts.update_ssh_hint`. Small but closes the ownership-level edit path.
 
 After those four land, the mobile CRUD surface is entirely redundant

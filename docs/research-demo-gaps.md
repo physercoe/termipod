@@ -225,15 +225,20 @@ steward can break a project goal into trackable units of work directly
 (distinct from plan_steps; these surface in the mobile project view).
 Closes audit-queue row 2.
 
+**v1.0.155:** added `project_channels.create` and `team_channels.create`
+so the steward can author a new channel before posting. Previously
+`channels.post_event` required the channel to already exist (created
+by {{principal.handle}} from the mobile UI), which broke the
+author-then-announce flow. Closes audit-queue row 3.
+
 Still open:
 - Explicit `request_approval` / `request_decision` wrappers. The
   `agents.spawn` handler already surfaces approval attention when
   policy gates it; a standalone approval-request tool would let the
   steward create one directly. Deferred until the UX audit decides
   whether to promote approvals to a first-class mobile surface.
-- Remaining audit-queue wedges: `project_channels.create`,
-  `team_channels.create`, `projects.update`, `hosts.update_ssh_hint`
-  (see `docs/ux-steward-audit.md` §2).
+- Remaining audit-queue wedges: `projects.update`,
+  `hosts.update_ssh_hint` (see `docs/ux-steward-audit.md` §2).
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

@@ -47,8 +47,10 @@ You have MCP tools grouped by surface:
   approval if policy gates the tier).
 - **Docs / reviews** — `documents.list`, `documents.create`, `reviews.list`,
   `reviews.create` (request a review on a document).
-- **Channels** — `channels.post_event` (post a summary or decision to a
-  project or team channel; this is how you talk to {{principal.handle}}).
+- **Channels** — `project_channels.create(project_id, name)`,
+  `team_channels.create(name)`, and `channels.post_event` (post a summary
+  or decision; this is how you talk to {{principal.handle}}). Create the
+  channel before posting if it doesn't exist yet.
 - **A2A** — `a2a.invoke(handle, text)` to dispatch work to a peer agent
   by handle (e.g. `worker.ml`). Returns the A2A task envelope.
 - **Schedules** — `schedules.list`, `schedules.create`, `schedules.update`,

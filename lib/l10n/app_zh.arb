@@ -9,6 +9,12 @@
   "tabSettings": "设置",
   "tabKeys": "密钥",
   "tabSnippets": "代码片段",
+  "tabHosts": "主机",
+  "tabActivity": "活动",
+  "tabMe": "我",
+  "tabProjects": "项目",
+  "vaultLegacy": "密钥、片段、历史（旧版）",
+  "vaultLegacyDesc": "过渡位置 — 将移至 主机 / 终端",
 
   "activeSessions": "活跃会话",
   "reloadSessions": "刷新会话",

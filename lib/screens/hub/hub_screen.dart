@@ -21,16 +21,22 @@ import 'project_detail_screen.dart';
 import 'team_channel_screen.dart';
 import 'team_screen.dart';
 
-/// Main dashboard for a configured Termipod Hub. Four tabs:
-///   - Projects: project inventory; FAB creates; tap opens detail.
-///   - Agents:   kind/handle/status per agent, spawn actions.
-///   - Hosts:    host-runners checking in.
+/// Main "Projects" tab per `docs/ia-redesign.md` §6.2 (Wedge 1 — nav
+/// skeleton). Three sub-tabs:
+///   - Projects:  project inventory; FAB creates; tap opens detail.
+///   - Agents:    kind/handle/status per agent, spawn actions.
 ///   - Templates: team-wide templates (agents/prompts/policies).
 ///
-/// Attention/Feed/Tasks moved out: approvals land in the Inbox tab,
+/// The former Hosts sub-tab moved to the top-level Hosts bottom tab
+/// (Wedge 1). Wedge 4 will fold Agents under Project detail and promote
+/// Templates to a single home, collapsing this screen to a single
+/// projects list.
+///
+/// Attention/Feed/Tasks moved out: approvals land in the Me tab,
 /// per-channel Feed and per-project Tasks live inside Project detail.
 /// Header carries a Steward chip (shortcut to #hub-meta team channel) and
-/// a Team icon (members/policies/channels/settings).
+/// a Team icon (members/policies/channels/settings) — Wedge 6 will
+/// replace the Team icon with a persistent top-bar Team switcher.
 ///
 /// If the hub isn't configured yet, we push [HubBootstrapScreen] from the
 /// empty state; once it pops true, the provider rebuilds and the real
@@ -49,7 +55,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
@@ -72,7 +78,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Hub',
+          'Projects',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 22,
             fontWeight: FontWeight.w700,
@@ -116,7 +122,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
             tabs: const [
               Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
               Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Agents'),
-              Tab(icon: Icon(Icons.dns_outlined), text: 'Hosts'),
               Tab(icon: Icon(Icons.description_outlined), text: 'Templates'),
             ],
           ),
@@ -139,7 +144,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
                         items: st.agents,
                         hosts: st.hosts,
                         spawns: st.spawns),
-                    _HostsTab(items: st.hosts),
                     _TemplatesTab(items: st.templates),
                   ],
                 ),
@@ -1465,32 +1469,6 @@ class _SpawnStewardCardState extends ConsumerState<_SpawnStewardCard> {
   }
 }
 
-class _HostsTab extends ConsumerWidget {
-  final List<Map<String, dynamic>> items;
-  const _HostsTab({required this.items});
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (items.isEmpty) return const _EmptyText(text: 'No hosts registered');
-    return RefreshIndicator(
-      onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-      child: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) {
-          final h = items[i];
-          return _InfoTile(
-            title: h['name']?.toString() ?? '?',
-            subtitle: 'status: ${h['status'] ?? 'unknown'}',
-            trailing: _shortTs((h['last_seen_at'] ?? '') as String),
-            onTap: () => _openHostDetail(context, h),
-          );
-        },
-      ),
-    );
-  }
-}
-
 class _ProjectsTab extends ConsumerWidget {
   final List<Map<String, dynamic>> items;
   const _ProjectsTab({required this.items});
@@ -1688,6 +1666,9 @@ void _openAgentDetail(BuildContext context, Map<String, dynamic> agent) {
   );
 }
 
+// Retained for Wedge 2 (unified Hosts screen) — unreferenced in Wedge 1
+// since _HostsTab was removed when hosts moved to a top-level tab.
+// ignore: unused_element
 void _openHostDetail(BuildContext context, Map<String, dynamic> host) {
   showModalBottomSheet<void>(
     context: context,

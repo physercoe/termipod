@@ -19,6 +19,7 @@ import '../../providers/action_bar_provider.dart';
 import '../../theme/design_colors.dart';
 import 'action_bar_settings_screen.dart';
 import 'file_browser_screen.dart';
+import '../vault/vault_screen.dart';
 import '../../widgets/dialogs/font_size_dialog.dart';
 import '../../widgets/dialogs/font_family_dialog.dart';
 import '../../widgets/dialogs/min_font_size_dialog.dart';
@@ -532,6 +533,16 @@ class SettingsScreen extends ConsumerWidget {
                       MaterialPageRoute(
                         builder: (_) => const FileBrowserScreen(),
                       ),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: Text(l10n.vaultLegacy),
+                  subtitle: Text(l10n.vaultLegacyDesc),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const VaultScreen()),
                     );
                   },
                 ),

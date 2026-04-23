@@ -9,6 +9,12 @@
   "tabSettings": "Settings",
   "tabKeys": "Keys",
   "tabSnippets": "Snippets",
+  "tabHosts": "Hosts",
+  "tabActivity": "Activity",
+  "tabMe": "Me",
+  "tabProjects": "Projects",
+  "vaultLegacy": "Keys, Snippets, History (legacy)",
+  "vaultLegacyDesc": "Transitional home — will move to Hosts / Terminal",
 
   "activeSessions": "Active Sessions",
   "reloadSessions": "Reload sessions",

@@ -11,16 +11,23 @@ import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
 import 'connections/connections_screen.dart';
 import 'inbox/inbox_screen.dart';
-import 'vault/vault_screen.dart';
+import 'hub/activity_screen.dart';
 import 'hub/hub_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
 
-/// 現在のタブインデックス Notifier
-/// タブ順序: 0=Servers, 1=Vault, 2=Inbox, 3=Hub, 4=Settings
+/// Current bottom-tab index notifier.
+///
+/// Tab order per `docs/ia-redesign.md` §6 (Wedge 1 — nav skeleton):
+///   0 = Projects (was "Hub")
+///   1 = Activity (new; was "Vault")
+///   2 = Me (default; was "Inbox")  — center, big button
+///   3 = Hosts (was "Servers"; renders ConnectionsScreen for now — Wedge 2
+///              unifies team hosts into this list)
+///   4 = Settings
 class CurrentTabNotifier extends Notifier<int> {
   @override
-  int build() => 2; // Inbox（中央）をデフォルトに
+  int build() => 2; // Me at center = default landing (IA-A1 glanceability)
 
   void setTab(int index) => state = index;
 }
@@ -29,8 +36,11 @@ final currentTabProvider = NotifierProvider<CurrentTabNotifier, int>(
   CurrentTabNotifier.new,
 );
 
-/// ホーム画面（Bottom Navigation付き）
-/// タブ順序: Servers | Vault | [Inbox] | Hub | Settings
+/// Home screen with bottom nav.
+///
+/// Tab order: Projects | Activity | [Me] | Hosts | Settings.
+/// Me is the center attention tab — default landing, rendered as the big
+/// outset button.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -42,10 +52,10 @@ class HomeScreen extends ConsumerWidget {
       body: IndexedStack(
         index: currentTab,
         children: const [
-          ConnectionsScreen(),  // 0: Servers
-          VaultScreen(),        // 1: Vault (Keys + Snippets)
-          InboxScreen(),        // 2: Inbox（中央）
-          HubScreen(),          // 3: Hub
+          HubScreen(),          // 0: Projects (HubScreen now shows only projects sub-tabs)
+          ActivityScreen(),     // 1: Activity (audit feed promoted)
+          InboxScreen(),        // 2: Me (center, default)
+          ConnectionsScreen(),  // 3: Hosts (still just SSH bookmarks; Wedge 2 merges team hosts)
           SettingsScreen(),     // 4: Settings
         ],
       ),
@@ -81,36 +91,36 @@ class HomeScreen extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  // Servers（左端）
+                  // Projects (leftmost — the workspace I steer)
                   _buildNavItem(
                     context,
                     ref,
                     index: 0,
-                    icon: Icons.dns,
-                    label: AppLocalizations.of(context)!.tabServers,
+                    icon: Icons.folder_outlined,
+                    label: AppLocalizations.of(context)!.tabProjects,
                     isSelected: currentTab == 0,
                   ),
-                  // Vault（左寄り）
+                  // Activity (what happened)
                   _buildNavItem(
                     context,
                     ref,
                     index: 1,
-                    icon: Icons.shield,
-                    label: AppLocalizations.of(context)!.tabVault,
+                    icon: Icons.show_chart,
+                    label: AppLocalizations.of(context)!.tabActivity,
                     isSelected: currentTab == 1,
                   ),
-                  // 中央スペーサー（Dashboardボタンの場所）
+                  // Center spacer (Me button lives here)
                   const SizedBox(width: 64),
-                  // Hub（右寄り）
+                  // Hosts (infra + terminal)
                   _buildNavItem(
                     context,
                     ref,
                     index: 3,
-                    icon: Icons.hub_outlined,
-                    label: AppLocalizations.of(context)!.tabHub,
+                    icon: Icons.dns,
+                    label: AppLocalizations.of(context)!.tabHosts,
                     isSelected: currentTab == 3,
                   ),
-                  // Settings（右端）
+                  // Settings (rightmost — device prefs only)
                   _buildNavItem(
                     context,
                     ref,
@@ -182,7 +192,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
         child: Icon(
-          Icons.terminal,
+          Icons.inbox_outlined,
           size: 36,
           color: isSelected
               ? Colors.white

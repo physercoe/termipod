@@ -126,12 +126,12 @@ Opt-in coordination layer for teams running multiple AI coding agents. Paste a h
 **Inbox** — unified triage: approvals, agent states (idle / errored), messages, and SSH sessions in one filterable feed. Tap a pending approval to Approve / Reject inline; tap the magnifier to full-text search across all hub events.
 
 **Hub** — four sub-tabs:
-- **Projects** — Linear-style project detail with Activity / Tasks / Agents / Docs / Blobs / Info pill sections. Activity chat streams via SSE; Tasks are a Kanban with full-screen detail; Docs are a read-only browser over the project's `docs_root` with a markdown viewer; Blobs are cached device-local uploads shareable by any chat
-- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets
+- **Projects** — Linear-style project detail with Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info pill sections. Activity chat streams via SSE; Tasks are a filter-by-status Kanban with full-screen detail and markdown body preview; Plans render structured step specs with inline code blocks for prompts / commands; Runs show duration and render summaries as markdown; Reviews are filterable by project; Docs are a read-only browser over the project's `docs_root` with a markdown viewer; Blobs are cached device-local uploads shareable by any chat. Project name / goal / template / docs root / budget are all editable inline
+- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets. Terminated agents can be archived to a separate tombstone list with full spawn-spec and journal post-mortem
 - **Hosts** — host-runner check-ins with last-seen timestamps
 - **Templates** — browse team-wide agent / prompt / policy YAML
 
-**Team** screen (header icon on Hub) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and **Settings** with cron **Schedules** and per-agent **Usage / budget** rollups.
+**Team** screen (header icon on Hub) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and **Settings** with cron **Schedules**, per-agent **Usage / budget** rollups, and an **Audit log** of policy / template / agent-lifecycle events.
 
 The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.
 

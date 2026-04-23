@@ -33,44 +33,48 @@ class TeamSwitcher extends ConsumerWidget {
         ? DesignColors.textSecondary
         : DesignColors.textSecondaryLight;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-      child: Tooltip(
-        message: l10n.teamSwitcherTooltip,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(16),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const TeamScreen()),
-            ),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: bg,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: border),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Tooltip(
+          message: l10n.teamSwitcherTooltip,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const TeamScreen()),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.groups_2_outlined, size: 14, color: fg),
-                  const SizedBox(width: 6),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 120),
-                    child: Text(
-                      teamId,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: fg,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.groups_2_outlined, size: 14, color: fg),
+                    const SizedBox(width: 6),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 96),
+                      child: Text(
+                        teamId,
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: fg,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 2),
-                  Icon(Icons.expand_more, size: 14, color: fg),
-                ],
+                    const SizedBox(width: 2),
+                    Icon(Icons.expand_more, size: 14, color: fg),
+                  ],
+                ),
               ),
             ),
           ),

@@ -292,9 +292,11 @@ class _HostTile extends ConsumerWidget {
               const SizedBox(width: 4),
               if (row.connection != null)
                 IconButton(
-                  icon: const Icon(Icons.terminal),
-                  tooltip: 'Open terminal',
-                  onPressed: () => _openTerminal(context, ref),
+                  icon: const Icon(Icons.bolt),
+                  tooltip: row.connection!.isRawMode
+                      ? 'Raw shell'
+                      : 'Open raw shell (bypass tmux)',
+                  onPressed: () => _openTerminal(context, ref, raw: true),
                 ),
             ],
           ),
@@ -311,13 +313,21 @@ class _HostTile extends ConsumerWidget {
     }
   }
 
-  void _openTerminal(BuildContext context, WidgetRef ref) {
+  /// Open the terminal for this row's connection. When [raw] is true the
+  /// PTY is forced into plain-shell mode even on tmux-configured hosts —
+  /// restores the "rightmost icon = direct shell" affordance the older
+  /// Servers card had. Default tap still uses the connection's configured
+  /// mode (tmux → session picker inside the terminal screen).
+  void _openTerminal(BuildContext context, WidgetRef ref, {bool raw = false}) {
     final c = row.connection;
     if (c == null) return;
     ref.read(connectionsProvider.notifier).updateLastConnected(c.id);
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => TerminalScreen(connectionId: c.id),
+        builder: (_) => TerminalScreen(
+          connectionId: c.id,
+          forceRawMode: raw,
+        ),
       ),
     );
   }

@@ -21,10 +21,11 @@ import 'project_detail_screen.dart';
 import 'team_channel_screen.dart';
 import 'templates_screen.dart';
 
-/// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Two sub-tabs:
-///   - Projects: project inventory; FAB creates; tap opens detail.
-///   - Agents:   team-wide agent list (project-scoped view lives inside
-///               Project detail per IA-A2).
+/// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Project inventory
+/// only — agents live inside Project detail per IA entity×surface matrix
+/// (line 444). The earlier sibling "Agents" sub-tab conflated the
+/// team-wide agent fleet with project-scoped work; that view is now a
+/// sub-section of Project detail, not a peer of Projects.
 ///
 /// Templates consolidated to a single home (TemplatesScreen) reached via
 /// the AppBar icon — Wedge 4 eliminated the inline Templates sub-tab so
@@ -34,8 +35,7 @@ import 'templates_screen.dart';
 /// Attention/Feed/Tasks moved out: approvals land in the Me tab,
 /// per-channel Feed and per-project Tasks live inside Project detail.
 /// Header carries a Steward chip (shortcut to #hub-meta team channel) and
-/// a Team icon (members/policies/channels/settings) — Wedge 6 will
-/// replace the Team icon with a persistent top-bar Team switcher.
+/// a Team switcher (members/policies/channels/settings).
 ///
 /// If the hub isn't configured yet, we push [HubBootstrapScreen] from the
 /// empty state; once it pops true, the provider rebuilds and the real
@@ -47,26 +47,16 @@ class HubScreen extends ConsumerStatefulWidget {
   ConsumerState<HubScreen> createState() => _HubScreenState();
 }
 
-class _HubScreenState extends ConsumerState<HubScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs;
-
+class _HubScreenState extends ConsumerState<HubScreen> {
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
         ref.read(hubProvider.notifier).refreshAll();
       }
     });
-  }
-
-  @override
-  void dispose() {
-    _tabs.dispose();
-    super.dispose();
   }
 
   @override
@@ -115,16 +105,6 @@ class _HubScreenState extends ConsumerState<HubScreen>
             },
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: TabBar(
-            controller: _tabs,
-            tabs: const [
-              Tab(icon: Icon(Icons.folder_outlined), text: 'Projects'),
-              Tab(icon: Icon(Icons.smart_toy_outlined), text: 'Agents'),
-            ],
-          ),
-        ),
       ),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -134,18 +114,7 @@ class _HubScreenState extends ConsumerState<HubScreen>
           return Column(
             children: [
               if (st.error != null) _ErrorBanner(text: st.error!),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabs,
-                  children: [
-                    _ProjectsTab(items: st.projects),
-                    _AgentsTab(
-                        items: st.agents,
-                        hosts: st.hosts,
-                        spawns: st.spawns),
-                  ],
-                ),
-              ),
+              Expanded(child: _ProjectsTab(items: st.projects)),
             ],
           );
         },
@@ -353,11 +322,15 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------
-// Agents / Projects tabs — read-only tables
-// Templates live in TemplatesScreen (the single home per IA §6.2);
-// reach it via the AppBar icon.
+// Projects tab — read-only list (above). The _AgentsTab scaffold below
+// is parked: it used to be the sibling Agents sub-tab but IA §6.2 +
+// line 444 put agents inside Project detail instead. The subsystem
+// (spawn dialog, detail sheet, org chart) is kept here so the next
+// wedge can lift it into project_detail_screen.dart without a 1500-
+// line duplicate round-trip.
 // ---------------------------------------------------------------------
 
+// ignore: unused_element
 class _AgentsTab extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> items;
   final List<Map<String, dynamic>> hosts;

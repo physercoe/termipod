@@ -6,33 +6,41 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/team_switcher.dart';
+import 'archived_agents_screen.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
+import 'plans_screen.dart';
 import 'project_channel_create_sheet.dart';
 import 'project_channel_screen.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
 import 'runs_screen.dart';
+import 'schedules_screen.dart';
 import 'task_detail_screen.dart';
 
-/// Linear-style project detail. Horizontal PageView over seven sections —
-/// the pill bar and the PageView are bound to the same index so either
-/// tapping a pill or swiping the body flips both.
-///
-/// Activity is the default landing view (index 0). It collapses the most
-/// recent events across every channel in the project into a single feed.
+/// Linear-style project detail aligned to `docs/ia-redesign.md` §6.2.
+/// Horizontal PageView over the IA-canonical sub-surfaces — the pill bar
+/// and the PageView are bound to the same index so either tapping a pill
+/// or swiping the body flips both.
 ///
 /// Tabs:
-///   0 Activity  — recent events from all channels (backfilled, no SSE
-///                 — we only stream the single channel the feed opens).
-///   1 Channels  — channel list + per-channel composer; FAB creates.
-///   2 Tasks     — Kanban over the project's tasks; FAB creates.
-///   3 Agents    — agents whose channel's project matches this one.
-///   4 Docs      — read-only tree of the project's docs_root.
-///   5 Blobs     — cached device-local blob list; upload + share.
-///   6 Info      — name, id, docs_root, config_yaml; archive action.
+///   0 Overview  — goal, status, metadata, shortcut tiles into Runs /
+///                 Reviews / Documents / Schedules / Plans / Blobs, and
+///                 the archive action. Replaces the old "Info" tab.
+///   1 Agents    — agents scoped to this project; archive filter via
+///                 the AppBar action.
+///   2 Channel   — channel list + per-channel composer; FAB creates.
+///   3 Tasks     — Kanban over this project's tasks; FAB creates.
+///   4 Documents — read-only tree of the project's docs_root.
+///
+/// Retired from the previous 7-tab shape:
+///   - Activity: team-wide feed lives on the Activity top-level tab,
+///               filtered to this project.
+///   - Blobs:    moved to an Overview shortcut tile (device-local cache).
+///   - Info:     rolled into Overview.
 class ProjectDetailScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> project;
   const ProjectDetailScreen({super.key, required this.project});
@@ -48,13 +56,11 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   late Map<String, dynamic> _project;
 
   static const _labels = [
-    'Activity',
-    'Channels',
-    'Tasks',
+    'Overview',
     'Agents',
-    'Docs',
-    'Blobs',
-    'Info',
+    'Channel',
+    'Tasks',
+    'Documents',
   ];
 
   @override
@@ -113,6 +119,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           ],
         ),
         actions: [
+          const TeamSwitcher(),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: 'Edit project',
@@ -132,13 +139,11 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               controller: _pager,
               onPageChanged: (i) => setState(() => _index = i),
               children: [
-                _ActivityView(projectId: projectId),
+                _OverviewView(project: _project),
+                _AgentsView(projectId: projectId),
                 _ChannelsView(projectId: projectId),
                 _TasksView(projectId: projectId),
-                _AgentsView(projectId: projectId),
                 DocsSection(projectId: projectId),
-                const BlobsSection(),
-                _InfoView(project: _project),
               ],
             ),
           ),
@@ -231,8 +236,12 @@ class _Pill extends StatelessWidget {
   }
 }
 
-// ---- Activity ----
+// Activity retired from project detail tabs per IA §6.2 — the top-level
+// Activity tab covers the team feed and filters by project. The helper
+// view below is parked behind an ignore so future demos can reinstate
+// it in Overview as a digest card without resurrecting the queries.
 
+// ignore: unused_element
 class _ActivityView extends ConsumerStatefulWidget {
   final String projectId;
   const _ActivityView({required this.projectId});
@@ -924,6 +933,9 @@ class _StatusDot extends StatelessWidget {
 }
 
 // ---- Agents (filtered to this project) ----
+// Per IA line 444 agents live *inside* project detail, not as a
+// sibling tab under Projects. The archive action on the top-right
+// replaces the old HubScreen-level _AgentsTab archive button (Gap #6).
 
 class _AgentsView extends ConsumerWidget {
   final String projectId;
@@ -935,60 +947,84 @@ class _AgentsView extends ConsumerWidget {
     final rows = all
         .where((a) => (a['project_id'] ?? '').toString() == projectId)
         .toList();
-    if (rows.isEmpty) {
-      return const _Placeholder(text: 'No agents on this project');
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      itemCount: rows.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) {
-        final a = rows[i];
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: isDark
-                ? DesignColors.surfaceDark
-                : DesignColors.surfaceLight,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: isDark
-                  ? DesignColors.borderDark
-                  : DesignColors.borderLight,
-            ),
-          ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final body = rows.isEmpty
+        ? const _Placeholder(text: 'No agents on this project')
+        : ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            itemCount: rows.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (_, i) {
+              final a = rows[i];
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? DesignColors.surfaceDark
+                      : DesignColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark
+                        ? DesignColors.borderDark
+                        : DesignColors.borderLight,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.smart_toy_outlined,
+                        size: 18, color: DesignColors.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        (a['handle'] ?? a['id'] ?? '?').toString(),
+                        style: GoogleFonts.spaceGrotesk(
+                            fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Text((a['status'] ?? '').toString(),
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10,
+                            color: isDark
+                                ? DesignColors.textMuted
+                                : DesignColors.textMutedLight)),
+                  ],
+                ),
+              );
+            },
+          );
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
           child: Row(
             children: [
-              const Icon(Icons.smart_toy_outlined,
-                  size: 18, color: DesignColors.primary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  (a['handle'] ?? a['id'] ?? '?').toString(),
-                  style: GoogleFonts.spaceGrotesk(
-                      fontSize: 13, fontWeight: FontWeight.w600),
-                ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Archived agents',
+                icon: const Icon(Icons.inventory_2_outlined),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ArchivedAgentsScreen(),
+                )),
               ),
-              Text((a['status'] ?? '').toString(),
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight)),
             ],
           ),
-        );
-      },
+        ),
+        Expanded(child: body),
+      ],
     );
   }
 }
 
-// ---- Info ----
+// ---- Overview ----
+// Hub page for the project: shortcut tiles into the heavier sub-surfaces
+// (Runs / Reviews / Documents / Schedules / Plans / Blobs) that don't
+// inline cleanly as tabs, plus the project metadata rows and the
+// archive action. Replaces the old "Info" tab per IA §6.2.
 
-class _InfoView extends ConsumerWidget {
+class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
-  const _InfoView({required this.project});
+  const _OverviewView({required this.project});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1022,6 +1058,14 @@ class _InfoView extends ConsumerWidget {
             )),
           ),
           _ShortcutTile(
+            icon: Icons.rate_review_outlined,
+            label: 'Reviews',
+            sub: 'Pending human decisions on this project',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ReviewsScreen(projectId: projectId),
+            )),
+          ),
+          _ShortcutTile(
             icon: Icons.article_outlined,
             label: 'Writeups',
             sub: 'Memos, drafts, reports (§6.7)',
@@ -1030,11 +1074,27 @@ class _InfoView extends ConsumerWidget {
             )),
           ),
           _ShortcutTile(
-            icon: Icons.rate_review_outlined,
-            label: 'Reviews',
-            sub: 'Pending human decisions on this project',
+            icon: Icons.schedule_outlined,
+            label: 'Schedules',
+            sub: 'Recurring firings across the team',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ReviewsScreen(projectId: projectId),
+              builder: (_) => const SchedulesScreen(),
+            )),
+          ),
+          _ShortcutTile(
+            icon: Icons.playlist_play_outlined,
+            label: 'Plans',
+            sub: 'Plan templates the steward executes',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const PlansScreen(),
+            )),
+          ),
+          _ShortcutTile(
+            icon: Icons.inventory_2_outlined,
+            label: 'Blobs',
+            sub: 'Cached device-local blobs; upload + share',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const _BlobsScreen(),
             )),
           ),
           const SizedBox(height: 16),
@@ -1198,6 +1258,30 @@ class _Placeholder extends StatelessWidget {
                   : DesignColors.textMutedLight,
             )),
       ),
+    );
+  }
+}
+
+/// Scaffold wrapper for the device-local blob cache, surfaced from the
+/// Overview tab's Blobs shortcut. The underlying [BlobsSection] is a
+/// body-only widget so we wrap it here to give it an AppBar when opened
+/// standalone.
+class _BlobsScreen extends StatelessWidget {
+  const _BlobsScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Blobs',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      body: const BlobsSection(),
     );
   }
 }

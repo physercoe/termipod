@@ -7,16 +7,10 @@ import '../../theme/design_colors.dart';
 import 'audit_screen.dart';
 import 'budget_screen.dart';
 import 'councils_screen.dart';
-import 'documents_screen.dart';
-import 'plans_screen.dart';
 import 'reviews_screen.dart';
-import 'runs_screen.dart';
-import 'schedules_screen.dart';
 import 'steward_config_screen.dart';
 import 'team_channel_screen.dart';
-import 'templates_screen.dart';
 import 'tokens_screen.dart';
-import 'workflows_screen.dart';
 
 /// Team-level surface. Four sub-tabs:
 ///   - Members — coalesced principals (one row per `scope.handle`).
@@ -670,6 +664,11 @@ Future<String?> _promptChannelName(BuildContext context) async {
 
 // ---- Settings (placeholder) ----
 
+/// Team-scoped governance tiles only. Project-level navigation (Runs,
+/// Reviews, Documents, Schedules, Plans, Templates, Workflows) lives on
+/// the Projects tab and inside Project detail per IA §6.2; duplicating
+/// those links here was a MuxPod holdover. Reviews retains a live
+/// pending badge because it's cross-project by nature.
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
 
@@ -678,60 +677,6 @@ class _SettingsView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
-        ListTile(
-          leading: const Icon(Icons.hub_outlined),
-          title: const Text('Workflows'),
-          subtitle: const Text('Templates + schedules + recent runs, all in one'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const WorkflowsScreen(),
-          )),
-        ),
-        ListTile(
-          leading: const Icon(Icons.description_outlined),
-          title: const Text('Templates'),
-          subtitle: const Text('Agent recipes, prompts, and policies'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const TemplatesScreen(),
-          )),
-        ),
-        ListTile(
-          leading: const Icon(Icons.schedule),
-          title: const Text('Schedules'),
-          subtitle: const Text('Cron-driven agent spawns'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const SchedulesScreen(),
-          )),
-        ),
-        ListTile(
-          leading: const Icon(Icons.account_tree_outlined),
-          title: const Text('Plans'),
-          subtitle: const Text('Phased scaffolds driven by stewards'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const PlansScreen(),
-          )),
-        ),
-        ListTile(
-          leading: const Icon(Icons.science_outlined),
-          title: const Text('Runs'),
-          subtitle: const Text('Experiment runs with metric dashboards'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const RunsScreen(),
-          )),
-        ),
-        ListTile(
-          leading: const Icon(Icons.article_outlined),
-          title: const Text('Documents'),
-          subtitle: const Text('Memos, drafts, reports, and reviews'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const DocumentsScreen(),
-          )),
-        ),
         const _ReviewsTile(),
         ListTile(
           leading: const Icon(Icons.account_balance_wallet_outlined),

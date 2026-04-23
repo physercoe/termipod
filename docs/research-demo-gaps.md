@@ -196,16 +196,20 @@ Steward + briefing prompts updated to call the shipped tool names
 (`reviews.create` not `reviews.request`, `runs.get` not `runs.read`,
 `channels.post_event` not `post_message`).
 
+**v1.0.151:** added `plans.steps.create`, `plans.steps.list`,
+`plans.steps.update` MCP wrappers so the steward can author and advance
+multi-phase plans directly. Steward recipe updated to lay down one
+`plan_steps` row per phase via these tools and patch status as each
+phase runs.
+
 Still open:
-- `plans.steps.create` / bulk plan instantiation — steward currently
-  anchors the plan via `plans.create` and escalates step authoring to
-  {{principal.handle}}. Fine for the demo; revisit if more templates
-  land.
 - Explicit `request_approval` / `request_decision` wrappers. The
   `agents.spawn` handler already surfaces approval attention when
   policy gates it; a standalone approval-request tool would let the
   steward create one directly. Deferred until the UX audit decides
   whether to promote approvals to a first-class mobile surface.
+- Schedule authoring (`schedules.create`) from MCP — today a schedule
+  needs to be attached from the mobile UI.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

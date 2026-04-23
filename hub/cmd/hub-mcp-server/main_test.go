@@ -198,6 +198,44 @@ func TestToolsCall_A2AInvoke(t *testing.T) {
 	}
 }
 
+// TestToolsCall_PlanStepsUpdate: plans.steps.update must PATCH the step URL
+// and surface a success shape even though the hub returns 204 No Content.
+func TestToolsCall_PlanStepsUpdate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"plans.steps.update","arguments":{"plan":"pl1","step":"s1","status":"running"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/plans/pl1/steps/s1" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if !strings.Contains(sawBody, `"status":"running"`) {
+		t.Errorf("body missing status: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
 // TestToolsCall_A2AInvoke_NoCard: invoking a handle with no registered card
 // must surface as an isError tool result, not a silent empty response.
 func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {

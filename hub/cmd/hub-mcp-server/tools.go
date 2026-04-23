@@ -140,6 +140,71 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "plans.steps.create",
+			Description: "Append a step to a plan. Requires `plan`, `phase_idx`, `step_idx`, `kind` (one of agent_spawn|llm_call|shell|mcp_call|human_decision). Optional `spec_json` object holds kind-specific params.",
+			InputSchema: schema(`{"type":"object","required":["plan","phase_idx","step_idx","kind"],"properties":{"plan":{"type":"string"},"phase_idx":{"type":"integer","minimum":0},"step_idx":{"type":"integer","minimum":0},"kind":{"type":"string","enum":["agent_spawn","llm_call","shell","mcp_call","human_decision"]},"spec_json":{"type":"object"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				plan, _ := args["plan"].(string)
+				if plan == "" {
+					return nil, fmt.Errorf("plan is required")
+				}
+				body := map[string]any{}
+				for _, k := range []string{"phase_idx", "step_idx", "kind", "spec_json"} {
+					if v, ok := args[k]; ok {
+						body[k] = v
+					}
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/plans/"+url.PathEscape(plan)+"/steps"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "plans.steps.list",
+			Description: "List all steps for a plan, ordered by phase_idx, step_idx.",
+			InputSchema: schema(`{"type":"object","required":["plan"],"properties":{"plan":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				plan, _ := args["plan"].(string)
+				if plan == "" {
+					return nil, fmt.Errorf("plan is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/plans/"+url.PathEscape(plan)+"/steps"), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "plans.steps.update",
+			Description: "Patch one step of a plan. Requires `plan` and `step`. Any of status, started_at, completed_at, input_refs_json, output_refs_json, agent_id may be supplied.",
+			InputSchema: schema(`{"type":"object","required":["plan","step"],"properties":{"plan":{"type":"string"},"step":{"type":"string"},"status":{"type":"string"},"started_at":{"type":"string"},"completed_at":{"type":"string"},"input_refs_json":{"type":"array"},"output_refs_json":{"type":"array"},"agent_id":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				plan, _ := args["plan"].(string)
+				step, _ := args["step"].(string)
+				if plan == "" || step == "" {
+					return nil, fmt.Errorf("plan and step are required")
+				}
+				body := map[string]any{}
+				for k, v := range args {
+					if k == "plan" || k == "step" {
+						continue
+					}
+					body[k] = v
+				}
+				if len(body) == 0 {
+					return nil, fmt.Errorf("at least one field to update is required")
+				}
+				// PATCH returns 204; decode nothing.
+				if err := c.do("PATCH", c.teamPath("/plans/"+url.PathEscape(plan)+"/steps/"+url.PathEscape(step)), nil, body, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "plan": plan, "step": step}, nil
+			},
+		},
+		{
 			Name:        "runs.list",
 			Description: "List runs in the team. Optional `project` filter (runs can cross projects via parent_run_id).",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),

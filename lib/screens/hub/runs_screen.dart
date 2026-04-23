@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -743,6 +744,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     final parent = (r['parent_run_id'] ?? '').toString();
     final created = (r['created_at'] ?? '').toString();
     final completed = (r['completed_at'] ?? '').toString();
+    final duration = _runDuration(created, completed);
     final summary = (r['summary'] ?? '').toString();
     final meta = r['metadata_json'];
     final uris = _metricUris();
@@ -758,6 +760,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           if (parent.isNotEmpty) _metaRow('parent run', parent),
           if (created.isNotEmpty) _metaRow('started', created),
           if (completed.isNotEmpty) _metaRow('completed', completed),
+          if (duration.isNotEmpty) _metaRow('duration', duration),
           if (summary.isNotEmpty) ...[
             const SizedBox(height: 12),
             _sectionLabel('Summary'),
@@ -768,10 +771,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: DesignColors.borderDark),
               ),
-              child: SelectableText(
-                summary,
-                style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
-              ),
+              child: _SummaryBody(summary: summary),
             ),
           ],
           if (uris.isNotEmpty) ...[
@@ -837,6 +837,71 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           ),
         ),
       );
+}
+
+/// Renders a run summary as markdown when it contains common markdown
+/// markers; otherwise falls back to selectable mono text so short
+/// one-liners don't get paragraph-wrapped into oblivion. Same heuristic
+/// as task bodies keeps the two surfaces consistent.
+class _SummaryBody extends StatelessWidget {
+  final String summary;
+  const _SummaryBody({required this.summary});
+
+  @override
+  Widget build(BuildContext context) {
+    final looksMd =
+        RegExp(r'(^|\n)(#|- |\* |\d+\. |```|> )').hasMatch(summary);
+    if (looksMd) {
+      return MarkdownBody(
+        data: summary,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet(
+          p: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
+          code: GoogleFonts.jetBrainsMono(fontSize: 12),
+          h1: GoogleFonts.spaceGrotesk(
+              fontSize: 18, fontWeight: FontWeight.w700),
+          h2: GoogleFonts.spaceGrotesk(
+              fontSize: 16, fontWeight: FontWeight.w700),
+          h3: GoogleFonts.spaceGrotesk(
+              fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+      );
+    }
+    return SelectableText(
+      summary,
+      style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
+    );
+  }
+}
+
+/// Builds a human-readable duration string from the run's created_at
+/// (required) and completed_at (optional). Running runs show elapsed
+/// time since start; completed runs show total elapsed. Returns an
+/// empty string if the timestamps don't parse — the caller omits the
+/// row in that case rather than showing gibberish.
+String _runDuration(String createdIso, String completedIso) {
+  final start = DateTime.tryParse(createdIso);
+  if (start == null) return '';
+  final end =
+      completedIso.isEmpty ? DateTime.now() : DateTime.tryParse(completedIso);
+  if (end == null) return '';
+  final diff = end.difference(start);
+  final running = completedIso.isEmpty;
+  final body = _fmtDurationMs(diff.inMilliseconds);
+  return running ? 'running for $body' : body;
+}
+
+String _fmtDurationMs(int ms) {
+  if (ms < 1000) return '${ms}ms';
+  final s = ms ~/ 1000;
+  if (s < 60) {
+    final tenths = (ms % 1000) ~/ 100;
+    return tenths == 0 ? '${s}s' : '$s.${tenths}s';
+  }
+  if (s < 3600) return '${s ~/ 60}m ${s % 60}s';
+  final h = s ~/ 3600;
+  final m = (s % 3600) ~/ 60;
+  return '${h}h ${m}m';
 }
 
 class _MetricURITile extends StatelessWidget {

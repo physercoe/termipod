@@ -47,22 +47,17 @@ canonical templates so the demo has a real on-ramp:
 3. The project-create template picker must use that list, not the YAML
    template list. See next item.
 
-### Mobile project-template picker is wrong
+### Mobile project-template picker — **DONE v1.0.134**
 
-`lib/screens/hub/project_create_sheet.dart` — the `_TemplatePickerSheet`
-currently calls `client.listTemplates()`, which returns YAML files under
-`team/templates/{agents,prompts,policies}/`. Blueprint §6.1 says
-`project.template_id` is a foreign key to another **project** row (with
-`is_template=1`). Today the mobile UI is writing a YAML path into that FK
-column, which is type-confused.
+Fixed in commit `aff41c1`. `_TemplatePickerSheet` now calls
+`listProjects(isTemplate: true)` and returns a project-row id, which is
+what `project.template_id` expects per blueprint §6.1. Server handler
+`GET /v1/teams/{team}/projects?is_template=true|false` is the new filter.
 
-**Fix:**
-1. Add `listProjects(isTemplate: true)` to `hub_client.dart`.
-2. Rewrite `_TemplatePickerSheet` to list project templates: show
-   `name`, `goal`, and `parameters_json` keys as an input form.
-3. On pick, POST `template_id` + `parameters_json` (bound values) to the
-   new project. Separately, keep the agent-YAML picker for
-   `on_create_template_id`.
+Still open: the picker does not yet render `parameters_json` as an input
+form — selecting a template does not prompt the user for parameter values.
+That lands with the P4.1 seed wedge (when the first template with
+parameters exists to drive the UI).
 
 ### P4.2 — steward decomposition recipe
 
@@ -105,11 +100,25 @@ yet poll trackio for metrics, so runs in the demo show no training curves.
 **Fix:** host-runner polls the configured trackio HTTP endpoint for a run
 and attaches a metric URI on heartbeat.
 
+### P3.2–3.4 — cross-host A2A (MVP-critical per 2026-04-23 lock)
+
+Architecture decision locked 2026-04-23: multi-host is required for the
+MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
+
+**Progress:**
+- P3.2a — host-runner A2A server serves agent-cards — **DONE v1.0.133**
+  (commit `30ca8ce`). New `--a2a-addr` / `--a2a-public-url` flags on
+  host-runner. Card at `/a2a/<agent-id>/.well-known/agent.json` per
+  A2A v0.3.
+- P3.2b — A2A task endpoints (send / get / cancel) on host-runner — OPEN.
+- P3.3 — hub A2A directory (register cards) + reverse-tunnel relay — OPEN.
+- P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
+
+Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
+calling agent's stream (§5.4).
+
 ## Deferrable (not demo-blocking)
 
-- **P3.2–3.4 cross-host A2A.** The demo can run single-host with many
-  spawns; multi-host A2A is a robustness story, not a demo story. Ship
-  after demo lands.
 - **iOS TestFlight / App Store distribution.** Android APK is sufficient
   for the demo; TestFlight is a distribution follow-up.
 

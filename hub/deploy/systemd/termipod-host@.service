@@ -27,6 +27,11 @@
 #   printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=paste-here\n' \
 #       | sudo install -o root -g ubuntu -m 0640 /dev/stdin /etc/termipod-host/ubuntu.env
 #
+#   # (Optional) Enable A2A agent-card server. Add these lines to the env
+#   # file, then uncomment the matching flags in ExecStart below:
+#   #     A2A_ADDR=:8801
+#   #     A2A_PUBLIC_URL=https://host.example.com:8801
+#
 #   # 3. Install unit + enable the instance.
 #   sudo install -m 0644 termipod-host@.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
@@ -50,6 +55,10 @@ Wants=network-online.target
 Type=simple
 User=%i
 EnvironmentFile=/etc/termipod-host/%i.env
+# Optional A2A agent-card server (blueprint §5.4). To enable: set
+# A2A_ADDR (e.g. ":8801") and A2A_PUBLIC_URL in /etc/termipod-host/%i.env,
+# replace this ExecStart line with the A2A variant below, then reload +
+# restart the unit. Leave disabled if you're not running multi-host yet.
 ExecStart=/usr/local/bin/host-runner run \
           --hub ${HUB_URL} \
           --team ${HUB_TEAM} \
@@ -57,6 +66,16 @@ ExecStart=/usr/local/bin/host-runner run \
           --name %H-%i \
           --launcher tmux \
           --tmux-session hub-agents
+# A2A variant (uncomment, remove the non-A2A ExecStart above):
+# ExecStart=/usr/local/bin/host-runner run \
+#           --hub ${HUB_URL} \
+#           --team ${HUB_TEAM} \
+#           --token ${HUB_TOKEN} \
+#           --name %H-%i \
+#           --launcher tmux \
+#           --tmux-session hub-agents \
+#           --a2a-addr ${A2A_ADDR} \
+#           --a2a-public-url ${A2A_PUBLIC_URL}
 Restart=on-failure
 RestartSec=3s
 

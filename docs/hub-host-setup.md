@@ -130,6 +130,9 @@ That's it. What the flags do:
   Tells the runner to use the tmux session you're **already in**, so
   spawned agents appear as new windows in that session instead of a
   separate `hub-agents` session you'd have to attach to.
+- `--a2a-addr` / `--a2a-public-url` (optional) — enable the A2A
+  agent-card server. See "Enabling the A2A agent-card server" in Track B
+  for details.
 
 Leave the shell running (or detach the whole tmux session with
 `Ctrl-b d` and reattach later). The runner heartbeats every 10s and
@@ -224,6 +227,35 @@ sudo systemctl enable --now termipod-host@admin
 Hub now sees `host-01-ubuntu` **and** `host-01-admin` as distinct host
 rows. The mobile app, with two separate TermiPod connections (one for
 each user), can view/drive each user's tmux panes independently.
+
+### Enabling the A2A agent-card server (optional, blueprint §5.4)
+
+The host-runner can expose agent-cards at
+`http://<host>:<port>/a2a/<agent-id>/.well-known/agent.json` per A2A v0.3
+so other agents can discover what each live agent on this host can do.
+Disabled by default; enable by adding two flags (or env vars in the
+systemd unit):
+
+- `--a2a-addr :8801` — bind address. `:0` picks a free port; a fixed
+  port is easier to publish. Firewall this to peers that need it.
+- `--a2a-public-url https://host.example:8801` — the URL advertised in
+  the `url` field of each agent-card. Use this when peers reach the
+  host through a reverse proxy or tunnel; otherwise the server falls
+  back to the request Host header.
+
+Verify with:
+
+```bash
+curl -fsS http://<host>:8801/a2a/agents | jq .
+curl -fsS http://<host>:8801/a2a/<agent-id>/.well-known/agent.json | jq .
+```
+
+The card lists skills derived from the agent handle (e.g., handles
+starting with `steward` advertise `plan` + `brief`, `ml-worker` /
+`worker` advertise `train`, `briefing` advertises `brief`).
+
+Task endpoints (send / get / cancel) are a follow-up wedge; only the
+discovery card is served today.
 
 ## 5. Health: how to tell if a host is alive
 

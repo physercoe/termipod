@@ -64,22 +64,24 @@ Still open: plan outlines stored as data (rather than inline in the
 prompt). For the single demo template this is fine; revisit if more
 templates land.
 
-### P4.3 — briefing agent + overnight schedule — **PARTIAL v1.0.137**
+### P4.3 — briefing agent + overnight schedule — **DONE v1.0.153**
 
 Templates shipped:
 - `hub/templates/agents/briefing.v1.yaml` — writer role, docs + reviews
   capabilities, spawn.descendants=0.
 - `hub/templates/prompts/briefing.v1.md` — runbook writes a Goal / What
   ran / Plot / Takeaway / Caveats doc, calls `documents.create` +
-  `reviews.request` so it surfaces in the mobile Inbox.
+  `reviews.create` so it surfaces in the mobile Inbox.
 - Also shipped: `hub/templates/agents/ml-worker.v1.yaml` +
   `ml-worker.v1.md` — GPU-host worker that executes one A2A
   `train(config)` task, writes a `runs` row, attaches a trackio URI.
 
-Still open:
-- Overnight cron schedule is not auto-seeded on project creation. The
-  steward spawns the briefing agent directly via `agents.spawn` at
-  end-of-sweep for now.
+Scheduling exposure closed in **v1.0.153**: the steward can now call
+`schedules.create(project_id, template_id, trigger_kind='cron', cron_expr)`
+directly to attach a nightly briefing (plus `schedules.{list,update,
+delete,run}` for full lifecycle). Auto-seeding at project creation is
+still not wired — the steward authors the cron explicitly per project,
+which is the desired behaviour under the owner-authority model.
 
 ## Degrades-demo gaps
 
@@ -212,14 +214,21 @@ multi-phase plans directly. Steward recipe updated to lay down one
 `plan_steps` row per phase via these tools and patch status as each
 phase runs.
 
+**v1.0.153:** added `schedules.{list,create,update,delete,run}` MCP
+wrappers. Closes the scheduling infra gap called out in the
+steward-CEO audit (`docs/ux-steward-audit.md` §2) and unblocks P4.3
+overnight cron authoring without relying on the mobile UI. Steward
+prompt updated to list the schedules surface.
+
 Still open:
 - Explicit `request_approval` / `request_decision` wrappers. The
   `agents.spawn` handler already surfaces approval attention when
   policy gates it; a standalone approval-request tool would let the
   steward create one directly. Deferred until the UX audit decides
   whether to promote approvals to a first-class mobile surface.
-- Schedule authoring (`schedules.create`) from MCP — today a schedule
-  needs to be attached from the mobile UI.
+- Remaining audit-queue wedges: `tasks.{create,update}`,
+  `project_channels.create`, `team_channels.create`, `projects.update`,
+  `hosts.update_ssh_hint` (see `docs/ux-steward-audit.md` §2).
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

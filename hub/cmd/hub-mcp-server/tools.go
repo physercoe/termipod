@@ -434,6 +434,95 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "schedules.list",
+			Description: "List schedules for the team. Optional `project` filters to one project.",
+			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				q := url.Values{}
+				if p, ok := args["project"].(string); ok && p != "" {
+					q.Set("project", p)
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/schedules"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "schedules.create",
+			Description: "Create a schedule that fires a plan from a template. Requires `project_id`, `template_id`, `trigger_kind` (cron|manual|on_create). `cron_expr` is required when trigger_kind='cron'. Optional `parameters_json` (object) and `enabled` (default true).",
+			InputSchema: schema(`{"type":"object","required":["project_id","template_id","trigger_kind"],"properties":{"project_id":{"type":"string"},"template_id":{"type":"string"},"trigger_kind":{"type":"string","enum":["cron","manual","on_create"]},"cron_expr":{"type":"string"},"parameters_json":{"type":"object"},"enabled":{"type":"boolean"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				for _, k := range []string{"project_id", "template_id", "trigger_kind"} {
+					if v, _ := args[k].(string); v == "" {
+						return nil, fmt.Errorf("%s is required", k)
+					}
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/schedules"), nil, args, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "schedules.update",
+			Description: "Patch a schedule. Requires `schedule`. Any of `enabled`, `cron_expr`, `parameters_json` may be supplied.",
+			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"},"enabled":{"type":"boolean"},"cron_expr":{"type":"string"},"parameters_json":{"type":"object"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["schedule"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("schedule is required")
+				}
+				body := map[string]any{}
+				for k, v := range args {
+					if k == "schedule" {
+						continue
+					}
+					body[k] = v
+				}
+				if len(body) == 0 {
+					return nil, fmt.Errorf("at least one field to update is required")
+				}
+				if err := c.do("PATCH", c.teamPath("/schedules/"+url.PathEscape(id)), nil, body, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "schedule": id}, nil
+			},
+		},
+		{
+			Name:        "schedules.delete",
+			Description: "Delete a schedule. Requires `schedule`.",
+			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["schedule"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("schedule is required")
+				}
+				if err := c.do("DELETE", c.teamPath("/schedules/"+url.PathEscape(id)), nil, nil, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "schedule": id}, nil
+			},
+		},
+		{
+			Name:        "schedules.run",
+			Description: "Manually fire a schedule — equivalent to a cron tick but user-initiated. Works for any trigger_kind. Returns the newly created plan_id. Requires `schedule`.",
+			InputSchema: schema(`{"type":"object","required":["schedule"],"properties":{"schedule":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["schedule"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("schedule is required")
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/schedules/"+url.PathEscape(id)+"/run"), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "audit.read",
 			Description: "List audit events for the team. Supports optional `limit` and `since` query params.",
 			InputSchema: schema(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":1000},"since":{"type":"string","description":"RFC3339 timestamp"}}}`),

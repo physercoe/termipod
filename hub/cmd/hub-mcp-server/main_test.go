@@ -260,6 +260,86 @@ func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
 	}
 }
 
+// TestToolsCall_SchedulesRun: schedules.run must POST to
+// /schedules/{id}/run and surface the hub's plan_id response as the tool
+// result. Exercises the schedules surface end-to-end at protocol level.
+func TestToolsCall_SchedulesRun(t *testing.T) {
+	var sawMethod, sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"plan_id":"pl-123"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"schedules.run","arguments":{"schedule":"s-42"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/schedules/s-42/run" {
+		t.Errorf("path = %q", sawPath)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Fatalf("unexpected isError: %+v", resp.Result.Content)
+	}
+	if len(resp.Result.Content) == 0 || !strings.Contains(resp.Result.Content[0].Text, `"plan_id":"pl-123"`) {
+		t.Errorf("missing plan_id in result: %+v", resp.Result.Content)
+	}
+}
+
+// TestToolsCall_SchedulesCreate: schedules.create must forward the full
+// body to POST /schedules, including cron_expr and parameters_json.
+func TestToolsCall_SchedulesCreate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"s-new","enabled":true}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"schedules.create","arguments":{"project_id":"p1","template_id":"t1","trigger_kind":"cron","cron_expr":"0 3 * * *"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "POST" {
+		t.Errorf("method = %q, want POST", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/schedules" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if !strings.Contains(sawBody, `"cron_expr":"0 3 * * *"`) {
+		t.Errorf("body missing cron_expr: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
 // TestInitialize_ReturnsServerInfo: a bare initialize call must return
 // protocol version + serverInfo so MCP clients can complete the handshake.
 func TestInitialize_ReturnsServerInfo(t *testing.T) {

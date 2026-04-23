@@ -38,6 +38,10 @@ the CEO principle.
 | `lib/screens/hub/document_create_sheet.dart` | create document | `documents.create` |
 | `lib/screens/hub/run_create_sheet.dart` | create run | `runs.create` |
 | Project/team channel event post | post channel message/event | `channels.post_event` |
+| `schedule_create_sheet.dart` | create schedule | `schedules.create` (v1.0.153) |
+| `schedule_edit_sheet.dart` | patch / delete schedule | `schedules.update`, `schedules.delete` (v1.0.153) |
+| `schedules_screen.dart` | run now | `schedules.run` (v1.0.153) |
+| Schedules list | list schedules | `schedules.list` (v1.0.153) |
 
 ## 2. Infra gaps — demo-critical
 
@@ -51,16 +55,11 @@ Each row is a future MCP wedge.
 | `task_detail_screen.dart` | patch task | `PATCH /v1/teams/{t}/projects/{p}/tasks/{id}` | `tasks.update` | project_id, task_id, status?, title?, body_md? |
 | `project_channel_create_sheet.dart` | create project channel | `POST /v1/teams/{t}/projects/{p}/channels` | `project_channels.create` | project_id, name |
 | `team_channel_screen.dart` | create team channel | `POST /v1/teams/{t}/channels` | `team_channels.create` | name |
-| `schedule_create_sheet.dart` | create schedule | `POST /v1/teams/{t}/schedules` | `schedules.create` | project_id, template_id, trigger_kind, cron_expr?, parameters?, enabled? |
-| `schedule_edit_sheet.dart` | patch schedule | `PATCH /v1/teams/{t}/schedules/{id}` | `schedules.update` | schedule_id, enabled?, cron_expr?, parameters? |
-| `schedules_screen.dart` | run now | `POST /v1/teams/{t}/schedules/{id}/run` | `schedules.run` | schedule_id |
 | `host_edit_sheet.dart` | patch host SSH hint | `PATCH /v1/teams/{t}/hosts/{id}/ssh_hint` | `hosts.update_ssh_hint` | host_id, ssh_hint_json |
 
 ## 2a. Infra gaps — nice-to-have
 
-| Screen | Action | Proposed tool |
-|---|---|---|
-| `schedule_edit_sheet.dart` | delete schedule | `schedules.delete` |
+_(none currently — `schedules.delete` closed in v1.0.153.)_
 
 ## 3. Legitimate manual-only
 
@@ -94,7 +93,7 @@ layouts. Each row is a reframe suggestion, not a net-new wedge.
 ## Suggested wedge groupings
 
 Treating one wedge per logical hub surface so the steward regains parity:
-1. **Scheduling surface** — `schedules.{create,update,run,delete}`. Steward needs this for overnight briefing cron (P4.3 follow-up).
+1. ~~**Scheduling surface** — `schedules.{list,create,update,delete,run}`.~~ **DONE v1.0.153.**
 2. **Project tasks surface** — `tasks.{create,update}`. Steward needs this to break work down in the project view.
 3. **Channel authoring** — `channels.create` (both project- and team-scope). Steward needs this before posting.
 4. **Project + host patch** — `projects.update`, `hosts.update_ssh_hint`. Small but closes the ownership-level edit path.

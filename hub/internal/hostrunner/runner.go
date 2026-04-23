@@ -145,10 +145,13 @@ func (a *Runner) Start(ctx context.Context) error {
 			a.Log.Info("a2a server listening", "addr", addr)
 		}
 		// Publish cards to the hub directory so the steward can discover
-		// agents by handle across hosts. For NAT'd hosts the card URL we
-		// send is advisory — the hub will rewrite it to /a2a/relay/... once
-		// the reverse tunnel lands (P3.3b).
+		// agents by handle across hosts.
 		go a.a2aDirectoryLoop(ctx)
+		// Open the reverse tunnel so NAT'd hosts can receive relayed A2A
+		// requests via the hub. Dispatches come straight into the local
+		// a2a.Server.Handler() so relayed calls hit the exact same routes
+		// a direct peer would.
+		go a2a.RunTunnel(ctx, a.Client, a.HostID, srv.Handler(), a.Log)
 	}
 
 	for {

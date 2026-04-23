@@ -266,13 +266,29 @@ needlessly):
 
 This lets a steward on a different host (typically the VPS) discover
 worker agents on a GPU host by handle — necessary because typical GPU
-hosts sit behind NAT and can't be dialed directly. The card's `url`
-field stored in the directory today reflects the host-runner's own
-bind address; a reverse-tunnel relay (P3.3b) will rewrite it to
-`<hub>/a2a/relay/<host>/<agent>/...` once shipped.
+hosts sit behind NAT and can't be dialed directly.
 
-Task endpoints (send / get / cancel) are a follow-up wedge; only the
-discovery card is served today.
+When `--a2a-addr` is set, the host-runner *also* opens an outbound
+reverse tunnel to the hub:
+
+- `GET /v1/teams/{team}/hosts/{host}/a2a/tunnel/next?wait_ms=25000` —
+  host-runner long-polls; hub returns a queued A2A request envelope
+  (`req_id`, `method`, `path`, `headers`, `body_b64`) or 204 on timeout.
+- `POST /v1/teams/{team}/hosts/{host}/a2a/tunnel/responses` —
+  host-runner POSTs the dispatched response back, keyed by `req_id`.
+
+Public A2A peers (e.g., a steward on another host) call
+`<hub>/a2a/relay/<host>/<agent>/.well-known/agent.json` (token-less per
+A2A v0.3 spec). The hub queues the request for the named host, blocks
+up to 20s waiting for the host-runner's response, then flushes it to
+the caller. If no tunnel is connected or dispatch is slow, the hub
+returns `504 Gateway Timeout`.
+
+The host-runner dispatches relayed requests through its local
+`a2a.Server.Handler()`, so the exact same routes serve direct peers
+and tunneled peers. Today only the agent-card path is implemented.
+
+Task endpoints (send / get / cancel) are a follow-up wedge.
 
 ## 5. Health: how to tell if a host is alive
 

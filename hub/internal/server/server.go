@@ -39,6 +39,7 @@ type Server struct {
 	sched     *Scheduler
 	policy    *policyStore
 	escalator *Escalator
+	tunnel    *TunnelManager
 }
 
 func New(cfg Config) (*Server, error) {
@@ -53,6 +54,7 @@ func New(cfg Config) (*Server, error) {
 	s.policy = newPolicyStore(cfg.DataRoot)
 	s.sched = NewScheduler(s, cfg.Logger)
 	s.escalator = NewEscalator(s, cfg.Logger, 0)
+	s.tunnel = newTunnelManager()
 	s.router = s.buildRouter()
 	return s, nil
 }
@@ -129,6 +131,12 @@ func (s *Server) buildRouter() chi.Router {
 	// endpoint with no custom headers. handleMCP authenticates itself.
 	r.Post("/mcp/{token}", s.handleMCP)
 
+	// /a2a/relay/{host}/{agent}/* is the public A2A surface (P3.3b).
+	// Unauthed per A2A v0.3 peer-to-peer spec — the host + agent ids in
+	// the URL are the capability. Token-based peer auth is a follow-up.
+	r.HandleFunc("/a2a/relay/{host}/{agent}", s.handleRelay)
+	r.HandleFunc("/a2a/relay/{host}/{agent}/*", s.handleRelay)
+
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(s.db))
 		s.buildAuthedRoutes(r)
@@ -152,6 +160,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Patch("/ssh_hint", s.handleUpdateHostSSHHint)
 				r.Put("/capabilities", s.handleUpdateHostCapabilities)
 				r.Put("/a2a/cards", s.handlePutHostA2ACards)
+				r.Get("/a2a/tunnel/next", s.handleTunnelNext)
+				r.Post("/a2a/tunnel/responses", s.handleTunnelResponse)
 			})
 		})
 		r.Get("/a2a/cards", s.handleListTeamA2ACards)

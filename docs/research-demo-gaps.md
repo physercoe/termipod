@@ -106,13 +106,19 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   the whole set atomically) + `GET /v1/teams/{team}/a2a/cards?handle=...`
   (steward lookup). Host-runner pushes every 30s (change-hashed) whenever
   `--a2a-addr` is set. Table `a2a_cards` (migration 0013).
-- P3.3b — reverse-tunnel relay on the hub — OPEN. GPU hosts are NAT'd
-  (no public IP); the hub must expose `/a2a/relay/<host>/<agent>/...` and
-  forward through an outbound persistent connection the host-runner opens.
-  Until this lands, the card `url` field stored in the directory is only
-  correct for hosts that already have a public address.
-- P3.2b — A2A task endpoints (send / get / cancel) — OPEN. Must be
-  relay-aware from day one; blocked on P3.3b.
+- P3.3b — reverse-tunnel relay on the hub — **DONE v1.0.140**. Hub exposes
+  `ANY /a2a/relay/{host}/{agent}/*` (unauthed per A2A v0.3 peer spec),
+  plus two host-runner endpoints: `GET /v1/teams/{team}/hosts/{host}/a2a/tunnel/next`
+  (long-poll, ≤25s) and `POST .../tunnel/responses`. In-memory broker
+  `TunnelManager` routes req/resp envelopes between them. Host-runner
+  `a2a.RunTunnel` dispatches received envelopes through the local
+  `a2a.Server.Handler()` so relayed calls hit the exact same routes a
+  direct peer would. NAT'd hosts can now receive A2A calls end-to-end.
+  Follow-ups tracked: the card `url` stored in the directory is still
+  the host-runner's direct address and should be rewritten to the hub
+  relay URL on publish; A2A peer auth (per-agent tokens) is still open.
+- P3.2b — A2A task endpoints (send / get / cancel) — OPEN. Now
+  unblocked; next wedge.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the

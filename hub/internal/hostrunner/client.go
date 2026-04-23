@@ -14,6 +14,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/termipod/hub/internal/hostrunner/a2a"
 )
 
 type Client struct {
@@ -296,6 +298,48 @@ func (c *Client) PutA2ACards(ctx context.Context, hostID string, cards []A2ACard
 	return c.do(ctx, http.MethodPut,
 		fmt.Sprintf("/v1/teams/%s/hosts/%s/a2a/cards", c.Team, hostID),
 		map[string]any{"cards": cards}, nil)
+}
+
+// NextTunnelRequest long-polls the hub for a queued A2A request on this
+// host. Returns (nil, nil) on the hub's 204 (no work within wait window),
+// which the caller should treat as a reason to reconnect immediately.
+// waitMs caps at 60s hub-side.
+func (c *Client) NextTunnelRequest(ctx context.Context, hostID string, waitMs int) (*a2a.TunnelEnvelope, error) {
+	path := fmt.Sprintf("/v1/teams/%s/hosts/%s/a2a/tunnel/next?wait_ms=%d",
+		c.Team, hostID, waitMs)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	// The long-poll wait dominates request time; override the default
+	// 15s timeout with a slightly looser bound.
+	cli := *c.HTTP
+	cli.Timeout = time.Duration(waitMs)*time.Millisecond + 10*time.Second
+	resp, err := cli.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return nil, nil
+	}
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tunnel/next: %d %s", resp.StatusCode, string(b))
+	}
+	var out a2a.TunnelEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PostTunnelResponse ships the dispatched response back to the hub.
+func (c *Client) PostTunnelResponse(ctx context.Context, hostID string, env *a2a.TunnelResponseEnvelope) error {
+	return c.post(ctx,
+		fmt.Sprintf("/v1/teams/%s/hosts/%s/a2a/tunnel/responses", c.Team, hostID),
+		env, nil)
 }
 
 // ---- low level ----

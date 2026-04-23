@@ -43,6 +43,7 @@ type agentOut struct {
 	IdleSince    *string         `json:"idle_since,omitempty"`
 	CreatedAt    string          `json:"created_at"`
 	TerminatedAt *string         `json:"terminated_at,omitempty"`
+	ArchivedAt   *string         `json:"archived_at,omitempty"`
 	// Mode is the resolved driving mode (M1|M2|M4). Empty for legacy
 	// rows predating the resolver; host-runner interprets empty as M4.
 	Mode string `json:"mode,omitempty"`
@@ -96,7 +97,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
-		       created_at, terminated_at, COALESCE(driving_mode, '')
+		       created_at, terminated_at, COALESCE(driving_mode, ''),
+		       archived_at
 		FROM agents WHERE team_id = ?`
 	args := []any{team}
 	if host := r.URL.Query().Get("host_id"); host != "" {
@@ -142,7 +144,8 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
-		       created_at, terminated_at, COALESCE(driving_mode, '')
+		       created_at, terminated_at, COALESCE(driving_mode, ''),
+		       archived_at
 		FROM agents WHERE team_id = ? AND id = ?`, team, id)
 	a, err := scanAgent(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -544,16 +547,16 @@ type rowScanner interface {
 
 func scanAgent(r rowScanner) (agentOut, error) {
 	var (
-		a                             agentOut
-		backend, caps                 string
-		budget                        sql.NullInt64
-		idleSince, termAt             sql.NullString
+		a                          agentOut
+		backend, caps              string
+		budget                     sql.NullInt64
+		idleSince, termAt, archAt  sql.NullString
 	)
 	if err := r.Scan(&a.ID, &a.TeamID, &a.Handle, &a.Kind, &backend, &caps,
 		&a.ParentID, &a.HostID, &a.Status, &a.PaneID,
 		&a.WorktreePath, &a.JournalPath,
 		&budget, &a.SpentCents, &a.PauseState, &idleSince,
-		&a.CreatedAt, &termAt, &a.Mode); err != nil {
+		&a.CreatedAt, &termAt, &a.Mode, &archAt); err != nil {
 		return a, err
 	}
 	a.Backend = json.RawMessage(backend)
@@ -567,6 +570,9 @@ func scanAgent(r rowScanner) (agentOut, error) {
 	}
 	if termAt.Valid {
 		a.TerminatedAt = &termAt.String
+	}
+	if archAt.Valid {
+		a.ArchivedAt = &archAt.String
 	}
 	return a, nil
 }

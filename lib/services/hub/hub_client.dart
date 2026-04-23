@@ -811,20 +811,21 @@ class HubClient {
     String? projectId,
     String? status,
     int? limit,
-  }) {
+  }) async {
     final q = <String, String>{};
     if (projectId != null && projectId.isNotEmpty) q['project'] = projectId;
-    if (status != null && status.isNotEmpty) q['status'] = status;
+    if (status != null && status.isNotEmpty) q['status'] = _runStatusToServer(status);
     if (limit != null) q['limit'] = '$limit';
-    return _listJson(
+    final rows = await _listJson(
       '/v1/teams/${cfg.teamId}/runs',
       query: q.isEmpty ? null : q,
     );
+    return [for (final r in rows) _runRowToUI(r)];
   }
 
   Future<Map<String, dynamic>> getRun(String runId) async {
     final out = await _get('/v1/teams/${cfg.teamId}/runs/$runId');
-    return (out as Map).cast<String, dynamic>();
+    return _runRowToUI((out as Map).cast<String, dynamic>());
   }
 
   Future<Map<String, dynamic>> createRun({
@@ -849,9 +850,23 @@ class HubClient {
     required String status, // 'succeeded' | 'failed' | 'cancelled'
     String? summary,
   }) async {
-    final body = <String, dynamic>{'status': status};
+    // Server vocabulary uses 'completed'; the rest of the mobile UI says
+    // 'succeeded'. Translate at the boundary.
+    final body = <String, dynamic>{'status': _runStatusToServer(status)};
     if (summary != null) body['summary'] = summary;
     await _post('/v1/teams/${cfg.teamId}/runs/$runId/complete', body);
+  }
+
+  // UI run-status 'succeeded' ↔ server 'completed'. All other values pass
+  // through unchanged.
+  String _runStatusToServer(String uiStatus) =>
+      uiStatus == 'succeeded' ? 'completed' : uiStatus;
+
+  Map<String, dynamic> _runRowToUI(Map<String, dynamic> row) {
+    if (row['status'] == 'completed') {
+      return {...row, 'status': 'succeeded'};
+    }
+    return row;
   }
 
   Future<void> attachRunMetricURI(
@@ -913,32 +928,53 @@ class HubClient {
 
   Future<List<Map<String, dynamic>>> listReviews({
     String? projectId,
-    String? status,
-  }) {
+    String? status, // UI value: 'pending' | 'approved' | 'rejected' | 'needs_changes'
+  }) async {
     final q = <String, String>{};
     if (projectId != null) q['project'] = projectId;
-    if (status != null) q['status'] = status;
-    return _listJson(
+    if (status != null) {
+      // Backend reads `state` and expects 'request_changes', not 'needs_changes'.
+      q['state'] = _reviewStateToServer(status);
+    }
+    final rows = await _listJson(
       '/v1/teams/${cfg.teamId}/reviews',
       query: q.isEmpty ? null : q,
     );
+    return [for (final r in rows) _reviewRowToUI(r)];
   }
 
   Future<Map<String, dynamic>> getReview(String reviewId) async {
     final out = await _get('/v1/teams/${cfg.teamId}/reviews/$reviewId');
-    return (out as Map).cast<String, dynamic>();
+    return _reviewRowToUI((out as Map).cast<String, dynamic>());
+  }
+
+  // Review state lives in the UI as 'needs_changes' but the backend column
+  // holds 'request_changes'. Translate at the client boundary so callers
+  // don't need to know the difference.
+  String _reviewStateToServer(String uiState) =>
+      uiState == 'needs_changes' ? 'request_changes' : uiState;
+
+  Map<String, dynamic> _reviewRowToUI(Map<String, dynamic> row) {
+    if (row['state'] == 'request_changes') {
+      return {...row, 'state': 'needs_changes'};
+    }
+    return row;
   }
 
   Future<Map<String, dynamic>> createReview({
-    required String documentId,
-    String? reviewerHandle,
+    required String projectId,
+    required String targetKind, // 'document' | 'artifact'
+    required String targetId,
     String? note,
   }) async {
-    final body = <String, dynamic>{'document_id': documentId};
-    if (reviewerHandle != null) body['reviewer_handle'] = reviewerHandle;
-    if (note != null) body['note'] = note;
+    final body = <String, dynamic>{
+      'project_id': projectId,
+      'target_kind': targetKind,
+      'target_id': targetId,
+    };
+    if (note != null && note.isNotEmpty) body['comment'] = note;
     final out = await _post('/v1/teams/${cfg.teamId}/reviews', body);
-    return (out as Map).cast<String, dynamic>();
+    return _reviewRowToUI((out as Map).cast<String, dynamic>());
   }
 
   Future<void> decideReview(
@@ -946,8 +982,8 @@ class HubClient {
     required String decision, // 'approved' | 'rejected' | 'needs_changes'
     String? note,
   }) async {
-    final body = <String, dynamic>{'decision': decision};
-    if (note != null) body['note'] = note;
+    final body = <String, dynamic>{'state': _reviewStateToServer(decision)};
+    if (note != null) body['comment'] = note;
     await _post(
       '/v1/teams/${cfg.teamId}/reviews/$reviewId/decide',
       body,

@@ -122,16 +122,19 @@ func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
 				return nil, fmt.Errorf("insert run size=%d opt=%s: %w", size, opt, err)
 			}
 
-			points, lastStep, lastVal := synthLossCurve(rng, size, opt, iters, 100)
-			pointsJSON, _ := json.Marshal(points)
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO run_metrics (
-					id, run_id, metric_name, points_json, sample_count,
-					last_step, last_value, updated_at
-				) VALUES (?, ?, 'loss', ?, ?, ?, ?, ?)`,
-				NewID(), runID, string(pointsJSON), len(points), lastStep, lastVal, now,
-			); err != nil {
-				return nil, fmt.Errorf("insert run_metrics: %w", err)
+			curves := synthRunCurves(rng, size, opt, iters, 100)
+			for _, c := range curves {
+				pointsJSON, _ := json.Marshal(c.points)
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO run_metrics (
+						id, run_id, metric_name, points_json, sample_count,
+						last_step, last_value, updated_at
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+					NewID(), runID, c.name, string(pointsJSON),
+					len(c.points), c.lastStep, c.lastValue, now,
+				); err != nil {
+					return nil, fmt.Errorf("insert run_metrics %s: %w", c.name, err)
+				}
 			}
 		}
 	}
@@ -187,6 +190,118 @@ func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// demoCurve is one seeded metric family for a single run.
+type demoCurve struct {
+	name      string
+	points    [][2]any
+	lastStep  int64
+	lastValue float64
+}
+
+// synthRunCurves emits the five metric families the mobile Run Detail
+// screen renders as separate sparklines, shaped so the ablation story is
+// visible in the data:
+//
+//   - train_loss / val_loss: exponential decay; val tracks train with a
+//     small gap that widens slightly at the end (mild overfit).
+//   - learning_rate: linear warmup → cosine decay, identical across runs
+//     (acts as a control curve).
+//   - grad_norm: starts high, decays roughly like a noisy 1/sqrt(step).
+//   - tokens_per_sec: approximately constant with jitter; lower for
+//     bigger models (compute scales).
+//
+// Same deterministic rng is shared across all curves so the seed=1
+// reproducible-demo guarantee still holds.
+func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points int) []demoCurve {
+	trainPts, trainStep, trainLast := synthLossCurve(rng, size, optimizer, iters, points)
+
+	// val_loss: same decay shape, slightly higher floor (overfit gap) and
+	// a bit more noise so the two curves are visually distinguishable
+	// when overlaid. Offset grows with step so late-training divergence
+	// is visible.
+	valPts := make([][2]any, len(trainPts))
+	var valLast float64
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		tv := p[1].(float64)
+		frac := float64(step) / float64(iters)
+		gap := 0.04 + 0.18*frac // widens from +0.04 to +0.22
+		noise := (rng.Float64() - 0.5) * 0.06
+		v := tv + gap + noise
+		valPts[i] = [2]any{step, roundTo(v, 4)}
+		valLast = v
+	}
+
+	// learning_rate: linear warmup for first 10% then cosine decay to 0.
+	// Peak depends weakly on optimizer (lion runs at slightly lower lr).
+	peakLR := 6e-4
+	if optimizer == "lion" {
+		peakLR = 3e-4
+	}
+	warmup := int64(iters) / 10
+	lrPts := make([][2]any, len(trainPts))
+	var lrLast float64
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		var lr float64
+		if step < warmup {
+			lr = peakLR * float64(step) / float64(warmup)
+		} else {
+			t := float64(step-warmup) / float64(int64(iters)-warmup)
+			lr = peakLR * 0.5 * (1 + math.Cos(math.Pi*t))
+		}
+		lrPts[i] = [2]any{step, roundTo(lr, 6)}
+		lrLast = lr
+	}
+
+	// grad_norm: noisy 1/sqrt(step), starts at ~3.0, clamps to 0.1 floor.
+	gnPts := make([][2]any, len(trainPts))
+	var gnLast float64
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		base := 3.0 / math.Sqrt(float64(step+1))
+		if base < 0.1 {
+			base = 0.1
+		}
+		v := base + (rng.Float64()-0.5)*0.4*base
+		if v < 0.05 {
+			v = 0.05
+		}
+		gnPts[i] = [2]any{step, roundTo(v, 4)}
+		gnLast = v
+	}
+
+	// tokens_per_sec: baseline throughput inversely proportional to model
+	// size (big model = fewer tok/s); jitter ±5%. Lion is a touch slower
+	// than adamw per step — barely visible in the curve.
+	baseTps := 18000.0
+	switch size {
+	case 256:
+		baseTps = 12000.0
+	case 384:
+		baseTps = 7500.0
+	}
+	if optimizer == "lion" {
+		baseTps *= 0.95
+	}
+	tpsPts := make([][2]any, len(trainPts))
+	var tpsLast float64
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		v := baseTps + (rng.Float64()-0.5)*0.1*baseTps
+		tpsPts[i] = [2]any{step, roundTo(v, 1)}
+		tpsLast = v
+	}
+
+	return []demoCurve{
+		{"train_loss", trainPts, trainStep, trainLast},
+		{"val_loss", valPts, trainStep, roundTo(valLast, 4)},
+		{"learning_rate", lrPts, trainStep, roundTo(lrLast, 6)},
+		{"grad_norm", gnPts, trainStep, roundTo(gnLast, 4)},
+		{"tokens_per_sec", tpsPts, trainStep, roundTo(tpsLast, 1)},
+	}
 }
 
 // synthLossCurve generates a plausible training-loss curve for a (size,
@@ -252,5 +367,8 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"**Caveats:** Seeded from synthetic data for UI testing — no real\n" +
 		"training happened. Numbers will change once a GPU host is attached\n" +
 		"and a real trackio-producing worker runs the sweep.\n\n" +
-		"**Plots:** See the Run Detail screen for each run's loss sparkline.\n"
+		"**Plots:** Each run carries five sparklines on the Run Detail\n" +
+		"screen — train_loss, val_loss, learning_rate, grad_norm, and\n" +
+		"tokens_per_sec. The val/train gap widens slightly over training;\n" +
+		"throughput drops as model size grows, as expected.\n"
 }

@@ -51,7 +51,12 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			`SELECT COUNT(*) FROM runs WHERE project_id = ? AND status = 'completed'`,
 			[]any{res.ProjectID}, 6},
 		{"run_metrics",
-			`SELECT COUNT(*) FROM run_metrics WHERE metric_name = 'loss' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			// 5 metric families (train_loss, val_loss, learning_rate,
+			// grad_norm, tokens_per_sec) per run × 6 runs = 30 rows.
+			`SELECT COUNT(*) FROM run_metrics WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 30},
+		{"run_metrics_train_loss",
+			`SELECT COUNT(*) FROM run_metrics WHERE metric_name = 'train_loss' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 6},
 		{"documents",
 			`SELECT COUNT(*) FROM documents WHERE project_id = ? AND kind = 'memo'`,

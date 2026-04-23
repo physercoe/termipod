@@ -443,20 +443,27 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   }
 
   Future<void> _requestReview() async {
-    final result = await showDialog<_ReviewRequest>(
+    final projectId = (_doc?['project_id'] ?? '').toString();
+    if (projectId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Document not loaded yet')),
+      );
+      return;
+    }
+    final note = await showDialog<String>(
       context: context,
       builder: (_) => const _RequestReviewDialog(),
     );
-    if (result == null) return;
+    if (note == null) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _requestingReview = true);
     try {
       await client.createReview(
-        documentId: widget.documentId,
-        reviewerHandle:
-            result.reviewer.isEmpty ? null : result.reviewer,
-        note: result.note.isEmpty ? null : result.note,
+        projectId: projectId,
+        targetKind: 'document',
+        targetId: widget.documentId,
+        note: note.isEmpty ? null : note,
       );
       if (!mounted) return;
       setState(() => _requestingReview = false);
@@ -690,12 +697,6 @@ class _ArtifactPointer extends StatelessWidget {
   }
 }
 
-class _ReviewRequest {
-  final String reviewer;
-  final String note;
-  const _ReviewRequest(this.reviewer, this.note);
-}
-
 class _RequestReviewDialog extends StatefulWidget {
   const _RequestReviewDialog();
 
@@ -704,12 +705,10 @@ class _RequestReviewDialog extends StatefulWidget {
 }
 
 class _RequestReviewDialogState extends State<_RequestReviewDialog> {
-  final _reviewer = TextEditingController();
   final _note = TextEditingController();
 
   @override
   void dispose() {
-    _reviewer.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -718,27 +717,14 @@ class _RequestReviewDialogState extends State<_RequestReviewDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Request review'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _reviewer,
-            decoration: const InputDecoration(
-              labelText: 'Reviewer handle (optional)',
-              hintText: 'e.g. @director',
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _note,
-            minLines: 2,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              labelText: 'Note (optional)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
+      content: TextField(
+        controller: _note,
+        minLines: 2,
+        maxLines: 4,
+        decoration: const InputDecoration(
+          labelText: 'Note (optional)',
+          border: OutlineInputBorder(),
+        ),
       ),
       actions: [
         TextButton(
@@ -746,13 +732,7 @@ class _RequestReviewDialogState extends State<_RequestReviewDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            _ReviewRequest(
-              _reviewer.text.trim(),
-              _note.text.trim(),
-            ),
-          ),
+          onPressed: () => Navigator.pop(context, _note.text.trim()),
           child: const Text('Request'),
         ),
       ],

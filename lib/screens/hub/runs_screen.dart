@@ -815,7 +815,11 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
           if (_metrics.isNotEmpty) ...[
             const SizedBox(height: 16),
             _sectionLabel('Metrics'),
-            for (final m in _metrics) _MetricSparklineTile(row: m),
+            for (final g in _groupMetrics(_metrics))
+              if (g.rows.length == 1)
+                _MetricSparklineTile(row: g.rows.single)
+              else
+                _MetricGroupTile(groupName: g.name, rows: g.rows),
           ],
           if (uris.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -945,6 +949,239 @@ String _fmtDurationMs(int ms) {
   final h = s ~/ 3600;
   final m = (s % 3600) ~/ 60;
   return '${h}h ${m}m';
+}
+
+/// Groups metric rows that share a "<group>/<series>" prefix so the UI
+/// can overlay series that belong on the same axis (e.g. loss/train +
+/// loss/val). Rows whose name has no slash live in a group of their
+/// own, keyed by the full name. Group order follows first appearance
+/// in [_metrics] so the caller controls layout.
+class _MetricGroup {
+  final String name;
+  final List<Map<String, dynamic>> rows;
+  _MetricGroup(this.name, this.rows);
+}
+
+List<_MetricGroup> _groupMetrics(List<Map<String, dynamic>> rows) {
+  final order = <String>[];
+  final byKey = <String, List<Map<String, dynamic>>>{};
+  for (final r in rows) {
+    final name = (r['name'] ?? '').toString();
+    final slash = name.indexOf('/');
+    final key = slash > 0 ? name.substring(0, slash) : name;
+    if (!byKey.containsKey(key)) {
+      order.add(key);
+      byKey[key] = [];
+    }
+    byKey[key]!.add(r);
+  }
+  return [for (final k in order) _MetricGroup(k, byKey[k]!)];
+}
+
+// Distinct colors cycled per series within a group — kept small so
+// legends stay legible.
+const _seriesPalette = <Color>[
+  DesignColors.terminalCyan,
+  DesignColors.warning,
+  DesignColors.success,
+  DesignColors.error,
+  Color(0xFFB394FF),
+];
+
+/// Renders a metric group as a single multi-line chart with a legend.
+/// Series share one y-axis — caller is expected to emit metrics whose
+/// units already align (loss/{train,val}). Mixed-unit groups should
+/// use distinct top-level group names.
+class _MetricGroupTile extends StatelessWidget {
+  final String groupName;
+  final List<Map<String, dynamic>> rows;
+  const _MetricGroupTile({required this.groupName, required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    // Parse once; skip series that have too few points to draw.
+    final series = <(_SeriesMeta, List<(double, double)>)>[];
+    for (var i = 0; i < rows.length; i++) {
+      final r = rows[i];
+      final name = (r['name'] ?? '').toString();
+      final slash = name.indexOf('/');
+      final label = slash > 0 ? name.substring(slash + 1) : name;
+      final pts = _MetricSparklineTile._parsePoints(r['points']);
+      final lastValue = (r['last_value'] as num?)?.toDouble() ??
+          (pts.isEmpty ? null : pts.last.$2);
+      final color = _seriesPalette[i % _seriesPalette.length];
+      series.add((
+        _SeriesMeta(label: label, color: color, lastValue: lastValue),
+        pts,
+      ));
+    }
+    final drawable = [
+      for (final s in series)
+        if (s.$2.length >= 2) s,
+    ];
+    final sampleCount = rows.fold<int>(
+      0,
+      (a, r) => a + ((r['sample_count'] as num?)?.toInt() ?? 0),
+    );
+    final lastStep = rows
+        .map((r) => (r['last_step'] as num?)?.toInt() ?? 0)
+        .fold<int>(0, (a, b) => b > a ? b : a);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            groupName,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 56,
+            child: drawable.isEmpty
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'no samples yet',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                  )
+                : CustomPaint(
+                    size: const Size.fromHeight(56),
+                    painter: _MultiSparklinePainter([
+                      for (final d in drawable) (d.$1.color, d.$2),
+                    ]),
+                  ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 12,
+            runSpacing: 2,
+            children: [
+              for (final s in series) _legendChip(s.$1),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            lastStep > 0
+                ? 'step $lastStep · $sampleCount samples'
+                : '$sampleCount samples',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              color: DesignColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendChip(_SeriesMeta s) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: s.color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          s.label,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            color: DesignColors.textMuted,
+          ),
+        ),
+        if (s.lastValue != null) ...[
+          const SizedBox(width: 4),
+          Text(
+            _MetricSparklineTile._fmtValue(s.lastValue!),
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: s.color,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SeriesMeta {
+  final String label;
+  final Color color;
+  final double? lastValue;
+  _SeriesMeta({required this.label, required this.color, this.lastValue});
+}
+
+/// Draws N series on a shared axis with per-series colors. All series
+/// share x and y ranges derived from the union so relative shape is
+/// comparable.
+class _MultiSparklinePainter extends CustomPainter {
+  final List<(Color, List<(double, double)>)> series;
+  _MultiSparklinePainter(this.series);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (series.isEmpty) return;
+    double? minX, maxX, minY, maxY;
+    for (final s in series) {
+      for (final p in s.$2) {
+        minX = (minX == null || p.$1 < minX) ? p.$1 : minX;
+        maxX = (maxX == null || p.$1 > maxX) ? p.$1 : maxX;
+        minY = (minY == null || p.$2 < minY) ? p.$2 : minY;
+        maxY = (maxY == null || p.$2 > maxY) ? p.$2 : maxY;
+      }
+    }
+    if (minX == null) return;
+    final dx = (maxX! - minX).abs() < 1e-12 ? 1.0 : (maxX - minX);
+    final dy = (maxY! - minY!).abs() < 1e-12 ? 1.0 : (maxY - minY);
+
+    for (final s in series) {
+      final color = s.$1;
+      final points = s.$2;
+      if (points.length < 2) continue;
+      final path = Path();
+      for (var i = 0; i < points.length; i++) {
+        final x = (points[i].$1 - minX) / dx * size.width;
+        final y = size.height - ((points[i].$2 - minY) / dy * size.height);
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      final line = Paint()
+        ..color = color
+        ..strokeWidth = 1.4
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, line);
+
+      // Endpoint marker on each series.
+      final last = points.last;
+      final lx = (last.$1 - minX) / dx * size.width;
+      final ly = size.height - ((last.$2 - minY) / dy * size.height);
+      canvas.drawCircle(Offset(lx, ly), 2.2, Paint()..color = color);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MultiSparklinePainter old) =>
+      old.series != series;
 }
 
 /// Renders one metric digest row as a compact sparkline with headline

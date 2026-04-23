@@ -295,12 +295,16 @@ func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points in
 		tpsLast = v
 	}
 
+	// Metric names follow the wandb/tensorboard "<group>/<series>"
+	// convention so the mobile UI can group curves that share a y-axis.
+	// loss/{train,val} overlay on one chart; optim and throughput stand
+	// alone with one series each.
 	return []demoCurve{
-		{"train_loss", trainPts, trainStep, trainLast},
-		{"val_loss", valPts, trainStep, roundTo(valLast, 4)},
-		{"learning_rate", lrPts, trainStep, roundTo(lrLast, 6)},
-		{"grad_norm", gnPts, trainStep, roundTo(gnLast, 4)},
-		{"tokens_per_sec", tpsPts, trainStep, roundTo(tpsLast, 1)},
+		{"loss/train", trainPts, trainStep, trainLast},
+		{"loss/val", valPts, trainStep, roundTo(valLast, 4)},
+		{"optim/learning_rate", lrPts, trainStep, roundTo(lrLast, 6)},
+		{"optim/grad_norm", gnPts, trainStep, roundTo(gnLast, 4)},
+		{"throughput/tokens_per_sec", tpsPts, trainStep, roundTo(tpsLast, 1)},
 	}
 }
 
@@ -367,8 +371,9 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"**Caveats:** Seeded from synthetic data for UI testing — no real\n" +
 		"training happened. Numbers will change once a GPU host is attached\n" +
 		"and a real trackio-producing worker runs the sweep.\n\n" +
-		"**Plots:** Each run carries five sparklines on the Run Detail\n" +
-		"screen — train_loss, val_loss, learning_rate, grad_norm, and\n" +
-		"tokens_per_sec. The val/train gap widens slightly over training;\n" +
-		"throughput drops as model size grows, as expected.\n"
+		"**Plots:** Each run carries three chart groups on the Run Detail\n" +
+		"screen — `loss/{train,val}` overlaid, `optim/{learning_rate," +
+		"grad_norm}`, and `throughput/tokens_per_sec`. The val/train gap\n" +
+		"widens slightly over training; throughput drops as model size\n" +
+		"grows, as expected.\n"
 }

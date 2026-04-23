@@ -171,6 +171,42 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   stamps "user") and response harvesting back into task history.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
+### P4.4 — steward MCP tool parity — **PARTIAL v1.0.150**
+
+The steward's decomposition recipe in `hub/templates/prompts/steward.v1.md`
+referenced tools (`a2a.invoke`, `agents.spawn`, `runs.create`,
+`post_message`, `plan.instantiate`, `plan.advance`) that the MCP server
+didn't expose — so the steward couldn't drive the demo end-to-end under
+the principal/director UX model.
+
+Shipped in `hub/cmd/hub-mcp-server/tools.go`:
+- `a2a.invoke(handle, text)` — looks up the agent card from the team
+  directory, then POSTs a JSON-RPC `message/send` to the relay URL.
+  Unblocks steward→worker handoff.
+- `runs.create(project_id, ...)` — lets the steward reserve a run row
+  before delegating via A2A.
+- `agents.spawn(child_handle, kind, spawn_spec_yaml, ...)` — spawns
+  workers / the briefing agent; returns 202 + attention_id when policy
+  tiers the request.
+- `channels.post_event(channel, type, parts, [project])` — unifies
+  `post_message` / `post_excerpt`; works for both project-scope and
+  team-scope channels.
+
+Steward + briefing prompts updated to call the shipped tool names
+(`reviews.create` not `reviews.request`, `runs.get` not `runs.read`,
+`channels.post_event` not `post_message`).
+
+Still open:
+- `plans.steps.create` / bulk plan instantiation — steward currently
+  anchors the plan via `plans.create` and escalates step authoring to
+  {{principal.handle}}. Fine for the demo; revisit if more templates
+  land.
+- Explicit `request_approval` / `request_decision` wrappers. The
+  `agents.spawn` handler already surfaces approval attention when
+  policy gates it; a standalone approval-request tool would let the
+  steward create one directly. Deferred until the UX audit decides
+  whether to promote approvals to a first-class mobile surface.
+
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).
 

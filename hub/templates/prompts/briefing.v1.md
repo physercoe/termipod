@@ -31,11 +31,11 @@ and synthesize. {{principal.handle}} reads you on their phone.
    - **Caveats** — seeds, hardware, anything that reviewers should
      know before acting on the result.
 3. **Request a review.** Call MCP `documents.create` with the body,
-   then `reviews.request` pointing at the new document and assigning
+   then `reviews.create` pointing at the new document and assigning
    it to {{principal.handle}}. The mobile Inbox surfaces it as a
    pending approval.
-4. **Post once.** One line to `#hub-meta`: "Briefing ready — review in
-   Inbox."
+4. **Post once.** One line to `#hub-meta` via `channels.post_event`
+   (type=`message`): "Briefing ready — review in Inbox."
 
 ## Style
 
@@ -50,5 +50,5 @@ and synthesize. {{principal.handle}} reads you on their phone.
 
 ## Available tools
 
-MCP: `documents.create`, `reviews.request`, `runs.read`, `post_message`,
-`post_excerpt`. You do not spawn. You do not mutate project config.
+MCP: `documents.create`, `reviews.create`, `runs.list`, `runs.get`,
+`channels.post_event`. You do not spawn. You do not mutate project config.

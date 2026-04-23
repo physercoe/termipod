@@ -135,6 +135,93 @@ func TestToolsCall_UnknownTool(t *testing.T) {
 	}
 }
 
+// TestToolsCall_A2AInvoke: the a2a.invoke tool must first look up the card
+// via the hub directory, then POST a JSON-RPC message/send envelope to the
+// relay URL advertised in that card.
+func TestToolsCall_A2AInvoke(t *testing.T) {
+	var cardPath, relayPath, relayMethod, relayBody string
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relayPath = r.URL.Path
+		relayMethod = r.Method
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		relayBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"mcp-xx","result":{"id":"task-1","status":{"state":"submitted"}}}`))
+	}))
+	t.Cleanup(relay.Close)
+
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		cardPath = r.URL.Path + "?" + r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		// Card.url points at the relay test server.
+		body := `[{"host_id":"h1","agent_id":"a1","handle":"worker.ml","card":{"name":"Worker","url":"` + relay.URL + `/a2a/relay/h1/a1"}}]`
+		_, _ = w.Write([]byte(body))
+	})
+	tools := buildTools()
+
+	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a.invoke","arguments":{"handle":"worker.ml","text":"train me"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if !strings.Contains(cardPath, "/v1/teams/team-alpha/a2a/cards") || !strings.Contains(cardPath, "handle=worker.ml") {
+		t.Errorf("card lookup path = %q", cardPath)
+	}
+	if relayMethod != "POST" || relayPath != "/a2a/relay/h1/a1" {
+		t.Errorf("relay call = %s %s", relayMethod, relayPath)
+	}
+	if !strings.Contains(relayBody, `"method":"message/send"`) {
+		t.Errorf("relay body missing method: %q", relayBody)
+	}
+	if !strings.Contains(relayBody, `"text":"train me"`) {
+		t.Errorf("relay body missing text: %q", relayBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+		Error *jsonrpcError `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal envelope: %v (%s)", err, raw)
+	}
+	if resp.Error != nil || resp.Result.IsError {
+		t.Fatalf("tool errored: err=%+v isError=%v content=%+v", resp.Error, resp.Result.IsError, resp.Result.Content)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"id":"task-1"`) {
+		t.Errorf("response missing task id: %q", resp.Result.Content[0].Text)
+	}
+}
+
+// TestToolsCall_A2AInvoke_NoCard: invoking a handle with no registered card
+// must surface as an isError tool result, not a silent empty response.
+func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"a2a.invoke","arguments":{"handle":"nope","text":"x"}}}` + "\n")
+	raw, _ := handleLine(c, tools, line)
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if !resp.Result.IsError {
+		t.Errorf("want isError=true for missing card, got %+v", resp.Result)
+	}
+}
+
 // TestInitialize_ReturnsServerInfo: a bare initialize call must return
 // protocol version + serverInfo so MCP clients can complete the handshake.
 func TestInitialize_ReturnsServerInfo(t *testing.T) {

@@ -95,3 +95,46 @@ func (c *hubClient) do(method, path string, query url.Values, body any, out any)
 func (c *hubClient) teamPath(suffix string) string {
 	return "/v1/teams/" + url.PathEscape(c.team) + suffix
 }
+
+// doAbsolute issues a request to an arbitrary URL (not rooted at c.baseURL)
+// and decodes the JSON body into `out` (if non-nil). Used by a2a.invoke to
+// POST to the hub's unauthed /a2a/relay/... endpoint via the URL published
+// in an agent card. No bearer token is attached — per A2A v0.3 the relay
+// is a peer-to-peer surface whose authority is the URL path itself.
+func (c *hubClient) doAbsolute(method, absURL string, body any, out any) error {
+	var reqBody io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		reqBody = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, absURL, reqBody)
+	if err != nil {
+		return err
+	}
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("%s %s: %d %s", method, absURL, resp.StatusCode, bytes.TrimSpace(raw))
+	}
+	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+	return nil
+}

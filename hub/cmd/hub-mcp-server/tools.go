@@ -9,10 +9,21 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
 )
+
+// randID returns a short random hex id. Used for A2A message ids when the
+// caller doesn't provide one — the A2A spec requires messageId to be unique
+// per send, so we generate rather than leaving it to the MCP client.
+func randID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
 
 // toolDef captures everything the MCP protocol surfaces for one tool:
 // a name, a human description, a JSON-Schema for its input, plus the
@@ -232,6 +243,129 @@ func buildTools() []toolDef {
 					"rules": []any{},
 					"raw":   raw,
 				}, nil
+			},
+		},
+		{
+			Name:        "runs.create",
+			Description: "Create a new run row. Requires `project_id`. Optional: agent_id, config_json (object), seed, parent_run_id, trackio_host_id, trackio_run_uri.",
+			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"agent_id":{"type":"string"},"config_json":{"type":"object"},"seed":{"type":"integer"},"parent_run_id":{"type":"string"},"trackio_host_id":{"type":"string"},"trackio_run_uri":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				if p, _ := args["project_id"].(string); p == "" {
+					return nil, fmt.Errorf("project_id is required")
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/runs"), nil, args, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "agents.spawn",
+			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode. May return 202 + attention_id if policy gates the spawn on approval.",
+			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				for _, k := range []string{"child_handle", "kind", "spawn_spec_yaml"} {
+					if v, _ := args[k].(string); v == "" {
+						return nil, fmt.Errorf("%s is required", k)
+					}
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/agents/spawn"), nil, args, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "channels.post_event",
+			Description: "Post an event to a channel (the hub's chat/message surface). Requires `channel` and `type`. Optional `project` — when omitted the event targets a team-scope channel. Body-pass-through fields: parts (array), from_id, to_ids, task_id, correlation_id, metadata (object).",
+			InputSchema: schema(`{"type":"object","required":["channel","type"],"properties":{"channel":{"type":"string"},"project":{"type":"string"},"type":{"type":"string"},"parts":{"type":"array"},"from_id":{"type":"string"},"to_ids":{"type":"array","items":{"type":"string"}},"task_id":{"type":"string"},"correlation_id":{"type":"string"},"metadata":{"type":"object"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				channel, _ := args["channel"].(string)
+				if channel == "" {
+					return nil, fmt.Errorf("channel is required")
+				}
+				if t, _ := args["type"].(string); t == "" {
+					return nil, fmt.Errorf("type is required")
+				}
+				var path string
+				if p, _ := args["project"].(string); p != "" {
+					path = c.teamPath("/projects/" + url.PathEscape(p) + "/channels/" + url.PathEscape(channel) + "/events")
+				} else {
+					path = c.teamPath("/channels/" + url.PathEscape(channel) + "/events")
+				}
+				// Strip routing-only fields from the body so the hub sees a clean event payload.
+				body := make(map[string]any, len(args))
+				for k, v := range args {
+					if k == "channel" || k == "project" {
+						continue
+					}
+					body[k] = v
+				}
+				var out json.RawMessage
+				if err := c.do("POST", path, nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "a2a.invoke",
+			Description: "Send an A2A message to another agent by handle. Looks up the agent card in the team directory, then POSTs a JSON-RPC `message/send` envelope to the card's relay URL. Returns the JSON-RPC response envelope (typically a Task).",
+			InputSchema: schema(`{"type":"object","required":["handle","text"],"properties":{"handle":{"type":"string","description":"target agent handle (e.g. \"worker.ml\")"},"text":{"type":"string","description":"message body as plain text"},"task_id":{"type":"string","description":"optional existing task id to continue"},"message_id":{"type":"string","description":"optional message id; auto-generated when omitted"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				handle, _ := args["handle"].(string)
+				text, _ := args["text"].(string)
+				if handle == "" || text == "" {
+					return nil, fmt.Errorf("handle and text are required")
+				}
+				q := url.Values{}
+				q.Set("handle", handle)
+				var cards []struct {
+					HostID  string          `json:"host_id"`
+					AgentID string          `json:"agent_id"`
+					Handle  string          `json:"handle"`
+					Card    json.RawMessage `json:"card"`
+				}
+				if err := c.do("GET", c.teamPath("/a2a/cards"), q, nil, &cards); err != nil {
+					return nil, fmt.Errorf("lookup card: %w", err)
+				}
+				if len(cards) == 0 {
+					return nil, fmt.Errorf("no A2A agent found for handle %q", handle)
+				}
+				var card map[string]any
+				if err := json.Unmarshal(cards[0].Card, &card); err != nil {
+					return nil, fmt.Errorf("malformed card: %w", err)
+				}
+				relayURL, _ := card["url"].(string)
+				if relayURL == "" {
+					return nil, fmt.Errorf("card missing url field")
+				}
+				msgID, _ := args["message_id"].(string)
+				if msgID == "" {
+					msgID = "mcp-" + randID()
+				}
+				msg := map[string]any{
+					"messageId": msgID,
+					"role":      "user",
+					"parts":     []map[string]any{{"kind": "text", "text": text}},
+				}
+				params := map[string]any{"message": msg}
+				if tid, ok := args["task_id"].(string); ok && tid != "" {
+					params["taskId"] = tid
+				}
+				env := map[string]any{
+					"jsonrpc": "2.0",
+					"id":      msgID,
+					"method":  "message/send",
+					"params":  params,
+				}
+				var resp json.RawMessage
+				if err := c.doAbsolute("POST", relayURL, env, &resp); err != nil {
+					return nil, fmt.Errorf("a2a relay: %w", err)
+				}
+				return resp, nil
 			},
 		},
 		{

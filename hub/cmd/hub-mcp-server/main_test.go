@@ -260,6 +260,91 @@ func TestToolsCall_A2AInvoke_NoCard(t *testing.T) {
 	}
 }
 
+// TestToolsCall_ProjectsUpdate: projects.update must PATCH the project URL
+// with the fields to change; the `project` routing key must be stripped.
+func TestToolsCall_ProjectsUpdate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"p1","goal":"new goal"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"projects.update","arguments":{"project":"p1","goal":"new goal","budget_cents":5000}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/projects/p1" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if strings.Contains(sawBody, `"project"`) {
+		t.Errorf("body should not include routing key: %q", sawBody)
+	}
+	if !strings.Contains(sawBody, `"goal":"new goal"`) {
+		t.Errorf("body missing goal: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
+// TestToolsCall_HostsUpdateSSHHint: hosts.update_ssh_hint must PATCH the
+// host ssh_hint URL and serialize the ssh_hint object into a stringified
+// ssh_hint_json body (that's what the REST handler expects).
+func TestToolsCall_HostsUpdateSSHHint(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"hosts.update_ssh_hint","arguments":{"host":"h1","ssh_hint":{"user":"alice","port":22}}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/hosts/h1/ssh_hint" {
+		t.Errorf("path = %q", sawPath)
+	}
+	// Body must contain ssh_hint_json as a STRING with the serialized object.
+	if !strings.Contains(sawBody, `"ssh_hint_json"`) {
+		t.Errorf("body missing ssh_hint_json key: %q", sawBody)
+	}
+	if !strings.Contains(sawBody, `\"user\":\"alice\"`) {
+		t.Errorf("body should contain escaped stringified object, got: %q", sawBody)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &resp)
+	if resp.Result.IsError {
+		t.Errorf("unexpected isError")
+	}
+}
+
 // TestToolsCall_ProjectChannelsCreate: project_channels.create must POST
 // to the project-scoped channels endpoint with just {"name": ...}.
 func TestToolsCall_ProjectChannelsCreate(t *testing.T) {

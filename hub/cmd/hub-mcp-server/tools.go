@@ -434,6 +434,60 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "projects.update",
+			Description: "Patch a project's mutable fields. Requires `project`. Any of `goal`, `parameters_json` (object), `budget_cents`, `policy_overrides_json` (object), `steward_agent_id`, `on_create_template_id` may be supplied. Create-time fields (kind, template_id, parent_project_id) are immutable by design.",
+			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"goal":{"type":"string"},"parameters_json":{"type":"object"},"budget_cents":{"type":"integer"},"policy_overrides_json":{"type":"object"},"steward_agent_id":{"type":"string"},"on_create_template_id":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["project"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("project is required")
+				}
+				body := map[string]any{}
+				for k, v := range args {
+					if k == "project" {
+						continue
+					}
+					body[k] = v
+				}
+				if len(body) == 0 {
+					return nil, fmt.Errorf("at least one field to update is required")
+				}
+				// Handler returns 200 + the patched project row on success, or
+				// calls the same read path when body is empty — either way we
+				// decode into RawMessage and forward.
+				var out json.RawMessage
+				if err := c.do("PATCH", c.teamPath("/projects/"+url.PathEscape(id)), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "hosts.update_ssh_hint",
+			Description: "Patch a host's non-secret ssh_hint_json. Requires `host` and `ssh_hint` (object). The hub rejects payloads containing password/private_key/passphrase/secret/token keys per the data-ownership law (§4) — use only non-secret hints (username, port, jump, proxy_command, identity_file path).",
+			InputSchema: schema(`{"type":"object","required":["host","ssh_hint"],"properties":{"host":{"type":"string"},"ssh_hint":{"type":"object","description":"JSON object of non-secret SSH hints; stringified before sending to the hub"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				host, _ := args["host"].(string)
+				hint, _ := args["ssh_hint"].(map[string]any)
+				if host == "" {
+					return nil, fmt.Errorf("host is required")
+				}
+				if hint == nil {
+					return nil, fmt.Errorf("ssh_hint object is required")
+				}
+				hintBytes, err := json.Marshal(hint)
+				if err != nil {
+					return nil, fmt.Errorf("marshal ssh_hint: %w", err)
+				}
+				// REST handler expects {"ssh_hint_json": "<stringified object>"}.
+				body := map[string]any{"ssh_hint_json": string(hintBytes)}
+				if err := c.do("PATCH", c.teamPath("/hosts/"+url.PathEscape(host)+"/ssh_hint"), nil, body, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "host": host}, nil
+			},
+		},
+		{
 			Name:        "project_channels.create",
 			Description: "Create a channel scoped to one project. Requires `project_id` and `name`. Project channels carry project-local traffic; use team_channels.create for cross-project rooms like #hub-meta.",
 			InputSchema: schema(`{"type":"object","required":["project_id","name"],"properties":{"project_id":{"type":"string"},"name":{"type":"string"}}}`),

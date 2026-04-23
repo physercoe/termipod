@@ -46,6 +46,8 @@ the CEO principle.
 | Project tasks list | list tasks | `tasks.list` (v1.0.154) |
 | `project_channel_create_sheet.dart` | create project channel | `project_channels.create` (v1.0.155) |
 | `team_channel_screen.dart` | create team channel | `team_channels.create` (v1.0.155) |
+| `project_edit_sheet.dart` | patch project | `projects.update` (v1.0.156) |
+| `host_edit_sheet.dart` | patch host SSH hint | `hosts.update_ssh_hint` (v1.0.156) |
 
 ## 2. Infra gaps — demo-critical
 
@@ -54,8 +56,8 @@ Each row is a future MCP wedge.
 
 | Screen | Action | REST | Proposed tool | Inputs |
 |---|---|---|---|---|
-| `project_edit_sheet.dart` | patch project | `PATCH /v1/teams/{t}/projects/{id}` | `projects.update` | project_id, name?, goal?, kind?, template_id?, parameters?, budget_cents? |
-| `host_edit_sheet.dart` | patch host SSH hint | `PATCH /v1/teams/{t}/hosts/{id}/ssh_hint` | `hosts.update_ssh_hint` | host_id, ssh_hint_json |
+
+_(all demo-critical rows closed as of v1.0.156)_
 
 ## 2a. Infra gaps — nice-to-have
 
@@ -96,9 +98,11 @@ Treating one wedge per logical hub surface so the steward regains parity:
 1. ~~**Scheduling surface** — `schedules.{list,create,update,delete,run}`.~~ **DONE v1.0.153.**
 2. ~~**Project tasks surface** — `tasks.{list,create,update}`.~~ **DONE v1.0.154.**
 3. ~~**Channel authoring** — `project_channels.create` + `team_channels.create`.~~ **DONE v1.0.155.**
-4. **Project + host patch** — `projects.update`, `hosts.update_ssh_hint`. Small but closes the ownership-level edit path.
+4. ~~**Project + host patch** — `projects.update`, `hosts.update_ssh_hint`.~~ **DONE v1.0.156.**
 
-After those four land, the mobile CRUD surface is entirely redundant
-as a *default* path — each screen becomes a review/ratify surface on
-top of what the steward has already authored (Section 4 reframes can
-proceed from there).
+All four wedges have landed. The mobile CRUD surface is now entirely
+redundant as a *default* path — each screen becomes a review/ratify
+surface on top of what the steward has already authored. Section 4
+reframes (demote "+ New" across hub screens, lead with activity /
+status feeds) can now proceed as pure UX work without leaving the
+steward behind.

@@ -183,7 +183,7 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   or the peer issues `tasks/cancel`.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
-### P4.4 — steward MCP tool parity — **PARTIAL v1.0.150**
+### P4.4 — steward MCP tool parity — **DONE v1.0.156**
 
 The steward's decomposition recipe in `hub/templates/prompts/steward.v1.md`
 referenced tools (`a2a.invoke`, `agents.spawn`, `runs.create`,
@@ -231,14 +231,21 @@ so the steward can author a new channel before posting. Previously
 by {{principal.handle}} from the mobile UI), which broke the
 author-then-announce flow. Closes audit-queue row 3.
 
+**v1.0.156:** added `projects.update` and `hosts.update_ssh_hint`.
+`projects.update` patches mutable fields (goal, parameters_json,
+budget_cents, policy_overrides_json, steward_agent_id,
+on_create_template_id) — create-time fields (kind, template_id,
+parent_project_id) remain immutable by design. `hosts.update_ssh_hint`
+accepts an object and stringifies to `ssh_hint_json`; the hub rejects
+secret keys (password/private_key/passphrase/secret/token) per §4.
+Closes audit-queue row 4 — **P4.4 is now fully DONE**.
+
 Still open:
 - Explicit `request_approval` / `request_decision` wrappers. The
   `agents.spawn` handler already surfaces approval attention when
   policy gates it; a standalone approval-request tool would let the
   steward create one directly. Deferred until the UX audit decides
   whether to promote approvals to a first-class mobile surface.
-- Remaining audit-queue wedges: `projects.update`,
-  `hosts.update_ssh_hint` (see `docs/ux-steward-audit.md` §2).
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

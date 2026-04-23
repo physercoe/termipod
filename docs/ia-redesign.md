@@ -139,7 +139,11 @@ Role set (MVP has only **Director**; the rest are reserved slots):
   full attention queue. Can do any steward action manually.
 - **Steward** — runs operations on the director's behalf. The LLM steward
   is the default operator; a human steward is a role a member can take.
-  Bounded by policy (blueprint A3).
+  Bounded by policy (blueprint A3). MVP ships one steward per *team*
+  (rows in `agents` are `UNIQUE(team_id, handle)` and there is no
+  `users`/`team_members` table yet). The intended future shape is one
+  steward per *member*, acting as that member's deputy with their own
+  preferences, memory, and budget envelope — see §11 follow-up.
 - **Reviewer** — consulted on specific documents or decisions. Has a
   scoped inbox: reviews assigned to them, not the whole team's.
 - **Member** — participates in a team; can propose, comment, execute.
@@ -647,6 +651,45 @@ selection). No new tab.
 
 Each wedge is shippable on its own and leaves the app in a coherent
 state. No wedge blocks daily use.
+
+### Follow-ups (unscheduled)
+
+These are known gaps in the as-shipped IA. They are not wedged onto
+the roadmap until a concrete use case forces them, but they are listed
+here so future work does not have to re-derive them.
+
+**F-1. Per-member stewards (multi-user teams).** Today the steward is
+team-scoped: one `agents` row with `handle='steward'`, referenced by
+`projects.steward_agent_id` and stamped on `attention_items` /
+`audit_events` via the new `actor_kind='agent'` + `actor_handle` columns
+(migration 0016). Prompts read `{{principal.handle}}` as a single
+per-team value. This is correct for the single-director MVP.
+
+When a team onboards a second member, the intended model is **one
+steward per member, acting as that member's deputy** with their own
+preferences, memory, budget envelope, and policy overrides. The
+changes are additive and mostly schema-level:
+
+- Add `users` and `team_members(user_id, team_id, role)` tables. Today
+  the only non-agent principal is the team's "owner" auth_token; this
+  promotes the concept to a row.
+- Add nullable `agents.owner_user_id` FK. NULL preserves today's
+  team-owned behavior (e.g. shared briefing stewards); non-NULL marks
+  a per-member deputy.
+- Relax `UNIQUE(team_id, handle)` to `UNIQUE(team_id, owner_user_id,
+  handle)` so every member can have their own `steward`.
+- Steward resolution becomes user-scoped: "find steward where team=X
+  and owner_user=me." Projects either store `steward_user_id` directly
+  or resolve via the project creator's membership.
+- Per-user memory needs no new storage — each steward agent already
+  has its own `journal_path`, budget, and policy overrides.
+- StewardBadge matcher is unaffected: it already matches on `handle`,
+  which stays `steward` across all deputies.
+- Prompts template `{{principal.handle}}` per-call instead of per-team.
+
+No IA axiom changes. Role ontology (§4) already calls Director and
+Steward *roles*, not identities, so per-member deputies are compatible
+with the intent. Ship when the first second-member story lands.
 
 ---
 

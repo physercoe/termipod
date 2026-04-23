@@ -6,6 +6,7 @@
 //   tokens issue        Issue a new token for an agent or user.
 //   tokens list         List tokens (hash-only; plaintext is never stored).
 //   reconstruct-db      Rebuild events DB from event_log/ JSONL.
+//   seed-demo           Insert ablation-sweep-demo state (no-GPU reviewer flow).
 package main
 
 import (
@@ -41,6 +42,8 @@ func main() {
 		runTokens(os.Args[2:], log)
 	case "reconstruct-db":
 		runReconstructDB(os.Args[2:], log)
+	case "seed-demo":
+		runSeedDemo(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -59,6 +62,7 @@ Commands:
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
   reconstruct-db    Rebuild DB from event_log/ JSONL.
+  seed-demo         Insert ablation-sweep-demo state for no-GPU reviewer flow.
 
 Run "hub-server <command> -h" for flags.`)
 }
@@ -247,6 +251,47 @@ func runReconstructDB(args []string, log *slog.Logger) {
 		os.Exit(1)
 	}
 	fmt.Printf("reconstruct-db: replayed %d file(s); inserted=%d skipped=%d\n", files, inserted, skipped)
+}
+
+// ---- seed-demo ----
+
+// runSeedDemo inserts a ready-to-review "ablation-sweep-demo" project into an
+// already-initialized hub DB. See server.SeedDemo for what it writes.
+// Intended for reviewers who want to explore the mobile UI (projects / runs /
+// docs / reviews / inbox) without running nanoGPT on a GPU.
+//
+// Idempotent — running twice reports the existing project and makes no
+// changes.
+func runSeedDemo(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("seed-demo", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	_ = fs.Parse(args)
+
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+	if err := ensureDBDir(*dbPath); err != nil {
+		log.Error("prepare data dir", "err", err, "path", filepath.Dir(*dbPath))
+		os.Exit(1)
+	}
+	db, err := openDBWithHint(*dbPath, log)
+	if err != nil {
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	res, err := server.SeedDemo(context.Background(), db)
+	if err != nil {
+		log.Error("seed-demo failed", "err", err)
+		os.Exit(1)
+	}
+	if res.Skipped {
+		fmt.Printf("seed-demo: project already exists (id=%s) — nothing written.\n", res.ProjectID)
+		return
+	}
+	fmt.Printf("seed-demo: inserted demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n",
+		res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention)
 }
 
 // ---- helpers ----

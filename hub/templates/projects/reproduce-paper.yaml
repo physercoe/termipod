@@ -1,0 +1,10 @@
+name: reproduce-paper
+kind: goal
+goal: |-
+  Reproduce the headline result of {paper_arxiv_id} from {repo_url}. Compare reported {target_metric} to measured value; flag if gap exceeds tolerance_pct.
+parameters:
+  paper_arxiv_id: ""
+  repo_url: ""
+  target_metric: ""
+  tolerance_pct: 5.0
+on_create_template_id: agents.steward

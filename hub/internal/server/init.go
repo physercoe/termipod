@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/auth"
+	"gopkg.in/yaml.v3"
 )
 
 const defaultTeamID = "default"
@@ -23,7 +25,7 @@ func Init(dataRoot, dbPath string) (string, error) {
 	if err := os.MkdirAll(dataRoot, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir data root: %w", err)
 	}
-	for _, sub := range []string{"projects", "blobs", "agents", "team/templates/agents", "team/templates/prompts", "team/templates/policies"} {
+	for _, sub := range []string{"projects", "blobs", "agents", "team/templates/agents", "team/templates/prompts", "team/templates/policies", "team/templates/projects"} {
 		if err := os.MkdirAll(filepath.Join(dataRoot, sub), 0o700); err != nil {
 			return "", fmt.Errorf("mkdir %s: %w", sub, err)
 		}
@@ -42,10 +44,12 @@ func Init(dataRoot, dbPath string) (string, error) {
 	if err := ensureTeamChannel(ctx, db, "hub-meta"); err != nil {
 		return "", err
 	}
-	if err := seedBuiltinProjectTemplates(ctx, db); err != nil {
+	// Copy embedded templates to disk first so user-authored YAMLs in
+	// team/templates/projects/ (if any) are visible to the seeder.
+	if err := writeBuiltinTemplates(dataRoot); err != nil {
 		return "", err
 	}
-	if err := writeBuiltinTemplates(dataRoot); err != nil {
+	if err := seedBuiltinProjectTemplates(ctx, db, dataRoot); err != nil {
 		return "", err
 	}
 
@@ -92,105 +96,124 @@ func ensureTeam(ctx context.Context, db *sql.DB, id, name string) error {
 	return err
 }
 
-// seedBuiltinProjectTemplates inserts the built-in project-template rows
-// (blueprint §6.1: is_template=1 project rows that serve as instantiation
-// blueprints for concrete runs). Idempotent via UNIQUE(team_id, name) +
-// INSERT OR IGNORE — user edits to the row survive re-init.
-//
-// The `ablation-sweep` template is the research-demo entry point: the user
-// instantiates it with concrete parameters, and the steward decomposes the
-// sweep per the recipe in prompts/steward.v1.md.
-func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB) error {
-	type projectTemplate struct {
-		name          string
-		kind          string
-		goal          string
-		parameters    map[string]any
-		onCreateTmpl  string
+// projectTemplateDoc mirrors a templates/projects/*.yaml file. The hub
+// is domain-agnostic — it does not know the difference between
+// `ablation-sweep` and `write-memo`, and it should not. To register
+// another template, drop a YAML file with this shape into
+// `hub/templates/projects/` (for built-ins shipped with the binary) or
+// into `<dataRoot>/team/templates/projects/` (for user-authored ones,
+// picked up on next Init).
+type projectTemplateDoc struct {
+	Name               string         `yaml:"name"`
+	Kind               string         `yaml:"kind"`
+	Goal               string         `yaml:"goal"`
+	Parameters         map[string]any `yaml:"parameters"`
+	OnCreateTemplateID string         `yaml:"on_create_template_id"`
+}
+
+// seedBuiltinProjectTemplates inserts one is_template=1 projects row
+// per YAML file under templates/projects/ (blueprint §6.1). The set of
+// templates is data, not code: the hub walks the embedded FS + any
+// user-authored additions in <dataRoot>/team/templates/projects/.
+// Idempotent via UNIQUE(team_id, name) + INSERT OR IGNORE — user edits
+// to the DB row survive re-init.
+func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB, dataRoot string) error {
+	docs, err := loadProjectTemplates(dataRoot)
+	if err != nil {
+		return err
 	}
-	templates := []projectTemplate{
-		{
-			name: "ablation-sweep",
-			kind: "goal",
-			goal: "Run an ablation sweep over model sizes and optimizers on the target training repo. " +
-				"Default: nanoGPT-Shakespeare, AdamW vs Lion, n_embd {128,256,384}, 1000 iters.",
-			parameters: map[string]any{
-				"model_sizes": []int{128, 256, 384},
-				"optimizers":  []string{"adamw", "lion"},
-				"iters":       1000,
-			},
-			onCreateTmpl: "agents.steward",
-		},
-		{
-			// write-memo: a lightweight "quick brief" template. The steward
-			// reads any named context docs, drafts a Goal / Findings / Open
-			// questions memo via documents.create, and requests review so it
-			// surfaces in the principal's Inbox. No agents spawned, no hosts
-			// touched — entirely hub-local, so it's a cheap ad-hoc wedge
-			// alongside the ablation sweep.
-			name: "write-memo",
-			kind: "goal",
-			goal: "Draft a short memo on {topic}. Read any context docs in context_doc_ids, " +
-				"structure as Goal / Findings / Open questions, and request review when done.",
-			parameters: map[string]any{
-				"topic":            "",
-				"context_doc_ids":  []string{},
-				"length":           "short",
-			},
-			onCreateTmpl: "agents.steward",
-		},
-		{
-			// benchmark-comparison: pit multiple model configs against each
-			// other on one benchmark. Structurally similar to ablation-sweep
-			// but framed as head-to-head compare (not hyperparameter sweep),
-			// with a single headline metric the briefing agent ranks on.
-			name: "benchmark-comparison",
-			kind: "goal",
-			goal: "Compare {models} on {benchmark} with {samples} samples; rank by {headline_metric} " +
-				"and write a comparison memo naming the winner and the margin.",
-			parameters: map[string]any{
-				"models":          []string{},
-				"benchmark":       "",
-				"samples":         100,
-				"headline_metric": "accuracy",
-			},
-			onCreateTmpl: "agents.steward",
-		},
-		{
-			// reproduce-paper: re-run a published paper's headline result and
-			// compare to the paper's reported number. The steward clones the
-			// repo, identifies the headline config, delegates one run via
-			// a2a.invoke, and memos the delta (within tolerance_pct or not).
-			name: "reproduce-paper",
-			kind: "goal",
-			goal: "Reproduce the headline result of {paper_arxiv_id} from {repo_url}. " +
-				"Compare reported {target_metric} to measured value; flag if gap exceeds tolerance_pct.",
-			parameters: map[string]any{
-				"paper_arxiv_id": "",
-				"repo_url":       "",
-				"target_metric":  "",
-				"tolerance_pct":  5.0,
-			},
-			onCreateTmpl: "agents.steward",
-		},
-	}
-	for _, t := range templates {
-		params, err := json.Marshal(t.parameters)
+	for _, t := range docs {
+		if t.Name == "" {
+			return fmt.Errorf("project template missing name")
+		}
+		params := t.Parameters
+		if params == nil {
+			params = map[string]any{}
+		}
+		paramsJSON, err := json.Marshal(params)
 		if err != nil {
-			return fmt.Errorf("marshal parameters for %s: %w", t.name, err)
+			return fmt.Errorf("marshal parameters for %s: %w", t.Name, err)
 		}
 		_, err = db.ExecContext(ctx, `
 			INSERT OR IGNORE INTO projects
 				(id, team_id, name, status, config_yaml, created_at,
 				 goal, kind, is_template, parameters_json, on_create_template_id)
 			VALUES (?, ?, ?, 'active', '', ?, ?, ?, 1, ?, ?)`,
-			NewID(), defaultTeamID, t.name, NowUTC(),
-			t.goal, t.kind, string(params), t.onCreateTmpl)
+			NewID(), defaultTeamID, t.Name, NowUTC(),
+			t.Goal, t.Kind, string(paramsJSON), t.OnCreateTemplateID)
 		if err != nil {
-			return fmt.Errorf("insert project template %s: %w", t.name, err)
+			return fmt.Errorf("insert project template %s: %w", t.Name, err)
 		}
 	}
 	return nil
+}
+
+// loadProjectTemplates walks templates/projects/*.yaml in the embedded
+// FS and, on top of that, <dataRoot>/team/templates/projects/*.yaml if
+// the directory exists. Disk entries override embedded entries by name
+// so a user-edited copy of a built-in template takes precedence without
+// needing to delete the embedded original.
+func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
+	byName := map[string]projectTemplateDoc{}
+	order := []string{}
+
+	add := func(name string, doc projectTemplateDoc) {
+		if _, seen := byName[name]; !seen {
+			order = append(order, name)
+		}
+		byName[name] = doc
+	}
+
+	walkErr := fs.WalkDir(hub.TemplatesFS, "templates/projects", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return nil
+		}
+		data, err := fs.ReadFile(hub.TemplatesFS, path)
+		if err != nil {
+			return err
+		}
+		var doc projectTemplateDoc
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse %s: %w", path, err)
+		}
+		add(doc.Name, doc)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+
+	diskDir := filepath.Join(dataRoot, "team", "templates", "projects")
+	if entries, err := os.ReadDir(diskDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(diskDir, e.Name()))
+			if err != nil {
+				return nil, err
+			}
+			var doc projectTemplateDoc
+			if err := yaml.Unmarshal(data, &doc); err != nil {
+				return nil, fmt.Errorf("parse %s: %w", e.Name(), err)
+			}
+			add(doc.Name, doc)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+
+	out := make([]projectTemplateDoc, 0, len(order))
+	for _, n := range order {
+		out = append(out, byName[n])
+	}
+	return out, nil
 }
 
 // writeBuiltinTemplates copies embedded templates into the data root on first

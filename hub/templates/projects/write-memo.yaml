@@ -1,0 +1,9 @@
+name: write-memo
+kind: goal
+goal: |-
+  Draft a short memo on {topic}. Read any context docs in context_doc_ids, structure as Goal / Findings / Open questions, and request review when done.
+parameters:
+  topic: ""
+  context_doc_ids: []
+  length: short
+on_create_template_id: agents.steward

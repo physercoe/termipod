@@ -1,0 +1,19 @@
+# Built-in project template. Copied to team/templates/projects/ on first
+# init and seeded as an is_template=1 projects row. The steward's
+# decomposition recipe for this template lives in
+# team/templates/prompts/steward.v1.md.
+#
+# Drop a new YAML in this directory with the same shape (name, kind,
+# goal, parameters, on_create_template_id) to register another template.
+# INSERT OR IGNORE at seed time means user edits to the DB row survive
+# re-init; user edits to this file become the template if the DB row is
+# cleared.
+name: ablation-sweep
+kind: goal
+goal: |-
+  Run an ablation sweep over model sizes and optimizers on the target training repo. Default: nanoGPT-Shakespeare, AdamW vs Lion, n_embd {128,256,384}, 1000 iters.
+parameters:
+  model_sizes: [128, 256, 384]
+  optimizers: [adamw, lion]
+  iters: 1000
+on_create_template_id: agents.steward

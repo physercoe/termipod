@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -163,6 +164,67 @@ func TestInit_SeedsReproducePaperTemplate(t *testing.T) {
 	for _, k := range []string{"paper_arxiv_id", "repo_url", "target_metric", "tolerance_pct"} {
 		if _, ok := p[k]; !ok {
 			t.Errorf("missing key %q in %s", k, params)
+		}
+	}
+}
+
+// TestInit_SeedsUserAuthoredTemplate confirms a YAML dropped into
+// <dataRoot>/team/templates/projects/ is seeded alongside the built-ins
+// on the next Init. Templates are data, so the loader must not be
+// bound to the embedded set.
+func TestInit_SeedsUserAuthoredTemplate(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	// First init materializes the templates dir.
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("first Init: %v", err)
+	}
+	// Drop a user-authored template. The goal is deliberately non-ML so
+	// the test proves the hub has no opinion about the domain.
+	yaml := `name: onboard-newhire
+kind: goal
+goal: "Walk {name} through day-one setup."
+parameters:
+  name: ""
+  team: ""
+on_create_template_id: agents.steward
+`
+	path := filepath.Join(dir, "team", "templates", "projects", "onboard-newhire.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatalf("write user template: %v", err)
+	}
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("second Init: %v", err)
+	}
+
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+
+	var params, kind string
+	var isTemplate int
+	err = db.QueryRowContext(context.Background(), `
+		SELECT kind, is_template, parameters_json FROM projects
+		WHERE team_id = ? AND name = ?`,
+		defaultTeamID, "onboard-newhire").Scan(&kind, &isTemplate, &params)
+	if err != nil {
+		t.Fatalf("lookup user template: %v", err)
+	}
+	if isTemplate != 1 {
+		t.Errorf("is_template = %d, want 1", isTemplate)
+	}
+	if kind != "goal" {
+		t.Errorf("kind = %q, want goal", kind)
+	}
+	var p map[string]any
+	if err := json.Unmarshal([]byte(params), &p); err != nil {
+		t.Fatalf("parse parameters_json %q: %v", params, err)
+	}
+	for _, k := range []string{"name", "team"} {
+		if _, ok := p[k]; !ok {
+			t.Errorf("user template parameters missing %q", k)
 		}
 	}
 }

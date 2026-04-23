@@ -62,7 +62,7 @@ func TestMCP_RequestApproval_TierDefaultsSeverity(t *testing.T) {
 		"tier":    "critical",
 		"summary": "please approve prod deploy",
 	})
-	out, jerr := s.mcpRequestApproval(context.Background(), agentID, args)
+	out, jerr := s.mcpRequestApproval(context.Background(), defaultTeamID, agentID, args)
 	if jerr != nil {
 		t.Fatalf("request_approval: %+v", jerr)
 	}
@@ -85,7 +85,7 @@ func TestMCP_RequestDecision_RequiresOptions(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
 	args, _ := json.Marshal(map[string]any{"question": "which?"})
-	_, jerr := s.mcpRequestDecision(context.Background(), agentID, args)
+	_, jerr := s.mcpRequestDecision(context.Background(), defaultTeamID, agentID, args)
 	if jerr == nil || jerr.Code != -32602 {
 		t.Errorf("want -32602, got %+v", jerr)
 	}
@@ -179,7 +179,7 @@ func TestMCP_TemplatesPropose_FilesAttentionAndBlob(t *testing.T) {
 		"content":   "handle: nurse\nrole: support\n",
 		"rationale": "need a dedicated first-responder role",
 	})
-	out, jerr := s.mcpTemplatesPropose(context.Background(), agentID, args)
+	out, jerr := s.mcpTemplatesPropose(context.Background(), defaultTeamID, agentID, args)
 	if jerr != nil {
 		t.Fatalf("propose: %+v", jerr)
 	}
@@ -213,7 +213,7 @@ func TestMCP_TemplatesPropose_ApproveInstalls(t *testing.T) {
 		"name":     "nurse.v1",
 		"content":  body,
 	})
-	out, jerr := s.mcpTemplatesPropose(context.Background(), agentID, args)
+	out, jerr := s.mcpTemplatesPropose(context.Background(), defaultTeamID, agentID, args)
 	if jerr != nil {
 		t.Fatalf("propose: %+v", jerr)
 	}

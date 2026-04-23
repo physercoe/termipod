@@ -305,9 +305,9 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 	case "delegate":
 		return s.mcpDelegate(ctx, agentID, call.Arguments)
 	case "request_approval":
-		return s.mcpRequestApproval(ctx, agentID, call.Arguments)
+		return s.mcpRequestApproval(ctx, scope.Team, agentID, call.Arguments)
 	case "request_decision":
-		return s.mcpRequestDecision(ctx, agentID, call.Arguments)
+		return s.mcpRequestDecision(ctx, scope.Team, agentID, call.Arguments)
 	case "attach":
 		return s.mcpAttach(ctx, call.Arguments)
 	case "get_event":
@@ -321,7 +321,7 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 	case "update_own_task_status":
 		return s.mcpUpdateOwnTaskStatus(ctx, agentID, call.Arguments)
 	case "templates_propose", "templates.propose":
-		return s.mcpTemplatesPropose(ctx, agentID, call.Arguments)
+		return s.mcpTemplatesPropose(ctx, scope.Team, agentID, call.Arguments)
 	case "pause_self":
 		return s.mcpPauseSelf(ctx, agentID, call.Arguments)
 	case "shutdown_self":

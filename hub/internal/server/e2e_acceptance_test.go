@@ -163,7 +163,7 @@ func TestE2E_AcceptanceScenario(t *testing.T) {
 			t.Skip("step 04 did not spawn immediately (policy-gated path) — covered in separate test")
 		}
 		body := "handle: worker-fe\nrole: implementer\n"
-		out, jerr := c.s.mcpTemplatesPropose(context.Background(), stewardID, mustJSON(t, map[string]any{
+		out, jerr := c.s.mcpTemplatesPropose(context.Background(), c.teamID, stewardID, mustJSON(t, map[string]any{
 			"category": "agents",
 			"name":     "worker-fe.v1",
 			"content":  body,
@@ -222,7 +222,7 @@ func TestE2E_AcceptanceScenario(t *testing.T) {
 		if stewardID == "" {
 			t.Skip("no steward")
 		}
-		_, jerr := c.s.mcpRequestApproval(context.Background(), stewardID, mustJSON(t, map[string]any{
+		_, jerr := c.s.mcpRequestApproval(context.Background(), c.teamID, stewardID, mustJSON(t, map[string]any{
 			"tier":    "major",
 			"summary": "install Flask",
 		}))

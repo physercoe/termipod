@@ -379,18 +379,22 @@ func (s *Server) createSpawnApproval(ctx context.Context, team, tier string, app
 		severity = "critical"
 	}
 	summary := "spawn " + in.ChildHandle + " (" + in.Kind + ")"
+	_, actorKind, actorHandle := actorFromContext(ctx)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, tier,
 			current_assignees_json, pending_payload_json,
-			status, created_at
+			status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULL, 'team', ?, 'approval_request',
 		          ?, ?, ?,
 		          ?, ?,
-		          'open', ?)`,
+		          'open', ?,
+		          ?, ?)`,
 		id, team, summary, severity, tier,
-		string(assignees), string(payload), NowUTC())
+		string(assignees), string(payload), NowUTC(),
+		actorKind, nullIfEmpty(actorHandle))
 	return id, err
 }
 

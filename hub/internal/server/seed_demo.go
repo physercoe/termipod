@@ -193,11 +193,13 @@ func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json,
 			decisions_json, escalation_history_json,
-			status, created_at
+			status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, ?, 'project', ?, 'decision',
 		          ?, 'minor', ?,
 		          '[]', '[]',
-		          'open', ?)`,
+		          'open', ?,
+		          'agent', 'steward')`,
 		res.Attention, res.ProjectID, res.ProjectID,
 		"Approve nightly sweep budget ($2/run × 6 runs)?",
 		string(assignees), now,

@@ -253,7 +253,7 @@ type requestApprovalArgs struct {
 	Severity  string `json:"severity"`
 }
 
-func (s *Server) mcpRequestApproval(ctx context.Context, fromID string, raw json.RawMessage) (any, *jrpcError) {
+func (s *Server) mcpRequestApproval(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a requestApprovalArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.Summary == "" {
 		return nil, &jrpcError{Code: -32602, Message: "summary required"}
@@ -276,13 +276,16 @@ func (s *Server) mcpRequestApproval(ctx context.Context, fromID string, raw json
 	}
 	id := NewID()
 	now := NowUTC()
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
-			summary, severity, current_assignees_json, status, created_at
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'approval_request',
-		          ?, ?, '[]', 'open', ?)`,
-		id, a.ScopeKind, a.ScopeID, a.Summary, severity, now)
+		          ?, ?, '[]', 'open', ?,
+		          'agent', NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, a.Summary, severity, now, actorHandle)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
@@ -301,7 +304,7 @@ type requestDecisionArgs struct {
 	ScopeID   string   `json:"scope_id"`
 }
 
-func (s *Server) mcpRequestDecision(ctx context.Context, fromID string, raw json.RawMessage) (any, *jrpcError) {
+func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a requestDecisionArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.Question == "" || len(a.Options) == 0 {
 		return nil, &jrpcError{Code: -32602, Message: "question and non-empty options required"}
@@ -315,13 +318,16 @@ func (s *Server) mcpRequestDecision(ctx context.Context, fromID string, raw json
 	if len(a.Options) > 0 {
 		summary = a.Question + " [" + strings.Join(a.Options, " / ") + "]"
 	}
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
-			summary, severity, current_assignees_json, status, created_at
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'decision',
-		          ?, 'minor', '[]', 'open', ?)`,
-		id, a.ScopeKind, a.ScopeID, summary, now)
+		          ?, 'minor', '[]', 'open', ?,
+		          'agent', NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
@@ -609,7 +615,7 @@ type templatesProposeArgs struct {
 	Rationale string `json:"rationale"`
 }
 
-func (s *Server) mcpTemplatesPropose(ctx context.Context, fromID string, raw json.RawMessage) (any, *jrpcError) {
+func (s *Server) mcpTemplatesPropose(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a templatesProposeArgs
 	if err := json.Unmarshal(raw, &a); err != nil ||
 		a.Category == "" || a.Name == "" || a.Content == "" {
@@ -653,14 +659,17 @@ func (s *Server) mcpTemplatesPropose(ctx context.Context, fromID string, raw jso
 	})
 	id := NewID()
 	now := NowUTC()
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json,
-			pending_payload_json, status, created_at
+			pending_payload_json, status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULL, 'team', NULL, 'template_proposal',
-		          ?, 'minor', '[]', ?, 'open', ?)`,
-		id, summary, string(payload), now)
+		          ?, 'minor', '[]', ?, 'open', ?,
+		          'agent', NULLIF(?, ''))`,
+		id, summary, string(payload), now, actorHandle)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}

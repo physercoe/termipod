@@ -51,10 +51,12 @@ func (s *Server) accumulateSpend(ctx context.Context, agentID string, deltaCents
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, tier,
-			current_assignees_json, status, created_at
+			current_assignees_json, status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULL, 'team', ?, 'budget_exceeded',
 		          ?, 'major', 'moderate',
-		          ?, 'open', ?)`,
+		          ?, 'open', ?,
+		          'system', NULL)`,
 		NewID(), team,
 		"budget exceeded: "+handle+" paused",
 		string(assignees), NowUTC())

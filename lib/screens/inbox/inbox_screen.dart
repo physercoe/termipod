@@ -240,12 +240,14 @@ class _InboxItem {
   factory _InboxItem.attention(Map<String, dynamic> a) {
     final kind = (a['kind'] ?? 'attention').toString();
     final filter = _filterForAttention(kind);
-    final actor = (a['actor_handle'] ??
-            a['created_by'] ??
-            a['source'] ??
-            a['origin'] ??
-            '')
-        .toString();
+    // actor_kind + actor_handle are the authoritative columns stamped by
+    // the hub (migration 0016). An agent-raised attention gets actor for
+    // badge rendering; system/user rows stay unbadged.
+    final actorKind = (a['actor_kind'] ?? '').toString();
+    final actorHandle = (a['actor_handle'] ?? '').toString();
+    final actor = (actorKind == 'agent' && actorHandle.isNotEmpty)
+        ? actorHandle
+        : null;
     return _InboxItem(
       id: (a['id'] ?? '').toString(),
       filter: filter,
@@ -254,7 +256,7 @@ class _InboxItem {
       subtitle: (a['scope_kind'] ?? '').toString(),
       ts: _parseTs(a['created_at']?.toString()),
       severity: a['severity']?.toString(),
-      actor: actor.isEmpty ? null : actor,
+      actor: actor,
       attention: a,
     );
   }

@@ -35,6 +35,8 @@ type attentionOut struct {
 	Severity    string          `json:"severity"`
 	RefEventID  string          `json:"ref_event_id,omitempty"`
 	RefTaskID   string          `json:"ref_task_id,omitempty"`
+	ActorKind   string          `json:"actor_kind,omitempty"`
+	ActorHandle string          `json:"actor_handle,omitempty"`
 	Assignees   json.RawMessage `json:"assignees"`
 	Decisions   json.RawMessage `json:"decisions"`
 	Escalation  json.RawMessage `json:"escalation_history"`
@@ -61,17 +63,21 @@ func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
 	assignees, _ := json.Marshal(coalesceStrings(in.Assignees))
 	id := NewID()
 	now := NowUTC()
+	_, actorKind, actorHandle := actorFromContext(r.Context())
 	_, err := s.db.ExecContext(r.Context(), `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			ref_event_id, ref_task_id, summary, severity,
-			current_assignees_json, status, created_at
+			current_assignees_json, status, created_at,
+			actor_kind, actor_handle
 		) VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), ?,
 		          NULLIF(?, ''), NULLIF(?, ''), ?, ?,
-		          ?, 'open', ?)`,
+		          ?, 'open', ?,
+		          ?, ?)`,
 		id, in.ProjectID, in.ScopeKind, in.ScopeID, in.Kind,
 		in.RefEventID, in.RefTaskID, in.Summary, severity,
-		string(assignees), now)
+		string(assignees), now,
+		actorKind, nullIfEmpty(actorHandle))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -89,6 +95,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		SELECT id, COALESCE(project_id, ''), scope_kind, COALESCE(scope_id, ''), kind,
 		       COALESCE(ref_event_id, ''), COALESCE(ref_task_id, ''),
 		       summary, severity,
+		       COALESCE(actor_kind, ''), COALESCE(actor_handle, ''),
 		       current_assignees_json, decisions_json, escalation_history_json,
 		       status, created_at, resolved_at, COALESCE(resolved_by, '')
 		FROM attention_items WHERE status = ?`
@@ -111,6 +118,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		var resolvedAt sql.NullString
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
 			&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
+			&a.ActorKind, &a.ActorHandle,
 			&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
 			&resolvedAt, &a.ResolvedBy); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())

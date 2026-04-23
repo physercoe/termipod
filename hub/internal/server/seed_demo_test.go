@@ -95,6 +95,20 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		}
 	}
 
+	// Seeded attention_item should carry the steward as actor so the mobile
+	// StewardBadge lights up without heuristics (migration 0016).
+	var actorKind, actorHandle string
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(actor_kind, ''), COALESCE(actor_handle, '')
+		 FROM attention_items WHERE id = ?`, res.Attention).
+		Scan(&actorKind, &actorHandle); err != nil {
+		t.Fatalf("read attention actor: %v", err)
+	}
+	if actorKind != "agent" || actorHandle != "steward" {
+		t.Errorf("attention actor = (%q, %q), want (agent, steward)",
+			actorKind, actorHandle)
+	}
+
 	// Each run_metrics row should carry a 100-point curve with a sensible
 	// last_value (monotonically-ish approaching the per-run floor).
 	var minPts, maxPts int

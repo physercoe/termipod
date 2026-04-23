@@ -140,10 +140,21 @@ type attentionDecideOut struct {
 	Executed    json.RawMessage `json:"executed,omitempty"` // populated when an approve triggers an action
 }
 
-// handleDecideAttention records an approve/reject on an attention_item.
-// Quorum-1 is hardcoded for now — first approve wins. When the gated action
-// has a pending_payload, this handler executes it (currently: spawn) so the
-// caller can observe the downstream effect in a single call.
+// handleDecideAttention records an approve/reject on an attention_item and
+// resolves it once the tier's quorum is reached. Quorum is looked up via
+// s.policy.QuorumFor(tier); a tier of "" or a missing `quorum` entry both
+// fall through to 1, which preserves the previous single-approver behavior.
+// A reject always resolves (veto-wins); approvals accumulate in
+// decisions_json until the threshold is hit. When an approve_-resolved
+// attention has a pending_payload, this handler executes it (currently:
+// spawn, template_proposal) so the caller can observe the downstream effect
+// in a single call.
+//
+// Concurrency note: two simultaneous approvals can both read approves=N-1
+// and each write approves=N without noticing the other. That's tolerable
+// today — the net effect is one executed action, not two, and the duplicate
+// decision row is visible in the trail. Tightening this needs a CAS on the
+// status column; deferred until we have >1 active approver per tier.
 func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "id")
@@ -188,22 +199,42 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	})
 	newDecisions, _ := json.Marshal(list)
 
-	// Single-approver quorum: first approve resolves, a reject always resolves.
-	// resolved_by has a FK to agents(id); in.By is a handle used only for the
-	// decision trail, so it lands in decisions_json, not the FK column.
-	_, err = s.db.ExecContext(r.Context(), `
-		UPDATE attention_items SET
-			decisions_json = ?,
-			status = 'resolved',
-			resolved_at = ?
-		WHERE id = ?`, string(newDecisions), now, id)
+	// Policy-driven quorum: count approves including the one we just
+	// appended, compare against the tier threshold. A reject always
+	// resolves so a single vetoer can halt the action. When the threshold
+	// isn't yet met, persist the decision and leave status='open' so
+	// further approvers can weigh in.
+	approves := 0
+	for _, d := range list {
+		if s, _ := d["decision"].(string); s == "approve" {
+			approves++
+		}
+	}
+	need := s.policy.QuorumFor(tier)
+	resolved := in.Decision == "reject" || approves >= need
+
+	// resolved_by has a FK to agents(id); in.By is a handle used only for
+	// the decision trail, so it lands in decisions_json, not the FK column.
+	if resolved {
+		_, err = s.db.ExecContext(r.Context(), `
+			UPDATE attention_items SET
+				decisions_json = ?,
+				status = 'resolved',
+				resolved_at = ?
+			WHERE id = ?`, string(newDecisions), now, id)
+	} else {
+		_, err = s.db.ExecContext(r.Context(), `
+			UPDATE attention_items SET
+				decisions_json = ?
+			WHERE id = ?`, string(newDecisions), id)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	out := attentionDecideOut{AttentionID: id, Decision: in.Decision, Resolved: true}
-	if in.Decision == "approve" && kind == "approval_request" && payload != "" {
+	out := attentionDecideOut{AttentionID: id, Decision: in.Decision, Resolved: resolved}
+	if resolved && in.Decision == "approve" && kind == "approval_request" && payload != "" {
 		// Dispatch the gated action. Today we only understand spawn payloads.
 		var sp spawnIn
 		if err := json.Unmarshal([]byte(payload), &sp); err == nil && sp.ChildHandle != "" {
@@ -225,7 +256,7 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if in.Decision == "approve" && kind == "template_proposal" && payload != "" {
+	if resolved && in.Decision == "approve" && kind == "template_proposal" && payload != "" {
 		// Install the proposed template body to team/templates/<cat>/<name>.
 		// Reviewer's approval is the authorization; we copy the blob, not the
 		// request content, so the on-disk file is byte-identical to what was

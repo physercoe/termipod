@@ -77,6 +77,8 @@ func runDaemon(args []string) {
 	launcher := fs.String("launcher", "tmux", "launcher kind: stub|tmux")
 	session := fs.String("tmux-session", "hub-agents", "tmux session name (tmux launcher)")
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
+	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
+	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
 	_ = fs.Parse(args)
 
 	if *token == "" {
@@ -95,12 +97,14 @@ func runDaemon(args []string) {
 	}
 
 	r := &hostrunner.Runner{
-		Client:   hostrunner.NewClient(*hub, *token, *team),
-		HostName: *name,
-		HostID:   *hostID,
-		Launcher: lnch,
-		Log:      log,
-		StateDir: *stateDir,
+		Client:       hostrunner.NewClient(*hub, *token, *team),
+		HostName:     *name,
+		HostID:       *hostID,
+		Launcher:     lnch,
+		Log:          log,
+		StateDir:     *stateDir,
+		A2AAddr:      *a2aAddr,
+		A2APublicURL: *a2aPublicURL,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

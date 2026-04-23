@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/termipod/hub/internal/hostrunner/a2a"
 )
 
 // Runner is the long-running host-runner loop. It registers the host with the
@@ -29,6 +31,15 @@ type Runner struct {
 	// StateDir, when non-empty, caches host_id after the first register so
 	// a restart skips the register round-trip. Keyed by (hub, team, name).
 	StateDir string
+
+	// A2AAddr is the bind address for the host-runner A2A server (§5.4, P3.2).
+	// Empty disables the server. ":0" picks a free port.
+	A2AAddr string
+
+	// A2APublicURL, if set, is the base URL advertised in agent-cards. Use
+	// this when the bind address is not reachable from peers (e.g. behind
+	// a reverse tunnel). Falls back to the request Host header otherwise.
+	A2APublicURL string
 
 	idle      *IdleDetector
 	panes     map[string]paneState    // keyed by agent id
@@ -111,6 +122,20 @@ func (a *Runner) Start(ctx context.Context) error {
 	// Kick off an immediate poll so bootstrap isn't delayed by the first tick.
 	a.tickPoll(ctx)
 	a.tickCommands(ctx)
+
+	if a.A2AAddr != "" {
+		srv := &a2a.Server{
+			PublicURL: a.A2APublicURL,
+			Source:    a.a2aSource,
+			Log:       a.Log,
+		}
+		addr, err := srv.Listen(ctx, a.A2AAddr)
+		if err != nil {
+			a.Log.Warn("a2a server failed to listen", "addr", a.A2AAddr, "err", err)
+		} else {
+			a.Log.Info("a2a server listening", "addr", addr)
+		}
+	}
 
 	for {
 		select {
@@ -417,4 +442,18 @@ func (a *Runner) stopDriver(agentID string) {
 	}
 	d.Stop()
 	delete(a.drivers, agentID)
+}
+
+// a2aSource adapts ListRunningAgents into the a2a.AgentSource callback.
+// Called once per A2A HTTP request, so agent churn surfaces immediately.
+func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
+	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]a2a.AgentInfo, 0, len(agents))
+	for _, ag := range agents {
+		out = append(out, a2a.AgentInfo{ID: ag.ID, Handle: ag.Handle})
+	}
+	return out, nil
 }

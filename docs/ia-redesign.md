@@ -100,18 +100,30 @@ in view.
 
 ### 3.5 Tiers
 
-Surfaces are organized in four attention tiers. A tier is not a visible
+Surfaces are organized in five attention tiers. A tier is not a visible
 label — it is a placement discipline.
 
 | Tier | Name | What belongs here | Default visibility |
 |---|---|---|---|
 | 0 | Me | Attention queue, my active work, search | Default landing |
-| 1 | Team | Projects, Activity, Hosts | One tap |
-| 2 | Governance | Members, roles, councils, team policy (future) | Entered from Team |
-| 3 | Settings | Device/personal prefs only | Entered from Me |
+| 1 | Team workspace | Projects, Activity, Hosts | One tap |
+| 2 | Team admin / Governance | Members, roles, policies, budgets, tokens (team), councils, **steward config** | Entered from top-bar **Team switcher** |
+| 3 | Device Settings | Personal & device-local prefs only (theme, keyboard, API tokens on this device, notification rules on this device) | Entered from Me |
+| C | Capability | Terminal, search, command palette | Cross-cutting, any screen |
 
-Anything that is in Tier 0 today but is not *attention-bearing for me* is
-misplaced. Anything in Tier 3 today that is team-scoped is misplaced.
+**Critical distinction — Settings is two things:**
+
+- **Device Settings** (Tier 3, the `Settings` tab): scoped to *this phone,
+  this user*. Never team-wide. Stripped of everything team-scoped.
+- **Team Settings** (Tier 2, entered from Team switcher): scoped to the
+  team. Members, policies, budgets, steward config. Today this is the
+  `team_screen.dart` "Settings" sub-tab; it must not be conflated with
+  the Device Settings tab.
+
+A setting's tier is determined by *who owns the state*, not where it
+currently lives. Anything in Tier 3 today that is team-scoped is
+misplaced; anything in Tier 0 today that is not attention-bearing for me
+is misplaced.
 
 ---
 
@@ -234,12 +246,25 @@ centered as the default landing.
 | 1 | Projects | 1 | The workspace I steer |
 | 2 | Activity | 1 | What happened across the team |
 | 3 | **Me** (default) | 0 | What needs me now |
-| 4 | Hosts | 2 | Infra & terminal |
-| 5 | Settings | 3 | My prefs |
+| 4 | Hosts | 1 (infra) | Infra & terminal |
+| 5 | Settings | 3 | My device prefs (**not** team) |
 
 Rationale for the order: flow axis left (work I initiate) → right (tools
 I fall back to). Default landing is center so the thumb arrives at "what
 needs me" with zero travel.
+
+**Persistent top-bar on every tab:**
+
+- **Team switcher** (left): `[▸ Team Name]` — shows active team; tap
+  opens team picker + **Team Settings** (governance, §6.6). This is the
+  single ingress for all team-scoped admin.
+- **Search** (right): capability, matches entities across all tabs.
+- **Command palette** (right): capability, keyboard-driven actions.
+
+Putting the Team switcher on every tab (rather than burying it in
+Settings or giving it a tab) makes team-scope explicit: you are always
+operating *inside a team*, and switching teams changes what the five
+tabs show. Governance lives exactly one tap away from anywhere.
 
 ### 6.1 Me (default)
 
@@ -303,32 +328,99 @@ Bootstrap / debug affordances (host-runner install, SSH reachability
 test, health ping) live on host detail, entered only when something
 needs diagnosis.
 
-### 6.5 Settings
+### 6.5 Device Settings (the `Settings` tab)
 
-Tier-3. Personal, device-local preferences only:
+Tier-3. **This phone, this user** only. Scope is non-negotiable.
 
-- Theme, font, keyboard (custom keyboard toggle)
-- Language
-- Export / Import backup
-- About
+In:
+- Theme, font, keyboard (custom keyboard toggle), language
+- Export / Import backup (device-local data)
+- Notification rules **on this device** (which team events ping this phone)
+- API tokens **this device** uses to reach the hub
+- Action bar profiles (device-local UI prefs)
+- About / licenses
 
-Emphatically **not in Settings** anymore: tokens, audit, team
-management, members, notification rules, action bar profiles (those move
-to per-screen configuration or to Governance). Settings becomes small
-and predictable.
+Not in Device Settings:
+- Members, roles, team policy, team tokens, team budget → **Team Settings** (§6.6)
+- Steward config → Team Settings → Steward (§6.7)
+- Audit log → Activity tab (§6.3)
+- SSH credentials, snippets → Host detail / Terminal drawer
 
-### 6.6 Governance (future, not a tab yet)
+The Device Settings tab is small and predictable. If a user has to think
+about whether a toggle is team-wide or device-wide, it's in the wrong tab.
 
-Tier-2 surface entered from Projects or Team. Contains:
+### 6.6 Team Settings / Governance (entered from the Team switcher)
 
-- Members & roles
-- Councils (N-of-M approval groups)
-- Team policy (budgets, rate limits, scopes)
-- Team-level audit filters
-- Tokens (team-scoped API tokens)
+**Not a tab.** A screen reached from the **Team switcher** in the top bar,
+present on every tab. The switcher shows the active team name and, on
+tap, reveals:
 
-Reserved but not built in MVP. Introducing it later does **not** require
-a new tab — it slots under Team-level actions reached from Projects.
+- Team switcher list (teams I belong to — MVP has one)
+- **Team Settings** (this screen)
+- New team / join team
+
+Team Settings is Tier-2 and contains everything team-scoped that isn't a
+primary workspace (Projects / Activity / Hosts already cover those):
+
+- **Members** — who is in the team, what role they hold
+- **Roles** — role definitions and what each role can do (future)
+- **Policies** — the team's policy.yaml viewer/editor
+- **Budgets** — team spend caps, per-project allowances
+- **Tokens** — team-scoped API tokens (distinct from device tokens)
+- **Councils** — N-of-M approval groups (future)
+- **Audit filters** — team-level filters applied to Activity
+- **Steward** — §6.7
+- **Team channel** — link to the team-wide channel
+
+This is the single governance entry point (IA-A5: roles are affordance
+axes, not a separate nav tier — so governance slots under Team, not as a
+sixth tab). Non-director roles see a read-only or scoped subset of this
+screen; permissions gate buttons (IA-A5).
+
+### 6.7 Steward
+
+The steward (blueprint §3) is the primary operator — the LLM that runs
+plans, schedules, and decisions on the team's behalf. It is not a person
+or a tab; it is an **actor** that authors runs, reviews, documents, and
+attention items like any other member. Accordingly, there is **no
+Steward tab**. Instead, there are four distinct access points for
+distinct intents:
+
+| Intent | Where | How it works |
+|---|---|---|
+| **Direct the steward (project-scoped)** | Project detail → Channel | Steward is a participant in every project channel. Director types; steward responds. Scoped to that project's goal. |
+| **Direct the steward (team-wide)** | Team switcher → Team channel | Same pattern at team scope (cross-project direction, policy clarification). |
+| **Observe what the steward did** | Activity tab (filter: actor=steward) | Every steward-authored mutation lands in Activity. Filter for audit. |
+| **Be notified when steward needs you** | Me tab → Attention | Steward escalates via `attention_items`; they land in Me. |
+| **Configure the steward** | Team switcher → Team Settings → Steward | Autonomy level, budget caps, per-project scope, policy overrides, model & provider selection |
+
+**What the Steward Settings screen holds (Tier-2):**
+
+- Autonomy level (what the steward may do without human ratification)
+- Budget caps (team-wide, per-project)
+- Scope allowlist (which projects/hosts the steward may touch)
+- Policy overrides (which policies gate vs. advise)
+- Model / provider selection
+- Councils and escalation paths (future)
+
+**Why no Steward tab:** giving the steward a tab would frame it as a
+separate app inside the app. In reality the steward's output is the
+team's output — runs, reviews, documents, attention items — and those
+already have their homes. Surfacing the steward in every project channel
+makes it feel like a team member, which matches what it is.
+
+### 6.8 Deferred: a sixth tab
+
+MVP is five tabs. Candidates for a future sixth tab (and why we're
+*not* adding them now):
+
+- **Team tab** — rejected: governance is entered from the Team switcher;
+  daily team workspace is already Projects + Activity.
+- **Steward tab** — rejected: §6.7.
+- **Reviews tab** — rejected: reviews I owe are in Me; reviews I
+  authored live in Project detail → Reviews.
+- **Search tab** — rejected: search is a capability (top bar), not a
+  destination.
 
 ---
 
@@ -358,11 +450,17 @@ that must navigate back to Home, never duplicate the data.
 | Channel | team or project | Project detail → Channel (project) · Activity → Team Channel (team) | Attention item source |
 | Snippet | device | Terminal → Snippets drawer | Custom keyboard, action bar |
 | Command history | device | Terminal → History sheet | — |
-| Budget | team | Governance → Policy | Project detail (badge) |
-| Token | team or device | Governance → Tokens (team) · Settings → API tokens (device) | — |
-| Member | team | Governance → Members | Project detail (members chip) |
-| Role | team | Governance → Roles | Member detail |
-| Notification rule | device | Settings → Notifications **or** Host detail → Notifications | Attention item source (historical) |
+| Budget | team | Team Settings → Budgets | Project detail (badge) |
+| Token (team) | team | Team Settings → Tokens | — |
+| Token (device) | device | Device Settings → API tokens | — |
+| Member | team | Team Settings → Members | Project detail (members chip) |
+| Role | team | Team Settings → Roles | Member detail |
+| Policy | team | Team Settings → Policies | Project detail (badge) |
+| Council | team | Team Settings → Councils (future) | Review detail |
+| Steward config | team | Team Settings → Steward | Project detail (steward status chip) |
+| Steward channel surface | team or project | Team channel · Project → Channel | Me (attention from steward) |
+| Team | team | Team switcher → Team Settings (governance) | Top bar on every tab |
+| Notification rule | device | Device Settings → Notifications | Attention item source (historical) |
 | Connection (legacy) | — | **Removed**; merged into Host | — |
 
 Any screen that surfaces an entity and is **not** on the "Home" row of
@@ -401,6 +499,18 @@ regression and requires explicit amendment of this document first.
 10. **A tab whose primary content is empty for role R.** The tab shape
     must hold for every role defined in §4. If it's empty for a role,
     that role shouldn't see it (role→tab matrix in §4).
+11. **Conflating Device Settings with Team Settings.** They are two
+    different entities with two different scopes (§3.5, §6.5 vs §6.6).
+    A toggle whose state lives in SharedPreferences belongs in Device
+    Settings; a toggle whose state lives in the hub belongs in Team
+    Settings. Never mix in one screen.
+12. **Giving the steward a tab.** Violates IA-A5 and §6.7. The steward
+    is an actor, not a navigation destination. It is directed via
+    channels, observed via Activity, notified via Me, configured via
+    Team Settings → Steward.
+13. **Governance as a sixth tab.** Violates IA-A3 (governance recedes)
+    and §6.6. Team Settings is entered from the Team switcher in the
+    top bar, not by adding a tab.
 
 ---
 
@@ -467,14 +577,16 @@ removes it.
 | `search_screen.dart` | promote | Capability (top bar on every tab) |
 | `search_event_sheet.dart` | keep | Capability sheet |
 | `archived_agents_screen.dart` | merge | Project detail → Agents → Archive filter |
-| `budget_screen.dart` | move | Governance → Policy (future) · per-project badge now |
-| `tokens_screen.dart` | move | Governance → Tokens (future) · Settings → API (device) |
-| `team_screen.dart` | move | Governance (future); MVP lives behind Projects top-bar button |
-| `team_channel_screen.dart` | move | Activity → Team Channel (top tab chip) |
-| `project_channel_screen.dart` | keep | Project detail → Channel |
+| `budget_screen.dart` | move | **Team Settings → Budgets** (entered from Team switcher) |
+| `tokens_screen.dart` | split | Team-scoped tokens → **Team Settings → Tokens**; device tokens → **Device Settings → API tokens** |
+| `team_screen.dart` | split + move | Becomes **Team Settings** screen reached from the top-bar Team switcher. Its current sub-tabs map as: Members → Team Settings → Members · Policies → Team Settings → Policies · Channels → split (team channel → Team switcher → Team channel; project channels → Project detail → Channel) · Settings → Team Settings root page |
+| `team_channel_screen.dart` | move | Team switcher → Team channel (single team-wide channel surface) |
+| `project_channel_screen.dart` | keep | Project detail → Channel (steward-facing surface; §6.7) |
 | `host_edit_sheet.dart` | keep | Hosts tab → Host detail sheet |
 | `blobs_section.dart` | keep | Referenced from Run detail & Host detail |
 | Create sheets (project/plan/run/task/schedule/channel/…) | keep | Launched from the primitive's Home |
+| (new) Steward Settings screen | **add** | Team Settings → Steward (§6.7) — autonomy, budget caps, scope, model |
+| (new) Team switcher top-bar widget | **add** | Top bar of every tab — active team badge + dropdown; single governance ingress |
 
 ### 10.3 Non-hub top-level
 
@@ -486,7 +598,10 @@ removes it.
 | `notifications/` | move | Settings → Notifications (device rules) |
 | `inbox/` | rename | Me |
 | `terminal/` | keep | Launched from Host detail (capability) |
-| `settings/` | shrink | Personal prefs only |
+| `settings/` | shrink to device-only | Keeps: theme, font, keyboard, language, export/import, notification rules (device), API tokens (device), action bar profiles, about. Moves out: any team-scoped setting, tokens-to-the-team, audit, team management, members, policies, budgets, steward config — all to **Team Settings** (reached from Team switcher). |
+| `settings/action_bar_settings_screen.dart` | keep | Device Settings → Action bar (device-local UI pref) |
+| `settings/file_browser_screen.dart` | keep | Device Settings → Files (device-local) |
+| `settings/licenses_screen.dart` | keep | Device Settings → About → Licenses |
 
 ---
 
@@ -515,9 +630,20 @@ Project detail density pass: nested sub-tabs instead of sprawl.
 **Wedge 5 — Activity tab shape.** Promote audit_screen to top tab.
 Filters, digest card mirror to Me.
 
-**Wedge 6 — Governance scaffold.** Empty shell reachable from Projects
-top-bar. Members/roles/tokens/budget move in as stubs (MVP single-user
-shows "you" only). Reserves the slot without building it.
+**Wedge 6 — Team switcher + Team Settings scaffold.** Add persistent
+top-bar Team switcher to every tab (MVP shows one team). Tapping it
+opens Team Settings: Members, Policies, Budgets, Tokens (team),
+Councils (stub), Steward config (stub). Migrate `team_screen.dart` +
+`tokens_screen.dart` + `budget_screen.dart` in here. Device Settings
+shrinks to device-only in the same wedge (the move-out and move-in are
+paired).
+
+**Wedge 7 — Steward surface.** Formalize the steward as a first-class
+actor: render steward messages in every project channel and in a new
+team channel; surface steward-initiated attention items on Me; add
+filter `actor=steward` to Activity; build the Team Settings → Steward
+config screen (autonomy, budget caps, scope allowlist, model
+selection). No new tab.
 
 Each wedge is shippable on its own and leaves the app in a coherent
 state. No wedge blocks daily use.

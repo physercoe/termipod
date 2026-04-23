@@ -98,6 +98,14 @@ TS_IP=$(tailscale ip -4)
 /tmp/hub-server serve -listen ${TS_IP}:8443 -data ~/hub-test
 ```
 
+> **A2A relay (optional, cross-host demo only)**: add
+> `-public-url https://<hub-public-host>:8443` when NAT'd GPU hosts
+> publish agent-cards. The hub rewrites each card's `url` field to
+> `<public-url>/a2a/relay/<host>/<agent>` at list time so off-box peers
+> dial the hub relay instead of the unreachable host-runner address the
+> host stamped locally. Unset is fine for single-host and LAN demos —
+> the hub falls back to the request Host header.
+
 ### A.3 (Optional) seed a little data
 
 So the tabs aren't empty:

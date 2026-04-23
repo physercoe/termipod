@@ -27,7 +27,13 @@ type Config struct {
 	Listen   string // e.g. 127.0.0.1:8443
 	DBPath   string // e.g. ~/hub/hub.db
 	DataRoot string // e.g. ~/hub
-	Logger   *slog.Logger
+	// PublicURL is the externally reachable base URL clients use to hit
+	// this hub, e.g. "https://hub.example.com". The A2A card directory
+	// uses it to rewrite NAT'd host-runner URLs to the hub relay. Empty
+	// means "derive from the request Host header" — fine for single-host
+	// dev, less so when the directory is scraped by off-box peers.
+	PublicURL string
+	Logger    *slog.Logger
 }
 
 type Server struct {

@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -23,9 +24,10 @@ import (
 //   - GET  /v1/teams/{team}/a2a/cards?handle=worker.ml
 //       Returns matching cards across all hosts.
 //
-// The card_json payload is stored verbatim; once the relay lands the hub
-// will rewrite the `url` field to point at its own /a2a/relay/... endpoint.
-// Consumers today should route via host_id + agent_id.
+// The card_json payload is stored verbatim. At list time (v1.0.148+) the
+// hub rewrites the `url` field to point at its own /a2a/relay/<host>/<agent>
+// endpoint so off-box peers reach NAT'd host-runners through the tunnel
+// instead of trying the unreachable host address in the stored card.
 
 type a2aCardIn struct {
 	AgentID string          `json:"agent_id"`
@@ -136,6 +138,7 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 	}
 	defer rows.Close()
 
+	base := s.publicBase(r)
 	out := []a2aCardOut{}
 	for rows.Next() {
 		var (
@@ -145,11 +148,18 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		rewritten, err := rewriteCardURL([]byte(cardJSON), base, hostID, agentID)
+		if err != nil {
+			// Bad card JSON in the DB shouldn't poison the whole listing.
+			// Log and fall back to the verbatim payload.
+			s.log.Warn("a2a card rewrite failed", "host", hostID, "agent", agentID, "err", err)
+			rewritten = json.RawMessage(cardJSON)
+		}
 		out = append(out, a2aCardOut{
 			HostID:       hostID,
 			AgentID:      agentID,
 			Handle:       h,
-			Card:         json.RawMessage(cardJSON),
+			Card:         rewritten,
 			RegisteredAt: regAt,
 		})
 	}
@@ -160,3 +170,35 @@ func (s *Server) handleListTeamA2ACards(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out)
 }
 
+// publicBase returns the base URL to advertise in rewritten A2A cards.
+// Prefers the operator-supplied Config.PublicURL; falls back to the
+// incoming request's scheme + Host header (correct for single-host dev,
+// brittle once the directory is scraped by off-box peers — that's why
+// operators should set --public-url in production).
+func (s *Server) publicBase(r *http.Request) string {
+	if s.cfg.PublicURL != "" {
+		return strings.TrimRight(s.cfg.PublicURL, "/")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host
+}
+
+// rewriteCardURL parses the stored agent-card JSON, replaces the `url`
+// field with the hub relay path for (host, agent), and re-marshals.
+// Non-object cards are returned as-is — the directory stores what hosts
+// push, and a host shipping something odd shouldn't crash the listing.
+func rewriteCardURL(cardJSON []byte, base, hostID, agentID string) (json.RawMessage, error) {
+	var card map[string]any
+	if err := json.Unmarshal(cardJSON, &card); err != nil {
+		return nil, err
+	}
+	card["url"] = base + "/a2a/relay/" + hostID + "/" + agentID
+	out, err := json.Marshal(card)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(out), nil
+}

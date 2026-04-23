@@ -90,6 +90,7 @@ func runServe(args []string, log *slog.Logger) {
 	listen := fs.String("listen", "127.0.0.1:8443", "listen address")
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	publicURL := fs.String("public-url", "", "externally reachable base URL (e.g. https://hub.example.com); used to rewrite A2A card urls to the hub relay when hosts are NAT'd. Empty = derive from request Host header.")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -100,10 +101,11 @@ func runServe(args []string, log *slog.Logger) {
 		os.Exit(1)
 	}
 	srv, err := server.New(server.Config{
-		Listen:   *listen,
-		DBPath:   *dbPath,
-		DataRoot: *dataRoot,
-		Logger:   log,
+		Listen:    *listen,
+		DBPath:    *dbPath,
+		DataRoot:  *dataRoot,
+		PublicURL: *publicURL,
+		Logger:    log,
 	})
 	if err != nil {
 		log.Error("server init failed", "err", err)

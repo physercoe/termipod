@@ -205,3 +205,48 @@ func TestListTeamA2ACards_AcrossHosts(t *testing.T) {
 		t.Errorf("handle filter: got %+v, want 1 card on host-gpu", workers)
 	}
 }
+
+func TestListTeamA2ACards_RewritesURLToRelay(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-gpu", "gpu-1")
+
+	// Host pushed a card with its own (NAT'd, unreachable) URL.
+	status, _ := doReq(t, s, token, http.MethodPut,
+		"/v1/teams/"+defaultTeamID+"/hosts/host-gpu/a2a/cards",
+		map[string]any{"cards": []map[string]any{{
+			"agent_id": "agent-w",
+			"handle":   "worker.ml",
+			"card": map[string]any{
+				"name": "worker.ml",
+				"url":  "http://10.0.0.5:47821/a2a/agent-w",
+			},
+		}}})
+	if status != http.StatusOK {
+		t.Fatalf("put: %d", status)
+	}
+
+	// With PublicURL set, the list rewrites to /a2a/relay/<host>/<agent>.
+	s.cfg.PublicURL = "https://hub.example.com"
+	_, body := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/a2a/cards", nil)
+	var cards []a2aCardOut
+	if err := json.Unmarshal(body, &cards); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(cards) != 1 {
+		t.Fatalf("cards len = %d, want 1", len(cards))
+	}
+	var card map[string]any
+	if err := json.Unmarshal(cards[0].Card, &card); err != nil {
+		t.Fatalf("decode card: %v", err)
+	}
+	got, _ := card["url"].(string)
+	want := "https://hub.example.com/a2a/relay/host-gpu/agent-w"
+	if got != want {
+		t.Errorf("rewritten url = %q, want %q", got, want)
+	}
+	// Other fields survive the rewrite.
+	if card["name"] != "worker.ml" {
+		t.Errorf("name field lost: %+v", card)
+	}
+}

@@ -151,9 +151,14 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   `a2a.RunTunnel` dispatches received envelopes through the local
   `a2a.Server.Handler()` so relayed calls hit the exact same routes a
   direct peer would. NAT'd hosts can now receive A2A calls end-to-end.
-  Follow-ups tracked: the card `url` stored in the directory is still
-  the host-runner's direct address and should be rewritten to the hub
-  relay URL on publish; A2A peer auth (per-agent tokens) is still open.
+  Follow-ups tracked: A2A peer auth (per-agent tokens) is still open.
+- P3.3c — card URL rewrite to relay — **DONE v1.0.148**. The directory
+  now rewrites each card's `url` field to
+  `<hub_public_url>/a2a/relay/<host>/<agent>` at list time, so off-box
+  peers dial the hub relay instead of the NAT'd host-runner URL the host
+  pushed. Hub gains `--public-url` / `Config.PublicURL`; falls back to
+  the request Host header when unset (fine for single-host dev, brittle
+  when the directory is scraped remotely).
 - P3.2b — A2A task endpoints (send / get / cancel) — **PARTIAL v1.0.143**.
   JSON-RPC 2.0 handler for `message/send`, `tasks/get`, `tasks/cancel`
   at the agent URL root (`POST /a2a/<agent-id>`). In-memory `TaskStore`

@@ -73,9 +73,10 @@ On the phone: open TermiPod → **Me** tab. The seeded decision
 stamped with a **StewardBadge** (authoritative since v1.0.183 —
 `actor_kind='agent'` + `actor_handle='steward'` on the row). Tap
 through → **Projects** tab → `ablation-sweep-demo` → tap each of the
-6 runs. You should see ~10 metric tiles + 1 image-panel tile per run
-covering the dominant wandb/tensorboard plot archetypes
-(v1.0.184–v1.0.185):
+6 runs. You should see ~10 metric tiles + 1 image panel + 1
+"Distributions" panel per run, plus a "Sweep compare" scatter on the
+project overview — covering the dominant wandb/tensorboard plot
+archetypes (v1.0.184–v1.0.188):
 
 - `loss/{train,val}` — multi-series overlay (val gap widens late)
 - `smooth/{train_raw,train_ema}` — raw vs EMA-smoothed overlay
@@ -90,6 +91,13 @@ covering the dominant wandb/tensorboard plot archetypes
 - `samples/generations` (image panel, v1.0.185) — 3 PNG checkpoints
   per run at steps 0 / 500 / 999; scrub the slider to see the image
   evolve from noise to diagonal-wave structure as training progresses
+- `grads_hist/layer0`, `weights_hist/all` (Distributions panel,
+  v1.0.188) — 4 histogram checkpoints per metric; scrub the slider
+  to see gradients tighten and weights drift with training. Lion's
+  gradient distribution is visibly narrower than Adam's by late steps.
+- Project overview "Sweep compare" scatter (v1.0.187) — one dot per
+  run, X/Y/color axes pick from `config_json` + `final_metrics`;
+  defaults to (first config key) × loss/val × optimizer.
 
 Bigger-embed + Lion converges lowest on `loss/*`; Lion also "groks"
 ~10% earlier.

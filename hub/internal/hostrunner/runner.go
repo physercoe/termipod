@@ -92,10 +92,11 @@ type Runner struct {
 	// is non-nil this is a tap that mirrors events into the correlator;
 	// otherwise it points straight at Client.
 	agentPoster AgentEventPoster
-	// skillsLoader resolves an agent's template kind (e.g. "agents.steward")
-	// into the A2A skills list declared in its template YAML. Initialized
-	// in defaults() off the embedded TemplatesFS; overridable by tests.
-	skillsLoader a2a.SkillsLoader
+	// templates indexes templates/agents/*.yaml by kind so the launcher
+	// and A2A card serving can pull per-kind backend.cmd and skills from
+	// data rather than code. Initialized in defaults() off the embedded
+	// TemplatesFS; overridable by tests.
+	templates *agentTemplates
 }
 
 func (a *Runner) defaults() {
@@ -126,17 +127,17 @@ func (a *Runner) defaults() {
 	if a.idle == nil {
 		a.idle = NewIdleDetector(a.IdleThreshold)
 	}
-	if a.skillsLoader == nil {
+	if a.templates == nil {
 		// Built-in agent templates ship with the binary via
-		// hub.TemplatesFS; LoadSkillsFromFS parses them once. A YAML-
+		// hub.TemplatesFS; loadAgentTemplates parses them once. A YAML-
 		// level error in one template does not fail the loader — the
-		// offending template just has no skills.
-		loader, err := a2a.LoadSkillsFromFS(hub.TemplatesFS, "templates/agents")
+		// offending template just has no skills / backend cmd.
+		tpl, err := loadAgentTemplates(hub.TemplatesFS, "templates/agents")
 		if err != nil {
-			a.Log.Warn("agent-skills loader init failed; cards will advertise no skills", "err", err)
-			a.skillsLoader = func(string) []a2a.Skill { return nil }
+			a.Log.Warn("agent-templates loader init failed; running with empty index", "err", err)
+			a.templates = &agentTemplates{}
 		} else {
-			a.skillsLoader = loader
+			a.templates = tpl
 		}
 	}
 	if a.panes == nil {
@@ -412,7 +413,22 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	}
 
 	if mode == "M4" && drv == nil {
-		p, err := a.Launcher.Launch(ctx, sp)
+		// Resolve the pane command data-first: a spec-level backend.cmd
+		// wins over the per-kind template default, which wins over the
+		// launcher's built-in placeholder. Keeping this ladder in the
+		// runner (not in TmuxLauncher) lets alternate launchers reuse
+		// the same policy without reimplementing it.
+		cmd := spec.Backend.Cmd
+		if cmd == "" {
+			cmd = a.templates.BackendCmd(sp.Kind)
+		}
+		var p string
+		var err error
+		if cmd != "" {
+			p, err = a.Launcher.LaunchCmd(ctx, sp, cmd)
+		} else {
+			p, err = a.Launcher.Launch(ctx, sp)
+		}
 		if err != nil {
 			a.Log.Error("launch failed", "handle", sp.Handle, "err", err)
 			status := "failed"
@@ -545,7 +561,7 @@ func (a *Runner) stopDriver(agentID string) {
 
 // a2aSource adapts ListRunningAgents into the a2a.AgentSource callback.
 // Called once per A2A HTTP request, so agent churn surfaces immediately.
-// Skills come from the agent's template (ag.Kind → skillsLoader) so the
+// Skills come from the agent's template (ag.Kind → templates index) so the
 // runner stays domain-agnostic; adding a new agent kind is a YAML drop.
 func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
 	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
@@ -557,7 +573,7 @@ func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
 		out = append(out, a2a.AgentInfo{
 			ID:     ag.ID,
 			Handle: ag.Handle,
-			Skills: a.skillsLoader(ag.Kind),
+			Skills: a.templates.Skills(ag.Kind),
 		})
 	}
 	return out, nil
@@ -622,7 +638,7 @@ func (a *Runner) buildA2ACards(ctx context.Context) ([]A2ACardEntry, error) {
 			Capabilities:       a2a.Capabilities{Streaming: false},
 			DefaultInputModes:  []string{"text/plain"},
 			DefaultOutputModes: []string{"text/plain"},
-			Skills:             a.skillsLoader(ag.Kind),
+			Skills:             a.templates.Skills(ag.Kind),
 		}
 		body, err := json.Marshal(card)
 		if err != nil {

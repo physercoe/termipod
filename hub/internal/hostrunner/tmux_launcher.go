@@ -13,9 +13,11 @@ import (
 // chip renders the returned pane target; the host-runner itself is not in
 // the hot path for pane output (viewers SSH to tmux directly, plan §5).
 //
-// Backend choice: for now every pane runs DefaultCmd. A real launcher would
-// parse spawn_spec_yaml.backend.{kind,cmd} and dispatch accordingly — that
-// lands with the YAML parser in a later slice.
+// Backend choice is resolved by the caller: Runner.launchOne reads the
+// per-spawn backend.cmd (from spawn_spec_yaml) and the per-kind template
+// default, and calls LaunchCmd with whichever wins. DefaultCmd is only
+// reached via Launch(), which the runner uses when neither the spec nor
+// the template declares a command — a legitimate bootstrap / stub state.
 type TmuxLauncher struct {
 	Session    string // tmux session name; created lazily
 	DefaultCmd string // e.g. `bash -c 'echo hello; exec bash'`

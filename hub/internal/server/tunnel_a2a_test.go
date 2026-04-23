@@ -96,6 +96,132 @@ func TestTunnel_RelayRoundTrip(t *testing.T) {
 	wg.Wait()
 }
 
+// TestTunnel_RelayTwoHosts_RoutesPerPath is the P3.4 cross-host A2A
+// smoke: two host-runners are long-polling /tunnel/next on the same hub
+// concurrently, each for a distinct host id. A relay call to
+// /a2a/relay/{host}/{agent}/... must reach the correct host based on
+// the path segment — a call for host-A must not fan out to host-B's
+// tunnel queue. This verifies the core multi-host invariant the demo
+// depends on (steward on host-A invokes worker on host-B via the hub).
+func TestTunnel_RelayTwoHosts_RoutesPerPath(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-cpu", "cpu-vps")
+	seedTestHost(t, s, defaultTeamID, "host-gpu", "gpu-worker")
+
+	ts := httptest.NewServer(s.router)
+	defer ts.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Counters so the test can assert each tunnel got its expected
+	// number of requests and zero cross-talk.
+	var cpuCount, gpuCount int
+	var countMu sync.Mutex
+
+	runTunnel := func(host, label string, counter *int) {
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/"+host+"/a2a/tunnel/next?wait_ms=2000", nil)
+			if err != nil {
+				return
+			}
+			req.Header.Set("Authorization", "Bearer "+token)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return
+			}
+			if resp.StatusCode == http.StatusNoContent {
+				resp.Body.Close()
+				continue
+			}
+			var env tunnelRequest
+			_ = json.NewDecoder(resp.Body).Decode(&env)
+			resp.Body.Close()
+
+			countMu.Lock()
+			*counter++
+			countMu.Unlock()
+
+			reply := tunnelResponse{
+				ReqID:   env.ReqID,
+				Status:  http.StatusOK,
+				Headers: map[string]string{"X-Served-By": label},
+				BodyB64: base64.StdEncoding.EncodeToString([]byte("served-by:" + label + " path:" + env.Path)),
+			}
+			body, _ := json.Marshal(reply)
+			pr, _ := http.NewRequestWithContext(ctx, http.MethodPost,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/"+host+"/a2a/tunnel/responses",
+				strings.NewReader(string(body)))
+			pr.Header.Set("Authorization", "Bearer "+token)
+			pr.Header.Set("Content-Type", "application/json")
+			if pResp, err := http.DefaultClient.Do(pr); err == nil {
+				pResp.Body.Close()
+			}
+		}
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); runTunnel("host-cpu", "cpu-vps", &cpuCount) }()
+	go func() { defer wg.Done(); runTunnel("host-gpu", "gpu-worker", &gpuCount) }()
+
+	// Give both goroutines time to be blocked on /next.
+	time.Sleep(100 * time.Millisecond)
+
+	// Call relay for host-cpu — must land on the cpu goroutine.
+	r1, err := http.Get(ts.URL + "/a2a/relay/host-cpu/agent-steward/hello")
+	if err != nil {
+		t.Fatalf("relay host-cpu: %v", err)
+	}
+	defer r1.Body.Close()
+	if r1.Header.Get("X-Served-By") != "cpu-vps" {
+		t.Errorf("host-cpu served by %q, want cpu-vps", r1.Header.Get("X-Served-By"))
+	}
+	b1, _ := io.ReadAll(r1.Body)
+	if !strings.Contains(string(b1), "served-by:cpu-vps path:/a2a/agent-steward/hello") {
+		t.Errorf("host-cpu body = %q, want cpu-vps echo", string(b1))
+	}
+
+	// Call relay for host-gpu — must land on the gpu goroutine.
+	r2, err := http.Get(ts.URL + "/a2a/relay/host-gpu/agent-worker/train")
+	if err != nil {
+		t.Fatalf("relay host-gpu: %v", err)
+	}
+	defer r2.Body.Close()
+	if r2.Header.Get("X-Served-By") != "gpu-worker" {
+		t.Errorf("host-gpu served by %q, want gpu-worker", r2.Header.Get("X-Served-By"))
+	}
+	b2, _ := io.ReadAll(r2.Body)
+	if !strings.Contains(string(b2), "served-by:gpu-worker path:/a2a/agent-worker/train") {
+		t.Errorf("host-gpu body = %q, want gpu-worker echo", string(b2))
+	}
+
+	// A second call to host-cpu must still land on cpu only. This is the
+	// anti-fanout check: host-gpu's counter must not advance.
+	r3, err := http.Get(ts.URL + "/a2a/relay/host-cpu/agent-steward/ping")
+	if err != nil {
+		t.Fatalf("relay host-cpu 2: %v", err)
+	}
+	r3.Body.Close()
+
+	countMu.Lock()
+	gotCPU, gotGPU := cpuCount, gpuCount
+	countMu.Unlock()
+	if gotCPU != 2 {
+		t.Errorf("cpu tunnel served %d requests, want 2", gotCPU)
+	}
+	if gotGPU != 1 {
+		t.Errorf("gpu tunnel served %d requests, want 1 (no cross-talk)", gotGPU)
+	}
+
+	cancel()
+	wg.Wait()
+}
+
 func TestTunnel_RelayNoHostRunner_Times504(t *testing.T) {
 	s, _ := newA2ATestServer(t)
 	seedTestHost(t, s, defaultTeamID, "host-gpu", "gpu-1")

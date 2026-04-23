@@ -181,7 +181,16 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   cancels the prior correlation. No turn-complete signal is available
   from all drivers, so tasks stay on `working` until the driver stops
   or the peer issues `tasks/cancel`.
-- P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
+- P3.4 — cross-host A2A smoke (two host-runners under one hub) —
+  **DONE v1.0.157**. `TestTunnel_RelayTwoHosts_RoutesPerPath` in
+  `hub/internal/server/tunnel_a2a_test.go` spins up two concurrent
+  long-poll tunnels (host-cpu and host-gpu) against one hub and
+  verifies that `/a2a/relay/{host}/...` routes purely on the path
+  segment — host-A's relay call cannot reach host-B's tunnel queue.
+  Anti-fanout invariant is checked via per-tunnel hit counters. Real
+  two-VPS smoke is still useful for network-level validation (TLS,
+  public URL rewrite, NAT traversal) but the core routing contract is
+  now covered by CI.
 
 ### P4.4 — steward MCP tool parity — **DONE v1.0.156**
 

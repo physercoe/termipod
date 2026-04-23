@@ -259,6 +259,46 @@ Still open:
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).
 
+## Dress-rehearsal harness (no-GPU)
+
+The demo's end-to-end path (worker writes metrics → host-runner polls →
+hub digests → mobile sparkline) takes hours of nanoGPT training on a
+GPU host. Two harness tools let a reviewer exercise the same pipeline
+on a laptop in seconds:
+
+**`hub-server seed-demo` (v1.0.169)** inserts a ready-to-browse
+`ablation-sweep-demo` project with 6 completed runs, synthetic loss
+curves, a briefing document, a pending review, and one open attention
+item. Pure DB writes; no vendor file is produced. Reviewers can open
+the mobile app, land on the project, and tap through every P4 surface
+immediately.
+
+```
+hub-server seed-demo --data ./hub-data
+```
+
+**`hub/cmd/mock-trainer` (v1.0.170)** writes a real trackio SQLite or
+wandb-offline JSONL file with a configurable synthetic training curve.
+The host-runner's existing trackio / wandb readers consume these
+outputs unchanged — the same code path a real worker exercises. Use it
+to validate reader + poller + digest end-to-end without touching a
+GPU.
+
+```
+# trackio
+mock-trainer --vendor trackio --dir /tmp/trackio \
+  --project ablation-sweep-demo --run size384-lion \
+  --size 384 --optimizer lion --iters 1000
+
+# wandb
+mock-trainer --vendor wandb --dir /tmp/wandb \
+  --project ablation-sweep-demo --run run-abc \
+  --size 256 --optimizer adamw --iters 1000
+```
+
+Then POST a run to the hub with `trackio_run_uri` set to the printed
+URI and point host-runner at the same `--dir` so it picks the file up.
+
 ## Deferrable (not demo-blocking)
 
 - **iOS TestFlight / App Store distribution.** Android APK is sufficient

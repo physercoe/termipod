@@ -34,6 +34,7 @@ type Runner struct {
 	IdleThreshold        time.Duration // 0 = use default from NewIdleDetector
 	A2ADirectoryInterval time.Duration // 0 = 30s; ignored if A2AAddr is empty
 	TrackioPollInterval  time.Duration // 0 = 20s; ignored if TrackioDir is empty
+	WandbPollInterval    time.Duration // 0 = 20s; ignored if WandbDir is empty
 
 	// TrackioDir, when non-empty, enables the trackio metric-digest poller:
 	// the runner periodically reads each run's {project}.db under this
@@ -45,6 +46,18 @@ type Runner struct {
 	// TrackioMaxPoints caps the per-metric sample count uploaded to the
 	// hub. 0 falls back to 100 — the blueprint default (§6.5).
 	TrackioMaxPoints int
+
+	// WandbDir, when non-empty, enables the wandb offline-mode metric-
+	// digest poller: the runner periodically reads each run's
+	// files/wandb-history.jsonl under this directory, downsamples every
+	// scalar series, and PUTs the digest to the hub. Independent of the
+	// trackio poller — runs are discriminated by trackio_run_uri scheme
+	// (`wandb://` vs `trackio://`). Leave empty to disable.
+	WandbDir string
+
+	// WandbMaxPoints caps the per-metric sample count uploaded to the
+	// hub. 0 falls back to 100 — the blueprint default (§6.5).
+	WandbMaxPoints int
 
 	// StateDir, when non-empty, caches host_id after the first register so
 	// a restart skips the register round-trip. Keyed by (hub, team, name).
@@ -85,6 +98,12 @@ func (a *Runner) defaults() {
 	}
 	if a.TrackioMaxPoints == 0 {
 		a.TrackioMaxPoints = 100
+	}
+	if a.WandbPollInterval == 0 {
+		a.WandbPollInterval = 20 * time.Second
+	}
+	if a.WandbMaxPoints == 0 {
+		a.WandbMaxPoints = 100
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()
@@ -174,6 +193,10 @@ func (a *Runner) Start(ctx context.Context) error {
 
 	if a.TrackioDir != "" {
 		go a.trackioPollLoop(ctx)
+	}
+
+	if a.WandbDir != "" {
+		go a.wandbPollLoop(ctx)
 	}
 
 	for {

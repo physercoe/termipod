@@ -80,6 +80,7 @@ func runDaemon(args []string) {
 	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
 	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
 	trackioDir := fs.String("trackio-dir", "", "trackio root dir (default: $TRACKIO_DIR or ~/.cache/huggingface/trackio); empty disables the metric-digest poller")
+	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl); empty disables the wandb metric-digest poller")
 	_ = fs.Parse(args)
 
 	if *token == "" {
@@ -107,6 +108,7 @@ func runDaemon(args []string) {
 		A2AAddr:      *a2aAddr,
 		A2APublicURL: *a2aPublicURL,
 		TrackioDir:   *trackioDir,
+		WandbDir:     *wandbDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

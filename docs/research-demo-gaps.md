@@ -104,7 +104,12 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   runs it should scrape. Each run's series is downsampled to ≤100 points
   (uniform stride, endpoints preserved) and PUT to the hub digest
   endpoint. `runs.trackio_run_uri` is canonicalised as
-  `trackio://<project>/<run_name>`.
+  `trackio://<project>/<run_name>`. **v1.0.143** ships the parallel
+  wandb offline-mode reader at `hub/internal/hostrunner/wandb/`, a
+  `--wandb-dir` flag, and an independent 20s poll loop keyed off the
+  `wandb://<project>/<run-dir>` URI scheme so wandb-logging workers feed
+  the same digest endpoint. A shared `MetricReader` interface is a
+  follow-up merge pass — the two readers ship fully self-contained.
 - P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
   screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
   each returned series.

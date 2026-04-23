@@ -324,6 +324,48 @@ propagate.
 Blueprint §4 data-ownership law: the hub stores digest rows only. Bulk
 time-series never leaves the host.
 
+### Enabling the wandb metric-digest poller (optional, blueprint §6.5)
+
+When workers on this host log training curves to [wandb](https://wandb.ai/)
+in offline mode, the host-runner can read each run's local
+`wandb-history.jsonl` file, downsample every scalar series, and push a
+compact digest to the hub so the mobile app can render sparklines
+(§6.5, P3.1). This loop is independent of the trackio poller — both can
+run side-by-side, and runs are discriminated by the `trackio_run_uri`
+scheme column.
+
+Enable by adding one flag (or env var in the systemd unit):
+
+- `--wandb-dir /home/worker/wandb` — wandb's offline-run root dir. The
+  host-runner has no notion of the worker's cwd, so this must be passed
+  explicitly when enabled (unlike wandb's in-process `./wandb` default).
+  Leave empty to disable the poller entirely. Each run lives at
+  `<root>/<run-dir>/files/wandb-history.jsonl` under this root.
+
+The poller ticks every 20 s:
+
+1. Lists runs via `GET /v1/teams/{team}/runs?trackio_host=<host>`.
+2. For each run whose `trackio_run_uri` starts with `wandb://`, parses
+   the canonical form `wandb://<project>/<run-dir>`, opens
+   `<wandb-dir>/<run-dir>/files/wandb-history.jsonl`, and reads each
+   JSON-per-line row.
+3. Extracts `_step` (integer) and every other numeric scalar key as one
+   `(step, value)` sample per metric. Underscore-prefixed keys
+   (`_step`, `_timestamp`, `_runtime`, `_wandb`) are wandb metadata and
+   stay out of the digest. Strings, arrays, nested objects
+   (histograms, images), and nulls are skipped silently — only
+   sparkline-renderable scalars propagate.
+4. Downsamples each series to ≤100 points per curve (uniform stride,
+   first + last preserved) and PUTs the digest to
+   `PUT /v1/teams/{team}/runs/{run}/metrics`.
+
+`sample_count`, `last_step`, and `last_value` come from the raw,
+un-downsampled series so the mobile headline number matches wandb's
+own dashboard exactly.
+
+Blueprint §4 data-ownership law: the hub stores digest rows only. Bulk
+time-series never leaves the host.
+
 ## 5. Health: how to tell if a host is alive
 
 There are three signals, in decreasing reliability:

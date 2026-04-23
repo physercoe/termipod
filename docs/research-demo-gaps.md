@@ -32,12 +32,16 @@ init (idempotent via `INSERT OR IGNORE`). The `ablation-sweep` row ships
 with `parameters_json = {model_sizes, optimizers, iters}` and
 `on_create_template_id = agents.steward`, matching the locked demo choice.
 
+**v1.0.152:** the project-create sheet now renders a template's
+`parameters_json` as an input form. After picking a template whose
+`parameters_json` is a non-empty object, a second sheet prompts for each
+key. Type inference: `[int]`/`[num]`/`[string]` → comma-separated field,
+bare scalars → typed field, anything else → raw-JSON textarea validated
+on submit. The populated map is sent as `parameters_json` on create.
+
 Still open:
 - Ship `reproduce-paper`, `write-memo`, `benchmark-comparison` templates if
   the demo ever needs more than one entry point.
-- Project-create picker does not yet render `parameters_json` as an input
-  form — selecting the ablation-sweep template still doesn't prompt for
-  parameter values. Lands with the mobile parameter-form wedge.
 
 ### Mobile project-template picker — **DONE v1.0.134**
 
@@ -46,10 +50,7 @@ Fixed in commit `aff41c1`. `_TemplatePickerSheet` now calls
 what `project.template_id` expects per blueprint §6.1. Server handler
 `GET /v1/teams/{team}/projects?is_template=true|false` is the new filter.
 
-Still open: the picker does not yet render `parameters_json` as an input
-form — selecting a template does not prompt the user for parameter values.
-That lands with the P4.1 seed wedge (when the first template with
-parameters exists to drive the UI).
+Parameter form now lands on top: see P4.1 v1.0.152 note above.
 
 ### P4.2 — steward decomposition recipe — **DONE v1.0.137**
 

@@ -85,11 +85,21 @@ Still open:
 ### P3.1 — trackio host-runner consumption
 
 Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
-`POST /v1/teams/.../runs/<id>/metric_uri` is wired. Host-runner does not
-yet poll trackio for metrics, so runs in the demo show no training curves.
+`POST /v1/teams/.../runs/<id>/metric_uri` is wired.
 
-**Fix:** host-runner polls the configured trackio HTTP endpoint for a run
-and attaches a metric URI on heartbeat.
+**Progress:**
+- P3.1a — hub metric-digest storage — **DONE v1.0.141**. Migration 0014
+  adds `run_metrics(id, run_id, metric_name, points_json, sample_count,
+  last_step, last_value, updated_at)` with UNIQUE(run_id, metric_name).
+  `PUT /v1/teams/{team}/runs/{run}/metrics` atomically replaces a run's
+  full digest set; `GET .../metrics` returns rows for sparkline rendering.
+  Bodies are ≤~64 KiB per row — the poller splits metric families across
+  rows. Hub stores digests only (blueprint §4 data-ownership law) — bulk
+  time-series stay on the host.
+- P3.1b — host-runner trackio poller — OPEN. Next wedge: list runs with
+  `trackio_host_id == this host`, poll local trackio HTTP, downsample each
+  curve to ≤~100 points, PUT digests on heartbeat.
+- P3.1c — mobile sparkline UI reading the digest — OPEN.
 
 ### P3.2–3.4 — cross-host A2A (MVP-critical per 2026-04-23 lock)
 

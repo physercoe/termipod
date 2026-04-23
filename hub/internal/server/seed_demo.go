@@ -247,6 +247,28 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 				}
 			}
 
+			// Per-run histograms (wandb "Distributions" archetype). Four
+			// checkpoints per run; at each step emit two histograms —
+			// gradient magnitude for layer 0 and weight magnitude across
+			// all params. Bucket counts drift with training step so the
+			// scrubber UI shows a visible distribution shift.
+			histCheckpoints := []int64{int64(iters) / 10, int64(iters) / 3,
+				2 * int64(iters) / 3, int64(iters) - 1}
+			for _, step := range histCheckpoints {
+				gradEdges, gradCounts := synthGradHist(rng, step, int64(iters), size, opt)
+				weightEdges, weightCounts := synthWeightHist(rng, step, int64(iters), size)
+				if err := insertDemoHistogram(ctx, tx, runID,
+					"grads_hist/layer0", step,
+					gradEdges, gradCounts, now); err != nil {
+					return nil, err
+				}
+				if err := insertDemoHistogram(ctx, tx, runID,
+					"weights_hist/all", step,
+					weightEdges, weightCounts, now); err != nil {
+					return nil, err
+				}
+			}
+
 			// Per-run text-sample document (plot type 7: text-sample panel).
 			// Mirrors what a nanoGPT-Shakespeare worker would upload as
 			// checkpoint generations. Stored with kind='sample' so the
@@ -816,6 +838,120 @@ func roundTo(v float64, places int) float64 {
 	return math.Round(v*m) / m
 }
 
+// synthGradHist emits a symmetric-around-zero gradient histogram that
+// narrows over training — early steps have long tails (noisy gradients),
+// late steps concentrate near zero. Bucket centers shared across steps
+// so the mobile scrubber animates cleanly in-place.
+func synthGradHist(rng *rand.Rand, step, iters int64, size int, optimizer string) ([]float64, []int) {
+	frac := float64(step) / float64(iters)
+	if frac < 0 {
+		frac = 0
+	}
+	// sigma shrinks from ~0.08 early to ~0.015 late. Lion converges
+	// slightly tighter than adamw, so the plateau is a touch narrower.
+	sigma := 0.08 - 0.065*frac
+	if optimizer == "lion" {
+		sigma *= 0.9
+	}
+	edges := []float64{
+		-0.2, -0.12, -0.07, -0.04, -0.02, -0.01,
+		0.0, 0.01, 0.02, 0.04, 0.07, 0.12, 0.2,
+	}
+	counts := make([]int, len(edges)-1)
+	// Total sample pool scales weakly with model size so bigger models
+	// look denser in the UI (same shape, more mass).
+	total := 600 + size*2
+	for i := 0; i < total; i++ {
+		// Two half-normals stapled together to approximate a zero-mean
+		// Gaussian without pulling in math/rand's NormFloat64 (keeps the
+		// deterministic Source contract — NormFloat64 consumes a variable
+		// number of rng ticks per sample on some toolchains).
+		u1 := rng.Float64()
+		u2 := rng.Float64()
+		z := math.Sqrt(-2*math.Log(u1+1e-12)) * math.Cos(2*math.Pi*u2)
+		v := z * sigma
+		bucket := bucketIndex(v, edges)
+		if bucket >= 0 {
+			counts[bucket]++
+		}
+	}
+	return edges, counts
+}
+
+// synthWeightHist emits a positive-skew |weight| magnitude histogram.
+// Mean drifts up and right tail lengthens with step — mirroring what
+// a real neural net's weight distribution does during training.
+func synthWeightHist(rng *rand.Rand, step, iters int64, size int) ([]float64, []int) {
+	frac := float64(step) / float64(iters)
+	if frac < 0 {
+		frac = 0
+	}
+	mean := 0.02 + 0.05*frac
+	spread := 0.01 + 0.02*frac
+	edges := []float64{
+		0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.07,
+		0.09, 0.12, 0.15, 0.2, 0.3,
+	}
+	counts := make([]int, len(edges)-1)
+	total := 800 + size*3
+	for i := 0; i < total; i++ {
+		// Folded Gaussian: |mean + N(0, spread)|.
+		u1 := rng.Float64()
+		u2 := rng.Float64()
+		z := math.Sqrt(-2*math.Log(u1+1e-12)) * math.Cos(2*math.Pi*u2)
+		v := mean + z*spread
+		if v < 0 {
+			v = -v
+		}
+		bucket := bucketIndex(v, edges)
+		if bucket >= 0 {
+			counts[bucket]++
+		}
+	}
+	return edges, counts
+}
+
+// bucketIndex returns the [edges[i], edges[i+1]) slot for v, or -1 if
+// v falls outside the outer edges. Binary search is overkill for
+// ~12-edge histograms — linear scan stays easy to read.
+func bucketIndex(v float64, edges []float64) int {
+	if v < edges[0] || v >= edges[len(edges)-1] {
+		return -1
+	}
+	for i := 0; i < len(edges)-1; i++ {
+		if v < edges[i+1] {
+			return i
+		}
+	}
+	return -1
+}
+
+// insertDemoHistogram writes a single (run, metric_name, step) row into
+// run_histograms. Mirrors the shape the real PUT /histograms handler
+// stores: {"edges":[...],"counts":[...]} as a single JSON blob.
+func insertDemoHistogram(
+	ctx context.Context, tx *sql.Tx, runID, metricName string,
+	step int64, edges []float64, counts []int, now string,
+) error {
+	blob, err := json.Marshal(map[string]any{
+		"edges":  edges,
+		"counts": counts,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal histogram: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO run_histograms
+			(id, run_id, metric_name, step, buckets_json, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		NewID(), runID, metricName, step, string(blob), now,
+	); err != nil {
+		return fmt.Errorf("insert run_histograms %s@%d: %w",
+			metricName, step, err)
+	}
+	return nil
+}
+
 func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 	return "# Overnight briefing — ablation sweep\n\n" +
 		"**Goal:** Ablate nanoGPT-Shakespeare across model sizes and optimizers.\n\n" +
@@ -839,7 +975,9 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"- `learning_rate`, `grad_norm` — single-series scalars\n" +
 		"- `throughput/tokens_per_sec` — single-series scalar\n" +
 		"- `samples/generations` (image series) — three PNG checkpoints\n" +
-		"  per run, scrubbable via the step slider\n\n" +
+		"  per run, scrubbable via the step slider\n" +
+		"- `grads_hist/layer0`, `weights_hist/all` — per-step histograms\n" +
+		"  (distribution panel), four checkpoints per run\n\n" +
 		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +
 		"style generations captured at checkpoints — the text-sample panel\n" +
 		"archetype.\n\n" +

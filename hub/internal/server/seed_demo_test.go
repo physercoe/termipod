@@ -96,6 +96,16 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		{"run_images_generations",
 			`SELECT COUNT(*) FROM run_images WHERE metric_name = 'samples/generations' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 18},
+		{"run_histograms",
+			// 2 histograms × 4 checkpoints × 6 runs = 48.
+			`SELECT COUNT(*) FROM run_histograms WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 48},
+		{"run_histograms_grads",
+			`SELECT COUNT(*) FROM run_histograms WHERE metric_name = 'grads_hist/layer0' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 24},
+		{"run_histograms_weights",
+			`SELECT COUNT(*) FROM run_histograms WHERE metric_name = 'weights_hist/all' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 24},
 	}
 	for _, c := range cases {
 		var n int
@@ -236,6 +246,8 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 		{"run_metrics (cascade)", `SELECT COUNT(*) FROM run_metrics
 			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
 		{"run_images (cascade)", `SELECT COUNT(*) FROM run_images
+			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
+		{"run_histograms (cascade)", `SELECT COUNT(*) FROM run_histograms
 			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
 	}
 	for _, c := range tables {

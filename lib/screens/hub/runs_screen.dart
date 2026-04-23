@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/histogram_tile.dart';
 import 'run_create_sheet.dart';
 
 /// Experiment runs browser (blueprint §6.5).
@@ -597,6 +598,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Map<String, dynamic>? _run;
   List<Map<String, dynamic>> _metrics = const [];
   List<Map<String, dynamic>> _images = const [];
+  List<Map<String, dynamic>> _histograms = const [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -623,13 +625,16 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       // no rows yet. Fetch both in parallel; failures fall back to empty.
       List<Map<String, dynamic>> metrics = const [];
       List<Map<String, dynamic>> images = const [];
+      List<Map<String, dynamic>> histograms = const [];
       try {
         final results = await Future.wait<List<Map<String, dynamic>>>([
           client.getRunMetrics(widget.runId),
           client.getRunImages(widget.runId),
+          client.getRunHistograms(widget.runId),
         ]);
         metrics = results[0];
         images = results[1];
+        histograms = results[2];
       } catch (_) {
         // Keep defaults; render the rest of the screen even if digests fail.
       }
@@ -638,6 +643,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         _run = r;
         _metrics = metrics;
         _images = images;
+        _histograms = histograms;
         _loading = false;
       });
     } catch (e) {
@@ -839,6 +845,15 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
                 groupName: group.name,
                 rows: group.rows,
                 runId: widget.runId,
+              ),
+          ],
+          if (_histograms.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _sectionLabel('Distributions'),
+            for (final group in _groupHistograms(_histograms))
+              HistogramSeriesTile(
+                groupName: group.name,
+                rows: group.rows,
               ),
           ],
           if (uris.isNotEmpty) ...[
@@ -1435,6 +1450,36 @@ List<_ImageGroup> _groupImages(List<Map<String, dynamic>> rows) {
     );
   }
   return [for (final k in order) _ImageGroup(k, byKey[k]!)];
+}
+
+/// Groups histogram rows by metric_name and sorts each group by step so
+/// the scrubber moves through training in order. Mirrors _groupImages
+/// but keyed off histogram rows coming from /v1/runs/{id}/histograms.
+class _HistogramGroup {
+  final String name;
+  final List<Map<String, dynamic>> rows;
+  _HistogramGroup(this.name, this.rows);
+}
+
+List<_HistogramGroup> _groupHistograms(List<Map<String, dynamic>> rows) {
+  final order = <String>[];
+  final byKey = <String, List<Map<String, dynamic>>>{};
+  for (final r in rows) {
+    final key = (r['name'] ?? '').toString();
+    if (key.isEmpty) continue;
+    if (!byKey.containsKey(key)) {
+      order.add(key);
+      byKey[key] = [];
+    }
+    byKey[key]!.add(r);
+  }
+  for (final k in order) {
+    byKey[k]!.sort(
+      (a, b) => ((a['step'] as num?)?.toInt() ?? 0)
+          .compareTo((b['step'] as num?)?.toInt() ?? 0),
+    );
+  }
+  return [for (final k in order) _HistogramGroup(k, byKey[k]!)];
 }
 
 /// Renders one image series as a step-scrubbable panel. The Slider

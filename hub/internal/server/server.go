@@ -242,6 +242,8 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/metrics", s.handleGetRunMetrics)
 				r.Post("/images", s.handlePostRunImages)
 				r.Get("/images", s.handleGetRunImages)
+				r.Put("/histograms", s.handlePutRunHistograms)
+				r.Get("/histograms", s.handleGetRunHistograms)
 			})
 		})
 		// Documents (§6.7) + Reviews (§6.8). Team-scoped; filter by project

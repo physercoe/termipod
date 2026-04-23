@@ -117,6 +117,14 @@ class HubClient {
     return _readJson(resp);
   }
 
+  Future<dynamic> _put(String path, Object body) async {
+    final req = await _open('PUT', path);
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode(body)));
+    final resp = await req.close();
+    return _readJson(resp);
+  }
+
   Future<void> _delete(String path) async {
     final req = await _open('DELETE', path);
     final resp = await req.close();
@@ -911,6 +919,35 @@ class HubClient {
           String projectId) =>
       _listJson(
         '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
+      );
+
+  /// Lists a run's histogram entries — the wandb "Distributions" panel.
+  /// Each row is `{name, step, buckets: {edges, counts}, updated_at}`.
+  /// The mobile widget groups by metric_name and renders a scrubber
+  /// across steps so the distribution shift over training is visible.
+  Future<List<Map<String, dynamic>>> getRunHistograms(
+    String runId, {
+    String? metric,
+  }) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
+        query: metric == null ? null : {'metric': metric},
+      );
+
+  /// Upserts histogram digests for a run. Body shape:
+  ///   [{"name":..., "step":N, "buckets":{"edges":[...],"counts":[...]}}]
+  /// Rows are keyed by (run, metric_name, step) — PUTs for the same
+  /// triple replace the stored buckets. Used by host-runners that
+  /// forward binned tensors from trackio/wandb. Not called from the
+  /// mobile UI today; exposed so tests (and future import flows) can
+  /// populate histograms without hitting the database directly.
+  Future<void> putRunHistograms(
+    String runId,
+    List<Map<String, dynamic>> histograms,
+  ) =>
+      _put(
+        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
+        {'histograms': histograms},
       );
 
   // ---- documents + reviews (blueprint §6.7, §6.8) ----

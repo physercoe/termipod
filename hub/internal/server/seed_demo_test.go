@@ -51,19 +51,32 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			`SELECT COUNT(*) FROM runs WHERE project_id = ? AND status = 'completed'`,
 			[]any{res.ProjectID}, 6},
 		{"run_metrics",
-			// 5 series (loss/train, loss/val, optim/learning_rate,
-			// optim/grad_norm, throughput/tokens_per_sec) per run × 6 runs.
+			// 15 series per run × 6 runs. See synthRunCurves for the list:
+			// loss/{train,val}, learning_rate, grad_norm,
+			// throughput/tokens_per_sec, smooth/{train_raw,train_ema},
+			// sys/{gpu_util,gpu_mem,cpu_util}, weights_dist/p{5,25,50,75,95}.
 			`SELECT COUNT(*) FROM run_metrics WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
-			[]any{res.ProjectID}, 30},
+			[]any{res.ProjectID}, 90},
 		{"run_metrics_loss_train",
 			`SELECT COUNT(*) FROM run_metrics WHERE metric_name = 'loss/train' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 6},
 		{"run_metrics_loss_val",
 			`SELECT COUNT(*) FROM run_metrics WHERE metric_name = 'loss/val' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 6},
+		{"run_metrics_weights_dist",
+			// Five percentile series per run × 6 runs.
+			`SELECT COUNT(*) FROM run_metrics WHERE metric_name LIKE 'weights_dist/%' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 30},
+		{"run_metrics_sys",
+			`SELECT COUNT(*) FROM run_metrics WHERE metric_name LIKE 'sys/%' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 18},
 		{"documents",
 			`SELECT COUNT(*) FROM documents WHERE project_id = ? AND kind = 'memo'`,
 			[]any{res.ProjectID}, 1},
+		{"sample_documents",
+			// One text-sample document per run.
+			`SELECT COUNT(*) FROM documents WHERE project_id = ? AND kind = 'sample'`,
+			[]any{res.ProjectID}, 6},
 		{"reviews_pending",
 			`SELECT COUNT(*) FROM reviews WHERE project_id = ? AND state = 'pending'`,
 			[]any{res.ProjectID}, 1},
@@ -131,6 +144,7 @@ func TestSeedDemo_IsIdempotent(t *testing.T) {
 	}
 
 	// Re-running must not create extra run/document/review rows.
+	// Documents = 1 memo + 6 sample docs = 7.
 	var runs, docs, reviews int
 	_ = db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM runs WHERE project_id = ?`, first.ProjectID).Scan(&runs)
@@ -138,8 +152,8 @@ func TestSeedDemo_IsIdempotent(t *testing.T) {
 		`SELECT COUNT(*) FROM documents WHERE project_id = ?`, first.ProjectID).Scan(&docs)
 	_ = db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM reviews WHERE project_id = ?`, first.ProjectID).Scan(&reviews)
-	if runs != 6 || docs != 1 || reviews != 1 {
-		t.Errorf("row counts after 2nd call: runs=%d docs=%d reviews=%d; want 6/1/1",
+	if runs != 6 || docs != 7 || reviews != 1 {
+		t.Errorf("row counts after 2nd call: runs=%d docs=%d reviews=%d; want 6/7/1",
 			runs, docs, reviews)
 	}
 }

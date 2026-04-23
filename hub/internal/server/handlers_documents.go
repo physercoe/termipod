@@ -39,7 +39,7 @@ type documentOut struct {
 
 func isValidDocKind(k string) bool {
 	switch k {
-	case "memo", "draft", "report", "review":
+	case "memo", "draft", "report", "review", "sample":
 		return true
 	}
 	return false
@@ -57,7 +57,7 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isValidDocKind(in.Kind) {
-		writeErr(w, http.StatusBadRequest, "kind must be one of: memo, draft, report, review")
+		writeErr(w, http.StatusBadRequest, "kind must be one of: memo, draft, report, review, sample")
 		return
 	}
 	// Exactly one of content_inline or artifact_id.

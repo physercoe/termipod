@@ -36,10 +36,12 @@ const demoProjectName = "ablation-sweep-demo"
 //   - len(model_sizes) * len(optimizers) run rows, status=completed, with
 //     synthetic trackio_run_uri values so the mobile Run Detail screen can
 //     link out even though no actual trackio process is involved.
-//   - One run_metrics row per run with a "loss" curve: 100 (step, value)
-//     pairs following exponential decay + small noise. Final loss
-//     depends on (size, optimizer) so different runs visibly differ on
-//     the sparkline.
+//   - Fifteen run_metrics rows per run, one per metric family, each with
+//     100 (step, value) pairs. Families cover the dominant wandb/
+//     tensorboard plot archetypes (single scalar, multi-series overlay,
+//     percentile band). See synthRunCurves for the full list.
+//   - One text-sample document per run (kind='sample') carrying
+//     nanoGPT-Shakespeare-style generations at three checkpoints.
 //   - One briefing document (markdown memo) + one pending review against it.
 //   - One open attention_item (decision — nightly budget approval) so the
 //     Inbox has something to approve.
@@ -136,6 +138,23 @@ func SeedDemo(ctx context.Context, db *sql.DB) (*SeedDemoResult, error) {
 					return nil, fmt.Errorf("insert run_metrics %s: %w", c.name, err)
 				}
 			}
+
+			// Per-run text-sample document (plot type 7: text-sample panel).
+			// Mirrors what a nanoGPT-Shakespeare worker would upload as
+			// checkpoint generations. Stored with kind='sample' so the
+			// mobile UI can filter these out of the main memo/report stream.
+			sampleID := NewID()
+			sampleMD := buildDemoSample(size, opt)
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO documents (
+					id, project_id, kind, title, version, content_inline, created_at
+				) VALUES (?, ?, 'sample', ?, 1, ?, ?)`,
+				sampleID, res.ProjectID,
+				fmt.Sprintf("Shakespeare samples — size=%d %s", size, opt),
+				sampleMD, now,
+			); err != nil {
+				return nil, fmt.Errorf("insert sample document: %w", err)
+			}
 		}
 	}
 
@@ -200,17 +219,22 @@ type demoCurve struct {
 	lastValue float64
 }
 
-// synthRunCurves emits the five metric families the mobile Run Detail
-// screen renders as separate sparklines, shaped so the ablation story is
-// visible in the data:
+// synthRunCurves emits the metric families the mobile Run Detail screen
+// renders, shaped so the ablation story is visible in the data and so each
+// of the dominant wandb/tensorboard plot archetypes is represented at least
+// once:
 //
-//   - train_loss / val_loss: exponential decay; val tracks train with a
-//     small gap that widens slightly at the end (mild overfit).
-//   - learning_rate: linear warmup → cosine decay, identical across runs
-//     (acts as a control curve).
-//   - grad_norm: starts high, decays roughly like a noisy 1/sqrt(step).
-//   - tokens_per_sec: approximately constant with jitter; lower for
-//     bigger models (compute scales).
+//   Type 1 (single scalar):
+//     - learning_rate, grad_norm, throughput/tokens_per_sec
+//
+//   Type 2 (multi-series overlay, shared y-axis):
+//     - loss/{train,val}                 — train vs val loss
+//     - smooth/{train_raw,train_ema}     — raw curve vs EMA-smoothed
+//     - sys/{gpu_util,gpu_mem,cpu_util}  — three system metrics (%)
+//
+//   Type 3 (percentile band / distribution over time):
+//     - weights_dist/{p5,p25,p50,p75,p95} — weight-magnitude quantiles,
+//       all five overlaid so the UI sees a band thickening over training.
 //
 // Same deterministic rng is shared across all curves so the seed=1
 // reproducible-demo guarantee still holds.
@@ -295,17 +319,131 @@ func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points in
 		tpsLast = v
 	}
 
-	// Metric names follow the wandb/tensorboard "<group>/<series>"
-	// convention so the mobile UI can group curves that share a y-axis.
-	// loss/{train,val} overlay on one chart; optim and throughput stand
-	// alone with one series each.
-	return []demoCurve{
+	// smooth/train_{raw,ema}: raw training loss + an EMA-smoothed companion
+	// so the UI can show the "jittery-raw + tidy-smoothed" overlay that is
+	// ubiquitous on wandb dashboards. Uses trainPts as the source.
+	smoothRawPts := make([][2]any, len(trainPts))
+	smoothEMAPts := make([][2]any, len(trainPts))
+	var ema float64
+	const alpha = 0.15 // EMA weight on new sample
+	var smoothRawLast, smoothEMALast float64
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		tv := p[1].(float64)
+		// Inject extra per-step jitter on top of trainPts so the raw
+		// curve looks visibly noisier than the already-smoothed loss/train.
+		raw := tv + (rng.Float64()-0.5)*0.25
+		if i == 0 {
+			ema = raw
+		} else {
+			ema = alpha*raw + (1-alpha)*ema
+		}
+		smoothRawPts[i] = [2]any{step, roundTo(raw, 4)}
+		smoothEMAPts[i] = [2]any{step, roundTo(ema, 4)}
+		smoothRawLast = raw
+		smoothEMALast = ema
+	}
+
+	// sys/{gpu_util,gpu_mem,cpu_util}: three system-utilization curves in
+	// percent (0-100), noisy and roughly flat once training reaches steady
+	// state. Lets the UI demo a three-series overlay with shared y-axis.
+	gpuUtilPts := make([][2]any, len(trainPts))
+	gpuMemPts := make([][2]any, len(trainPts))
+	cpuUtilPts := make([][2]any, len(trainPts))
+	var gpuUtilLast, gpuMemLast, cpuUtilLast float64
+	// Steady-state targets depend weakly on model size.
+	gpuUtilBase := 78.0
+	gpuMemBase := 62.0
+	cpuUtilBase := 22.0
+	switch size {
+	case 256:
+		gpuUtilBase, gpuMemBase = 86.0, 74.0
+	case 384:
+		gpuUtilBase, gpuMemBase = 93.0, 88.0
+	}
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		// Linear ramp for the first ~5% of training (warm-up), then steady.
+		frac := float64(step) / float64(iters)
+		ramp := math.Min(1.0, frac/0.05)
+		gu := gpuUtilBase*ramp + (rng.Float64()-0.5)*6
+		gm := gpuMemBase*ramp + (rng.Float64()-0.5)*4
+		cu := cpuUtilBase + (rng.Float64()-0.5)*8
+		if gu < 0 {
+			gu = 0
+		}
+		if gu > 100 {
+			gu = 100
+		}
+		if gm < 0 {
+			gm = 0
+		}
+		if gm > 100 {
+			gm = 100
+		}
+		if cu < 0 {
+			cu = 0
+		}
+		gpuUtilPts[i] = [2]any{step, roundTo(gu, 2)}
+		gpuMemPts[i] = [2]any{step, roundTo(gm, 2)}
+		cpuUtilPts[i] = [2]any{step, roundTo(cu, 2)}
+		gpuUtilLast, gpuMemLast, cpuUtilLast = gu, gm, cu
+	}
+
+	// weights_dist/p{5,25,50,75,95}: synthetic per-step quantiles of the
+	// absolute weight distribution, drifting outward as the model trains
+	// (a widening band is what you typically see on wandb histograms-over-
+	// time). All five share a y-axis so the UI can overlay them and the
+	// human eye reads the band thickness at each step.
+	pTags := []string{"p5", "p25", "p50", "p75", "p95"}
+	// Relative offsets from p50 (in units of "std"); scaled by a growing
+	// spread factor so the band widens with step.
+	pOffsets := []float64{-1.6, -0.7, 0.0, 0.7, 1.6}
+	pPts := make([][][2]any, len(pTags))
+	pLast := make([]float64, len(pTags))
+	for k := range pTags {
+		pPts[k] = make([][2]any, len(trainPts))
+	}
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		frac := float64(step) / float64(iters)
+		center := 0.02 + 0.06*frac    // mean |w| drifts up over training
+		spread := 0.008 + 0.022*frac  // std of |w| grows ~3x
+		for k, off := range pOffsets {
+			v := center + off*spread + (rng.Float64()-0.5)*0.002
+			if v < 0 {
+				v = 0
+			}
+			pPts[k][i] = [2]any{step, roundTo(v, 5)}
+			pLast[k] = v
+		}
+	}
+
+	// Final step across every curve is the same as train_loss.
+	curves := []demoCurve{
 		{"loss/train", trainPts, trainStep, trainLast},
 		{"loss/val", valPts, trainStep, roundTo(valLast, 4)},
-		{"optim/learning_rate", lrPts, trainStep, roundTo(lrLast, 6)},
-		{"optim/grad_norm", gnPts, trainStep, roundTo(gnLast, 4)},
+		// learning_rate & grad_norm kept top-level (no `/`) because their
+		// y-scales disagree wildly (6e-4 vs ~3.0), so overlaying would look
+		// awful. They render as one tile each on the mobile UI.
+		{"learning_rate", lrPts, trainStep, roundTo(lrLast, 6)},
+		{"grad_norm", gnPts, trainStep, roundTo(gnLast, 4)},
 		{"throughput/tokens_per_sec", tpsPts, trainStep, roundTo(tpsLast, 1)},
+		{"smooth/train_raw", smoothRawPts, trainStep, roundTo(smoothRawLast, 4)},
+		{"smooth/train_ema", smoothEMAPts, trainStep, roundTo(smoothEMALast, 4)},
+		{"sys/gpu_util", gpuUtilPts, trainStep, roundTo(gpuUtilLast, 2)},
+		{"sys/gpu_mem", gpuMemPts, trainStep, roundTo(gpuMemLast, 2)},
+		{"sys/cpu_util", cpuUtilPts, trainStep, roundTo(cpuUtilLast, 2)},
 	}
+	for k, tag := range pTags {
+		curves = append(curves, demoCurve{
+			name:      "weights_dist/" + tag,
+			points:    pPts[k],
+			lastStep:  trainStep,
+			lastValue: roundTo(pLast[k], 5),
+		})
+	}
+	return curves
 }
 
 // synthLossCurve generates a plausible training-loss curve for a (size,
@@ -371,9 +509,53 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"**Caveats:** Seeded from synthetic data for UI testing — no real\n" +
 		"training happened. Numbers will change once a GPU host is attached\n" +
 		"and a real trackio-producing worker runs the sweep.\n\n" +
-		"**Plots:** Each run carries three chart groups on the Run Detail\n" +
-		"screen — `loss/{train,val}` overlaid, `optim/{learning_rate," +
-		"grad_norm}`, and `throughput/tokens_per_sec`. The val/train gap\n" +
-		"widens slightly over training; throughput drops as model size\n" +
-		"grows, as expected.\n"
+		"**Plots:** Each run carries the dominant wandb/tensorboard plot\n" +
+		"archetypes on the Run Detail screen:\n\n" +
+		"- `loss/{train,val}` — overlaid multi-series (val gap widens)\n" +
+		"- `smooth/{train_raw,train_ema}` — raw vs EMA-smoothed overlay\n" +
+		"- `sys/{gpu_util,gpu_mem,cpu_util}` — three system metrics (%)\n" +
+		"- `weights_dist/p{5,25,50,75,95}` — weight-magnitude percentile band\n" +
+		"- `learning_rate`, `grad_norm` — single-series scalars\n" +
+		"- `throughput/tokens_per_sec` — single-series scalar\n\n" +
+		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +
+		"style generations captured at checkpoints — the text-sample panel\n" +
+		"archetype.\n"
+}
+
+// buildDemoSample returns a markdown document imitating nanoGPT-Shakespeare
+// generations at three training checkpoints. The text gets progressively
+// more coherent at later steps so the reviewer can *see* learning happening
+// in the sample panel itself, not just on the loss curve.
+func buildDemoSample(size int, optimizer string) string {
+	return fmt.Sprintf(
+		"# Shakespeare samples — size=%d optimizer=%s\n\n"+
+			"Generations captured at three checkpoints during training. Prompt: `ROMEO:`\n\n"+
+			"---\n\n"+
+			"## Step 100 (early — mostly noise)\n\n"+
+			"```\n"+
+			"ROMEO: thet hreo whonh. tesed tho ie soulnt the\n"+
+			"         thy, whod hanes thee; med hal rt\n"+
+			"         withe spoour, thin fath thit,\n"+
+			"         thonk nold hau\n"+
+			"```\n\n"+
+			"## Step 500 (mid — shape of language, words not quite right)\n\n"+
+			"```\n"+
+			"ROMEO: Good morrow, noble lord. What fares thy heart?\n"+
+			"         I pray you, speak, and let my sorrow end,\n"+
+			"         For every hour that passes without word\n"+
+			"         Doth weigh upon this breast as heavy stone.\n"+
+			"```\n\n"+
+			"## Step 990 (final — recognisably Shakespearean pastiche)\n\n"+
+			"```\n"+
+			"ROMEO: O, speak again, bright angel! for thou art\n"+
+			"         As glorious to this night, being o'er my head,\n"+
+			"         As is a winged messenger of heaven\n"+
+			"         Unto the white-upturned wondering eyes\n"+
+			"         Of mortals that fall back to gaze on him.\n"+
+			"```\n\n"+
+			"---\n\n"+
+			"_Synthetic samples — no real training ran. Replace with true\n"+
+			"worker output once a GPU host is attached._\n",
+		size, optimizer,
+	)
 }

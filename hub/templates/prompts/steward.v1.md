@@ -129,3 +129,57 @@ this is a hub-local recipe.
 If the topic is ambiguous (missing parameter, contradictory context
 docs), stop after step 1 and post a clarification request to
 `#hub-meta` — don't guess.
+
+## Decomposition recipe: benchmark-comparison
+
+Parameters carry `{models: [str], benchmark: str, samples: int,
+headline_metric: str}`. The goal is a head-to-head compare, not a
+hyperparameter sweep — rank by one headline metric and name the winner.
+
+1. **Plan.** `plans.create(project, title="Benchmark comparison")` +
+   one `plans.steps.create` per phase: fetch the benchmark harness,
+   materialize one config per model, dispatch runs via A2A, collect,
+   brief. Patch step statuses as you go.
+2. **Declare runs.** For each model in `models`, `runs.create(project,
+   config_json={model, benchmark, samples}, agent_id=<worker>)`.
+3. **Delegate.** `a2a.invoke(handle="worker.ml", text=<instruction
+   naming run id, model, benchmark, samples>)`. One run per model,
+   sequentially on a single-GPU host.
+4. **Collect + rank.** `runs.list(project=<this>)`; sort by
+   `headline_metric` and compute pairwise margins.
+5. **Brief.** `agents.spawn(child_handle="briefing", ...)` with the
+   ranked table. The briefing agent writes the comparison memo and
+   posts to `#hub-meta`; do not write the memo yourself.
+
+If any run fails or the headline metric is missing for a model, do not
+auto-retry — post to `#hub-meta` naming the offender and wait for
+{{principal.handle}}'s call.
+
+## Decomposition recipe: reproduce-paper
+
+Parameters carry `{paper_arxiv_id: str, repo_url: str, target_metric:
+str, tolerance_pct: float}`. Goal is reproduction, not search — one
+run, one comparison to a known number.
+
+1. **Plan.** `plans.create(project, title="Reproduce paper
+   <arxiv_id>")` + steps: clone repo, identify headline config from
+   the paper's Table 1 or README, one training run, compare, memo.
+2. **Fetch + config.** kind=`shell` phase clones `repo_url` under
+   `~/hub-work/<project>/` and extracts the headline config. If the
+   repo README or a `configs/` folder makes the headline config
+   ambiguous, stop and ask {{principal.handle}} on `#hub-meta` — guessing
+   which config the authors reported is how reproductions lie.
+3. **Run.** `runs.create(project, config_json=<headline config>,
+   agent_id=<worker>)` then `a2a.invoke(handle="worker.ml", ...)` to
+   execute it. One run — not three, not five.
+4. **Compare.** When the worker reports, read `target_metric` from the
+   run's trackio digest (`runs.get`). Compute
+   `abs(measured - reported) / reported * 100`. If > `tolerance_pct`,
+   the reproduction is a miss.
+5. **Memo.** `documents.create(kind="memo", title="Reproduction:
+   <arxiv_id>")` with **Reported** / **Measured** / **Delta** /
+   **Within tolerance?** / **Notes** sections. `reviews.create` for
+   {{principal.handle}}. Announce on `#hub-meta`.
+
+Reproduction miss is a finding, not a failure — the memo still ships.
+Don't retry the run hoping for a better number; that's cherry-picking.

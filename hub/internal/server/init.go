@@ -139,6 +139,40 @@ func seedBuiltinProjectTemplates(ctx context.Context, db *sql.DB) error {
 			},
 			onCreateTmpl: "agents.steward",
 		},
+		{
+			// benchmark-comparison: pit multiple model configs against each
+			// other on one benchmark. Structurally similar to ablation-sweep
+			// but framed as head-to-head compare (not hyperparameter sweep),
+			// with a single headline metric the briefing agent ranks on.
+			name: "benchmark-comparison",
+			kind: "goal",
+			goal: "Compare {models} on {benchmark} with {samples} samples; rank by {headline_metric} " +
+				"and write a comparison memo naming the winner and the margin.",
+			parameters: map[string]any{
+				"models":          []string{},
+				"benchmark":       "",
+				"samples":         100,
+				"headline_metric": "accuracy",
+			},
+			onCreateTmpl: "agents.steward",
+		},
+		{
+			// reproduce-paper: re-run a published paper's headline result and
+			// compare to the paper's reported number. The steward clones the
+			// repo, identifies the headline config, delegates one run via
+			// a2a.invoke, and memos the delta (within tolerance_pct or not).
+			name: "reproduce-paper",
+			kind: "goal",
+			goal: "Reproduce the headline result of {paper_arxiv_id} from {repo_url}. " +
+				"Compare reported {target_metric} to measured value; flag if gap exceeds tolerance_pct.",
+			parameters: map[string]any{
+				"paper_arxiv_id": "",
+				"repo_url":       "",
+				"target_metric":  "",
+				"tolerance_pct":  5.0,
+			},
+			onCreateTmpl: "agents.steward",
+		},
 	}
 	for _, t := range templates {
 		params, err := json.Marshal(t.parameters)

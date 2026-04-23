@@ -105,6 +105,68 @@ func TestInit_SeedsWriteMemoTemplate(t *testing.T) {
 	}
 }
 
+// TestInit_SeedsBenchmarkComparisonTemplate confirms the
+// benchmark-comparison template lands with its expected parameter keys.
+func TestInit_SeedsBenchmarkComparisonTemplate(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+
+	var params string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT parameters_json FROM projects WHERE team_id = ? AND name = ?`,
+		defaultTeamID, "benchmark-comparison").Scan(&params); err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	var p map[string]any
+	if err := json.Unmarshal([]byte(params), &p); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, k := range []string{"models", "benchmark", "samples", "headline_metric"} {
+		if _, ok := p[k]; !ok {
+			t.Errorf("missing key %q in %s", k, params)
+		}
+	}
+}
+
+// TestInit_SeedsReproducePaperTemplate confirms the reproduce-paper
+// template lands with its expected parameter keys.
+func TestInit_SeedsReproducePaperTemplate(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+
+	var params string
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT parameters_json FROM projects WHERE team_id = ? AND name = ?`,
+		defaultTeamID, "reproduce-paper").Scan(&params); err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	var p map[string]any
+	if err := json.Unmarshal([]byte(params), &p); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, k := range []string{"paper_arxiv_id", "repo_url", "target_metric", "tolerance_pct"} {
+		if _, ok := p[k]; !ok {
+			t.Errorf("missing key %q in %s", k, params)
+		}
+	}
+}
+
 // TestInit_SeedIsIdempotent confirms re-running Init on the same data root
 // does not duplicate the template row or error out.
 func TestInit_SeedIsIdempotent(t *testing.T) {
@@ -123,7 +185,7 @@ func TestInit_SeedIsIdempotent(t *testing.T) {
 	}
 	defer db.Close()
 
-	for _, name := range []string{"ablation-sweep", "write-memo"} {
+	for _, name := range []string{"ablation-sweep", "write-memo", "benchmark-comparison", "reproduce-paper"} {
 		var count int
 		if err := db.QueryRowContext(context.Background(),
 			`SELECT COUNT(*) FROM projects WHERE team_id = ? AND name = ?`,

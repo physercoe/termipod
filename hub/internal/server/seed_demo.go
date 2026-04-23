@@ -222,14 +222,18 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 			}
 
 			// Per-run image series (plot archetype: wandb-style "Images"
-			// panel). Three placeholder PNG checkpoints at steps 0, mid,
+			// panel). Three PNG checkpoints per metric at steps 0, mid,
 			// final — content visibly evolves with training progress so
-			// the reviewer can scrub the slider and *see* a change.
+			// the reviewer can scrub the slider and *see* a change. Two
+			// series per run: a "generated sample" (diagonal-wave) and an
+			// "attention heatmap" (causal attention matrix), giving the
+			// Images panel coverage of both the image-sample and
+			// heatmap/contour archetypes.
 			if dataRoot != "" {
 				checkpoints := []int64{0, int64(iters) / 2, int64(iters) - 1}
 				for _, step := range checkpoints {
-					pngBytes := drawCheckpointPNG(step, int64(iters), size, opt)
-					sha, err := insertDemoBlob(ctx, tx, dataRoot, pngBytes, "image/png", now)
+					samplePng := drawCheckpointPNG(step, int64(iters), size, opt)
+					sampleSha, err := insertDemoBlob(ctx, tx, dataRoot, samplePng, "image/png", now)
 					if err != nil {
 						return nil, fmt.Errorf("insert demo blob: %w", err)
 					}
@@ -239,9 +243,26 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 							id, run_id, metric_name, step, blob_sha,
 							caption, created_at
 						) VALUES (?, ?, 'samples/generations', ?, ?, ?, ?)`,
-						NewID(), runID, step, sha, caption, now,
+						NewID(), runID, step, sampleSha, caption, now,
 					); err != nil {
 						return nil, fmt.Errorf("insert run_images: %w", err)
+					}
+					res.ImageCount++
+
+					heatPng := drawAttentionHeatmapPNG(step, int64(iters), size, opt)
+					heatSha, err := insertDemoBlob(ctx, tx, dataRoot, heatPng, "image/png", now)
+					if err != nil {
+						return nil, fmt.Errorf("insert heatmap blob: %w", err)
+					}
+					heatCaption := fmt.Sprintf("attn L0/H0 · step %d · size=%d %s", step, size, opt)
+					if _, err := tx.ExecContext(ctx, `
+						INSERT INTO run_images (
+							id, run_id, metric_name, step, blob_sha,
+							caption, created_at
+						) VALUES (?, ?, 'attention/layer0_head0', ?, ?, ?, ?)`,
+						NewID(), runID, step, heatSha, heatCaption, now,
+					); err != nil {
+						return nil, fmt.Errorf("insert run_images heatmap: %w", err)
 					}
 					res.ImageCount++
 				}
@@ -833,6 +854,93 @@ func drawCheckpointPNG(step, iters int64, size int, optimizer string) []byte {
 	return buf.Bytes()
 }
 
+// drawAttentionHeatmapPNG renders a 32x32 PNG that looks like a causal
+// self-attention map evolving over training: early steps are near-uniform
+// over the valid (lower-triangular) region; late steps concentrate on a
+// local-context diagonal with a few scattered "salient-token" spikes.
+// Lion produces a slightly tighter diagonal than AdamW so the optimizer
+// difference is visible across runs, matching the loss-curve story.
+//
+// Covers the wandb "heatmap / 2-D matrix" archetype alongside the
+// sample-image archetype that drawCheckpointPNG covers. Deterministic in
+// (step, iters, size, optimizer) so re-seeding finds identical blobs.
+func drawAttentionHeatmapPNG(step, iters int64, size int, optimizer string) []byte {
+	const n = 32
+	img := image.NewRGBA(image.Rect(0, 0, n, n))
+
+	frac := float64(step) / float64(iters-1)
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	// Diagonal bandwidth shrinks with training — attention becomes more
+	// local as the head specializes. Lion sharpens faster.
+	sigma := 6.0*(1-frac) + 1.2*frac
+	if optimizer == "lion" {
+		sigma *= 0.8
+	}
+
+	seed := step*1103 + int64(size)*13
+	if optimizer == "lion" {
+		seed += 7
+	}
+	rng := rand.New(rand.NewSource(seed))
+
+	// Salient columns — imitate "this head attends to a few prior special
+	// tokens" pattern that late-stage training tends to learn.
+	salient := map[int]bool{3: true, 11: true, 22: true}
+
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			if x > y {
+				img.Set(x, y, color.RGBA{6, 0, 16, 255})
+				continue
+			}
+			d := float64(y - x)
+			band := math.Exp(-(d * d) / (2 * sigma * sigma))
+			sal := 0.0
+			if salient[x] {
+				sal = 0.35 * frac
+			}
+			noise := 0.12 * (1 - frac) * rng.Float64()
+			v := band + sal + noise
+			img.Set(x, y, viridis(v))
+		}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+// viridis maps [0,1] → a 4-stop viridis approximation; values outside the
+// range saturate at the endpoints.
+func viridis(t float64) color.RGBA {
+	if t < 0 {
+		t = 0
+	}
+	if t > 1 {
+		t = 1
+	}
+	stops := [4][3]float64{
+		{68, 1, 84},
+		{59, 82, 139},
+		{33, 145, 140},
+		{253, 231, 37},
+	}
+	seg := t * 3
+	i := int(seg)
+	if i > 2 {
+		i = 2
+	}
+	f := seg - float64(i)
+	r := stops[i][0] + f*(stops[i+1][0]-stops[i][0])
+	g := stops[i][1] + f*(stops[i+1][1]-stops[i][1])
+	b := stops[i][2] + f*(stops[i+1][2]-stops[i][2])
+	return color.RGBA{uint8(r), uint8(g), uint8(b), 255}
+}
+
 func roundTo(v float64, places int) float64 {
 	m := math.Pow(10, float64(places))
 	return math.Round(v*m) / m
@@ -976,6 +1084,8 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"- `throughput/tokens_per_sec` — single-series scalar\n" +
 		"- `samples/generations` (image series) — three PNG checkpoints\n" +
 		"  per run, scrubbable via the step slider\n" +
+		"- `attention/layer0_head0` (heatmap series) — 32×32 causal\n" +
+		"  attention matrix, diagonal sharpens with training\n" +
 		"- `grads_hist/layer0`, `weights_hist/all` — per-step histograms\n" +
 		"  (distribution panel), four checkpoints per run\n\n" +
 		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +

@@ -76,7 +76,7 @@ through → **Projects** tab → `ablation-sweep-demo` → tap each of the
 6 runs. You should see ~10 metric tiles + 1 image panel + 1
 "Distributions" panel per run, plus a "Sweep compare" scatter on the
 project overview — covering the dominant wandb/tensorboard plot
-archetypes (v1.0.184–v1.0.188):
+archetypes (v1.0.184–v1.0.190):
 
 - `loss/{train,val}` — multi-series overlay (val gap widens late)
 - `smooth/{train_raw,train_ema}` — raw vs EMA-smoothed overlay
@@ -91,6 +91,10 @@ archetypes (v1.0.184–v1.0.188):
 - `samples/generations` (image panel, v1.0.185) — 3 PNG checkpoints
   per run at steps 0 / 500 / 999; scrub the slider to see the image
   evolve from noise to diagonal-wave structure as training progresses
+- `attention/layer0_head0` (image panel, v1.0.190) — 32×32 causal
+  attention heatmap at the same 3 checkpoints; the diagonal band
+  tightens as the head specializes, Lion noticeably sharper than
+  AdamW. Covers the wandb heatmap/contour archetype.
 - `grads_hist/layer0`, `weights_hist/all` (Distributions panel,
   v1.0.188) — 4 histogram checkpoints per metric; scrub the slider
   to see gradients tighten and weights drift with training. Lion's

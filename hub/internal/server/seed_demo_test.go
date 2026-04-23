@@ -37,8 +37,8 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 	if len(res.RunIDs) != 6 {
 		t.Errorf("RunIDs len = %d, want 6", len(res.RunIDs))
 	}
-	if res.ImageCount != 18 {
-		t.Errorf("ImageCount = %d, want 18", res.ImageCount)
+	if res.ImageCount != 36 {
+		t.Errorf("ImageCount = %d, want 36", res.ImageCount)
 	}
 
 	// Row-count assertions — keeps the test honest about scope.
@@ -90,11 +90,14 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			`SELECT COUNT(*) FROM attention_items WHERE project_id = ? AND status = 'open'`,
 			[]any{res.ProjectID}, 1},
 		{"run_images",
-			// 3 checkpoint PNGs per run × 6 runs = 18.
+			// 2 metrics × 3 checkpoints per run × 6 runs = 36.
 			`SELECT COUNT(*) FROM run_images WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
-			[]any{res.ProjectID}, 18},
+			[]any{res.ProjectID}, 36},
 		{"run_images_generations",
 			`SELECT COUNT(*) FROM run_images WHERE metric_name = 'samples/generations' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			[]any{res.ProjectID}, 18},
+		{"run_images_attention",
+			`SELECT COUNT(*) FROM run_images WHERE metric_name = 'attention/layer0_head0' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 18},
 		{"run_histograms",
 			// 2 histograms × 4 checkpoints × 6 runs = 48.
@@ -199,8 +202,8 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		}
 		checked++
 	}
-	if checked != 18 {
-		t.Errorf("checked %d run_images+blobs rows, want 18", checked)
+	if checked != 36 {
+		t.Errorf("checked %d run_images+blobs rows, want 36", checked)
 	}
 }
 

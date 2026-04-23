@@ -566,6 +566,7 @@ class RunDetailScreen extends ConsumerStatefulWidget {
 
 class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   Map<String, dynamic>? _run;
+  List<Map<String, dynamic>> _metrics = const [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -587,9 +588,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
     }
     try {
       final r = await client.getRun(widget.runId);
+      // Metric digests are optional — a run without an attached tracker
+      // (or before the poller's first tick) simply has no rows yet.
+      List<Map<String, dynamic>> metrics = const [];
+      try {
+        metrics = await client.getRunMetrics(widget.runId);
+      } catch (_) {
+        metrics = const [];
+      }
       if (!mounted) return;
       setState(() {
         _run = r;
+        _metrics = metrics;
         _loading = false;
       });
     } catch (e) {
@@ -774,6 +784,11 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
               child: _SummaryBody(summary: summary),
             ),
           ],
+          if (_metrics.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _sectionLabel('Metrics'),
+            for (final m in _metrics) _MetricSparklineTile(row: m),
+          ],
           if (uris.isNotEmpty) ...[
             const SizedBox(height: 16),
             _sectionLabel('Metric dashboards'),
@@ -902,6 +917,164 @@ String _fmtDurationMs(int ms) {
   final h = s ~/ 3600;
   final m = (s % 3600) ~/ 60;
   return '${h}h ${m}m';
+}
+
+/// Renders one metric digest row as a compact sparkline with headline
+/// value. The digest is already downsampled on the host-runner side
+/// (≤100 points by default); we just paint what arrives. Blueprint §4
+/// keeps bulk time-series off the hub, so this surface is the digest,
+/// not a full chart — users chase detail via the "Metric dashboards"
+/// link below.
+class _MetricSparklineTile extends StatelessWidget {
+  final Map<String, dynamic> row;
+  const _MetricSparklineTile({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (row['name'] ?? '').toString();
+    final points = _parsePoints(row['points']);
+    final sampleCount = (row['sample_count'] as num?)?.toInt() ?? points.length;
+    final lastStep = (row['last_step'] as num?)?.toInt();
+    final lastValue = (row['last_value'] as num?)?.toDouble() ??
+        (points.isEmpty ? null : points.last.$2);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (lastValue != null)
+                Text(
+                  _fmtValue(lastValue),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: DesignColors.terminalCyan,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 36,
+            child: points.length < 2
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      points.isEmpty
+                          ? 'no samples yet'
+                          : 'single sample — need ≥2 for a line',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                  )
+                : CustomPaint(
+                    size: const Size.fromHeight(36),
+                    painter: _SparklinePainter(points),
+                  ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            lastStep != null
+                ? 'step $lastStep · $sampleCount samples'
+                : '$sampleCount samples',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              color: DesignColors.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Wire shape: [[step, value], ...] as json.RawMessage → List<dynamic>.
+  static List<(double, double)> _parsePoints(dynamic raw) {
+    if (raw is! List) return const [];
+    final out = <(double, double)>[];
+    for (final p in raw) {
+      if (p is! List || p.length < 2) continue;
+      final s = (p[0] as num?)?.toDouble();
+      final v = (p[1] as num?)?.toDouble();
+      if (s == null || v == null) continue;
+      out.add((s, v));
+    }
+    return out;
+  }
+
+  static String _fmtValue(double v) {
+    final abs = v.abs();
+    if (abs != 0 && (abs < 0.01 || abs >= 10000)) {
+      return v.toStringAsExponential(3);
+    }
+    return v.toStringAsFixed(4);
+  }
+}
+
+class _SparklinePainter extends CustomPainter {
+  final List<(double, double)> points;
+  _SparklinePainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.length < 2) return;
+
+    double minX = points.first.$1, maxX = points.first.$1;
+    double minY = points.first.$2, maxY = points.first.$2;
+    for (final p in points) {
+      if (p.$1 < minX) minX = p.$1;
+      if (p.$1 > maxX) maxX = p.$1;
+      if (p.$2 < minY) minY = p.$2;
+      if (p.$2 > maxY) maxY = p.$2;
+    }
+    // Avoid div-by-zero on constant series or single-step spans.
+    final dx = (maxX - minX).abs() < 1e-12 ? 1.0 : (maxX - minX);
+    final dy = (maxY - minY).abs() < 1e-12 ? 1.0 : (maxY - minY);
+
+    final path = Path();
+    for (var i = 0; i < points.length; i++) {
+      final x = (points[i].$1 - minX) / dx * size.width;
+      // Flip Y — canvas grows downward but values grow upward.
+      final y = size.height - ((points[i].$2 - minY) / dy * size.height);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    final line = Paint()
+      ..color = DesignColors.terminalCyan
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(path, line);
+
+    // Endpoint dot to anchor the eye on the current value.
+    final last = points.last;
+    final lx = (last.$1 - minX) / dx * size.width;
+    final ly = size.height - ((last.$2 - minY) / dy * size.height);
+    final dot = Paint()..color = DesignColors.terminalCyan;
+    canvas.drawCircle(Offset(lx, ly), 2.2, dot);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SparklinePainter old) =>
+      old.points != points;
 }
 
 class _MetricURITile extends StatelessWidget {

@@ -120,9 +120,13 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   filters by `reader.Scheme() + "://"`, and PUTs digests. Downsampling
   moved to `metrics.Downsample`. New backends just implement the two
   methods and plug in at runner startup.
-- P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
-  screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
-  each returned series.
+- P3.1c — mobile sparkline UI reading the digest — **DONE v1.0.147**.
+  `HubClient.getRunMetrics(runId)` pulls
+  `GET /v1/teams/{team}/runs/{run}/metrics`; `RunDetailScreen` renders
+  one row per metric — name, headline `last_value`, a hand-painted
+  `CustomPainter` sparkline, and `step N · M samples`. Digest-only
+  surface per blueprint §4 (bulk series stay on host); users chase full
+  curves via the "Metric dashboards" link below.
 
 ### P3.2–3.4 — cross-host A2A (MVP-critical per 2026-04-23 lock)
 

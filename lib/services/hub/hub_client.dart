@@ -865,6 +865,14 @@ class HubClient {
     );
   }
 
+  /// Pulls the run's metric digests — one row per metric name, each with
+  /// a downsampled [[step, value], ...] points array. The host-runner
+  /// metric poller (trackio/wandb/tensorboard) writes these; the mobile
+  /// app renders them as inline sparklines. Bulk time-series stay on the
+  /// host per blueprint §4.
+  Future<List<Map<String, dynamic>>> getRunMetrics(String runId) =>
+      _listJson('/v1/teams/${cfg.teamId}/runs/$runId/metrics');
+
   // ---- documents + reviews (blueprint §6.7, §6.8) ----
 
   Future<List<Map<String, dynamic>>> listDocuments({String? projectId}) =>

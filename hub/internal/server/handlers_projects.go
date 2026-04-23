@@ -128,6 +128,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), team, "project.create", "project", id,
+		"create project "+in.Name,
+		map[string]any{"kind": kind, "is_template": in.IsTemplate})
 	out := projectOut{
 		ID: id, TeamID: team, Name: in.Name, Status: "active",
 		DocsRoot: in.DocsRoot, ConfigYAML: in.ConfigYML, CreatedAt: now,
@@ -264,6 +267,8 @@ func (s *Server) handleArchiveProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "project not found or already archived")
 		return
 	}
+	s.recordAudit(r.Context(), team, "project.archive", "project", proj,
+		"archive project", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -333,5 +338,13 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "project not found")
 		return
 	}
+	changed := make([]string, 0, len(sets))
+	for _, s := range sets {
+		if i := strings.IndexByte(s, ' '); i > 0 {
+			changed = append(changed, s[:i])
+		}
+	}
+	s.recordAudit(r.Context(), team, "project.update", "project", proj,
+		"update project", map[string]any{"fields": changed})
 	s.handleGetProject(w, r)
 }

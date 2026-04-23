@@ -30,26 +30,53 @@ func countAuditActions(t *testing.T, s *Server) map[string]int {
 	return out
 }
 
-func seedTestProject(t *testing.T, s *Server, team, id string) {
-	t.Helper()
-	if _, err := s.db.ExecContext(context.Background(), `
-		INSERT INTO projects (id, team_id, name, status, created_at)
-		VALUES (?, ?, 'p', 'active', ?)`,
-		id, team, NowUTC()); err != nil {
-		t.Fatalf("seed project: %v", err)
-	}
-}
-
 // TestAuditCoverage_RunDocumentReview exercises the mutating endpoints that
 // drive the research-demo activity timeline and asserts each one emits an
 // audit row. Catches regressions where a handler silently skips recordAudit.
 func TestAuditCoverage_RunDocumentReview(t *testing.T) {
 	s, token := newA2ATestServer(t)
-	projID := NewID()
-	seedTestProject(t, s, defaultTeamID, projID)
+
+	// project.create via HTTP so the row ID matches the audit target_id.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/projects",
+		map[string]any{"name": "p", "kind": "goal"})
+	if status != http.StatusCreated {
+		t.Fatalf("create project: status=%d body=%s", status, body)
+	}
+	var proj struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &proj); err != nil {
+		t.Fatalf("decode project: %v", err)
+	}
+	projID := proj.ID
+
+	// project.update
+	status, body = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/projects/"+projID,
+		map[string]any{"goal": "win"})
+	if status != http.StatusOK {
+		t.Fatalf("patch project: status=%d body=%s", status, body)
+	}
+
+	// channel.create (project-scope)
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/projects/"+projID+"/channels",
+		map[string]any{"name": "room"})
+	if status != http.StatusCreated {
+		t.Fatalf("create channel: status=%d body=%s", status, body)
+	}
+
+	// channel.create (team-scope)
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/channels",
+		map[string]any{"name": "hub-meta"})
+	if status != http.StatusCreated {
+		t.Fatalf("create team channel: status=%d body=%s", status, body)
+	}
 
 	// run.create
-	status, body := doReq(t, s, token, http.MethodPost,
+	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/runs",
 		map[string]any{"project_id": projID})
 	if status != http.StatusCreated {
@@ -117,6 +144,8 @@ func TestAuditCoverage_RunDocumentReview(t *testing.T) {
 
 	counts := countAuditActions(t, s)
 	for _, a := range []string{
+		"project.create", "project.update",
+		"channel.create",
 		"run.create", "run.complete",
 		"document.create",
 		"review.request", "review.decide",
@@ -124,6 +153,10 @@ func TestAuditCoverage_RunDocumentReview(t *testing.T) {
 		if counts[a] < 1 {
 			t.Errorf("expected audit action %s, got counts=%v", a, counts)
 		}
+	}
+	// Two channel.create calls (project + team scope) should both record.
+	if counts["channel.create"] < 2 {
+		t.Errorf("expected >=2 channel.create rows, got counts=%v", counts)
 	}
 }
 

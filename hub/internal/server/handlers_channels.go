@@ -22,6 +22,7 @@ type channelOut struct {
 }
 
 func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	proj := chi.URLParam(r, "project")
 	var in channelIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
@@ -37,6 +38,9 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), team, "channel.create", "channel", id,
+		"create channel #"+in.Name,
+		map[string]any{"scope_kind": "project", "project_id": proj})
 	writeJSON(w, http.StatusCreated, channelOut{
 		ID: id, ProjectID: proj, ScopeKind: "project", Name: in.Name, CreatedAt: now,
 	})
@@ -91,6 +95,7 @@ func (s *Server) handleGetChannel(w http.ResponseWriter, r *http.Request) {
 // — those only consume the channel URL param, never the project param.
 
 func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
 	var in channelIn
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
 		writeErr(w, http.StatusBadRequest, "name required")
@@ -105,6 +110,9 @@ func (s *Server) handleCreateTeamChannel(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), team, "channel.create", "channel", id,
+		"create team channel #"+in.Name,
+		map[string]any{"scope_kind": "team"})
 	writeJSON(w, http.StatusCreated, channelOut{
 		ID: id, ScopeKind: "team", Name: in.Name, CreatedAt: now,
 	})

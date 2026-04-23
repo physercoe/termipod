@@ -170,9 +170,10 @@ func (a *Runner) Start(ctx context.Context) error {
 
 	if a.A2AAddr != "" {
 		srv := &a2a.Server{
-			PublicURL: a.A2APublicURL,
-			Source:    a.a2aSource,
-			Log:       a.Log,
+			PublicURL:  a.A2APublicURL,
+			Source:     a.a2aSource,
+			Dispatcher: newA2AHubDispatcher(a.Client),
+			Log:        a.Log,
 		}
 		addr, err := srv.Listen(ctx, a.A2AAddr)
 		if err != nil {

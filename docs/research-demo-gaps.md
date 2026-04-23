@@ -159,15 +159,16 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   pushed. Hub gains `--public-url` / `Config.PublicURL`; falls back to
   the request Host header when unset (fine for single-host dev, brittle
   when the directory is scraped remotely).
-- P3.2b — A2A task endpoints (send / get / cancel) — **PARTIAL v1.0.143**.
+- P3.2b — A2A task endpoints (send / get / cancel) — **DONE v1.0.149**.
   JSON-RPC 2.0 handler for `message/send`, `tasks/get`, `tasks/cancel`
   at the agent URL root (`POST /a2a/<agent-id>`). In-memory `TaskStore`
   keeps per-agent state with terminal-state freeze so a late completion
-  after a cancel can't flip state back. `Dispatcher` is an interface
-  with `NoopDispatcher` as the default. Still open: concrete
-  dispatcher that delivers the submitted message into the agent's
-  `InputRouter` (producer="a2a") and harvests the reply — lands with
-  runner integration after the parallel poller agents merge.
+  after a cancel can't flip state back. Concrete `a2aHubDispatcher`
+  extracts text parts from incoming messages and POSTs them to the hub's
+  `/v1/teams/{team}/agents/{agent}/input` endpoint — same audit path as
+  phone/web input — and the local `InputRouter` delivers them to the
+  driver. Follow-ups tracked: producer="a2a" attribution (today it
+  stamps "user") and response harvesting back into task history.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the

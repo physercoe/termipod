@@ -239,6 +239,19 @@ func (c *Client) PostEvent(ctx context.Context, projectID, channelID string, in 
 	return c.do(ctx, http.MethodPost, path, in, nil)
 }
 
+// PostAgentInput delivers a user-input record to the hub so the local
+// InputRouter dispatches it to the agent driver. Used today by the A2A
+// Dispatcher to route peer messages through the same audit path as
+// phone/web input: the hub stamps producer='user' and writes an
+// agent_events row with kind="input.<kind>". fields is the wire-shape
+// body (already containing kind plus per-kind fields like body / decision).
+// Separate from PostAgentEvent because the events endpoint is for driver
+// output, not for user/peer input.
+func (c *Client) PostAgentInput(ctx context.Context, agentID string, fields map[string]any) error {
+	path := fmt.Sprintf("/v1/teams/%s/agents/%s/input", c.Team, agentID)
+	return c.do(ctx, http.MethodPost, path, fields, nil)
+}
+
 // PostAgentEvent appends an event to the per-agent queue (P1.7). Used by the
 // driver (P1.1) to stream pane-derived text and lifecycle events; payload is
 // opaque to the hub so the driver owns its own vocabulary per kind.

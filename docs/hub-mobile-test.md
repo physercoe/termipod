@@ -9,7 +9,7 @@ TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
   Let's Encrypt cert. The setup you want for anything longer-lived than a
   demo.
 
-The current release used for testing is **v1.0.47-alpha**.
+The current release used for testing is **v1.0.172-alpha**.
 
 **Companion docs:**
 
@@ -17,6 +17,9 @@ The current release used for testing is **v1.0.47-alpha**.
   have somewhere to run (host-runner daemon, token, systemd).
 - [`hub-agents.md`](hub-agents.md) — spawn agents from mobile, REST,
   MCP, or on a schedule; spec YAML schema; lifecycle knobs.
+- [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md) — exercise the
+  research-demo pipeline end-to-end without a GPU, using the shipped
+  `seed-demo` subcommand and `mock-trainer` CLI.
 
 ---
 
@@ -27,18 +30,18 @@ and attaches three Android APKs plus an unsigned iOS IPA.
 
 ```bash
 # From the repo root, on the branch containing the hub changes.
-git tag v1.0.47-alpha
-git push origin v1.0.47-alpha
+git tag v1.0.172-alpha
+git push origin v1.0.172-alpha
 gh run watch                      # wait for the release build
-gh release view v1.0.47-alpha     # grab the asset URLs
+gh release view v1.0.172-alpha     # grab the asset URLs
 ```
 
 Assets:
 
-- `termipod-v1.0.47-alpha-arm64-v8a.apk`   ← modern phones
-- `termipod-v1.0.47-alpha-armeabi-v7a.apk` ← older 32-bit ARM
-- `termipod-v1.0.47-alpha-x86_64.apk`      ← emulator / ChromeOS
-- `termipod-v1.0.47-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
+- `termipod-v1.0.172-alpha-arm64-v8a.apk`   ← modern phones
+- `termipod-v1.0.172-alpha-armeabi-v7a.apk` ← older 32-bit ARM
+- `termipod-v1.0.172-alpha-x86_64.apk`      ← emulator / ChromeOS
+- `termipod-v1.0.172-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
 
 ### Sideload on Android
 
@@ -337,6 +340,40 @@ config (currently empty).
 
 Migrations run on start. Data root layout is stable — no dump/restore
 needed between alpha builds so far.
+
+**Notable changes since v1.0.54-alpha** (the previous release tag) —
+no breaking changes to the install flow above, just new surfaces to
+try:
+
+- **`seed-demo` subcommand** (v1.0.169) — `hub-server seed-demo --data
+  <root>` inserts a ready-to-browse `ablation-sweep-demo` project so
+  the mobile UI has something to render without running real agents.
+  Idempotent.
+- **`mock-trainer` CLI** (v1.0.170) — `hub/cmd/mock-trainer` writes
+  trackio SQLite or wandb-offline JSONL files for dress-rehearsing
+  the host-runner → digest → mobile sparkline path. See
+  [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md).
+- **Activity timeline** (v1.0.49 / audit log, extended v1.0.166–167)
+  — mutations across runs, documents, reviews, projects, and
+  channels now emit `audit_events` rows. `MCP get_audit` tool lets
+  an agent surface the timeline.
+- **MCP tool surface expansion** (v1.0.153–156) — `schedules.*`,
+  `tasks.*`, `channels.create`, `projects.update`,
+  `hosts.update_ssh_hint`. Lets a steward agent drive the full
+  research-demo loop end-to-end.
+- **Metric-digest pollers** (v1.0.14+) — host-runner reads trackio
+  SQLite / wandb-offline JSONL / TensorBoard tfevents and PUTs ≤100
+  -point digests to the hub. Per-vendor flags on host-runner; see
+  [`hub-host-setup.md`](hub-host-setup.md) §"Enabling the … poller".
+- **A2A relay + tunnel** (v1.0.157) — NAT'd GPU hosts advertise
+  agent-cards via the hub relay, tunneled over a long-poll
+  connection. Add `-public-url` to `hub-server serve` on the
+  nginx/VPS side; add `--a2a-addr` + `--a2a-public-url` on
+  host-runner.
+- **Project templates as data** (v1.0.158–161) — first-party
+  templates (ablation-sweep, write-memo, benchmark-comparison,
+  reproduce-paper) seed automatically on first init. Existing data
+  roots pick them up via `INSERT OR IGNORE` on next start.
 
 ### Rotating a token
 

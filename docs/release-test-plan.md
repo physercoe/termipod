@@ -5,14 +5,16 @@ surfaces. Update in place when behavior changes; the version header at
 the top of each section pins the last release the step was verified
 against.
 
-**Latest verified release: v1.0.49-alpha** (audit log + Phase 1–3
-Observability layered on top of the Inbox / 4-tab Hub reorg).
+**Latest verified release: v1.0.172-alpha** (seed-demo + mock-trainer
+dress-rehearsal harness on top of the v1.0.49 Observability reorg).
 
 Pair this with:
 
 - [`hub-mobile-test.md`](hub-mobile-test.md) — hub server install
 - [`hub-host-setup.md`](hub-host-setup.md) — host-runner install
 - [`hub-agents.md`](hub-agents.md) — agent spawn spec YAML
+- [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md) — no-GPU
+  end-to-end walkthrough (fresh Ubuntu box, known hub URL)
 
 ---
 

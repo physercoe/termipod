@@ -169,7 +169,11 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 		if ev.Seq > loop.lastSeq {
 			loop.lastSeq = ev.Seq
 		}
-		if ev.Producer != "user" {
+		// Dispatch both user-originated and a2a-originated input to the
+		// driver — the hub stamps the producer column so the audit trail
+		// preserves the origin, but at the driver layer both paths are
+		// equivalent "something external wants the agent to act."
+		if ev.Producer != "user" && ev.Producer != "a2a" {
 			continue
 		}
 		if !strings.HasPrefix(ev.Kind, "input.") {

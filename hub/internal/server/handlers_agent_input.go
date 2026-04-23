@@ -14,6 +14,12 @@ import (
 
 type agentInputIn struct {
 	Kind string `json:"kind"`
+	// Producer overrides the default "user" attribution stamped on the
+	// agent_events row. Today the only non-default caller is the A2A
+	// dispatcher, which passes "a2a" so peer-originated input is
+	// distinguishable in the audit trail. Unknown values are rejected to
+	// keep the vocabulary small. Empty defaults to "user".
+	Producer string `json:"producer,omitempty"`
 	// text
 	Body string `json:"body,omitempty"`
 	// approval
@@ -90,6 +96,20 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Producer defaults to "user" to preserve legacy callers; the only
+	// accepted override today is "a2a" so the audit trail can tell peer
+	// submissions apart from phone/web input.
+	producer := "user"
+	switch in.Producer {
+	case "", "user":
+		producer = "user"
+	case "a2a":
+		producer = "a2a"
+	default:
+		writeErr(w, http.StatusBadRequest, "producer must be user|a2a")
+		return
+	}
+
 	ok, err := s.agentBelongsToTeam(r, team, agent)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -115,10 +135,10 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	// serializes writes and UNIQUE(agent_id, seq) backstops any race.
 	err = s.db.QueryRowContext(r.Context(), `
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, 'user', ?
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
-		id, agent, ts, kind, payload, agent).Scan(&seq)
+		id, agent, ts, kind, producer, payload, agent).Scan(&seq)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -130,7 +150,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		"seq":      seq,
 		"ts":       ts,
 		"kind":     kind,
-		"producer": "user",
+		"producer": producer,
 		"payload":  json.RawMessage(payload),
 	}
 	s.bus.Publish(agentBusKey(agent), evt)

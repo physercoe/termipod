@@ -220,6 +220,59 @@ func TestPostAgentInput_AgentNotFound(t *testing.T) {
 	}
 }
 
+// TestPostAgentInput_ProducerAttribution covers the A2A wedge: when a
+// caller sets producer="a2a" on the wire body, the persisted event row
+// must carry that value instead of the default "user". Unknown values
+// are rejected so the column vocabulary stays small.
+func TestPostAgentInput_ProducerAttribution(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	cases := []struct {
+		name     string
+		body     map[string]any
+		want     string
+		wantCode int
+	}{
+		{"default_stays_user", map[string]any{
+			"kind": "text", "body": "hi",
+		}, "user", http.StatusCreated},
+		{"explicit_user", map[string]any{
+			"kind": "text", "body": "hi", "producer": "user",
+		}, "user", http.StatusCreated},
+		{"a2a_peer", map[string]any{
+			"kind": "text", "body": "hi", "producer": "a2a",
+		}, "a2a", http.StatusCreated},
+		{"unknown_rejected", map[string]any{
+			"kind": "text", "body": "hi", "producer": "bot",
+		}, "", http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, raw := postInput(t, h, defaultTeamID, agentID, tc.body)
+			if status != tc.wantCode {
+				t.Fatalf("status = %d want %d, body=%s", status, tc.wantCode, raw)
+			}
+			if tc.wantCode != http.StatusCreated {
+				return
+			}
+			var out map[string]any
+			_ = json.Unmarshal(raw, &out)
+			var producer string
+			if err := s.db.QueryRow(
+				`SELECT producer FROM agent_events WHERE id = ?`,
+				out["id"],
+			).Scan(&producer); err != nil {
+				t.Fatalf("select row: %v", err)
+			}
+			if producer != tc.want {
+				t.Errorf("producer = %q, want %q", producer, tc.want)
+			}
+		})
+	}
+}
+
 func TestPostAgentInput_MonotonicSeq(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := newInputRouter(s)

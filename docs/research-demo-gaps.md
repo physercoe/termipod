@@ -159,7 +159,8 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   pushed. Hub gains `--public-url` / `Config.PublicURL`; falls back to
   the request Host header when unset (fine for single-host dev, brittle
   when the directory is scraped remotely).
-- P3.2b — A2A task endpoints (send / get / cancel) — **DONE v1.0.149**.
+- P3.2b — A2A task endpoints (send / get / cancel) — **DONE v1.0.149,
+  response loop closed in follow-up**.
   JSON-RPC 2.0 handler for `message/send`, `tasks/get`, `tasks/cancel`
   at the agent URL root (`POST /a2a/<agent-id>`). In-memory `TaskStore`
   keeps per-agent state with terminal-state freeze so a late completion
@@ -167,8 +168,16 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   extracts text parts from incoming messages and POSTs them to the hub's
   `/v1/teams/{team}/agents/{agent}/input` endpoint — same audit path as
   phone/web input — and the local `InputRouter` delivers them to the
-  driver. Follow-ups tracked: producer="a2a" attribution (today it
-  stamps "user") and response harvesting back into task history.
+  driver. The follow-up landed both halves of the loop: input now
+  carries `producer="a2a"` (agent_events CHECK widened to accept it,
+  migration 0015), and driver output events are tapped via an
+  `AgentEventPoster` wrapper so `producer="agent"` text chunks append to
+  task history (state `submitted` → `working`) and a
+  `lifecycle`/`phase=stopped` flips the task to `completed`. One task
+  per agent at a time; a second `message/send` while the first is live
+  cancels the prior correlation. No turn-complete signal is available
+  from all drivers, so tasks stay on `working` until the driver stops
+  or the peer issues `tasks/cancel`.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
 ### P4.4 — steward MCP tool parity — **PARTIAL v1.0.150**

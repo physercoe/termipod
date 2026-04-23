@@ -83,6 +83,14 @@ type Runner struct {
 	drivers   map[string]Driver       // keyed by agent id (P1.1)
 	worktrees map[string]WorktreeSpec // keyed by agent id
 	inputs    *InputRouter            // P1.8 — dispatches producer=user events
+	// a2aDisp owns A2A task correlation. Created in Start when A2AAddr
+	// is set so driver output events can be harvested into a2a task
+	// history. Nil disables the tap (events flow to the hub unchanged).
+	a2aDisp *a2aHubDispatcher
+	// agentPoster is the AgentEventPoster drivers are handed. When a2aDisp
+	// is non-nil this is a tap that mirrors events into the correlator;
+	// otherwise it points straight at Client.
+	agentPoster AgentEventPoster
 }
 
 func (a *Runner) defaults() {
@@ -128,6 +136,11 @@ func (a *Runner) defaults() {
 	if a.inputs == nil {
 		a.inputs = NewInputRouter(a.Client, a.Log)
 	}
+	// Default agentPoster to the raw client; Start swaps in the a2a
+	// tap if the A2A server is enabled.
+	if a.agentPoster == nil {
+		a.agentPoster = a.Client
+	}
 }
 
 // Start registers the host (if HostID is empty) and runs until ctx is done.
@@ -169,10 +182,14 @@ func (a *Runner) Start(ctx context.Context) error {
 	a.tickCommands(ctx)
 
 	if a.A2AAddr != "" {
+		// Create the dispatcher first so driver poster wrapping below
+		// can tap its OnAgentEvent for response harvesting.
+		a.a2aDisp = newA2AHubDispatcher(a.Client)
+		a.agentPoster = newA2APosterTap(a.Client, a.a2aDisp)
 		srv := &a2a.Server{
 			PublicURL:  a.A2APublicURL,
 			Source:     a.a2aSource,
-			Dispatcher: newA2AHubDispatcher(a.Client),
+			Dispatcher: a.a2aDisp,
 			Log:        a.Log,
 		}
 		addr, err := srv.Listen(ctx, a.A2AAddr)
@@ -358,7 +375,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		res, m2err := launchM2(ctx, M2LaunchConfig{
 			Spawn:    sp,
 			Launcher: a.Launcher,
-			Client:   a.Client,
+			Client:   a.agentPoster,
 		})
 		if m2err != nil {
 			a.Log.Warn("M2 launch failed; falling back to M4",
@@ -388,7 +405,7 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		drv = &PaneDriver{
 			AgentID: sp.ChildID,
 			PaneID:  pane,
-			Poster:  a.Client,
+			Poster:  a.agentPoster,
 			Log:     a.Log,
 		}
 	}

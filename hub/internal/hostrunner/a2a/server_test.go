@@ -16,7 +16,7 @@ func fixedSource(agents []AgentInfo) AgentSource {
 
 func TestAgentCardForLiveAgent(t *testing.T) {
 	s := &Server{
-		PublicURL: "http://host.example:8801",
+		PublicURL: "http://host.example:47821",
 		Source: fixedSource([]AgentInfo{
 			{ID: "ag-1", Handle: "ml-worker-1"},
 		}),
@@ -38,7 +38,7 @@ func TestAgentCardForLiveAgent(t *testing.T) {
 	if card.Name != "ml-worker-1" {
 		t.Errorf("name: got %q", card.Name)
 	}
-	if card.URL != "http://host.example:8801/a2a/ag-1" {
+	if card.URL != "http://host.example:47821/a2a/ag-1" {
 		t.Errorf("url: got %q", card.URL)
 	}
 	if len(card.Skills) == 0 || card.Skills[0].ID != "train" {

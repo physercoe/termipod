@@ -29,8 +29,8 @@
 #
 #   # (Optional) Enable A2A agent-card server. Add these lines to the env
 #   # file, then uncomment the matching flags in ExecStart below:
-#   #     A2A_ADDR=:8801
-#   #     A2A_PUBLIC_URL=https://host.example.com:8801
+#   #     A2A_ADDR=:47821
+#   #     A2A_PUBLIC_URL=https://host.example.com:47821
 #
 #   # 3. Install unit + enable the instance.
 #   sudo install -m 0644 termipod-host@.service /etc/systemd/system/
@@ -56,7 +56,7 @@ Type=simple
 User=%i
 EnvironmentFile=/etc/termipod-host/%i.env
 # Optional A2A agent-card server (blueprint §5.4). To enable: set
-# A2A_ADDR (e.g. ":8801") and A2A_PUBLIC_URL in /etc/termipod-host/%i.env,
+# A2A_ADDR (e.g. ":47821") and A2A_PUBLIC_URL in /etc/termipod-host/%i.env,
 # replace this ExecStart line with the A2A variant below, then reload +
 # restart the unit. Leave disabled if you're not running multi-host yet.
 ExecStart=/usr/local/bin/host-runner run \

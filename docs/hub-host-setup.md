@@ -236,9 +236,9 @@ so other agents can discover what each live agent on this host can do.
 Disabled by default; enable by adding two flags (or env vars in the
 systemd unit):
 
-- `--a2a-addr :8801` — bind address. `:0` picks a free port; a fixed
+- `--a2a-addr :47821` — bind address. `:0` picks a free port; a fixed
   port is easier to publish. Firewall this to peers that need it.
-- `--a2a-public-url https://host.example:8801` — the URL advertised in
+- `--a2a-public-url https://host.example:47821` — the URL advertised in
   the `url` field of each agent-card. Use this when peers reach the
   host through a reverse proxy or tunnel; otherwise the server falls
   back to the request Host header.
@@ -246,8 +246,8 @@ systemd unit):
 Verify with:
 
 ```bash
-curl -fsS http://<host>:8801/a2a/agents | jq .
-curl -fsS http://<host>:8801/a2a/<agent-id>/.well-known/agent.json | jq .
+curl -fsS http://<host>:47821/a2a/agents | jq .
+curl -fsS http://<host>:47821/a2a/<agent-id>/.well-known/agent.json | jq .
 ```
 
 The card lists skills derived from the agent handle (e.g., handles

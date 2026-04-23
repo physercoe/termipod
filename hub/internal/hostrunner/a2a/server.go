@@ -28,7 +28,7 @@ type AgentSource func(ctx context.Context) ([]AgentInfo, error)
 // (P3.2); task endpoints will be added in a follow-up wedge.
 type Server struct {
 	// PublicURL is the base URL clients use to reach this server, e.g.
-	// "http://10.0.0.5:8801". Agent-card urls are derived as
+	// "http://10.0.0.5:47821". Agent-card urls are derived as
 	// <PublicURL>/a2a/<agent-id>. When empty, the server falls back to
 	// the Host header from the incoming request.
 	PublicURL string

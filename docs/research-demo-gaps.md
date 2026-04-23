@@ -135,8 +135,15 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   Follow-ups tracked: the card `url` stored in the directory is still
   the host-runner's direct address and should be rewritten to the hub
   relay URL on publish; A2A peer auth (per-agent tokens) is still open.
-- P3.2b — A2A task endpoints (send / get / cancel) — OPEN. Now
-  unblocked; next wedge.
+- P3.2b — A2A task endpoints (send / get / cancel) — **PARTIAL v1.0.143**.
+  JSON-RPC 2.0 handler for `message/send`, `tasks/get`, `tasks/cancel`
+  at the agent URL root (`POST /a2a/<agent-id>`). In-memory `TaskStore`
+  keeps per-agent state with terminal-state freeze so a late completion
+  after a cancel can't flip state back. `Dispatcher` is an interface
+  with `NoopDispatcher` as the default. Still open: concrete
+  dispatcher that delivers the submitted message into the agent's
+  `InputRouter` (producer="a2a") and harvests the reply — lands with
+  runner integration after the parallel poller agents merge.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the

@@ -99,12 +99,15 @@ func TestListAgents(t *testing.T) {
 }
 
 func TestUnknownSubpath404(t *testing.T) {
+	// A2A v0.3 lives at /a2a/<id> (JSON-RPC root) and
+	// /a2a/<id>/.well-known/agent.json. REST-ish paths like
+	// /a2a/<id>/tasks are not part of the protocol.
 	s := &Server{Source: fixedSource([]AgentInfo{{ID: "a1", Handle: "x"}})}
 	req := httptest.NewRequest(http.MethodGet, "/a2a/a1/tasks", nil)
 	rr := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
-		t.Fatalf("status: got %d want 404 (task endpoints land later)", rr.Code)
+		t.Fatalf("status: got %d want 404", rr.Code)
 	}
 }
 

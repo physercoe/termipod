@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,8 +25,8 @@ type AgentInfo struct {
 // without cache invalidation.
 type AgentSource func(ctx context.Context) ([]AgentInfo, error)
 
-// Server is the host-runner's A2A HTTP server. It serves agent-cards today
-// (P3.2); task endpoints will be added in a follow-up wedge.
+// Server is the host-runner's A2A HTTP server. Serves agent-cards (§5.4,
+// P3.2) and A2A v0.3 JSON-RPC task endpoints (P3.2b).
 type Server struct {
 	// PublicURL is the base URL clients use to reach this server, e.g.
 	// "http://10.0.0.5:47821". Agent-card urls are derived as
@@ -36,11 +37,28 @@ type Server struct {
 	// Source lists the agents that should have cards. Required.
 	Source AgentSource
 
+	// Tasks holds per-agent task state for message/send, tasks/get,
+	// tasks/cancel. Nil defaults to a fresh in-memory store on first
+	// request so tests that only exercise the card path don't need to
+	// allocate one. Concurrent callers share the store — safe; locked
+	// internally.
+	Tasks *TaskStore
+
+	// Dispatcher hands submitted messages off to the agent runtime.
+	// Nil uses NoopDispatcher so the server stays RPC-complete even
+	// before a concrete driver is wired in. Host-runner integration is
+	// a follow-up wedge.
+	Dispatcher Dispatcher
+
 	// Log receives server-level errors. Optional; defaults to slog.Default().
 	Log *slog.Logger
 
 	// http is the underlying server set up by Listen.
 	http *http.Server
+
+	// tasksOnce guards lazy init of Tasks so Handler() is safe to call
+	// from multiple tests concurrently.
+	tasksOnce sync.Once
 }
 
 // Handler returns the HTTP mux so callers can mount it under their own
@@ -98,17 +116,25 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"agents": ids})
 }
 
-// handleAgent routes /a2a/<id>/.well-known/agent.json to the card builder.
-// Any other /a2a/<id>/... path is 404 for now; task endpoints land here.
+// handleAgent routes /a2a/<id>/... paths. Two valid tails today:
+//
+//	/a2a/<id>                       — JSON-RPC task endpoint (POST)
+//	/a2a/<id>/                      — ditto (trailing slash tolerant)
+//	/a2a/<id>/.well-known/agent.json — agent-card (GET)
+//
+// Anything else is 404.
 func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/a2a/")
 	slash := strings.Index(rest, "/")
+	var agentID, tail string
 	if slash < 0 {
-		http.NotFound(w, r)
-		return
+		// /a2a/<id> with no trailing slash — JSON-RPC endpoint.
+		agentID = rest
+		tail = ""
+	} else {
+		agentID = rest[:slash]
+		tail = rest[slash+1:]
 	}
-	agentID := rest[:slash]
-	tail := rest[slash+1:]
 	if agentID == "" {
 		http.NotFound(w, r)
 		return
@@ -117,9 +143,48 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 	switch tail {
 	case ".well-known/agent.json":
 		s.serveAgentCard(w, r, agentID)
+	case "":
+		// Before dispatching, confirm the agent exists on this host —
+		// peers should see the same 404 they'd get for a bad card URL.
+		if !s.agentExists(r.Context(), agentID) {
+			http.NotFound(w, r)
+			return
+		}
+		s.ensureTasks()
+		TaskRPCHandler(agentID, s.Tasks, s.Dispatcher, nil).ServeHTTP(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// agentExists returns true when the Source reports an agent with this id
+// on the current host. Errors are treated as "not present" — the peer
+// gets a 404 either way, and the Log catches the underlying cause.
+func (s *Server) agentExists(ctx context.Context, agentID string) bool {
+	if s.Source == nil {
+		return false
+	}
+	agents, err := s.Source(ctx)
+	if err != nil {
+		if s.Log != nil {
+			s.Log.Warn("a2a source lookup failed", "agent", agentID, "err", err)
+		}
+		return false
+	}
+	for _, a := range agents {
+		if a.ID == agentID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) ensureTasks() {
+	s.tasksOnce.Do(func() {
+		if s.Tasks == nil {
+			s.Tasks = NewTaskStore()
+		}
+	})
 }
 
 func (s *Server) serveAgentCard(w http.ResponseWriter, r *http.Request, agentID string) {

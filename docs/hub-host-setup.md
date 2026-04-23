@@ -254,6 +254,23 @@ The card lists skills derived from the agent handle (e.g., handles
 starting with `steward` advertise `plan` + `brief`, `ml-worker` /
 `worker` advertise `train`, `briefing` advertises `brief`).
 
+When `--a2a-addr` is set, the host-runner also **pushes its card set to
+the hub directory** every 30s (change-hashed, so idle hosts don't write
+needlessly):
+
+- `PUT /v1/teams/{team}/hosts/{host}/a2a/cards` — the host replaces its
+  entire card set atomically. Called by `Client.PutA2ACards`.
+- `GET /v1/teams/{team}/a2a/cards?handle=worker.ml` — steward lookup
+  across hosts. Returns `{host_id, agent_id, handle, card, registered_at}`
+  per match.
+
+This lets a steward on a different host (typically the VPS) discover
+worker agents on a GPU host by handle — necessary because typical GPU
+hosts sit behind NAT and can't be dialed directly. The card's `url`
+field stored in the directory today reflects the host-runner's own
+bind address; a reverse-tunnel relay (P3.3b) will rewrite it to
+`<hub>/a2a/relay/<host>/<agent>/...` once shipped.
+
 Task endpoints (send / get / cancel) are a follow-up wedge; only the
 discovery card is served today.
 

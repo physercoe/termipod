@@ -279,6 +279,25 @@ func (c *Client) ListAgentEvents(ctx context.Context, agentID string, sinceSeq i
 	return out, err
 }
 
+// A2ACardEntry is one row of the host's A2A directory payload. The hub
+// rewrites Card.url to point at its own /a2a/relay/... endpoint once the
+// reverse-tunnel relay lands (P3.3b); until then the card is stored
+// verbatim and consumers route by (host_id, agent_id).
+type A2ACardEntry struct {
+	AgentID string          `json:"agent_id"`
+	Handle  string          `json:"handle"`
+	Card    json.RawMessage `json:"card"`
+}
+
+// PutA2ACards replaces the host's entire card set in the hub directory.
+// Host-runner calls this on startup and whenever its live-agent list
+// changes so steward lookups by handle stay fresh.
+func (c *Client) PutA2ACards(ctx context.Context, hostID string, cards []A2ACardEntry) error {
+	return c.do(ctx, http.MethodPut,
+		fmt.Sprintf("/v1/teams/%s/hosts/%s/a2a/cards", c.Team, hostID),
+		map[string]any{"cards": cards}, nil)
+}
+
 // ---- low level ----
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

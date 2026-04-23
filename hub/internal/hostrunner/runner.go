@@ -2,7 +2,12 @@ package hostrunner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/termipod/hub/internal/hostrunner/a2a"
@@ -23,10 +28,11 @@ type Runner struct {
 	Launcher Launcher
 	Log      *slog.Logger
 
-	HeartbeatInterval time.Duration
-	PollInterval      time.Duration
-	ProbeInterval     time.Duration // 0 = 15 min
-	IdleThreshold     time.Duration // 0 = use default from NewIdleDetector
+	HeartbeatInterval    time.Duration
+	PollInterval         time.Duration
+	ProbeInterval        time.Duration // 0 = 15 min
+	IdleThreshold        time.Duration // 0 = use default from NewIdleDetector
+	A2ADirectoryInterval time.Duration // 0 = 30s; ignored if A2AAddr is empty
 
 	// StateDir, when non-empty, caches host_id after the first register so
 	// a restart skips the register round-trip. Keyed by (hub, team, name).
@@ -58,6 +64,9 @@ func (a *Runner) defaults() {
 	}
 	if a.ProbeInterval == 0 {
 		a.ProbeInterval = 15 * time.Minute
+	}
+	if a.A2ADirectoryInterval == 0 {
+		a.A2ADirectoryInterval = 30 * time.Second
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()
@@ -135,6 +144,11 @@ func (a *Runner) Start(ctx context.Context) error {
 		} else {
 			a.Log.Info("a2a server listening", "addr", addr)
 		}
+		// Publish cards to the hub directory so the steward can discover
+		// agents by handle across hosts. For NAT'd hosts the card URL we
+		// send is advisory — the hub will rewrite it to /a2a/relay/... once
+		// the reverse tunnel lands (P3.3b).
+		go a.a2aDirectoryLoop(ctx)
 	}
 
 	for {
@@ -456,4 +470,91 @@ func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
 		out = append(out, a2a.AgentInfo{ID: ag.ID, Handle: ag.Handle})
 	}
 	return out, nil
+}
+
+// a2aDirectoryLoop pushes this host's agent cards to the hub directory
+// on startup and every A2ADirectoryInterval thereafter. Change-detected
+// by payload hash so idle hosts don't generate write amplification.
+func (a *Runner) a2aDirectoryLoop(ctx context.Context) {
+	var lastHash string
+	push := func() {
+		cards, err := a.buildA2ACards(ctx)
+		if err != nil {
+			a.Log.Warn("a2a directory build failed", "err", err)
+			return
+		}
+		h := hashCards(cards)
+		if h == lastHash {
+			return
+		}
+		if err := a.Client.PutA2ACards(ctx, a.HostID, cards); err != nil {
+			a.Log.Warn("a2a directory push failed", "err", err)
+			return
+		}
+		lastHash = h
+		a.Log.Info("a2a cards published", "count", len(cards), "hash", h[:12])
+	}
+	push()
+	t := time.NewTicker(a.A2ADirectoryInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			push()
+		}
+	}
+}
+
+// buildA2ACards constructs A2A card entries for every running agent on this
+// host. The card URL uses A2APublicURL when set; otherwise it falls back to
+// the bind address, which is OK for hub-local tests and wrong for NAT'd
+// hosts — the hub-side relay will rewrite it regardless.
+func (a *Runner) buildA2ACards(ctx context.Context) ([]A2ACardEntry, error) {
+	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
+	if err != nil {
+		return nil, err
+	}
+	base := a.A2APublicURL
+	if base == "" {
+		base = "http://" + a.A2AAddr
+	}
+	base = strings.TrimRight(base, "/")
+	out := make([]A2ACardEntry, 0, len(agents))
+	for _, ag := range agents {
+		card := a2a.AgentCard{
+			ProtocolVersion:    a2a.ProtocolVersion,
+			Name:               ag.Handle,
+			URL:                fmt.Sprintf("%s/a2a/%s", base, ag.ID),
+			Version:            "1.0.0",
+			Capabilities:       a2a.Capabilities{Streaming: false},
+			DefaultInputModes:  []string{"text/plain"},
+			DefaultOutputModes: []string{"text/plain"},
+			Skills:             a2a.SkillsForHandle(ag.Handle),
+		}
+		body, err := json.Marshal(card)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, A2ACardEntry{
+			AgentID: ag.ID,
+			Handle:  ag.Handle,
+			Card:    json.RawMessage(body),
+		})
+	}
+	return out, nil
+}
+
+func hashCards(cards []A2ACardEntry) string {
+	h := sha256.New()
+	for _, c := range cards {
+		_, _ = h.Write([]byte(c.AgentID))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(c.Handle))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(c.Card)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

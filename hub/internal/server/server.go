@@ -151,8 +151,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Get("/commands", s.handleListHostCommands)
 				r.Patch("/ssh_hint", s.handleUpdateHostSSHHint)
 				r.Put("/capabilities", s.handleUpdateHostCapabilities)
+				r.Put("/a2a/cards", s.handlePutHostA2ACards)
 			})
 		})
+		r.Get("/a2a/cards", s.handleListTeamA2ACards)
 		r.Patch("/commands/{cmd}", s.handlePatchHostCommand)
 		r.Route("/agents", func(r chi.Router) {
 			r.Post("/", s.handleCreateAgent)

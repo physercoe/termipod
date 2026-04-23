@@ -101,8 +101,18 @@ MVP demo (steward on VPS, worker on GPU host). A2A is no longer deferrable.
   (commit `30ca8ce`). New `--a2a-addr` / `--a2a-public-url` flags on
   host-runner. Card at `/a2a/<agent-id>/.well-known/agent.json` per
   A2A v0.3.
-- P3.2b — A2A task endpoints (send / get / cancel) on host-runner — OPEN.
-- P3.3 — hub A2A directory (register cards) + reverse-tunnel relay — OPEN.
+- P3.3a — hub A2A directory (register cards across hosts) — **DONE v1.0.139**.
+  `PUT /v1/teams/{team}/hosts/{host}/a2a/cards` (host-runner push, replaces
+  the whole set atomically) + `GET /v1/teams/{team}/a2a/cards?handle=...`
+  (steward lookup). Host-runner pushes every 30s (change-hashed) whenever
+  `--a2a-addr` is set. Table `a2a_cards` (migration 0013).
+- P3.3b — reverse-tunnel relay on the hub — OPEN. GPU hosts are NAT'd
+  (no public IP); the hub must expose `/a2a/relay/<host>/<agent>/...` and
+  forward through an outbound persistent connection the host-runner opens.
+  Until this lands, the card `url` field stored in the directory is only
+  correct for hosts that already have a public address.
+- P3.2b — A2A task endpoints (send / get / cancel) — OPEN. Must be
+  relay-aware from day one; blocked on P3.3b.
 - P3.4 — cross-host A2A smoke (two host-runners under one hub) — OPEN.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the

@@ -150,7 +150,7 @@ for the run you're about to create.
 ```bash
 # From the worker box (or any terminal with PRINCIPAL_TOKEN):
 HOST_ID=$(curl -fsS -H "Authorization: Bearer $PRINCIPAL_TOKEN" \
-  "$HUB/v1/teams/$TEAM/hosts" | jq -r '.hosts[0].id')
+  "$HUB/v1/teams/$TEAM/hosts" | jq -r '.[0].id')
 echo "host_id = $HOST_ID"
 ```
 

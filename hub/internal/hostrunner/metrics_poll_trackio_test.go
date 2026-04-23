@@ -90,13 +90,11 @@ func TestTrackioTick_PushesDigestForMatchingRun(t *testing.T) {
 	defer srv.Close()
 
 	r := &Runner{
-		Client:           NewClient(srv.URL, "t", "default"),
-		HostID:           "host-x",
-		Log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TrackioDir:       dir,
-		TrackioMaxPoints: 100,
+		Client: NewClient(srv.URL, "t", "default"),
+		HostID: "host-x",
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	r.trackioTick(context.Background())
+	r.metricsTick(context.Background(), trackio.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -132,13 +130,11 @@ func TestTrackioTick_SkipsRunsWithoutURI(t *testing.T) {
 	defer srv.Close()
 
 	r := &Runner{
-		Client:           NewClient(srv.URL, "t", "default"),
-		HostID:           "host-x",
-		Log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TrackioDir:       dir,
-		TrackioMaxPoints: 100,
+		Client: NewClient(srv.URL, "t", "default"),
+		HostID: "host-x",
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	r.trackioTick(context.Background())
+	r.metricsTick(context.Background(), trackio.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -159,13 +155,11 @@ func TestTrackioTick_SkipsRunsWithEmptySeries(t *testing.T) {
 	defer srv.Close()
 
 	r := &Runner{
-		Client:     NewClient(srv.URL, "t", "default"),
-		HostID:     "host-x",
-		Log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TrackioDir: dir,
+		Client: NewClient(srv.URL, "t", "default"),
+		HostID: "host-x",
+		Log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
-	r.TrackioMaxPoints = 100
-	r.trackioTick(context.Background())
+	r.metricsTick(context.Background(), trackio.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()

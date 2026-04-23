@@ -113,8 +113,13 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   `google.golang.org/protobuf` or tensorflow/tensorboard deps), a
   `--tb-dir` flag, and a third 20s poll loop keyed off `tb://<run-path>`.
   All three readers feed the same digest endpoint; a host may enable
-  any combination. A shared `MetricReader` interface unifying them is
-  a follow-up refactor.
+  any combination. **v1.0.146** unifies them under a shared
+  `metrics.Reader` interface (`Scheme() string`, `Read(ctx, uri) (map[string]Series, error)`)
+  at `hub/internal/hostrunner/metrics/`. The poll loop in
+  `metrics_poll.go` has zero per-vendor branching — it lists host runs,
+  filters by `reader.Scheme() + "://"`, and PUTs digests. Downsampling
+  moved to `metrics.Downsample`. New backends just implement the two
+  methods and plug in at runner startup.
 - P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
   screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
   each returned series.

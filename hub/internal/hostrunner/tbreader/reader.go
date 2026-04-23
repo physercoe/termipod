@@ -1,24 +1,22 @@
-// Package tbreader reads scalar metric history out of a local TensorBoard
-// log directory (tfevents files) and downsamples each curve for the hub
-// digest (§6.5, P3.1).
+// Package tbreader is the metrics.Reader backend for a local
+// TensorBoard log directory (§6.5, P3.1).
 //
-// TensorBoard writers emit events.out.tfevents.<ts>.<host>.<pid>.v2 files
-// — each a TFRecord-framed stream of serialized tensorflow.Event protos.
-// A log directory is one subdirectory per run; tfevents files live
-// directly inside that subdirectory.
-//
-// The reader stays host-local so bulk time-series never leaves the GPU
-// box (blueprint §4 data-ownership law). Downsampling and the PUT happen
-// here before the digest is shipped to the hub.
+// TensorBoard writers emit events.out.tfevents.<ts>.<host>.<pid>.v2
+// files — each a TFRecord-framed stream of serialized tensorflow.Event
+// protos. A log directory is one subdirectory per run; tfevents files
+// live directly inside that subdirectory.
 //
 // We decode only the handful of protobuf fields the poller needs
 // (Event.wall_time, Event.step, Event.summary, Summary.value, Value.tag,
 // Value.simple_value, Value.tensor.float_val) — pulling in the
 // google.golang.org/protobuf runtime or the TensorFlow/TensorBoard Go
 // shims would be massively out of proportion to what we read.
+//
+// URI scheme: tb://<run-path>.
 package tbreader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -26,13 +24,34 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/termipod/hub/internal/hostrunner/metrics"
 )
 
-// Point is one sample in a metric series. Mirrors trackio.Point so the
-// downsampler shape stays consistent across reader packages.
-type Point struct {
-	Step  int64
-	Value float64
+// Scheme is the URI scheme TensorBoard runs use on runs.trackio_run_uri.
+const Scheme = "tb"
+
+// Source is the metrics.Reader for a local TensorBoard logdir rooted
+// at Root. Construct via New.
+type Source struct {
+	Root string
+}
+
+// New returns a metrics.Reader for the TensorBoard logdir under root.
+// Root is typically the operator-supplied --tb-dir value.
+func New(root string) *Source { return &Source{Root: root} }
+
+// Scheme implements metrics.Reader.
+func (s *Source) Scheme() string { return Scheme }
+
+// Read implements metrics.Reader.
+func (s *Source) Read(ctx context.Context, uri string) (map[string]metrics.Series, error) {
+	_ = ctx // context cancellation is best-effort in the file walk
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadRun(s.Root, u.RunPath)
 }
 
 // URI is a parsed tb_run_uri. The canonical form is:
@@ -40,23 +59,20 @@ type Point struct {
 //	tb://<run-path>
 //
 // where <run-path> is the relative path from the configured TensorBoard
-// root (see Runner.TensorBoardDir) to the run's log subdirectory. The
-// run-path may contain nested path segments — TensorBoard allows
-// arbitrary subdirectory nesting per run (e.g. "ablation/lr1e-4/seed0").
+// root to the run's log subdirectory. The run-path may contain nested
+// path segments (e.g. "ablation/lr1e-4/seed0").
 type URI struct {
 	RunPath string
 }
 
-// ParseURI accepts tb://<run-path> and returns the parts. Unknown
-// schemes and empty run paths are errors; the poller skips runs whose
-// URI it cannot parse rather than synthesizing defaults.
+// ParseURI accepts tb://<run-path> and returns the parts.
 func ParseURI(raw string) (URI, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return URI{}, fmt.Errorf("parse uri: %w", err)
 	}
-	if u.Scheme != "tb" {
-		return URI{}, fmt.Errorf("unsupported scheme %q, want tb://", u.Scheme)
+	if u.Scheme != Scheme {
+		return URI{}, fmt.Errorf("unsupported scheme %q, want %s://", u.Scheme, Scheme)
 	}
 	// For tb://a/b/c, url.Parse lands "a" in Host and "/b/c" in Path.
 	// Recombine into a single relative path.
@@ -74,10 +90,6 @@ func ParseURI(raw string) (URI, error) {
 	if runPath == "" {
 		return URI{}, fmt.Errorf("tb uri requires a <run-path>: %q", raw)
 	}
-	// Reject any ".." segment outright — the poller resolves this
-	// relative to --tb-dir and we don't want a crafted URI to escape
-	// that root, even transiently via normalisation. Absolute paths
-	// (leading "/") are also rejected; a run-path is always relative.
 	if strings.HasPrefix(runPath, "/") {
 		return URI{}, fmt.Errorf("tb uri run-path must be relative: %q", raw)
 	}
@@ -89,10 +101,9 @@ func ParseURI(raw string) (URI, error) {
 	return URI{RunPath: filepath.ToSlash(filepath.Clean(runPath))}, nil
 }
 
-// DefaultDir is the directory TensorBoard conventionally uses when no
-// --logdir is passed. There isn't a published cross-distro default the
-// way trackio has one, so we fall back to "" and let the operator
-// configure --tb-dir explicitly.
+// DefaultDir returns $TENSORBOARD_LOGDIR if set. There isn't a published
+// cross-distro default the way trackio has one, so callers fall back to
+// requiring --tb-dir explicitly.
 func DefaultDir() string {
 	if d := os.Getenv("TENSORBOARD_LOGDIR"); d != "" {
 		return d
@@ -106,25 +117,16 @@ func RunDir(root, runPath string) string {
 	return filepath.Join(root, filepath.FromSlash(runPath))
 }
 
-// ReadRun walks <root>/<runPath>/, finds tfevents files in lex order
-// (TB itself orders by creation via the timestamp embedded in the
-// filename, which is lex-safe), decodes each record, and accumulates
-// scalar samples keyed by Value.tag.
-//
-// The walk is non-recursive: TB convention places tfevents files
-// directly inside the run directory, and nested runs are separate
-// entries in the hub digest. Returns an empty map (not an error) when
-// the run dir doesn't exist yet — the worker may not have started
-// logging.
-//
-// Points are sorted ascending by step and deduplicated on step
-// (last-write wins) to match the trackio reader's contract.
-func ReadRun(root, runPath string) (map[string][]Point, error) {
+// ReadRun walks <root>/<runPath>/, finds tfevents files in lex order,
+// decodes each record, and accumulates scalar samples keyed by
+// Summary.Value.tag. Returns an empty map (not an error) when the run
+// dir doesn't exist yet.
+func ReadRun(root, runPath string) (map[string]metrics.Series, error) {
 	dir := RunDir(root, runPath)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return map[string][]Point{}, nil
+			return map[string]metrics.Series{}, nil
 		}
 		return nil, fmt.Errorf("read %s: %w", dir, err)
 	}
@@ -142,13 +144,10 @@ func ReadRun(root, runPath string) (map[string][]Point, error) {
 	}
 	sort.Strings(files)
 
-	series := map[string][]Point{}
+	series := map[string]metrics.Series{}
 	for _, path := range files {
 		if err := readFileInto(path, series); err != nil {
-			// A single corrupt file shouldn't blow up the poll; skip
-			// and log via the caller. Returning the error here would
-			// stall every metric in a run that happens to have one bad
-			// file alongside good ones.
+			// A single corrupt file shouldn't blow up the poll; skip.
 			continue
 		}
 	}
@@ -159,10 +158,8 @@ func ReadRun(root, runPath string) (map[string][]Point, error) {
 }
 
 // readFileInto opens one tfevents file, walks its TFRecord stream, and
-// folds every scalar into the supplied series map. Callers accumulate
-// across files (one run directory may rotate through multiple tfevents
-// files over a long training job).
-func readFileInto(path string, series map[string][]Point) error {
+// folds every scalar into the supplied series map.
+func readFileInto(path string, series map[string]metrics.Series) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -171,9 +168,6 @@ func readFileInto(path string, series map[string][]Point) error {
 
 	for payload, rerr := range Records(f) {
 		if rerr != nil {
-			// Treat truncated tail records as end-of-stream; anything
-			// else bubbles up and gets swallowed by ReadRun so one bad
-			// file doesn't kill the whole run.
 			if errors.Is(rerr, errTruncated) {
 				return nil
 			}
@@ -184,16 +178,14 @@ func readFileInto(path string, series map[string][]Point) error {
 			continue
 		}
 		for tag, v := range scalars {
-			series[tag] = append(series[tag], Point{Step: step, Value: v})
+			series[tag] = append(series[tag], metrics.Point{Step: step, Value: v})
 		}
 	}
 	return nil
 }
 
-// dedupByStep collapses duplicate steps to the last value seen. Sort is
-// stable so a tie means the later-appended sample wins — matches the
-// trackio reader exactly.
-func dedupByStep(pts []Point) []Point {
+// dedupByStep collapses duplicate steps to the last value seen.
+func dedupByStep(pts metrics.Series) metrics.Series {
 	if len(pts) == 0 {
 		return pts
 	}

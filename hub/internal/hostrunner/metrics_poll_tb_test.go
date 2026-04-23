@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/termipod/hub/internal/hostrunner/tbreader"
 )
 
 // ---- tiny tfevents encoder (test-only) ----
@@ -158,10 +160,8 @@ func TestTBTick_PushesDigestForMatchingRun(t *testing.T) {
 		Client:               NewClient(srv.URL, "t", "default"),
 		HostID:               "host-x",
 		Log:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TensorBoardDir:       dir,
-		TensorBoardMaxPoints: 100,
 	}
-	r.tbTick(context.Background())
+	r.metricsTick(context.Background(), tbreader.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -204,10 +204,8 @@ func TestTBTick_SkipsRunsWithNonTBURI(t *testing.T) {
 		Client:               NewClient(srv.URL, "t", "default"),
 		HostID:               "host-x",
 		Log:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TensorBoardDir:       dir,
-		TensorBoardMaxPoints: 100,
 	}
-	r.tbTick(context.Background())
+	r.metricsTick(context.Background(), tbreader.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -231,10 +229,8 @@ func TestTBTick_SkipsRunsWithEmptySeries(t *testing.T) {
 		Client:               NewClient(srv.URL, "t", "default"),
 		HostID:               "host-x",
 		Log:                  slog.New(slog.NewTextHandler(io.Discard, nil)),
-		TensorBoardDir:       dir,
-		TensorBoardMaxPoints: 100,
 	}
-	r.tbTick(context.Background())
+	r.metricsTick(context.Background(), tbreader.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()

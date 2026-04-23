@@ -1,9 +1,9 @@
-package trackio
+package metrics
 
 import "testing"
 
 func TestDownsample_UnderMax(t *testing.T) {
-	in := []Point{{0, 1}, {1, 2}, {2, 3}}
+	in := Series{{0, 1}, {1, 2}, {2, 3}}
 	got := Downsample(in, 10)
 	if len(got) != 3 {
 		t.Fatalf("len=%d want 3", len(got))
@@ -16,7 +16,7 @@ func TestDownsample_UnderMax(t *testing.T) {
 }
 
 func TestDownsample_ZeroMaxKeepsAll(t *testing.T) {
-	in := []Point{{0, 1}, {1, 2}, {2, 3}, {3, 4}}
+	in := Series{{0, 1}, {1, 2}, {2, 3}, {3, 4}}
 	got := Downsample(in, 0)
 	if len(got) != 4 {
 		t.Errorf("len=%d want 4 (zero max should keep all)", len(got))
@@ -24,7 +24,7 @@ func TestDownsample_ZeroMaxKeepsAll(t *testing.T) {
 }
 
 func TestDownsample_PreservesEndpoints(t *testing.T) {
-	in := make([]Point, 1000)
+	in := make(Series, 1000)
 	for i := range in {
 		in[i] = Point{Step: int64(i), Value: float64(i)}
 	}
@@ -47,7 +47,7 @@ func TestDownsample_PreservesEndpoints(t *testing.T) {
 }
 
 func TestDownsample_MaxOneReturnsLast(t *testing.T) {
-	in := []Point{{0, 1}, {5, 2}, {10, 3}}
+	in := Series{{0, 1}, {5, 2}, {10, 3}}
 	got := Downsample(in, 1)
 	if len(got) != 1 || got[0].Step != 10 {
 		t.Errorf("got %+v, want [{10, 3}]", got)

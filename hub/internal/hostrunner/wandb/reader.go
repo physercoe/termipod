@@ -1,26 +1,19 @@
-// Package wandb reads metric history out of a local wandb offline-run
-// directory and downsamples each curve for the hub digest (§6.5, P3.1).
+// Package wandb is the metrics.Reader backend for a local wandb
+// offline-run directory (§6.5, P3.1).
 //
 // wandb's offline mode writes one run directory per run under WANDB_DIR
 // (commonly ./wandb). Each run directory (e.g. `run-20260423_123456-abc123`)
-// contains a `files/wandb-history.jsonl` file. Each line is a JSON object
-// describing one logged step, typically of the form:
+// contains a `files/wandb-history.jsonl` file. Each line is a JSON
+// object describing one logged step, typically of the form:
 //
 //	{"_step": 0, "_timestamp": 1700000000, "loss": 2.5, "acc": 0.1}
 //
-// Keys starting with `_` are wandb metadata. `_step` is the authoritative
-// training step. Non-underscore scalar-numeric keys are user-logged
-// metrics — everything else (strings, nested objects, arrays for
-// histograms/images, null) is skipped silently, same as the trackio
-// reader does.
+// Keys starting with `_` are wandb metadata. `_step` is the
+// authoritative training step. Non-underscore scalar-numeric keys are
+// user-logged metrics — everything else (strings, nested objects,
+// arrays for histograms/images, null) is skipped silently.
 //
-// This package exposes the minimum surface host-runner's poller needs: a
-// URI parser, a run-directory resolver, and a ReadRun call that returns
-// every scalar series in canonical [step, value] form.
-//
-// Blueprint §4 data-ownership law: the hub never stores bulk time-series,
-// so the reader stays host-local. Downsampling happens here before we
-// PUT the digest, not on the hub.
+// URI scheme: wandb://<project>/<run-dir>.
 package wandb
 
 import (
@@ -33,44 +26,58 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/termipod/hub/internal/hostrunner/metrics"
 )
 
-// Point is one sample in a metric series. Step is the training step,
-// Value is the scalar logged against that step. Non-numeric JSON entries
-// (strings, objects, arrays) are skipped silently — they're not sparkline
-// material.
-type Point struct {
-	Step  int64
-	Value float64
+// Scheme is the URI scheme wandb runs use on runs.trackio_run_uri.
+const Scheme = "wandb"
+
+// Source is the metrics.Reader for a local wandb offline-run tree rooted
+// at Root. Construct via New; the zero value will report empty series
+// for every run (open fails silently at the file level).
+type Source struct {
+	Root string
+}
+
+// New returns a metrics.Reader for the wandb tree under root. Root is
+// typically the operator-supplied --wandb-dir value or $WANDB_DIR.
+func New(root string) *Source { return &Source{Root: root} }
+
+// Scheme implements metrics.Reader.
+func (s *Source) Scheme() string { return Scheme }
+
+// Read implements metrics.Reader.
+func (s *Source) Read(ctx context.Context, uri string) (map[string]metrics.Series, error) {
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadRun(ctx, RunHistoryPath(s.Root, u.RunDir))
 }
 
 // URI is a parsed wandb_run_uri. The canonical form is:
 //
 //	wandb://<project>/<run-dir>
 //
-// where <project> is the top-level wandb subdirectory name (typically the
-// wandb project slug) and <run-dir> is the run identifier directory name
-// (e.g. `run-20260423_123456-abc123`). The worker agent writes this
-// string onto runs.trackio_run_uri when it initialises wandb in offline
-// mode; host-runner round-trips it here.
+// where <project> is the top-level wandb subdirectory name (typically
+// the wandb project slug) and <run-dir> is the run identifier directory
+// name (e.g. `run-20260423_123456-abc123`).
 type URI struct {
 	Project string
 	RunDir  string
 }
 
 // ParseURI accepts wandb://<project>/<run-dir> and returns the parts.
-// Unknown schemes and empty components are errors — the poller skips
-// runs whose URI it cannot parse rather than synthesizing defaults.
 func ParseURI(raw string) (URI, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return URI{}, fmt.Errorf("parse uri: %w", err)
 	}
-	if u.Scheme != "wandb" {
-		return URI{}, fmt.Errorf("unsupported scheme %q, want wandb://", u.Scheme)
+	if u.Scheme != Scheme {
+		return URI{}, fmt.Errorf("unsupported scheme %q, want %s://", u.Scheme, Scheme)
 	}
 	project := u.Host
-	// u.Path starts with "/"; strip it so "/run-123" → "run-123".
 	runDir := ""
 	if len(u.Path) > 0 && u.Path[0] == '/' {
 		runDir = u.Path[1:]
@@ -83,54 +90,37 @@ func ParseURI(raw string) (URI, error) {
 	return URI{Project: project, RunDir: runDir}, nil
 }
 
-// DefaultDir returns the directory wandb uses when WANDB_DIR is unset
-// in the process environment. wandb's own default is the caller's cwd
-// (`./wandb`), which is useless from the host-runner's perspective since
-// it has no notion of the worker's cwd — prefer passing --wandb-dir
-// explicitly. Returns "" when WANDB_DIR is unset so callers can detect
-// the "no default available" case and require an explicit flag.
+// DefaultDir returns $WANDB_DIR if set. wandb's own default is the
+// caller's cwd (`./wandb`), which is useless from the host-runner's
+// perspective — prefer passing --wandb-dir explicitly. Returns "" when
+// WANDB_DIR is unset so callers can detect "no default available".
 func DefaultDir() string {
 	return os.Getenv("WANDB_DIR")
 }
 
 // RunHistoryPath returns the absolute path of the wandb-history.jsonl
-// file for a project/run-dir pair under root.
+// file for a run-dir under root.
 //
 // Layout: <root>/<run-dir>/files/wandb-history.jsonl
-//
-// Project is accepted for symmetry with the trackio reader but is not
-// part of the on-disk layout wandb offline runs use — each run-dir is
-// self-contained under the root. Callers should still pass the project
-// parsed from the URI so future layout shifts can be absorbed here
-// without touching the poller.
 func RunHistoryPath(root, runDir string) string {
 	return filepath.Join(root, runDir, "files", "wandb-history.jsonl")
 }
 
 // ReadRun loads every scalar metric series for one run from the wandb
-// offline-mode history file. The returned map is keyed by metric name
-// (every non-underscore JSON key with a numeric scalar value); values
-// are sorted ascending by step and deduplicated on step (last write
-// wins, mirroring wandb's own resume semantics).
-//
-// A run with no recorded steps returns an empty map, not an error —
-// callers should treat that as "poll again later" rather than a failure.
-// A missing history file is likewise non-fatal: the worker hasn't
-// flushed its first step yet.
-func ReadRun(ctx context.Context, historyPath string) (map[string][]Point, error) {
+// offline-mode history file. A run with no recorded steps returns an
+// empty map, not an error — callers treat that as "poll again later".
+// A missing history file is likewise non-fatal.
+func ReadRun(ctx context.Context, historyPath string) (map[string]metrics.Series, error) {
 	f, err := os.Open(historyPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			// Run dir exists but worker hasn't logged yet (or wandb layout
-			// differs). Return empty rather than bubble an error up the
-			// poll loop.
-			return map[string][]Point{}, nil
+			return map[string]metrics.Series{}, nil
 		}
 		return nil, fmt.Errorf("open %s: %w", historyPath, err)
 	}
 	defer f.Close()
 
-	series := map[string][]Point{}
+	series := map[string]metrics.Series{}
 
 	scanner := bufio.NewScanner(f)
 	// wandb lines can carry large histogram payloads — bump the buffer
@@ -139,13 +129,10 @@ func ReadRun(ctx context.Context, historyPath string) (map[string][]Point, error
 	buf := make([]byte, 0, 1<<16)
 	scanner.Buffer(buf, 1<<24) // up to 16 MiB per line
 
-	lineNo := 0
 	for scanner.Scan() {
-		// Cooperate with cancellation on long files.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		lineNo++
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -164,8 +151,8 @@ func ReadRun(ctx context.Context, historyPath string) (map[string][]Point, error
 			continue
 		}
 		for k, v := range obj {
-			// Skip wandb metadata (everything underscore-prefixed) and the
-			// step field we already consumed.
+			// Skip wandb metadata (everything underscore-prefixed) and
+			// the step field we already consumed.
 			if len(k) == 0 || k[0] == '_' {
 				continue
 			}
@@ -173,7 +160,7 @@ func ReadRun(ctx context.Context, historyPath string) (map[string][]Point, error
 			if !ok {
 				continue
 			}
-			series[k] = append(series[k], Point{Step: step, Value: f})
+			series[k] = append(series[k], metrics.Point{Step: step, Value: f})
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -186,10 +173,6 @@ func ReadRun(ctx context.Context, historyPath string) (map[string][]Point, error
 	return series, nil
 }
 
-// asFloat coerces JSON scalars to float64. json.Unmarshal into map[string]any
-// decodes numbers as float64, bools as bool; we accept only numbers and
-// finite bools (true=1, false=0). Strings / arrays / null / nested objects
-// return false.
 func asFloat(v any) (float64, bool) {
 	switch x := v.(type) {
 	case float64:
@@ -208,9 +191,6 @@ func asFloat(v any) (float64, bool) {
 	}
 }
 
-// asInt coerces a JSON scalar to int64 for the _step field. wandb writes
-// _step as an integer, but json.Unmarshal into any produces float64 — so
-// accept both shapes.
 func asInt(v any) (int64, bool) {
 	switch x := v.(type) {
 	case float64:
@@ -224,14 +204,10 @@ func asInt(v any) (int64, bool) {
 	}
 }
 
-// dedupByStep collapses duplicate steps to the last value seen. Input
-// must already be sorted by step ascending. wandb resume/rewind can
-// cause the same _step to appear more than once — take the most recent.
-func dedupByStep(pts []Point) []Point {
+func dedupByStep(pts metrics.Series) metrics.Series {
 	if len(pts) == 0 {
 		return pts
 	}
-	// Stable-sort guarantees the last duplicate wins when we rewrite.
 	sort.SliceStable(pts, func(i, j int) bool { return pts[i].Step < pts[j].Step })
 	out := pts[:0]
 	for i, p := range pts {

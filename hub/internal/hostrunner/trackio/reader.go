@@ -1,21 +1,15 @@
-// Package trackio reads metric history out of a local trackio SQLite store
-// and downsamples each curve for the hub digest (§6.5, P3.1).
+// Package trackio is the metrics.Reader backend for a local trackio
+// SQLite store (§6.5, P3.1).
 //
-// Trackio is wandb-compatible and stores one SQLite file per project under
-// TRACKIO_DIR (default ~/.cache/huggingface/trackio). Its schema — as of
-// https://huggingface.co/docs/trackio/storage_schema — keeps scalar metrics
-// in a single table:
+// Trackio is wandb-compatible and stores one SQLite file per project
+// under TRACKIO_DIR (default ~/.cache/huggingface/trackio). Its schema
+// — as of https://huggingface.co/docs/trackio/storage_schema — keeps
+// scalar metrics in a single table:
 //
 //	metrics(id INTEGER, timestamp TEXT, run_name TEXT, step INTEGER,
 //	        metrics TEXT /* JSON blob like {"loss":1.23,"acc":0.7} */)
 //
-// This package exposes the minimum surface host-runner's poller needs: a
-// URI parser, a DB-path resolver, and a ReadRun call that returns every
-// scalar series in canonical [step, value] form.
-//
-// Blueprint §4 data-ownership law: the hub never stores bulk time-series,
-// so the reader stays host-local. Downsampling happens here before we
-// PUT the digest, not on the hub.
+// URI scheme: trackio://<project>/<run_name>.
 package trackio
 
 import (
@@ -29,17 +23,38 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/termipod/hub/internal/hostrunner/metrics"
+
 	// modernc.org/sqlite is CGO-free and already pulled in by the hub.
 	_ "modernc.org/sqlite"
 )
 
-// Point is one sample in a metric series. Step is the training step,
-// Value is the scalar logged against that step. Non-numeric JSON entries
-// (strings, objects, arrays) are skipped silently — they're not sparkline
-// material.
-type Point struct {
-	Step  int64
-	Value float64
+// Scheme is the URI scheme trackio runs use on runs.trackio_run_uri.
+const Scheme = "trackio"
+
+// Source is the metrics.Reader for a local trackio store rooted at Root.
+// The zero value is not usable — construct via New.
+type Source struct {
+	Root string
+}
+
+// New returns a metrics.Reader for the trackio store under root. Root
+// is typically trackio.DefaultDir() or the operator-supplied
+// --trackio-dir value; passing "" produces a reader that will report
+// every run as empty (the project DB stat fails), which keeps the
+// poller silent on unconfigured hosts.
+func New(root string) *Source { return &Source{Root: root} }
+
+// Scheme implements metrics.Reader.
+func (s *Source) Scheme() string { return Scheme }
+
+// Read implements metrics.Reader.
+func (s *Source) Read(ctx context.Context, uri string) (map[string]metrics.Series, error) {
+	u, err := ParseURI(uri)
+	if err != nil {
+		return nil, err
+	}
+	return ReadRun(ctx, ProjectDBPath(s.Root, u.Project), u.RunName)
 }
 
 // URI is a parsed trackio_run_uri. The canonical form is:
@@ -61,8 +76,8 @@ func ParseURI(raw string) (URI, error) {
 	if err != nil {
 		return URI{}, fmt.Errorf("parse uri: %w", err)
 	}
-	if u.Scheme != "trackio" {
-		return URI{}, fmt.Errorf("unsupported scheme %q, want trackio://", u.Scheme)
+	if u.Scheme != Scheme {
+		return URI{}, fmt.Errorf("unsupported scheme %q, want %s://", u.Scheme, Scheme)
 	}
 	project := u.Host
 	// u.Path starts with "/"; strip it so "/run-1" → "run-1".
@@ -78,9 +93,9 @@ func ParseURI(raw string) (URI, error) {
 	return URI{Project: project, RunName: runName}, nil
 }
 
-// DefaultDir returns the directory trackio uses when TRACKIO_DIR is unset.
-// Matches the published default of ~/.cache/huggingface/trackio. Returns
-// "" when HOME is unresolvable.
+// DefaultDir returns the directory trackio uses when TRACKIO_DIR is
+// unset. Matches the published default of ~/.cache/huggingface/trackio.
+// Returns "" when HOME is unresolvable.
 func DefaultDir() string {
 	if d := os.Getenv("TRACKIO_DIR"); d != "" {
 		return d
@@ -106,12 +121,12 @@ func ProjectDBPath(root, project string) string {
 //
 // A run with no recorded steps returns an empty map, not an error —
 // callers should treat that as "poll again later" rather than a failure.
-func ReadRun(ctx context.Context, dbPath string, runName string) (map[string][]Point, error) {
+func ReadRun(ctx context.Context, dbPath string, runName string) (map[string]metrics.Series, error) {
 	if _, err := os.Stat(dbPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			// Project DB hasn't been created yet (worker hasn't logged).
 			// Return empty rather than bubble an error up the poll loop.
-			return map[string][]Point{}, nil
+			return map[string]metrics.Series{}, nil
 		}
 		return nil, fmt.Errorf("stat %s: %w", dbPath, err)
 	}
@@ -134,10 +149,10 @@ func ReadRun(ctx context.Context, dbPath string, runName string) (map[string][]P
 	}
 	defer rows.Close()
 
-	// Per-metric ordered collectors. Using slice-of-Point preserves the
+	// Per-metric ordered collectors. Using metrics.Series preserves the
 	// ORDER BY; the dedup pass at the end folds steps that were logged
 	// more than once.
-	series := map[string][]Point{}
+	series := map[string]metrics.Series{}
 	for rows.Next() {
 		var step int64
 		var payload string
@@ -154,7 +169,7 @@ func ReadRun(ctx context.Context, dbPath string, runName string) (map[string][]P
 			if !ok {
 				continue
 			}
-			series[k] = append(series[k], Point{Step: step, Value: f})
+			series[k] = append(series[k], metrics.Point{Step: step, Value: f})
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -191,7 +206,7 @@ func asFloat(v any) (float64, bool) {
 // dedupByStep collapses duplicate steps to the last value seen. Input
 // must already be sorted by step ascending. Trackio permits multiple
 // rows with the same (run_name, step) — take the most recent.
-func dedupByStep(pts []Point) []Point {
+func dedupByStep(pts metrics.Series) metrics.Series {
 	if len(pts) == 0 {
 		return pts
 	}

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/termipod/hub/internal/hostrunner/wandb"
 )
 
 // seedWandbHistory writes a minimal wandb offline-run history file under
@@ -59,10 +61,8 @@ func TestWandbTick_PushesDigestForMatchingRun(t *testing.T) {
 		Client:         NewClient(srv.URL, "t", "default"),
 		HostID:         "host-x",
 		Log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WandbDir:       dir,
-		WandbMaxPoints: 100,
 	}
-	r.wandbTick(context.Background())
+	r.metricsTick(context.Background(), wandb.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -102,10 +102,8 @@ func TestWandbTick_SkipsRunsWithoutWandbScheme(t *testing.T) {
 		Client:         NewClient(srv.URL, "t", "default"),
 		HostID:         "host-x",
 		Log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WandbDir:       dir,
-		WandbMaxPoints: 100,
 	}
-	r.wandbTick(context.Background())
+	r.metricsTick(context.Background(), wandb.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -129,10 +127,8 @@ func TestWandbTick_SkipsRunsWithEmptySeries(t *testing.T) {
 		Client:         NewClient(srv.URL, "t", "default"),
 		HostID:         "host-x",
 		Log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WandbDir:       dir,
-		WandbMaxPoints: 100,
 	}
-	r.wandbTick(context.Background())
+	r.metricsTick(context.Background(), wandb.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()
@@ -166,10 +162,8 @@ func TestWandbTick_DownsamplesToMaxPoints(t *testing.T) {
 		Client:         NewClient(srv.URL, "t", "default"),
 		HostID:         "host-x",
 		Log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-		WandbDir:       dir,
-		WandbMaxPoints: 100,
 	}
-	r.wandbTick(context.Background())
+	r.metricsTick(context.Background(), wandb.New(dir), 100)
 
 	fake.mu.Lock()
 	defer fake.mu.Unlock()

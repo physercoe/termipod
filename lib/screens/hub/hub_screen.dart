@@ -1666,10 +1666,10 @@ void _openAgentDetail(BuildContext context, Map<String, dynamic> agent) {
   );
 }
 
-// Retained for Wedge 2 (unified Hosts screen) — unreferenced in Wedge 1
-// since _HostsTab was removed when hosts moved to a top-level tab.
-// ignore: unused_element
-void _openHostDetail(BuildContext context, Map<String, dynamic> host) {
+/// Opens the team-host detail sheet. Exposed so the unified Hosts tab
+/// (lib/screens/hosts/hosts_screen.dart, Wedge 2) can reach the same sheet
+/// without duplicating the bind/unbind/enter-pane flow.
+void openHostDetail(BuildContext context, Map<String, dynamic> host) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

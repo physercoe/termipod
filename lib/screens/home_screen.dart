@@ -9,7 +9,7 @@ import '../services/ssh/ssh_client.dart';
 import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
-import 'connections/connections_screen.dart';
+import 'hosts/hosts_screen.dart';
 import 'inbox/inbox_screen.dart';
 import 'hub/activity_screen.dart';
 import 'hub/hub_screen.dart';
@@ -22,8 +22,8 @@ import 'terminal/terminal_screen.dart';
 ///   0 = Projects (was "Hub")
 ///   1 = Activity (new; was "Vault")
 ///   2 = Me (default; was "Inbox")  — center, big button
-///   3 = Hosts (was "Servers"; renders ConnectionsScreen for now — Wedge 2
-///              unifies team hosts into this list)
+///   3 = Hosts (unified list: local SSH bookmarks ∪ hub-registered hosts,
+///              joined on the hostBindings map; §5 of the IA doc)
 ///   4 = Settings
 class CurrentTabNotifier extends Notifier<int> {
   @override
@@ -55,7 +55,7 @@ class HomeScreen extends ConsumerWidget {
           HubScreen(),          // 0: Projects (HubScreen now shows only projects sub-tabs)
           ActivityScreen(),     // 1: Activity (audit feed promoted)
           InboxScreen(),        // 2: Me (center, default)
-          ConnectionsScreen(),  // 3: Hosts (still just SSH bookmarks; Wedge 2 merges team hosts)
+          HostsScreen(),        // 3: Hosts (team ∪ personal, merged on hostBindings)
           SettingsScreen(),     // 4: Settings
         ],
       ),

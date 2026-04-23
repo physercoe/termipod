@@ -205,12 +205,20 @@ flutter build ios --release
 
 ## ロードマップ
 
-- ハイブリッド xterm モード — PTY ストリーム描画と tmux セッションナビゲーションの統合
-- Mosh 対応 — UDP トランスポートと IP ローミング、不安定なモバイル回線で最強
-- エージェント出力監視 — Notify タブを再設計し、Claude Code / Codex のペイン出力からプロンプトや失敗・完了パターンを検出
-- ローカルエコー — 低遅延接続のための予測文字表示
-- カーソル整列 — フォントグリフ幅キャリブレーション
-- iOS TestFlight / App Store 配布
+TermiPod の MVP は `docs/blueprint.md` §9 Phase 4 の**リサーチデモ**です：
+ユーザーが方針（directive）を書く → スチュワードが分解 → 複数ホストで runs が実行 →
+ブリーフィングエージェントが夜間にまとめ → 朝スマホでレビュー。ロードマップはこのデモ
+を基準に追跡しています。shipped の P0–P2 は上記の機能一覧に統合済み。
+
+- **ビルトイン プロジェクトテンプレート** (P4.1) — "reproduce paper" / "ablation sweep" / "write memo" / "benchmark comparison" をシードし、どの環境でも具体的な directive の入口が揃う
+- **スチュワード分解レシピ** (P4.2) — `project.goal` とテンプレートの plan outline を読み、plan を instantiate してステップごとにワーカーを spawn する具体的プロンプト
+- **ブリーフィング エージェント + 夜間スケジュール** (P4.3) — プロジェクトの runs を毎晩ドキュメントに要約するエージェントテンプレートと cron
+- **Trackio メトリクス統合** (P3.1) — host-runner が wandb/trackio HTTP を読み、runs に学習カーブがインラインで並ぶ
+- **ホスト間 A2A リレー** (P3.2–3.4) — host-runner の A2A サーバー + hub のディレクトリ / 逆トンネルリレー。異なるホスト上のエージェントが相互呼び出し可能に
+- **iOS TestFlight / App Store 配布** — デモのフォン側に署名ビルドが要る
+
+ギャップの最新状況は [docs/research-demo-gaps.md](docs/research-demo-gaps.md)、
+全体フェーズ計画は [docs/blueprint.md](docs/blueprint.md) §9 を参照。
 
 ---
 

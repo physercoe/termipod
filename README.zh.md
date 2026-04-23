@@ -202,12 +202,20 @@ flutter build ios --release
 
 ## 路线图
 
-- 混合 xterm 模式 — 将 PTY 流渲染与 tmux 会话导航结合
-- Mosh 支持 — UDP 传输与 IP 漫游，移动弱网场景的最佳选择
-- AI 代理输出监控 — 重新设计 Notify 标签页，监听 Claude Code / Codex 窗格中的提示、失败与完成模式
-- 本地回显 — 预测性字符显示，低延迟输入体验
-- 光标对齐 — 基于字体字形宽度校准
-- iOS TestFlight / App Store 分发
+TermiPod 的 MVP 是 `docs/blueprint.md` §9 Phase 4 的**研究 Demo**：
+用户写下 directive → Steward 进行分解 → 代理队伍跨主机执行 runs →
+Briefing 代理在夜间汇总 → 用户在手机上评审。路线图围绕该 Demo 跟踪；
+已发布的 P0–P2 已并入上方功能列表。
+
+- **内置项目模板** (P4.1) — 种子化 "reproduce paper" / "ablation sweep" / "write memo" / "benchmark comparison"，让每个安装都有具体的 directive 入口
+- **Steward 分解 Recipe** (P4.2) — 具体提示词：读取 `project.goal` + 模板 plan 大纲，调用 plan.instantiate，按步骤 spawn 工人
+- **Briefing 代理 + 夜间 schedule** (P4.3) — 代理模板 + cron，每晚把项目的 runs 汇总为可评审文档
+- **Trackio 指标集成** (P3.1) — host-runner 消费 wandb/trackio HTTP，训练曲线内嵌到 runs 中
+- **跨主机 A2A 中继** (P3.2–3.4) — host-runner A2A 服务器 + hub 目录 + 反向隧道中继，不同主机上的代理可相互调用
+- **iOS TestFlight / App Store 分发** — Demo 的手机端需要签名构建
+
+差距状态见 [docs/research-demo-gaps.md](docs/research-demo-gaps.md)，
+完整阶段计划见 [docs/blueprint.md](docs/blueprint.md) §9。
 
 ---
 

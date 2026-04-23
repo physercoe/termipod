@@ -206,12 +206,20 @@ flutter build ios --release
 
 ## Roadmap
 
-- Hybrid xterm mode — PTY stream rendering + tmux session navigation
-- Mosh support — UDP transport with IP roaming, best-in-class for flaky mobile networks
-- Agent output monitoring — redesigned Notify tab that watches panes for patterns (prompts, failures, completion) from Claude Code / Codex
-- Local echo — predictive character display for low-latency feel
-- Cursor alignment — font glyph width calibration
-- iOS TestFlight / App Store distribution
+Termipod's MVP is the **research demo** described in `docs/blueprint.md` §9 Phase 4:
+user writes a directive → steward decomposes → fleet executes runs across hosts →
+briefing agent summarizes overnight → user reviews on phone. Roadmap is tracked
+against that demo; shipped phases (P0–P2) are folded into the feature list above.
+
+- **Built-in project templates** (P4.1) — seed "reproduce paper", "ablation sweep", "write memo", "benchmark comparison" so every install has a concrete directive on-ramp
+- **Steward decomposition recipe** (P4.2) — concrete prompt that reads `project.goal` + template plan outline, instantiates a plan, spawns workers per step
+- **Briefing agent + overnight schedule** (P4.3) — agent template + cron schedule that summarizes a project's runs into a reviewable document each night
+- **Trackio metrics integration** (P3.1) — host-runner consumes wandb/trackio HTTP so runs surface training curves inline
+- **Cross-host A2A relay** (P3.2–3.4) — host-runner A2A server + hub directory + reverse-tunnel relay so agents on different hosts can call each other
+- **iOS TestFlight / App Store distribution** — phone side of the demo needs signed builds
+
+See [docs/research-demo-gaps.md](docs/research-demo-gaps.md) for the live gap list
+and [docs/blueprint.md](docs/blueprint.md) §9 for the full phase plan.
 
 ---
 

@@ -28,13 +28,14 @@ type Runner struct {
 	Launcher Launcher
 	Log      *slog.Logger
 
-	HeartbeatInterval    time.Duration
-	PollInterval         time.Duration
-	ProbeInterval        time.Duration // 0 = 15 min
-	IdleThreshold        time.Duration // 0 = use default from NewIdleDetector
-	A2ADirectoryInterval time.Duration // 0 = 30s; ignored if A2AAddr is empty
-	TrackioPollInterval  time.Duration // 0 = 20s; ignored if TrackioDir is empty
-	WandbPollInterval    time.Duration // 0 = 20s; ignored if WandbDir is empty
+	HeartbeatInterval       time.Duration
+	PollInterval            time.Duration
+	ProbeInterval           time.Duration // 0 = 15 min
+	IdleThreshold           time.Duration // 0 = use default from NewIdleDetector
+	A2ADirectoryInterval    time.Duration // 0 = 30s; ignored if A2AAddr is empty
+	TrackioPollInterval     time.Duration // 0 = 20s; ignored if TrackioDir is empty
+	WandbPollInterval       time.Duration // 0 = 20s; ignored if WandbDir is empty
+	TensorBoardPollInterval time.Duration // 0 = 20s; ignored if TensorBoardDir is empty
 
 	// TrackioDir, when non-empty, enables the trackio metric-digest poller:
 	// the runner periodically reads each run's {project}.db under this
@@ -50,14 +51,24 @@ type Runner struct {
 	// WandbDir, when non-empty, enables the wandb offline-mode metric-
 	// digest poller: the runner periodically reads each run's
 	// files/wandb-history.jsonl under this directory, downsamples every
-	// scalar series, and PUTs the digest to the hub. Independent of the
-	// trackio poller — runs are discriminated by trackio_run_uri scheme
-	// (`wandb://` vs `trackio://`). Leave empty to disable.
+	// scalar series, and PUTs the digest to the hub. Runs are
+	// discriminated by trackio_run_uri scheme (`wandb://`).
 	WandbDir string
 
 	// WandbMaxPoints caps the per-metric sample count uploaded to the
 	// hub. 0 falls back to 100 — the blueprint default (§6.5).
 	WandbMaxPoints int
+
+	// TensorBoardDir, when non-empty, enables the TensorBoard tfevents
+	// metric-digest poller: the runner walks <TensorBoardDir>/<run-path>
+	// for each run whose trackio_run_uri is `tb://<run-path>`, parses
+	// the tfevents stream directly, downsamples each scalar series, and
+	// PUTs the digest to the hub.
+	TensorBoardDir string
+
+	// TensorBoardMaxPoints caps the per-metric sample count uploaded to
+	// the hub from the TensorBoard reader. 0 falls back to 100.
+	TensorBoardMaxPoints int
 
 	// StateDir, when non-empty, caches host_id after the first register so
 	// a restart skips the register round-trip. Keyed by (hub, team, name).
@@ -104,6 +115,12 @@ func (a *Runner) defaults() {
 	}
 	if a.WandbMaxPoints == 0 {
 		a.WandbMaxPoints = 100
+	}
+	if a.TensorBoardPollInterval == 0 {
+		a.TensorBoardPollInterval = 20 * time.Second
+	}
+	if a.TensorBoardMaxPoints == 0 {
+		a.TensorBoardMaxPoints = 100
 	}
 	if a.Log == nil {
 		a.Log = slog.Default()
@@ -197,6 +214,10 @@ func (a *Runner) Start(ctx context.Context) error {
 
 	if a.WandbDir != "" {
 		go a.wandbPollLoop(ctx)
+	}
+
+	if a.TensorBoardDir != "" {
+		go a.tbPollLoop(ctx)
 	}
 
 	for {

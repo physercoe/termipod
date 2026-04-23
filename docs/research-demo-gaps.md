@@ -107,9 +107,14 @@ Schema fields `runs.trackio_host_id` and `runs.trackio_run_uri` exist, and
   `trackio://<project>/<run_name>`. **v1.0.144** ships the parallel
   wandb offline-mode reader at `hub/internal/hostrunner/wandb/`, a
   `--wandb-dir` flag, and an independent 20s poll loop keyed off the
-  `wandb://<project>/<run-dir>` URI scheme so wandb-logging workers feed
-  the same digest endpoint. A shared `MetricReader` interface is a
-  follow-up merge pass — the two readers ship fully self-contained.
+  `wandb://<project>/<run-dir>` URI scheme. **v1.0.145** ships the
+  TensorBoard tfevents reader at `hub/internal/hostrunner/tbreader/`
+  (minimal hand-rolled TFRecord + protobuf decoder, no
+  `google.golang.org/protobuf` or tensorflow/tensorboard deps), a
+  `--tb-dir` flag, and a third 20s poll loop keyed off `tb://<run-path>`.
+  All three readers feed the same digest endpoint; a host may enable
+  any combination. A shared `MetricReader` interface unifying them is
+  a follow-up refactor.
 - P3.1c — mobile sparkline UI reading the digest — OPEN. Run-detail
   screen should pull `GET /v1/teams/{team}/runs/{run}/metrics` and plot
   each returned series.

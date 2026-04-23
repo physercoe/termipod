@@ -366,6 +366,52 @@ own dashboard exactly.
 Blueprint §4 data-ownership law: the hub stores digest rows only. Bulk
 time-series never leaves the host.
 
+### Enabling the TensorBoard metric-digest poller (optional, blueprint §6.5)
+
+When workers on this host log training curves as TensorBoard tfevents
+files instead of (or in addition to) trackio, the host-runner can walk
+each run's logdir, decode the tfevents stream directly, downsample
+every scalar series, and push the same compact digest to the hub. The
+two readers are independent — a host may enable one, both, or neither.
+
+Enable by adding one flag (or env var in the systemd unit):
+
+- `--tb-dir /home/worker/tb-logs` — TensorBoard root logdir. Each run
+  lives in a subdirectory under this root (the `<run-path>`), and its
+  tfevents files (`events.out.tfevents.<ts>.<host>.<pid>.v2`) sit
+  directly inside that subdirectory. Leave empty to disable the
+  TensorBoard poller entirely.
+
+The poller ticks every 20 s:
+
+1. Lists runs via `GET /v1/teams/{team}/runs?trackio_host=<host>`
+   (shared with the trackio poller — the digest wire format doesn't
+   care which reader produced it).
+2. For each run whose `trackio_run_uri` parses as `tb://<run-path>`,
+   opens `<tb-dir>/<run-path>/`, reads every `events.out.tfevents.*`
+   file in lex order, and folds each record's scalar values into a
+   per-tag series keyed by `Summary.Value.tag`.
+3. Downsamples each series to ≤100 points per curve (uniform stride,
+   first + last preserved) and PUTs the digest to
+   `PUT /v1/teams/{team}/runs/{run}/metrics`.
+
+Both the legacy `simple_value` encoding and the newer single-element
+`DT_FLOAT` `TensorProto` scalars are read. Non-float tensors,
+histograms, images, and audio events are skipped silently — only
+sparkline-renderable scalars propagate. `sample_count`, `last_step`,
+and `last_value` come from the raw, un-downsampled series so the
+mobile headline number matches TensorBoard's own scalar panel.
+
+The TFRecord parser skips CRC verification: TensorBoard writers fsync
+on close so partial writes are vanishingly rare, and when they do
+happen the safer policy is "treat as clean EOF" rather than fail the
+whole file. A truncated trailing record simply ends iteration.
+
+The URI scheme is independent of trackio's. Workers that want to
+expose TensorBoard curves should set
+`runs.trackio_run_uri = "tb://<run-path>"` via the existing
+`POST /v1/teams/.../runs/<id>/metric_uri` endpoint.
+
 ## 5. Health: how to tell if a host is alive
 
 There are three signals, in decreasing reliability:

@@ -24,6 +24,7 @@ class AuditScreen extends ConsumerStatefulWidget {
 class _AuditScreenState extends ConsumerState<AuditScreen> {
   static const _filters = <_ActionFilter>[
     _ActionFilter('All', null),
+    _ActionFilter('Steward', null, actorHandle: 'steward'),
     _ActionFilter('Spawn', 'agent.spawn'),
     _ActionFilter('Terminate', 'agent.terminate'),
     _ActionFilter('Decide', 'attention.decide'),
@@ -60,12 +61,17 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         action: _selected.action,
         limit: 200,
       );
-      final filtered = _selected.prefix == null
-          ? rows
-          : rows.where((r) {
-              final a = (r['action'] ?? '').toString();
-              return a.startsWith(_selected.prefix!);
-            }).toList();
+      final filtered = rows.where((r) {
+        if (_selected.prefix != null) {
+          final a = (r['action'] ?? '').toString();
+          if (!a.startsWith(_selected.prefix!)) return false;
+        }
+        if (_selected.actorHandle != null) {
+          final h = (r['actor_handle'] ?? '').toString();
+          if (h != _selected.actorHandle) return false;
+        }
+        return true;
+      }).toList();
       if (mounted) {
         setState(() {
           _rows = filtered;
@@ -175,7 +181,8 @@ class _ActionFilter {
   final String label;
   final String? action;
   final String? prefix;
-  const _ActionFilter(this.label, this.action, {this.prefix});
+  final String? actorHandle;
+  const _ActionFilter(this.label, this.action, {this.prefix, this.actorHandle});
 }
 
 class _AuditRow extends StatelessWidget {

@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/steward_badge.dart';
 
 /// Single team-scope channel view. Lists existing events via REST, then
 /// subscribes to the SSE stream for live updates. A bottom composer posts
@@ -319,6 +320,7 @@ class _EventBubble extends ConsumerWidget {
                   color: DesignColors.primary,
                 ),
               ),
+              if (StewardBadge.matches(from)) const StewardBadge(),
               const Spacer(),
               Text(
                 _shortTs(ts),

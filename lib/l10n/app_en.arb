@@ -636,5 +636,15 @@
   "councilsTitle": "Councils",
   "councilsComingSoon": "Councils — multi-reviewer panels with quorum and rotation — are coming soon.",
   "stewardConfigTitle": "Steward Config",
-  "stewardConfigComingSoon": "Steward configuration (prompt, policy, escalation) is coming soon."
+  "stewardConfigComingSoon": "Steward configuration (prompt, policy, escalation) is coming soon.",
+  "stewardConfigRunning": "Steward is running",
+  "stewardConfigNotRunning": "No steward is running",
+  "stewardConfigAutonomyLabel": "Autonomy",
+  "stewardConfigBudgetLabel": "Budget cap (USD / day)",
+  "stewardConfigScopeLabel": "Scope allowlist",
+  "stewardConfigScopeHint": "project:*\nhost:gpu-*\n(one pattern per line)",
+  "stewardConfigModelLabel": "Model",
+  "stewardConfigSave": "Save",
+  "stewardConfigSaved": "Steward config saved",
+  "stewardConfigLocalOnlyNote": "Settings are stored locally for now; they will round-trip to the hub once the steward config endpoint ships."
 }

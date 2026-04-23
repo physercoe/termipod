@@ -586,5 +586,15 @@
   "councilsTitle": "评审会",
   "councilsComingSoon": "评审会（多评审员面板、法定人数和轮换）即将推出。",
   "stewardConfigTitle": "管家配置",
-  "stewardConfigComingSoon": "管家配置（提示、策略、升级）即将推出。"
+  "stewardConfigComingSoon": "管家配置（提示、策略、升级）即将推出。",
+  "stewardConfigRunning": "管家正在运行",
+  "stewardConfigNotRunning": "没有运行中的管家",
+  "stewardConfigAutonomyLabel": "自主级别",
+  "stewardConfigBudgetLabel": "预算上限（美元 / 天）",
+  "stewardConfigScopeLabel": "范围白名单",
+  "stewardConfigScopeHint": "project:*\nhost:gpu-*\n（每行一个模式）",
+  "stewardConfigModelLabel": "模型",
+  "stewardConfigSave": "保存",
+  "stewardConfigSaved": "管家配置已保存",
+  "stewardConfigLocalOnlyNote": "当前设置仅保存在本地；待管家配置接口上线后将与 hub 同步。"
 }

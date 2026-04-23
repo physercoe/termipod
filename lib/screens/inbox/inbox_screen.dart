@@ -8,6 +8,7 @@ import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
 import '../hub/project_detail_screen.dart';
 import '../hub/search_screen.dart';
@@ -221,6 +222,7 @@ class _InboxItem {
   final String? subtitle;
   final DateTime ts;
   final String? severity;
+  final String? actor;
   final Map<String, dynamic>? attention;
 
   const _InboxItem({
@@ -231,12 +233,19 @@ class _InboxItem {
     required this.ts,
     this.subtitle,
     this.severity,
+    this.actor,
     this.attention,
   });
 
   factory _InboxItem.attention(Map<String, dynamic> a) {
     final kind = (a['kind'] ?? 'attention').toString();
     final filter = _filterForAttention(kind);
+    final actor = (a['actor_handle'] ??
+            a['created_by'] ??
+            a['source'] ??
+            a['origin'] ??
+            '')
+        .toString();
     return _InboxItem(
       id: (a['id'] ?? '').toString(),
       filter: filter,
@@ -245,6 +254,7 @@ class _InboxItem {
       subtitle: (a['scope_kind'] ?? '').toString(),
       ts: _parseTs(a['created_at']?.toString()),
       severity: a['severity']?.toString(),
+      actor: actor.isEmpty ? null : actor,
       attention: a,
     );
   }
@@ -445,6 +455,8 @@ class _InboxCard extends ConsumerWidget {
                     color: _severityColor(item.severity!),
                   ),
                 ],
+                if (item.actor != null && StewardBadge.matches(item.actor!))
+                  const StewardBadge(),
                 const Spacer(),
                 Text(
                   _shortTs(item.ts),

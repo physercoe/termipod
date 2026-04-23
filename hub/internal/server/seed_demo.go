@@ -18,6 +18,69 @@ type SeedDemoResult struct {
 	ReviewID   string
 	Attention  string
 	Skipped    bool // true when the demo project already existed
+	Reset      bool // true when the prior demo rows were deleted before re-inserting
+}
+
+// ResetDemo deletes the ablation-sweep-demo project and everything
+// downstream (runs, run_metrics, documents, reviews, attention_items).
+// Safe to call when no demo exists — returns with deleted=false.
+//
+// Needed because the mock data shape evolves (new metric families, new
+// plot archetypes) but SeedDemo is skip-on-exists, so a pre-existing
+// row on a reviewer's hub masks new seed content. Reviewers call
+// `seed-demo -reset` to wipe and re-insert against the current code.
+//
+// Kept transactional: either the whole demo disappears or nothing does.
+// Runs on reviewer hubs where other real projects + team state must
+// survive — the WHERE clauses all key on project_id, never dropping
+// non-demo data.
+func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
+	if db == nil {
+		return false, fmt.Errorf("ResetDemo: nil db")
+	}
+	var projectID string
+	err = db.QueryRowContext(ctx,
+		`SELECT id FROM projects WHERE team_id = ? AND name = ?`,
+		defaultTeamID, demoProjectName).Scan(&projectID)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("look up demo project: %w", err)
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Child tables with no FK cascade back to projects (see 0006_runs,
+	// 0007_documents_reviews): clear explicitly. run_metrics does
+	// cascade from runs (0014), so deleting runs is enough.
+	steps := []struct {
+		label string
+		query string
+	}{
+		{"documents", `DELETE FROM documents WHERE project_id = ?`},
+		{"reviews", `DELETE FROM reviews WHERE project_id = ?`},
+		{"runs", `DELETE FROM runs WHERE project_id = ?`},
+		// attention_items + tasks cascade via projects.id FK, but
+		// delete explicitly so the delete plan is readable and the
+		// step list documents what the demo actually owns.
+		{"attention_items", `DELETE FROM attention_items WHERE project_id = ?`},
+		{"tasks", `DELETE FROM tasks WHERE project_id = ?`},
+		{"projects", `DELETE FROM projects WHERE id = ?`},
+	}
+	for _, s := range steps {
+		if _, err := tx.ExecContext(ctx, s.query, projectID); err != nil {
+			return false, fmt.Errorf("reset %s: %w", s.label, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // demoProjectName is the concrete (non-template) project row seed-demo
@@ -238,6 +301,21 @@ type demoCurve struct {
 //     - weights_dist/{p5,p25,p50,p75,p95} — weight-magnitude quantiles,
 //       all five overlaid so the UI sees a band thickening over training.
 //
+//   Type 4 (sparse eval metrics — points every ~N steps, not every step):
+//     - eval/{perplexity,bleu,accuracy} — three eval metrics logged at
+//       10 checkpoints across training. Visually distinct from dense
+//       curves (each tile shows ~10 vertices, not 100).
+//
+//   Type 5 (non-monotone / phase transition):
+//     - grokking/success_rate — flat near zero for the first ~60% of
+//       training, then a sharp sigmoid ramp to near 1.0. Mirrors the
+//       canonical "grokking" shape.
+//
+//   Type 6 (per-layer overlay):
+//     - grads/{layer0,layer1,layer2,layer3} — layer-wise gradient
+//       norms, four series on one tile. Early-layer grads decay
+//       faster than late-layer grads, so the lines visibly diverge.
+//
 // Same deterministic rng is shared across all curves so the seed=1
 // reproducible-demo guarantee still holds.
 func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points int) []demoCurve {
@@ -421,6 +499,105 @@ func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points in
 		}
 	}
 
+	// eval/{perplexity,bleu,accuracy}: sparse checkpoints (10 points across
+	// `iters`). Perplexity = exp(val_loss-ish); bleu drifts up from 0.05 to
+	// a plateau near 0.35; accuracy ramps with a slight per-optimizer gap.
+	// Renders as three overlaid curves with visibly few vertices — the
+	// "sparse eval" archetype every real training run produces.
+	const evalPoints = 10
+	evalStride := int64(iters / evalPoints)
+	if evalStride < 1 {
+		evalStride = 1
+	}
+	evalPplPts := make([][2]any, 0, evalPoints)
+	evalBleuPts := make([][2]any, 0, evalPoints)
+	evalAccPts := make([][2]any, 0, evalPoints)
+	var pplLast, bleuLast, accLast float64
+	accCap := 0.82
+	if optimizer == "lion" {
+		accCap = 0.86
+	}
+	if size == 384 {
+		accCap += 0.03
+	}
+	for i := 0; i < evalPoints; i++ {
+		step := int64(i) * evalStride
+		frac := float64(step) / float64(iters)
+		// Perplexity decays from ~60 towards ~8–15 depending on size/opt.
+		pplFloor := 14.0 - float64(size-128)/256.0*4.0
+		if optimizer == "lion" {
+			pplFloor -= 1.5
+		}
+		ppl := pplFloor + (60.0-pplFloor)*math.Exp(-3.0*frac) +
+			(rng.Float64()-0.5)*1.2
+		// BLEU ramps from 0.04 to ~0.3–0.38.
+		bleu := 0.04 + (0.34+(accCap-0.82)*0.1)*(1-math.Exp(-2.5*frac)) +
+			(rng.Float64()-0.5)*0.02
+		// Accuracy ramps to accCap.
+		acc := accCap*(1-math.Exp(-2.0*frac)) + (rng.Float64()-0.5)*0.015
+		evalPplPts = append(evalPplPts, [2]any{step, roundTo(ppl, 3)})
+		evalBleuPts = append(evalBleuPts, [2]any{step, roundTo(bleu, 4)})
+		evalAccPts = append(evalAccPts, [2]any{step, roundTo(acc, 4)})
+		pplLast, bleuLast, accLast = ppl, bleu, acc
+	}
+
+	// grokking/success_rate: canonical phase-transition shape. Flat at
+	// ~0.05 for the first 60% of training, then a sharp logistic ramp to
+	// ~0.95. Uses the same step grid as trainPts so it overlays cleanly.
+	grokPts := make([][2]any, len(trainPts))
+	var grokLast float64
+	// Lion "groks" ~10% earlier than adamw; 384 model groks ~5% earlier
+	// than 128 because the inductive-capacity arc favours bigger models.
+	transitionFrac := 0.62
+	if optimizer == "lion" {
+		transitionFrac -= 0.08
+	}
+	if size == 384 {
+		transitionFrac -= 0.04
+	}
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		frac := float64(step) / float64(iters)
+		// Logistic: k=25 gives a sharp jump spanning ~15% of training.
+		s := 1.0 / (1.0 + math.Exp(-25.0*(frac-transitionFrac)))
+		v := 0.04 + 0.93*s + (rng.Float64()-0.5)*0.02
+		if v < 0 {
+			v = 0
+		}
+		if v > 1 {
+			v = 1
+		}
+		grokPts[i] = [2]any{step, roundTo(v, 4)}
+		grokLast = v
+	}
+
+	// grads/{layer0..3}: per-layer gradient norms. Layer 0 (input) has
+	// the smallest grads and decays fastest; layer 3 (output) has larger
+	// grads and decays more slowly. Uses a 1/sqrt decay similar to the
+	// top-level grad_norm but scaled per layer.
+	layerScales := []float64{0.6, 1.0, 1.4, 2.0} // layer0..layer3
+	layerTaus := []float64{0.8, 1.0, 1.2, 1.5}   // layer0..layer3
+	layerPts := make([][][2]any, len(layerScales))
+	layerLasts := make([]float64, len(layerScales))
+	for k := range layerScales {
+		layerPts[k] = make([][2]any, len(trainPts))
+	}
+	for i, p := range trainPts {
+		step := p[0].(int64)
+		for k, scale := range layerScales {
+			base := scale * math.Pow(float64(step+1), -0.5*layerTaus[k])
+			if base < 0.02 {
+				base = 0.02
+			}
+			v := base + (rng.Float64()-0.5)*0.2*base
+			if v < 0.01 {
+				v = 0.01
+			}
+			layerPts[k][i] = [2]any{step, roundTo(v, 4)}
+			layerLasts[k] = v
+		}
+	}
+
 	// Final step across every curve is the same as train_loss.
 	curves := []demoCurve{
 		{"loss/train", trainPts, trainStep, trainLast},
@@ -443,6 +620,23 @@ func synthRunCurves(rng *rand.Rand, size int, optimizer string, iters, points in
 			points:    pPts[k],
 			lastStep:  trainStep,
 			lastValue: roundTo(pLast[k], 5),
+		})
+	}
+	// Sparse eval group — lastStep taken from the last point written, not
+	// trainStep, so the summary line stamps where eval actually stopped.
+	evalLastStep := int64((evalPoints - 1)) * evalStride
+	curves = append(curves,
+		demoCurve{"eval/perplexity", evalPplPts, evalLastStep, roundTo(pplLast, 3)},
+		demoCurve{"eval/bleu", evalBleuPts, evalLastStep, roundTo(bleuLast, 4)},
+		demoCurve{"eval/accuracy", evalAccPts, evalLastStep, roundTo(accLast, 4)},
+		demoCurve{"grokking/success_rate", grokPts, trainStep, roundTo(grokLast, 4)},
+	)
+	for k := range layerScales {
+		curves = append(curves, demoCurve{
+			name:      fmt.Sprintf("grads/layer%d", k),
+			points:    layerPts[k],
+			lastStep:  trainStep,
+			lastValue: roundTo(layerLasts[k], 4),
 		})
 	}
 	return curves
@@ -517,6 +711,9 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"- `smooth/{train_raw,train_ema}` — raw vs EMA-smoothed overlay\n" +
 		"- `sys/{gpu_util,gpu_mem,cpu_util}` — three system metrics (%)\n" +
 		"- `weights_dist/p{5,25,50,75,95}` — weight-magnitude percentile band\n" +
+		"- `eval/{perplexity,bleu,accuracy}` — sparse eval (10 checkpoints)\n" +
+		"- `grokking/success_rate` — phase-transition curve (flat → sharp ramp)\n" +
+		"- `grads/{layer0..3}` — per-layer gradient norms\n" +
 		"- `learning_rate`, `grad_norm` — single-series scalars\n" +
 		"- `throughput/tokens_per_sec` — single-series scalar\n\n" +
 		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +

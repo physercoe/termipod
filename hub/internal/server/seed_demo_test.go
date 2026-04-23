@@ -51,12 +51,14 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			`SELECT COUNT(*) FROM runs WHERE project_id = ? AND status = 'completed'`,
 			[]any{res.ProjectID}, 6},
 		{"run_metrics",
-			// 15 series per run × 6 runs. See synthRunCurves for the list:
+			// 23 series per run × 6 runs. See synthRunCurves for the list:
 			// loss/{train,val}, learning_rate, grad_norm,
 			// throughput/tokens_per_sec, smooth/{train_raw,train_ema},
-			// sys/{gpu_util,gpu_mem,cpu_util}, weights_dist/p{5,25,50,75,95}.
+			// sys/{gpu_util,gpu_mem,cpu_util}, weights_dist/p{5,25,50,75,95},
+			// eval/{perplexity,bleu,accuracy}, grokking/success_rate,
+			// grads/{layer0..3}.
 			`SELECT COUNT(*) FROM run_metrics WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
-			[]any{res.ProjectID}, 90},
+			[]any{res.ProjectID}, 138},
 		{"run_metrics_loss_train",
 			`SELECT COUNT(*) FROM run_metrics WHERE metric_name = 'loss/train' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 6},
@@ -109,8 +111,8 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 			actorKind, actorHandle)
 	}
 
-	// Each run_metrics row should carry a 100-point curve with a sensible
-	// last_value (monotonically-ish approaching the per-run floor).
+	// Dense curves should carry 100 points; sparse eval curves should
+	// carry 10. Min=10 (eval/*), max=100 (everything else).
 	var minPts, maxPts int
 	if err := db.QueryRowContext(ctx,
 		`SELECT MIN(sample_count), MAX(sample_count) FROM run_metrics
@@ -118,8 +120,117 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		res.ProjectID).Scan(&minPts, &maxPts); err != nil {
 		t.Fatalf("sample_count bounds: %v", err)
 	}
-	if minPts != 100 || maxPts != 100 {
-		t.Errorf("sample_count range = [%d,%d], want [100,100]", minPts, maxPts)
+	if minPts != 10 || maxPts != 100 {
+		t.Errorf("sample_count range = [%d,%d], want [10,100]", minPts, maxPts)
+	}
+
+	// Spot-check one row from each new family — if these exist at all,
+	// the metric is wired; curve shape is covered by the row counts.
+	newFamilies := []string{
+		"eval/perplexity", "eval/bleu", "eval/accuracy",
+		"grokking/success_rate",
+		"grads/layer0", "grads/layer3",
+	}
+	for _, name := range newFamilies {
+		var n int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM run_metrics
+			 WHERE metric_name = ? AND
+			       run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
+			name, res.ProjectID).Scan(&n); err != nil {
+			t.Errorf("count %s: %v", name, err)
+			continue
+		}
+		if n != 6 {
+			t.Errorf("%s present in %d runs, want 6", name, n)
+		}
+	}
+}
+
+// TestResetDemo_WipesAndAllowsReSeed covers the -reset path: seed once,
+// call ResetDemo, seed again; final state must match a single seed with
+// a fresh project id.
+func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	db, err := OpenDB(dbPath)
+	if err != nil {
+		t.Fatalf("OpenDB: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+
+	first, err := SeedDemo(ctx, db)
+	if err != nil {
+		t.Fatalf("first SeedDemo: %v", err)
+	}
+
+	deleted, err := ResetDemo(ctx, db)
+	if err != nil {
+		t.Fatalf("ResetDemo: %v", err)
+	}
+	if !deleted {
+		t.Fatalf("ResetDemo reported deleted=false after seed; want true")
+	}
+
+	// After reset: no rows should reference the old project id.
+	tables := []struct {
+		label string
+		query string
+	}{
+		{"projects", `SELECT COUNT(*) FROM projects WHERE id = ?`},
+		{"runs", `SELECT COUNT(*) FROM runs WHERE project_id = ?`},
+		{"documents", `SELECT COUNT(*) FROM documents WHERE project_id = ?`},
+		{"reviews", `SELECT COUNT(*) FROM reviews WHERE project_id = ?`},
+		{"attention_items", `SELECT COUNT(*) FROM attention_items WHERE project_id = ?`},
+		{"run_metrics (cascade)", `SELECT COUNT(*) FROM run_metrics
+			WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)`},
+	}
+	for _, c := range tables {
+		var n int
+		if err := db.QueryRowContext(ctx, c.query, first.ProjectID).Scan(&n); err != nil {
+			t.Errorf("post-reset count %s: %v", c.label, err)
+			continue
+		}
+		if n != 0 {
+			t.Errorf("post-reset %s count = %d, want 0", c.label, n)
+		}
+	}
+
+	// Second seed must succeed and mint a new project id.
+	second, err := SeedDemo(ctx, db)
+	if err != nil {
+		t.Fatalf("second SeedDemo: %v", err)
+	}
+	if second.Skipped {
+		t.Fatalf("second SeedDemo after reset reported Skipped=true; want fresh insert")
+	}
+	if second.ProjectID == first.ProjectID {
+		t.Errorf("post-reset project id = %q (same as pre-reset); want a new id",
+			second.ProjectID)
+	}
+
+	// And ResetDemo on an empty hub should no-op.
+	if _, err := ResetDemo(ctx, db); err != nil {
+		t.Fatalf("second ResetDemo: %v", err)
+	}
+	if _, err := ResetDemo(ctx, db); err != nil {
+		t.Fatalf("ResetDemo no-op after reset: %v", err)
+	}
+	emptyDeleted, err := (func() (bool, error) {
+		// run a third reset to confirm no-op semantics
+		return ResetDemo(ctx, db)
+	})()
+	if err != nil {
+		t.Fatalf("third ResetDemo: %v", err)
+	}
+	// After two resets the demo is gone; third reset should report
+	// deleted=false (nothing to wipe).
+	if emptyDeleted {
+		t.Errorf("ResetDemo on empty demo reported deleted=true; want false")
 	}
 }
 

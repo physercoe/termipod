@@ -55,15 +55,40 @@ seed-demo: inserted demo state.
 ```
 
 Re-running is a no-op (prints "project already exists (id=…)
-— nothing written").
+— nothing written"). To **refresh** after a seed-content upgrade
+(new plot families, new run shapes) pass `-reset` — it wipes the
+existing `ablation-sweep-demo` project (and its runs, metrics, docs,
+reviews, attention) and re-inserts with current code. Other projects
+on the hub are untouched:
+
+```bash
+hub-server seed-demo --data ~/hub-test -reset
+# seed-demo: reset — deleted prior demo rows.
+# seed-demo: reset + re-inserted demo state.
+#   project:    01KPX…
+```
 
 On the phone: open TermiPod → **Me** tab. The seeded decision
 ("Approve nightly sweep budget…") shows up as an attention item,
 stamped with a **StewardBadge** (authoritative since v1.0.183 —
 `actor_kind='agent'` + `actor_handle='steward'` on the row). Tap
 through → **Projects** tab → `ablation-sweep-demo` → tap each of the
-6 runs to see the synthetic loss sparkline (bigger embed + Lion
-converges lowest).
+6 runs. You should see ~10 metric tiles per run covering the dominant
+wandb/tensorboard plot archetypes (v1.0.184):
+
+- `loss/{train,val}` — multi-series overlay (val gap widens late)
+- `smooth/{train_raw,train_ema}` — raw vs EMA-smoothed overlay
+- `sys/{gpu_util,gpu_mem,cpu_util}` — three system metrics
+- `weights_dist/p{5,25,50,75,95}` — percentile band over time
+- `eval/{perplexity,bleu,accuracy}` — **sparse** eval (10 checkpoints
+  per run, visibly fewer vertices than the dense curves)
+- `grokking/success_rate` — phase-transition shape (flat → sharp ramp)
+- `grads/layer{0..3}` — per-layer gradient-norm overlay
+- `learning_rate`, `grad_norm`, `throughput/tokens_per_sec` — single
+  scalars
+
+Bigger-embed + Lion converges lowest on `loss/*`; Lion also "groks"
+~10% earlier.
 
 This covers the *review* surface. It does not exercise the host-runner
 poller — those `run_metrics` rows were written directly by seed-demo.

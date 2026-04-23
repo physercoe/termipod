@@ -266,6 +266,11 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	fs := flag.NewFlagSet("seed-demo", flag.ExitOnError)
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	reset := fs.Bool("reset", false,
+		"delete the existing ablation-sweep-demo project (and its runs, "+
+			"metrics, docs, reviews, attention) before re-inserting. Use "+
+			"when the seed content has evolved (new plot families, etc.) "+
+			"and you want to refresh a previously-seeded hub.")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -281,17 +286,39 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	}
 	defer db.Close()
 
-	res, err := server.SeedDemo(context.Background(), db)
+	ctx := context.Background()
+	var wasReset bool
+	if *reset {
+		deleted, err := server.ResetDemo(ctx, db)
+		if err != nil {
+			log.Error("seed-demo reset failed", "err", err)
+			os.Exit(1)
+		}
+		wasReset = deleted
+		if deleted {
+			fmt.Println("seed-demo: reset — deleted prior demo rows.")
+		} else {
+			fmt.Println("seed-demo: reset — no prior demo rows to delete.")
+		}
+	}
+
+	res, err := server.SeedDemo(ctx, db)
 	if err != nil {
 		log.Error("seed-demo failed", "err", err)
 		os.Exit(1)
 	}
 	if res.Skipped {
-		fmt.Printf("seed-demo: project already exists (id=%s) — nothing written.\n", res.ProjectID)
+		fmt.Printf("seed-demo: project already exists (id=%s) — nothing written. "+
+			"Pass -reset to refresh.\n", res.ProjectID)
 		return
 	}
-	fmt.Printf("seed-demo: inserted demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n",
-		res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention)
+	res.Reset = wasReset
+	action := "inserted"
+	if wasReset {
+		action = "reset + re-inserted"
+	}
+	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n",
+		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention)
 }
 
 // ---- helpers ----

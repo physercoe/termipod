@@ -30,5 +30,11 @@ default_capabilities:
 
 prompt: ml-worker.v1.md
 
+skills:
+  - id: train
+    name: train
+    description: "Run a training config and log metrics to trackio"
+    tags: [ml, training]
+
 default_channels:
   hub-meta: read

@@ -15,9 +15,13 @@ import (
 
 // AgentInfo is the minimal agent descriptor the A2A server needs to build a
 // card. The host-runner derives this from its own running-agent list.
+// Skills comes from the agent template (data-driven); when nil the card
+// advertises no skills, which is a legitimate state for an agent whose
+// template opts out or hasn't been registered yet.
 type AgentInfo struct {
 	ID     string
 	Handle string
+	Skills []Skill
 }
 
 // AgentSource returns the set of agents currently live on this host-runner.
@@ -221,7 +225,7 @@ func (s *Server) serveAgentCard(w http.ResponseWriter, r *http.Request, agentID 
 		Capabilities:       Capabilities{Streaming: false},
 		DefaultInputModes:  []string{"text/plain"},
 		DefaultOutputModes: []string{"text/plain"},
-		Skills:             SkillsForHandle(found.Handle),
+		Skills:             found.Skills,
 	}
 	writeJSON(w, http.StatusOK, card)
 }

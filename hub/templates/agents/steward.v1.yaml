@@ -30,5 +30,19 @@ default_capabilities:
 
 prompt: steward.v1.md
 
+# Advertised A2A skills. Consumed by host-runner when serving the
+# agent-card at /a2a/<id>/.well-known/agent.json. Keeping skills in the
+# template (not hardcoded in the hub) means adding a new agent kind is a
+# drop-in YAML, not a code change.
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a project goal into plan steps"
+    tags: [planning]
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
 default_channels:
   hub-meta: full

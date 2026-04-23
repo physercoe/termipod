@@ -90,6 +90,7 @@ func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn,
 type Agent2 struct {
 	ID         string `json:"id"`
 	Handle     string `json:"handle"`
+	Kind       string `json:"kind"`
 	Status     string `json:"status"`
 	HostID     string `json:"host_id"`
 	PaneID     string `json:"pane_id"`

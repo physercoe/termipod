@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -18,7 +19,11 @@ func TestAgentCardForLiveAgent(t *testing.T) {
 	s := &Server{
 		PublicURL: "http://host.example:47821",
 		Source: fixedSource([]AgentInfo{
-			{ID: "ag-1", Handle: "ml-worker-1"},
+			{
+				ID:     "ag-1",
+				Handle: "ml-worker-1",
+				Skills: []Skill{{ID: "train", Name: "train"}},
+			},
 		}),
 	}
 	req := httptest.NewRequest(http.MethodGet, "/a2a/ag-1/.well-known/agent.json", nil)
@@ -57,7 +62,14 @@ func TestAgentCardUnknownAgentIs404(t *testing.T) {
 }
 
 func TestAgentCardDerivesURLFromHostHeader(t *testing.T) {
-	s := &Server{Source: fixedSource([]AgentInfo{{ID: "a1", Handle: "steward-x"}})}
+	s := &Server{Source: fixedSource([]AgentInfo{{
+		ID:     "a1",
+		Handle: "steward-x",
+		Skills: []Skill{
+			{ID: "plan", Name: "plan"},
+			{ID: "brief", Name: "brief"},
+		},
+	}})}
 	req := httptest.NewRequest(http.MethodGet, "/a2a/a1/.well-known/agent.json", nil)
 	req.Host = "127.0.0.1:9999"
 	rr := httptest.NewRecorder()
@@ -70,7 +82,6 @@ func TestAgentCardDerivesURLFromHostHeader(t *testing.T) {
 	if card.URL != "http://127.0.0.1:9999/a2a/a1" {
 		t.Errorf("url: got %q", card.URL)
 	}
-	// steward handle -> plan + brief skills
 	if len(card.Skills) != 2 {
 		t.Errorf("skills count: got %d want 2", len(card.Skills))
 	}
@@ -145,21 +156,38 @@ func TestListenServesOverTCP(t *testing.T) {
 	_ = time.Now
 }
 
-func TestSkillsForHandle(t *testing.T) {
-	cases := []struct {
-		handle string
-		want   int
-	}{
-		{"steward-v1", 2},
-		{"ml-worker-xyz", 1},
-		{"worker-abc", 1},
-		{"briefing-42", 1},
-		{"random-agent", 0},
+// TestLoadSkillsFromFS proves the loader reads skills from YAML
+// templates rather than hardcoding per-handle — drop in a new agent
+// YAML with a distinct `template:` key and its skills show up on the
+// card without a code change.
+func TestLoadSkillsFromFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"agents/custom.v1.yaml": &fstest.MapFile{
+			Data: []byte(`template: agents.custom
+skills:
+  - id: greet
+    name: greet
+    description: "Say hello"
+    tags: [social]
+`),
+		},
+		"agents/empty.v1.yaml": &fstest.MapFile{
+			Data: []byte(`template: agents.empty
+`),
+		},
 	}
-	for _, c := range cases {
-		got := SkillsForHandle(c.handle)
-		if len(got) != c.want {
-			t.Errorf("handle=%q: got %d skills want %d", c.handle, len(got), c.want)
-		}
+	loader, err := LoadSkillsFromFS(fsys, "agents")
+	if err != nil {
+		t.Fatalf("LoadSkillsFromFS: %v", err)
+	}
+	got := loader("agents.custom")
+	if len(got) != 1 || got[0].ID != "greet" {
+		t.Errorf("custom skills: got %+v, want [greet]", got)
+	}
+	if s := loader("agents.empty"); len(s) != 0 {
+		t.Errorf("empty template skills: got %+v, want nil", s)
+	}
+	if s := loader("agents.unknown"); s != nil {
+		t.Errorf("unknown kind: got %+v, want nil", s)
 	}
 }

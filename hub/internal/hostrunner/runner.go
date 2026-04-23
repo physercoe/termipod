@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/hostrunner/tbreader"
 	"github.com/termipod/hub/internal/hostrunner/trackio"
@@ -91,6 +92,10 @@ type Runner struct {
 	// is non-nil this is a tap that mirrors events into the correlator;
 	// otherwise it points straight at Client.
 	agentPoster AgentEventPoster
+	// skillsLoader resolves an agent's template kind (e.g. "agents.steward")
+	// into the A2A skills list declared in its template YAML. Initialized
+	// in defaults() off the embedded TemplatesFS; overridable by tests.
+	skillsLoader a2a.SkillsLoader
 }
 
 func (a *Runner) defaults() {
@@ -120,6 +125,19 @@ func (a *Runner) defaults() {
 	}
 	if a.idle == nil {
 		a.idle = NewIdleDetector(a.IdleThreshold)
+	}
+	if a.skillsLoader == nil {
+		// Built-in agent templates ship with the binary via
+		// hub.TemplatesFS; LoadSkillsFromFS parses them once. A YAML-
+		// level error in one template does not fail the loader — the
+		// offending template just has no skills.
+		loader, err := a2a.LoadSkillsFromFS(hub.TemplatesFS, "templates/agents")
+		if err != nil {
+			a.Log.Warn("agent-skills loader init failed; cards will advertise no skills", "err", err)
+			a.skillsLoader = func(string) []a2a.Skill { return nil }
+		} else {
+			a.skillsLoader = loader
+		}
 	}
 	if a.panes == nil {
 		a.panes = map[string]paneState{}
@@ -527,6 +545,8 @@ func (a *Runner) stopDriver(agentID string) {
 
 // a2aSource adapts ListRunningAgents into the a2a.AgentSource callback.
 // Called once per A2A HTTP request, so agent churn surfaces immediately.
+// Skills come from the agent's template (ag.Kind → skillsLoader) so the
+// runner stays domain-agnostic; adding a new agent kind is a YAML drop.
 func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
 	agents, err := a.Client.ListRunningAgents(ctx, a.HostID)
 	if err != nil {
@@ -534,7 +554,11 @@ func (a *Runner) a2aSource(ctx context.Context) ([]a2a.AgentInfo, error) {
 	}
 	out := make([]a2a.AgentInfo, 0, len(agents))
 	for _, ag := range agents {
-		out = append(out, a2a.AgentInfo{ID: ag.ID, Handle: ag.Handle})
+		out = append(out, a2a.AgentInfo{
+			ID:     ag.ID,
+			Handle: ag.Handle,
+			Skills: a.skillsLoader(ag.Kind),
+		})
 	}
 	return out, nil
 }
@@ -598,7 +622,7 @@ func (a *Runner) buildA2ACards(ctx context.Context) ([]A2ACardEntry, error) {
 			Capabilities:       a2a.Capabilities{Streaming: false},
 			DefaultInputModes:  []string{"text/plain"},
 			DefaultOutputModes: []string{"text/plain"},
-			Skills:             a2a.SkillsForHandle(ag.Handle),
+			Skills:             a.skillsLoader(ag.Kind),
 		}
 		body, err := json.Marshal(card)
 		if err != nil {

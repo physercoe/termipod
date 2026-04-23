@@ -30,5 +30,11 @@ default_capabilities:
 
 prompt: briefing.v1.md
 
+skills:
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
 default_channels:
   hub-meta: write

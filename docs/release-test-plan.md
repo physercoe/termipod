@@ -29,6 +29,39 @@ Pair this with:
 4. A terminal on the hub box (or anywhere with the owner token) to
    seed test data via `curl`.
 
+### 0.1 No-GPU dress-rehearsal harness
+
+Two tools let you exercise the research-demo surface without
+running nanoGPT on a real GPU. Use one or both before §3+ hub
+walkthroughs.
+
+- **`hub-server seed-demo`** — writes an `ablation-sweep-demo`
+  project with 6 completed runs, a briefing memo, a pending
+  review, and one open attention item. Idempotent. Good for
+  reviewing the already-finished project UI (Project Detail →
+  Run Detail → Docs → Reviews → Inbox).
+
+  ```
+  hub-server seed-demo --data <hub-data-root>
+  ```
+
+- **`hub/cmd/mock-trainer`** — writes a real trackio SQLite or
+  wandb-offline JSONL file with a synthetic training curve. The
+  host-runner's metrics readers consume the output unchanged, so
+  polling + digest + mobile sparkline all light up. Pair with a
+  hub `POST /v1/teams/{team}/runs` whose `trackio_run_uri`
+  matches the printed URI, then point host-runner at the same
+  `--dir`.
+
+  ```
+  mock-trainer --vendor trackio --dir /tmp/trackio \
+    --project ablation-sweep-demo --run size384-lion \
+    --size 384 --optimizer lion --iters 1000
+  ```
+
+See `docs/research-demo-gaps.md` "Dress-rehearsal harness" for
+the full pipeline recipe.
+
 ---
 
 ## 1. Smoke — bottom navigation & app boot

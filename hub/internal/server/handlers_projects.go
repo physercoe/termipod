@@ -194,9 +194,25 @@ const projectSelectCols = `
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
-	rows, err := s.db.QueryContext(r.Context(), `
-		SELECT `+projectSelectCols+`
-		FROM projects WHERE team_id = ? ORDER BY created_at DESC`, team)
+
+	// is_template=true|false filters to rows usable as templates, or only
+	// concrete projects. Absent = no filter (existing behavior).
+	query := `SELECT ` + projectSelectCols + ` FROM projects WHERE team_id = ?`
+	args := []any{team}
+	if v := r.URL.Query().Get("is_template"); v != "" {
+		switch v {
+		case "true", "1":
+			query += ` AND is_template = 1`
+		case "false", "0":
+			query += ` AND (is_template IS NULL OR is_template = 0)`
+		default:
+			writeErr(w, http.StatusBadRequest, "is_template must be true|false")
+			return
+		}
+	}
+	query += ` ORDER BY created_at DESC`
+
+	rows, err := s.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

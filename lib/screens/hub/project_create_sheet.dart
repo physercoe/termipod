@@ -28,8 +28,8 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   final _docsRoot = TextEditingController();
   final _configYaml = TextEditingController();
   String _kind = 'goal';
-  String? _templateId; // steward / driver template, e.g. agents/steward.v1.yaml
-  String? _onCreateTemplateId; // template auto-fired on project create
+  String? _templateId; // FK to a projects row with is_template=1 (blueprint §6.1)
+  String? _onCreateTemplateId; // FK to a template project auto-fired on create
   bool _busy = false;
   String? _error;
 
@@ -346,7 +346,11 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
       return;
     }
     try {
-      final rows = await client.listTemplates();
+      // Per blueprint §6.1, `template_id` on a project row FKs another
+      // project row with `is_template=1`. The picker reads project rows,
+      // not YAML files under team/templates/{...}/ (those are agent /
+      // prompt / policy building-blocks, not project skeletons).
+      final rows = await client.listProjects(isTemplate: true);
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -447,8 +451,8 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            'No templates found. Add YAML/Markdown files under '
-            '`team/templates/{agents,prompts,policies}/` on the hub.',
+            'No project templates yet. Mark an existing project as a '
+            'template (is_template=true) or seed built-in ones from the hub.',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 12,
@@ -458,47 +462,18 @@ class _TemplatePickerSheetState extends ConsumerState<_TemplatePickerSheet> {
         ),
       );
     }
-    final byCat = <String, List<Map<String, dynamic>>>{};
-    for (final r in rows) {
-      final cat = (r['category'] ?? 'other').toString();
-      byCat.putIfAbsent(cat, () => []).add(r);
-    }
-    final catOrder = ['agents', 'prompts', 'policies'];
-    final sortedCats = byCat.keys.toList()
-      ..sort((a, b) {
-        final ai = catOrder.indexOf(a);
-        final bi = catOrder.indexOf(b);
-        if (ai == -1 && bi == -1) return a.compareTo(b);
-        if (ai == -1) return 1;
-        if (bi == -1) return -1;
-        return ai.compareTo(bi);
-      });
-    return ListView(
+    return ListView.builder(
       controller: controller,
-      children: [
-        for (final cat in sortedCats) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              cat.toUpperCase(),
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: DesignColors.textMuted,
-                letterSpacing: 1.1,
-              ),
-            ),
-          ),
-          for (final t in byCat[cat]!)
-            _TemplatePickRow(
-              row: t,
-              selected: widget.currentValue == '$cat/${t['name']}',
-              onTap: () =>
-                  Navigator.of(context).pop('$cat/${t['name']}'),
-            ),
-        ],
-        const SizedBox(height: 24),
-      ],
+      itemCount: rows.length,
+      itemBuilder: (_, i) {
+        final t = rows[i];
+        final id = (t['id'] ?? '').toString();
+        return _TemplatePickRow(
+          row: t,
+          selected: widget.currentValue == id,
+          onTap: () => Navigator.of(context).pop(id),
+        );
+      },
     );
   }
 }
@@ -515,19 +490,24 @@ class _TemplatePickRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final name = (row['name'] ?? '').toString();
+    final goal = (row['goal'] ?? '').toString();
+    final kind = (row['kind'] ?? '').toString();
     return ListTile(
       dense: true,
       leading: Icon(
-        selected ? Icons.check_circle : Icons.insert_drive_file_outlined,
+        selected ? Icons.check_circle : Icons.folder_special_outlined,
         color: selected ? DesignColors.success : null,
         size: 18,
       ),
       title: Text(
-        (row['name'] ?? '').toString(),
+        name,
         style: GoogleFonts.jetBrainsMono(fontSize: 13),
       ),
       subtitle: Text(
-        '${row['size'] ?? 0} bytes',
+        goal.isNotEmpty ? goal : kind,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
         style: GoogleFonts.jetBrainsMono(
           fontSize: 10,
           color: DesignColors.textMuted,

@@ -168,8 +168,13 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listSpawns() =>
       _listJson('/v1/teams/${cfg.teamId}/agents/spawns');
 
-  Future<List<Map<String, dynamic>>> listProjects() =>
-      _listJson('/v1/teams/${cfg.teamId}/projects');
+  Future<List<Map<String, dynamic>>> listProjects({bool? isTemplate}) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/projects',
+        query: isTemplate == null
+            ? null
+            : {'is_template': isTemplate ? 'true' : 'false'},
+      );
 
   Future<List<Map<String, dynamic>>> listChannels(String projectId) =>
       _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/channels');

@@ -148,6 +148,36 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'new') _openCreate();
+              if (v == 'refresh') _load();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'new',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add, size: 20),
+                  title: Text('New schedule'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'refresh',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.refresh, size: 20),
+                  title: Text('Refresh'),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: _loading && _rows == null
           ? const Center(child: CircularProgressIndicator())
@@ -182,27 +212,58 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
                   onRefresh: _load,
                   child: _buildList(),
                 ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'schedules-fab',
-        onPressed: _openCreate,
-        icon: const Icon(Icons.add),
-        label: const Text('New'),
-      ),
     );
+  }
+
+  // Summary header: how many schedules are enabled and when the next
+  // firing lands. Lead with status so the screen reads as a monitoring
+  // surface first and an authoring surface second.
+  String _buildSummary(List<Map<String, dynamic>> rows) {
+    if (rows.isEmpty) return '';
+    final enabled = rows.where((r) => r['enabled'] == true).length;
+    final now = DateTime.now();
+    DateTime? nextDt;
+    for (final r in rows) {
+      if (r['enabled'] != true) continue;
+      final iso = (r['next_run_at'] ?? '').toString();
+      if (iso.isEmpty) continue;
+      final dt = DateTime.tryParse(iso);
+      if (dt == null || dt.isBefore(now)) continue;
+      if (nextDt == null || dt.isBefore(nextDt)) nextDt = dt;
+    }
+    final parts = <String>['$enabled of ${rows.length} enabled'];
+    if (nextDt != null) {
+      parts.add('next fires ${_fmtRel(nextDt.toIso8601String())}');
+    }
+    return parts.join(' · ');
   }
 
   Widget _buildList() {
     final rows = _rows ?? const <Map<String, dynamic>>[];
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final summary = _buildSummary(rows);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
       children: [
+        if (summary.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12, top: 4),
+            child: Text(
+              summary,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: isDark
+                    ? DesignColors.textSecondary
+                    : DesignColors.textSecondaryLight,
+              ),
+            ),
+          ),
         if (rows.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 48),
             child: Center(
               child: Text(
-                'No schedules yet. Tap + to create one.',
+                'No schedules yet. Use the menu to create one.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,

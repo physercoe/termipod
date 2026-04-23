@@ -1497,7 +1497,9 @@ class _ProjectsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final body = items.isEmpty
-        ? const _EmptyText(text: 'No projects yet — tap + to create one')
+        ? const _EmptyText(
+            text: 'No projects yet — use the + button or ask the steward '
+                'to create one via #hub-meta')
         : RefreshIndicator(
             onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
             child: ListView.separated(
@@ -1522,12 +1524,16 @@ class _ProjectsTab extends ConsumerWidget {
     return Stack(
       children: [
         Positioned.fill(child: body),
+        // FAB kept but demoted to `.small` — under the steward-CEO model
+        // projects land via the steward responding on #hub-meta, so the
+        // manual path is a fallback rather than the primary action.
         Positioned(
           right: 16,
           bottom: 16,
-          child: FloatingActionButton(
+          child: FloatingActionButton.small(
             heroTag: 'hub-projects-fab',
             onPressed: () => _openCreateSheet(context, ref),
+            tooltip: 'New project',
             child: const Icon(Icons.add),
           ),
         ),

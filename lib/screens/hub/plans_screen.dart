@@ -21,8 +21,19 @@ class PlansScreen extends ConsumerStatefulWidget {
 // Filter chips for the status row. `null` means "all statuses". The
 // server accepts any subset of the lifecycle values; we don't hard-code
 // the full list — uncommon ones still show under "all" so nothing is
-// hidden accidentally.
+// hidden accidentally. `_activeFilter` is a synthetic entry: the hub
+// doesn't know about it, so we fetch everything and filter client-side
+// to the non-terminal lifecycle states.
+const _activeFilter = 'active';
+const _activeStatuses = <String>{
+  'draft',
+  'ready',
+  'running',
+  'pending',
+  'proposed',
+};
 const _statusFilters = <String?>[
+  _activeFilter,
   null,
   'draft',
   'ready',
@@ -37,7 +48,9 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
   List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
-  String? _statusFilter; // null = all
+  // Default to `_activeFilter` so the screen opens on in-flight work
+  // rather than a firehose of completed + failed history.
+  String? _statusFilter = _activeFilter;
   String? _projectFilter; // null = all
 
   @override
@@ -62,16 +75,26 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     try {
       // Server-side filter keeps the wire small. Project list is loaded
       // once so the filter sheet can render names instead of bare ids.
+      // Synthetic `active` filter is client-side — fetch without a status
+      // constraint, then cull to the non-terminal lifecycle set.
+      final serverStatus =
+          _statusFilter == _activeFilter ? null : _statusFilter;
       final results = await Future.wait([
         client.listPlans(
           projectId: _projectFilter,
-          status: _statusFilter,
+          status: serverStatus,
         ),
         if (_projects == null) client.listProjects(),
       ]);
-      final rows = results[0];
+      var rows = results[0];
       if (_projects == null && results.length > 1) {
         _projects = results[1];
+      }
+      if (_statusFilter == _activeFilter) {
+        rows = rows
+            .where((r) =>
+                _activeStatuses.contains((r['status'] ?? '').toString()))
+            .toList();
       }
       rows.sort((a, b) => (b['created_at'] ?? '')
           .toString()
@@ -155,6 +178,24 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
             tooltip: 'Refresh',
             onPressed: _loading ? null : _load,
           ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'new') _createPlan();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'new',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add, size: 20),
+                  title: Text('New plan'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -173,12 +214,6 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
           Expanded(child: _body()),
         ],
       ),
-      floatingActionButton: FloatingActionButton.small(
-        heroTag: 'plans-fab',
-        onPressed: _createPlan,
-        tooltip: 'Start a plan',
-        child: const Icon(Icons.add),
-      ),
     );
   }
 
@@ -194,7 +229,7 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
     }
     final rows = _rows ?? const [];
     if (rows.isEmpty) {
-      final filtered = _statusFilter != null || _projectFilter != null;
+      final filtered = (_statusFilter != null || _projectFilter != null);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -358,7 +393,7 @@ class _FilterBar extends StatelessWidget {
               children: [
                 for (final s in _statusFilters) ...[
                   _StatusChip(
-                    label: s ?? 'all',
+                    label: s == null ? 'all' : s,
                     selected: statusFilter == s,
                     onTap: () => onStatusSelected(s),
                   ),

@@ -79,9 +79,25 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
       if (_showProjectFilter && _projects == null && results.length > 1) {
         _projects = results[1];
       }
-      rows.sort((a, b) => (b['created_at'] ?? '')
-          .toString()
-          .compareTo((a['created_at'] ?? '').toString()));
+      // Sort by status band first — running at top (what's live now),
+      // then succeeded, then failed, then everything else. Within each
+      // band, newest first. Frames the screen as "monitor active runs"
+      // rather than a chronological feed.
+      int rank(String s) => switch (s) {
+            'running' => 0,
+            'succeeded' => 1,
+            'failed' => 2,
+            'cancelled' => 3,
+            _ => 4,
+          };
+      rows.sort((a, b) {
+        final ra = rank((a['status'] ?? '').toString());
+        final rb = rank((b['status'] ?? '').toString());
+        if (ra != rb) return ra.compareTo(rb);
+        return (b['created_at'] ?? '')
+            .toString()
+            .compareTo((a['created_at'] ?? '').toString());
+      });
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -159,6 +175,24 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
             tooltip: 'Refresh',
             onPressed: _loading ? null : _load,
           ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'new') _createRun();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'new',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add, size: 20),
+                  title: Text('New run'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -178,12 +212,6 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
           ),
           Expanded(child: _body()),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.small(
-        heroTag: 'runs-fab',
-        onPressed: _createRun,
-        tooltip: 'New run',
-        child: const Icon(Icons.add),
       ),
     );
   }

@@ -514,6 +514,16 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
     });
     try {
       final rows = await client.listTeamChannels();
+      // #hub-meta is the principal ↔ steward room — always the primary
+      // surface, so pin it to the top. Everything else sorts
+      // alphabetically so the order is stable across reloads.
+      rows.sort((a, b) {
+        final an = (a['name'] ?? '').toString();
+        final bn = (b['name'] ?? '').toString();
+        if (an == 'hub-meta') return -1;
+        if (bn == 'hub-meta') return 1;
+        return an.compareTo(bn);
+      });
       if (!mounted) return;
       setState(() {
         _rows = rows;

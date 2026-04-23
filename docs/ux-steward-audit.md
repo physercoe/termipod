@@ -83,14 +83,21 @@ Screens that technically have steward coverage but default the user
 into operator mode — lots of visible "+ New" buttons, forms-first
 layouts. Each row is a reframe suggestion, not a net-new wedge.
 
-| Screen | Reframe |
-|---|---|
-| `projects_screen.dart` | Lead with activity feed / recent tasks; demote "+ New Project" to overflow menu |
-| `plans_screen.dart` | Default to In-Progress + Pending filters; "Create Plan" as secondary |
-| `schedules_screen.dart` | Summary row: enabled schedules + next-fire countdown; "+ New" in menu |
-| `documents_screen.dart` | Sort: pending reviews → drafts → reports; "Create Doc" in menu |
-| `team_screen.dart` Channels tab | Pre-populate #hub-meta activity; defer channel-creation UI to secondary sheet |
-| `runs_screen.dart` | Sort by status (running → succeeded → failed); emphasise "Monitor active runs" mental model |
+All rows below landed in **v1.0.160** as a conservative pass: FABs
+demoted into AppBar overflow menus (where a screen had its own bar),
+sort order reshuffled to lead with in-flight work, and #hub-meta
+pinned on the team Channels tab. Activity-feed / recent-tasks
+surfacing in the projects tab is deferred — it requires new data
+wiring on top of the existing inventory view.
+
+| Screen | Reframe | Status |
+|---|---|---|
+| `projects_screen.dart` (in `hub_screen.dart`) | Lead with activity feed / recent tasks; demote "+ New Project" to overflow menu | Partial v1.0.160 (FAB shrunk to `.small`, empty-state copy updated; activity-feed surfacing deferred — needs new wiring) |
+| `plans_screen.dart` | Default to In-Progress + Pending filters; "Create Plan" as secondary | DONE v1.0.160 (synthetic `active` filter as default, FAB → AppBar menu) |
+| `schedules_screen.dart` | Summary row: enabled schedules + next-fire countdown; "+ New" in menu | DONE v1.0.160 |
+| `documents_screen.dart` | Sort: pending reviews → drafts → reports; "Create Doc" in menu | DONE v1.0.160 |
+| `team_screen.dart` Channels tab | Pre-populate #hub-meta activity; defer channel-creation UI to secondary sheet | Partial v1.0.160 (hub-meta pinned first; activity pre-population deferred) |
+| `runs_screen.dart` | Sort by status (running → succeeded → failed); emphasise "Monitor active runs" mental model | DONE v1.0.160 |
 
 ## Suggested wedge groupings
 

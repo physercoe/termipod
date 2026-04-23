@@ -52,9 +52,24 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
     }
     try {
       final rows = await client.listDocuments(projectId: widget.projectId);
-      rows.sort((a, b) => (b['created_at'] ?? '')
-          .toString()
-          .compareTo((a['created_at'] ?? '').toString()));
+      // Lead with reviews (actionable), then drafts (in-flight), then
+      // reports / memos (done). Within each band, newest first. Keeps
+      // the principal's eye on pending work, not on archives.
+      int rank(String k) => switch (k) {
+            'review' => 0,
+            'draft' => 1,
+            'report' => 2,
+            'memo' => 3,
+            _ => 4,
+          };
+      rows.sort((a, b) {
+        final ra = rank((a['kind'] ?? '').toString());
+        final rb = rank((b['kind'] ?? '').toString());
+        if (ra != rb) return ra.compareTo(rb);
+        return (b['created_at'] ?? '')
+            .toString()
+            .compareTo((a['created_at'] ?? '').toString());
+      });
       if (!mounted) return;
       setState(() {
         _rows = rows;
@@ -116,6 +131,24 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
             tooltip: 'Refresh',
             onPressed: _loading ? null : _load,
           ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'new') _createDoc();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'new',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.add, size: 20),
+                  title: Text('New document'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -127,12 +160,6 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
           ),
           Expanded(child: _body()),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.small(
-        heroTag: 'documents-fab',
-        onPressed: _createDoc,
-        tooltip: 'New document',
-        child: const Icon(Icons.add),
       ),
     );
   }

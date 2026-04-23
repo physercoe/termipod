@@ -19,7 +19,6 @@
 </p>
 
 <p align="center">
-  <a href="README.ja.md">日本語</a> &nbsp;|&nbsp;
   <a href="README.zh.md">中文</a>
 </p>
 

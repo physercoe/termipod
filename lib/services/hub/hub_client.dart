@@ -901,6 +901,18 @@ class HubClient {
         query: metric == null ? null : {'metric': metric},
       );
 
+  /// Per-project sweep summary — one row per run in this project, each
+  /// carrying {run_id, status, config_json (string), final_metrics
+  /// (map name→last value), created_at}. Feeds the cross-run scatter
+  /// panel (wandb "parallel coords" archetype) on the Project detail
+  /// screen. Avoids the N+1 fan-out that listRuns + getRunMetrics would
+  /// require.
+  Future<List<Map<String, dynamic>>> getProjectSweepSummary(
+          String projectId) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
+      );
+
   // ---- documents + reviews (blueprint §6.7, §6.8) ----
 
   Future<List<Map<String, dynamic>>> listDocuments({String? projectId}) =>

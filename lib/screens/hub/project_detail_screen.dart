@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/sweep_scatter.dart';
 import '../../widgets/team_switcher.dart';
 import 'archived_agents_screen.dart';
 import 'blobs_section.dart';
@@ -1049,6 +1050,8 @@ class _OverviewView extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
         if (projectId.isNotEmpty) ...[
+          SweepScatter(projectId: projectId),
+          const SizedBox(height: 12),
           _ShortcutTile(
             icon: Icons.science_outlined,
             label: 'Runs',

@@ -225,6 +225,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 					r.Get("/", s.handleListProjectDocs)
 					r.Get("/*", s.handleGetProjectDoc)
 				})
+				r.Get("/sweep-summary", s.handleGetProjectSweepSummary)
 			})
 		})
 		// Runs (§6.5): team-scoped; filter by project via ?project= query

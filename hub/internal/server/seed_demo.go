@@ -842,7 +842,12 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"  per run, scrubbable via the step slider\n\n" +
 		"Each run also carries a `kind='sample'` document with Shakespeare-\n" +
 		"style generations captured at checkpoints — the text-sample panel\n" +
-		"archetype.\n"
+		"archetype.\n\n" +
+		"The project Overview also carries a **Sweep compare** scatter\n" +
+		"(wandb parallel-coords archetype): each run is one point, plotted\n" +
+		"by any pair of config params or final metrics. The default axes\n" +
+		"(`n_embd` × `loss/val`, colored by `optimizer`) show the Lion-beats-\n" +
+		"AdamW story visually, at a glance.\n"
 }
 
 // buildDemoSample returns a markdown document imitating nanoGPT-Shakespeare

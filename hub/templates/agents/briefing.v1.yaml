@@ -1,0 +1,34 @@
+# Built-in briefing agent template. Copied to team/templates/agents/ on first
+# init. User edits win — subsequent init calls never overwrite.
+#
+# The briefing agent wakes on a cron schedule (or a manual plan step),
+# reads completed runs + their trackio URIs under the calling project,
+# and writes a concise document summarizing outcomes. It requests a
+# review so the document shows up as a pending approval in the mobile
+# Inbox. Runs on the VPS steward host — no GPU required.
+template: agents.briefing
+version: 1
+extends: null
+
+backend:
+  kind: claude-code
+  model: sonnet-4-6
+  default_workdir: ~/hub-work
+  cmd: "claude --model sonnet-4-6"
+
+default_role: writer.briefing
+display_label: "Briefing Agent"
+
+default_capabilities:
+  - blob.read
+  - blob.write
+  - documents.create
+  - reviews.request
+  - runs.read
+  - spawn.descendants: 0
+  - decision.vote: minor
+
+prompt: briefing.v1.md
+
+default_channels:
+  hub-meta: write

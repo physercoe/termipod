@@ -1,0 +1,34 @@
+# Built-in ML worker template. Copied to team/templates/agents/ on first init.
+# User edits win — subsequent init calls never overwrite.
+#
+# The worker runs on a GPU host and executes one training run per A2A task.
+# Expected to receive `train(config)` tasks from a steward and log metrics
+# to trackio. See hub/templates/prompts/ml-worker.v1.md for the runbook.
+template: agents.ml-worker
+version: 1
+extends: null
+
+backend:
+  kind: claude-code
+  model: sonnet-4-6
+  default_workdir: ~/hub-work
+  cmd: "claude --model sonnet-4-6"
+
+default_role: worker.ml
+display_label: "ML Worker"
+
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: minor
+  - spawn.descendants: 0
+  - tasks.create
+  - runs.create
+  - runs.attach_metric_uri
+  # No project/template/policy writes — workers execute, not govern.
+
+prompt: ml-worker.v1.md
+
+default_channels:
+  hub-meta: read

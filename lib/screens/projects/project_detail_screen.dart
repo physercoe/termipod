@@ -1339,7 +1339,7 @@ class _OverviewView extends ConsumerWidget {
           _ShortcutTile(
             icon: Icons.output_outlined,
             label: 'Outputs',
-            sub: 'Artifacts runs produce · checkpoints, curves, reports',
+            sub: 'Outputs runs produce · checkpoints, curves, reports',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ArtifactsScreen(projectId: projectId),
             )),

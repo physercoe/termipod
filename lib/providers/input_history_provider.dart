@@ -3,14 +3,15 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// History state — stores all composed inputs sent to terminal.
-class HistoryState {
+/// Input history — composed text sent to the terminal via the action bar.
+/// Distinct from session history (recent tmux sessions).
+class InputHistoryState {
   /// Full command history (newest first)
   final List<String> items;
 
   final bool isLoading;
 
-  const HistoryState({
+  const InputHistoryState({
     this.items = const [],
     this.isLoading = false,
   });
@@ -18,11 +19,11 @@ class HistoryState {
   /// Recent items (hot, last 10) for quick-access sheet
   List<String> get recent => items.length > 10 ? items.sublist(0, 10) : items;
 
-  HistoryState copyWith({
+  InputHistoryState copyWith({
     List<String>? items,
     bool? isLoading,
   }) {
-    return HistoryState(
+    return InputHistoryState(
       items: items ?? this.items,
       isLoading: isLoading ?? this.isLoading,
     );
@@ -32,11 +33,11 @@ class HistoryState {
 const _storageKey = 'settings_action_bar_command_history';
 const _maxHistoryItems = 200;
 
-class HistoryNotifier extends Notifier<HistoryState> {
+class InputHistoryNotifier extends Notifier<InputHistoryState> {
   @override
-  HistoryState build() {
+  InputHistoryState build() {
     _load();
-    return const HistoryState(isLoading: true);
+    return const InputHistoryState(isLoading: true);
   }
 
   Future<void> _load() async {
@@ -66,7 +67,7 @@ class HistoryNotifier extends Notifier<HistoryState> {
         merged = merged.sublist(0, _maxHistoryItems);
       }
     }
-    state = HistoryState(items: merged);
+    state = InputHistoryState(items: merged);
     // If a race happened, re-persist so the merged view survives a cold
     // start even if the racing add()'s _save() already wrote the stale list.
     if (existing.isNotEmpty) {
@@ -117,6 +118,6 @@ class HistoryNotifier extends Notifier<HistoryState> {
   }
 }
 
-final historyProvider = NotifierProvider<HistoryNotifier, HistoryState>(
-  HistoryNotifier.new,
+final inputHistoryProvider = NotifierProvider<InputHistoryNotifier, InputHistoryState>(
+  InputHistoryNotifier.new,
 );

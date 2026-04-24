@@ -5,7 +5,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/action_bar_provider.dart';
 import '../../providers/compose_draft_provider.dart';
-import '../../providers/history_provider.dart';
+import '../../providers/input_history_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
 
@@ -146,7 +146,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
     } else {
       widget.onSend(text, withEnter: true);
       // Add to history
-      ref.read(historyProvider.notifier).add(text);
+      ref.read(inputHistoryProvider.notifier).add(text);
       _controller.clear();
       // _onComposeTextChanged will propagate the empty string, but clear
       // explicitly so there's no race with listener ordering.
@@ -162,7 +162,7 @@ class ComposeBarState extends ConsumerState<ComposeBar> {
     final text = _controller.text;
     if (text.isNotEmpty) {
       widget.onSend(text, withEnter: false);
-      ref.read(historyProvider.notifier).add(text);
+      ref.read(inputHistoryProvider.notifier).add(text);
       _controller.clear();
       ref.read(composeDraftProvider(widget.connectionId).notifier).clear();
     }

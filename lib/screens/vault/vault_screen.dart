@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:termipod/l10n/app_localizations.dart';
 
-import '../../providers/history_provider.dart';
+import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 import '../keys/key_generate_screen.dart';
@@ -149,7 +149,7 @@ class _VaultScreenState extends ConsumerState<VaultScreen> {
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              ref.read(historyProvider.notifier).clear();
+              ref.read(inputHistoryProvider.notifier).clear();
               Navigator.pop(ctx);
             },
             child: Text(AppLocalizations.of(context)!.clear),

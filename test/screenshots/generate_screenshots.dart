@@ -29,7 +29,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 import 'package:termipod/providers/active_session_provider.dart';
 import 'package:termipod/providers/connection_provider.dart';
-import 'package:termipod/providers/history_provider.dart';
+import 'package:termipod/providers/input_history_provider.dart';
 import 'package:termipod/providers/key_provider.dart';
 import 'package:termipod/providers/settings_provider.dart';
 import 'package:termipod/providers/snippet_provider.dart';
@@ -84,9 +84,9 @@ class MockSnippetsNotifier extends SnippetsNotifier {
   SnippetsState build() => mockSnippetsState;
 }
 
-class MockHistoryNotifier extends HistoryNotifier {
+class MockInputHistoryNotifier extends InputHistoryNotifier {
   @override
-  HistoryState build() => mockHistoryState;
+  InputHistoryState build() => mockInputHistoryState;
 }
 
 class MockActionBarNotifier extends ActionBarNotifier {
@@ -123,7 +123,7 @@ Widget _buildScreenshot({
       settingsProvider.overrideWith(() => _MockSettingsNotifier(dark: dark)),
       keysProvider.overrideWith(() => MockKeysNotifier()),
       snippetsProvider.overrideWith(() => MockSnippetsNotifier()),
-      historyProvider.overrideWith(() => MockHistoryNotifier()),
+      inputHistoryProvider.overrideWith(() => MockInputHistoryNotifier()),
       actionBarProvider.overrideWith(() => directInputMode
           ? MockActionBarDirectNotifier()
           : MockActionBarNotifier()),

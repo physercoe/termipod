@@ -104,7 +104,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          titleScope == null ? 'Artifacts' : 'Artifacts · $titleScope',
+          titleScope == null ? 'Outputs' : 'Outputs · $titleScope',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -156,7 +156,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
             _rows == null || _rows!.isEmpty
                 ? 'No outputs yet.\nAgents attach checkpoints, eval curves,\n'
                     'and reports here as runs complete.'
-                : 'No ${_kind ?? "artifacts"} match.',
+                : 'No ${_kind ?? "outputs"} match.',
             textAlign: TextAlign.center,
             style: GoogleFonts.spaceGrotesk(
               fontSize: 13,

@@ -6,7 +6,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../models/snippet_presets.dart';
 import '../../providers/action_bar_provider.dart';
-import '../../providers/history_provider.dart';
+import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../screens/vault/snippets_screen.dart' show SnippetEditDialog;
 import '../../theme/design_colors.dart';
@@ -115,7 +115,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
         .where((p) => !snippetsState.deletedPresetIds.contains(p.id))
         .map((p) => snippetsState.presetOverrides[p.id] ?? p)
         .toList();
-    final history = ref.watch(historyProvider).items;
+    final history = ref.watch(inputHistoryProvider).items;
 
     // Filter by search
     final filteredPresets = _filter(presetSnippets);
@@ -475,7 +475,7 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
       key: ValueKey('history-$cmd'),
       direction: DismissDirection.endToStart,
       onDismissed: (_) {
-        ref.read(historyProvider.notifier).delete(cmd);
+        ref.read(inputHistoryProvider.notifier).delete(cmd);
       },
       background: Container(
         alignment: Alignment.centerRight,

@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:termipod/l10n/app_localizations.dart';
 
-import '../../providers/history_provider.dart';
+import '../../providers/input_history_provider.dart';
 import '../../providers/snippet_provider.dart';
 import '../../theme/design_colors.dart';
 import 'snippets_screen.dart';
@@ -34,7 +34,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final historyState = ref.watch(historyProvider);
+    final historyState = ref.watch(inputHistoryProvider);
     final items = historyState.items;
 
     if (historyState.isLoading) {
@@ -138,7 +138,7 @@ class _HistoryTile extends ConsumerWidget {
           child: const Icon(Icons.delete, color: DesignColors.error),
         ),
         onDismissed: (_) {
-          ref.read(historyProvider.notifier).delete(command);
+          ref.read(inputHistoryProvider.notifier).delete(command);
         },
         child: InkWell(
           onTap: () {
@@ -254,7 +254,7 @@ class _HistoryTile extends ConsumerWidget {
             onPressed: () {
               final newCmd = controller.text.trim();
               if (newCmd.isNotEmpty && newCmd != command) {
-                ref.read(historyProvider.notifier).update(command, newCmd);
+                ref.read(inputHistoryProvider.notifier).update(command, newCmd);
               }
               Navigator.pop(dialogContext);
             },

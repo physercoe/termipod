@@ -764,7 +764,7 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
             (_document!['artifact_id'] ?? '').toString().isNotEmpty) ...[
           _sectionLabel('Document'),
           Text(
-            'Stored as artifact ${_document!['artifact_id']}',
+            'Stored as output ${_document!['artifact_id']}',
             style: GoogleFonts.jetBrainsMono(
               fontSize: 11,
               color: DesignColors.textMuted,

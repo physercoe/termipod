@@ -729,7 +729,7 @@ class _ArtifactPointer extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: SelectableText(
-              'Stored as artifact $artifactId — bytes live on host, not in hub.',
+              'Stored as output $artifactId — bytes live on host, not in hub.',
               style: GoogleFonts.jetBrainsMono(fontSize: 11),
             ),
           ),

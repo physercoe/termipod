@@ -6,7 +6,7 @@ library;
 
 import 'package:termipod/providers/active_session_provider.dart';
 import 'package:termipod/providers/connection_provider.dart';
-import 'package:termipod/providers/history_provider.dart';
+import 'package:termipod/providers/input_history_provider.dart';
 import 'package:termipod/providers/key_provider.dart';
 import 'package:termipod/providers/snippet_provider.dart';
 
@@ -216,7 +216,7 @@ final mockSnippetsState = SnippetsState(
 // Command history
 // ---------------------------------------------------------------------------
 
-const mockHistoryState = HistoryState(
+const mockInputHistoryState = InputHistoryState(
   items: [
     'docker ps --format "table {{.Names}}\t{{.Status}}"',
     'kubectl get pods -n production',

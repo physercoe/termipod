@@ -22,25 +22,17 @@ import 'project_detail_screen.dart';
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
 
-/// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Project inventory
-/// only — agents live inside Project detail per IA entity×surface matrix
-/// (line 444). The earlier sibling "Agents" sub-tab conflated the
-/// team-wide agent fleet with project-scoped work; that view is now a
-/// sub-section of Project detail, not a peer of Projects.
+/// "Projects" tab — project inventory. Agents live inside Project detail;
+/// templates have a single home (TemplatesScreen) reached via the AppBar
+/// icon. Hosts have their own top-level bottom tab.
 ///
-/// Templates consolidated to a single home (TemplatesScreen) reached via
-/// the AppBar icon — Wedge 4 eliminated the inline Templates sub-tab so
-/// templates have exactly one canonical surface. Hosts sub-tab moved to
-/// the top-level Hosts bottom tab (Wedge 1).
+/// Attention/Feed/Tasks live in Me / Project detail respectively. Header
+/// carries a Steward chip (shortcut to #hub-meta team channel) and a Team
+/// switcher (members/policies/channels/settings).
 ///
-/// Attention/Feed/Tasks moved out: approvals land in the Me tab,
-/// per-channel Feed and per-project Tasks live inside Project detail.
-/// Header carries a Steward chip (shortcut to #hub-meta team channel) and
-/// a Team switcher (members/policies/channels/settings).
-///
-/// If the hub isn't configured yet, we push [HubBootstrapScreen] from the
-/// empty state; once it pops true, the provider rebuilds and the real
-/// dashboard takes over.
+/// If the hub server isn't configured yet, the empty state pushes
+/// [HubBootstrapScreen]; once that pops true, the provider rebuilds and
+/// the real dashboard takes over.
 class ProjectsScreen extends ConsumerStatefulWidget {
   const ProjectsScreen({super.key});
 

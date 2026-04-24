@@ -163,6 +163,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
     required String token,
     required String teamId,
   }) async {
+    final prevCfg = state.value?.config;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kHubBaseUrlKey, baseUrl);
     await prefs.setString(_kHubTeamIdKey, teamId);
@@ -173,6 +174,15 @@ class HubNotifier extends AsyncNotifier<HubState> {
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache ??= await _openCache();
+    // Switching hub or team leaves the previous partition orphaned — wipe
+    // it so snapshots can't leak across identities and don't eat disk
+    // until LRU eventually reclaims the rows.
+    if (prevCfg != null &&
+        (prevCfg.baseUrl != baseUrl || prevCfg.teamId != teamId)) {
+      await _cache!.wipeHub(
+        hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
+      );
+    }
     _client!.snapshotCache = _cache;
 
     state = AsyncData(HubState(config: cfg));

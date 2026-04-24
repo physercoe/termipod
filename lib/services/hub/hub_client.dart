@@ -83,6 +83,16 @@ class HubClient {
   Map<String, dynamic> _decodeMap(Object body) =>
       (body as Map).cast<String, dynamic>();
 
+  /// Drop every cached row whose endpoint key starts with [prefix] on the
+  /// current hub partition. Called from mutation methods so the next read
+  /// re-fetches instead of serving a pre-write snapshot. No-op when no
+  /// cache is attached.
+  Future<void> _invalidate(String prefix) async {
+    final c = snapshotCache;
+    if (c == null) return;
+    await c.invalidatePrefix(_cacheHubKey, prefix);
+  }
+
   Uri _uri(String path, [Map<String, String>? query]) {
     final base = cfg.baseUrl.endsWith('/')
         ? cfg.baseUrl.substring(0, cfg.baseUrl.length - 1)
@@ -243,6 +253,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/channels',
       {'name': name},
     );
+    await _invalidate('/v1/teams/${cfg.teamId}/channels');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -328,6 +339,7 @@ class HubClient {
     req.add(utf8.encode(jsonEncode(body)));
     final resp = await req.close();
     final out = await _readJson(resp);
+    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/tasks');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -456,6 +468,7 @@ class HubClient {
       body['policy_overrides_json'] = policyOverrides;
     }
     final out = await _post('/v1/teams/${cfg.teamId}/projects', body);
+    await _invalidate('/v1/teams/${cfg.teamId}/projects');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -493,11 +506,13 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/projects/$projectId',
       body,
     );
+    await _invalidate('/v1/teams/${cfg.teamId}/projects');
     return (out as Map).cast<String, dynamic>();
   }
 
   Future<void> archiveProject(String projectId) async {
     await _delete('/v1/teams/${cfg.teamId}/projects/$projectId');
+    await _invalidate('/v1/teams/${cfg.teamId}/projects');
   }
 
   Future<Map<String, dynamic>> createTask(
@@ -521,6 +536,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
       body,
     );
+    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/tasks');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -532,6 +548,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/projects/$projectId/channels',
       {'name': name},
     );
+    await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -960,6 +977,7 @@ class HubClient {
     if (name != null) body['name'] = name;
     if (metadata != null) body['metadata_json'] = metadata;
     final out = await _post('/v1/teams/${cfg.teamId}/runs', body);
+    await _invalidate('/v1/teams/${cfg.teamId}/runs');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -973,6 +991,7 @@ class HubClient {
     final body = <String, dynamic>{'status': _runStatusToServer(status)};
     if (summary != null) body['summary'] = summary;
     await _post('/v1/teams/${cfg.teamId}/runs/$runId/complete', body);
+    await _invalidate('/v1/teams/${cfg.teamId}/runs');
   }
 
   // UI run-status 'succeeded' ↔ server 'completed'. All other values pass
@@ -1105,6 +1124,7 @@ class HubClient {
     if (artifactId != null) body['artifact_id'] = artifactId;
     if (authorAgentId != null) body['author_agent_id'] = authorAgentId;
     final out = await _post('/v1/teams/${cfg.teamId}/documents', body);
+    await _invalidate('/v1/teams/${cfg.teamId}/documents');
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -1256,6 +1276,7 @@ class HubClient {
     };
     if (note != null && note.isNotEmpty) body['comment'] = note;
     final out = await _post('/v1/teams/${cfg.teamId}/reviews', body);
+    await _invalidate('/v1/teams/${cfg.teamId}/reviews');
     return _reviewRowToUI((out as Map).cast<String, dynamic>());
   }
 
@@ -1270,6 +1291,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/reviews/$reviewId/decide',
       body,
     );
+    await _invalidate('/v1/teams/${cfg.teamId}/reviews');
   }
 
   // ---- plans + plan_steps (blueprint §6.2) ----

@@ -9,7 +9,6 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
-import '../../widgets/sweep_scatter.dart';
 import '../../widgets/team_switcher.dart';
 import 'archived_agents_screen.dart';
 import 'artifacts_screen.dart';
@@ -18,6 +17,7 @@ import 'docs_section.dart';
 import 'documents_screen.dart';
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
+import 'overview_widgets/workspace_overview.dart';
 import 'plans_screen.dart';
 import 'project_channel_create_sheet.dart';
 import 'project_channel_screen.dart';
@@ -1212,17 +1212,18 @@ class _AgentsView extends ConsumerWidget {
 }
 
 // ---- Overview ----
-// A+B hybrid chassis (IA §6.2 / W4). For goal-kind projects:
-//   A) a fixed, domain-agnostic portfolio header (goal, status, budget,
-//      steward, attention, task progress + priority breakdown), then
-//   B) a pluggable hero region whose widget kind is declared by the
-//      bound template (`overview_widget`: task_milestone_list,
-//      sweep_compare, recent_artifacts, children_status).
-// Below the hero live the shortcut tiles into heavier sub-surfaces
-// (Runs / Reviews / Documents / Schedules / Plans / Blobs) and the
-// metadata rows / archive action.
-// Standing-kind ("Workspace") still renders the pre-W4 layout; W6 will
-// redesign that surface.
+// Two chassis live here, one per kind:
+//   - goal ("Project"):   W4 A+B — fixed PortfolioHeader + a pluggable
+//                         hero declared by template.overview_widget
+//                         (task_milestone_list / sweep_compare /
+//                         recent_artifacts / children_status).
+//   - standing ("Workspace"): W6 — WorkspaceHeader (cadence + last
+//                         firing) + RecentFiringsList hero. No task
+//                         progress % and no close state, since
+//                         workspaces never complete.
+// Both branches share the shortcut tiles into heavier sub-surfaces
+// (Runs / Reviews / Documents / Schedules / Plans / Blobs) plus the
+// metadata rows and archive action.
 
 class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
@@ -1272,10 +1273,7 @@ class _OverviewView extends ConsumerWidget {
           ],
           if (isGoal) ...[
             // A+B chassis (IA §6.2 / W4): portfolio header is always on,
-            // the hero below is whatever the template declared. The old
-            // SweepScatter + TaskProgressCounter are subsumed —
-            // sweep_compare is the hero for sweep-kind templates, and
-            // task progress lives on the portfolio header for everyone.
+            // the hero below is whatever the template declared.
             PortfolioHeader(ctx: OverviewContext(project: project)),
             const SizedBox(height: 12),
             buildOverviewWidget(
@@ -1284,12 +1282,10 @@ class _OverviewView extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
           ] else ...[
-            // Workspace Overview is W6's scope; keep the existing chart
-            // + counter intact here so the standing-kind layout is not
-            // disturbed by W4.
-            SweepScatter(projectId: projectId),
-            const SizedBox(height: 12),
-            _TaskProgressCounter(projectId: projectId),
+            // Workspace chassis (W6): cadence-first header + recent
+            // firings list. No task progress %, since workspaces don't
+            // close. See overview_widgets/workspace_overview.dart.
+            buildWorkspaceOverview(OverviewContext(project: project)),
             const SizedBox(height: 12),
           ],
           _ShortcutTile(
@@ -1725,110 +1721,3 @@ class _BlobsScreen extends StatelessWidget {
   }
 }
 
-/// Overview counter showing closed_tasks / total_tasks. Placed above the
-/// shortcut tiles so the user can see "I've burned down 3/12" without
-/// switching to the Tasks tab. W4 redesigns the Overview chassis; this is
-/// intentionally a small card that the redesign can keep or move.
-class _TaskProgressCounter extends ConsumerStatefulWidget {
-  final String projectId;
-  const _TaskProgressCounter({required this.projectId});
-
-  @override
-  ConsumerState<_TaskProgressCounter> createState() =>
-      _TaskProgressCounterState();
-}
-
-class _TaskProgressCounterState extends ConsumerState<_TaskProgressCounter> {
-  int _total = 0;
-  int _closed = 0;
-  bool _loaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      final cached = await client.listTasksCached(widget.projectId);
-      final rows = cached.body;
-      var closed = 0;
-      for (final r in rows) {
-        if ((r['status'] ?? '').toString() == 'done') closed++;
-      }
-      if (!mounted) return;
-      setState(() {
-        _total = rows.length;
-        _closed = closed;
-        _loaded = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _loaded = true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_loaded || _total == 0) {
-      return const SizedBox.shrink();
-    }
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ratio = _total == 0 ? 0.0 : _closed / _total;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color:
-            isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color:
-              isDark ? DesignColors.borderDark : DesignColors.borderLight,
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle_outline,
-              size: 18, color: DesignColors.primary),
-          const SizedBox(width: 8),
-          Text(
-            'Tasks',
-            style: GoogleFonts.spaceGrotesk(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LinearProgressIndicator(
-                value: ratio,
-                minHeight: 6,
-                backgroundColor: isDark
-                    ? DesignColors.borderDark
-                    : DesignColors.borderLight,
-                valueColor:
-                    const AlwaysStoppedAnimation(DesignColors.primary),
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            '$_closed / $_total',
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: isDark
-                  ? DesignColors.textSecondary
-                  : DesignColors.textSecondaryLight,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

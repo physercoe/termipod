@@ -632,5 +632,25 @@
   "@workspaceArchiveConfirm": { "placeholders": { "name": { "type": "String" } } },
   "projectNoAgents": "这个项目下还没有智能体",
   "workspaceNoAgents": "这个工作区下还没有智能体",
-  "projectCreateFabTooltip": "新建项目或工作区"
+  "projectCreateFabTooltip": "新建项目或工作区",
+
+  "workspaceOverviewTitle": "工作区概览",
+  "workspaceCadence": "节奏",
+  "workspaceNoSchedules": "未配置任何计划",
+  "workspaceManualOnly": "仅手动触发",
+  "workspaceMultipleSchedules": "{count} 个计划",
+  "@workspaceMultipleSchedules": { "placeholders": { "count": { "type": "int" } } },
+  "workspaceNextRunPending": "已排程（等待下次运行）",
+  "workspaceNextIn": "{rel}后执行",
+  "@workspaceNextIn": { "placeholders": { "rel": { "type": "String" } } },
+  "workspaceLastFired": "上次运行于 {rel} · {status}",
+  "@workspaceLastFired": { "placeholders": { "rel": { "type": "String" }, "status": { "type": "String" } } },
+  "workspaceNoFirings": "还没有任何运行记录",
+  "workspaceRecentFirings": "最近运行",
+  "workspaceViewAllFirings": "查看全部运行",
+  "workspaceFiringLoading": "加载中…",
+  "workspaceCadenceEveryAt": "每 {day} {time} 运行",
+  "@workspaceCadenceEveryAt": { "placeholders": { "day": { "type": "String" }, "time": { "type": "String" } } },
+  "workspaceCadenceEvery": "每 {spec} 运行",
+  "@workspaceCadenceEvery": { "placeholders": { "spec": { "type": "String" } } }
 }

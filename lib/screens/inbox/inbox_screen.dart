@@ -6,13 +6,16 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/urgent_tasks_provider.dart';
 import '../../services/hub/open_team_channel.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
 import '../hub/project_detail_screen.dart';
 import '../hub/search_screen.dart';
+import '../hub/task_detail_screen.dart';
 import '../vault/vault_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
@@ -145,6 +148,7 @@ class InboxScreen extends ConsumerWidget {
                 ),
               ),
             const SliverToBoxAdapter(child: _VaultSection()),
+            const SliverToBoxAdapter(child: _UrgentTasksSection()),
             SliverToBoxAdapter(
               child: _SectionLabel(text: l10n.meDigestSection),
             ),
@@ -674,6 +678,128 @@ class _VaultSection extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// W3 affordance: surfaces the count of open `priority=urgent` tasks
+/// across the team's projects, with one-tap entry into the top offenders.
+/// Hidden when the count is zero so the Me tab stays quiet in the
+/// common case.
+class _UrgentTasksSection extends ConsumerWidget {
+  const _UrgentTasksSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final summary =
+        ref.watch(urgentTasksProvider).value ?? UrgentTasksSummary.empty;
+    if (summary.count == 0) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final urgentColor = taskPriorityColor(TaskPriority.urgent);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionLabel(text: 'Urgent'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+          child: Container(
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: urgentColor.withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: urgentColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '${summary.count} urgent '
+                          '${summary.count == 1 ? "task" : "tasks"}',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                for (final row in summary.top)
+                  InkWell(
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => TaskDetailScreen(
+                        projectId: row.projectId,
+                        taskId: row.taskId,
+                      ),
+                    )),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: urgentColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  row.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${row.projectName} · ${row.status}',
+                                  style: GoogleFonts.jetBrainsMono(
+                                    fontSize: 10,
+                                    color: muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(Icons.chevron_right, size: 16, color: muted),
+                        ],
+                      ),
+                    ),
+                  ),
+                Container(height: 1, color: border),
+                const SizedBox(height: 4),
+              ],
             ),
           ),
         ),

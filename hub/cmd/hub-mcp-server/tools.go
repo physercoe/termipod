@@ -598,8 +598,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.list",
-			Description: "List tasks for a project (ad-hoc and plan-materialized alike). Requires `project_id`. Optional `status` filter. Each row includes `plan_step_id` and `source` (`ad_hoc` | `plan`).",
-			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"}}}`),
+			Description: "List tasks for a project (ad-hoc and plan-materialized alike). Requires `project_id`. Optional `status` and `priority` filters. Default sort is priority DESC (urgent→low) then updated_at DESC; pass `sort=updated` for reverse-chronological. Each row includes `priority`, `plan_step_id`, and `source` (`ad_hoc` | `plan`).",
+			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"sort":{"type":"string","enum":["priority","updated"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
 				if p == "" {
@@ -608,6 +608,12 @@ func buildTools() []toolDef {
 				q := url.Values{}
 				if st, ok := args["status"].(string); ok && st != "" {
 					q.Set("status", st)
+				}
+				if pr, ok := args["priority"].(string); ok && pr != "" {
+					q.Set("priority", pr)
+				}
+				if sortMode, ok := args["sort"].(string); ok && sortMode != "" {
+					q.Set("sort", sortMode)
 				}
 				var out json.RawMessage
 				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks"), q, nil, &out); err != nil {
@@ -618,8 +624,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.create",
-			Description: "Create a task under a project. Requires `project_id` and `title`. Optional `body_md`, `status` (default 'todo'), `assignee_id`, `parent_task_id`, `milestone_id`, `created_by_id`.",
-			InputSchema: schema(`{"type":"object","required":["project_id","title"],"properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"assignee_id":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"created_by_id":{"type":"string"}}}`),
+			Description: "Create a task under a project. Requires `project_id` and `title`. Optional `body_md`, `status` (default 'todo'), `priority` (low|med|high|urgent, default 'med'), `assignee_id`, `parent_task_id`, `milestone_id`, `created_by_id`. Note: tasks.list now sorts by priority DESC then updated_at DESC by default.",
+			InputSchema: schema(`{"type":"object","required":["project_id","title"],"properties":{"project_id":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"created_by_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
 				if p == "" {
@@ -644,7 +650,7 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.get",
-			Description: "Get one task by id. Requires `project_id` and `task`. Response includes `plan_step_id` (empty for ad-hoc tasks) and `source` (`ad_hoc` | `plan`) so callers can tell plan-materialized tasks from user-created ones.",
+			Description: "Get one task by id. Requires `project_id` and `task`. Response includes `priority` (low|med|high|urgent), `plan_step_id` (empty for ad-hoc tasks) and `source` (`ad_hoc` | `plan`) so callers can tell plan-materialized tasks from user-created ones.",
 			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -661,8 +667,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.update",
-			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `status`, `assignee_id` may be supplied.",
-			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"assignee_id":{"type":"string"}}}`),
+			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `status`, `priority` (low|med|high|urgent), `assignee_id` may be supplied.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
 				id, _ := args["task"].(string)

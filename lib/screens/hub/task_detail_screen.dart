@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
 import 'plan_viewer_screen.dart';
 import 'task_edit_sheet.dart';
@@ -104,6 +105,26 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     }
   }
 
+  Future<void> _setPriority(TaskPriority p) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final row = await client.patchTask(
+        widget.projectId,
+        widget.taskId,
+        priority: p.wire,
+      );
+      if (!mounted) return;
+      setState(() => _task = row);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Priority change failed: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,15 +168,25 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     final source = (task['source'] ?? 'ad_hoc').toString();
     final planId = (task['plan_id'] ?? '').toString();
     final planStepId = (task['plan_step_id'] ?? '').toString();
+    final priority = parseTaskPriority(task['priority']);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(title,
-              style: GoogleFonts.spaceGrotesk(
-                  fontSize: 20, fontWeight: FontWeight.w700)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              TaskPriorityDot(priority: priority, size: 10),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(title,
+                    style: GoogleFonts.spaceGrotesk(
+                        fontSize: 20, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
@@ -167,6 +198,24 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
                   selected: status == s,
                   onSelected: (sel) {
                     if (sel) _setStatus(s);
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _PriorityLabel(isDark: isDark),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final p in TaskPriority.values)
+                ChoiceChip(
+                  avatar: TaskPriorityDot(priority: p, size: 12),
+                  label: Text(p.label),
+                  selected: priority == p,
+                  onSelected: (sel) {
+                    if (sel) _setPriority(p);
                   },
                 ),
             ],
@@ -241,6 +290,27 @@ class _TaskBody extends StatelessWidget {
     return SelectableText(
       body,
       style: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
+    );
+  }
+}
+
+/// Small "PRIORITY" caption above the priority chip row. Matches the
+/// styling convention used by [_SourceSection]'s "SOURCE" header so the
+/// two section breaks line up visually.
+class _PriorityLabel extends StatelessWidget {
+  final bool isDark;
+  const _PriorityLabel({required this.isDark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      'PRIORITY',
+      style: GoogleFonts.jetBrainsMono(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+        color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
+      ),
     );
   }
 }

@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/sweep_scatter.dart';
 import '../../widgets/team_switcher.dart';
@@ -631,6 +632,7 @@ class _TasksViewState extends ConsumerState<_TasksView> {
   String? _error;
   List<Map<String, dynamic>> _tasks = const [];
   String? _statusFilter;
+  TaskPriority? _priorityFilter;
   DateTime? _staleSince;
 
   // Kept in sync with task_detail_screen's lifecycle list so chips and
@@ -657,8 +659,11 @@ class _TasksViewState extends ConsumerState<_TasksView> {
       _error = null;
     });
     try {
-      final cached =
-          await client.listTasksCached(widget.projectId, status: _statusFilter);
+      final cached = await client.listTasksCached(
+        widget.projectId,
+        status: _statusFilter,
+        priority: _priorityFilter?.wire,
+      );
       if (!mounted) return;
       setState(() {
         _tasks = cached.body;
@@ -729,6 +734,14 @@ class _TasksViewState extends ConsumerState<_TasksView> {
                   _load();
                 },
               ),
+              _TaskPriorityBar(
+                selected: _priorityFilter,
+                onChanged: (v) {
+                  if (_priorityFilter == v) return;
+                  setState(() => _priorityFilter = v);
+                  _load();
+                },
+              ),
               HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
               Expanded(child: list),
             ],
@@ -779,14 +792,57 @@ class _TaskStatusBar extends StatelessWidget {
   }
 }
 
+/// Horizontal priority filter beneath the status bar. Null = "any".
+/// Matches the look of `_TaskStatusBar` so the two rows read as a
+/// single compound filter and the extra visual weight is honest about
+/// being optional.
+class _TaskPriorityBar extends StatelessWidget {
+  final TaskPriority? selected;
+  final ValueChanged<TaskPriority?> onChanged;
+  const _TaskPriorityBar({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const options = <TaskPriority?>[
+      null,
+      TaskPriority.urgent,
+      TaskPriority.high,
+      TaskPriority.med,
+      TaskPriority.low,
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Row(
+        children: [
+          for (final p in options) ...[
+            _TaskFilterPill(
+              label: p?.label ?? 'any priority',
+              selected: p == selected,
+              onTap: () => onChanged(p),
+              leadingDot: p == null ? null : taskPriorityColor(p),
+            ),
+            const SizedBox(width: 6),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _TaskFilterPill extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final Color? leadingDot;
   const _TaskFilterPill({
     required this.label,
     required this.selected,
     required this.onTap,
+    this.leadingDot,
   });
 
   @override
@@ -806,13 +862,30 @@ class _TaskFilterPill extends StatelessWidget {
                 selected ? DesignColors.primary : DesignColors.borderDark,
           ),
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.jetBrainsMono(
-            fontSize: 10,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? DesignColors.primary : DesignColors.textMuted,
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (leadingDot != null) ...[
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: leadingDot,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color:
+                    selected ? DesignColors.primary : DesignColors.textMuted,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -836,6 +909,7 @@ class _TaskTile extends StatelessWidget {
     final status = (task['status'] ?? '').toString();
     final preview = _previewLine((task['body_md'] ?? '').toString());
     final fromPlan = (task['source'] ?? 'ad_hoc').toString() == 'plan';
+    final priority = parseTaskPriority(task['priority']);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {
@@ -874,6 +948,11 @@ class _TaskTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      Tooltip(
+                        message: 'Priority: ${priority.label}',
+                        child: TaskPriorityDot(priority: priority),
+                      ),
+                      const SizedBox(width: 8),
                       Flexible(
                         child: Text(title,
                             style: GoogleFonts.spaceGrotesk(

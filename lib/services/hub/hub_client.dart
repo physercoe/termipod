@@ -348,11 +348,18 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listTasks(
     String projectId, {
     String? status,
-  }) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
-        query: status == null ? null : {'status': status},
-      );
+    String? priority,
+    String? sort,
+  }) {
+    final q = <String, String>{};
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    if (priority != null && priority.isNotEmpty) q['priority'] = priority;
+    if (sort != null && sort.isNotEmpty) q['sort'] = sort;
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
+      query: q.isEmpty ? null : q,
+    );
+  }
 
   Future<Map<String, dynamic>> getTask(String projectId, String taskId) async {
     final out = await _get(
@@ -366,16 +373,26 @@ class HubClient {
   Future<CachedResponse<List<Map<String, dynamic>>>> listTasksCached(
     String projectId, {
     String? status,
+    String? priority,
+    String? sort,
   }) {
-    final q = status == null ? null : {'status': status};
+    final q = <String, String>{};
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    if (priority != null && priority.isNotEmpty) q['priority'] = priority;
+    if (sort != null && sort.isNotEmpty) q['sort'] = sort;
     return readThrough<List<Map<String, dynamic>>>(
       cache: snapshotCache,
       hubKey: _cacheHubKey,
       endpoint: buildEndpointKey(
         '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
-        q,
+        q.isEmpty ? null : q,
       ),
-      fetch: () => listTasks(projectId, status: status),
+      fetch: () => listTasks(
+        projectId,
+        status: status,
+        priority: priority,
+        sort: sort,
+      ),
       decode: _decodeListMaps,
     );
   }
@@ -401,11 +418,13 @@ class HubClient {
     String? status,
     String? title,
     String? bodyMd,
+    String? priority,
   }) async {
     final body = <String, dynamic>{};
     if (status != null) body['status'] = status;
     if (title != null) body['title'] = title;
     if (bodyMd != null) body['body_md'] = bodyMd;
+    if (priority != null) body['priority'] = priority;
     final req = await _open(
       'PATCH',
       '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
@@ -608,6 +627,7 @@ class HubClient {
     String? assigneeId,
     String? parentTaskId,
     String? status,
+    String? priority,
   }) async {
     final body = <String, dynamic>{'title': title};
     if (bodyMd != null && bodyMd.isNotEmpty) body['body_md'] = bodyMd;
@@ -618,6 +638,7 @@ class HubClient {
       body['parent_task_id'] = parentTaskId;
     }
     if (status != null && status.isNotEmpty) body['status'] = status;
+    if (priority != null && priority.isNotEmpty) body['priority'] = priority;
     final out = await _post(
       '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
       body,

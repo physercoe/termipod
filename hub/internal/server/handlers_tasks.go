@@ -25,6 +25,7 @@ type taskIn struct {
 	CreatedByID  string `json:"created_by_id,omitempty"`
 	MilestoneID  string `json:"milestone_id,omitempty"`
 	Status       string `json:"status,omitempty"`
+	Priority     string `json:"priority,omitempty"`
 }
 
 type taskOut struct {
@@ -34,6 +35,7 @@ type taskOut struct {
 	Title        string `json:"title"`
 	BodyMD       string `json:"body_md"`
 	Status       string `json:"status"`
+	Priority     string `json:"priority"`
 	AssigneeID   string `json:"assignee_id,omitempty"`
 	CreatedByID  string `json:"created_by_id,omitempty"`
 	MilestoneID  string `json:"milestone_id,omitempty"`
@@ -42,6 +44,16 @@ type taskOut struct {
 	Source       string `json:"source"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+}
+
+// taskPriorities is the closed enum accepted on create/update. Mirrors
+// the CHECK constraint in migration 0021 and the mobile TaskPriority
+// enum; new values must be added in all three places.
+var taskPriorities = map[string]bool{
+	"low":    true,
+	"med":    true,
+	"high":   true,
+	"urgent": true,
 }
 
 // taskSourceFor maps a stored plan_step_id to the derived `source` field.
@@ -64,14 +76,22 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if status == "" {
 		status = "todo"
 	}
+	priority := in.Priority
+	if priority == "" {
+		priority = "med"
+	}
+	if !taskPriorities[priority] {
+		writeErr(w, http.StatusBadRequest, "priority must be one of low|med|high|urgent")
+		return
+	}
 	id := NewID()
 	now := NowUTC()
 	_, err := s.db.ExecContext(r.Context(), `
-		INSERT INTO tasks (id, project_id, parent_task_id, title, body_md, status,
+		INSERT INTO tasks (id, project_id, parent_task_id, title, body_md, status, priority,
 		                   assignee_id, created_by_id, milestone_id, created_at, updated_at)
-		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?,
+		VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?,
 		        NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)`,
-		id, proj, in.ParentTaskID, in.Title, in.BodyMD, status,
+		id, proj, in.ParentTaskID, in.Title, in.BodyMD, status, priority,
 		in.AssigneeID, in.CreatedByID, in.MilestoneID, now, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -79,7 +99,8 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, taskOut{
 		ID: id, ProjectID: proj, ParentTaskID: in.ParentTaskID, Title: in.Title,
-		BodyMD: in.BodyMD, Status: status, AssigneeID: in.AssigneeID,
+		BodyMD: in.BodyMD, Status: status, Priority: priority,
+		AssigneeID:  in.AssigneeID,
 		CreatedByID: in.CreatedByID, MilestoneID: in.MilestoneID,
 		Source:    "ad_hoc",
 		CreatedAt: now, UpdatedAt: now,
@@ -89,8 +110,14 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	proj := chi.URLParam(r, "project")
 	status := r.URL.Query().Get("status")
+	priority := r.URL.Query().Get("priority")
+	sortMode := r.URL.Query().Get("sort")
+	if priority != "" && !taskPriorities[priority] {
+		writeErr(w, http.StatusBadRequest, "priority must be one of low|med|high|urgent")
+		return
+	}
 	q := `
-		SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status,
+		SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status, t.priority,
 		       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
 		       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
 		       COALESCE(ps.plan_id, ''),
@@ -103,7 +130,23 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		q += " AND t.status = ?"
 		args = append(args, status)
 	}
-	q += " ORDER BY t.created_at DESC"
+	if priority != "" {
+		q += " AND t.priority = ?"
+		args = append(args, priority)
+	}
+	// W3 default sort: urgent → low, then newest-first within a bucket.
+	// Callers that explicitly want reverse-chronological (e.g. an
+	// "activity-style" view) pass `?sort=updated` to opt out.
+	if sortMode == "updated" {
+		q += " ORDER BY t.updated_at DESC"
+	} else {
+		q += ` ORDER BY CASE t.priority
+			WHEN 'urgent' THEN 3
+			WHEN 'high'   THEN 2
+			WHEN 'med'    THEN 1
+			WHEN 'low'    THEN 0
+			ELSE 1 END DESC, t.updated_at DESC`
+	}
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -114,7 +157,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var t taskOut
 		if err := rows.Scan(&t.ID, &t.ProjectID, &t.ParentTaskID, &t.Title, &t.BodyMD,
-			&t.Status, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
+			&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
 			&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -130,6 +173,7 @@ type taskPatchIn struct {
 	BodyMD     *string `json:"body_md,omitempty"`
 	Status     *string `json:"status,omitempty"`
 	AssigneeID *string `json:"assignee_id,omitempty"`
+	Priority   *string `json:"priority,omitempty"`
 }
 
 func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
@@ -156,6 +200,14 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	if in.AssigneeID != nil {
 		sets = append(sets, "assignee_id = NULLIF(?, '')")
 		args = append(args, *in.AssigneeID)
+	}
+	if in.Priority != nil {
+		if !taskPriorities[*in.Priority] {
+			writeErr(w, http.StatusBadRequest, "priority must be one of low|med|high|urgent")
+			return
+		}
+		sets = append(sets, "priority = ?")
+		args = append(args, *in.Priority)
 	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no fields to update")
@@ -187,7 +239,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "task")
 	var t taskOut
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status,
+		SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status, t.priority,
 		       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
 		       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
 		       COALESCE(ps.plan_id, ''),
@@ -196,7 +248,7 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
 		WHERE t.project_id = ? AND t.id = ?`, proj, id).Scan(
 		&t.ID, &t.ProjectID, &t.ParentTaskID, &t.Title, &t.BodyMD,
-		&t.Status, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
+		&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
 		&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "task not found")

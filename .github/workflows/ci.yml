@@ -33,11 +33,11 @@ jobs:
             ~/.pub-cache
             .dart_tool
           # pubspec.lock is gitignored, so hashFiles('pubspec.lock') is
-          # always empty — include pubspec.yaml so the cache invalidates
-          # when dependencies change. Without this, a stale .dart_tool
-          # can hide newly-added deps from the analyzer.
+          # always empty — hash pubspec.yaml so the cache invalidates
+          # when deps change. No restore-keys fallback: a mismatched
+          # .dart_tool from a prior pubspec.yaml can hide newly-added
+          # packages from the analyzer even after `flutter pub get`.
           key: pub-${{ hashFiles('pubspec.yaml') }}
-          restore-keys: pub-
 
       - name: Install dependencies
         run: flutter pub get

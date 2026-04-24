@@ -15,12 +15,12 @@ import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
-import 'host_edit_sheet.dart';
-import 'hub_bootstrap_screen.dart';
+import '../team/host_edit_sheet.dart';
+import '../hub/hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
-import 'spawn_steward_sheet.dart';
-import 'templates_screen.dart';
+import '../team/spawn_steward_sheet.dart';
+import '../team/templates_screen.dart';
 
 /// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Project inventory
 /// only — agents live inside Project detail per IA entity×surface matrix
@@ -41,14 +41,14 @@ import 'templates_screen.dart';
 /// If the hub isn't configured yet, we push [HubBootstrapScreen] from the
 /// empty state; once it pops true, the provider rebuilds and the real
 /// dashboard takes over.
-class HubScreen extends ConsumerStatefulWidget {
-  const HubScreen({super.key});
+class ProjectsScreen extends ConsumerStatefulWidget {
+  const ProjectsScreen({super.key});
 
   @override
-  ConsumerState<HubScreen> createState() => _HubScreenState();
+  ConsumerState<ProjectsScreen> createState() => _ProjectsScreenState();
 }
 
-class _HubScreenState extends ConsumerState<HubScreen> {
+class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
   @override
   void initState() {
     super.initState();

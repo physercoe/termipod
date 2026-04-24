@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'audit_screen.dart';
+import '../team/audit_screen.dart';
 
 /// Tier-1 Activity tab per `docs/ia-redesign.md` §6.3.
 ///

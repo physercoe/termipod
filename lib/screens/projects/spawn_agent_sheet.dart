@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
-import 'template_icon.dart';
+import '../team/template_icon.dart';
 
 /// Bottom-sheet editor for spawning an agent. Shared by the project detail
 /// Agents pill (pre-fills `project_id:` in the YAML so the backend binds

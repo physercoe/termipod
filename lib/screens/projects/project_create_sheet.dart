@@ -7,7 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
-import 'template_icon.dart';
+import '../team/template_icon.dart';
 
 /// Project creation sheet (blueprint §9 P2.7).
 ///

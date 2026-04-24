@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../providers/hub_provider.dart';
-import '../screens/hub/team_screen.dart';
+import '../screens/team/team_screen.dart';
 import '../theme/design_colors.dart';
 
 /// Persistent team switcher pill, shown in the AppBar of every Tier-1 tab

@@ -9,7 +9,7 @@ import '../../theme/design_colors.dart';
 /// First-run wizard that collects the hub base URL, team id, and bearer
 /// token, probes the endpoint, and saves on success.
 ///
-/// Shown by [HubScreen] when [HubState.configured] is false. Also reached
+/// Shown by [ProjectsScreen] when [HubState.configured] is false. Also reached
 /// from Settings > Termipod Hub to re-configure an existing install.
 class HubBootstrapScreen extends ConsumerStatefulWidget {
   const HubBootstrapScreen({super.key});

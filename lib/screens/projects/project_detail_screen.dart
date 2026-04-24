@@ -15,7 +15,7 @@ import 'artifacts_screen.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
-import 'hub_screen.dart' show openAgentDetail;
+import 'projects_screen.dart' show openAgentDetail;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart';
@@ -1119,7 +1119,7 @@ class _StatusDot extends StatelessWidget {
 // ---- Agents (filtered to this project) ----
 // Per IA line 444 agents live *inside* project detail, not as a
 // sibling tab under Projects. The archive action on the top-right
-// replaces the old HubScreen-level _AgentsTab archive button (Gap #6).
+// replaces the old tab-level _AgentsTab archive button (Gap #6).
 
 class _AgentsView extends ConsumerWidget {
   final String projectId;

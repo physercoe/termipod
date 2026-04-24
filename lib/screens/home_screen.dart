@@ -10,8 +10,8 @@ import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
 import 'hosts/hosts_screen.dart';
-import 'hub/activity_screen.dart';
-import 'hub/hub_screen.dart';
+import 'activity/activity_screen.dart';
+import 'projects/projects_screen.dart';
 import 'me/me_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
@@ -52,7 +52,7 @@ class HomeScreen extends ConsumerWidget {
       body: IndexedStack(
         index: currentTab,
         children: const [
-          HubScreen(),          // 0: Projects
+          ProjectsScreen(),     // 0: Projects
           ActivityScreen(),     // 1: Activity (audit feed promoted)
           MeScreen(),           // 2: Me (center, default)
           HostsScreen(),        // 3: Hosts (team ∪ personal, merged on hostBindings)

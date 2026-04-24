@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/hub_provider.dart';
-import '../../screens/hub/team_channel_screen.dart';
+import '../../screens/team/team_channel_screen.dart';
 
 /// Opens the team-wide `#hub-meta` channel — the canonical surface for
 /// cross-project steward direction (blueprint §6.9, ia-redesign §6.7).

@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
-import 'template_icon.dart';
+import '../team/template_icon.dart';
 
 /// Draft-plan launcher. Picks a project and (optional) template and POSTs
 /// `/v1/teams/{team}/plans`. Returns the new plan id on success so the

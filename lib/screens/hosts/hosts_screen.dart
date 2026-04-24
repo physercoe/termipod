@@ -13,7 +13,7 @@ import '../../services/keychain/secure_storage.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
-import '../hub/hub_screen.dart' show openHostDetail;
+import '../projects/projects_screen.dart' show openHostDetail;
 import '../terminal/terminal_screen.dart';
 
 /// Unified Hosts tab (Tier-2) per `docs/ia-redesign.md` §5 + §6.4.

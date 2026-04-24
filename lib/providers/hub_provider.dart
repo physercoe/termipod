@@ -209,6 +209,18 @@ class HubNotifier extends AsyncNotifier<HubState> {
     state = const AsyncData(HubState());
   }
 
+  /// Nuke every offline snapshot across every hub partition. Called from
+  /// the Settings "Clear offline cache" row when the user wants a clean
+  /// slate without also forgetting their hub URL/token. Returns the
+  /// number of rows removed so the UI can surface "Cleared N entries".
+  /// Opens the cache lazily if it wasn't already loaded.
+  Future<int> clearOfflineCache() async {
+    _cache ??= await _openCache();
+    final n = await _cache!.wipeAll();
+    _client?.snapshotCache = _cache;
+    return n;
+  }
+
   /// One-shot fetch of everything the dashboard needs. Tabs show whatever
   /// snapshot was loaded last; pull-to-refresh on the hub screen re-runs
   /// this. We don't try to be clever about partial failures — if one list

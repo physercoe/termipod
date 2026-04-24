@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 
+import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../services/data_port_service.dart';
@@ -523,6 +524,12 @@ class SettingsScreen extends ConsumerWidget {
                   title: Text(l10n.importBackup),
                   subtitle: Text(l10n.importBackupDesc),
                   onTap: () => _handleImport(context, ref),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.cloud_off),
+                  title: Text(l10n.clearOfflineCache),
+                  subtitle: Text(l10n.clearOfflineCacheDesc),
+                  onTap: () => _handleClearOfflineCache(context, ref),
                 ),
                 ListTile(
                   leading: const Icon(Icons.folder_open),
@@ -1440,6 +1447,38 @@ class SettingsScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  Future<void> _handleClearOfflineCache(
+      BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.clearOfflineCacheConfirmTitle),
+        content: Text(l10n.clearOfflineCacheConfirmBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.buttonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.clearOfflineCacheConfirm),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final n = await ref.read(hubProvider.notifier).clearOfflineCache();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(n == 0
+            ? l10n.clearOfflineCacheEmpty
+            : l10n.clearOfflineCacheCleared(n)),
+      ),
+    );
   }
 
   Widget _buildAppBar(BuildContext context) {

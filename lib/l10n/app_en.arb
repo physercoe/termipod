@@ -609,6 +609,15 @@
   "backupSummary": "{connections} connections, {keys} keys, {snippets} snippets, {history} history",
   "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
 
+  "clearOfflineCache": "Clear offline cache",
+  "clearOfflineCacheDesc": "Drop cached hub snapshots used when offline",
+  "clearOfflineCacheEmpty": "Offline cache already empty",
+  "clearOfflineCacheCleared": "Cleared {count} cached entries",
+  "@clearOfflineCacheCleared": { "placeholders": { "count": { "type": "int" } } },
+  "clearOfflineCacheConfirmTitle": "Clear offline cache?",
+  "clearOfflineCacheConfirmBody": "Snapshots used to show lists while offline will be removed. Fresh data will load the next time the hub is reachable.",
+  "clearOfflineCacheConfirm": "Clear",
+
   "browseFiles": "Browse Files",
   "browseFilesDesc": "View app storage (backups, downloads)",
   "fileBrowserTitle": "Files",

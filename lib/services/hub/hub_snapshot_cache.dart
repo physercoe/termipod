@@ -140,6 +140,23 @@ class HubSnapshotCache {
     await db.delete(_table, where: 'hub_key = ?', whereArgs: [hubKey]);
   }
 
+  /// Drop every row across every hub partition. Exposed for the Settings
+  /// "Clear offline cache" action, which isn't tied to any one hub and
+  /// shouldn't have to enumerate partitions itself.
+  Future<int> wipeAll() async {
+    final db = await _open();
+    return db.delete(_table);
+  }
+
+  /// Total row count across every hub partition. Used by the Settings
+  /// "Clear offline cache" row to show how much is currently stashed
+  /// before the user taps.
+  Future<int> countAll() async {
+    final db = await _open();
+    final rows = await db.rawQuery('SELECT COUNT(*) AS n FROM $_table');
+    return (rows.first['n'] as int?) ?? 0;
+  }
+
   /// Row count for a hub partition. Exposed for tests and for a future
   /// "Clear offline cache" settings row that wants to show the size.
   Future<int> countFor(String hubKey) async {

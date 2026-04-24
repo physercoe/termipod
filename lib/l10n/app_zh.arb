@@ -559,6 +559,15 @@
   "backupSummary": "{connections} 个连接、{keys} 个密钥、{snippets} 个代码片段、{history} 条历史",
   "@backupSummary": { "placeholders": { "connections": { "type": "int" }, "keys": { "type": "int" }, "snippets": { "type": "int" }, "history": { "type": "int" } } },
 
+  "clearOfflineCache": "清除离线缓存",
+  "clearOfflineCacheDesc": "删除离线时显示的 Hub 快照缓存",
+  "clearOfflineCacheEmpty": "离线缓存已为空",
+  "clearOfflineCacheCleared": "已清除 {count} 条缓存",
+  "@clearOfflineCacheCleared": { "placeholders": { "count": { "type": "int" } } },
+  "clearOfflineCacheConfirmTitle": "清除离线缓存？",
+  "clearOfflineCacheConfirmBody": "离线时用于显示列表的快照将被删除。下次 Hub 可达时会重新加载数据。",
+  "clearOfflineCacheConfirm": "清除",
+
   "browseFiles": "浏览文件",
   "browseFilesDesc": "查看应用存储（备份、下载）",
   "fileBrowserTitle": "文件",

@@ -88,6 +88,18 @@ void main() {
       expect(await cache.get(otherHub, '/v1/projects'), isNotNull);
     });
 
+    test('wipeAll clears every partition and reports row count', () async {
+      await cache.put(hub, '/v1/projects', <String, Object?>{'x': 1});
+      await cache.put(hub, '/v1/runs', <String, Object?>{'x': 2});
+      await cache.put(otherHub, '/v1/projects', <String, Object?>{'x': 3});
+      expect(await cache.countAll(), equals(3));
+      final wiped = await cache.wipeAll();
+      expect(wiped, equals(3));
+      expect(await cache.countAll(), equals(0));
+      expect(await cache.get(hub, '/v1/projects'), isNull);
+      expect(await cache.get(otherHub, '/v1/projects'), isNull);
+    });
+
     test('TTL-expired rows are dropped on read', () async {
       final tight = HubSnapshotCache(
         dbPath: inMemoryDatabasePath,

@@ -1033,6 +1033,12 @@ class _OverviewView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final projectId = (project['id'] ?? '').toString();
+    // Count open attention for this project off the already-loaded list.
+    final attention = ref.watch(hubProvider).value?.attention ?? const [];
+    final openAttention = attention
+        .where((a) => (a['project_id'] ?? '').toString() == projectId)
+        .length;
     final rows = <MapEntry<String, String>>[
       MapEntry('Name', (project['name'] ?? '').toString()),
       MapEntry('Kind', (project['kind'] ?? 'goal').toString()),
@@ -1048,11 +1054,19 @@ class _OverviewView extends ConsumerWidget {
       MapEntry('Docs root', (project['docs_root'] ?? '').toString()),
       MapEntry('Created', (project['created_at'] ?? '').toString()),
     ];
-    final projectId = (project['id'] ?? '').toString();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
         if (projectId.isNotEmpty) ...[
+          if (openAttention > 0) ...[
+            _AttentionBanner(
+              count: openAttention,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ReviewsScreen(projectId: projectId),
+              )),
+            ),
+            const SizedBox(height: 12),
+          ],
           SweepScatter(projectId: projectId),
           const SizedBox(height: 12),
           _ShortcutTile(
@@ -1067,6 +1081,9 @@ class _OverviewView extends ConsumerWidget {
             icon: Icons.rate_review_outlined,
             label: 'Reviews',
             sub: 'Pending human decisions on this project',
+            trailing: openAttention > 0
+                ? _AttentionBadgeSmall(count: openAttention)
+                : null,
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ReviewsScreen(projectId: projectId),
             )),
@@ -1183,12 +1200,14 @@ class _ShortcutTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String sub;
+  final Widget? trailing;
   final VoidCallback onTap;
   const _ShortcutTile({
     required this.icon,
     required this.label,
     required this.sub,
     required this.onTap,
+    this.trailing,
   });
 
   @override
@@ -1210,8 +1229,90 @@ class _ShortcutTile extends StatelessWidget {
           color: DesignColors.textMuted,
         ),
       ),
-      trailing: const Icon(Icons.chevron_right, size: 20),
+      trailing: trailing != null
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                trailing!,
+                const SizedBox(width: 4),
+                const Icon(Icons.chevron_right, size: 20),
+              ],
+            )
+          : const Icon(Icons.chevron_right, size: 20),
       onTap: onTap,
+    );
+  }
+}
+
+/// Wide banner rendered at the top of Overview when there is pending
+/// attention on this project. Taps through to the Reviews queue (the
+/// usual source of attention items per blueprint §6.8). A separate small
+/// badge on the Reviews shortcut mirrors the count so the affordance
+/// stays visible after scrolling past the banner.
+class _AttentionBanner extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _AttentionBanner({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: DesignColors.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: DesignColors.warning.withValues(alpha: 0.55)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.flag_outlined,
+                size: 18, color: DesignColors.warning),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                count == 1
+                    ? '1 open attention item'
+                    : '$count open attention items',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.warning,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                size: 18, color: DesignColors.warning),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttentionBadgeSmall extends StatelessWidget {
+  final int count;
+  const _AttentionBadgeSmall({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: DesignColors.warning.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: DesignColors.warning.withValues(alpha: 0.6)),
+      ),
+      child: Text(
+        '$count',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: DesignColors.warning,
+        ),
+      ),
     );
   }
 }

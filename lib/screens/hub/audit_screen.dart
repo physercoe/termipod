@@ -23,11 +23,17 @@ class AuditScreen extends ConsumerStatefulWidget {
 }
 
 class _AuditScreenState extends ConsumerState<AuditScreen> {
-  // Filter prefix derived from loaded rows; null == "All".
-  // The chip set is data-driven (see `_prefixCounts`) so it reflects what's
-  // actually in the feed rather than a hardcoded enumeration that drifts as
-  // new action kinds land on the backend.
+  // Filters derived from loaded rows; null == "no filter on this axis".
+  // Chip sets are data-driven (see `_prefixCounts` / `_actorCounts` /
+  // `_projectCounts`) so they reflect what's actually in the feed rather
+  // than a hardcoded enumeration that drifts as new action kinds land on
+  // the backend.
   String? _prefix;
+  String? _actor;
+  String? _projectId;
+  String _query = '';
+  bool _searchVisible = false;
+  final _searchCtrl = TextEditingController();
   List<Map<String, dynamic>> _allRows = const [];
   bool _loading = false;
   String? _error;
@@ -36,6 +42,12 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -71,14 +83,54 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
 
   /// Group actions by their `<verb>` prefix (`agent.spawn` → `agent`) and
   /// count. Sorted by count desc; ties broken alphabetically.
-  List<MapEntry<String, int>> get _prefixCounts {
+  List<MapEntry<String, int>> get _prefixCounts =>
+      _countBy(_allRows, (r) {
+        final action = (r['action'] ?? '').toString();
+        if (action.isEmpty) return null;
+        final dot = action.indexOf('.');
+        return dot > 0 ? action.substring(0, dot) : action;
+      });
+
+  /// Distinct actor handles (human + agent) across loaded rows. Events
+  /// without a handle are rolled into '(system)' so you can still isolate
+  /// background jobs.
+  List<MapEntry<String, int>> get _actorCounts =>
+      _countBy(_allRows, (r) {
+        final h = (r['actor_handle'] ?? '').toString();
+        if (h.isNotEmpty) return h;
+        final kind = (r['actor_kind'] ?? '').toString();
+        return kind.isEmpty ? '(unknown)' : '($kind)';
+      });
+
+  /// Pull a project id from each row. Uses `target_id` when `target_kind`
+  /// is 'project', otherwise falls back to `meta.project_id` which most
+  /// downstream mutations (run.create, plan.create, channel.create…)
+  /// populate.
+  List<MapEntry<String, int>> get _projectCounts =>
+      _countBy(_allRows, _rowProjectId);
+
+  static String? _rowProjectId(Map<String, dynamic> r) {
+    if ((r['target_kind'] ?? '').toString() == 'project') {
+      final id = (r['target_id'] ?? '').toString();
+      if (id.isNotEmpty) return id;
+    }
+    final meta = r['meta'];
+    if (meta is Map) {
+      final pid = (meta['project_id'] ?? '').toString();
+      if (pid.isNotEmpty) return pid;
+    }
+    return null;
+  }
+
+  static List<MapEntry<String, int>> _countBy(
+    List<Map<String, dynamic>> rows,
+    String? Function(Map<String, dynamic>) key,
+  ) {
     final counts = <String, int>{};
-    for (final r in _allRows) {
-      final action = (r['action'] ?? '').toString();
-      if (action.isEmpty) continue;
-      final dot = action.indexOf('.');
-      final prefix = dot > 0 ? action.substring(0, dot) : action;
-      counts[prefix] = (counts[prefix] ?? 0) + 1;
+    for (final r in rows) {
+      final k = key(r);
+      if (k == null || k.isEmpty) continue;
+      counts[k] = (counts[k] ?? 0) + 1;
     }
     final entries = counts.entries.toList()
       ..sort((a, b) {
@@ -89,16 +141,64 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
   }
 
   List<Map<String, dynamic>> get _filteredRows {
-    if (_prefix == null) return _allRows;
-    return _allRows
-        .where((r) => (r['action'] ?? '').toString().startsWith('$_prefix.') ||
-            (r['action'] ?? '').toString() == _prefix)
-        .toList();
+    final q = _query.trim().toLowerCase();
+    return _allRows.where((r) {
+      final action = (r['action'] ?? '').toString();
+      if (_prefix != null &&
+          !(action.startsWith('$_prefix.') || action == _prefix)) {
+        return false;
+      }
+      if (_actor != null) {
+        final h = (r['actor_handle'] ?? '').toString();
+        final kind = (r['actor_kind'] ?? '').toString();
+        final label =
+            h.isNotEmpty ? h : (kind.isEmpty ? '(unknown)' : '($kind)');
+        if (label != _actor) return false;
+      }
+      if (_projectId != null && _rowProjectId(r) != _projectId) return false;
+      if (q.isNotEmpty) {
+        final hay = '${(r['summary'] ?? '')} ${r['action'] ?? ''} '
+                '${r['actor_handle'] ?? ''} ${r['target_id'] ?? ''}'
+            .toLowerCase();
+        if (!hay.contains(q)) return false;
+      }
+      return true;
+    }).toList();
+  }
+
+  /// Map project ids to their names using the already-loaded projects list
+  /// so the chip row reads "demo-research" instead of "proj_abc123".
+  Map<String, String> _projectNameMap() {
+    final projects = ref.read(hubProvider).value?.projects ?? const [];
+    return {
+      for (final p in projects)
+        if ((p['id'] ?? '').toString().isNotEmpty)
+          (p['id'] ?? '').toString(): (p['name'] ?? p['id']).toString(),
+    };
+  }
+
+  bool get _hasActiveFilter =>
+      _prefix != null ||
+      _actor != null ||
+      _projectId != null ||
+      _query.trim().isNotEmpty;
+
+  void _clearFilters() {
+    setState(() {
+      _prefix = null;
+      _actor = null;
+      _projectId = null;
+      _query = '';
+      _searchCtrl.clear();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final projectNames = _projectNameMap();
+    final actorCounts = _actorCounts;
+    final projectCounts = _projectCounts;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -109,6 +209,23 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         actions: [
           const TeamSwitcher(),
           IconButton(
+            tooltip: _searchVisible ? 'Hide search' : 'Search',
+            icon: Icon(_searchVisible ? Icons.search_off : Icons.search),
+            onPressed: () => setState(() {
+              _searchVisible = !_searchVisible;
+              if (!_searchVisible) {
+                _query = '';
+                _searchCtrl.clear();
+              }
+            }),
+          ),
+          if (_hasActiveFilter)
+            IconButton(
+              tooltip: 'Clear filters',
+              icon: const Icon(Icons.filter_alt_off),
+              onPressed: _clearFilters,
+            ),
+          IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _load,
@@ -118,6 +235,10 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       body: Column(
         children: [
           const _TeamChannelIngress(),
+          if (_searchVisible) _SearchField(
+            controller: _searchCtrl,
+            onChanged: (v) => setState(() => _query = v),
+          ),
           ActivityDigestCard(events: _filteredRows),
           _FilterChips(
             prefixes: _prefixCounts,
@@ -125,6 +246,21 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
             selected: _prefix,
             onSelected: (p) => setState(() => _prefix = p),
           ),
+          if (actorCounts.length >= 2)
+            _AxisChips(
+              label: 'actor',
+              values: actorCounts,
+              selected: _actor,
+              onSelected: (v) => setState(() => _actor = v),
+            ),
+          if (projectCounts.length >= 2)
+            _AxisChips(
+              label: 'project',
+              values: projectCounts,
+              selected: _projectId,
+              displayLabel: (id) => projectNames[id] ?? id,
+              onSelected: (v) => setState(() => _projectId = v),
+            ),
           const Divider(height: 1),
           Expanded(
             child: RefreshIndicator(
@@ -159,9 +295,9 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         children: [
           Center(
             child: Text(
-              _prefix == null
-                  ? 'No audit events yet.'
-                  : 'No $_prefix.* events.',
+              _hasActiveFilter
+                  ? 'No events match the current filters.'
+                  : 'No audit events yet.',
             ),
           ),
         ],
@@ -259,6 +395,104 @@ class _FilterChips extends StatelessWidget {
             onSelected: (_) => onSelected(isSel ? null : entry.key),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Inline search field shown above the digest card when the AppBar search
+/// toggle is on. We stay inline rather than pushing to a sheet so the
+/// field can live alongside the chip rows — all three axes (text, kind,
+/// actor, project) compose with AND semantics.
+class _SearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  const _SearchField({required this.controller, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: TextField(
+        controller: controller,
+        onChanged: onChanged,
+        autofocus: true,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          hintText: 'Search summary / action / target…',
+          prefixIcon: const Icon(Icons.search, size: 18),
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Generic "pick one value from N" chip row used for both the actor and
+/// project axes. Hidden by the parent when there are < 2 distinct values
+/// (a one-value filter is meaningless). `displayLabel` lets the caller
+/// remap the stored id (e.g. project id → project name) without changing
+/// the selection key.
+class _AxisChips extends StatelessWidget {
+  final String label;
+  final List<MapEntry<String, int>> values;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+  final String Function(String id)? displayLabel;
+  const _AxisChips({
+    required this.label,
+    required this.values,
+    required this.selected,
+    required this.onSelected,
+    this.displayLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 6),
+            child: Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              itemCount: values.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              itemBuilder: (_, i) {
+                final entry = values[i];
+                final isSel = selected == entry.key;
+                final text = displayLabel != null
+                    ? displayLabel!(entry.key)
+                    : entry.key;
+                return ChoiceChip(
+                  label: Text('$text (${entry.value})'),
+                  selected: isSel,
+                  onSelected: (_) => onSelected(isSel ? null : entry.key),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }

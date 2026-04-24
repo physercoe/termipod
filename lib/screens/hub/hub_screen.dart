@@ -1261,6 +1261,18 @@ class _ProjectsTab extends ConsumerWidget {
   const _ProjectsTab({required this.items});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Roll up open attention items by project so each row can surface
+    // how many things need you on that project — the canonical "needs
+    // you" signal per blueprint §6.8. Uses the already-loaded attention
+    // list (HubNotifier.refreshAll → listAttention status=open), so this
+    // is free: no extra fetch.
+    final attention = ref.watch(hubProvider).value?.attention ?? const [];
+    final openByProject = <String, int>{};
+    for (final a in attention) {
+      final pid = (a['project_id'] ?? '').toString();
+      if (pid.isEmpty) continue;
+      openByProject[pid] = (openByProject[pid] ?? 0) + 1;
+    }
     final body = items.isEmpty
         ? const _EmptyText(
             text: 'No projects yet — use the + button or ask the steward '
@@ -1274,11 +1286,18 @@ class _ProjectsTab extends ConsumerWidget {
               itemBuilder: (_, i) {
                 final p = items[i];
                 final kind = (p['kind'] ?? 'goal').toString();
+                final pid = (p['id'] ?? '').toString();
+                final openCount = openByProject[pid] ?? 0;
                 return _InfoTile(
                   title: p['name']?.toString() ?? '?',
                   subtitle: p['status']?.toString() ?? '',
                   leading: ProjectKindChip(kind: kind),
-                  trailing: _shortTs((p['created_at'] ?? '') as String),
+                  trailingWidget: openCount > 0
+                      ? _AttentionBadge(count: openCount)
+                      : null,
+                  trailing: openCount > 0
+                      ? null
+                      : _shortTs((p['created_at'] ?? '') as String),
                   onTap: () {
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => ProjectDetailScreen(project: p),
@@ -1348,16 +1367,48 @@ class _EmptyText extends StatelessWidget {
   }
 }
 
+/// Small pill shown on project rows and the project Overview to surface
+/// open attention count. Muted warning color — not a red-dot "unread"
+/// because attention items are approvals/decisions, not missed messages.
+class _AttentionBadge extends StatelessWidget {
+  final int count;
+  const _AttentionBadge({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: DesignColors.warning.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: DesignColors.warning.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Text(
+        '$count open',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: DesignColors.warning,
+        ),
+      ),
+    );
+  }
+}
+
 class _InfoTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final String? trailing;
+  final Widget? trailingWidget;
   final Widget? leading;
   final VoidCallback? onTap;
   const _InfoTile({
     required this.title,
     required this.subtitle,
     this.trailing,
+    this.trailingWidget,
     this.leading,
     this.onTap,
   });
@@ -1396,7 +1447,9 @@ class _InfoTile extends StatelessWidget {
               ],
             ),
           ),
-          if (trailing != null && trailing!.isNotEmpty)
+          if (trailingWidget != null)
+            trailingWidget!
+          else if (trailing != null && trailing!.isNotEmpty)
             Text(trailing!,
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,

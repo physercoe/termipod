@@ -1308,7 +1308,7 @@ class _ProjectsTab extends ConsumerWidget {
                 return _InfoTile(
                   title: p['name']?.toString() ?? '?',
                   subtitle: p['status']?.toString() ?? '',
-                  leading: _ProjectKindChip(kind: kind),
+                  leading: ProjectKindChip(kind: kind),
                   trailing: _shortTs((p['created_at'] ?? '') as String),
                   onTap: () {
                     Navigator.of(context).push(MaterialPageRoute(

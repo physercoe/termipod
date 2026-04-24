@@ -22,18 +22,12 @@ class AuditScreen extends ConsumerStatefulWidget {
 }
 
 class _AuditScreenState extends ConsumerState<AuditScreen> {
-  static const _filters = <_ActionFilter>[
-    _ActionFilter('All', null),
-    _ActionFilter('Steward', null, actorHandle: 'steward'),
-    _ActionFilter('Spawn', 'agent.spawn'),
-    _ActionFilter('Terminate', 'agent.terminate'),
-    _ActionFilter('Decide', 'attention.decide'),
-    _ActionFilter('Schedule', null, prefix: 'schedule.'),
-    _ActionFilter('Host', null, prefix: 'host.'),
-  ];
-
-  _ActionFilter _selected = _filters.first;
-  List<Map<String, dynamic>> _rows = const [];
+  // Filter prefix derived from loaded rows; null == "All".
+  // The chip set is data-driven (see `_prefixCounts`) so it reflects what's
+  // actually in the feed rather than a hardcoded enumeration that drifts as
+  // new action kinds land on the backend.
+  String? _prefix;
+  List<Map<String, dynamic>> _allRows = const [];
   bool _loading = false;
   String? _error;
 
@@ -57,24 +51,10 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       return;
     }
     try {
-      final rows = await client.listAuditEvents(
-        action: _selected.action,
-        limit: 200,
-      );
-      final filtered = rows.where((r) {
-        if (_selected.prefix != null) {
-          final a = (r['action'] ?? '').toString();
-          if (!a.startsWith(_selected.prefix!)) return false;
-        }
-        if (_selected.actorHandle != null) {
-          final h = (r['actor_handle'] ?? '').toString();
-          if (h != _selected.actorHandle) return false;
-        }
-        return true;
-      }).toList();
+      final rows = await client.listAuditEvents(limit: 500);
       if (mounted) {
         setState(() {
-          _rows = filtered;
+          _allRows = rows;
           _loading = false;
         });
       }
@@ -86,6 +66,33 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         });
       }
     }
+  }
+
+  /// Group actions by their `<verb>` prefix (`agent.spawn` → `agent`) and
+  /// count. Sorted by count desc; ties broken alphabetically.
+  List<MapEntry<String, int>> get _prefixCounts {
+    final counts = <String, int>{};
+    for (final r in _allRows) {
+      final action = (r['action'] ?? '').toString();
+      if (action.isEmpty) continue;
+      final dot = action.indexOf('.');
+      final prefix = dot > 0 ? action.substring(0, dot) : action;
+      counts[prefix] = (counts[prefix] ?? 0) + 1;
+    }
+    final entries = counts.entries.toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        return byCount != 0 ? byCount : a.key.compareTo(b.key);
+      });
+    return entries;
+  }
+
+  List<Map<String, dynamic>> get _filteredRows {
+    if (_prefix == null) return _allRows;
+    return _allRows
+        .where((r) => (r['action'] ?? '').toString().startsWith('$_prefix.') ||
+            (r['action'] ?? '').toString() == _prefix)
+        .toList();
   }
 
   @override
@@ -109,29 +116,12 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       ),
       body: Column(
         children: [
-          ActivityDigestCard(events: _rows),
-          SizedBox(
-            height: 44,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              itemCount: _filters.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
-              itemBuilder: (_, i) {
-                final f = _filters[i];
-                final isSelected = f == _selected;
-                return ChoiceChip(
-                  label: Text(f.label),
-                  selected: isSelected,
-                  onSelected: (_) {
-                    if (!isSelected) {
-                      setState(() => _selected = f);
-                      _load();
-                    }
-                  },
-                );
-              },
-            ),
+          ActivityDigestCard(events: _filteredRows),
+          _FilterChips(
+            prefixes: _prefixCounts,
+            totalCount: _allRows.length,
+            selected: _prefix,
+            onSelected: (p) => setState(() => _prefix = p),
           ),
           const Divider(height: 1),
           Expanded(
@@ -146,7 +136,8 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
   }
 
   Widget _buildBody() {
-    if (_loading && _rows.isEmpty) {
+    final rows = _filteredRows;
+    if (_loading && _allRows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
@@ -160,29 +151,70 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         ],
       );
     }
-    if (_rows.isEmpty) {
+    if (rows.isEmpty) {
       return ListView(
         padding: const EdgeInsets.all(24),
-        children: const [
-          Center(child: Text('No audit events yet.')),
+        children: [
+          Center(
+            child: Text(
+              _prefix == null
+                  ? 'No audit events yet.'
+                  : 'No $_prefix.* events.',
+            ),
+          ),
         ],
       );
     }
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: _rows.length,
+      itemCount: rows.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (_, i) => _AuditRow(data: _rows[i]),
+      itemBuilder: (_, i) => _AuditRow(data: rows[i]),
     );
   }
 }
 
-class _ActionFilter {
-  final String label;
-  final String? action;
-  final String? prefix;
-  final String? actorHandle;
-  const _ActionFilter(this.label, this.action, {this.prefix, this.actorHandle});
+class _FilterChips extends StatelessWidget {
+  final List<MapEntry<String, int>> prefixes;
+  final int totalCount;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  const _FilterChips({
+    required this.prefixes,
+    required this.totalCount,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        itemCount: prefixes.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (_, i) {
+          if (i == 0) {
+            return ChoiceChip(
+              label: Text('All ($totalCount)'),
+              selected: selected == null,
+              onSelected: (_) => onSelected(null),
+            );
+          }
+          final entry = prefixes[i - 1];
+          final isSel = selected == entry.key;
+          return ChoiceChip(
+            label: Text('${entry.key} (${entry.value})'),
+            selected: isSel,
+            onSelected: (_) => onSelected(isSel ? null : entry.key),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _AuditRow extends StatelessWidget {

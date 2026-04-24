@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
@@ -1272,6 +1273,7 @@ class _ProjectsTab extends ConsumerWidget {
     // you" signal per blueprint §6.8. Uses the already-loaded attention
     // list (HubNotifier.refreshAll → listAttention status=open), so this
     // is free: no extra fetch.
+    final l10n = AppLocalizations.of(context)!;
     final attention = ref.watch(hubProvider).value?.attention ?? const [];
     final openByProject = <String, int>{};
     for (final a in attention) {
@@ -1279,38 +1281,62 @@ class _ProjectsTab extends ConsumerWidget {
       if (pid.isEmpty) continue;
       openByProject[pid] = (openByProject[pid] ?? 0) + 1;
     }
+    // Partition on `kind` per blueprint §6.1: goal vs. standing. The
+    // schema is one table; the mobile IA splits them into two named
+    // sections (Projects vs. Workspaces) since the mental models differ
+    // (bounded outcome vs. ongoing container).
+    final goals = <Map<String, dynamic>>[];
+    final standings = <Map<String, dynamic>>[];
+    for (final p in items) {
+      final kind = (p['kind'] ?? 'goal').toString();
+      if (kind == 'standing') {
+        standings.add(p);
+      } else {
+        goals.add(p);
+      }
+    }
     final body = items.isEmpty
-        ? const _EmptyText(
-            text: 'No projects yet — use the + button or ask the steward '
-                'to create one via #hub-meta')
+        ? _EmptyText(text: l10n.projectsEmpty)
         : RefreshIndicator(
             onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) {
-                final p = items[i];
-                final kind = (p['kind'] ?? 'goal').toString();
-                final pid = (p['id'] ?? '').toString();
-                final openCount = openByProject[pid] ?? 0;
-                return _InfoTile(
-                  title: p['name']?.toString() ?? '?',
-                  subtitle: p['status']?.toString() ?? '',
-                  leading: ProjectKindChip(kind: kind),
-                  trailingWidget: openCount > 0
-                      ? _AttentionBadge(count: openCount)
-                      : null,
-                  trailing: openCount > 0
-                      ? null
-                      : _shortTs((p['created_at'] ?? '') as String),
-                  onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => ProjectDetailScreen(project: p),
-                    ));
-                  },
-                );
-              },
+            child: CustomScrollView(
+              slivers: [
+                if (goals.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: _ProjectsSectionLabel(text: l10n.sectionProjects),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    sliver: SliverList.separated(
+                      itemCount: goals.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) => _projectRow(
+                        context,
+                        goals[i],
+                        openByProject,
+                      ),
+                    ),
+                  ),
+                ],
+                if (standings.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: _ProjectsSectionLabel(text: l10n.sectionWorkspaces),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    sliver: SliverList.separated(
+                      itemCount: standings.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (_, i) => _projectRow(
+                        context,
+                        standings[i],
+                        openByProject,
+                      ),
+                    ),
+                  ),
+                ],
+                const SliverPadding(padding: EdgeInsets.only(bottom: 96)),
+              ],
             ),
           );
     return Stack(
@@ -1318,14 +1344,15 @@ class _ProjectsTab extends ConsumerWidget {
         Positioned.fill(child: body),
         // FAB kept but demoted to `.small` — under the steward-CEO model
         // projects land via the steward responding on #hub-meta, so the
-        // manual path is a fallback rather than the primary action.
+        // manual path is a fallback rather than the primary action. Split
+        // into a menu that offers both kinds (Project / Workspace).
         Positioned(
           right: 16,
           bottom: 16,
           child: FloatingActionButton.small(
             heroTag: 'hub-projects-fab',
-            onPressed: () => _openCreateSheet(context, ref),
-            tooltip: 'New project',
+            onPressed: () => _openCreateMenu(context, ref),
+            tooltip: l10n.projectCreateFabTooltip,
             child: const Icon(Icons.add),
           ),
         ),
@@ -1333,15 +1360,95 @@ class _ProjectsTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _openCreateSheet(BuildContext context, WidgetRef ref) async {
+  Widget _projectRow(
+    BuildContext context,
+    Map<String, dynamic> p,
+    Map<String, int> openByProject,
+  ) {
+    final kind = (p['kind'] ?? 'goal').toString();
+    final pid = (p['id'] ?? '').toString();
+    final openCount = openByProject[pid] ?? 0;
+    return _InfoTile(
+      title: p['name']?.toString() ?? '?',
+      subtitle: p['status']?.toString() ?? '',
+      leading: ProjectKindChip(kind: kind),
+      trailingWidget:
+          openCount > 0 ? _AttentionBadge(count: openCount) : null,
+      trailing:
+          openCount > 0 ? null : _shortTs((p['created_at'] ?? '') as String),
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ProjectDetailScreen(project: p),
+        ));
+      },
+    );
+  }
+
+  Future<void> _openCreateMenu(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined),
+              title: Text(l10n.newProject),
+              subtitle: Text(l10n.kindProjectHelper),
+              onTap: () => Navigator.of(ctx).pop('goal'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.all_inclusive),
+              title: Text(l10n.newWorkspace),
+              subtitle: Text(l10n.kindWorkspaceHelper),
+              onTap: () => Navigator.of(ctx).pop('standing'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+    await _openCreateSheet(context, ref, initialKind: choice);
+  }
+
+  Future<void> _openCreateSheet(
+    BuildContext context,
+    WidgetRef ref, {
+    String initialKind = 'goal',
+  }) async {
     final created = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const ProjectCreateSheet(),
+      builder: (_) => ProjectCreateSheet(initialKind: initialKind),
     );
     if (created == true) {
       await ref.read(hubProvider.notifier).refreshAll();
     }
+  }
+}
+
+class _ProjectsSectionLabel extends StatelessWidget {
+  final String text;
+  const _ProjectsSectionLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 2),
+      child: Text(
+        text.toUpperCase(),
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: muted,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
   }
 }
 

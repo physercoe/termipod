@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -104,9 +105,13 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final name = (_project['name'] ?? 'Project').toString();
-    final projectId = (_project['id'] ?? '').toString();
+    final l10n = AppLocalizations.of(context)!;
     final kind = (_project['kind'] ?? 'goal').toString();
+    final isWorkspace = kind == 'standing';
+    final name = (_project['name'] ??
+            (isWorkspace ? l10n.kindWorkspace : l10n.kindProject))
+        .toString();
+    final projectId = (_project['id'] ?? '').toString();
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -128,7 +133,9 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           const TeamSwitcher(),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit project',
+            tooltip: isWorkspace
+                ? l10n.workspaceDetailEditTooltip
+                : l10n.projectDetailEditTooltip,
             onPressed: _edit,
           ),
         ],
@@ -960,13 +967,26 @@ class _AgentsView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final all = ref.watch(hubProvider).value?.agents ?? const [];
+    final l10n = AppLocalizations.of(context)!;
+    final hubState = ref.watch(hubProvider).value;
+    final all = hubState?.agents ?? const [];
     final rows = all
         .where((a) => (a['project_id'] ?? '').toString() == projectId)
         .toList();
+    final kind = (hubState?.projects ?? const <Map<String, dynamic>>[])
+        .firstWhere(
+          (p) => (p['id'] ?? '').toString() == projectId,
+          orElse: () => const <String, dynamic>{},
+        )['kind']
+        ?.toString() ??
+        'goal';
+    final isWorkspace = kind == 'standing';
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final body = rows.isEmpty
-        ? const _Placeholder(text: 'No agents on this project')
+        ? _Placeholder(
+            text: isWorkspace
+                ? l10n.workspaceNoAgents
+                : l10n.projectNoAgents)
         : ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             itemCount: rows.length,
@@ -1045,8 +1065,11 @@ class _OverviewView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final projectId = (project['id'] ?? '').toString();
+    final kind = (project['kind'] ?? 'goal').toString();
+    final kindLabel = kind == 'standing' ? l10n.kindWorkspace : l10n.kindProject;
     // Count open attention for this project off the already-loaded list.
     final attention = ref.watch(hubProvider).value?.attention ?? const [];
     final openAttention = attention
@@ -1054,7 +1077,7 @@ class _OverviewView extends ConsumerWidget {
         .length;
     final rows = <MapEntry<String, String>>[
       MapEntry('Name', (project['name'] ?? '').toString()),
-      MapEntry('Kind', (project['kind'] ?? 'goal').toString()),
+      MapEntry('Kind', kindLabel),
       MapEntry('Status', (project['status'] ?? '').toString()),
       if ((project['goal'] ?? '').toString().isNotEmpty)
         MapEntry('Goal', (project['goal'] ?? '').toString()),
@@ -1093,7 +1116,9 @@ class _OverviewView extends ConsumerWidget {
           _ShortcutTile(
             icon: Icons.rate_review_outlined,
             label: 'Reviews',
-            sub: 'Pending human decisions on this project',
+            sub: kind == 'standing'
+                ? 'Pending human decisions on this workspace'
+                : 'Pending human decisions on this project',
             trailing: openAttention > 0
                 ? _AttentionBadgeSmall(count: openAttention)
                 : null,
@@ -1169,7 +1194,9 @@ class _OverviewView extends ConsumerWidget {
         const SizedBox(height: 16),
         OutlinedButton.icon(
           icon: const Icon(Icons.archive_outlined),
-          label: const Text('Archive project'),
+          label: Text(kind == 'standing'
+              ? l10n.workspaceArchiveAction
+              : l10n.projectArchiveAction),
           style: OutlinedButton.styleFrom(foregroundColor: DesignColors.error),
           onPressed: () => _archive(context, ref),
         ),
@@ -1178,13 +1205,20 @@ class _OverviewView extends ConsumerWidget {
   }
 
   Future<void> _archive(BuildContext context, WidgetRef ref) async {
+    final l10n = AppLocalizations.of(context)!;
+    final kind = (project['kind'] ?? 'goal').toString();
+    final isWorkspace = kind == 'standing';
+    final name = (project['name'] ?? '').toString();
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Archive project'),
+        title: Text(isWorkspace
+            ? l10n.workspaceArchiveTitle
+            : l10n.projectArchiveTitle),
         content: Text(
-          'Archive "${project['name']}"? The project will be hidden from lists '
-          'but data is preserved.',
+          isWorkspace
+              ? l10n.workspaceArchiveConfirm(name)
+              : l10n.projectArchiveConfirm(name),
         ),
         actions: [
           TextButton(
@@ -1344,10 +1378,18 @@ class ProjectKindChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final color = switch (kind) {
       'goal' => DesignColors.terminalCyan,
       'standing' => DesignColors.warning,
       _ => DesignColors.textMuted,
+    };
+    // Schema `kind` stays goal/standing; UI surfaces Project/Workspace
+    // per IA §6.2 since the mental models differ.
+    final label = switch (kind) {
+      'goal' => l10n.kindProject,
+      'standing' => l10n.kindWorkspace,
+      _ => kind,
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1357,7 +1399,7 @@ class ProjectKindChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        kind,
+        label,
         style: GoogleFonts.jetBrainsMono(
           fontSize: 10,
           fontWeight: FontWeight.w700,

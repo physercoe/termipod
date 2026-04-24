@@ -8,6 +8,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/open_team_channel.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
 
 /// Activity tab body per `docs/ia-redesign.md` §6.3 — the team's mutation
@@ -37,6 +38,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
   List<Map<String, dynamic>> _allRows = const [];
   bool _loading = false;
   String? _error;
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -64,10 +66,11 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       return;
     }
     try {
-      final rows = await client.listAuditEvents(limit: 500);
+      final cached = await client.listAuditEventsCached(limit: 500);
       if (mounted) {
         setState(() {
-          _allRows = rows;
+          _allRows = cached.body;
+          _staleSince = cached.staleSince;
           _loading = false;
         });
       }
@@ -235,6 +238,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       body: Column(
         children: [
           const _TeamChannelIngress(),
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
           if (_searchVisible) _SearchField(
             controller: _searchCtrl,
             onChanged: (v) => setState(() => _query = v),

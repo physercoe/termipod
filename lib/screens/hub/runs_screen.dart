@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/histogram_tile.dart';
+import '../../widgets/hub_offline_banner.dart';
 import 'artifacts_screen.dart';
 import 'run_create_sheet.dart';
 
@@ -39,6 +40,7 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
   List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
+  DateTime? _staleSince;
 
   static const _statuses = <String?>[
     null,
@@ -71,16 +73,18 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     }
     try {
       final effectiveProject = widget.projectId ?? _projectFilter;
-      final results = await Future.wait([
-        client.listRuns(
-          projectId: effectiveProject,
-          status: _status,
-        ),
-        if (_showProjectFilter && _projects == null) client.listProjects(),
-      ]);
-      final rows = results[0];
-      if (_showProjectFilter && _projects == null && results.length > 1) {
-        _projects = results[1];
+      final runsFuture = client.listRunsCached(
+        projectId: effectiveProject,
+        status: _status,
+      );
+      final projectsFuture = (_showProjectFilter && _projects == null)
+          ? client.listProjects()
+          : null;
+      final cached = await runsFuture;
+      final rows = cached.body;
+      _staleSince = cached.staleSince;
+      if (projectsFuture != null) {
+        _projects = await projectsFuture;
       }
       // Sort by status band first — running at top (what's live now),
       // then succeeded, then failed, then everything else. Within each
@@ -215,6 +219,7 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
             projectIsActive: _projectFilter != null,
             onProjectTap: _pickProject,
           ),
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
           Expanded(child: _body()),
         ],
       ),

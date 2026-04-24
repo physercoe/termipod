@@ -141,6 +141,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache = await _openCache();
+    _client!.snapshotCache = _cache;
     return HubState(config: cfg);
   }
 
@@ -172,6 +173,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache ??= await _openCache();
+    _client!.snapshotCache = _cache;
 
     state = AsyncData(HubState(config: cfg));
     await refreshAll();

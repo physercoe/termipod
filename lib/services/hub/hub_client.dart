@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'hub_read_through.dart';
+import 'hub_snapshot_cache.dart';
+
 /// Connection settings for a Termipod Hub daemon.
 ///
 /// Stored split between SharedPreferences (baseUrl/teamId, plus a pointer
@@ -53,6 +56,12 @@ class HubClient {
   final HubConfig cfg;
   final HttpClient _http;
 
+  /// Optional read-through cache for list/get responses. Set by the
+  /// provider after construction so the client can stay dumb about
+  /// how/where the SQLite db lives. When null, the *Cached methods act
+  /// as thin wrappers — no offline fallback, staleSince is always null.
+  HubSnapshotCache? snapshotCache;
+
   HubClient(this.cfg)
       : _http = HttpClient()
           ..connectionTimeout = const Duration(seconds: 8)
@@ -61,6 +70,15 @@ class HubClient {
   void close() {
     _http.close(force: true);
   }
+
+  /// Partition key for the snapshot cache. Scoped by baseUrl + teamId so
+  /// switching hubs or teams never surfaces another partition's rows.
+  String get _cacheHubKey =>
+      hubCacheKey(baseUrl: cfg.baseUrl, teamId: cfg.teamId);
+
+  List<Map<String, dynamic>> _decodeListMaps(Object body) => [
+        for (final r in body as List) (r as Map).cast<String, dynamic>(),
+      ];
 
   Uri _uri(String path, [Map<String, String>? query]) {
     final base = cfg.baseUrl.endsWith('/')
@@ -831,6 +849,36 @@ class HubClient {
     return [for (final r in rows) _runRowToUI(r)];
   }
 
+  /// Read-through variant of [listRuns] that serves the last cached
+  /// snapshot if the network is down. Cache is keyed on the full URL
+  /// (path + sorted query), so different filters get independent rows.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listRunsCached({
+    String? projectId,
+    String? status,
+    int? limit,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null && projectId.isNotEmpty) q['project'] = projectId;
+    if (status != null && status.isNotEmpty) {
+      q['status'] = _runStatusToServer(status);
+    }
+    if (limit != null) q['limit'] = '$limit';
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/runs',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listRuns(
+        projectId: projectId,
+        status: status,
+        limit: limit,
+      ),
+      decode: _decodeListMaps,
+    );
+  }
+
   Future<Map<String, dynamic>> getRun(String runId) async {
     final out = await _get('/v1/teams/${cfg.teamId}/runs/$runId');
     return _runRowToUI((out as Map).cast<String, dynamic>());
@@ -1026,6 +1074,27 @@ class HubClient {
       query: q.isEmpty ? null : q,
     );
     return [for (final r in rows) _reviewRowToUI(r)];
+  }
+
+  /// Read-through variant of [listReviews]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listReviewsCached({
+    String? projectId,
+    String? status,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (status != null) q['state'] = _reviewStateToServer(status);
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/reviews',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listReviews(projectId: projectId, status: status),
+      decode: _decodeListMaps,
+    );
   }
 
   Future<Map<String, dynamic>> getReview(String reviewId) async {
@@ -1284,6 +1353,29 @@ class HubClient {
     return _listJson(
       '/v1/teams/${cfg.teamId}/audit',
       query: query.isEmpty ? null : query,
+    );
+  }
+
+  /// Read-through variant of [listAuditEvents]; see [listRunsCached] for
+  /// the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listAuditEventsCached({
+    String? action,
+    String? since,
+    int? limit,
+  }) {
+    final query = <String, String>{};
+    if (action != null && action.isNotEmpty) query['action'] = action;
+    if (since != null && since.isNotEmpty) query['since'] = since;
+    if (limit != null) query['limit'] = '$limit';
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/audit',
+        query.isEmpty ? null : query,
+      ),
+      fetch: () => listAuditEvents(action: action, since: since, limit: limit),
+      decode: _decodeListMaps,
     );
   }
 

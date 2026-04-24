@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 
 /// Human-review queue (blueprint §6.8, P2.x).
 ///
@@ -29,6 +30,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   List<Map<String, dynamic>>? _projects;
   bool _loading = true;
   String? _error;
+  DateTime? _staleSince;
 
   static const _filters = <String?>[
     'pending',
@@ -61,16 +63,18 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
     }
     try {
       final effectiveProject = widget.projectId ?? _projectFilter;
-      final results = await Future.wait([
-        client.listReviews(
-          status: _filter,
-          projectId: effectiveProject,
-        ),
-        if (_showProjectFilter && _projects == null) client.listProjects(),
-      ]);
-      final rows = results[0];
-      if (_showProjectFilter && _projects == null && results.length > 1) {
-        _projects = results[1];
+      final reviewsFuture = client.listReviewsCached(
+        status: _filter,
+        projectId: effectiveProject,
+      );
+      final projectsFuture = (_showProjectFilter && _projects == null)
+          ? client.listProjects()
+          : null;
+      final cached = await reviewsFuture;
+      final rows = cached.body;
+      _staleSince = cached.staleSince;
+      if (projectsFuture != null) {
+        _projects = await projectsFuture;
       }
       rows.sort((a, b) => (b['created_at'] ?? '')
           .toString()
@@ -163,6 +167,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
             projectIsActive: _projectFilter != null,
             onProjectTap: _pickProject,
           ),
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
           Expanded(child: _body()),
         ],
       ),

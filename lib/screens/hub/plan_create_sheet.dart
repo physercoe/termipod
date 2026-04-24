@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'template_icon.dart';
 
 /// Draft-plan launcher. Picks a project and (optional) template and POSTs
 /// `/v1/teams/{team}/plans`. Returns the new plan id on success so the
@@ -392,6 +393,11 @@ class _TemplatePickerSheet extends StatelessWidget {
             final name = (t['name'] ?? '').toString();
             final path = cat.isEmpty ? name : '$cat/$name';
             return ListTile(
+              leading: templateIconWidget(
+                idOrName: name,
+                displayName: name,
+                size: 24,
+              ),
               title: Text(
                 name,
                 style: GoogleFonts.spaceGrotesk(

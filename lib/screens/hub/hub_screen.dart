@@ -20,6 +20,7 @@ import 'host_edit_sheet.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
+import 'template_icon.dart';
 import 'templates_screen.dart';
 
 /// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Project inventory
@@ -921,6 +922,11 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
             const Divider(height: 1),
             for (final t in agentTemplates)
               ListTile(
+                leading: templateIconWidget(
+                  idOrName: t['name']?.toString() ?? '',
+                  displayName: t['name']?.toString() ?? '?',
+                  size: 24,
+                ),
                 title: Text(t['name']?.toString() ?? '?'),
                 subtitle: Text('${t['size'] ?? 0}B'),
                 onTap: () => Navigator.of(context).pop(t),

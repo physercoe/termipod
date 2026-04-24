@@ -79,16 +79,16 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
       // constraint, then cull to the non-terminal lifecycle set.
       final serverStatus =
           _statusFilter == _activeFilter ? null : _statusFilter;
-      final results = await Future.wait([
-        client.listPlans(
-          projectId: _projectFilter,
-          status: serverStatus,
-        ),
-        if (_projects == null) client.listProjects(),
-      ]);
-      var rows = results[0];
-      if (_projects == null && results.length > 1) {
-        _projects = results[1];
+      final plansFuture = client.listPlansCached(
+        projectId: _projectFilter,
+        status: serverStatus,
+      );
+      final projectsFuture =
+          _projects == null ? client.listProjectsCached() : null;
+      final plansResp = await plansFuture;
+      var rows = plansResp.body;
+      if (projectsFuture != null) {
+        _projects = (await projectsFuture).body;
       }
       if (_statusFilter == _activeFilter) {
         rows = rows

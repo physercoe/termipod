@@ -44,7 +44,9 @@ class _SweepScatterState extends ConsumerState<SweepScatter> {
       _future = Future.value(const []);
       return;
     }
-    _future = client.getProjectSweepSummary(widget.projectId);
+    _future = client
+        .getProjectSweepSummaryCached(widget.projectId)
+        .then((r) => r.body);
   }
 
   @override

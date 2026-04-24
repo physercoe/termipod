@@ -64,14 +64,14 @@ class _WorkflowsScreenState extends ConsumerState<WorkflowsScreen> {
     }
     try {
       final results = await Future.wait([
-        client.listTemplates(),
-        client.listSchedules(),
-        client.listPlans(),
+        client.listTemplatesCached(),
+        client.listSchedulesCached(),
+        client.listPlansCached(),
       ]);
       if (!mounted) return;
-      final templates = results[0];
-      final schedules = results[1];
-      final plans = results[2];
+      final templates = results[0].body;
+      final schedules = results[1].body;
+      final plans = results[2].body;
       setState(() {
         _rows = _aggregate(templates, schedules, plans);
         _loading = false;

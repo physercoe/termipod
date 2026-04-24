@@ -277,7 +277,83 @@ SharedPreferences.
 
 ---
 
-## 5. Walk the workspace
+## 5. Bootstrap: your first steward
+
+The previous sections stand up the hub and point the app at it, but the
+Me / Activity tabs are still empty. For the app to be useful someone has
+to sit at the other end of `#hub-meta` — that's the **steward**. This
+section walks the zero-agents → steward-running transition end to end.
+
+A steward is just an agent (a backend CLI running in a tmux pane) with
+the `handle='steward'` reserved name. The hub doesn't auto-spawn one;
+the mobile app does, via a shipped welcome card.
+
+### 5.1 Prerequisite: one online host
+
+You cannot spawn any agent — steward included — without a host to run it
+on. Register one now if you haven't:
+
+1. Build and run `host-runner` on the online server that will host your
+   steward. See [`hub-host-setup.md`](hub-host-setup.md) — Track A for a
+   quick tmux-attached test, Track B for systemd.
+2. On the Hub tab → **Hosts**, confirm a row with a recent `last_seen_at`.
+   The welcome card requires `status='online'`; the row appears within
+   ~10s of the first heartbeat.
+
+The host just needs `tmux` and one backend CLI on PATH for its login
+user (the default template uses `claude`, see §5.3 to change).
+
+### 5.2 Tap "Spawn Steward"
+
+1. Hub tab → **Agents**. With no agents yet and ≥1 online host, the tab
+   renders a single "Welcome to your hub" card instead of an empty list
+   (`lib/screens/hub/hub_screen.dart` `_SpawnStewardCard`).
+2. Tap **Spawn Steward**. The app:
+   - fetches the bundled `agents/steward.v1` template YAML via
+     `GET /v1/teams/default/templates/agents/steward.v1.yaml`,
+   - picks the first `status='online'` host,
+   - POSTs `/v1/teams/default/agents/spawn` with
+     `child_handle='steward'`, `kind='claude-code'`, `host_id=<picked>`,
+     and the rendered YAML.
+3. Within ~3s the host-runner's poll tick picks up the pending spawn,
+   opens a tmux window, launches `claude --model opus-4-7`, and PATCHes
+   the agent row to `status='running'`.
+4. Pull-to-refresh the Agents tab. The steward row now pins first, with
+   a **StewardBadge** next to the handle. The welcome card is gone.
+5. Open `#hub-meta` (Hub → TeamSwitcher pill → Channels → `hub-meta`).
+   Type a message; the steward backend reads it through its MCP token
+   and replies. You now have a working director ↔ steward loop.
+
+If the spawn is policy-gated instead (tiers `significant` or `critical`
+in `policies/default.v1.yaml`), step 2 returns `202 pending_approval` +
+an `attention_id`. The card shows "Spawn request sent — awaiting
+approval"; approve it from **Me → Attention** and the real spawn runs.
+
+### 5.3 Customizing the steward before first spawn
+
+The template that ships in the binary is at
+`hub/templates/agents/steward.v1.yaml`. On first `hub-server init`, it's
+copied to `<dataRoot>/team/templates/agents/steward.v1.yaml` — **user
+edits win**, subsequent init calls never overwrite. To change the model,
+default workdir, or A2A skills before your first spawn, edit the on-disk
+copy, then tap Spawn Steward. Anything beyond that (prompt, tone,
+autonomy level) is exposed in **TeamSwitcher pill → Team Settings →
+Steward Config**, though some values are still SharedPreferences-local
+pending the server round-trip endpoint.
+
+### 5.4 What's covered by automated tests
+
+The spawn-from-scratch sequence above is exercised end-to-end by
+`hub/internal/server/e2e_acceptance_test.go` step `04_spawn_steward`,
+which GETs the bundled template and POSTs `/agents/spawn` against a
+freshly-initialized data root. That test is the regression gate for this
+flow; if the welcome card stops working, that test is where to look
+first. The underlying agent-spawn pipeline is documented in
+[`hub-agents.md`](hub-agents.md) §2.
+
+---
+
+## 6. Walk the workspace
 
 The IA redesign (v1.0.175–v1.0.182) rebuilt the workspace around five
 top-level tabs — **Me · Projects · Activity · Hosts · Settings** —
@@ -329,7 +405,7 @@ Expected: a new row at the top of the feed within a second.
 
 ---
 
-## 6. Operations
+## 7. Operations
 
 ### Backups
 
@@ -393,7 +469,7 @@ task — currently deleting the row in `auth_tokens` is the workaround).
 
 ---
 
-## 7. Known caveats
+## 8. Known caveats
 
 - **Token recovery**: bearer tokens are stored hashed. Lose one, issue a
   fresh one — there is no recovery flow.
@@ -411,7 +487,7 @@ task — currently deleting the row in `auth_tokens` is the workaround).
 
 ---
 
-## 8. CI verification
+## 9. CI verification
 
 Every push to `main` runs `flutter analyze --no-fatal-infos` and
 `flutter test` (`.github/workflows/ci.yml`) plus the Go hub tests

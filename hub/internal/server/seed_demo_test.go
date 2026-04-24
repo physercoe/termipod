@@ -4,8 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
 
 // TestSeedDemo_InsertsExpectedRows covers the happy path: a fresh hub DB
 // gets one demo project, 6 runs (3 sizes × 2 optimizers), a matching
@@ -174,6 +177,23 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		{"audit_events_seeded",
 			`SELECT COUNT(*) FROM audit_events WHERE team_id = ? AND actor_handle = 'steward'`,
 			[]any{defaultTeamID}, 6},
+
+		// OC-2: demo realism. The sweep project must carry
+		// template_id='ablation-sweep' so resolveOverviewWidget lands the
+		// sweep_compare hero instead of the default task list. Without this,
+		// the cross-run scatter disappears under the W4 A+B chassis.
+		{"sweep_template_bound",
+			`SELECT COUNT(*) FROM projects WHERE id = ? AND template_id = 'ablation-sweep'`,
+			[]any{res.ProjectID}, 1},
+		// OC-2: hub-meta channel gets two steward→principal messages so the
+		// Channels surface isn't empty on a fresh demo.
+		{"hub_meta_messages",
+			`SELECT COUNT(*) FROM events WHERE type = 'message' AND from_id = ?
+			 AND channel_id IN (
+			     SELECT id FROM channels
+			     WHERE scope_kind='team' AND project_id IS NULL AND name='hub-meta'
+			 )`,
+			[]any{res.StewardAgentID}, 2},
 	}
 	for _, c := range cases {
 		var n int
@@ -198,6 +218,18 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 	if actorKind != "agent" || actorHandle != "steward" {
 		t.Errorf("attention actor = (%q, %q), want (agent, steward)",
 			actorKind, actorHandle)
+	}
+
+	// OC-2: attention assignee must include the principal so Me surfaces
+	// it. Pre-OC-2 this was '@steward' and the Me tab was empty.
+	var assignees string
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(current_assignees_json, '') FROM attention_items WHERE id = ?`,
+		res.Attention).Scan(&assignees); err != nil {
+		t.Fatalf("read attention assignees: %v", err)
+	}
+	if !contains(assignees, "@owner") {
+		t.Errorf("attention assignees = %q, want to contain @owner", assignees)
 	}
 
 	// Dense curves should carry 100 points; sparse eval curves should
@@ -353,6 +385,14 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 			[]any{defaultTeamID}},
 		{"audit_events", `SELECT COUNT(*) FROM audit_events WHERE team_id = ? AND actor_handle = 'steward'`,
 			[]any{defaultTeamID}},
+		// OC-2: hub-meta events authored by the seeded agents must also
+		// be cleared; they live on a team-scope channel and don't cascade
+		// off any project delete.
+		{"hub_meta events", `SELECT COUNT(*) FROM events
+			WHERE channel_id IN (
+			    SELECT id FROM channels
+			    WHERE scope_kind='team' AND project_id IS NULL AND name='hub-meta'
+			)`, []any{}},
 	}
 	for _, r := range residuals {
 		var n int

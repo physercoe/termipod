@@ -79,13 +79,12 @@ class _WorkspaceHeaderState extends ConsumerState<WorkspaceHeader> {
       return;
     }
     try {
-      final results = await Future.wait<dynamic>([
-        client.listSchedules(projectId: projectId),
-        client.listPlans(projectId: projectId),
+      final results = await Future.wait([
+        client.listSchedulesCached(projectId: projectId),
+        client.listPlansCached(projectId: projectId),
       ]);
-      final schedules =
-          (results[0] as List).cast<Map<String, dynamic>>();
-      final plans = (results[1] as List).cast<Map<String, dynamic>>();
+      final schedules = results[0].body;
+      final plans = results[1].body;
       if (!mounted) return;
       setState(() {
         _schedules = schedules;
@@ -456,10 +455,10 @@ class _RecentFiringsListState extends ConsumerState<RecentFiringsList> {
       return;
     }
     try {
-      final rows = await client.listPlans(projectId: projectId);
+      final resp = await client.listPlansCached(projectId: projectId);
       if (!mounted) return;
       setState(() {
-        _plans = rows.take(widget.limit).toList();
+        _plans = resp.body.take(widget.limit).toList();
         _loading = false;
       });
     } catch (_) {

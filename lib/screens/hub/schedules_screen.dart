@@ -34,10 +34,10 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final rows = await client.listSchedules();
+      final resp = await client.listSchedulesCached();
       if (!mounted) return;
       setState(() {
-        _rows = rows;
+        _rows = resp.body;
         _loading = false;
         _error = null;
       });

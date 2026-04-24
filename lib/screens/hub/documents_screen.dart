@@ -52,7 +52,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
       return;
     }
     try {
-      final rows = await client.listDocuments(projectId: widget.projectId);
+      final resp = await client.listDocumentsCached(projectId: widget.projectId);
+      final rows = resp.body;
       // Lead with reviews (actionable), then drafts (in-flight), then
       // reports / memos (done). Within each band, newest first. Keeps
       // the principal's eye on pending work, not on archives.

@@ -124,6 +124,24 @@ func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 		}
 	}
 
+	// Hub-meta events (team channel; not cascaded by any project delete)
+	// authored by the seeded agents — drop so a re-seed doesn't pile new
+	// messages on top of old ones. Run before the agent rows disappear so
+	// the sub-select can still resolve handles → ids.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM events
+		WHERE channel_id IN (
+		    SELECT id FROM channels
+		    WHERE scope_kind = 'team' AND project_id IS NULL AND name = 'hub-meta'
+		)
+		AND from_id IN (
+		    SELECT id FROM agents
+		    WHERE team_id = ? AND handle IN ('steward','trainer-0')
+		)`, defaultTeamID,
+	); err != nil {
+		return false, fmt.Errorf("reset hub-meta events: %w", err)
+	}
+
 	// Demo host + agents (unique by name/handle) and the audit-event rows
 	// seed-demo authored — drop so the re-seed is clean.
 	trailing := []struct{ label, query string }{
@@ -247,11 +265,15 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 	paramsJSON, _ := json.Marshal(params)
 
 	res.ProjectID = NewID()
+	// template_id='ablation-sweep' drives resolveOverviewWidget to the
+	// template-declared sweep_compare hero (A+B chassis, IA §6.2). Without
+	// it, the demo falls back to the default task list and the cross-run
+	// scatter is invisible on Overview.
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO projects
 			(id, team_id, name, status, config_yaml, created_at,
-			 goal, kind, is_template, parameters_json)
-		VALUES (?, ?, ?, 'active', '', ?, ?, 'goal', 0, ?)`,
+			 goal, kind, is_template, template_id, parameters_json)
+		VALUES (?, ?, ?, 'active', '', ?, ?, 'goal', 0, 'ablation-sweep', ?)`,
 		res.ProjectID, defaultTeamID, demoProjectName, now,
 		"nanoGPT-Shakespeare ablation sweep (seeded demo state; no real training ran)",
 		string(paramsJSON))
@@ -459,8 +481,11 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 	}
 
 	// One open attention item — decision (minor) so the Inbox has teeth.
+	// Assignee is the principal (@owner) so the Me tab actually surfaces
+	// it; actor stays `agent/steward` since the steward is the one raising
+	// the ask. Pre-OC-2 this was assigned to @steward and invisible on Me.
 	res.Attention = NewID()
-	assignees, _ := json.Marshal([]string{"@steward"})
+	assignees, _ := json.Marshal([]string{"@owner"})
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
@@ -524,6 +549,36 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 		res.DemoHostID, res.TrainerAgentID, res.ProjectID,
 	); err != nil {
 		return nil, fmt.Errorf("attach runs to host/agent: %w", err)
+	}
+
+	// Seed #hub-meta with two steward→principal messages. init.go creates
+	// the hub-meta channel before seed-demo runs, so we look it up rather
+	// than creating a duplicate. Without this the Me/DM surface is empty
+	// on a fresh demo even though the steward is the team coordinator.
+	var hubMetaID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id FROM channels
+		WHERE scope_kind = 'team' AND project_id IS NULL AND name = 'hub-meta'`,
+	).Scan(&hubMetaID); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("look up hub-meta channel: %w", err)
+	}
+	if hubMetaID != "" {
+		metaMsgs := []string{
+			"Morning. Overnight sweep on ablation-sweep-demo finished clean — 6/6 runs completed. Briefing memo and budget approval are in your inbox.",
+			"Heads up: reproduce-gpt2-small is scaffolded from the reproduce-paper template but no runs yet. Say the word when you want me to schedule it.",
+		}
+		for _, txt := range metaMsgs {
+			parts, _ := json.Marshal([]map[string]any{{"kind": "text", "text": txt}})
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO events
+					(id, schema_version, ts, received_ts, channel_id, type,
+					 from_id, parts_json)
+				VALUES (?, 1, ?, ?, ?, 'message', ?, ?)`,
+				NewID(), now, now, hubMetaID, res.StewardAgentID, string(parts),
+			); err != nil {
+				return nil, fmt.Errorf("insert hub-meta event: %w", err)
+			}
+		}
 	}
 
 	// -- Parent standing project `lab-ops` — the container for recurring

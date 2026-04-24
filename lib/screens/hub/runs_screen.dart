@@ -637,16 +637,16 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       List<Map<String, dynamic>> histograms = const [];
       List<Map<String, dynamic>> artifacts = const [];
       try {
-        final results = await Future.wait<List<Map<String, dynamic>>>([
-          client.getRunMetrics(widget.runId),
-          client.getRunImages(widget.runId),
-          client.getRunHistograms(widget.runId),
-          client.listArtifacts(runId: widget.runId),
+        final results = await Future.wait([
+          client.getRunMetricsCached(widget.runId),
+          client.getRunImagesCached(widget.runId),
+          client.getRunHistogramsCached(widget.runId),
+          client.listArtifactsCached(runId: widget.runId),
         ]);
-        metrics = results[0];
-        images = results[1];
-        histograms = results[2];
-        artifacts = results[3];
+        metrics = results[0].body;
+        images = results[1].body;
+        histograms = results[2].body;
+        artifacts = results[3].body;
       } catch (_) {
         // Keep defaults; render the rest of the screen even if digests fail.
       }

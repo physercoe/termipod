@@ -966,6 +966,21 @@ class HubClient {
         query: projectId == null ? null : {'project': projectId},
       );
 
+  /// Read-through variant of [listSchedules]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listSchedulesCached({
+    String? projectId,
+  }) {
+    final q = projectId == null ? null : {'project': projectId};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/schedules', q),
+      fetch: () => listSchedules(projectId: projectId),
+      decode: _decodeListMaps,
+    );
+  }
+
   Future<Map<String, dynamic>> createSchedule({
     required String projectId,
     required String templateId,
@@ -1132,6 +1147,19 @@ class HubClient {
   Future<List<Map<String, dynamic>>> getRunMetrics(String runId) =>
       _listJson('/v1/teams/${cfg.teamId}/runs/$runId/metrics');
 
+  /// Read-through variant of [getRunMetrics]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunMetricsCached(
+    String runId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/runs/$runId/metrics',
+        fetch: () => getRunMetrics(runId),
+        decode: _decodeListMaps,
+      );
+
   /// Lists a run's image-panel entries — the wandb "Images" equivalent.
   /// Each row carries a `metric_name` + `step` + `blob_sha`. The mobile UI
   /// groups by metric_name and fetches frame bytes lazily via
@@ -1145,6 +1173,25 @@ class HubClient {
         query: metric == null ? null : {'metric': metric},
       );
 
+  /// Read-through variant of [getRunImages]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunImagesCached(
+    String runId, {
+    String? metric,
+  }) {
+    final q = metric == null ? null : {'metric': metric};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/runs/$runId/images',
+        q,
+      ),
+      fetch: () => getRunImages(runId, metric: metric),
+      decode: _decodeListMaps,
+    );
+  }
+
   /// Per-project sweep summary — one row per run in this project, each
   /// carrying {run_id, status, config_json (string), final_metrics
   /// (map name→last value), created_at}. Feeds the cross-run scatter
@@ -1156,6 +1203,19 @@ class HubClient {
       _listJson(
         '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
       );
+
+  /// Read-through variant of [getProjectSweepSummary]; see [listRunsCached]
+  /// for the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>>
+      getProjectSweepSummaryCached(String projectId) =>
+          readThrough<List<Map<String, dynamic>>>(
+            cache: snapshotCache,
+            hubKey: _cacheHubKey,
+            endpoint:
+                '/v1/teams/${cfg.teamId}/projects/$projectId/sweep-summary',
+            fetch: () => getProjectSweepSummary(projectId),
+            decode: _decodeListMaps,
+          );
 
   /// Lists a run's histogram entries — the wandb "Distributions" panel.
   /// Each row is `{name, step, buckets: {edges, counts}, updated_at}`.
@@ -1169,6 +1229,25 @@ class HubClient {
         '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
         query: metric == null ? null : {'metric': metric},
       );
+
+  /// Read-through variant of [getRunHistograms]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> getRunHistogramsCached(
+    String runId, {
+    String? metric,
+  }) {
+    final q = metric == null ? null : {'metric': metric};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/runs/$runId/histograms',
+        q,
+      ),
+      fetch: () => getRunHistograms(runId, metric: metric),
+      decode: _decodeListMaps,
+    );
+  }
 
   /// Upserts histogram digests for a run. Body shape:
   ///   [{"name":..., "step":N, "buckets":{"edges":[...],"counts":[...]}}]
@@ -1193,6 +1272,21 @@ class HubClient {
         '/v1/teams/${cfg.teamId}/documents',
         query: projectId == null ? null : {'project': projectId},
       );
+
+  /// Read-through variant of [listDocuments]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listDocumentsCached({
+    String? projectId,
+  }) {
+    final q = projectId == null ? null : {'project': projectId};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/documents', q),
+      fetch: () => listDocuments(projectId: projectId),
+      decode: _decodeListMaps,
+    );
+  }
 
   Future<Map<String, dynamic>> getDocument(String docId) async {
     final out = await _get('/v1/teams/${cfg.teamId}/documents/$docId');
@@ -1413,6 +1507,27 @@ class HubClient {
     return _listJson(
       '/v1/teams/${cfg.teamId}/plans',
       query: q.isEmpty ? null : q,
+    );
+  }
+
+  /// Read-through variant of [listPlans]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listPlansCached({
+    String? projectId,
+    String? status,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (status != null) q['status'] = status;
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/plans',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listPlans(projectId: projectId, status: status),
+      decode: _decodeListMaps,
     );
   }
 

@@ -307,7 +307,8 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid kind")
 		return
 	}
-	if _, err := s.planProjectForTeam(r, team, plan); err != nil {
+	projectID, err := s.planProjectForTeam(r, team, plan)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeErr(w, http.StatusNotFound, "plan not found")
 			return
@@ -317,11 +318,28 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 	}
 	spec := normalizeObjectJSON(in.SpecJSON)
 	id := NewID()
-	_, err := s.db.ExecContext(r.Context(), `
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(r.Context(), `
 		INSERT INTO plan_steps (id, plan_id, phase_idx, step_idx, kind, spec_json, status)
 		VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-		id, plan, in.PhaseIdx, in.StepIdx, in.Kind, spec)
-	if err != nil {
+		id, plan, in.PhaseIdx, in.StepIdx, in.Kind, spec); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// W2: plan steps that need human visibility materialize a task row so
+	// the Kanban shows plan work alongside ad-hoc tasks. Deterministic
+	// steps (llm_call, shell, mcp_call) skip task creation — see
+	// materializePlanStepTask for the policy matrix.
+	if _, err := s.materializePlanStepTask(r.Context(), tx, projectID, id, in.Kind, spec, ""); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -419,7 +437,13 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, step, plan)
 	q := "UPDATE plan_steps SET " + strings.Join(sets, ", ") + " WHERE id = ? AND plan_id = ?"
-	res, err := s.db.ExecContext(r.Context(), q, args...)
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -427,6 +451,29 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		writeErr(w, http.StatusNotFound, "plan_step not found")
+		return
+	}
+	// W2: keep any linked task in lockstep with the plan step. The executor
+	// owns the source of truth; the task row mirrors status so the Kanban
+	// reflects reality and propagates the steward assignee once the agent
+	// has been spawned.
+	if in.Status != nil {
+		if err := s.syncPlanStepTaskStatus(r.Context(), tx, step, *in.Status); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if in.AgentID != nil && *in.AgentID != "" {
+		if _, err := tx.ExecContext(r.Context(), `
+			UPDATE tasks SET assignee_id = ?, updated_at = ?
+			WHERE plan_step_id = ?`,
+			*in.AgentID, NowUTC(), step); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	summary := "update plan_step " + step

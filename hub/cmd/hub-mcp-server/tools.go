@@ -598,7 +598,7 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.list",
-			Description: "List tasks for a project. Requires `project_id`. Optional `status` filter.",
+			Description: "List tasks for a project (ad-hoc and plan-materialized alike). Requires `project_id`. Optional `status` filter. Each row includes `plan_step_id` and `source` (`ad_hoc` | `plan`).",
 			InputSchema: schema(`{"type":"object","required":["project_id"],"properties":{"project_id":{"type":"string"},"status":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
@@ -637,6 +637,23 @@ func buildTools() []toolDef {
 				}
 				var out json.RawMessage
 				if err := c.do("POST", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "tasks.get",
+			Description: "Get one task by id. Requires `project_id` and `task`. Response includes `plan_step_id` (empty for ad-hoc tasks) and `source` (`ad_hoc` | `plan`) so callers can tell plan-materialized tasks from user-created ones.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				id, _ := args["task"].(string)
+				if p == "" || id == "" {
+					return nil, fmt.Errorf("project_id and task are required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, nil, &out); err != nil {
 					return nil, err
 				}
 				return out, nil

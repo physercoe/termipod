@@ -13,9 +13,9 @@ import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
-import '../hub/project_detail_screen.dart';
-import '../hub/search_screen.dart';
-import '../hub/task_detail_screen.dart';
+import '../projects/project_detail_screen.dart';
+import '../projects/search_screen.dart';
+import '../projects/task_detail_screen.dart';
 import '../vault/vault_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.

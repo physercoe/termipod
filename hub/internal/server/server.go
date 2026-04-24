@@ -265,6 +265,15 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/decide", s.handleDecideReview)
 			})
 		})
+		// Artifacts (§6.6): content-addressed outputs produced by runs or
+		// uploaded by users. Team-scoped with ?project= / ?run= / ?kind=
+		// filters; sits alongside /documents for the same cross-project
+		// listing reason.
+		r.Route("/artifacts", func(r chi.Router) {
+			r.Get("/", s.handleListArtifacts)
+			r.Post("/", s.handleCreateArtifact)
+			r.Get("/{artifact}", s.handleGetArtifact)
+		})
 		// Plans (§6.2): shallow review-able scaffolds of phases.
 		r.Route("/plans", func(r chi.Router) {
 			r.Post("/", s.handleCreatePlan)

@@ -32,7 +32,11 @@ jobs:
           path: |
             ~/.pub-cache
             .dart_tool
-          key: pub-${{ hashFiles('pubspec.lock') }}
+          # pubspec.lock is gitignored, so hashFiles('pubspec.lock') is
+          # always empty — include pubspec.yaml so the cache invalidates
+          # when dependencies change. Without this, a stale .dart_tool
+          # can hide newly-added deps from the analyzer.
+          key: pub-${{ hashFiles('pubspec.yaml') }}
           restore-keys: pub-
 
       - name: Install dependencies

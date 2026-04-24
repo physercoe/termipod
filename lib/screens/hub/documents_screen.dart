@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 import 'document_create_sheet.dart';
 
 /// Team-wide documents browser (blueprint §6.7).
@@ -403,6 +404,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   bool _loading = true;
   String? _error;
   bool _requestingReview = false;
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -420,17 +422,25 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
       return;
     }
     try {
-      final doc = await client.getDocument(widget.documentId);
+      final docCached = await client.getDocumentCached(widget.documentId);
       List<Map<String, dynamic>>? vs;
+      DateTime? versionsStale;
       try {
-        vs = await client.listDocumentVersions(widget.documentId);
+        final versionsCached =
+            await client.listDocumentVersionsCached(widget.documentId);
+        vs = versionsCached.body;
+        versionsStale = versionsCached.staleSince;
       } catch (_) {
         // Version endpoint optional — some doc ids may be the only version.
       }
       if (!mounted) return;
       setState(() {
-        _doc = doc;
+        _doc = docCached.body;
         _versions = vs;
+        // Banner reflects the older of the two snapshots when both came
+        // from cache; a fresh doc fetch drops the banner entirely even if
+        // versions fell back.
+        _staleSince = docCached.staleSince ?? versionsStale;
         _loading = false;
       });
     } catch (e) {
@@ -511,7 +521,12 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
           ),
         ],
       ),
-      body: _body(d),
+      body: Column(
+        children: [
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
+          Expanded(child: _body(d)),
+        ],
+      ),
     );
   }
 

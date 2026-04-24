@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 import 'doc_viewer_screen.dart';
 
 /// Read-only tree-style docs browser for a project. The hub returns a flat
@@ -21,6 +22,7 @@ class _DocsSectionState extends ConsumerState<DocsSection> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _entries = const [];
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -36,12 +38,14 @@ class _DocsSectionState extends ConsumerState<DocsSection> {
       _error = null;
     });
     try {
-      final rows = await client.listProjectDocs(widget.projectId);
+      final cached = await client.listProjectDocsCached(widget.projectId);
+      final rows = cached.body;
       rows.sort((a, b) =>
           (a['path'] ?? '').toString().compareTo((b['path'] ?? '').toString()));
       if (!mounted) return;
       setState(() {
         _entries = rows;
+        _staleSince = cached.staleSince;
         _loading = false;
       });
     } catch (e) {
@@ -72,6 +76,7 @@ class _DocsSectionState extends ConsumerState<DocsSection> {
     return Column(
       children: [
         const _FilesGuidance(),
+        HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,

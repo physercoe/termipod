@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 
 /// Artifacts browser (blueprint §6.6).
 ///
@@ -30,6 +31,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
   List<Map<String, dynamic>>? _rows;
   bool _loading = true;
   String? _error;
+  DateTime? _staleSince;
 
   // Common kinds (per §6.6 + mock-trainer output vocabulary). The filter
   // still honors any kind found in the data; these are just the pills.
@@ -64,13 +66,14 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
       return;
     }
     try {
-      final rows = await client.listArtifacts(
+      final cached = await client.listArtifactsCached(
         projectId: widget.runId == null ? widget.projectId : null,
         runId: widget.runId,
       );
       if (!mounted) return;
       setState(() {
-        _rows = rows;
+        _rows = cached.body;
+        _staleSince = cached.staleSince;
         _loading = false;
       });
     } catch (e) {
@@ -122,6 +125,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
             selected: _kind,
             onChanged: (v) => setState(() => _kind = v),
           ),
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
           Expanded(child: _body()),
         ],
       ),

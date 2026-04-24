@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 import 'task_edit_sheet.dart';
 
 /// Full-screen task detail. Shows title, body, status, and a status picker
@@ -29,6 +30,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   Map<String, dynamic>? _task;
   String? _error;
   bool _loading = true;
+  DateTime? _staleSince;
 
   static const _statuses = ['todo', 'in_progress', 'blocked', 'done'];
 
@@ -46,10 +48,12 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final row = await client.getTask(widget.projectId, widget.taskId);
+      final cached =
+          await client.getTaskCached(widget.projectId, widget.taskId);
       if (!mounted) return;
       setState(() {
-        _task = row;
+        _task = cached.body;
+        _staleSince = cached.staleSince;
         _loading = false;
         _error = null;
       });
@@ -112,18 +116,25 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!,
-                        style: GoogleFonts.jetBrainsMono(
-                            color: DesignColors.error, fontSize: 12)),
-                  ),
-                )
-              : _body(),
+      body: Column(
+        children: [
+          HubOfflineBanner(staleSince: _staleSince, onRetry: _refresh),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(_error!,
+                              style: GoogleFonts.jetBrainsMono(
+                                  color: DesignColors.error, fontSize: 12)),
+                        ),
+                      )
+                    : _body(),
+          ),
+        ],
+      ),
     );
   }
 

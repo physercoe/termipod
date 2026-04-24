@@ -80,6 +80,9 @@ class HubClient {
         for (final r in body as List) (r as Map).cast<String, dynamic>(),
       ];
 
+  Map<String, dynamic> _decodeMap(Object body) =>
+      (body as Map).cast<String, dynamic>();
+
   Uri _uri(String path, [Map<String, String>? query]) {
     final base = cfg.baseUrl.endsWith('/')
         ? cfg.baseUrl.substring(0, cfg.baseUrl.length - 1)
@@ -205,10 +208,35 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listChannels(String projectId) =>
       _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
 
+  /// Read-through variant of [listChannels]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listChannelsCached(
+    String projectId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint:
+            '/v1/teams/${cfg.teamId}/projects/$projectId/channels',
+        fetch: () => listChannels(projectId),
+        decode: _decodeListMaps,
+      );
+
   /// Team-scope channels (project_id NULL, scope_kind='team'). `#hub-meta`
   /// is auto-seeded by hub init — it's the principal↔steward room.
   Future<List<Map<String, dynamic>>> listTeamChannels() =>
       _listJson('/v1/teams/${cfg.teamId}/channels');
+
+  /// Read-through variant of [listTeamChannels]; see [listRunsCached] for
+  /// the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listTeamChannelsCached() =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/channels',
+        fetch: listTeamChannels,
+        decode: _decodeListMaps,
+      );
 
   Future<Map<String, dynamic>> createTeamChannel(String name) async {
     final out = await _post(
@@ -246,6 +274,40 @@ class HubClient {
     );
     return (out as Map).cast<String, dynamic>();
   }
+
+  /// Read-through variant of [listTasks]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listTasksCached(
+    String projectId, {
+    String? status,
+  }) {
+    final q = status == null ? null : {'status': status};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/tasks',
+        q,
+      ),
+      fetch: () => listTasks(projectId, status: status),
+      decode: _decodeListMaps,
+    );
+  }
+
+  /// Read-through variant of [getTask]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getTaskCached(
+    String projectId,
+    String taskId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint:
+            '/v1/teams/${cfg.teamId}/projects/$projectId/tasks/$taskId',
+        fetch: () => getTask(projectId, taskId),
+        decode: _decodeMap,
+      );
 
   Future<Map<String, dynamic>> patchTask(
     String projectId,
@@ -1011,6 +1073,19 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Read-through variant of [getDocument]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getDocumentCached(
+    String docId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/documents/$docId',
+        fetch: () => getDocument(docId),
+        decode: _decodeMap,
+      );
+
   /// Either [contentInline] or [artifactId] must be non-null (server enforces
   /// a XOR CHECK constraint).
   Future<Map<String, dynamic>> createDocument({
@@ -1036,6 +1111,19 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listDocumentVersions(String docId) =>
       _listJson('/v1/teams/${cfg.teamId}/documents/$docId/versions');
 
+  /// Read-through variant of [listDocumentVersions]; see [listRunsCached]
+  /// for the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listDocumentVersionsCached(
+    String docId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/documents/$docId/versions',
+        fetch: () => listDocumentVersions(docId),
+        decode: _decodeListMaps,
+      );
+
   /// Lists artifacts at team scope. Optional filters: [projectId], [runId],
   /// [kind]. Newest first. See blueprint §6.6 — artifacts are the
   /// content-addressed output surface for runs and standalone uploads.
@@ -1058,6 +1146,46 @@ class HubClient {
     final out = await _get('/v1/teams/${cfg.teamId}/artifacts/$artifactId');
     return (out as Map).cast<String, dynamic>();
   }
+
+  /// Read-through variant of [listArtifacts]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listArtifactsCached({
+    String? projectId,
+    String? runId,
+    String? kind,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (runId != null) q['run'] = runId;
+    if (kind != null) q['kind'] = kind;
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/artifacts',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listArtifacts(
+        projectId: projectId,
+        runId: runId,
+        kind: kind,
+      ),
+      decode: _decodeListMaps,
+    );
+  }
+
+  /// Read-through variant of [getArtifact]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getArtifactCached(
+    String artifactId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/artifacts/$artifactId',
+        fetch: () => getArtifact(artifactId),
+        decode: _decodeMap,
+      );
 
   Future<List<Map<String, dynamic>>> listReviews({
     String? projectId,
@@ -1270,6 +1398,19 @@ class HubClient {
   /// Returns an empty list if the project has no docs_root configured.
   Future<List<Map<String, dynamic>>> listProjectDocs(String projectId) =>
       _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/docs');
+
+  /// Read-through variant of [listProjectDocs]; see [listRunsCached] for
+  /// the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listProjectDocsCached(
+    String projectId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/projects/$projectId/docs',
+        fetch: () => listProjectDocs(projectId),
+        decode: _decodeListMaps,
+      );
 
   /// Reads a single doc as a UTF-8 string. The hub serves any file type;
   /// caller decides how to render based on extension.

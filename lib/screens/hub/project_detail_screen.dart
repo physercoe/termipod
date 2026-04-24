@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/sweep_scatter.dart';
 import '../../widgets/team_switcher.dart';
 import 'archived_agents_screen.dart';
@@ -437,6 +438,7 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _channels = const [];
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -452,10 +454,11 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
       _error = null;
     });
     try {
-      final rows = await client.listChannels(widget.projectId);
+      final cached = await client.listChannelsCached(widget.projectId);
       if (!mounted) return;
       setState(() {
-        _channels = rows;
+        _channels = cached.body;
+        _staleSince = cached.staleSince;
         _loading = false;
       });
     } catch (e) {
@@ -506,7 +509,7 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
         ),
       );
     }
-    final body = _channels.isEmpty
+    final list = _channels.isEmpty
         ? const _Placeholder(text: 'No channels yet — tap + to create')
         : RefreshIndicator(
             onRefresh: _load,
@@ -520,6 +523,12 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
               ),
             ),
           );
+    final body = Column(
+      children: [
+        HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
+        Expanded(child: list),
+      ],
+    );
     return Stack(
       children: [
         body,
@@ -615,6 +624,7 @@ class _TasksViewState extends ConsumerState<_TasksView> {
   String? _error;
   List<Map<String, dynamic>> _tasks = const [];
   String? _statusFilter;
+  DateTime? _staleSince;
 
   // Kept in sync with task_detail_screen's lifecycle list so chips and
   // detail-view transitions agree.
@@ -640,11 +650,12 @@ class _TasksViewState extends ConsumerState<_TasksView> {
       _error = null;
     });
     try {
-      final rows =
-          await client.listTasks(widget.projectId, status: _statusFilter);
+      final cached =
+          await client.listTasksCached(widget.projectId, status: _statusFilter);
       if (!mounted) return;
       setState(() {
-        _tasks = rows;
+        _tasks = cached.body;
+        _staleSince = cached.staleSince;
         _loading = false;
       });
     } catch (e) {
@@ -711,6 +722,7 @@ class _TasksViewState extends ConsumerState<_TasksView> {
                   _load();
                 },
               ),
+              HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
               Expanded(child: list),
             ],
           ),

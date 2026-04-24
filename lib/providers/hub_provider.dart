@@ -3,9 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/hub/hub_client.dart';
+import '../services/hub/hub_snapshot_cache.dart';
 
 /// SharedPreferences keys for the hub configuration. The token is *not*
 /// stored here — it lives in flutter_secure_storage under [_kHubTokenKey].
@@ -77,6 +79,12 @@ class HubState {
 class HubNotifier extends AsyncNotifier<HubState> {
   HubClient? _client;
 
+  /// On-disk last-known-good snapshots of hub list/get responses. Kept
+  /// beside the client so screens can fall back to the latest cached body
+  /// when the network is down. Commit #1 only instantiates + tears down;
+  /// read-through wrapping of HubClient methods lands in commit #2.
+  HubSnapshotCache? _cache;
+
   /// In-memory cache of template bodies keyed by "$category/$name". Templates
   /// only change when an operator edits the YAML/MD on the hub, so caching
   /// aggressively and exposing a forceRefresh toggle is a better tradeoff
@@ -88,6 +96,8 @@ class HubNotifier extends AsyncNotifier<HubState> {
     ref.onDispose(() {
       _client?.close();
       _client = null;
+      _cache?.close();
+      _cache = null;
       _templateBodyCache.clear();
     });
     return _loadConfig();
@@ -130,10 +140,20 @@ class HubNotifier extends AsyncNotifier<HubState> {
     }
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
+    _cache = await _openCache();
     return HubState(config: cfg);
   }
 
   HubClient? get client => _client;
+
+  /// Snapshot cache for this hub. Null until config is loaded. Exposed so
+  /// commit #2 can wire HubClient to read-through on transport failures.
+  HubSnapshotCache? get snapshotCache => _cache;
+
+  Future<HubSnapshotCache> _openCache() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return HubSnapshotCache(dbPath: '${dir.path}/hub_snapshots.db');
+  }
 
   /// Persist the config and refresh every list. Called from the bootstrap
   /// wizard after a successful probe.
@@ -151,12 +171,14 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _client?.close();
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
+    _cache ??= await _openCache();
 
     state = AsyncData(HubState(config: cfg));
     await refreshAll();
   }
 
   Future<void> clearConfig() async {
+    final prevCfg = state.value?.config;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kHubBaseUrlKey);
     await prefs.remove(_kHubTeamIdKey);
@@ -165,6 +187,13 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _client?.close();
     _client = null;
     _templateBodyCache.clear();
+    if (_cache != null && prevCfg != null) {
+      await _cache!.wipeHub(
+        hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
+      );
+    }
+    await _cache?.close();
+    _cache = null;
     state = const AsyncData(HubState());
   }
 

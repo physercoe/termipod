@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,39 @@ type projectTemplateDoc struct {
 	Goal               string         `yaml:"goal"`
 	Parameters         map[string]any `yaml:"parameters"`
 	OnCreateTemplateID string         `yaml:"on_create_template_id"`
+	// OverviewWidget picks the pluggable hero region under the portfolio
+	// header on Project Detail → Overview (A+B chassis, IA §6.2).
+	// Empty / unknown → defaults to overviewWidgetDefault at resolve time.
+	OverviewWidget string `yaml:"overview_widget"`
+}
+
+// overviewWidgetDefault is returned when a template doesn't specify one
+// or specifies an unknown value. Project Detail's mobile registry maps
+// this name to the default task/milestone list hero.
+const overviewWidgetDefault = "task_milestone_list"
+
+// validOverviewWidgets is the closed set of pluggable hero kinds shipped
+// by W4. Unknown values log and fall back to overviewWidgetDefault; the
+// mobile registry enforces the same enum on render.
+var validOverviewWidgets = map[string]bool{
+	"task_milestone_list": true,
+	"sweep_compare":       true,
+	"recent_artifacts":    true,
+	"children_status":     true,
+}
+
+// normalizeOverviewWidget returns the widget name to expose on the wire.
+// Unknown values degrade to the default rather than 500'ing a project
+// read — the hub is domain-agnostic and a stray enum value shouldn't
+// brick the UI.
+func normalizeOverviewWidget(v string) string {
+	if v == "" {
+		return overviewWidgetDefault
+	}
+	if validOverviewWidgets[v] {
+		return v
+	}
+	return overviewWidgetDefault
 }
 
 // seedBuiltinProjectTemplates inserts one is_template=1 projects row
@@ -182,6 +216,12 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 		if err := yaml.Unmarshal(data, &doc); err != nil {
 			return fmt.Errorf("parse %s: %w", path, err)
 		}
+		if doc.OverviewWidget != "" && !validOverviewWidgets[doc.OverviewWidget] {
+			slog.Warn("unknown overview_widget, falling back to default",
+				"template", doc.Name, "overview_widget", doc.OverviewWidget,
+				"default", overviewWidgetDefault)
+			doc.OverviewWidget = ""
+		}
 		add(doc.Name, doc)
 		return nil
 	})
@@ -202,6 +242,12 @@ func loadProjectTemplates(dataRoot string) ([]projectTemplateDoc, error) {
 			var doc projectTemplateDoc
 			if err := yaml.Unmarshal(data, &doc); err != nil {
 				return nil, fmt.Errorf("parse %s: %w", e.Name(), err)
+			}
+			if doc.OverviewWidget != "" && !validOverviewWidgets[doc.OverviewWidget] {
+				slog.Warn("unknown overview_widget, falling back to default",
+					"template", doc.Name, "overview_widget", doc.OverviewWidget,
+					"default", overviewWidgetDefault)
+				doc.OverviewWidget = ""
 			}
 			add(doc.Name, doc)
 		}

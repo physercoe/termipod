@@ -8,3 +8,6 @@ parameters:
   target_metric: ""
   tolerance_pct: 5.0
 on_create_template_id: agents.steward
+# Overview hero: the reproduction effort hinges on what has been
+# produced so far (figures, logs, PR links). A+B chassis, IA §6.2.
+overview_widget: recent_artifacts

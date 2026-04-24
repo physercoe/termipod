@@ -50,6 +50,40 @@ type projectOut struct {
 	PolicyOverridesJSON json.RawMessage `json:"policy_overrides_json,omitempty"`
 	StewardAgentID      string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  string          `json:"on_create_template_id,omitempty"`
+
+	// OverviewWidget is the resolved pluggable hero kind for Project
+	// Detail → Overview (A+B chassis, IA §6.2). Always populated on
+	// the wire: unknown / missing template → overviewWidgetDefault.
+	OverviewWidget string `json:"overview_widget"`
+}
+
+// resolveOverviewWidget returns the hero widget kind to surface on the
+// project read payload. Projects with no template_id get the default;
+// projects with a template_id look up the YAML-declared overview_widget
+// and fall back to the default if the template isn't found or doesn't
+// declare one. Unknown values are normalized away by loadProjectTemplates.
+//
+// Reads the template set off disk on each call. Cardinality is small
+// (< 20 docs in practice) and the bulk handlers (list/get) are low-QPS
+// compared to run metrics — caching is not worth the staleness risk.
+func (s *Server) resolveOverviewWidget(templateID string) string {
+	if templateID == "" {
+		return overviewWidgetDefault
+	}
+	docs, err := loadProjectTemplates(s.cfg.DataRoot)
+	if err != nil {
+		// Fall back to default rather than 500'ing the whole project read;
+		// the UI still renders, just without the template-specific hero.
+		s.log.Warn("loadProjectTemplates failed during overview_widget resolve",
+			"err", err, "template", templateID)
+		return overviewWidgetDefault
+	}
+	for _, d := range docs {
+		if d.Name == templateID {
+			return normalizeOverviewWidget(d.OverviewWidget)
+		}
+	}
+	return overviewWidgetDefault
 }
 
 // validKind returns the normalized project kind or empty string if invalid.
@@ -139,6 +173,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
+		OverviewWidget: s.resolveOverviewWidget(in.TemplateID),
 	}
 	writeJSON(w, http.StatusCreated, out)
 }
@@ -228,6 +263,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -248,6 +284,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
 	writeJSON(w, http.StatusOK, p)
 }
 

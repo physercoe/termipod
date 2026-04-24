@@ -16,6 +16,8 @@ import 'artifacts_screen.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
+import 'overview_widgets/portfolio_header.dart';
+import 'overview_widgets/registry.dart';
 import 'plans_screen.dart';
 import 'project_channel_create_sheet.dart';
 import 'project_channel_screen.dart';
@@ -1154,10 +1156,17 @@ class _AgentsView extends ConsumerWidget {
 }
 
 // ---- Overview ----
-// Hub page for the project: shortcut tiles into the heavier sub-surfaces
-// (Runs / Reviews / Documents / Schedules / Plans / Blobs) that don't
-// inline cleanly as tabs, plus the project metadata rows and the
-// archive action. Replaces the old "Info" tab per IA §6.2.
+// A+B hybrid chassis (IA §6.2 / W4). For goal-kind projects:
+//   A) a fixed, domain-agnostic portfolio header (goal, status, budget,
+//      steward, attention, task progress + priority breakdown), then
+//   B) a pluggable hero region whose widget kind is declared by the
+//      bound template (`overview_widget`: task_milestone_list,
+//      sweep_compare, recent_artifacts, children_status).
+// Below the hero live the shortcut tiles into heavier sub-surfaces
+// (Runs / Reviews / Documents / Schedules / Plans / Blobs) and the
+// metadata rows / archive action.
+// Standing-kind ("Workspace") still renders the pre-W4 layout; W6 will
+// redesign that surface.
 
 class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
@@ -1190,6 +1199,8 @@ class _OverviewView extends ConsumerWidget {
       MapEntry('Docs root', (project['docs_root'] ?? '').toString()),
       MapEntry('Created', (project['created_at'] ?? '').toString()),
     ];
+    final isGoal = kind != 'standing';
+    final overviewWidget = (project['overview_widget'] ?? '').toString();
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
@@ -1203,10 +1214,28 @@ class _OverviewView extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
           ],
-          SweepScatter(projectId: projectId),
-          const SizedBox(height: 12),
-          _TaskProgressCounter(projectId: projectId),
-          const SizedBox(height: 12),
+          if (isGoal) ...[
+            // A+B chassis (IA §6.2 / W4): portfolio header is always on,
+            // the hero below is whatever the template declared. The old
+            // SweepScatter + TaskProgressCounter are subsumed —
+            // sweep_compare is the hero for sweep-kind templates, and
+            // task progress lives on the portfolio header for everyone.
+            PortfolioHeader(ctx: OverviewContext(project: project)),
+            const SizedBox(height: 12),
+            buildOverviewWidget(
+              overviewWidget,
+              OverviewContext(project: project),
+            ),
+            const SizedBox(height: 12),
+          ] else ...[
+            // Workspace Overview is W6's scope; keep the existing chart
+            // + counter intact here so the standing-kind layout is not
+            // disturbed by W4.
+            SweepScatter(projectId: projectId),
+            const SizedBox(height: 12),
+            _TaskProgressCounter(projectId: projectId),
+            const SizedBox(height: 12),
+          ],
           _ShortcutTile(
             icon: Icons.science_outlined,
             label: 'Experiments',

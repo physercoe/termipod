@@ -17,3 +17,6 @@ parameters:
   optimizers: [adamw, lion]
   iters: 1000
 on_create_template_id: agents.steward
+# Overview hero below the portfolio header (A+B chassis, IA §6.2). Sweeps
+# are the canonical cross-run comparison case.
+overview_widget: sweep_compare

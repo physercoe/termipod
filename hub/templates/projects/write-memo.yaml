@@ -7,3 +7,6 @@ parameters:
   context_doc_ids: []
   length: short
 on_create_template_id: agents.steward
+# Overview hero: default task/milestone list keeps this simple. Memos are
+# just work, not sweeps. A+B chassis, IA §6.2.
+overview_widget: task_milestone_list

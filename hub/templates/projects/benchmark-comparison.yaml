@@ -8,3 +8,6 @@ parameters:
   samples: 100
   headline_metric: accuracy
 on_create_template_id: agents.steward
+# Overview hero: comparing models on a benchmark is a cross-run scatter.
+# A+B chassis, IA §6.2.
+overview_widget: sweep_compare

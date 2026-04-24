@@ -229,6 +229,105 @@ on_create_template_id: agents.steward
 	}
 }
 
+// TestLoadProjectTemplates_OverviewWidget confirms the YAML-declared
+// overview_widget round-trips for valid values, defaults to empty (→
+// task_milestone_list at resolve time) when missing, and is normalized
+// to empty for unknown values (with a warning logged — W4 A+B chassis).
+func TestLoadProjectTemplates_OverviewWidget(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := Init(dir, filepath.Join(dir, "hub.db")); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	// Drop user-authored templates exercising each code path.
+	userYAMLs := map[string]string{
+		"ow-known.yaml": `name: ow-known
+kind: goal
+goal: "k"
+overview_widget: recent_artifacts
+on_create_template_id: agents.steward
+`,
+		"ow-unknown.yaml": `name: ow-unknown
+kind: goal
+goal: "u"
+overview_widget: not_a_real_widget
+on_create_template_id: agents.steward
+`,
+		"ow-missing.yaml": `name: ow-missing
+kind: goal
+goal: "m"
+on_create_template_id: agents.steward
+`,
+	}
+	for fname, body := range userYAMLs {
+		path := filepath.Join(dir, "team", "templates", "projects", fname)
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", fname, err)
+		}
+	}
+
+	docs, err := loadProjectTemplates(dir)
+	if err != nil {
+		t.Fatalf("loadProjectTemplates: %v", err)
+	}
+	byName := map[string]projectTemplateDoc{}
+	for _, d := range docs {
+		byName[d.Name] = d
+	}
+
+	// Known value survives.
+	if got := byName["ow-known"].OverviewWidget; got != "recent_artifacts" {
+		t.Errorf("ow-known OverviewWidget = %q, want recent_artifacts", got)
+	}
+	// Unknown is scrubbed to "" so normalize → default.
+	if got := byName["ow-unknown"].OverviewWidget; got != "" {
+		t.Errorf("ow-unknown OverviewWidget = %q, want \"\" (normalized from unknown)", got)
+	}
+	if got := normalizeOverviewWidget(byName["ow-unknown"].OverviewWidget); got != overviewWidgetDefault {
+		t.Errorf("normalized unknown = %q, want %q", got, overviewWidgetDefault)
+	}
+	// Missing declares "" which normalize → default.
+	if got := byName["ow-missing"].OverviewWidget; got != "" {
+		t.Errorf("ow-missing OverviewWidget = %q, want \"\"", got)
+	}
+	if got := normalizeOverviewWidget(byName["ow-missing"].OverviewWidget); got != overviewWidgetDefault {
+		t.Errorf("normalized missing = %q, want %q", got, overviewWidgetDefault)
+	}
+
+	// Built-in templates ship with the expected hero kinds.
+	wantBuiltin := map[string]string{
+		"ablation-sweep":       "sweep_compare",
+		"benchmark-comparison": "sweep_compare",
+		"reproduce-paper":      "recent_artifacts",
+		"write-memo":           "task_milestone_list",
+	}
+	for name, want := range wantBuiltin {
+		got := normalizeOverviewWidget(byName[name].OverviewWidget)
+		if got != want {
+			t.Errorf("built-in %s OverviewWidget = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestNormalizeOverviewWidget_Fallback is the unit-level guarantee the
+// mobile registry relies on: empty and unknown both → default.
+func TestNormalizeOverviewWidget_Fallback(t *testing.T) {
+	cases := map[string]string{
+		"":                    overviewWidgetDefault,
+		"task_milestone_list": "task_milestone_list",
+		"sweep_compare":       "sweep_compare",
+		"recent_artifacts":    "recent_artifacts",
+		"children_status":     "children_status",
+		"not_a_widget":        overviewWidgetDefault,
+		"SWEEP_COMPARE":       overviewWidgetDefault, // case-sensitive by design
+	}
+	for in, want := range cases {
+		if got := normalizeOverviewWidget(in); got != want {
+			t.Errorf("normalizeOverviewWidget(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // TestInit_SeedIsIdempotent confirms re-running Init on the same data root
 // does not duplicate the template row or error out.
 func TestInit_SeedIsIdempotent(t *testing.T) {

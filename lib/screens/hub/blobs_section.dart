@@ -134,7 +134,7 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
 
   @override
   Widget build(BuildContext context) {
-    final body = _loading
+    final list = _loading
         ? const Center(child: CircularProgressIndicator())
         : _records.isEmpty
             ? _buildEmpty(context)
@@ -154,7 +154,14 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
               );
     return Stack(
       children: [
-        Positioned.fill(child: body),
+        Positioned.fill(
+          child: Column(
+            children: [
+              const _AssetsGuidance(),
+              Expanded(child: list),
+            ],
+          ),
+        ),
         Positioned(
           right: 16,
           bottom: 16,
@@ -189,21 +196,75 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.folder_zip, size: 48, color: muted),
+            Icon(Icons.perm_media_outlined, size: 48, color: muted),
             const SizedBox(height: 12),
             Text(
-              'No blobs uploaded yet.',
+              'No assets yet on this device.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 13, fontWeight: FontWeight.w600, color: muted),
             ),
             const SizedBox(height: 6),
             Text(
-              'Upload files once; attach them by sha in any chat.',
+              'Attachments you view in channels appear here. '
+              'Use + to upload a standalone reference.',
               textAlign: TextAlign.center,
-              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
+              style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Role banner for the Assets/Blobs section. Mirrors the Files banner so
+/// a user landing on either surface sees the same decision map: agents
+/// read Files by path, humans browse Assets by content.
+class _AssetsGuidance extends StatelessWidget {
+  const _AssetsGuidance();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.perm_media_outlined,
+              size: 18, color: DesignColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Assets humans browse by content',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Screenshots, audio, reference media from channels. '
+                  'For things an agent must read by path (code, datasets), use Files.',
+                  style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -69,15 +69,75 @@ class _DocsSectionState extends ConsumerState<DocsSection> {
     if (_entries.isEmpty) {
       return _EmptyState(onRefresh: _load);
     }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
-        itemCount: _entries.length,
-        itemBuilder: (_, i) => _DocRow(
-          entry: _entries[i],
-          projectId: widget.projectId,
+    return Column(
+      children: [
+        const _FilesGuidance(),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 24),
+              itemCount: _entries.length,
+              itemBuilder: (_, i) => _DocRow(
+                entry: _entries[i],
+                projectId: widget.projectId,
+              ),
+            ),
+          ),
         ),
+      ],
+    );
+  }
+}
+
+/// Role banner for the Files tab. Files are the project's path-keyed
+/// input surface — things agents read by name via MCP `get_project_doc`.
+/// The copy answers the user's decision question ("Files or Assets?")
+/// in two lines: who reads it, and where to put ambient content instead.
+class _FilesGuidance extends StatelessWidget {
+  const _FilesGuidance();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.folder_outlined,
+              size: 18, color: DesignColors.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Files agents read by path',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Trainer code, datasets, configs, prompts. '
+                  'For ambient references (screenshots, audio), drop them in a channel.',
+                  style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -182,12 +242,13 @@ class _EmptyState extends StatelessWidget {
       onRefresh: onRefresh,
       child: ListView(
         children: [
-          const SizedBox(height: 80),
+          const _FilesGuidance(),
+          const SizedBox(height: 48),
           Icon(Icons.folder_open, size: 48, color: muted),
           const SizedBox(height: 12),
           Center(
             child: Text(
-              'No docs yet.',
+              'No files yet.',
               style: GoogleFonts.spaceGrotesk(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -197,9 +258,13 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Center(
-            child: Text(
-              'Writes not yet supported server-side.',
-              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: muted),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                'Populate docs_root on the hub host (writes from mobile not yet supported).',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+              ),
             ),
           ),
         ],

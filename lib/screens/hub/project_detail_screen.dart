@@ -1091,7 +1091,7 @@ class _OverviewView extends ConsumerWidget {
           _ShortcutTile(
             icon: Icons.article_outlined,
             label: 'Documents',
-            sub: 'Memos, drafts, reports, reviews (§6.7)',
+            sub: 'Authored writeups · memos, drafts, reports',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => DocumentsScreen(projectId: projectId),
             )),
@@ -1113,9 +1113,9 @@ class _OverviewView extends ConsumerWidget {
             )),
           ),
           _ShortcutTile(
-            icon: Icons.inventory_2_outlined,
-            label: 'Blobs',
-            sub: 'Cached device-local blobs; upload + share',
+            icon: Icons.perm_media_outlined,
+            label: 'Assets',
+            sub: 'Browse media from channels · standalone uploads',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => const _BlobsScreen(),
             )),
@@ -1381,7 +1381,7 @@ class _BlobsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Blobs',
+          'Assets',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 18,
             fontWeight: FontWeight.w700,

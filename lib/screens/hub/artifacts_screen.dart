@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/hub_offline_banner.dart';
 
@@ -402,26 +403,34 @@ void _showDetail(BuildContext context, Map<String, dynamic> row) {
   );
 }
 
-class _ArtifactDetailSheet extends StatelessWidget {
+class _ArtifactDetailSheet extends ConsumerWidget {
   final Map<String, dynamic> row;
   const _ArtifactDetailSheet({required this.row});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
     final name = (row['name'] ?? '(unnamed)').toString();
     final kind = (row['kind'] ?? '').toString();
+    final hub = ref.watch(hubProvider).value;
+    final projects = hub?.projects ?? const [];
+    final agents = hub?.agents ?? const [];
+    final projectId = (row['project_id'] ?? '').toString();
+    final runId = (row['run_id'] ?? '').toString();
+    final producerId = (row['producer_agent_id'] ?? '').toString();
     final entries = <MapEntry<String, String>>[
-      MapEntry('id', (row['id'] ?? '').toString()),
-      MapEntry('project', (row['project_id'] ?? '').toString()),
-      MapEntry('run', (row['run_id'] ?? '').toString()),
+      MapEntry('project',
+          projectId.isEmpty ? '' : projectNameFor(projectId, projects)),
+      MapEntry('run', runId.isEmpty ? '' : runLabelForId(runId, const [])),
+      MapEntry('producer',
+          producerId.isEmpty ? '' : agentHandleFor(producerId, agents)),
       MapEntry('uri', (row['uri'] ?? '').toString()),
-      MapEntry('sha256', (row['sha256'] ?? '').toString()),
       MapEntry('size', row['size']?.toString() ?? ''),
       MapEntry('mime', (row['mime'] ?? '').toString()),
-      MapEntry('producer', (row['producer_agent_id'] ?? '').toString()),
+      MapEntry('sha256', (row['sha256'] ?? '').toString()),
       MapEntry('created', (row['created_at'] ?? '').toString()),
+      MapEntry('id', (row['id'] ?? '').toString()),
       MapEntry('lineage', (row['lineage_json'] ?? '').toString()),
     ].where((e) => e.value.isNotEmpty).toList(growable: false);
     return DraggableScrollableSheet(

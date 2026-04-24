@@ -821,9 +821,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       );
     }
     final kind = (r['kind'] ?? '').toString();
-    final project = (r['project_id'] ?? '').toString();
-    final agent = (r['agent_id'] ?? '').toString();
-    final parent = (r['parent_run_id'] ?? '').toString();
+    final projectId = (r['project_id'] ?? '').toString();
+    final agentId = (r['agent_id'] ?? '').toString();
+    final parentId = (r['parent_run_id'] ?? '').toString();
+    final hub = ref.watch(hubProvider).value;
+    final projects = hub?.projects ?? const [];
+    final agents = hub?.agents ?? const [];
+    final project =
+        projectId.isEmpty ? '' : projectNameFor(projectId, projects);
+    final agent = agentId.isEmpty ? '' : agentHandleFor(agentId, agents);
+    // Parent is almost always on a different page of runs than the one
+    // we're viewing; resolve to a short-id label instead of the raw ULID.
+    final parent = parentId.isEmpty ? '' : runLabelForId(parentId, const []);
     final created = (r['created_at'] ?? '').toString();
     final completed = (r['completed_at'] ?? '').toString();
     final duration = _runDuration(created, completed);

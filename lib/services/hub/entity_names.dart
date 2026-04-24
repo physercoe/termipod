@@ -77,6 +77,46 @@ String runLabelFor(Map<String, dynamic> row) {
   return id.length > 8 ? id.substring(id.length - 6) : (id.isEmpty ? '(run)' : id);
 }
 
+/// Tail of an id for fallback display ("…f3a91c"). Short enough to fit in a
+/// list row metaline, long enough that two sibling rows rarely collide.
+String shortId(String id, {int tail = 6}) {
+  if (id.isEmpty) return '';
+  return id.length <= tail ? id : '…${id.substring(id.length - tail)}';
+}
+
+/// Resolves a document id to its title via an already-loaded list. Falls
+/// back to "doc <shortId>" when the list doesn't carry the row (e.g. the
+/// reviews surface hasn't paged documents in yet).
+String documentTitleFor(
+  String id,
+  List<Map<String, dynamic>> docs, {
+  String fallback = '',
+}) {
+  if (id.isEmpty) return fallback;
+  for (final d in docs) {
+    if ((d['id'] ?? '').toString() == id) {
+      final t = (d['title'] ?? '').toString();
+      if (t.isNotEmpty) return t;
+    }
+  }
+  return fallback.isEmpty ? 'doc ${shortId(id)}' : fallback;
+}
+
+/// Resolves a run id to its composed label (see [runLabelFor]). Falls back
+/// to "run <shortId>" when the caller hasn't loaded that run into the list
+/// yet — better than the raw ULID the server hands back.
+String runLabelForId(
+  String id,
+  List<Map<String, dynamic>> runs, {
+  String fallback = '',
+}) {
+  if (id.isEmpty) return fallback;
+  for (final r in runs) {
+    if ((r['id'] ?? '').toString() == id) return runLabelFor(r);
+  }
+  return fallback.isEmpty ? 'run ${shortId(id)}' : fallback;
+}
+
 Map<String, dynamic> _parseConfig(Object? raw) {
   if (raw is Map) return raw.cast<String, dynamic>();
   if (raw is String && raw.isNotEmpty) {

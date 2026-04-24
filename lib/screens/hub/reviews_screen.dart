@@ -29,6 +29,11 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
   String? _projectFilter;
   List<Map<String, dynamic>>? _rows;
   List<Map<String, dynamic>>? _projects;
+  // Documents list used solely for resolving review.document_id → title.
+  // Hub returns reviews as target-kind+target-id joins (no title column);
+  // pairing with listDocumentsCached on the same scope keeps rows
+  // human-readable without a server-side join.
+  List<Map<String, dynamic>> _docs = const [];
   bool _loading = true;
   String? _error;
   DateTime? _staleSince;
@@ -68,12 +73,16 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
         status: _filter,
         projectId: effectiveProject,
       );
+      final docsFuture =
+          client.listDocumentsCached(projectId: effectiveProject);
       final projectsFuture = (_showProjectFilter && _projects == null)
           ? client.listProjects()
           : null;
       final cached = await reviewsFuture;
       final rows = cached.body;
       _staleSince = cached.staleSince;
+      final docsCached = await docsFuture;
+      _docs = docsCached.body;
       if (projectsFuture != null) {
         _projects = await projectsFuture;
       }
@@ -224,6 +233,7 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
             row: row,
             projects: ref.watch(hubProvider).value?.projects ?? const [],
             agents: ref.watch(hubProvider).value?.agents ?? const [],
+            docs: _docs,
             onTap: () => _openReview(row),
           );
         },
@@ -449,11 +459,13 @@ class _ReviewRow extends StatelessWidget {
   final Map<String, dynamic> row;
   final List<Map<String, dynamic>> projects;
   final List<Map<String, dynamic>> agents;
+  final List<Map<String, dynamic>> docs;
   final VoidCallback onTap;
   const _ReviewRow({
     required this.row,
     required this.projects,
     required this.agents,
+    required this.docs,
     required this.onTap,
   });
 
@@ -463,12 +475,15 @@ class _ReviewRow extends StatelessWidget {
     final projectId = (row['project_id'] ?? '').toString();
     final projectName =
         projectId.isEmpty ? '' : projectNameFor(projectId, projects);
-    final title = (row['document_title'] ??
-            row['title'] ??
-            row['document_id'] ??
-            row['target_id'] ??
-            '(review)')
-        .toString();
+    final targetId =
+        (row['document_id'] ?? row['target_id'] ?? '').toString();
+    final serverTitle =
+        (row['document_title'] ?? row['title'] ?? '').toString();
+    final title = serverTitle.isNotEmpty
+        ? serverTitle
+        : (targetId.isEmpty
+            ? '(review)'
+            : documentTitleFor(targetId, docs));
     final requesterId = (row['requester_agent_id'] ??
             row['requester_handle'] ??
             row['reviewer_handle'] ??
@@ -682,13 +697,18 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
     final r = _review ?? widget.summary;
     final state = _state(r);
     final isPending = state == 'pending' || state.isEmpty;
+    final agents = ref.watch(hubProvider).value?.agents ?? const [];
     final docTitle = (_document?['title'] ?? r['document_title'] ?? '(document)')
         .toString();
     final docKind = (_document?['kind'] ?? '').toString();
     final docContent = (_document?['content_inline'] ?? '').toString();
-    final requester =
+    final requesterId =
         (r['requester_agent_id'] ?? r['requester_handle'] ?? '').toString();
-    final decidedBy = (r['decided_by_user_id'] ?? r['decided_by'] ?? '').toString();
+    final requester = requesterId.isEmpty
+        ? ''
+        : agentHandleFor(requesterId, agents, fallback: requesterId);
+    final decidedBy =
+        (r['decided_by_user_id'] ?? r['decided_by'] ?? '').toString();
     final decidedAt = (r['decided_at'] ?? '').toString();
     final existingNote = (r['comment'] ?? r['note'] ?? '').toString();
 

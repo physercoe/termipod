@@ -209,6 +209,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (_, i) => _DocumentRow(
           row: rows[i],
+          projects: ref.watch(hubProvider).value?.projects ?? const [],
+          agents: ref.watch(hubProvider).value?.agents ?? const [],
           onTap: () async {
             await Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => DocumentDetailScreen(
@@ -296,16 +298,26 @@ class _Pill extends StatelessWidget {
 
 class _DocumentRow extends StatelessWidget {
   final Map<String, dynamic> row;
+  final List<Map<String, dynamic>> projects;
+  final List<Map<String, dynamic>> agents;
   final VoidCallback onTap;
-  const _DocumentRow({required this.row, required this.onTap});
+  const _DocumentRow({
+    required this.row,
+    required this.projects,
+    required this.agents,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final kind = (row['kind'] ?? '').toString();
     final title = (row['title'] ?? '(untitled)').toString();
     final version = (row['version'] ?? 1).toString();
-    final project = (row['project_id'] ?? '').toString();
-    final author = (row['author_agent_id'] ?? '').toString();
+    final projectId = (row['project_id'] ?? '').toString();
+    final authorId = (row['author_agent_id'] ?? '').toString();
+    final project =
+        projectId.isEmpty ? '' : projectNameFor(projectId, projects);
+    final author = authorId.isEmpty ? '' : agentHandleFor(authorId, agents);
     final created = (row['created_at'] ?? '').toString();
     return ListTile(
       onTap: onTap,
@@ -553,8 +565,15 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
     final content = (d['content_inline'] ?? '').toString();
     final artifactId = (d['artifact_id'] ?? '').toString();
     final version = (d['version'] ?? 1).toString();
-    final project = (d['project_id'] ?? '').toString();
-    final author = (d['author_agent_id'] ?? '').toString();
+    final projectId = (d['project_id'] ?? '').toString();
+    final authorId = (d['author_agent_id'] ?? '').toString();
+    final hub = ref.watch(hubProvider).value;
+    final project = projectId.isEmpty
+        ? ''
+        : projectNameFor(projectId, hub?.projects ?? const []);
+    final author = authorId.isEmpty
+        ? ''
+        : agentHandleFor(authorId, hub?.agents ?? const []);
     final created = (d['created_at'] ?? '').toString();
 
     return RefreshIndicator(
@@ -596,7 +615,11 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
   Widget _versionRow(Map<String, dynamic> v) {
     final version = (v['version'] ?? 1).toString();
     final created = (v['created_at'] ?? '').toString();
-    final author = (v['author_agent_id'] ?? '').toString();
+    final authorId = (v['author_agent_id'] ?? '').toString();
+    final author = authorId.isEmpty
+        ? ''
+        : agentHandleFor(
+            authorId, ref.read(hubProvider).value?.agents ?? const []);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Text(

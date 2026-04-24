@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import 'plan_step_create_sheet.dart';
 import 'plans_screen.dart';
@@ -171,6 +172,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       ),
       builder: (_) => _StepDetailSheet(
         step: step,
+        agents: ref.read(hubProvider).value?.agents ?? const [],
         onTransition: (newStatus) {
           Navigator.of(context).pop();
           _setStepStatus((step['id'] ?? '').toString(), newStatus);
@@ -403,7 +405,11 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
               ),
             ),
             for (final s in byPhase[ph]!)
-              _StepRow(step: s, onTap: () => _openStepSheet(s)),
+              _StepRow(
+                step: s,
+                agents: ref.watch(hubProvider).value?.agents ?? const [],
+                onTap: () => _openStepSheet(s),
+              ),
           ],
         ],
       ),
@@ -471,8 +477,13 @@ class _Section extends StatelessWidget {
 
 class _StepRow extends StatelessWidget {
   final Map<String, dynamic> step;
+  final List<Map<String, dynamic>> agents;
   final VoidCallback onTap;
-  const _StepRow({required this.step, required this.onTap});
+  const _StepRow({
+    required this.step,
+    required this.agents,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -480,6 +491,8 @@ class _StepRow extends StatelessWidget {
     final status = (step['status'] ?? '').toString();
     final idx = (step['step_idx'] ?? 0).toString();
     final agentId = (step['agent_id'] ?? '').toString();
+    final agentLabel =
+        agentId.isEmpty ? '' : agentHandleFor(agentId, agents);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(4),
@@ -514,9 +527,9 @@ class _StepRow extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (agentId.isNotEmpty)
+                  if (agentLabel.isNotEmpty)
                     Text(
-                      'agent: $agentId',
+                      'agent: $agentLabel',
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.jetBrainsMono(
                         fontSize: 10,
@@ -537,9 +550,11 @@ class _StepRow extends StatelessWidget {
 
 class _StepDetailSheet extends StatelessWidget {
   final Map<String, dynamic> step;
+  final List<Map<String, dynamic>> agents;
   final ValueChanged<String> onTransition;
   const _StepDetailSheet({
     required this.step,
+    required this.agents,
     required this.onTransition,
   });
 
@@ -550,6 +565,8 @@ class _StepDetailSheet extends StatelessWidget {
     final phase = (step['phase_idx'] ?? 0).toString();
     final idx = (step['step_idx'] ?? 0).toString();
     final agentId = (step['agent_id'] ?? '').toString();
+    final agentLabel =
+        agentId.isEmpty ? '' : agentHandleFor(agentId, agents);
     final spec = step['spec_json'];
     final inputs = step['input_refs_json'];
     final outputs = step['output_refs_json'];
@@ -590,11 +607,11 @@ class _StepDetailSheet extends StatelessWidget {
             style: GoogleFonts.jetBrainsMono(
                 fontSize: 16, fontWeight: FontWeight.w700),
           ),
-          if (agentId.isNotEmpty)
+          if (agentLabel.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'agent: $agentId',
+                'agent: $agentLabel',
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 11, color: DesignColors.textMuted),
               ),

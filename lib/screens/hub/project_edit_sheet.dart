@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -175,13 +176,18 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
                 ),
               ),
             ),
-            Text(
-              'Edit project',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            Builder(builder: (ctx) {
+              final l10n = AppLocalizations.of(ctx)!;
+              final isWorkspace =
+                  (widget.project['kind'] ?? 'goal').toString() == 'standing';
+              return Text(
+                isWorkspace ? l10n.workspaceEditTitle : l10n.projectEditTitle,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              );
+            }),
             const SizedBox(height: 16),
             _field(
               label: 'Name',

@@ -184,6 +184,18 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
     };
   }
 
+  /// Map project ids to their `kind` so row summaries can substitute the
+  /// right noun (`project` vs. `workspace`) when the event subject is a
+  /// standing-kind project per blueprint §6.1 + IA §6.2.
+  Map<String, String> _projectKindMap() {
+    final projects = ref.read(hubProvider).value?.projects ?? const [];
+    return {
+      for (final p in projects)
+        if ((p['id'] ?? '').toString().isNotEmpty)
+          (p['id'] ?? '').toString(): (p['kind'] ?? 'goal').toString(),
+    };
+  }
+
   bool get _hasActiveFilter =>
       _prefix != null ||
       _actor != null ||
@@ -274,6 +286,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
 
   Widget _buildBody() {
     final rows = _filteredRows;
+    final kindMap = _projectKindMap();
     if (_loading && _allRows.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -306,7 +319,10 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       itemCount: rows.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (_, i) => _AuditRow(data: rows[i]),
+      itemBuilder: (_, i) => _AuditRow(
+        data: rows[i],
+        projectKindMap: kindMap,
+      ),
     );
   }
 }
@@ -455,12 +471,13 @@ class _SearchField extends StatelessWidget {
 
 class _AuditRow extends StatelessWidget {
   final Map<String, dynamic> data;
-  const _AuditRow({required this.data});
+  final Map<String, String> projectKindMap;
+  const _AuditRow({required this.data, this.projectKindMap = const {}});
 
   @override
   Widget build(BuildContext context) {
     final action = (data['action'] ?? '').toString();
-    final summary = (data['summary'] ?? '').toString();
+    final summary = _rewriteNoun((data['summary'] ?? '').toString());
     final ts = (data['ts'] ?? '').toString();
     final actorHandle = (data['actor_handle'] ?? '').toString();
     final actorKind = (data['actor_kind'] ?? '').toString();
@@ -511,6 +528,23 @@ class _AuditRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Swap the noun "project"/"Project" for "workspace"/"Workspace" in a
+  /// row's pre-formatted summary when the subject is a standing-kind
+  /// project. Falls back to the original string whenever the kind is
+  /// unknown (e.g. events predating the map, or rows with no project
+  /// binding) — blueprint §6.1 treats the schema as unchanged, so this
+  /// is purely vocabulary-level.
+  String _rewriteNoun(String summary) {
+    if (summary.isEmpty) return summary;
+    final pid = _AuditScreenState._rowProjectId(data);
+    if (pid == null) return summary;
+    final kind = projectKindMap[pid];
+    if (kind != 'standing') return summary;
+    return summary
+        .replaceAll('Project', 'Workspace')
+        .replaceAll('project', 'workspace');
   }
 
   static IconData _iconForAction(String action) {

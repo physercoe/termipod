@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -17,7 +18,8 @@ import '../../theme/design_colors.dart';
 ///
 /// Pops `true` on success so the caller can refresh the project list.
 class ProjectCreateSheet extends ConsumerStatefulWidget {
-  const ProjectCreateSheet({super.key});
+  final String initialKind;
+  const ProjectCreateSheet({super.key, this.initialKind = 'goal'});
 
   @override
   ConsumerState<ProjectCreateSheet> createState() =>
@@ -29,7 +31,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   final _goal = TextEditingController();
   final _docsRoot = TextEditingController();
   final _configYaml = TextEditingController();
-  String _kind = 'goal';
+  late String _kind = widget.initialKind == 'standing' ? 'standing' : 'goal';
   String? _templateId; // FK to a projects row with is_template=1 (blueprint §6.1)
   String? _onCreateTemplateId; // FK to a template project auto-fired on create
   // Populated when the picked template carries a non-empty parameters_json.
@@ -140,6 +142,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   Widget build(BuildContext context) {
     final insets = MediaQuery.of(context).viewInsets;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: EdgeInsets.only(bottom: insets.bottom),
       child: SafeArea(
@@ -150,7 +153,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('New project',
+              Text(_kind == 'standing' ? l10n.newWorkspace : l10n.newProject,
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 16),
@@ -176,16 +179,16 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
               ),
               const SizedBox(height: 6),
               SegmentedButton<String>(
-                segments: const [
+                segments: [
                   ButtonSegment(
                     value: 'goal',
-                    label: Text('Goal'),
-                    icon: Icon(Icons.flag_outlined, size: 16),
+                    label: Text(l10n.kindProject),
+                    icon: const Icon(Icons.flag_outlined, size: 16),
                   ),
                   ButtonSegment(
                     value: 'standing',
-                    label: Text('Standing'),
-                    icon: Icon(Icons.all_inclusive, size: 16),
+                    label: Text(l10n.kindWorkspace),
+                    icon: const Icon(Icons.all_inclusive, size: 16),
                   ),
                 ],
                 selected: {_kind},
@@ -195,8 +198,8 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
               const SizedBox(height: 12),
               Text(
                 _kind == 'goal'
-                    ? 'Ships when the goal is met, then archives.'
-                    : 'Runs continuously; no completion state.',
+                    ? l10n.kindProjectHelper
+                    : l10n.kindWorkspaceHelper,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 11,
                   color: isDark

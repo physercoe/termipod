@@ -29,13 +29,15 @@ import 'task_detail_screen.dart';
 ///
 /// Tabs:
 ///   0 Overview  — goal, status, metadata, shortcut tiles into Runs /
-///                 Reviews / Documents / Schedules / Plans / Blobs, and
+///                 Reviews / Writeups / Schedules / Plans / Blobs, and
 ///                 the archive action. Replaces the old "Info" tab.
 ///   1 Agents    — agents scoped to this project; archive filter via
 ///                 the AppBar action.
 ///   2 Channel   — channel list + per-channel composer; FAB creates.
 ///   3 Tasks     — Kanban over this project's tasks; FAB creates.
-///   4 Documents — read-only tree of the project's docs_root.
+///   4 Files     — read-only tree of the project's docs_root filesystem.
+///                 (Distinct from the Writeups shortcut, which opens the
+///                 `documents` table of authored memos/drafts/reports.)
 ///
 /// Retired from the previous 7-tab shape:
 ///   - Activity: team-wide feed lives on the Activity top-level tab,
@@ -61,7 +63,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     'Agents',
     'Channel',
     'Tasks',
-    'Documents',
+    'Files',
   ];
 
   @override
@@ -116,7 +118,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               ),
             ),
             const SizedBox(width: 8),
-            _ProjectKindChip(kind: kind),
+            ProjectKindChip(kind: kind),
           ],
         ),
         actions: [
@@ -1019,7 +1021,7 @@ class _AgentsView extends ConsumerWidget {
 
 // ---- Overview ----
 // Hub page for the project: shortcut tiles into the heavier sub-surfaces
-// (Runs / Reviews / Documents / Schedules / Plans / Blobs) that don't
+// (Runs / Reviews / Writeups / Schedules / Plans / Blobs) that don't
 // inline cleanly as tabs, plus the project metadata rows and the
 // archive action. Replaces the old "Info" tab per IA §6.2.
 
@@ -1213,9 +1215,9 @@ class _ShortcutTile extends StatelessWidget {
   }
 }
 
-class _ProjectKindChip extends StatelessWidget {
+class ProjectKindChip extends StatelessWidget {
   final String kind;
-  const _ProjectKindChip({required this.kind});
+  const ProjectKindChip({required this.kind});
 
   @override
   Widget build(BuildContext context) {

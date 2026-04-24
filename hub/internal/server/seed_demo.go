@@ -520,7 +520,7 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 		{res.StewardAgentID, "Weekly review scheduled for Monday 10:00."},
 	}
 	for _, m := range labMsgs {
-		parts, _ := json.Marshal([]map[string]any{{"type": "text", "text": m.text}})
+		parts, _ := json.Marshal([]map[string]any{{"kind": "text", "text": m.text}})
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO events
 				(id, schema_version, ts, received_ts, channel_id, type,

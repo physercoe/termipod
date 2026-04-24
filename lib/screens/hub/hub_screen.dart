@@ -1304,9 +1304,11 @@ class _ProjectsTab extends ConsumerWidget {
               separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (_, i) {
                 final p = items[i];
+                final kind = (p['kind'] ?? 'goal').toString();
                 return _InfoTile(
                   title: p['name']?.toString() ?? '?',
                   subtitle: p['status']?.toString() ?? '',
+                  leading: _ProjectKindChip(kind: kind),
                   trailing: _shortTs((p['created_at'] ?? '') as String),
                   onTap: () {
                     Navigator.of(context).push(MaterialPageRoute(

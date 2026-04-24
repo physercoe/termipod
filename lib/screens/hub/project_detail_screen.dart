@@ -9,6 +9,7 @@ import '../../theme/design_colors.dart';
 import '../../widgets/sweep_scatter.dart';
 import '../../widgets/team_switcher.dart';
 import 'archived_agents_screen.dart';
+import 'artifacts_screen.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
@@ -1086,6 +1087,14 @@ class _OverviewView extends ConsumerWidget {
                 : null,
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => ReviewsScreen(projectId: projectId),
+            )),
+          ),
+          _ShortcutTile(
+            icon: Icons.output_outlined,
+            label: 'Outputs',
+            sub: 'Artifacts runs produce · checkpoints, curves, reports',
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ArtifactsScreen(projectId: projectId),
             )),
           ),
           _ShortcutTile(

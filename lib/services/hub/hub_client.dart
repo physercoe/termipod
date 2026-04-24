@@ -988,6 +988,29 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listDocumentVersions(String docId) =>
       _listJson('/v1/teams/${cfg.teamId}/documents/$docId/versions');
 
+  /// Lists artifacts at team scope. Optional filters: [projectId], [runId],
+  /// [kind]. Newest first. See blueprint §6.6 — artifacts are the
+  /// content-addressed output surface for runs and standalone uploads.
+  Future<List<Map<String, dynamic>>> listArtifacts({
+    String? projectId,
+    String? runId,
+    String? kind,
+  }) {
+    final q = <String, String>{};
+    if (projectId != null) q['project'] = projectId;
+    if (runId != null) q['run'] = runId;
+    if (kind != null) q['kind'] = kind;
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/artifacts',
+      query: q.isEmpty ? null : q,
+    );
+  }
+
+  Future<Map<String, dynamic>> getArtifact(String artifactId) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/artifacts/$artifactId');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   Future<List<Map<String, dynamic>>> listReviews({
     String? projectId,
     String? status, // UI value: 'pending' | 'approved' | 'rejected' | 'needs_changes'

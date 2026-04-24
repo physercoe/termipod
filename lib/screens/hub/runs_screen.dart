@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/histogram_tile.dart';
+import 'artifacts_screen.dart';
 import 'run_create_sheet.dart';
 
 /// Experiment runs browser (blueprint §6.5).
@@ -601,6 +602,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
   List<Map<String, dynamic>> _metrics = const [];
   List<Map<String, dynamic>> _images = const [];
   List<Map<String, dynamic>> _histograms = const [];
+  List<Map<String, dynamic>> _artifacts = const [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -628,15 +630,18 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       List<Map<String, dynamic>> metrics = const [];
       List<Map<String, dynamic>> images = const [];
       List<Map<String, dynamic>> histograms = const [];
+      List<Map<String, dynamic>> artifacts = const [];
       try {
         final results = await Future.wait<List<Map<String, dynamic>>>([
           client.getRunMetrics(widget.runId),
           client.getRunImages(widget.runId),
           client.getRunHistograms(widget.runId),
+          client.listArtifacts(runId: widget.runId),
         ]);
         metrics = results[0];
         images = results[1];
         histograms = results[2];
+        artifacts = results[3];
       } catch (_) {
         // Keep defaults; render the rest of the screen even if digests fail.
       }
@@ -646,6 +651,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
         _metrics = metrics;
         _images = images;
         _histograms = histograms;
+        _artifacts = artifacts;
         _loading = false;
       });
     } catch (e) {
@@ -862,6 +868,22 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
             const SizedBox(height: 16),
             _sectionLabel('Metric dashboards'),
             for (final u in uris) _MetricURITile(row: u, onLaunch: _launch),
+          ],
+          if (_artifacts.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _sectionLabel('Outputs'),
+            for (final a in _artifacts.take(5)) _RunArtifactTile(row: a),
+            if (_artifacts.length > 5)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: Text('View all ${_artifacts.length} outputs'),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ArtifactsScreen(runId: widget.runId),
+                  )),
+                ),
+              ),
           ],
           if (meta is Map && meta.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -1421,6 +1443,63 @@ class _MetricURITile extends StatelessWidget {
     if (k.contains('wandb') || k.contains('trackio')) return Icons.timeline;
     return Icons.bar_chart;
   }
+}
+
+/// Compact artifact row used in the Run detail Outputs section. Taps open
+/// the ArtifactsScreen scoped to this run so the full list and filters
+/// are one hop away.
+class _RunArtifactTile extends StatelessWidget {
+  final Map<String, dynamic> row;
+  const _RunArtifactTile({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = (row['kind'] ?? '').toString();
+    final name = (row['name'] ?? '(unnamed)').toString();
+    final size = row['size'];
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: ArtifactKindChip(kind: kind),
+      title: Text(
+        name,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: size is int
+          ? Text(
+              _fmtArtifactSize(size),
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                color: DesignColors.textMuted,
+              ),
+            )
+          : null,
+      trailing: const Icon(Icons.chevron_right, size: 18),
+      onTap: () {
+        // Open the artifacts screen filtered by this run; the user can
+        // drill into any single artifact from there.
+        final runId = (row['run_id'] ?? '').toString();
+        if (runId.isEmpty) return;
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => ArtifactsScreen(runId: runId),
+        ));
+      },
+    );
+  }
+}
+
+String _fmtArtifactSize(int bytes) {
+  if (bytes < 1024) return '${bytes}B';
+  final kb = bytes / 1024;
+  if (kb < 1024) return '${kb.toStringAsFixed(1)}KB';
+  final mb = kb / 1024;
+  if (mb < 1024) return '${mb.toStringAsFixed(1)}MB';
+  final gb = mb / 1024;
+  return '${gb.toStringAsFixed(1)}GB';
 }
 
 /// Groups image rows by metric_name so the UI renders one scrubber per

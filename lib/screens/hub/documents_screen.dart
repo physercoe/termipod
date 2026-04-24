@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/hub_offline_banner.dart';
 import 'document_create_sheet.dart';
@@ -116,12 +117,14 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final projects = ref.watch(hubProvider).value?.projects ?? const [];
+    final scopeName = widget.projectId == null
+        ? null
+        : projectNameFor(widget.projectId!, projects);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.projectId == null
-              ? 'Documents'
-              : 'Documents · ${widget.projectId}',
+          scopeName == null ? 'Documents' : 'Documents · $scopeName',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,

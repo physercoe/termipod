@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/histogram_tile.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -167,12 +168,15 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final projects =
+        _projects ?? ref.watch(hubProvider).value?.projects ?? const [];
+    final scopeName = widget.projectId == null
+        ? null
+        : projectNameFor(widget.projectId!, projects);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.projectId == null
-              ? 'Experiments'
-              : 'Experiments · ${widget.projectId}',
+          scopeName == null ? 'Experiments' : 'Experiments · $scopeName',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -269,6 +273,9 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (_, i) => _RunRow(
           row: rows[i],
+          projects: _projects ??
+              ref.watch(hubProvider).value?.projects ??
+              const [],
           onTap: () async {
             await Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => RunDetailScreen(
@@ -499,15 +506,23 @@ class _ProjectFilterSheet extends StatelessWidget {
 
 class _RunRow extends StatelessWidget {
   final Map<String, dynamic> row;
+  final List<Map<String, dynamic>> projects;
   final VoidCallback onTap;
-  const _RunRow({required this.row, required this.onTap});
+  const _RunRow({
+    required this.row,
+    required this.projects,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final status = (row['status'] ?? '').toString();
-    final name = (row['name'] ?? row['id'] ?? '(run)').toString();
+    final name = runLabelFor(row);
     final kind = (row['kind'] ?? '').toString();
-    final project = (row['project_id'] ?? '').toString();
+    final projectId = (row['project_id'] ?? '').toString();
+    final project = projectId.isEmpty
+        ? ''
+        : projectNameFor(projectId, projects);
     final created = (row['created_at'] ?? '').toString();
     return ListTile(
       onTap: onTap,

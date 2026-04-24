@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/steward_badge.dart';
 
@@ -296,7 +297,11 @@ class _EventBubble extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final from = (evt['from_id'] ?? '').toString();
+    final fromId = (evt['from_id'] ?? '').toString();
+    final agents = ref.watch(hubProvider).value?.agents ?? const [];
+    final from = fromId.isEmpty
+        ? ''
+        : agentHandleFor(fromId, agents, fallback: fromId);
     final ts = (evt['ts'] ?? evt['received_ts'] ?? '').toString();
     final parts = (evt['parts'] as List?) ?? const <dynamic>[];
     final preview = _previewFromParts(parts);

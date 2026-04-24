@@ -1623,17 +1623,16 @@ class _ParentBreadcrumb extends ConsumerWidget {
         onTap: parent == null
             ? null
             : () {
-                // Pop to the parent's detail. If we were pushed from the
-                // parent, a simple pop is ideal; otherwise push a fresh
-                // parent detail so deep links still resolve.
-                final nav = Navigator.of(context);
-                if (nav.canPop()) {
-                  nav.pop();
-                } else {
-                  nav.pushReplacement(MaterialPageRoute(
-                    builder: (_) => ProjectDetailScreen(project: parent!),
-                  ));
-                }
+                // Always land on the actual parent, regardless of the
+                // route the user took to get here. `Navigator.pop` would
+                // only be correct when the child was pushed directly from
+                // the parent — if the user came in via deep-link, search,
+                // or the global Projects list, popping would drop them
+                // somewhere unrelated (the IA-1 regression the user
+                // reported against v1.0.217).
+                Navigator.of(context).pushReplacement(MaterialPageRoute(
+                  builder: (_) => ProjectDetailScreen(project: parent!),
+                ));
               },
         child: Padding(
           padding:

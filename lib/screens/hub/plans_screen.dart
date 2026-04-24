@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import 'plan_create_sheet.dart';
 import 'plan_viewer_screen.dart';
@@ -253,7 +254,10 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (ctx, i) {
           final p = rows[i];
-          return _PlanRow(plan: p);
+          final projects = _projects ??
+              ref.watch(hubProvider).value?.projects ??
+              const [];
+          return _PlanRow(plan: p, projects: projects);
         },
       ),
     );
@@ -262,14 +266,19 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
 
 class _PlanRow extends StatelessWidget {
   final Map<String, dynamic> plan;
-  const _PlanRow({required this.plan});
+  final List<Map<String, dynamic>> projects;
+  const _PlanRow({required this.plan, required this.projects});
 
   @override
   Widget build(BuildContext context) {
     final id = (plan['id'] ?? '').toString();
     final projectId = (plan['project_id'] ?? '').toString();
+    final projectName = projectId.isEmpty
+        ? '(no project)'
+        : projectNameFor(projectId, projects);
     final version = (plan['version'] ?? 1).toString();
     final status = (plan['status'] ?? '').toString();
+    final template = (plan['template_id'] ?? '').toString();
     final created = (plan['created_at'] ?? '').toString();
     return ListTile(
       title: Row(
@@ -278,10 +287,10 @@ class _PlanRow extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              projectId.isEmpty ? '(no project)' : projectId,
+              projectName,
               overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 13,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -298,7 +307,10 @@ class _PlanRow extends StatelessWidget {
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 2),
         child: Text(
-          '$id · $created',
+          [
+            if (template.isNotEmpty) template,
+            if (created.isNotEmpty) created,
+          ].join(' · '),
           style: GoogleFonts.jetBrainsMono(
             fontSize: 10,
             color: DesignColors.textMuted,

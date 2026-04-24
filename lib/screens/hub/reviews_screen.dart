@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/hub_offline_banner.dart';
 
@@ -134,12 +135,14 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final projects = ref.watch(hubProvider).value?.projects ?? const [];
+    final scopeName = widget.projectId == null
+        ? null
+        : projectNameFor(widget.projectId!, projects);
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.projectId == null
-              ? 'Reviews'
-              : 'Reviews · ${widget.projectId}',
+          scopeName == null ? 'Reviews' : 'Reviews · $scopeName',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,
@@ -217,7 +220,12 @@ class _ReviewsScreenState extends ConsumerState<ReviewsScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (_, i) {
           final row = rows[i];
-          return _ReviewRow(row: row, onTap: () => _openReview(row));
+          return _ReviewRow(
+            row: row,
+            projects: ref.watch(hubProvider).value?.projects ?? const [],
+            agents: ref.watch(hubProvider).value?.agents ?? const [],
+            onTap: () => _openReview(row),
+          );
         },
       ),
     );
@@ -439,24 +447,36 @@ class _FilterChipPill extends StatelessWidget {
 
 class _ReviewRow extends StatelessWidget {
   final Map<String, dynamic> row;
+  final List<Map<String, dynamic>> projects;
+  final List<Map<String, dynamic>> agents;
   final VoidCallback onTap;
-  const _ReviewRow({required this.row, required this.onTap});
+  const _ReviewRow({
+    required this.row,
+    required this.projects,
+    required this.agents,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final state = _state(row);
-    final project = (row['project_id'] ?? '').toString();
+    final projectId = (row['project_id'] ?? '').toString();
+    final projectName =
+        projectId.isEmpty ? '' : projectNameFor(projectId, projects);
     final title = (row['document_title'] ??
             row['title'] ??
             row['document_id'] ??
             row['target_id'] ??
             '(review)')
         .toString();
-    final requester = (row['requester_agent_id'] ??
+    final requesterId = (row['requester_agent_id'] ??
             row['requester_handle'] ??
             row['reviewer_handle'] ??
             '')
         .toString();
+    final requester = requesterId.isEmpty
+        ? ''
+        : agentHandleFor(requesterId, agents, fallback: requesterId);
     final created = (row['created_at'] ?? '').toString();
     return ListTile(
       onTap: onTap,
@@ -480,7 +500,7 @@ class _ReviewRow extends StatelessWidget {
         padding: const EdgeInsets.only(top: 2),
         child: Text(
           [
-            if (project.isNotEmpty) project,
+            if (projectName.isNotEmpty) projectName,
             if (requester.isNotEmpty) requester,
             if (created.isNotEmpty) created,
           ].join(' · '),

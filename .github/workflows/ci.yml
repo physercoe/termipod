@@ -40,7 +40,16 @@ jobs:
           key: pub-${{ hashFiles('pubspec.yaml') }}
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Debug package config
+        run: |
+          echo '--- package_config.json entries ---'
+          grep -oE '"name": "[^"]+"' .dart_tool/package_config.json | head -80
+          echo '--- sqflite entries ---'
+          grep -i sqflite .dart_tool/package_config.json || echo 'NOT FOUND'
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos

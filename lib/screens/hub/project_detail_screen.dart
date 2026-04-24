@@ -21,6 +21,7 @@ import 'overview_widgets/registry.dart';
 import 'plans_screen.dart';
 import 'project_channel_create_sheet.dart';
 import 'project_channel_screen.dart';
+import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
@@ -106,6 +107,22 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     await ref.read(hubProvider.notifier).refreshAll();
   }
 
+  Future<void> _createSubProject() async {
+    final kind = (_project['kind'] ?? 'goal').toString();
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => ProjectCreateSheet(
+        initialKind: kind == 'standing' ? 'standing' : 'goal',
+        parentProjectId: (_project['id'] ?? '').toString(),
+        parentProjectName: (_project['name'] ?? '').toString(),
+      ),
+    );
+    if (created == true && mounted) {
+      await ref.read(hubProvider.notifier).refreshAll();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -115,6 +132,10 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
             (isWorkspace ? l10n.kindWorkspace : l10n.kindProject))
         .toString();
     final projectId = (_project['id'] ?? '').toString();
+    final parentId = (_project['parent_project_id'] ?? '').toString();
+    // Depth-1 child → can't parent another level. The action is still in
+    // the overflow menu so it's discoverable, but disabled with a hint.
+    final atMaxDepth = parentId.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -141,10 +162,45 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                 : l10n.projectDetailEditTooltip,
             onPressed: _edit,
           ),
+          PopupMenuButton<String>(
+            tooltip: 'More actions',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              if (v == 'new_sub' && !atMaxDepth) {
+                _createSubProject();
+              } else if (v == 'new_sub' && atMaxDepth) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      'Max sub-project depth is 2 — this project is already nested.',
+                    ),
+                    duration: Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'new_sub',
+                enabled: !atMaxDepth,
+                child: Row(
+                  children: [
+                    const Icon(Icons.account_tree_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Text(isWorkspace
+                        ? 'New sub-Workspace'
+                        : 'New sub-project'),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
         children: [
+          if (parentId.isNotEmpty)
+            _ParentBreadcrumb(parentProjectId: parentId),
           _PillBar(
             labels: _labels,
             selected: _index,
@@ -1535,6 +1591,88 @@ class ProjectKindChip extends StatelessWidget {
           fontSize: 10,
           fontWeight: FontWeight.w700,
           color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// Thin breadcrumb shown on sub-project detail (W5, IA §6.2). Looks up
+/// the parent row on the already-loaded `hubProvider.projects` list so
+/// tapping it pops to the parent's detail without an extra round-trip.
+/// Styled like a standard back-to-parent affordance: chevron-left, parent
+/// name, muted but tappable.
+class _ParentBreadcrumb extends ConsumerWidget {
+  final String parentProjectId;
+  const _ParentBreadcrumb({required this.parentProjectId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final all = ref.watch(hubProvider).value?.projects ??
+        const <Map<String, dynamic>>[];
+    Map<String, dynamic>? parent;
+    for (final p in all) {
+      if ((p['id'] ?? '').toString() == parentProjectId) {
+        parent = p;
+        break;
+      }
+    }
+    final parentName = (parent?['name'] ?? 'parent').toString();
+    final parentKind = (parent?['kind'] ?? 'goal').toString();
+    final kindLabel = parentKind == 'standing' ? 'Workspace' : 'Project';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+      child: InkWell(
+        onTap: parent == null
+            ? null
+            : () {
+                // Pop to the parent's detail. If we were pushed from the
+                // parent, a simple pop is ideal; otherwise push a fresh
+                // parent detail so deep links still resolve.
+                final nav = Navigator.of(context);
+                if (nav.canPop()) {
+                  nav.pop();
+                } else {
+                  nav.pushReplacement(MaterialPageRoute(
+                    builder: (_) => ProjectDetailScreen(project: parent!),
+                  ));
+                }
+              },
+        child: Padding(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              const Icon(Icons.chevron_left,
+                  size: 16, color: DesignColors.textMuted),
+              const SizedBox(width: 4),
+              Text(
+                kindLabel,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  parentName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? DesignColors.textSecondary
+                        : DesignColors.textSecondaryLight,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

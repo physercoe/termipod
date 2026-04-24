@@ -1291,6 +1291,12 @@ class _ProjectsTab extends ConsumerWidget {
     // schema is one table; the mobile IA splits them into two named
     // sections (Projects vs. Workspaces) since the mental models differ
     // (bounded outcome vs. ongoing container).
+    //
+    // Within each section, W5 flattens sub-projects inline under their
+    // parent with a 12px-per-level indent and a thin left rail, rather
+    // than collapsing them behind a tap. Attention-first (Blueprint A1)
+    // beats scroll savings — open attention on a child must be visible
+    // without drilling in.
     final goals = <Map<String, dynamic>>[];
     final standings = <Map<String, dynamic>>[];
     for (final p in items) {
@@ -1301,41 +1307,44 @@ class _ProjectsTab extends ConsumerWidget {
         goals.add(p);
       }
     }
+    final goalRows = _flattenWithChildren(goals);
+    final standingRows = _flattenWithChildren(standings);
+
     final body = items.isEmpty
         ? _EmptyText(text: l10n.projectsEmpty)
         : RefreshIndicator(
             onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
             child: CustomScrollView(
               slivers: [
-                if (goals.isNotEmpty) ...[
+                if (goalRows.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: _ProjectsSectionLabel(text: l10n.sectionProjects),
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                     sliver: SliverList.separated(
-                      itemCount: goals.length,
+                      itemCount: goalRows.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) => _projectRow(
                         context,
-                        goals[i],
+                        goalRows[i],
                         openByProject,
                       ),
                     ),
                   ),
                 ],
-                if (standings.isNotEmpty) ...[
+                if (standingRows.isNotEmpty) ...[
                   SliverToBoxAdapter(
                     child: _ProjectsSectionLabel(text: l10n.sectionWorkspaces),
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                     sliver: SliverList.separated(
-                      itemCount: standings.length,
+                      itemCount: standingRows.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (_, i) => _projectRow(
                         context,
-                        standings[i],
+                        standingRows[i],
                         openByProject,
                       ),
                     ),
@@ -1366,27 +1375,121 @@ class _ProjectsTab extends ConsumerWidget {
     );
   }
 
+  /// Flattens a section's projects with their direct children inlined
+  /// right under each parent, in the order the list came in. Children
+  /// whose parent isn't in this section are rendered as orphan parents
+  /// at depth 0 so archived-parent drift doesn't hide rows (W5 edge case).
+  /// Depth is clamped to 1 on the client even though the server caps it
+  /// server-side; log-on-clamp rather than drop so a data bug surfaces.
+  static List<_ProjectNode> _flattenWithChildren(
+    List<Map<String, dynamic>> rows,
+  ) {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final p in rows) {
+      final id = (p['id'] ?? '').toString();
+      if (id.isNotEmpty) byId[id] = p;
+    }
+    final childrenByParent = <String, List<Map<String, dynamic>>>{};
+    final tops = <Map<String, dynamic>>[];
+    for (final p in rows) {
+      final parent = (p['parent_project_id'] ?? '').toString();
+      if (parent.isNotEmpty && byId.containsKey(parent)) {
+        childrenByParent.putIfAbsent(parent, () => []).add(p);
+      } else {
+        tops.add(p);
+      }
+    }
+    final out = <_ProjectNode>[];
+    for (final parent in tops) {
+      final pid = (parent['id'] ?? '').toString();
+      final kids = childrenByParent[pid] ?? const <Map<String, dynamic>>[];
+      out.add(_ProjectNode(
+        project: parent,
+        depth: 0,
+        childCount: kids.length,
+      ));
+      for (final child in kids) {
+        out.add(_ProjectNode(project: child, depth: 1, childCount: 0));
+      }
+    }
+    return out;
+  }
+
   Widget _projectRow(
     BuildContext context,
-    Map<String, dynamic> p,
+    _ProjectNode node,
     Map<String, int> openByProject,
   ) {
+    final p = node.project;
     final kind = (p['kind'] ?? 'goal').toString();
     final pid = (p['id'] ?? '').toString();
     final openCount = openByProject[pid] ?? 0;
-    return _InfoTile(
+    // For parents, fold children's own open attention into the parent
+    // row's count so the roll-up reads "what will touch me if I don't
+    // drill in" without hiding child signal behind the parent.
+    var rolled = openCount;
+    if (node.depth == 0 && node.childCount > 0) {
+      for (final p2 in items) {
+        if ((p2['parent_project_id'] ?? '').toString() != pid) continue;
+        rolled += openByProject[(p2['id'] ?? '').toString()] ?? 0;
+      }
+    }
+    // Parent aggregate subtitle: "N sub-projects · M attention". The
+    // %-done figure is intentionally omitted — it would require fetching
+    // tasks per child and the parent row is a summary, not a dashboard.
+    // Children's own rows carry their status, which is the authoritative
+    // per-child progress signal.
+    String subtitle;
+    if (node.depth == 0 && node.childCount > 0) {
+      final childLabel = kind == 'standing'
+          ? (node.childCount == 1 ? 'sub-Workspace' : 'sub-Workspaces')
+          : (node.childCount == 1 ? 'sub-project' : 'sub-projects');
+      final parts = <String>[
+        '${node.childCount} $childLabel',
+      ];
+      final status = (p['status'] ?? '').toString();
+      if (status.isNotEmpty) parts.add(status);
+      subtitle = parts.join(' · ');
+    } else {
+      subtitle = (p['status'] ?? '').toString();
+    }
+    final tile = _InfoTile(
       title: p['name']?.toString() ?? '?',
-      subtitle: p['status']?.toString() ?? '',
+      subtitle: subtitle,
       leading: ProjectKindChip(kind: kind),
       trailingWidget:
-          openCount > 0 ? _AttentionBadge(count: openCount) : null,
+          rolled > 0 ? _AttentionBadge(count: rolled) : null,
       trailing:
-          openCount > 0 ? null : _shortTs((p['created_at'] ?? '') as String),
+          rolled > 0 ? null : _shortTs((p['created_at'] ?? '') as String),
       onTap: () {
         Navigator.of(context).push(MaterialPageRoute(
           builder: (_) => ProjectDetailScreen(project: p),
         ));
       },
+    );
+    if (node.depth == 0) return tile;
+    // Child row: 12px indent + a thin 1px left rail in the gutter. The
+    // rail is drawn as a separate child in an IntrinsicHeight row so it
+    // spans exactly the row height — cleaner than a Stack with
+    // Positioned.fill, which was flaky when the tile changed height.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(left: 12),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              width: 1,
+              color: isDark
+                  ? DesignColors.borderDark
+                  : DesignColors.borderLight,
+            ),
+            const SizedBox(width: 11),
+            Expanded(child: tile),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1432,6 +1535,21 @@ class _ProjectsTab extends ConsumerWidget {
       await ref.read(hubProvider.notifier).refreshAll();
     }
   }
+}
+
+/// Display row for the Projects tab: a project + its tree metadata.
+/// Depth 0 = top-level row; depth 1 = sub-project row rendered with the
+/// indent + left-rail treatment. Max depth is 2 (server-enforced, clamped
+/// client-side in [_ProjectsTab._flattenWithChildren]).
+class _ProjectNode {
+  final Map<String, dynamic> project;
+  final int depth;
+  final int childCount;
+  const _ProjectNode({
+    required this.project,
+    required this.depth,
+    required this.childCount,
+  });
 }
 
 class _ProjectsSectionLabel extends StatelessWidget {

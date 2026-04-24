@@ -20,7 +20,22 @@ import 'template_icon.dart';
 /// Pops `true` on success so the caller can refresh the project list.
 class ProjectCreateSheet extends ConsumerStatefulWidget {
   final String initialKind;
-  const ProjectCreateSheet({super.key, this.initialKind = 'goal'});
+
+  /// When set, the new project is created as a sub-project of this ID
+  /// (W5, IA §6.2). The kind segmented-control is locked to the parent's
+  /// kind since a sub-project shares the parent's mental model.
+  final String? parentProjectId;
+
+  /// Parent display name for the "Creating under …" hint. Optional — the
+  /// sheet falls back to the raw id if absent.
+  final String? parentProjectName;
+
+  const ProjectCreateSheet({
+    super.key,
+    this.initialKind = 'goal',
+    this.parentProjectId,
+    this.parentProjectName,
+  });
 
   @override
   ConsumerState<ProjectCreateSheet> createState() =>
@@ -70,6 +85,7 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
         templateId: _templateId,
         onCreateTemplateId: _onCreateTemplateId,
         parameters: _parameters,
+        parentProjectId: widget.parentProjectId,
         docsRoot: _docsRoot.text.trim().isEmpty ? null : _docsRoot.text.trim(),
         configYaml:
             _configYaml.text.trim().isEmpty ? null : _configYaml.text.trim(),
@@ -154,9 +170,16 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(_kind == 'standing' ? l10n.newWorkspace : l10n.newProject,
+              Text(_subProjectTitle(l10n),
                   style: GoogleFonts.spaceGrotesk(
                       fontSize: 18, fontWeight: FontWeight.w700)),
+              if (widget.parentProjectId != null) ...[
+                const SizedBox(height: 8),
+                _ParentHint(
+                  name: widget.parentProjectName ?? widget.parentProjectId!,
+                  kind: _kind,
+                ),
+              ],
               const SizedBox(height: 16),
               TextField(
                 controller: _name,
@@ -193,8 +216,12 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                   ),
                 ],
                 selected: {_kind},
-                onSelectionChanged: (s) =>
-                    setState(() => _kind = s.first),
+                // A sub-project always inherits its parent's kind (W5).
+                // Locking the segmented control here mirrors the server-side
+                // intent without having to plumb a second error path.
+                onSelectionChanged: widget.parentProjectId == null
+                    ? (s) => setState(() => _kind = s.first)
+                    : null,
               ),
               const SizedBox(height: 12),
               Text(
@@ -324,6 +351,59 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Sheet title. Sub-project creates get a dedicated heading so the user
+  /// is never confused about whether they're making a top-level or a nested
+  /// item. Copy tracks the child's kind so a Workspace child reads as
+  /// "New sub-Workspace", not "New sub-project" (W1 rename respected).
+  String _subProjectTitle(AppLocalizations l10n) {
+    if (widget.parentProjectId == null) {
+      return _kind == 'standing' ? l10n.newWorkspace : l10n.newProject;
+    }
+    return _kind == 'standing' ? 'New sub-Workspace' : 'New sub-project';
+  }
+}
+
+/// Inline hint shown above the name field when the sheet opens with a
+/// parent pre-filled. Makes it obvious that the new row will nest under
+/// something rather than land at the top level of the Projects tab.
+class _ParentHint extends StatelessWidget {
+  final String name;
+  final String kind;
+  const _ParentHint({required this.name, required this.kind});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final kindLabel = kind == 'standing' ? 'sub-Workspace' : 'sub-project';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.subdirectory_arrow_right,
+              size: 14, color: DesignColors.textMuted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Creating $kindLabel under $name',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

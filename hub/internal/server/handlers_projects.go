@@ -136,6 +136,35 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "kind must be 'goal' or 'standing'")
 		return
 	}
+	// Enforce max tree depth = 2 (Blueprint §6.1 / IA §6.2 W5). A sub-project
+	// may only parent off a top-level project: if the proposed parent already
+	// has its own parent, reject the create. This keeps mobile UI flat enough
+	// to show inline (12px indent × 2 levels, thin left rail) without collapse.
+	if in.ParentProjectID != "" {
+		var parentTeam string
+		var parentParent sql.NullString
+		err := s.db.QueryRowContext(r.Context(),
+			`SELECT team_id, parent_project_id FROM projects
+			 WHERE id = ?`, in.ParentProjectID).Scan(&parentTeam, &parentParent)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, http.StatusBadRequest, "parent_project_id does not exist")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if parentTeam != team {
+			writeErr(w, http.StatusBadRequest,
+				"parent_project_id belongs to a different team")
+			return
+		}
+		if parentParent.Valid && parentParent.String != "" {
+			writeErr(w, http.StatusBadRequest,
+				"max sub-project depth is 2: parent is already a sub-project")
+			return
+		}
+	}
 	id := NewID()
 	now := NowUTC()
 	isTpl := 0

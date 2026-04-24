@@ -15,6 +15,7 @@ import 'artifacts_screen.dart';
 import 'blobs_section.dart';
 import 'docs_section.dart';
 import 'documents_screen.dart';
+import 'hub_screen.dart' show openAgentDetail;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart';
@@ -27,6 +28,7 @@ import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
 import 'runs_screen.dart';
 import 'schedules_screen.dart';
+import 'spawn_agent_sheet.dart';
 import 'task_detail_screen.dart';
 
 /// Linear-style project detail aligned to `docs/ia-redesign.md` §6.2.
@@ -1128,6 +1130,7 @@ class _AgentsView extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final hubState = ref.watch(hubProvider).value;
     final all = hubState?.agents ?? const [];
+    final hosts = hubState?.hosts ?? const [];
     final rows = all
         .where((a) => (a['project_id'] ?? '').toString() == projectId)
         .toList();
@@ -1151,61 +1154,85 @@ class _AgentsView extends ConsumerWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (_, i) {
               final a = rows[i];
-              return Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? DesignColors.surfaceDark
-                      : DesignColors.surfaceLight,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
+              return InkWell(
+                onTap: () => openAgentDetail(context, a),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
                     color: isDark
-                        ? DesignColors.borderDark
-                        : DesignColors.borderLight,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.smart_toy_outlined,
-                        size: 18, color: DesignColors.primary),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        (a['handle'] ?? a['id'] ?? '?').toString(),
-                        style: GoogleFonts.spaceGrotesk(
-                            fontSize: 13, fontWeight: FontWeight.w600),
-                      ),
+                        ? DesignColors.surfaceDark
+                        : DesignColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isDark
+                          ? DesignColors.borderDark
+                          : DesignColors.borderLight,
                     ),
-                    Text((a['status'] ?? '').toString(),
-                        style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10,
-                            color: isDark
-                                ? DesignColors.textMuted
-                                : DesignColors.textMutedLight)),
-                  ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.smart_toy_outlined,
+                          size: 18, color: DesignColors.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          (a['handle'] ?? a['id'] ?? '?').toString(),
+                          style: GoogleFonts.spaceGrotesk(
+                              fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      Text((a['status'] ?? '').toString(),
+                          style: GoogleFonts.jetBrainsMono(
+                              fontSize: 10,
+                              color: isDark
+                                  ? DesignColors.textMuted
+                                  : DesignColors.textMutedLight)),
+                    ],
+                  ),
                 ),
               );
             },
           );
-    return Column(
+    return Stack(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-          child: Row(
-            children: [
-              const Spacer(),
-              IconButton(
-                tooltip: 'Archived agents',
-                icon: const Icon(Icons.inventory_2_outlined),
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const ArchivedAgentsScreen(),
-                )),
+        Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+              child: Row(
+                children: [
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Archived agents',
+                    icon: const Icon(Icons.inventory_2_outlined),
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute(
+                      builder: (_) => const ArchivedAgentsScreen(),
+                    )),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Expanded(child: body),
+          ],
         ),
-        Expanded(child: body),
+        if (hosts.isNotEmpty)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              heroTag: 'spawn_project_agent_$projectId',
+              onPressed: () => showSpawnAgentSheet(
+                context,
+                hosts: hosts,
+                projectId: projectId,
+              ),
+              icon: const Icon(Icons.add),
+              label: const Text('Spawn Agent'),
+            ),
+          ),
       ],
     );
   }

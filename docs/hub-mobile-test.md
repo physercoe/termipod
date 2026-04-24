@@ -9,7 +9,7 @@ TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
   Let's Encrypt cert. The setup you want for anything longer-lived than a
   demo.
 
-The current release used for testing is **v1.0.172-alpha**.
+The current release used for testing is **v1.0.221-alpha**.
 
 **Companion docs:**
 
@@ -30,18 +30,18 @@ and attaches three Android APKs plus an unsigned iOS IPA.
 
 ```bash
 # From the repo root, on the branch containing the hub changes.
-git tag v1.0.172-alpha
-git push origin v1.0.172-alpha
+git tag v1.0.221-alpha
+git push origin v1.0.221-alpha
 gh run watch                      # wait for the release build
-gh release view v1.0.172-alpha     # grab the asset URLs
+gh release view v1.0.221-alpha     # grab the asset URLs
 ```
 
 Assets:
 
-- `termipod-v1.0.172-alpha-arm64-v8a.apk`   ← modern phones
-- `termipod-v1.0.172-alpha-armeabi-v7a.apk` ← older 32-bit ARM
-- `termipod-v1.0.172-alpha-x86_64.apk`      ← emulator / ChromeOS
-- `termipod-v1.0.172-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
+- `termipod-v1.0.221-alpha-arm64-v8a.apk`   ← modern phones
+- `termipod-v1.0.221-alpha-armeabi-v7a.apk` ← older 32-bit ARM
+- `termipod-v1.0.221-alpha-x86_64.apk`      ← emulator / ChromeOS
+- `termipod-v1.0.221-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
 
 ### Sideload on Android
 
@@ -296,37 +296,39 @@ on. Register one now if you haven't:
 1. Build and run `host-runner` on the online server that will host your
    steward. See [`hub-host-setup.md`](hub-host-setup.md) — Track A for a
    quick tmux-attached test, Track B for systemd.
-2. On the Hub tab → **Hosts**, confirm a row with a recent `last_seen_at`.
-   The welcome card requires `status='online'`; the row appears within
-   ~10s of the first heartbeat.
+2. On the **Hosts** bottom tab, confirm a row with a recent
+   `last_seen_at`. The steward spawn sheet requires `status='online'`;
+   the row appears within ~10s of the first heartbeat.
 
 The host just needs `tmux` and one backend CLI on PATH for its login
 user (the default template uses `claude`, see §5.3 to change).
 
-### 5.2 Tap "Spawn Steward"
+### 5.2 Tap the steward chip
 
-1. Hub tab → **Agents**. With no agents yet and ≥1 online host, the tab
-   renders a single "Welcome to your hub" card instead of an empty list
-   (`lib/screens/hub/hub_screen.dart` `_SpawnStewardCard`).
-2. Tap **Spawn Steward**. The app:
-   - fetches the bundled `agents/steward.v1` template YAML via
+1. **Projects** bottom tab. The AppBar carries a steward chip. With no
+   steward yet it reads `🤖 No steward` (muted colour) — tap it.
+2. The **Spawn the team steward** sheet opens. The handle (`steward`,
+   reserved), the kind (`claude-code`), and the spec YAML (from
+   `agents/steward.v1`) are fixed — the only choice is the host
+   dropdown, which pre-selects the first `status='online'` host. Tap
+   **Spawn Steward**. The app:
+   - fetches the bundled template YAML via
      `GET /v1/teams/default/templates/agents/steward.v1.yaml`,
-   - picks the first `status='online'` host,
    - POSTs `/v1/teams/default/agents/spawn` with
      `child_handle='steward'`, `kind='claude-code'`, `host_id=<picked>`,
      and the rendered YAML.
 3. Within ~3s the host-runner's poll tick picks up the pending spawn,
    opens a tmux window, launches `claude --model opus-4-7`, and PATCHes
    the agent row to `status='running'`.
-4. Pull-to-refresh the Agents tab. The steward row now pins first, with
-   a **StewardBadge** next to the handle. The welcome card is gone.
-5. Open `#hub-meta` (Hub → TeamSwitcher pill → Channels → `hub-meta`).
-   Type a message; the steward backend reads it through its MCP token
-   and replies. You now have a working director ↔ steward loop.
+4. The AppBar chip flips to `🤖 Steward ready` (live colour). Tapping
+   it now opens `#hub-meta` directly.
+5. In `#hub-meta`, type a message; the steward backend reads it through
+   its MCP token and replies. You now have a working director ↔
+   steward loop.
 
 If the spawn is policy-gated instead (tiers `significant` or `critical`
 in `policies/default.v1.yaml`), step 2 returns `202 pending_approval` +
-an `attention_id`. The card shows "Spawn request sent — awaiting
+an `attention_id`. The sheet shows "Spawn request sent — awaiting
 approval"; approve it from **Me → Attention** and the real spawn runs.
 
 ### 5.3 Customizing the steward before first spawn
@@ -382,7 +384,7 @@ channels live.
 | **Me → search icon** | Full-text search over events, tasks, attention items. 350 ms debounce, autofocus TextField. |
 | **Projects → tap a project** | Linear-style detail page with Overview · Tasks · Channels · Docs · Blobs · Agents. Channel events stream live; excerpt parts render with a monospace line-number gutter. Docs renders markdown read-only. Blobs uploads / downloads content-addressed attachments (25 MiB cap, sha256 dedup). |
 | **Projects → tap a task** | Subtasks and parent chevron navigation. Create tasks with the project-scoped FAB. |
-| **Projects → project detail → Agents tab** | **List / Tree** toggle. Tree view renders the `agent_spawns` parent/child graph with indent + cycle guard. **Spawn Agent** FAB opens a YAML sheet; preset chips at the top mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. |
+| **Projects → project detail → Agents pill** | Project-scoped agent list. Bottom-right **Spawn Agent** FAB opens a YAML sheet pre-filled with `project_id:` for this project; preset chips mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. Handle `steward` is reserved — use the AppBar steward chip instead. Tap an agent row to open its detail sheet (pause / resume / terminate / pane preview / journal / respawn). |
 | **Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`, alongside any SSH-only connections. |
 | **Projects → Templates row** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
 | **TeamSwitcher pill → Team Settings → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |

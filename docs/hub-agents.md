@@ -73,11 +73,41 @@ Template expansion runs server-side. Useful placeholders:
 
 ## 4. Spawning from mobile
 
-**Prebuilt.** Open the TermiPod app → **Hub** tab (bottom nav) →
-**Agents** tab (one of four: Projects · Agents · Hosts · Templates) →
-bottom-right **Spawn Agent** FAB.
+There are two spawn paths, matching the IA-redesign agent ontology
+(`docs/ia-redesign.md` §3): one team-scoped singleton (the steward)
+and N project-scoped workers. Each has its own UI.
 
-The sheet has:
+### 4a. Spawning the steward
+
+The steward is the one agent that speaks for the team in `#hub-meta`.
+Every team has exactly one, and it is spawned from the shipped
+`agents/steward.v1` template — operators don't hand-roll handles or
+principal/journal wiring.
+
+Open the TermiPod app → **Projects** tab. Top of the AppBar shows a
+steward chip:
+
+- `🤖 Steward ready` (live colour) — tap to open the `#hub-meta`
+  channel.
+- `🤖 No steward` (muted) — tap to open the **Spawn the team
+  steward** sheet.
+
+The steward sheet is deliberately minimal: a host dropdown and a
+**Spawn Steward** button. The handle (`steward`, reserved), the kind
+(`claude-code`), and the spec YAML (from `agents/steward.v1`) are
+fixed.
+
+### 4b. Spawning a project agent
+
+Project agents are scoped to a single project — the `project_id:`
+key in the spawn spec YAML is what makes marker forwarding, `#channel`
+routing, and the Agents pill all agree about ownership.
+
+In the app: **Projects → tap a project → Agents pill →** bottom-right
+**Spawn Agent** FAB.
+
+The sheet pre-fills `project_id: "<id>"` into the YAML for you, then
+shows:
 
 1. **Preset chips** (device-local) — tap to prefill handle / kind /
    YAML. Long-press to delete. "Save preset" at the bottom captures
@@ -85,6 +115,7 @@ The sheet has:
 2. **Load template** — fetches `GET /v1/teams/{team}/templates/agents`,
    lists them, and pastes the selected YAML.
 3. **Handle** — the child agent's handle (must be unique per team).
+   The handle `steward` is reserved — use the steward chip flow above.
 4. **Kind** — free-form backend identifier (`claude-code`, `codex`, …).
 5. **Host** — dropdown of registered hosts. Defaults to the first
    `status=online` host (see *Status indicators* below about the
@@ -94,8 +125,8 @@ The sheet has:
 Submit → one of two outcomes:
 
 - `"Agent \"…\" spawned."` — the agent row is created; a pending
-  row appears on the Agents tab within a couple of seconds and flips
-  to running once the host picks it up.
+  row appears on the project's Agents pill within a couple of seconds
+  and flips to running once the host picks it up.
 - `"Spawn request sent — awaiting approval."` — policy-gated; an
   `approval_request` attention item is filed. Approvers (including
   you, if you're on the list) can approve from the Me tab (attention
@@ -103,12 +134,14 @@ Submit → one of two outcomes:
 
 ### Can I spawn from mobile today?
 
-**Yes.** The FAB → dialog path described above is the shipped mobile
-spawn flow (v1.0.41+).
+**Yes.** Both paths above are shipped. The steward chip landed with
+the IA-redesign wedges; the project-agent FAB was relifted in
+v1.0.221-alpha after the Agents sub-tab was retired in favour of the
+project-detail Agents pill.
 
 What you cannot do yet from mobile:
 
-- Edit an existing agent's spawn spec (read-only in the tree view).
+- Edit an existing agent's spawn spec (read-only in the detail sheet).
 - Bulk-spawn multiple agents from one YAML.
 - Create a brand-new template; only *use* server-side templates or
   save device-local presets.
@@ -286,7 +319,8 @@ curl -fsS -X PATCH -H "Authorization: Bearer $TOK" \
   -d '{"status":"terminated"}'
 ```
 
-From the mobile, the same flow is: **Projects → tap a project → Agents
-sub-tab → Spawn Agent FAB**
-→ set handle `smoke-1`, pick the host, paste the backend.cmd line,
-submit. Watch the row flip to green ~3s later.
+From the mobile, the same flow is: **Projects → tap a project →
+Agents pill → Spawn Agent FAB** → set handle `smoke-1`, pick the host,
+paste the backend.cmd line, submit. Watch the row flip to green ~3s
+later. (For the team steward, use the AppBar steward chip instead —
+see §4a.)

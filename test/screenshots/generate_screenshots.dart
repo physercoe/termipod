@@ -31,12 +31,10 @@ import 'package:termipod/providers/active_session_provider.dart';
 import 'package:termipod/providers/connection_provider.dart';
 import 'package:termipod/providers/history_provider.dart';
 import 'package:termipod/providers/key_provider.dart';
-import 'package:termipod/providers/notification_panes_provider.dart';
 import 'package:termipod/providers/settings_provider.dart';
 import 'package:termipod/providers/snippet_provider.dart';
 import 'package:termipod/screens/connections/connections_screen.dart';
-import 'package:termipod/screens/inbox/inbox_screen.dart';
-import 'package:termipod/screens/notifications/notification_panes_screen.dart';
+import 'package:termipod/screens/me/me_screen.dart';
 import 'package:termipod/screens/settings/settings_screen.dart';
 import 'package:termipod/screens/vault/vault_screen.dart';
 import 'package:termipod/models/action_bar_presets.dart';
@@ -91,11 +89,6 @@ class MockHistoryNotifier extends HistoryNotifier {
   HistoryState build() => mockHistoryState;
 }
 
-class MockAlertPanesNotifier extends AlertPanesNotifier {
-  @override
-  AlertPanesState build() => mockAlertPanesState;
-}
-
 class MockActionBarNotifier extends ActionBarNotifier {
   @override
   ActionBarState build() => ActionBarState(
@@ -131,7 +124,6 @@ Widget _buildScreenshot({
       keysProvider.overrideWith(() => MockKeysNotifier()),
       snippetsProvider.overrideWith(() => MockSnippetsNotifier()),
       historyProvider.overrideWith(() => MockHistoryNotifier()),
-      alertPanesProvider.overrideWith(() => MockAlertPanesNotifier()),
       actionBarProvider.overrideWith(() => directInputMode
           ? MockActionBarDirectNotifier()
           : MockActionBarNotifier()),
@@ -299,7 +291,7 @@ void main() {
 
   group('Screenshots', () {
     testWidgets('dashboard_dark', (tester) async {
-      await _captureScreenshot(tester, _buildScreenshot(child: const InboxScreen()), 'goldens/dashboard_dark.png');
+      await _captureScreenshot(tester, _buildScreenshot(child: const MeScreen()), 'goldens/dashboard_dark.png');
     });
 
     testWidgets('servers_dark', (tester) async {
@@ -310,16 +302,12 @@ void main() {
       await _captureScreenshot(tester, _buildScreenshot(child: const VaultScreen()), 'goldens/vault_dark.png');
     });
 
-    testWidgets('alerts_dark', (tester) async {
-      await _captureScreenshot(tester, _buildScreenshot(child: const NotificationPanesScreen()), 'goldens/alerts_dark.png');
-    });
-
     testWidgets('settings_dark', (tester) async {
       await _captureScreenshot(tester, _buildScreenshot(child: const SettingsScreen()), 'goldens/settings_dark.png');
     });
 
     testWidgets('dashboard_light', (tester) async {
-      await _captureScreenshot(tester, _buildScreenshot(child: const InboxScreen(), dark: false), 'goldens/dashboard_light.png');
+      await _captureScreenshot(tester, _buildScreenshot(child: const MeScreen(), dark: false), 'goldens/dashboard_light.png');
     });
 
     testWidgets('servers_light', (tester) async {

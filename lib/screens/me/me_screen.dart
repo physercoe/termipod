@@ -33,8 +33,8 @@ import '../vault/vault_screen.dart';
 ///   - Approvals — kind ∈ {approval_request, decision, template_proposal}.
 ///   - Agents    — kind='idle' / 'agent_error'.
 ///   - Messages  — every other attention kind.
-class InboxScreen extends ConsumerWidget {
-  const InboxScreen({super.key});
+class MeScreen extends ConsumerWidget {
+  const MeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -144,7 +144,7 @@ class InboxScreen extends ConsumerWidget {
                 sliver: SliverList.separated(
                   itemCount: filtered.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (_, i) => _InboxCard(item: filtered[i]),
+                  itemBuilder: (_, i) => _MeCard(item: filtered[i]),
                 ),
               ),
             const SliverToBoxAdapter(child: _VaultSection()),
@@ -162,10 +162,10 @@ class InboxScreen extends ConsumerWidget {
     );
   }
 
-  List<_InboxItem> _buildItems(List<Map<String, dynamic>> attention) {
-    final out = <_InboxItem>[];
+  List<_MeItem> _buildItems(List<Map<String, dynamic>> attention) {
+    final out = <_MeItem>[];
     for (final a in attention) {
-      out.add(_InboxItem.attention(a));
+      out.add(_MeItem.attention(a));
     }
     out.sort((a, b) => b.ts.compareTo(a.ts));
     return out;
@@ -186,7 +186,7 @@ class InboxScreen extends ConsumerWidget {
     return sorted.take(6).toList();
   }
 
-  Map<_Filter, int> _countsByFilter(List<_InboxItem> items) {
+  Map<_Filter, int> _countsByFilter(List<_MeItem> items) {
     final counts = {for (final f in _Filter.values) f: 0};
     for (final item in items) {
       counts[_Filter.all] = (counts[_Filter.all] ?? 0) + 1;
@@ -213,7 +213,7 @@ extension _FilterX on _Filter {
     }
   }
 
-  bool matches(_InboxItem item) {
+  bool matches(_MeItem item) {
     if (this == _Filter.all) return true;
     return item.filter == this;
   }
@@ -228,7 +228,7 @@ class _FilterNotifier extends Notifier<_Filter> {
 final _filterProvider =
     NotifierProvider<_FilterNotifier, _Filter>(_FilterNotifier.new);
 
-class _InboxItem {
+class _MeItem {
   final String id;
   final _Filter filter;
   final String kind;
@@ -239,7 +239,7 @@ class _InboxItem {
   final String? actor;
   final Map<String, dynamic>? attention;
 
-  const _InboxItem({
+  const _MeItem({
     required this.id,
     required this.filter,
     required this.kind,
@@ -251,7 +251,7 @@ class _InboxItem {
     this.attention,
   });
 
-  factory _InboxItem.attention(Map<String, dynamic> a) {
+  factory _MeItem.attention(Map<String, dynamic> a) {
     final kind = (a['kind'] ?? 'attention').toString();
     final filter = _filterForAttention(kind);
     // actor_kind + actor_handle are the authoritative columns stamped by
@@ -262,7 +262,7 @@ class _InboxItem {
     final actor = (actorKind == 'agent' && actorHandle.isNotEmpty)
         ? actorHandle
         : null;
-    return _InboxItem(
+    return _MeItem(
       id: (a['id'] ?? '').toString(),
       filter: filter,
       kind: kind,
@@ -438,9 +438,9 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _InboxCard extends ConsumerWidget {
-  final _InboxItem item;
-  const _InboxCard({required this.item});
+class _MeCard extends ConsumerWidget {
+  final _MeItem item;
+  const _MeCard({required this.item});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -522,7 +522,7 @@ class _InboxCard extends ConsumerWidget {
     // push a full-screen detail view here.
   }
 
-  Color _accentColor(_InboxItem item) {
+  Color _accentColor(_MeItem item) {
     switch (item.filter) {
       case _Filter.approvals:
         return DesignColors.primary;

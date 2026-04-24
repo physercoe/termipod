@@ -10,9 +10,9 @@ import '../services/tmux/tmux_commands.dart';
 import '../services/tmux/tmux_parser.dart';
 import '../theme/design_colors.dart';
 import 'hosts/hosts_screen.dart';
-import 'inbox/inbox_screen.dart';
 import 'hub/activity_screen.dart';
 import 'hub/hub_screen.dart';
+import 'me/me_screen.dart';
 import 'settings/settings_screen.dart';
 import 'terminal/terminal_screen.dart';
 
@@ -52,9 +52,9 @@ class HomeScreen extends ConsumerWidget {
       body: IndexedStack(
         index: currentTab,
         children: const [
-          HubScreen(),          // 0: Projects (HubScreen now shows only projects sub-tabs)
+          HubScreen(),          // 0: Projects
           ActivityScreen(),     // 1: Activity (audit feed promoted)
-          InboxScreen(),        // 2: Me (center, default)
+          MeScreen(),           // 2: Me (center, default)
           HostsScreen(),        // 3: Hosts (team ∪ personal, merged on hostBindings)
           SettingsScreen(),     // 4: Settings
         ],
@@ -192,7 +192,7 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
         child: Icon(
-          Icons.inbox_outlined,
+          Icons.person_outline,
           size: 36,
           color: isSelected
               ? Colors.white

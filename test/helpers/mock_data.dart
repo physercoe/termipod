@@ -8,9 +8,7 @@ import 'package:termipod/providers/active_session_provider.dart';
 import 'package:termipod/providers/connection_provider.dart';
 import 'package:termipod/providers/history_provider.dart';
 import 'package:termipod/providers/key_provider.dart';
-import 'package:termipod/providers/notification_panes_provider.dart';
 import 'package:termipod/providers/snippet_provider.dart';
-import 'package:termipod/services/tmux/tmux_parser.dart';
 
 // ---------------------------------------------------------------------------
 // Connections
@@ -235,59 +233,3 @@ const mockHistoryState = HistoryState(
   ],
 );
 
-// ---------------------------------------------------------------------------
-// Alert panes
-// ---------------------------------------------------------------------------
-
-final mockAlertPanesState = AlertPanesState(
-  alertPanes: [
-    AlertPane(
-      connectionId: 'conn-1',
-      connectionName: 'prod-api-1',
-      host: '10.0.1.42',
-      sessionName: 'deploy',
-      windowIndex: 2,
-      windowName: 'logs',
-      flags: {TmuxWindowFlag.bell},
-      paneId: '%5',
-      paneIndex: 0,
-      currentCommand: 'tail -f access.log',
-    ),
-    AlertPane(
-      connectionId: 'conn-2',
-      connectionName: 'dev-gpu-box',
-      host: '192.168.1.100',
-      sessionName: 'claude',
-      windowIndex: 1,
-      windowName: 'agent',
-      flags: {TmuxWindowFlag.activity},
-      paneId: '%8',
-      paneIndex: 0,
-      currentCommand: 'claude',
-    ),
-    AlertPane(
-      connectionId: 'conn-3',
-      connectionName: 'homelab-nas',
-      host: '10.10.0.5',
-      sessionName: 'main',
-      windowIndex: 0,
-      windowName: 'monitor',
-      flags: {TmuxWindowFlag.silence},
-      paneId: '%12',
-      paneIndex: 0,
-      currentCommand: 'htop',
-    ),
-    AlertPane(
-      connectionId: 'conn-1',
-      connectionName: 'prod-api-1',
-      host: '10.0.1.42',
-      sessionName: 'deploy',
-      windowIndex: 1,
-      windowName: 'build',
-      flags: {TmuxWindowFlag.activity},
-      paneId: '%3',
-      paneIndex: 0,
-      currentCommand: 'make build',
-    ),
-  ],
-);

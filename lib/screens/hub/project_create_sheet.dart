@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'template_icon.dart';
 
 /// Project creation sheet (blueprint §9 P2.7).
 ///
@@ -607,13 +608,26 @@ class _TemplatePickRow extends StatelessWidget {
     final name = (row['name'] ?? '').toString();
     final goal = (row['goal'] ?? '').toString();
     final kind = (row['kind'] ?? '').toString();
+    // Match curated icons by `name` - that is what the init seed
+    // populates for built-in project templates (`ablation-sweep`,
+    // `reproduce-paper`, `write-memo`, `benchmark-comparison`). The
+    // `id` column is a UUID and wouldn't match anything curated.
+    // When selected we stick with the check mark so the selection
+    // state stays unambiguous.
+    final leading = selected
+        ? const Icon(
+            Icons.check_circle,
+            color: DesignColors.success,
+            size: 24,
+          )
+        : templateIconWidget(
+            idOrName: name,
+            displayName: name,
+            size: 24,
+          );
     return ListTile(
       dense: true,
-      leading: Icon(
-        selected ? Icons.check_circle : Icons.folder_special_outlined,
-        color: selected ? DesignColors.success : null,
-        size: 18,
-      ),
+      leading: leading,
       title: Text(
         name,
         style: GoogleFonts.jetBrainsMono(fontSize: 13),

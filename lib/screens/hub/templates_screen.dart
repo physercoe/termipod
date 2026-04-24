@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'template_icon.dart';
 
 /// Read-only browser for team templates (agents / prompts / policies).
 /// Hub seeds these on first init from the embedded FS and then the user
@@ -157,6 +158,11 @@ class _TemplateTile extends StatelessWidget {
     final size = row['size'] is int ? row['size'] as int : 0;
     final cat = (row['category'] ?? '').toString();
     return ListTile(
+      leading: templateIconWidget(
+        idOrName: name,
+        displayName: name,
+        size: 24,
+      ),
       title: Text(name,
           style: GoogleFonts.jetBrainsMono(fontSize: 13)),
       subtitle: Text('${_fmtSize(size)}',

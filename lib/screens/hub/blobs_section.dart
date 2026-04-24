@@ -48,7 +48,7 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final bytes = await client.downloadBlob(rec.sha);
+      final bytes = await client.downloadBlobCached(rec.sha);
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/${rec.name}';
       final file = File(path);

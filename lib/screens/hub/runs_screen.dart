@@ -1616,7 +1616,7 @@ class _ImageSeriesTileState extends ConsumerState<_ImageSeriesTile> {
     if (client == null) return;
     _loading.add(sha);
     try {
-      final bytes = await client.downloadBlob(sha);
+      final bytes = await client.downloadBlobCached(sha);
       if (!mounted) return;
       setState(() {
         _cache[sha] = Uint8List.fromList(bytes);

@@ -6,7 +6,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/hub/blob_bytes_cache.dart';
 import '../services/hub/hub_client.dart';
+import '../services/hub/hub_read_through.dart';
 import '../services/hub/hub_snapshot_cache.dart';
 
 /// SharedPreferences keys for the hub configuration. The token is *not*
@@ -33,6 +35,12 @@ class HubState {
   /// Server-declared version from /v1/_info. Null until we've probed.
   final String? serverVersion;
 
+  /// When non-null, at least one of the dashboard lists above was served
+  /// from the offline snapshot cache because the live fetch failed. Holds
+  /// the oldest `fetchedAt` across the stale results — the Projects screen
+  /// renders `HubOfflineBanner(staleSince:)` when this is set.
+  final DateTime? staleSince;
+
   const HubState({
     this.config,
     this.loading = false,
@@ -44,6 +52,7 @@ class HubState {
     this.templates = const [],
     this.spawns = const [],
     this.serverVersion,
+    this.staleSince,
   });
 
   bool get configured => config != null && config!.isValid;
@@ -59,8 +68,10 @@ class HubState {
     List<Map<String, dynamic>>? templates,
     List<Map<String, dynamic>>? spawns,
     String? serverVersion,
+    DateTime? staleSince,
     bool clearConfig = false,
     bool clearError = false,
+    bool clearStale = false,
   }) =>
       HubState(
         config: clearConfig ? null : (config ?? this.config),
@@ -73,7 +84,15 @@ class HubState {
         templates: templates ?? this.templates,
         spawns: spawns ?? this.spawns,
         serverVersion: serverVersion ?? this.serverVersion,
+        staleSince: clearStale ? null : (staleSince ?? this.staleSince),
       );
+}
+
+class _DashResult {
+  final List<Map<String, dynamic>> body;
+  final DateTime? staleSince;
+  final String? error;
+  const _DashResult({required this.body, this.staleSince, this.error});
 }
 
 class HubNotifier extends AsyncNotifier<HubState> {
@@ -84,6 +103,11 @@ class HubNotifier extends AsyncNotifier<HubState> {
   /// when the network is down. Commit #1 only instantiates + tears down;
   /// read-through wrapping of HubClient methods lands in commit #2.
   HubSnapshotCache? _cache;
+
+  /// Content-addressed on-disk cache for `/v1/blobs/{sha}` bytes — the
+  /// binary sibling of [_cache]. Persists run images / artifact previews
+  /// so offline re-opens don't hit an empty placeholder.
+  BlobBytesCache? _blobCache;
 
   /// In-memory cache of template bodies keyed by "$category/$name". Templates
   /// only change when an operator edits the YAML/MD on the hub, so caching
@@ -98,6 +122,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
       _client = null;
       _cache?.close();
       _cache = null;
+      _blobCache = null;
       _templateBodyCache.clear();
     });
     return _loadConfig();
@@ -141,7 +166,9 @@ class HubNotifier extends AsyncNotifier<HubState> {
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache = await _openCache();
+    _blobCache = await _openBlobCache();
     _client!.snapshotCache = _cache;
+    _client!.blobCache = _blobCache;
     return HubState(config: cfg);
   }
 
@@ -154,6 +181,11 @@ class HubNotifier extends AsyncNotifier<HubState> {
   Future<HubSnapshotCache> _openCache() async {
     final dir = await getApplicationDocumentsDirectory();
     return HubSnapshotCache(dbPath: '${dir.path}/hub_snapshots.db');
+  }
+
+  Future<BlobBytesCache> _openBlobCache() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return BlobBytesCache(rootDir: '${dir.path}/hub_blobs');
   }
 
   /// Persist the config and refresh every list. Called from the bootstrap
@@ -174,9 +206,11 @@ class HubNotifier extends AsyncNotifier<HubState> {
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache ??= await _openCache();
+    _blobCache ??= await _openBlobCache();
     // Switching hub or team leaves the previous partition orphaned — wipe
     // it so snapshots can't leak across identities and don't eat disk
-    // until LRU eventually reclaims the rows.
+    // until LRU eventually reclaims the rows. Blob bytes are content-
+    // addressed (sha) so they're safe to share across hubs; no wipe.
     if (prevCfg != null &&
         (prevCfg.baseUrl != baseUrl || prevCfg.teamId != teamId)) {
       await _cache!.wipeHub(
@@ -184,6 +218,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
       );
     }
     _client!.snapshotCache = _cache;
+    _client!.blobCache = _blobCache;
 
     state = AsyncData(HubState(config: cfg));
     await refreshAll();
@@ -204,28 +239,44 @@ class HubNotifier extends AsyncNotifier<HubState> {
         hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
       );
     }
+    // Logout is coarse: blob bytes were fetched under the departing
+    // identity, so wipe the whole directory even though sha keys are
+    // content-addressed — don't keep bytes we no longer have a token for.
+    if (_blobCache != null) {
+      await _blobCache!.wipeAll();
+    }
     await _cache?.close();
     _cache = null;
+    _blobCache = null;
     state = const AsyncData(HubState());
   }
 
-  /// Nuke every offline snapshot across every hub partition. Called from
-  /// the Settings "Clear offline cache" row when the user wants a clean
-  /// slate without also forgetting their hub URL/token. Returns the
-  /// number of rows removed so the UI can surface "Cleared N entries".
-  /// Opens the cache lazily if it wasn't already loaded.
-  Future<int> clearOfflineCache() async {
+  /// Nuke every offline snapshot + cached blob across every hub
+  /// partition. Called from the Settings "Clear offline cache" row when
+  /// the user wants a clean slate without also forgetting their hub
+  /// URL/token. Returns `(snapshotRows, blobFiles)` so the UI can
+  /// surface "Cleared N entries · M files". Opens the caches lazily if
+  /// they weren't already loaded.
+  Future<(int, int)> clearOfflineCache() async {
     _cache ??= await _openCache();
-    final n = await _cache!.wipeAll();
+    _blobCache ??= await _openBlobCache();
+    final rows = await _cache!.wipeAll();
+    final files = await _blobCache!.wipeAll();
     _client?.snapshotCache = _cache;
-    return n;
+    _client?.blobCache = _blobCache;
+    return (rows, files);
   }
 
   /// One-shot fetch of everything the dashboard needs. Tabs show whatever
   /// snapshot was loaded last; pull-to-refresh on the hub screen re-runs
-  /// this. We don't try to be clever about partial failures — if one list
-  /// throws we surface the error and leave the rest on their previous
-  /// values.
+  /// this.
+  ///
+  /// Uses the `*Cached` read-through variants so a transport failure falls
+  /// back to the last-known-good SQLite snapshot instead of leaving the
+  /// list empty. Each endpoint resolves independently — if four succeed
+  /// and two serve stale, the UI sees four fresh lists + two stale ones,
+  /// and `state.staleSince` holds the oldest fetchedAt across the stale
+  /// results so the Projects screen can show the offline banner.
   Future<void> refreshAll() async {
     final client = _client;
     if (client == null) return;
@@ -234,28 +285,54 @@ class HubNotifier extends AsyncNotifier<HubState> {
     // A refresh is the user asking "give me the latest of everything" — drop
     // cached template bodies so the next Templates-tab tap actually re-fetches.
     _templateBodyCache.clear();
+    final results = await Future.wait([
+      _resolveCached(prev.attention,
+          () => client.listAttentionCached(status: 'open')),
+      _resolveCached(prev.hosts, client.listHostsCached),
+      _resolveCached(prev.agents, () => client.listAgentsCached()),
+      _resolveCached(prev.projects, () => client.listProjectsCached()),
+      _resolveCached(prev.templates, client.listTemplatesCached),
+      _resolveCached(prev.spawns, client.listSpawnsCached),
+    ]);
+    DateTime? staleSince;
+    final errors = <String>[];
+    for (final r in results) {
+      if (r.staleSince != null) {
+        if (staleSince == null || r.staleSince!.isBefore(staleSince)) {
+          staleSince = r.staleSince;
+        }
+      }
+      if (r.error != null) errors.add(r.error!);
+    }
+    state = AsyncData(prev.copyWith(
+      loading: false,
+      attention: results[0].body,
+      hosts: results[1].body,
+      agents: results[2].body,
+      projects: results[3].body,
+      templates: results[4].body,
+      spawns: results[5].body,
+      staleSince: staleSince,
+      clearStale: staleSince == null,
+      error: errors.isEmpty ? null : errors.first,
+      clearError: errors.isEmpty,
+    ));
+  }
+
+  /// Run a cached fetch and reduce it to `(body, staleSince, error)`.
+  /// Preserves the previous in-memory body when both the network AND the
+  /// cache fail — otherwise a first-run offline open would wipe whatever
+  /// we last showed. Errors are per-endpoint, not fatal to the refresh as
+  /// a whole: the UI surfaces staleSince + keeps the list populated.
+  Future<_DashResult> _resolveCached(
+    List<Map<String, dynamic>> prevBody,
+    Future<CachedResponse<List<Map<String, dynamic>>>> Function() fetch,
+  ) async {
     try {
-      final results = await Future.wait([
-        client.listAttention(status: 'open'),
-        client.listHosts(),
-        client.listAgents(),
-        client.listProjects(),
-        client.listTemplates(),
-        client.listSpawns(),
-      ]);
-      state = AsyncData(prev.copyWith(
-        loading: false,
-        attention: results[0],
-        hosts: results[1],
-        agents: results[2],
-        projects: results[3],
-        templates: results[4],
-        spawns: results[5],
-      ));
-    } on HubApiError catch (e) {
-      state = AsyncData(prev.copyWith(loading: false, error: e.toString()));
+      final r = await fetch();
+      return _DashResult(body: r.body, staleSince: r.staleSince);
     } catch (e) {
-      state = AsyncData(prev.copyWith(loading: false, error: e.toString()));
+      return _DashResult(body: prevBody, error: e.toString());
     }
   }
 

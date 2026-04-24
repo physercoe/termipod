@@ -359,7 +359,7 @@ class _EventBubble extends ConsumerWidget {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final bytes = await client.downloadBlob(a.sha);
+      final bytes = await client.downloadBlobCached(a.sha);
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/${a.name}';
       final file = File(path);

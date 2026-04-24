@@ -5,7 +5,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
-import '../../services/hub/open_team_channel.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -57,6 +56,11 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       _loading = true;
       _error = null;
     });
+    // HubNotifier.build() is async (reads prefs + opens caches). In initState
+    // we must await it before reading .client, or a cold-start screen sees
+    // null and falsely reports "Hub not configured".
+    await ref.read(hubProvider.future);
+    if (!mounted) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() {
@@ -237,34 +241,25 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       ),
       body: Column(
         children: [
-          const _TeamChannelIngress(),
           HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
           if (_searchVisible) _SearchField(
             controller: _searchCtrl,
             onChanged: (v) => setState(() => _query = v),
           ),
           ActivityDigestCard(events: _filteredRows),
-          _FilterChips(
+          _UnifiedFilterChips(
             prefixes: _prefixCounts,
+            actors: actorCounts,
+            projects: projectCounts,
+            projectNames: projectNames,
             totalCount: _allRows.length,
-            selected: _prefix,
-            onSelected: (p) => setState(() => _prefix = p),
+            selectedPrefix: _prefix,
+            selectedActor: _actor,
+            selectedProjectId: _projectId,
+            onPrefix: (v) => setState(() => _prefix = v),
+            onActor: (v) => setState(() => _actor = v),
+            onProject: (v) => setState(() => _projectId = v),
           ),
-          if (actorCounts.length >= 2)
-            _AxisChips(
-              label: 'actor',
-              values: actorCounts,
-              selected: _actor,
-              onSelected: (v) => setState(() => _actor = v),
-            ),
-          if (projectCounts.length >= 2)
-            _AxisChips(
-              label: 'project',
-              values: projectCounts,
-              selected: _projectId,
-              displayLabel: (id) => projectNames[id] ?? id,
-              onSelected: (v) => setState(() => _projectId = v),
-            ),
           const Divider(height: 1),
           Expanded(
             child: RefreshIndicator(
@@ -316,89 +311,109 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
   }
 }
 
-/// Pinned ingress from Activity into the team-wide `#hub-meta` channel.
-/// Users often land on Activity looking for "what's going on" and the
-/// chat-adjacent context belongs one tap away, not behind the steward
-/// icon on another screen.
-class _TeamChannelIngress extends ConsumerWidget {
-  const _TeamChannelIngress();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return InkWell(
-      onTap: () => openHubMetaChannel(context, ref),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: DesignColors.primary.withValues(alpha: isDark ? 0.10 : 0.06),
-          border: Border(
-            bottom: BorderSide(
-              color: DesignColors.primary.withValues(alpha: 0.30),
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.tag, size: 16, color: DesignColors.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Team channel #hub-meta',
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const Icon(Icons.chevron_right,
-                size: 18, color: DesignColors.primary),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterChips extends StatelessWidget {
+/// Single-row horizontal chip strip that folds the three filter axes
+/// (action prefix, actor, project) into one scrollable list. A chip's
+/// axis is read from its visual prefix: bare (`agent`) is an action
+/// prefix, `@foo` is an actor, `#demo` is a project. An axis-internal
+/// divider separates the groups so the strip still reads as structured.
+class _UnifiedFilterChips extends StatelessWidget {
   final List<MapEntry<String, int>> prefixes;
+  final List<MapEntry<String, int>> actors;
+  final List<MapEntry<String, int>> projects;
+  final Map<String, String> projectNames;
   final int totalCount;
-  final String? selected;
-  final ValueChanged<String?> onSelected;
+  final String? selectedPrefix;
+  final String? selectedActor;
+  final String? selectedProjectId;
+  final ValueChanged<String?> onPrefix;
+  final ValueChanged<String?> onActor;
+  final ValueChanged<String?> onProject;
 
-  const _FilterChips({
+  const _UnifiedFilterChips({
     required this.prefixes,
+    required this.actors,
+    required this.projects,
+    required this.projectNames,
     required this.totalCount,
-    required this.selected,
-    required this.onSelected,
+    required this.selectedPrefix,
+    required this.selectedActor,
+    required this.selectedProjectId,
+    required this.onPrefix,
+    required this.onActor,
+    required this.onProject,
   });
 
   @override
   Widget build(BuildContext context) {
+    final showActors = actors.length >= 2;
+    final showProjects = projects.length >= 2;
+    final children = <Widget>[
+      ChoiceChip(
+        label: Text('All ($totalCount)'),
+        selected: selectedPrefix == null &&
+            selectedActor == null &&
+            selectedProjectId == null,
+        onSelected: (_) {
+          onPrefix(null);
+          onActor(null);
+          onProject(null);
+        },
+      ),
+      for (final entry in prefixes)
+        ChoiceChip(
+          label: Text('${entry.key} (${entry.value})'),
+          selected: selectedPrefix == entry.key,
+          onSelected: (_) =>
+              onPrefix(selectedPrefix == entry.key ? null : entry.key),
+        ),
+      if (showActors) const _AxisDivider(),
+      if (showActors)
+        for (final entry in actors)
+          ChoiceChip(
+            label: Text('@${entry.key} (${entry.value})'),
+            selected: selectedActor == entry.key,
+            onSelected: (_) =>
+                onActor(selectedActor == entry.key ? null : entry.key),
+          ),
+      if (showProjects) const _AxisDivider(),
+      if (showProjects)
+        for (final entry in projects)
+          ChoiceChip(
+            label: Text(
+                '#${projectNames[entry.key] ?? entry.key} (${entry.value})'),
+            selected: selectedProjectId == entry.key,
+            onSelected: (_) => onProject(
+                selectedProjectId == entry.key ? null : entry.key),
+          ),
+    ];
     return SizedBox(
       height: 44,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        itemCount: prefixes.length + 1,
+        itemCount: children.length,
         separatorBuilder: (_, __) => const SizedBox(width: 6),
-        itemBuilder: (_, i) {
-          if (i == 0) {
-            return ChoiceChip(
-              label: Text('All ($totalCount)'),
-              selected: selected == null,
-              onSelected: (_) => onSelected(null),
-            );
-          }
-          final entry = prefixes[i - 1];
-          final isSel = selected == entry.key;
-          return ChoiceChip(
-            label: Text('${entry.key} (${entry.value})'),
-            selected: isSel,
-            onSelected: (_) => onSelected(isSel ? null : entry.key),
-          );
-        },
+        itemBuilder: (_, i) => children[i],
+      ),
+    );
+  }
+}
+
+class _AxisDivider extends StatelessWidget {
+  const _AxisDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+      child: VerticalDivider(
+        width: 12,
+        thickness: 1,
+        color: (isDark
+                ? DesignColors.textMuted
+                : DesignColors.textMutedLight)
+            .withValues(alpha: 0.3),
       ),
     );
   }
@@ -437,70 +452,6 @@ class _SearchField extends StatelessWidget {
   }
 }
 
-/// Generic "pick one value from N" chip row used for both the actor and
-/// project axes. Hidden by the parent when there are < 2 distinct values
-/// (a one-value filter is meaningless). `displayLabel` lets the caller
-/// remap the stored id (e.g. project id → project name) without changing
-/// the selection key.
-class _AxisChips extends StatelessWidget {
-  final String label;
-  final List<MapEntry<String, int>> values;
-  final String? selected;
-  final ValueChanged<String?> onSelected;
-  final String Function(String id)? displayLabel;
-  const _AxisChips({
-    required this.label,
-    required this.values,
-    required this.selected,
-    required this.onSelected,
-    this.displayLabel,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return SizedBox(
-      height: 40,
-      child: Row(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 12, right: 6),
-            child: Text(
-              label,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: isDark
-                    ? DesignColors.textMuted
-                    : DesignColors.textMutedLight,
-              ),
-            ),
-          ),
-          Expanded(
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              itemCount: values.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
-              itemBuilder: (_, i) {
-                final entry = values[i];
-                final isSel = selected == entry.key;
-                final text = displayLabel != null
-                    ? displayLabel!(entry.key)
-                    : entry.key;
-                return ChoiceChip(
-                  label: Text('$text (${entry.value})'),
-                  selected: isSel,
-                  onSelected: (_) => onSelected(isSel ? null : entry.key),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _AuditRow extends StatelessWidget {
   final Map<String, dynamic> data;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'blob_bytes_cache.dart';
 import 'hub_read_through.dart';
 import 'hub_snapshot_cache.dart';
 
@@ -61,6 +62,11 @@ class HubClient {
   /// how/where the SQLite db lives. When null, the *Cached methods act
   /// as thin wrappers — no offline fallback, staleSince is always null.
   HubSnapshotCache? snapshotCache;
+
+  /// Optional content-addressed cache for `/v1/blobs/{sha}` bytes. Set
+  /// alongside [snapshotCache] by the provider. When null, downloadBlob
+  /// degrades to a pure network fetch (pre-cache behaviour).
+  BlobBytesCache? blobCache;
 
   HubClient(this.cfg)
       : _http = HttpClient()
@@ -186,11 +192,37 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listHosts() =>
       _listJson('/v1/teams/${cfg.teamId}/hosts');
 
+  /// Read-through variant of [listHosts]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listHostsCached() =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/hosts',
+        fetch: listHosts,
+        decode: _decodeListMaps,
+      );
+
   Future<List<Map<String, dynamic>>> listAgents({bool includeArchived = false}) =>
       _listJson(
         '/v1/teams/${cfg.teamId}/agents',
         query: includeArchived ? {'include_archived': '1'} : null,
       );
+
+  /// Read-through variant of [listAgents]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listAgentsCached({
+    bool includeArchived = false,
+  }) {
+    final q = includeArchived ? {'include_archived': '1'} : null;
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/agents', q),
+      fetch: () => listAgents(includeArchived: includeArchived),
+      decode: _decodeListMaps,
+    );
+  }
 
   /// Single-agent fetch. Includes `spawn_spec_yaml` + `spawn_authority`
   /// pulled from the agent_spawns join when the agent was created via
@@ -207,6 +239,17 @@ class HubClient {
   Future<List<Map<String, dynamic>>> listSpawns() =>
       _listJson('/v1/teams/${cfg.teamId}/agents/spawns');
 
+  /// Read-through variant of [listSpawns]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listSpawnsCached() =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/agents/spawns',
+        fetch: listSpawns,
+        decode: _decodeListMaps,
+      );
+
   Future<List<Map<String, dynamic>>> listProjects({bool? isTemplate}) =>
       _listJson(
         '/v1/teams/${cfg.teamId}/projects',
@@ -214,6 +257,23 @@ class HubClient {
             ? null
             : {'is_template': isTemplate ? 'true' : 'false'},
       );
+
+  /// Read-through variant of [listProjects]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listProjectsCached({
+    bool? isTemplate,
+  }) {
+    final q = isTemplate == null
+        ? null
+        : {'is_template': isTemplate ? 'true' : 'false'};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/projects', q),
+      fetch: () => listProjects(isTemplate: isTemplate),
+      decode: _decodeListMaps,
+    );
+  }
 
   Future<List<Map<String, dynamic>>> listChannels(String projectId) =>
       _listJson('/v1/teams/${cfg.teamId}/projects/$projectId/channels');
@@ -269,6 +329,21 @@ class HubClient {
         '/v1/teams/${cfg.teamId}/attention',
         query: status == null ? null : {'status': status},
       );
+
+  /// Read-through variant of [listAttention]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listAttentionCached({
+    String? status,
+  }) {
+    final q = status == null ? null : {'status': status};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/attention', q),
+      fetch: () => listAttention(status: status),
+      decode: _decodeListMaps,
+    );
+  }
 
   Future<List<Map<String, dynamic>>> listTasks(
     String projectId, {
@@ -345,6 +420,17 @@ class HubClient {
 
   Future<List<Map<String, dynamic>>> listTemplates() =>
       _listJson('/v1/teams/${cfg.teamId}/templates');
+
+  /// Read-through variant of [listTemplates]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listTemplatesCached() =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/templates',
+        fetch: listTemplates,
+        decode: _decodeListMaps,
+      );
 
   /// Returns raw template body (YAML / markdown / JSON — the endpoint
   /// doesn't parse). Caller renders as text.
@@ -1468,6 +1554,11 @@ class HubClient {
   /// Downloads blob bytes by sha. Caller is responsible for writing to
   /// disk / piping to share_plus; we keep the full payload in memory since
   /// the server caps uploads at 25 MiB anyway.
+  ///
+  /// When [blobCache] is attached, a successful fetch is persisted to the
+  /// content-addressed on-disk cache so subsequent reads — including ones
+  /// issued while the hub is unreachable — can be served via
+  /// [downloadBlobCached] without a network round-trip.
   Future<List<int>> downloadBlob(String sha) async {
     final req = await _open('GET', '/v1/blobs/$sha');
     final resp = await req.close();
@@ -1479,7 +1570,47 @@ class HubClient {
     await for (final chunk in resp) {
       out.addAll(chunk);
     }
+    final c = blobCache;
+    if (c != null) {
+      // Fire-and-forget the write so a slow disk doesn't block image
+      // rendering. Misses on the next fetch just re-download.
+      unawaited(c.put(sha, out));
+    }
     return out;
+  }
+
+  /// Disk-first variant of [downloadBlob]: returns cached bytes when the
+  /// content-addressed cache has them, otherwise falls back to a live
+  /// fetch. Transport failures with a cache hit still resolve — that's
+  /// the whole point of offline-safe image rendering. Transport failures
+  /// with no cached copy rethrow unchanged so callers can render an
+  /// error placeholder.
+  ///
+  /// 4xx responses (blob missing, auth denied) always rethrow; a stale
+  /// cache entry is never served against an authoritative negative
+  /// response. 5xx and SocketException/TimeoutException/HttpException
+  /// fall back to the cache when available.
+  Future<List<int>> downloadBlobCached(String sha) async {
+    final c = blobCache;
+    if (c != null) {
+      final hit = await c.get(sha);
+      if (hit != null) return hit;
+    }
+    try {
+      return await downloadBlob(sha);
+    } catch (e) {
+      if (c == null) rethrow;
+      if (e is HubApiError && e.status < 500) rethrow;
+      if (e is! HubApiError &&
+          e is! SocketException &&
+          e is! TimeoutException &&
+          e is! HttpException) {
+        rethrow;
+      }
+      final hit = await c.get(sha);
+      if (hit != null) return hit;
+      rethrow;
+    }
   }
 
   // ---- search ----

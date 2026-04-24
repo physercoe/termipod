@@ -11,6 +11,7 @@ import '../../services/hub/open_team_channel.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../terminal/terminal_screen.dart';
@@ -113,7 +114,12 @@ class _HubScreenState extends ConsumerState<HubScreen> {
           if (!st.configured) return const _NotConfiguredView();
           return Column(
             children: [
-              if (st.error != null) _ErrorBanner(text: st.error!),
+              HubOfflineBanner(
+                staleSince: st.staleSince,
+                onRetry: () => ref.read(hubProvider.notifier).refreshAll(),
+              ),
+              if (st.error != null && st.staleSince == null)
+                _ErrorBanner(text: st.error!),
               Expanded(child: _ProjectsTab(items: st.projects)),
             ],
           );

@@ -1470,13 +1470,15 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
     if (ok != true) return;
-    final n = await ref.read(hubProvider.notifier).clearOfflineCache();
+    final (rows, files) =
+        await ref.read(hubProvider.notifier).clearOfflineCache();
     if (!context.mounted) return;
+    final total = rows + files;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(n == 0
+        content: Text(total == 0
             ? l10n.clearOfflineCacheEmpty
-            : l10n.clearOfflineCacheCleared(n)),
+            : l10n.clearOfflineCacheCleared(total)),
       ),
     );
   }

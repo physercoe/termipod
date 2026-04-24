@@ -1057,8 +1057,8 @@ class _OverviewView extends ConsumerWidget {
           const SizedBox(height: 12),
           _ShortcutTile(
             icon: Icons.science_outlined,
-            label: 'Runs',
-            sub: 'Experiment runs in this project',
+            label: 'Experiments',
+            sub: 'ML training/eval runs (blueprint §6.5)',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => RunsScreen(projectId: projectId),
             )),

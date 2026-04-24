@@ -579,6 +579,69 @@ plans and schedules exist; a briefing is fully described by
 Retained. AG-UI's pause-for-approval event type is the wire format for
 these. No separate primitive needed.
 
+### 6.12 Primitives by axis (mental-model index)
+
+The §6 primitives factor onto orthogonal axes. Placing them on one table
+removes the "is X like Y?" confusion that arises when the list reads as a
+flat enumeration:
+
+| Axis | Primitives | What the axis models |
+|---|---|---|
+| **Trigger** | Schedule | When work starts |
+| **Procedure** | Plan, Plan step, Phase (JSON-embedded) | What will run, in what order — the reviewable recipe |
+| **Execution** | Agent, Run | Living actor · ML experiment record |
+| **Output** | Artifact, Document | Bytes produced · authored text |
+| **Gate** | Review, Attention item | Human decisions blocking progress |
+| **Work-tracking** | Task, Milestone | Kanban for work that isn't plan-driven |
+| **Context** | Project, Channel, Event, Host | Container · conversation · message · machine |
+
+**Two-lane model for human work.** Plan-driven human gates use
+`plan_step(kind=human_decision)` → `attention_item` (plan pauses, director
+acts on Me tab, plan resumes). Director-authored work (refactor a
+trainer, triage a paper) uses `task` — independent of plans, kanban
+lifecycle. Both are legitimate; they address different intents.
+`task.plan_step_id` is deliberately absent — tasks are not plan outputs.
+
+**Phase is not a primitive.** Phases exist only as JSON objects inside
+`plans.spec_json` — they're typed containers (`deterministic` /
+`agent_driven` / `human_gated`) that group steps and carry a budget
+envelope, but have no independent state. A phase's status is derived
+from its steps' statuses. `plan_steps.phase_idx` is the only place a
+phase is materialised, and only for deterministic phases (the other two
+kinds have no per-step rows — they produce one agent or one human
+decision each).
+
+**"Run" is a domain primitive, not a workflow-execution primitive.** It
+models a single ML training/eval with frozen config + seed + trackio
+metrics. The word clashes with "workflow run" in other systems, where a
+Plan's execution would be called a "run". To avoid this ambiguity the
+UI labels `runs` as **Experiments**; the DB name stays `runs` for
+migration continuity.
+
+### 6.13 Deferred: reusable step registry (action templates)
+
+Plan steps today are specified inline in `plans.spec_json`. Reuse
+happens at plan-template granularity (whole plan) but not at step
+granularity. GitHub Actions / Airflow Operators / Temporal Activities
+solve this with a step-level registry of named, parameterised
+operations.
+
+Termipod intentionally defers this. It adds real expressiveness
+(marketplace-style sharing of `llm_call summarise-paper`, `shell
+run-pytest`, etc.) but also real governance load (who publishes them,
+how they're audited, how breaking changes roll forward). Plan templates
+cover the demo and near-term goals.
+
+When added, the shape is:
+
+- `action_templates` table (`id, kind, spec_json, owner, version`).
+- Plan step spec can reference `action_template_id` + `parameters_json`
+  instead of inline `spec_json`.
+- Action templates are team-scoped primitives like plan templates.
+
+No schema break required — `plan_steps.spec_json` can continue to carry
+inline specs for one-offs. Marked F-TBD in the roadmap.
+
 ---
 
 ## 7. Forbidden patterns

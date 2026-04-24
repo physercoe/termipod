@@ -165,7 +165,9 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.projectId == null ? 'Runs' : 'Runs · ${widget.projectId}',
+          widget.projectId == null
+              ? 'Experiments'
+              : 'Experiments · ${widget.projectId}',
           style: GoogleFonts.spaceGrotesk(
             fontSize: 16,
             fontWeight: FontWeight.w700,

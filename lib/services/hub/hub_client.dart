@@ -434,6 +434,11 @@ class HubClient {
     final resp = await req.close();
     final out = await _readJson(resp);
     await _invalidate('/v1/teams/${cfg.teamId}/projects/$projectId/tasks');
+    // Hub PATCH returns 204 No Content; re-fetch to return the fresh row
+    // so callers can setState with the updated task without a second trip.
+    if (out == null) {
+      return getTask(projectId, taskId);
+    }
     return (out as Map).cast<String, dynamic>();
   }
 

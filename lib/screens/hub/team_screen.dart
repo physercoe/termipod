@@ -14,7 +14,7 @@ import 'tokens_screen.dart';
 ///   - Members — coalesced principals (one row per `scope.handle`).
 ///   - Policies — read-only view of the current policy.yaml.
 ///   - Channels — team-scope channels (project_id NULL).
-///   - Settings — placeholder; editable team config lands in roadmap.
+///   - Governance — Budgets · Auth · Councils · Steward config.
 ///
 /// Pill-style tabs so it doesn't look like yet-another Material TabBar at
 /// the top of the Hub screen.
@@ -28,7 +28,7 @@ class TeamScreen extends ConsumerStatefulWidget {
 class _TeamScreenState extends ConsumerState<TeamScreen> {
   int _tab = 0;
 
-  static const _labels = ['Members', 'Policies', 'Channels', 'Settings'];
+  static const _labels = ['Members', 'Policies', 'Channels', 'Governance'];
 
   @override
   Widget build(BuildContext context) {

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../services/hub/open_team_channel.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -18,7 +19,6 @@ import 'host_edit_sheet.dart';
 import 'hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
-import 'team_channel_screen.dart';
 import 'templates_screen.dart';
 
 /// Main "Projects" tab per `docs/ia-redesign.md` §6.2. Project inventory
@@ -208,39 +208,8 @@ class _StewardChip extends ConsumerWidget {
     return false;
   }
 
-  Future<void> _openSteward(BuildContext context, WidgetRef ref) async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      final channels = await client.listTeamChannels();
-      final meta = channels.firstWhere(
-        (c) => c['name'] == 'hub-meta',
-        orElse: () => const {},
-      );
-      if (meta.isEmpty) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('#hub-meta channel not found')),
-          );
-        }
-        return;
-      }
-      if (context.mounted) {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => TeamChannelScreen(
-            channelId: (meta['id'] ?? '').toString(),
-            channelName: (meta['name'] ?? '').toString(),
-          ),
-        ));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Open steward failed: $e')),
-        );
-      }
-    }
-  }
+  Future<void> _openSteward(BuildContext context, WidgetRef ref) =>
+      openHubMetaChannel(context, ref);
 }
 
 // ---------------------------------------------------------------------

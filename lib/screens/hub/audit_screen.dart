@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/hub/open_team_channel.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/team_switcher.dart';
@@ -116,6 +117,7 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       ),
       body: Column(
         children: [
+          const _TeamChannelIngress(),
           ActivityDigestCard(events: _filteredRows),
           _FilterChips(
             prefixes: _prefixCounts,
@@ -170,6 +172,51 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
       itemCount: rows.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (_, i) => _AuditRow(data: rows[i]),
+    );
+  }
+}
+
+/// Pinned ingress from Activity into the team-wide `#hub-meta` channel.
+/// Users often land on Activity looking for "what's going on" and the
+/// chat-adjacent context belongs one tap away, not behind the steward
+/// icon on another screen.
+class _TeamChannelIngress extends ConsumerWidget {
+  const _TeamChannelIngress();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: () => openHubMetaChannel(context, ref),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: DesignColors.primary.withValues(alpha: isDark ? 0.10 : 0.06),
+          border: Border(
+            bottom: BorderSide(
+              color: DesignColors.primary.withValues(alpha: 0.30),
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.tag, size: 16, color: DesignColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Team channel #hub-meta',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Icon(Icons.chevron_right,
+                size: 18, color: DesignColors.primary),
+          ],
+        ),
+      ),
     );
   }
 }

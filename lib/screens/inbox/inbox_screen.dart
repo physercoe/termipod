@@ -6,6 +6,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../services/hub/open_team_channel.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/steward_badge.dart';
@@ -101,6 +102,7 @@ class InboxScreen extends ConsumerWidget {
               SliverToBoxAdapter(
                 child: _MyWorkStrip(projects: projects),
               ),
+            const SliverToBoxAdapter(child: _DirectStewardCard()),
             SliverToBoxAdapter(
               child: _SectionLabel(
                 text: l10n.meAttentionSection,
@@ -770,6 +772,68 @@ class _MyWorkStrip extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Pinned CTA to direct the steward from Me. Closes the asymmetry where
+/// Me only shows steward→me (Attention) but no me→steward affordance.
+/// Opens the team-wide `#hub-meta` channel — the canonical cross-project
+/// direction surface per ia-redesign §6.7. Project-scoped direction
+/// remains reachable via Project detail → Channel.
+class _DirectStewardCard extends ConsumerWidget {
+  const _DirectStewardCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () => openHubMetaChannel(context, ref),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: DesignColors.primary.withValues(alpha: isDark ? 0.12 : 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: DesignColors.primary.withValues(alpha: 0.45),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.smart_toy_outlined,
+                  size: 20, color: DesignColors.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Direct the steward',
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      'Open #hub-meta · team-wide instructions',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right,
+                  size: 20, color: DesignColors.primary),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

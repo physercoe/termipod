@@ -122,13 +122,15 @@ type projectTemplateDoc struct {
 const overviewWidgetDefault = "task_milestone_list"
 
 // validOverviewWidgets is the closed set of pluggable hero kinds shipped
-// by W4. Unknown values log and fall back to overviewWidgetDefault; the
-// mobile registry enforces the same enum on render.
+// by W4 (plus the W6 workspace default). Unknown values log and fall
+// back to overviewWidgetDefault; the mobile registry enforces the same
+// enum on render.
 var validOverviewWidgets = map[string]bool{
 	"task_milestone_list": true,
 	"sweep_compare":       true,
 	"recent_artifacts":    true,
 	"children_status":     true,
+	"recent_firings_list": true,
 }
 
 // normalizeOverviewWidget returns the widget name to expose on the wire.

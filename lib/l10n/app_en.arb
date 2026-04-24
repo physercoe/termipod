@@ -682,5 +682,25 @@
   "@workspaceArchiveConfirm": { "placeholders": { "name": { "type": "String" } } },
   "projectNoAgents": "No agents on this project",
   "workspaceNoAgents": "No agents on this workspace",
-  "projectCreateFabTooltip": "New project or workspace"
+  "projectCreateFabTooltip": "New project or workspace",
+
+  "workspaceOverviewTitle": "Workspace overview",
+  "workspaceCadence": "Cadence",
+  "workspaceNoSchedules": "No schedules configured",
+  "workspaceManualOnly": "Manual triggers only",
+  "workspaceMultipleSchedules": "{count} schedules",
+  "@workspaceMultipleSchedules": { "placeholders": { "count": { "type": "int" } } },
+  "workspaceNextRunPending": "scheduled (next run pending)",
+  "workspaceNextIn": "next in {rel}",
+  "@workspaceNextIn": { "placeholders": { "rel": { "type": "String" } } },
+  "workspaceLastFired": "last fired {rel} · {status}",
+  "@workspaceLastFired": { "placeholders": { "rel": { "type": "String" }, "status": { "type": "String" } } },
+  "workspaceNoFirings": "No firings yet",
+  "workspaceRecentFirings": "Recent firings",
+  "workspaceViewAllFirings": "View all firings",
+  "workspaceFiringLoading": "Loading firings…",
+  "workspaceCadenceEveryAt": "runs every {day} {time}",
+  "@workspaceCadenceEveryAt": { "placeholders": { "day": { "type": "String" }, "time": { "type": "String" } } },
+  "workspaceCadenceEvery": "runs every {spec}",
+  "@workspaceCadenceEvery": { "placeholders": { "spec": { "type": "String" } } }
 }

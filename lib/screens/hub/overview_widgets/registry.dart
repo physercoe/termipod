@@ -6,6 +6,7 @@ import 'children_status.dart';
 import 'recent_artifacts.dart';
 import 'sweep_compare.dart';
 import 'task_milestone_list.dart';
+import 'workspace_overview.dart';
 
 /// Context bag passed to every hero widget. The Overview chassis resolves
 /// the shared project shape once and hands it to whichever hero the
@@ -35,6 +36,7 @@ const Set<String> kKnownOverviewWidgets = {
   'sweep_compare',
   'recent_artifacts',
   'children_status',
+  'recent_firings_list',
 };
 
 /// Default hero when the project has no template or the template did not
@@ -63,6 +65,11 @@ Widget buildOverviewWidget(String? kind, OverviewContext ctx) {
       return RecentArtifactsHero(ctx: ctx);
     case 'children_status':
       return ChildrenStatusHero(ctx: ctx);
+    case 'recent_firings_list':
+      // W6 Workspace default hero. Usable as a template-declared hero
+      // for goal projects too, though Workspace Overview is its primary
+      // surface.
+      return RecentFiringsList(ctx: ctx);
     default:
       return _UnknownOverviewHero(kind: kind ?? '');
   }

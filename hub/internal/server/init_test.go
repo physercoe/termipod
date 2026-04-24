@@ -318,6 +318,7 @@ func TestNormalizeOverviewWidget_Fallback(t *testing.T) {
 		"sweep_compare":       "sweep_compare",
 		"recent_artifacts":    "recent_artifacts",
 		"children_status":     "children_status",
+		"recent_firings_list": "recent_firings_list",
 		"not_a_widget":        overviewWidgetDefault,
 		"SWEEP_COMPARE":       overviewWidgetDefault, // case-sensitive by design
 	}

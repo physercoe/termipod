@@ -44,12 +44,18 @@ jobs:
           flutter clean
           flutter pub get
 
-      - name: Debug package config
+      - name: Debug sqflite_common_ffi install
         run: |
-          echo '--- package_config.json entries ---'
-          grep -oE '"name": "[^"]+"' .dart_tool/package_config.json | head -80
-          echo '--- sqflite entries ---'
-          grep -i sqflite .dart_tool/package_config.json || echo 'NOT FOUND'
+          echo '--- sqflite_common_ffi entry in package_config.json ---'
+          grep -A 2 sqflite_common_ffi .dart_tool/package_config.json || true
+          echo '--- contents of pub cache dir ---'
+          ls -la /home/runner/.pub-cache/hosted/pub.dev/sqflite_common_ffi-2.4.0+3/lib/ 2>&1 || echo 'pub cache dir missing'
+          echo '--- analysis_options.yaml ---'
+          cat analysis_options.yaml 2>&1 || echo 'no analysis_options.yaml'
+          echo '--- dart --version ---'
+          dart --version
+          echo '--- which dart / flutter ---'
+          which dart flutter
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos

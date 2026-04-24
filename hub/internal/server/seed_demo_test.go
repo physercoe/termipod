@@ -109,6 +109,57 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		{"run_histograms_weights",
 			`SELECT COUNT(*) FROM run_histograms WHERE metric_name = 'weights_hist/all' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 24},
+
+		// IA-breadth surfaces — the generic primitives that prove Project
+		// is a domain-neutral container, not an ML-run holder.
+		{"projects (standing + goal + nested)",
+			`SELECT COUNT(*) FROM projects WHERE team_id = ? AND is_template = 0`,
+			[]any{defaultTeamID}, 3},
+		{"lab_ops_standing",
+			`SELECT COUNT(*) FROM projects WHERE id = ? AND kind = 'standing'`,
+			[]any{res.LabOpsProjectID}, 1},
+		{"reproduce_template_bound",
+			`SELECT COUNT(*) FROM projects WHERE id = ? AND template_id = 'reproduce-paper'`,
+			[]any{res.ReproduceProjectID}, 1},
+		{"sweep_nested_under_labops",
+			`SELECT COUNT(*) FROM projects WHERE id = ? AND parent_project_id = ? AND budget_cents = 50000`,
+			[]any{res.ProjectID, res.LabOpsProjectID}, 1},
+		{"channels_labops",
+			`SELECT COUNT(*) FROM channels WHERE project_id = ?`,
+			[]any{res.LabOpsProjectID}, 1},
+		{"channel_messages",
+			`SELECT COUNT(*) FROM events WHERE channel_id = ? AND type = 'message'`,
+			[]any{res.LabChannelID}, 4},
+		{"schedules_labops",
+			`SELECT COUNT(*) FROM schedules WHERE project_id = ? AND trigger_kind = 'cron'`,
+			[]any{res.LabOpsProjectID}, 2},
+		{"plans_all",
+			`SELECT COUNT(*) FROM plans WHERE project_id IN (?, ?)`,
+			[]any{res.ProjectID, res.ReproduceProjectID}, 2},
+		{"plan_steps_sweep",
+			`SELECT COUNT(*) FROM plan_steps WHERE plan_id = ?`,
+			[]any{res.PlanID}, 4},
+		{"tasks_sweep",
+			`SELECT COUNT(*) FROM tasks WHERE project_id = ?`,
+			[]any{res.ProjectID}, 3},
+		{"tasks_reproduce",
+			`SELECT COUNT(*) FROM tasks WHERE project_id = ?`,
+			[]any{res.ReproduceProjectID}, 2},
+		{"milestones",
+			`SELECT COUNT(*) FROM milestones WHERE project_id = ?`,
+			[]any{res.ProjectID}, 1},
+		{"demo_host",
+			`SELECT COUNT(*) FROM hosts WHERE id = ?`,
+			[]any{res.DemoHostID}, 1},
+		{"agents",
+			`SELECT COUNT(*) FROM agents WHERE team_id = ? AND handle IN ('steward','trainer-0')`,
+			[]any{defaultTeamID}, 2},
+		{"runs_attached_to_host",
+			`SELECT COUNT(*) FROM runs WHERE project_id = ? AND trackio_host_id = ? AND agent_id = ?`,
+			[]any{res.ProjectID, res.DemoHostID, res.TrainerAgentID}, 6},
+		{"audit_events_seeded",
+			`SELECT COUNT(*) FROM audit_events WHERE team_id = ? AND actor_handle = 'steward'`,
+			[]any{defaultTeamID}, 6},
 	}
 	for _, c := range cases {
 		var n int
@@ -261,6 +312,42 @@ func TestResetDemo_WipesAndAllowsReSeed(t *testing.T) {
 		}
 		if n != 0 {
 			t.Errorf("post-reset %s count = %d, want 0", c.label, n)
+		}
+	}
+
+	// IA-breadth rows must also be gone: lab-ops + reproduce projects,
+	// their plans/tasks/channels/schedules, the seeded host + agents,
+	// and the audit rows authored as 'steward'.
+	residuals := []struct {
+		label string
+		query string
+		args  []any
+	}{
+		{"lab_ops project", `SELECT COUNT(*) FROM projects WHERE id = ?`,
+			[]any{first.LabOpsProjectID}},
+		{"reproduce project", `SELECT COUNT(*) FROM projects WHERE id = ?`,
+			[]any{first.ReproduceProjectID}},
+		{"plans (all demo)", `SELECT COUNT(*) FROM plans WHERE project_id IN (?, ?, ?)`,
+			[]any{first.ProjectID, first.LabOpsProjectID, first.ReproduceProjectID}},
+		{"schedules", `SELECT COUNT(*) FROM schedules WHERE project_id = ?`,
+			[]any{first.LabOpsProjectID}},
+		{"channel events", `SELECT COUNT(*) FROM events WHERE channel_id = ?`,
+			[]any{first.LabChannelID}},
+		{"demo host", `SELECT COUNT(*) FROM hosts WHERE id = ?`,
+			[]any{first.DemoHostID}},
+		{"agents", `SELECT COUNT(*) FROM agents WHERE team_id = ? AND handle IN ('steward','trainer-0')`,
+			[]any{defaultTeamID}},
+		{"audit_events", `SELECT COUNT(*) FROM audit_events WHERE team_id = ? AND actor_handle = 'steward'`,
+			[]any{defaultTeamID}},
+	}
+	for _, r := range residuals {
+		var n int
+		if err := db.QueryRowContext(ctx, r.query, r.args...).Scan(&n); err != nil {
+			t.Errorf("post-reset residual %s: %v", r.label, err)
+			continue
+		}
+		if n != 0 {
+			t.Errorf("post-reset residual %s = %d, want 0", r.label, n)
 		}
 	}
 

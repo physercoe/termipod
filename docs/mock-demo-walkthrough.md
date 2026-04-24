@@ -106,6 +106,27 @@ archetypes (v1.0.184–v1.0.190):
 Bigger-embed + Lion converges lowest on `loss/*`; Lion also "groks"
 ~10% earlier.
 
+**IA breadth (v1.0.191).** The sweep doesn't stand alone. seed-demo
+also lands:
+
+- **`lab-ops`** — a `kind=standing` parent project containing a
+  `#lab-ops` channel (4 steward + trainer messages), 2 cron schedules
+  (daily paper triage, weekly review), and a handbook memo. Shows
+  that Project supports domains beyond ML training.
+- **`ablation-sweep-demo`** — nested under `lab-ops`, carries a
+  4-phase plan, a milestone, 3 tasks, and a 50000¢ budget badge. Runs
+  attach to host `gpu-west-01` via agent `trainer-0`.
+- **`reproduce-gpt2-small`** — a sibling `kind=goal` project
+  instantiated from the `reproduce-paper` template
+  (`template_id='reproduce-paper'`, `parameters_json` bound), 1 draft
+  plan + 2 tasks + 0 runs. Proves the template-binding shape without
+  running anything.
+- **Activity tab** — 6 audit rows from the steward populate the
+  Activity feed on first open.
+
+Every row type in the ia-redesign entity-surface matrix is seeded at
+least once so the generic IA is visible on a fresh install.
+
 This covers the *review* surface. It does not exercise the host-runner
 poller — those `run_metrics` rows were written directly by seed-demo.
 For the live-pipeline rehearsal, continue with Path B below.

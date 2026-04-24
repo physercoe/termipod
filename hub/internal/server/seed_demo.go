@@ -29,6 +29,17 @@ type SeedDemoResult struct {
 	ImageCount int  // total run_images rows inserted (0 when dataRoot is empty)
 	Skipped    bool // true when the demo project already existed
 	Reset      bool // true when the prior demo rows were deleted before re-inserting
+
+	// IA-breadth surfaces — populated so the Projects/Activity/Me tabs
+	// render with real data even before a run executes.
+	LabOpsProjectID    string // parent standing project
+	ReproduceProjectID string // template-instantiated goal project
+	DemoHostID         string // seeded host runs attach to
+	StewardAgentID     string // steward agent row (actor_handle='steward')
+	TrainerAgentID     string // subordinate agent that "ran" the sweep
+	PlanID             string // 4-phase plan on the sweep project
+	LabChannelID       string // project channel on lab-ops
+	AuditCount         int    // audit rows seeded for Activity tab
 }
 
 // ResetDemo deletes the ablation-sweep-demo project and everything
@@ -65,30 +76,81 @@ func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Resolve the two sibling demo projects by name so reset can clear
+	// them alongside the sweep project. Missing rows are tolerated — a
+	// pre-IA-breadth hub won't have them.
+	var labOpsID, reproID sql.NullString
+	_ = tx.QueryRowContext(ctx,
+		`SELECT id FROM projects WHERE team_id = ? AND name = ?`,
+		defaultTeamID, demoStandingProject).Scan(&labOpsID)
+	_ = tx.QueryRowContext(ctx,
+		`SELECT id FROM projects WHERE team_id = ? AND name = ?`,
+		defaultTeamID, demoReproduceProject).Scan(&reproID)
+
+	projectIDs := []string{projectID}
+	if labOpsID.Valid {
+		projectIDs = append(projectIDs, labOpsID.String)
+	}
+	if reproID.Valid {
+		projectIDs = append(projectIDs, reproID.String)
+	}
+
 	// Child tables with no FK cascade back to projects (see 0006_runs,
 	// 0007_documents_reviews): clear explicitly. run_metrics (0014) and
-	// run_images (0017) cascade from runs, so deleting runs is enough
-	// for those. Blob files on disk are left behind — they're content-
-	// addressed and harmless; a re-seed with identical inputs dedups.
-	steps := []struct {
-		label string
-		query string
-	}{
+	// run_images (0017) cascade from runs. plans/plan_steps, schedules,
+	// milestones, tasks, channels (+events via FK) all cascade from
+	// projects, but we delete explicitly so the step list documents what
+	// the demo owns. Blob files on disk are left behind — they're
+	// content-addressed and harmless.
+	perProject := []struct{ label, query string }{
 		{"documents", `DELETE FROM documents WHERE project_id = ?`},
 		{"reviews", `DELETE FROM reviews WHERE project_id = ?`},
 		{"runs", `DELETE FROM runs WHERE project_id = ?`},
-		// attention_items + tasks cascade via projects.id FK, but
-		// delete explicitly so the delete plan is readable and the
-		// step list documents what the demo actually owns.
 		{"attention_items", `DELETE FROM attention_items WHERE project_id = ?`},
 		{"tasks", `DELETE FROM tasks WHERE project_id = ?`},
+		{"milestones", `DELETE FROM milestones WHERE project_id = ?`},
+		{"plans", `DELETE FROM plans WHERE project_id = ?`},
+		{"schedules", `DELETE FROM schedules WHERE project_id = ?`},
+		{"channels", `DELETE FROM channels WHERE project_id = ?`},
 		{"projects", `DELETE FROM projects WHERE id = ?`},
 	}
-	for _, s := range steps {
-		if _, err := tx.ExecContext(ctx, s.query, projectID); err != nil {
+	for _, pid := range projectIDs {
+		for _, s := range perProject {
+			if _, err := tx.ExecContext(ctx, s.query, pid); err != nil {
+				return false, fmt.Errorf("reset %s: %w", s.label, err)
+			}
+		}
+	}
+
+	// Demo host + agents (unique by name/handle) and the audit-event rows
+	// seed-demo authored — drop so the re-seed is clean.
+	trailing := []struct{ label, query string }{
+		{"demo host", `DELETE FROM hosts WHERE team_id = ? AND name = ?`},
+		{"steward agent", `DELETE FROM agents WHERE team_id = ? AND handle = 'steward'`},
+		{"trainer agent", `DELETE FROM agents WHERE team_id = ? AND handle = 'trainer-0'`},
+	}
+	hostArgs := []any{defaultTeamID, demoHostName}
+	agentArgs := []any{defaultTeamID}
+	for i, s := range trailing {
+		args := agentArgs
+		if i == 0 {
+			args = hostArgs
+		}
+		if _, err := tx.ExecContext(ctx, s.query, args...); err != nil {
 			return false, fmt.Errorf("reset %s: %w", s.label, err)
 		}
 	}
+	// Audit rows the seed authored — identify by the same (actor_handle,
+	// target_id) tuples the insert uses so real audits on the team survive.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM audit_events
+		WHERE team_id = ? AND actor_handle = 'steward'
+		  AND action IN ('project.create','plan.create','agent.spawn','review.create')`,
+		defaultTeamID,
+	); err != nil {
+		return false, fmt.Errorf("reset audit_events: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
@@ -99,7 +161,18 @@ func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 // lands. Distinct from the `ablation-sweep` template so the two can
 // coexist in the Projects tab — the template seeds in init.go as
 // is_template=1; this seeds is_template=0 as a ready-to-view project.
-const demoProjectName = "ablation-sweep-demo"
+// demoProjectName is the concrete goal project seed-demo lands — the
+// rich ML surface. demoStandingProject is a sibling standing project
+// that parents both goal projects so the Projects tab renders both
+// kinds (blueprint §6.1) and nesting is visible. demoReproduceProject
+// is a template-instantiated goal project with no runs, proving the
+// template binding shape without executing anything.
+const (
+	demoProjectName      = "ablation-sweep-demo"
+	demoStandingProject  = "lab-ops"
+	demoReproduceProject = "reproduce-gpt2-small"
+	demoHostName         = "gpu-west-01"
+)
 
 // SeedDemo fills a fresh hub with the state a reviewer needs to *see* the
 // research demo (blueprint §9 P4) on the phone without actually running
@@ -356,6 +429,275 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 		string(assignees), now,
 	); err != nil {
 		return nil, fmt.Errorf("insert attention: %w", err)
+	}
+
+	// === IA-breadth wedge (blueprint §6 / ia-redesign §7) ===
+	// The research seed above covers Runs + metric digests in depth. The
+	// block below seeds the *breadth* so a first-time reviewer sees that
+	// Projects are general containers — not just ML runs. Every primitive
+	// added here is a home-screen entity on the entity-surface matrix.
+	// None of it carries substantive content; the shapes are the point.
+
+	// -- Infra: a host and two agents so runs have where+who, and so
+	// actor_handle='steward' references a real agent row.
+	res.DemoHostID = NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO hosts (id, team_id, name, status, created_at)
+		VALUES (?, ?, ?, 'connected', ?)`,
+		res.DemoHostID, defaultTeamID, demoHostName, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert demo host: %w", err)
+	}
+	res.StewardAgentID = NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO agents
+			(id, team_id, handle, kind, status, created_at)
+		VALUES (?, ?, 'steward', 'claude-code', 'running', ?)`,
+		res.StewardAgentID, defaultTeamID, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert steward agent: %w", err)
+	}
+	res.TrainerAgentID = NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO agents
+			(id, team_id, handle, kind, parent_agent_id, status,
+			 host_id, created_at)
+		VALUES (?, ?, 'trainer-0', 'codex', ?, 'terminated', ?, ?)`,
+		res.TrainerAgentID, defaultTeamID, res.StewardAgentID,
+		res.DemoHostID, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert trainer agent: %w", err)
+	}
+	// Attach runs to host+agent so Run Detail shows where it ran.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE runs SET trackio_host_id = ?, agent_id = ?
+		WHERE project_id = ?`,
+		res.DemoHostID, res.TrainerAgentID, res.ProjectID,
+	); err != nil {
+		return nil, fmt.Errorf("attach runs to host/agent: %w", err)
+	}
+
+	// -- Parent standing project `lab-ops` — the container for recurring
+	// lab work. Never closes. Holds a channel + schedules + a memo.
+	res.LabOpsProjectID = NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO projects
+			(id, team_id, name, status, config_yaml, created_at,
+			 goal, kind, is_template)
+		VALUES (?, ?, ?, 'active', '', ?, ?, 'standing', 0)`,
+		res.LabOpsProjectID, defaultTeamID, demoStandingProject, now,
+		"Lab-wide operations: paper triage, weekly reviews, nightly infra checks.",
+	); err != nil {
+		return nil, fmt.Errorf("insert lab-ops project: %w", err)
+	}
+	// Re-parent the sweep project + set a budget so governance badges
+	// have data to render.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE projects
+		SET parent_project_id = ?, budget_cents = 50000
+		WHERE id = ?`,
+		res.LabOpsProjectID, res.ProjectID,
+	); err != nil {
+		return nil, fmt.Errorf("nest sweep under lab-ops: %w", err)
+	}
+
+	// Project channel for lab-ops with 4 seed messages. Events FTS is
+	// populated by triggers so search works too.
+	res.LabChannelID = NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO channels (id, project_id, scope_kind, name, created_at)
+		VALUES (?, ?, 'project', ?, ?)`,
+		res.LabChannelID, res.LabOpsProjectID, "#lab-ops", now,
+	); err != nil {
+		return nil, fmt.Errorf("insert lab channel: %w", err)
+	}
+	labMsgs := []struct {
+		from, text string
+	}{
+		{res.StewardAgentID, "Good morning. 3 new papers triaged overnight — 1 flagged for deep-read."},
+		{res.StewardAgentID, "Nightly sweep complete. Lion-384 leads. Requesting sign-off to ship."},
+		{res.TrainerAgentID, "reproduce-gpt2-small scaffolded from template. No runs yet."},
+		{res.StewardAgentID, "Weekly review scheduled for Monday 10:00."},
+	}
+	for _, m := range labMsgs {
+		parts, _ := json.Marshal([]map[string]any{{"type": "text", "text": m.text}})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO events
+				(id, schema_version, ts, received_ts, channel_id, type,
+				 from_id, parts_json)
+			VALUES (?, 1, ?, ?, ?, 'message', ?, ?)`,
+			NewID(), now, now, res.LabChannelID, m.from, string(parts),
+		); err != nil {
+			return nil, fmt.Errorf("insert channel event: %w", err)
+		}
+	}
+
+	// Two schedules — one daily, one weekly. trigger_kind='cron'.
+	schedRows := []struct {
+		tmpl, cron string
+	}{
+		{"standing/paper-triage", "0 9 * * *"},
+		{"standing/lab-review", "0 10 * * MON"},
+	}
+	for _, sc := range schedRows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO schedules
+				(id, project_id, template_id, trigger_kind, cron_expr,
+				 parameters_json, enabled, created_at)
+			VALUES (?, ?, ?, 'cron', ?, '{}', 1, ?)`,
+			NewID(), res.LabOpsProjectID, sc.tmpl, sc.cron, now,
+		); err != nil {
+			return nil, fmt.Errorf("insert schedule: %w", err)
+		}
+	}
+
+	// Steward handbook on lab-ops.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO documents
+			(id, project_id, kind, title, version, content_inline, created_at)
+		VALUES (?, ?, 'memo', ?, 1, ?, ?)`,
+		NewID(), res.LabOpsProjectID, "Lab operations handbook",
+		"# Lab ops\n\nStanding project covering recurring lab work:\n"+
+			"nightly sweeps, weekly reviews, paper triage. Goal-kind projects\n"+
+			"(e.g. ablation-sweep-demo) nest under this one.\n",
+		now,
+	); err != nil {
+		return nil, fmt.Errorf("insert labops memo: %w", err)
+	}
+
+	// -- Sweep project gets a milestone, a plan with 4 steps, 3 tasks.
+	milestoneID := NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO milestones
+			(id, project_id, name, due_at, status, created_at)
+		VALUES (?, ?, ?, NULL, 'open', ?)`,
+		milestoneID, res.ProjectID, "Lion-384 shipped to staging", now,
+	); err != nil {
+		return nil, fmt.Errorf("insert milestone: %w", err)
+	}
+	res.PlanID = NewID()
+	planSpec := `{"phases":[{"name":"plan"},{"name":"sweep"},{"name":"review"},{"name":"ship"}]}`
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO plans
+			(id, project_id, template_id, version, spec_json, status,
+			 created_at, started_at)
+		VALUES (?, ?, 'ablation-sweep', 1, ?, 'running', ?, ?)`,
+		res.PlanID, res.ProjectID, planSpec, now, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert plan: %w", err)
+	}
+	planStepRows := []struct {
+		phase, idx                int
+		kind, status, spec        string
+	}{
+		{0, 0, "llm_call", "completed", `{"prompt":"Draft sweep plan"}`},
+		{1, 0, "agent_spawn", "completed", `{"agent":"trainer-0","iters":1000}`},
+		{2, 0, "human_decision", "pending", `{"review":"briefing"}`},
+		{3, 0, "shell", "pending", `{"cmd":"deploy.sh staging"}`},
+	}
+	for _, st := range planStepRows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO plan_steps
+				(id, plan_id, phase_idx, step_idx, kind, spec_json, status)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			NewID(), res.PlanID, st.phase, st.idx, st.kind, st.spec, st.status,
+		); err != nil {
+			return nil, fmt.Errorf("insert plan step: %w", err)
+		}
+	}
+	sweepTasks := []struct{ title, status string }{
+		{"Confirm 384/Lion final loss < 1.80", "done"},
+		{"Review overnight briefing memo", "todo"},
+		{"Queue deploy once review approves", "todo"},
+	}
+	for _, t := range sweepTasks {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO tasks
+				(id, project_id, title, body_md, status, milestone_id,
+				 created_at, updated_at)
+			VALUES (?, ?, ?, '', ?, ?, ?, ?)`,
+			NewID(), res.ProjectID, t.title, t.status, milestoneID, now, now,
+		); err != nil {
+			return nil, fmt.Errorf("insert task: %w", err)
+		}
+	}
+
+	// -- Template-instantiated sibling goal project: reproduce-gpt2-small.
+	// Proves template_id + parameters_json without running anything.
+	res.ReproduceProjectID = NewID()
+	reproParams, _ := json.Marshal(map[string]any{
+		"paper":        "Radford et al. 2019",
+		"target_loss":  3.0,
+		"budget_cents": 40000,
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO projects
+			(id, team_id, name, status, config_yaml, created_at,
+			 goal, kind, is_template, parent_project_id,
+			 template_id, parameters_json, budget_cents)
+		VALUES (?, ?, ?, 'active', '', ?, ?, 'goal', 0, ?,
+		        'reproduce-paper', ?, 40000)`,
+		res.ReproduceProjectID, defaultTeamID, demoReproduceProject, now,
+		"Reproduce GPT-2 small training loss on WikiText-103.",
+		res.LabOpsProjectID, string(reproParams),
+	); err != nil {
+		return nil, fmt.Errorf("insert reproduce project: %w", err)
+	}
+	reproPlanID := NewID()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO plans
+			(id, project_id, template_id, version, spec_json, status, created_at)
+		VALUES (?, ?, 'reproduce-paper', 1, '{}', 'draft', ?)`,
+		reproPlanID, res.ReproduceProjectID, now,
+	); err != nil {
+		return nil, fmt.Errorf("insert repro plan: %w", err)
+	}
+	reproSteps := []string{"Fetch WikiText-103", "Train 12 layer × 768 for 100k steps"}
+	for idx, desc := range reproSteps {
+		specBytes, _ := json.Marshal(map[string]string{"desc": desc})
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO plan_steps
+				(id, plan_id, phase_idx, step_idx, kind, spec_json, status)
+			VALUES (?, ?, ?, 0, 'shell', ?, 'pending')`,
+			NewID(), reproPlanID, idx, string(specBytes),
+		); err != nil {
+			return nil, fmt.Errorf("insert repro plan step: %w", err)
+		}
+	}
+	for _, t := range []string{"Download training data", "Verify tokenizer matches paper"} {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO tasks
+				(id, project_id, title, body_md, status, created_at, updated_at)
+			VALUES (?, ?, ?, '', 'todo', ?, ?)`,
+			NewID(), res.ReproduceProjectID, t, now, now,
+		); err != nil {
+			return nil, fmt.Errorf("insert repro task: %w", err)
+		}
+	}
+
+	// -- Audit events so the Activity tab has signal on a fresh demo.
+	auditRows := []struct {
+		action, targetKind, targetID, summary string
+	}{
+		{"project.create", "project", res.LabOpsProjectID, "Created standing project lab-ops"},
+		{"project.create", "project", res.ProjectID, "Created goal project ablation-sweep-demo"},
+		{"plan.create", "plan", res.PlanID, "Drafted 4-phase sweep plan"},
+		{"agent.spawn", "agent", res.TrainerAgentID, "Spawned trainer-0 on " + demoHostName},
+		{"project.create", "project", res.ReproduceProjectID, "Created goal project reproduce-gpt2-small (template: reproduce-paper)"},
+		{"review.create", "review", res.ReviewID, "Requested steward sign-off on briefing"},
+	}
+	for _, a := range auditRows {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO audit_events
+				(id, team_id, ts, actor_kind, actor_handle,
+				 action, target_kind, target_id, summary)
+			VALUES (?, ?, ?, 'agent', 'steward', ?, ?, ?, ?)`,
+			NewID(), defaultTeamID, now,
+			a.action, a.targetKind, a.targetID, a.summary,
+		); err != nil {
+			return nil, fmt.Errorf("insert audit event: %w", err)
+		}
+		res.AuditCount++
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -1095,7 +1437,19 @@ func buildDemoMemo(sizes []int, optimizers []string, iters int) string {
 		"(wandb parallel-coords archetype): each run is one point, plotted\n" +
 		"by any pair of config params or final metrics. The default axes\n" +
 		"(`n_embd` × `loss/val`, colored by `optimizer`) show the Lion-beats-\n" +
-		"AdamW story visually, at a glance.\n"
+		"AdamW story visually, at a glance.\n\n" +
+		"**IA breadth (generic primitives).** This sweep is one of three\n" +
+		"seeded projects, nested under a `standing` parent `lab-ops` that\n" +
+		"hosts a project channel (#lab-ops, 4 messages), two cron schedules\n" +
+		"(daily paper triage + weekly review), and a handbook memo. The\n" +
+		"sweep carries a 4-phase plan + milestone + 3 tasks + budget\n" +
+		"(50000¢). A sibling goal project `reproduce-gpt2-small` was\n" +
+		"instantiated from the `reproduce-paper` template with 0 runs,\n" +
+		"proving the template-binding shape. Runs attach to host\n" +
+		"`gpu-west-01` and agent `trainer-0`; the Activity tab is populated\n" +
+		"by 6 audit rows. Every primitive in the entity-surface matrix has\n" +
+		"at least one row so the generic IA is visible, not just the\n" +
+		"research surface.\n"
 }
 
 // buildDemoSample returns a markdown document imitating nanoGPT-Shakespeare

@@ -26,8 +26,9 @@ type SeedDemoResult struct {
 	DocumentID string
 	ReviewID   string
 	Attention  string
-	ImageCount int  // total run_images rows inserted (0 when dataRoot is empty)
-	Skipped    bool // true when the demo project already existed
+	ImageCount    int // total run_images rows inserted (0 when dataRoot is empty)
+	ArtifactCount int // total artifact rows inserted (checkpoint + eval_curve per run)
+	Skipped       bool // true when the demo project already existed
 	Reset      bool // true when the prior demo rows were deleted before re-inserting
 
 	// IA-breadth surfaces — populated so the Projects/Activity/Me tabs
@@ -105,6 +106,7 @@ func ResetDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 	perProject := []struct{ label, query string }{
 		{"documents", `DELETE FROM documents WHERE project_id = ?`},
 		{"reviews", `DELETE FROM reviews WHERE project_id = ?`},
+		{"artifacts", `DELETE FROM artifacts WHERE project_id = ?`},
 		{"runs", `DELETE FROM runs WHERE project_id = ?`},
 		{"attention_items", `DELETE FROM attention_items WHERE project_id = ?`},
 		{"tasks", `DELETE FROM tasks WHERE project_id = ?`},
@@ -362,6 +364,53 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 					return nil, err
 				}
 			}
+
+			// Per-run artifacts (blueprint §6.6). Every completed training
+			// run produces a checkpoint and an eval_curve — they're the two
+			// things a reviewer actually wants to see. Lineage_json records
+			// the producing run so downstream agents can walk provenance.
+			ckptID := NewID()
+			ckptLineage, _ := json.Marshal(map[string]any{
+				"run_id": runID, "size": size, "optimizer": opt,
+			})
+			ckptSize := int64(size) * 4 * 1024 * 1024 // rough: 4MB * n_embd
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO artifacts (
+					id, project_id, run_id, kind, name, uri,
+					sha256, size, mime, producer_agent_id,
+					lineage_json, created_at
+				) VALUES (?, ?, ?, 'checkpoint', ?, ?, ?, ?, 'application/octet-stream',
+				          NULLIF(?, ''), ?, ?)`,
+				ckptID, res.ProjectID, runID,
+				fmt.Sprintf("ckpt_step%d_size%d_%s.pt", iters, size, opt),
+				fmt.Sprintf("blob:mock/ckpt_%s", runID),
+				fmt.Sprintf("%064x", rng.Uint64()),
+				ckptSize, res.TrainerAgentID, string(ckptLineage), now,
+			); err != nil {
+				return nil, fmt.Errorf("insert checkpoint artifact: %w", err)
+			}
+			res.ArtifactCount++
+
+			curveID := NewID()
+			curveLineage, _ := json.Marshal(map[string]any{
+				"run_id": runID, "source": "eval_loop",
+			})
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO artifacts (
+					id, project_id, run_id, kind, name, uri,
+					size, mime, producer_agent_id,
+					lineage_json, created_at
+				) VALUES (?, ?, ?, 'eval_curve', ?, ?, ?, 'application/json',
+				          NULLIF(?, ''), ?, ?)`,
+				curveID, res.ProjectID, runID,
+				fmt.Sprintf("eval_size%d_%s.json", size, opt),
+				fmt.Sprintf("blob:mock/eval_%s", runID),
+				int64(8*1024),
+				res.TrainerAgentID, string(curveLineage), now,
+			); err != nil {
+				return nil, fmt.Errorf("insert eval_curve artifact: %w", err)
+			}
+			res.ArtifactCount++
 
 			// Per-run text-sample document (plot type 7: text-sample panel).
 			// Mirrors what a nanoGPT-Shakespeare worker would upload as

@@ -40,6 +40,10 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 	if res.ImageCount != 36 {
 		t.Errorf("ImageCount = %d, want 36", res.ImageCount)
 	}
+	// 2 artifacts per run (checkpoint + eval_curve) × 6 runs.
+	if res.ArtifactCount != 12 {
+		t.Errorf("ArtifactCount = %d, want 12", res.ArtifactCount)
+	}
 
 	// Row-count assertions — keeps the test honest about scope.
 	cases := []struct {
@@ -109,6 +113,16 @@ func TestSeedDemo_InsertsExpectedRows(t *testing.T) {
 		{"run_histograms_weights",
 			`SELECT COUNT(*) FROM run_histograms WHERE metric_name = 'weights_hist/all' AND run_id IN (SELECT id FROM runs WHERE project_id = ?)`,
 			[]any{res.ProjectID}, 24},
+		{"artifacts_total",
+			// 2 artifacts × 6 runs = 12. Every run gets a checkpoint + eval_curve.
+			`SELECT COUNT(*) FROM artifacts WHERE project_id = ?`,
+			[]any{res.ProjectID}, 12},
+		{"artifacts_checkpoint",
+			`SELECT COUNT(*) FROM artifacts WHERE project_id = ? AND kind = 'checkpoint'`,
+			[]any{res.ProjectID}, 6},
+		{"artifacts_eval_curve",
+			`SELECT COUNT(*) FROM artifacts WHERE project_id = ? AND kind = 'eval_curve'`,
+			[]any{res.ProjectID}, 6},
 
 		// IA-breadth surfaces — the generic primitives that prove Project
 		// is a domain-neutral container, not an ML-run holder.

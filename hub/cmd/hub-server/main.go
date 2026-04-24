@@ -317,8 +317,8 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	if wasReset {
 		action = "reset + re-inserted"
 	}
-	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n",
-		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount)
+	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n  artifacts:  %d (checkpoint + eval_curve per run)\n",
+		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount, res.ArtifactCount)
 }
 
 // ---- helpers ----

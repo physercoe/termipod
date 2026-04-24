@@ -29,15 +29,16 @@ import 'task_detail_screen.dart';
 ///
 /// Tabs:
 ///   0 Overview  — goal, status, metadata, shortcut tiles into Runs /
-///                 Reviews / Writeups / Schedules / Plans / Blobs, and
+///                 Reviews / Documents / Schedules / Plans / Blobs, and
 ///                 the archive action. Replaces the old "Info" tab.
 ///   1 Agents    — agents scoped to this project; archive filter via
 ///                 the AppBar action.
 ///   2 Channel   — channel list + per-channel composer; FAB creates.
 ///   3 Tasks     — Kanban over this project's tasks; FAB creates.
 ///   4 Files     — read-only tree of the project's docs_root filesystem.
-///                 (Distinct from the Writeups shortcut, which opens the
-///                 `documents` table of authored memos/drafts/reports.)
+///                 Distinct from the Overview Documents shortcut, which
+///                 opens the DB `documents` entity (authored memos,
+///                 drafts, reports, reviews — blueprint §6.7).
 ///
 /// Retired from the previous 7-tab shape:
 ///   - Activity: team-wide feed lives on the Activity top-level tab,
@@ -1021,7 +1022,7 @@ class _AgentsView extends ConsumerWidget {
 
 // ---- Overview ----
 // Hub page for the project: shortcut tiles into the heavier sub-surfaces
-// (Runs / Reviews / Writeups / Schedules / Plans / Blobs) that don't
+// (Runs / Reviews / Documents / Schedules / Plans / Blobs) that don't
 // inline cleanly as tabs, plus the project metadata rows and the
 // archive action. Replaces the old "Info" tab per IA §6.2.
 
@@ -1072,8 +1073,8 @@ class _OverviewView extends ConsumerWidget {
           ),
           _ShortcutTile(
             icon: Icons.article_outlined,
-            label: 'Writeups',
-            sub: 'Memos, drafts, reports (§6.7)',
+            label: 'Documents',
+            sub: 'Memos, drafts, reports, reviews (§6.7)',
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => DocumentsScreen(projectId: projectId),
             )),

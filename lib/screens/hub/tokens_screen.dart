@@ -139,7 +139,7 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Tokens',
+          'Auth',
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),

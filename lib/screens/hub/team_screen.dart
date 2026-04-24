@@ -4,10 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
-import 'audit_screen.dart';
 import 'budget_screen.dart';
 import 'councils_screen.dart';
-import 'reviews_screen.dart';
 import 'steward_config_screen.dart';
 import 'team_channel_screen.dart';
 import 'tokens_screen.dart';
@@ -662,13 +660,15 @@ Future<String?> _promptChannelName(BuildContext context) async {
   return ok == true ? ctrl.text.trim() : null;
 }
 
-// ---- Settings (placeholder) ----
+// ---- Settings ----
 
-/// Team-scoped governance tiles only. Project-level navigation (Runs,
-/// Reviews, Documents, Schedules, Plans, Templates, Workflows) lives on
-/// the Projects tab and inside Project detail per IA §6.2; duplicating
-/// those links here was a MuxPod holdover. Reviews retains a live
-/// pending badge because it's cross-project by nature.
+/// Team-scoped governance tiles only. Reviews and the Audit Log were
+/// pulled out (v1.0.195): Reviews is workload with its canonical home
+/// on Project detail / Me; Audit has its canonical home on the Activity
+/// tab. Keeping either here duplicated a primitive's home.
+///
+/// "Tokens" → "Auth" rename avoids the LLM-token collision; "Usage" →
+/// "Budgets" matches the blueprint vocabulary.
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
 
@@ -677,29 +677,19 @@ class _SettingsView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
-        const _ReviewsTile(),
         ListTile(
           leading: const Icon(Icons.account_balance_wallet_outlined),
-          title: const Text('Usage'),
-          subtitle: const Text('Agent budgets and spend'),
+          title: const Text('Budgets'),
+          subtitle: const Text('Agent budgets and spend caps'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const BudgetScreen(),
           )),
         ),
         ListTile(
-          leading: const Icon(Icons.history),
-          title: const Text('Audit Log'),
-          subtitle: const Text('Sensitive action history'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (_) => const AuditScreen(),
-          )),
-        ),
-        ListTile(
           leading: const Icon(Icons.key),
-          title: const Text('Tokens'),
-          subtitle: const Text('Invite humans, rotate host/agent tokens'),
+          title: const Text('Auth'),
+          subtitle: const Text('Invite humans, rotate host/agent keys'),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => const TokensScreen(),
@@ -724,83 +714,6 @@ class _SettingsView extends StatelessWidget {
           )),
         ),
       ],
-    );
-  }
-}
-
-/// Reviews settings tile with a live pending-count badge. Fetches the
-/// count once on mount; the badge is best-effort context for the director
-/// and is not a real-time subscription — reloads happen when the user
-/// returns to this screen.
-class _ReviewsTile extends ConsumerStatefulWidget {
-  const _ReviewsTile();
-
-  @override
-  ConsumerState<_ReviewsTile> createState() => _ReviewsTileState();
-}
-
-class _ReviewsTileState extends ConsumerState<_ReviewsTile> {
-  int? _pending;
-
-  @override
-  void initState() {
-    super.initState();
-    _fetch();
-  }
-
-  Future<void> _fetch() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    try {
-      final rows = await client.listReviews(status: 'pending');
-      if (!mounted) return;
-      setState(() => _pending = rows.length);
-    } catch (_) {
-      // Silent — the tile still navigates fine without the badge.
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final count = _pending ?? 0;
-    return ListTile(
-      leading: const Icon(Icons.rate_review_outlined),
-      title: const Text('Reviews'),
-      subtitle: Text(count > 0
-          ? '$count pending · human-decision queue'
-          : 'Human-decision queue for documents'),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (count > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: DesignColors.terminalCyan.withValues(alpha: 0.18),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: DesignColors.terminalCyan.withValues(alpha: 0.5),
-                ),
-              ),
-              child: Text(
-                '$count',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: DesignColors.terminalCyan,
-                ),
-              ),
-            ),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right),
-        ],
-      ),
-      onTap: () async {
-        await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => const ReviewsScreen(),
-        ));
-        if (mounted) _fetch();
-      },
     );
   }
 }

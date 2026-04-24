@@ -54,7 +54,7 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Usage',
+          'Budgets',
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),

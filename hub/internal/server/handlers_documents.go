@@ -71,6 +71,26 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "content_inline exceeds 256KB; use artifact_id instead")
 		return
 	}
+	// If artifact_id is supplied, it must resolve to an artifact in the same
+	// project. Historically this column was a loose TEXT URI placeholder; now
+	// that the artifacts table exists (§6.6) we enforce the relation.
+	if hasArtifact {
+		var artProject string
+		err := s.db.QueryRowContext(r.Context(),
+			`SELECT project_id FROM artifacts WHERE id = ?`, in.ArtifactID).Scan(&artProject)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusBadRequest, "artifact_id not found")
+			return
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if artProject != in.ProjectID {
+			writeErr(w, http.StatusBadRequest, "artifact_id belongs to a different project")
+			return
+		}
+	}
 
 	version := 1
 	var prevID sql.NullString

@@ -326,6 +326,82 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "runs.attach_artifact",
+			Description: "Attach a content-addressed artifact (checkpoint, eval_curve, log, dataset, report, figure, sample) to a run. Requires `run`, `project_id`, `kind`, `name`, `uri`. Optional: sha256, size, mime, producer_agent_id, lineage_json (object).",
+			InputSchema: schema(`{"type":"object","required":["run","project_id","kind","name","uri"],"properties":{"run":{"type":"string"},"project_id":{"type":"string"},"kind":{"type":"string"},"name":{"type":"string"},"uri":{"type":"string"},"sha256":{"type":"string"},"size":{"type":"integer"},"mime":{"type":"string"},"producer_agent_id":{"type":"string"},"lineage_json":{"type":"object"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				runID, _ := args["run"].(string)
+				if runID == "" {
+					return nil, fmt.Errorf("run is required")
+				}
+				// Forward to the generic artifact create endpoint with run_id set.
+				body := make(map[string]any, len(args))
+				for k, v := range args {
+					if k == "run" {
+						continue
+					}
+					body[k] = v
+				}
+				body["run_id"] = runID
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/artifacts"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "artifacts.list",
+			Description: "List artifacts in the team. Optional filters: `project`, `run`, `kind`. Newest first.",
+			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"},"run":{"type":"string"},"kind":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				q := url.Values{}
+				for _, k := range []string{"project", "run", "kind"} {
+					if v, _ := args[k].(string); v != "" {
+						q.Set(k, v)
+					}
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/artifacts"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "artifacts.get",
+			Description: "Fetch one artifact by id.",
+			InputSchema: schema(`{"type":"object","required":["artifact"],"properties":{"artifact":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				id, _ := args["artifact"].(string)
+				if id == "" {
+					return nil, fmt.Errorf("artifact is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/artifacts/"+url.PathEscape(id)), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "artifacts.create",
+			Description: "Create a standalone artifact (not tied to a run). For run outputs prefer `runs.attach_artifact`. Requires `project_id`, `kind`, `name`, `uri`. Optional: sha256, size, mime, producer_agent_id, lineage_json (object).",
+			InputSchema: schema(`{"type":"object","required":["project_id","kind","name","uri"],"properties":{"project_id":{"type":"string"},"kind":{"type":"string"},"name":{"type":"string"},"uri":{"type":"string"},"sha256":{"type":"string"},"size":{"type":"integer"},"mime":{"type":"string"},"producer_agent_id":{"type":"string"},"lineage_json":{"type":"object"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				for _, k := range []string{"project_id", "kind", "name", "uri"} {
+					if v, _ := args[k].(string); v == "" {
+						return nil, fmt.Errorf("%s is required", k)
+					}
+				}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/artifacts"), nil, args, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "agents.spawn",
 			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode. May return 202 + attention_id if policy gates the spawn on approval.",
 			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"}}}`),

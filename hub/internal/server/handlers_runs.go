@@ -61,9 +61,6 @@ type metricURIIn struct {
 	TrackioRunURI string `json:"trackio_run_uri"`
 }
 
-// TODO: AttachArtifact depends on artifacts table (§6.6). Implement when
-// the artifacts primitive lands (separate PR).
-
 func (s *Server) handleCreateRun(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	var in runIn

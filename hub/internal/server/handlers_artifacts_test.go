@@ -184,6 +184,64 @@ func TestCreateArtifact_RejectsMismatchedRun(t *testing.T) {
 	}
 }
 
+func TestCreateDocument_ResolvesArtifactID(t *testing.T) {
+	// With the artifacts table landed, documents.artifact_id must resolve
+	// to a real artifact in the same project.
+	s, token := newA2ATestServer(t)
+	projID := seedTestProject(t, s, defaultTeamID)
+
+	// Unknown artifact_id → 400.
+	status, _ := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/documents",
+		map[string]any{
+			"project_id":  projID,
+			"kind":        "report",
+			"title":       "r",
+			"artifact_id": "does-not-exist",
+		})
+	if status != http.StatusBadRequest {
+		t.Errorf("unknown artifact_id: status=%d want 400", status)
+	}
+
+	// Create an artifact in a different project, then try to link it.
+	otherProj := seedTestProject(t, s, defaultTeamID)
+	artBase := "/v1/teams/" + defaultTeamID + "/artifacts"
+	_, body := doReq(t, s, token, http.MethodPost, artBase, map[string]any{
+		"project_id": otherProj,
+		"kind":       "report",
+		"name":       "r.pdf",
+		"uri":        "blob:sha256/feedface",
+	})
+	var a artifactOut
+	if err := json.Unmarshal(body, &a); err != nil {
+		t.Fatalf("decode artifact: %v", err)
+	}
+	status, _ = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/documents",
+		map[string]any{
+			"project_id":  projID, // wrong project
+			"kind":        "report",
+			"title":       "r",
+			"artifact_id": a.ID,
+		})
+	if status != http.StatusBadRequest {
+		t.Errorf("cross-project artifact_id: status=%d want 400", status)
+	}
+
+	// Correct project resolves happily.
+	status, _ = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/documents",
+		map[string]any{
+			"project_id":  otherProj,
+			"kind":        "report",
+			"title":       "r",
+			"artifact_id": a.ID,
+		})
+	if status != http.StatusCreated {
+		t.Errorf("valid artifact_id: status=%d want 201", status)
+	}
+}
+
 func TestGetArtifact_NotFound(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	status, _ := doReq(t, s, token, http.MethodGet,

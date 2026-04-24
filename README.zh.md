@@ -5,8 +5,8 @@
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>移动端 SSH 终端，专为 tmux 和 AI 编程助手打造。</b><br>
-  <sub>用手机或平板管理远程服务器。运行 Claude Code、Codex 或任何 CLI 工具，触控优化的终端体验。<br>Android、iOS、iPadOS — 同一套 Flutter 代码。</sub>
+  <b>AI Agent 舰队的移动指挥中心。</b><br>
+  <sub>在手机上下达目标，Steward Agent 拆解为计划，分布于你自有基础设施上的 Agent 舰队执行，你审批并审阅结果。<br>Android、iOS、iPadOS — 开源自托管，Apache 2.0。</sub>
 </p>
 
 <p align="center">

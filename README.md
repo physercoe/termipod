@@ -5,8 +5,8 @@
 <h1 align="center">TermiPod</h1>
 
 <p align="center">
-  <b>Mobile SSH terminal — built for tmux and AI coding agents.</b><br>
-  <sub>Manage remote servers from your phone. Run Claude Code, Codex, or any CLI tool in a touch-optimized terminal.<br>Android, iOS, iPadOS — one Flutter codebase.</sub>
+  <b>Mobile control plane for a fleet of AI agents.</b><br>
+  <sub>Direct agents from your phone. A steward turns your goal into a plan, a fleet executes across your own hardware, you ratify and review.<br>Android, iOS, iPadOS — open source, self-hosted, Apache 2.0.</sub>
 </p>
 
 <p align="center">
@@ -21,6 +21,23 @@
 <p align="center">
   <a href="README.zh.md">中文</a>
 </p>
+
+---
+
+## What makes it different
+
+Every other "Claude Code on your phone" tool is a 1:1 bridge to a single local session. TermiPod is a 1:N control plane over a fleet:
+
+- **Multi-agent** — coordinate Claude Code, Codex, Aider, or any CLI, each with its own pane, profile, and budget. One inbox for all of them.
+- **Multi-host** — a steward on a $5/mo VPS can delegate work to a GPU box at home behind NAT, via A2A over a reverse-tunnel relay. Nothing else spans hosts cleanly.
+- **Director, not operator** — write a natural-language goal. The steward decomposes it into a plan. You ratify. You don't author DAGs, you don't babysit terminals.
+- **Governance built-in** — budget caps, policy overrides, per-agent usage, immutable audit log, team roles. No other mobile agent tool has these.
+- **Offline-first** — SQLite snapshot cache shows last-known-good lists on every screen when the hub is unreachable. Subway-safe.
+- **Vendor-agnostic, self-hosted** — Apache 2.0 Go hub you run yourself. No account gating, no cloud relay, no vendor lock-in.
+
+**30-second demo.** Type `ablation sweep on nanoGPT, tell me which optimizer scales better` on your phone. Your VPS steward returns a 6-step plan; you tap Approve. Six training runs spawn on your home GPU box. Three hours later, a briefing document with loss curves lands in your Inbox. You ratify it on the train home.
+
+See [docs/positioning.md](docs/positioning.md) for the full thesis, ICP, and competitive analysis.
 
 ---
 
@@ -53,26 +70,33 @@
 
 ## Why TermiPod?
 
-Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiPod is designed around how developers actually use terminals on mobile:
+AI agents produce ten times more output than any human can review. The moment you run **more than one** agent, or span **more than one machine**, the existing mobile tools fall apart — session-bridge apps (Claude Code Remote Control, Happy, Tactic Remote) give you one session in your pocket; messenger-bridge agents (OpenClaw, Hermes, Claude Code Channels) give you one chat-style assistant across your chat apps. Neither is a cockpit for a fleet. TermiPod is built on a different axiom: the human is a **director**, not an operator.
 
-- **Zero server setup** — works with any host running `sshd`. No agents, no daemons, nothing to install on the server side
-- **Navigate tmux visually** — tap through sessions, windows, and panes instead of memorizing `Ctrl-b` keybindings
-- **Dashboard with one-tap reconnect** — recent sessions sorted by last access, with relative timestamps; tap to jump straight back to the last window and pane you were on
-- **Run AI coding agents** (Claude Code, Codex, Aider) with pre-configured button layouts and structured slash-command snippets — pick `/model`, `/effort`, `/permissions` from dropdowns instead of typing them
-- **Per-pane profiles** — each tmux pane remembers its own action bar layout, auto-switching when you move between panes
-- **Custom keyboard** — Flutter-native QWERTY with Ctrl/Alt/Esc/arrows built in, no more hunting through the system IME
-- **Transfer files** via SFTP — upload from phone, download, browse remote directories
-- **Jump hosts & proxies** — SSH ProxyJump and SOCKS5 for machines behind NAT or firewalls
-- **Survives flaky networks** — auto-reconnect with exponential backoff, input queued while offline so nothing is lost
+| Dimension | Remote Control / Happy / Tactic | TermiPod |
+|---|---|---|
+| Topology | 1 phone ↔ 1 session ↔ 1 host | 1 director ↔ N agents ↔ M hosts |
+| Agent count | One active at a time | Fleet; steward spawns more |
+| Host span | Single local machine, keep it awake | VPS + GPU + laptop, coordinated via A2A |
+| Agent vendor | Claude Code (+ Codex) | Agent-agnostic — any CLI that takes a pty |
+| Authoring model | You type messages | You write a goal; steward decomposes it |
+| Governance | None | Policies, budgets, audit log, team roles |
+| Data ownership | Cloud relay or laptop-only | Hub holds names/events; hosts hold bytes |
+| Offline | Needs live relay | SQLite snapshot cache — last-known-good on every list |
+| Open source | Happy: yes; others: no | Apache 2.0, self-hosted Go hub |
 
 ### Who is this for?
 
 | | |
 |---|---|
-| **AI agent users** | Run Claude Code / Codex / Aider in tmux, monitor and interact from your phone |
-| **Developers** | SSH into dev machines, CI runners, cloud VMs |
-| **DevOps / SRE** | Check services, tail logs, restart processes on the go |
-| **Homelab enthusiasts** | Manage servers, Raspberry Pi, NAS from your phone |
+| **Solo ML researchers** | Nightly sweeps across a VPS + home GPU box — kick off from the phone, review briefings in the morning |
+| **Indie AI hackers** | Multiple agent CLIs across projects — unified inbox, attention queue, per-pane profiles |
+| **Autonomy-focused startups (1–5 eng)** | Budget caps, policy overrides, audit log, team roles — no other mobile agent tool has these |
+| **Open-source maintainers** | Run triage / review agents overnight; approve agent PRs from bed |
+| **Homelab / self-hosters** | Pull work off the laptop onto the phone without exposing raw SSH to the internet |
+
+### When *not* to use TermiPod
+
+Be honest: if you run exactly one Claude Code session on one machine and your laptop is always on, use [Anthropic's Remote Control](https://code.claude.com/docs/en/remote-control) or [Happy](https://happy.engineering/). TermiPod's governance, multi-host, and self-hosting features have a setup cost. You shouldn't pay it unless you need what they buy.
 
 ---
 
@@ -120,7 +144,7 @@ Unlike generic SSH apps that give you a raw terminal and a tiny keyboard, TermiP
 
 ### Termipod Hub (optional)
 
-Opt-in coordination layer for teams running multiple AI coding agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
+Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
 
 **Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. Templates for ablation sweeps, paper reproductions, and benchmark comparisons ship with the hub.
 
@@ -149,8 +173,41 @@ The hub itself ships as a separate Go daemon under `hub/` — install with `go i
 
 ## How TermiPod Compares
 
+Against mobile **agent control** tools (session-bridge category):
+
+| Feature | TermiPod | Claude Code Remote Control | Happy Coder | Tactic Remote |
+|---|---|---|---|---|
+| **Multi-agent fleet** | Yes | One session | One per CLI wrapper | One session |
+| **Multi-host (A2A)** | Yes — VPS + GPU + NAT via relay | No | No | No |
+| **Agent-agnostic** | Yes — any CLI | Claude Code only | Claude Code + Codex | Claude Code + Codex |
+| **Director / steward model** | Yes — steward decomposes goals | No | No | No |
+| **Governance (budget, audit, policy)** | Yes | No | No | No |
+| **Self-hosted hub** | Yes (Go daemon) | Cloud relay (Anthropic API) | Relay server | Cloudflare Tunnel |
+| **Offline snapshot cache** | Yes (SQLite) | No | No | No |
+| **Platform** | Android + iOS + iPad | iOS + Android + Web | iOS + Android + Web | iOS only |
+| **Pricing** | Free, Apache 2.0 | Claude Max ($100+) | Free, open source | Paid trial |
+
+Against **messenger-bridge agents** (different thesis, overlapping user question):
+
+| Feature | TermiPod | OpenClaw | Hermes Agent | Claude Code Channels |
+|---|---|---|---|---|
+| **UI surface** | Purpose-built mobile app | Existing messengers (WhatsApp, Telegram, Slack, Signal, iMessage, Discord, 15+) | Telegram / Discord / Slack / WhatsApp / Signal | Telegram + Discord |
+| **Primary use case** | Fleet cockpit + research ops | Personal assistant across messengers | Personal assistant + self-improving skills | Remote Claude Code via chat |
+| **Agent topology** | Director → steward → fleet | One agent, cross-platform memory | One self-improving agent | One local Claude Code session |
+| **Multi-host / A2A** | Yes | No | No | No |
+| **Plan ratification** | Structured plan + Approve | Conversational | Conversational | Conversational |
+| **Governance UI** | Budgets, policy, audit | None (chat only) | None (chat only) | None |
+| **Rich UI (plots, kanban, runs)** | Native | Text only | Text only | Text only |
+| **Offline snapshot** | Yes | No | No | No |
+| **Open source** | Apache 2.0 | MIT | Open | Plugin repo |
+| **Vendor lock-in** | None | None | None | Requires Claude Pro/Max |
+
+**When to pick which:** Use a messenger bridge when you want a personal agent answering in the apps you already use 20 hours/day. Use TermiPod when you're directing a **fleet** across your own infrastructure and need purpose-built screens for plans, runs, reviews, governance. The two coexist happily on the same phone.
+
+Against mobile **SSH clients** (TermiPod also covers this layer — breakglass, not product):
+
 | Feature | TermiPod | Termux | JuiceSSH | Termius | ConnectBot |
-|---------|----------|--------|----------|---------|------------|
+|---|---|---|---|---|---|
 | **Platform** | Android + iOS + iPad | Android | Android | Multi | Android |
 | **tmux integration** | Native visual | Manual CLI | None | None | None |
 | **AI agent profiles** | Claude Code + Codex, per-pane | None | None | None | None |

@@ -20,7 +20,7 @@
   "hostScopeTeamPersonal": "Team + Personal",
   "hostsEmpty": "No hosts yet",
   "hostsEmptyDesc": "Add a local SSH bookmark, or register one via the hub.",
-  "hostsAddBookmark": "Add bookmark",
+  "hostsAddBookmark": "Add",
   "hostsTeamSection": "Team (registered via hub)",
   "hostsPersonalSection": "Personal (local bookmarks)",
   "meMyWorkSection": "My work",

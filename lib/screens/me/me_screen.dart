@@ -55,7 +55,7 @@ class MeScreen extends ConsumerWidget {
           ? FloatingActionButton.extended(
               onPressed: () => openHubMetaChannel(context, ref),
               icon: const Icon(Icons.smart_toy_outlined),
-              label: const Text('Direct steward'),
+              label: const Text('Direct'),
             )
           : null,
       body: RefreshIndicator(

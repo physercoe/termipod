@@ -20,7 +20,7 @@
   "hostScopeTeamPersonal": "团队 + 个人",
   "hostsEmpty": "暂无主机",
   "hostsEmptyDesc": "添加本地 SSH 书签，或通过 Hub 注册。",
-  "hostsAddBookmark": "添加书签",
+  "hostsAddBookmark": "添加",
   "hostsTeamSection": "团队（通过 Hub 注册）",
   "hostsPersonalSection": "个人（本地书签）",
   "meMyWorkSection": "我的工作",

@@ -2426,6 +2426,17 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           color: colorScheme.onSurface,
                         ),
                       ),
+                      const Spacer(),
+                      IconButton(
+                        icon: Icon(Icons.add, color: colorScheme.primary),
+                        tooltip: 'New Session',
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          Future.delayed(const Duration(milliseconds: 200), () {
+                            if (mounted) _showCreateSessionDialog(tmuxState);
+                          });
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -2575,6 +2586,62 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         _createWindow(windowName.isEmpty ? null : windowName);
       }
     });
+  }
+
+  /// Session-creation dialog. Reuses NewWindowDialog with session-flavored
+  /// labels so the form layout / validation rules stay in one place.
+  void _showCreateSessionDialog(TmuxState tmuxState) {
+    final existingNames = tmuxState.sessions.map((s) => s.name).toList();
+    showDialog<String>(
+      context: context,
+      builder: (dialogContext) => NewWindowDialog(
+        existingWindowNames: existingNames,
+        title: 'New Session',
+        hint: 'e.g. work, project',
+        entityLabel: 'Session',
+        requireName: true,
+      ),
+    ).then((sessionName) {
+      if (sessionName != null && sessionName.isNotEmpty) {
+        _createSession(sessionName);
+      }
+    });
+  }
+
+  Future<void> _createSession(String sessionName) async {
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
+        );
+      }
+      return;
+    }
+    try {
+      final result = await sshClient.exec(TmuxCommands.newSession(
+        name: sessionName,
+        detached: true,
+      ));
+      if (result.trim().isNotEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result.trim())),
+          );
+        }
+        return;
+      }
+      await _refreshSessionTree();
+      if (!mounted) return;
+      await _selectSession(sessionName);
+      _backend?.boostRefresh();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create session: $e')),
+        );
+      }
+    }
   }
 
   /// 新しいウィンドウを作成

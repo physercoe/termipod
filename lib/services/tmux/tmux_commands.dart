@@ -89,7 +89,13 @@ class TmuxCommands {
     String? startDirectory,
     bool background = false,
   }) {
-    final parts = ['tmux', 'new-window', '-t', _escapeArg(sessionName)];
+    // -a: insert immediately after the target. Without it, tmux's
+    // new-window uses the resolved target's index as the new window's
+    // location (per `man tmux`: "otherwise target-window is the new
+    // window location"). Since `-t SESSION_NAME` resolves to the active
+    // window, that often collides — when the active window is index 0
+    // tmux returns "index 0 in use".
+    final parts = ['tmux', 'new-window', '-a', '-t', _escapeArg(sessionName)];
     if (background) parts.add('-d');
     if (windowName != null) parts.addAll(['-n', _escapeArg(windowName)]);
     if (startDirectory != null) parts.addAll(['-c', _escapeArg(startDirectory)]);

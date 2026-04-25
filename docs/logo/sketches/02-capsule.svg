@@ -1,0 +1,30 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod — Capsule">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e0d0"/>
+      <stop offset="100%" stop-color="#0090ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0D0E18"/>
+
+  <!-- Capsule (pod) outline -->
+  <rect x="72" y="180" width="368" height="152" rx="76"
+        fill="none" stroke="url(#accent)" stroke-width="6" stroke-opacity="0.55"/>
+
+  <!-- > chevron -->
+  <path d="M 138 222 L 186 256 L 138 290"
+        fill="none" stroke="url(#accent)" stroke-width="20"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- underscore -->
+  <line x1="210" y1="292" x2="290" y2="292"
+        stroke="url(#accent)" stroke-width="20" stroke-linecap="round"/>
+
+  <!-- Cursor sparkle -->
+  <g transform="translate(348 256)">
+    <path
+      d="M 0,-26 Q 3.5,-3.5 26,0 Q 3.5,3.5 0,26 Q -3.5,3.5 -26,0 Q -3.5,-3.5 0,-26 Z"
+      fill="url(#accent)"/>
+  </g>
+</svg>

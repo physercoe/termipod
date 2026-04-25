@@ -1,0 +1,31 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod — Orbit">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e0d0"/>
+      <stop offset="100%" stop-color="#0090ff"/>
+    </linearGradient>
+    <radialGradient id="starHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e0d0" stop-opacity="0.55"/>
+      <stop offset="60%" stop-color="#00e0d0" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#00e0d0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0D0E18"/>
+
+  <!-- Orbit ring -->
+  <circle cx="256" cy="256" r="140" fill="none" stroke="url(#accent)" stroke-width="1.5" stroke-opacity="0.35"/>
+
+  <!-- Three agent nodes on the ring (120° apart) -->
+  <circle cx="256" cy="116" r="16" fill="url(#accent)"/>
+  <circle cx="377" cy="326" r="16" fill="url(#accent)"/>
+  <circle cx="135" cy="326" r="16" fill="url(#accent)"/>
+
+  <!-- Steward sparkle at the center -->
+  <g transform="translate(256 256)">
+    <circle r="58" fill="url(#starHalo)"/>
+    <path
+      d="M 0,-42 Q 5.5,-5.5 42,0 Q 5.5,5.5 0,42 Q -5.5,5.5 -42,0 Q -5.5,-5.5 0,-42 Z"
+      fill="url(#accent)"/>
+  </g>
+</svg>

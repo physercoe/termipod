@@ -1,0 +1,30 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TermiPod — Hex Node">
+  <defs>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e0d0"/>
+      <stop offset="100%" stop-color="#0090ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="#0D0E18"/>
+
+  <!-- Pointy-top hexagon — a compute "pod" / node in a mesh -->
+  <polygon points="256,72 415,164 415,348 256,440 97,348 97,164"
+           fill="none" stroke="url(#accent)" stroke-width="6"/>
+
+  <!-- > chevron inside -->
+  <path d="M 168 224 L 224 262 L 168 300"
+        fill="none" stroke="url(#accent)" stroke-width="18"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- underscore -->
+  <line x1="248" y1="300" x2="312" y2="300"
+        stroke="url(#accent)" stroke-width="18" stroke-linecap="round"/>
+
+  <!-- Cursor sparkle (smaller) -->
+  <g transform="translate(340 240)">
+    <path
+      d="M 0,-22 Q 3,-3 22,0 Q 3,3 0,22 Q -3,3 -22,0 Q -3,-3 0,-22 Z"
+      fill="url(#accent)"/>
+  </g>
+</svg>

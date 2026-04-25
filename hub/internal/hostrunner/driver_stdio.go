@@ -123,20 +123,61 @@ func (d *StdioDriver) readLoop(ctx context.Context) {
 }
 
 // translate maps a single stream-json frame to zero or more agent_events.
-// Unknown `type` values are forwarded as producer=agent kind="raw" so the
-// hub keeps a complete transcript even when the schema drifts.
+//
+// The normalization contract here is the load-bearing abstraction
+// between drivers and the mobile UI: claude's stream-json is one
+// dialect, codex/aider speak others, but the *typed* event kinds we
+// emit are stable. Mobile renders by event kind — adding a new agent
+// kind means writing a new driver, not a new screen.
+//
+// Canonical kinds (see docs/wedges/steward-ux-fixes.md "Driver schema"):
+//
+//	session.init  {session_id, model, cwd, permission_mode, tools,
+//	               mcp_servers, slash_commands, agents, skills,
+//	               plugins, version, output_style, fast_mode_state}
+//	text          {text}
+//	tool_call     {id, name, input}
+//	tool_result   {tool_use_id, content, is_error}
+//	usage         {message_id, model, input_tokens, output_tokens,
+//	               cache_read, cache_create, service_tier}
+//	rate_limit    {window, status, resets_at, overage_disabled,
+//	               is_using_overage, overage_status, reason}
+//	turn.result   {cost_usd, duration_ms, num_turns, terminal_reason,
+//	               permission_denials, by_model{...}, fast_mode_state}
+//	completion    *(deprecated alias, kept for one release)*
+//	error         passthrough
+//	system        passthrough non-init system frames
+//	raw           anything we don't recognize
+//
+// Unknown `type` values are forwarded as producer=agent kind="raw" so
+// the hub keeps a complete transcript even when the schema drifts —
+// other drivers can lift fields they care about into typed kinds in
+// their own translate()s.
 func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 	typ, _ := frame["type"].(string)
 	switch typ {
 	case "system":
-		// system/init carries session_id + tool list + model; other system
-		// subtypes are surfaced verbatim.
+		// system/init: lift the rich blob claude emits into a stable
+		// schema. Fields not present in the source frame come through
+		// as nil — the mobile renderer dispatches on presence, so a
+		// codex driver that doesn't surface mcp_servers just leaves
+		// the field absent and that section absents itself.
 		sub, _ := frame["subtype"].(string)
 		if sub == "init" {
 			payload := map[string]any{
-				"session_id": frame["session_id"],
-				"model":      frame["model"],
-				"tools":      frame["tools"],
+				"session_id":      frame["session_id"],
+				"model":           frame["model"],
+				"cwd":             frame["cwd"],
+				"permission_mode": firstNonNil(frame["permissionMode"], frame["permission_mode"]),
+				"tools":           frame["tools"],
+				"mcp_servers":     firstNonNil(frame["mcp_servers"], frame["mcpServers"]),
+				"slash_commands":  firstNonNil(frame["slash_commands"], frame["slashCommands"]),
+				"agents":          frame["agents"],
+				"skills":          frame["skills"],
+				"plugins":         frame["plugins"],
+				"version":         firstNonNil(frame["claude_code_version"], frame["version"]),
+				"output_style":    firstNonNil(frame["output_style"], frame["outputStyle"]),
+				"fast_mode_state": firstNonNil(frame["fast_mode_state"], frame["fastModeState"]),
 			}
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "session.init", "agent", payload)
 			return
@@ -144,9 +185,12 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent", frame)
 
 	case "assistant":
-		// Walk content blocks; each text block → text event, each tool_use
-		// block → tool_call event. Other block types fall through to raw.
+		// Walk content blocks, then surface the per-message usage as
+		// its own typed event (linked back via message_id) so the
+		// mobile telemetry strip doesn't have to peek inside text
+		// payloads to count tokens.
 		msg, _ := frame["message"].(map[string]any)
+		messageID, _ := msg["id"].(string)
 		blocks, _ := msg["content"].([]any)
 		for _, b := range blocks {
 			block, _ := b.(map[string]any)
@@ -157,8 +201,11 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 				if text == "" {
 					continue
 				}
-				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "text", "agent",
-					map[string]any{"text": text})
+				out := map[string]any{"text": text}
+				if messageID != "" {
+					out["message_id"] = messageID
+				}
+				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "text", "agent", out)
 			case "tool_use":
 				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
 					map[string]any{
@@ -169,6 +216,22 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 			default:
 				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", block)
 			}
+		}
+		if usage, ok := msg["usage"].(map[string]any); ok {
+			out := map[string]any{
+				"input_tokens":  usage["input_tokens"],
+				"output_tokens": usage["output_tokens"],
+				"cache_read":    firstNonNil(usage["cache_read_input_tokens"], usage["cache_read"]),
+				"cache_create":  firstNonNil(usage["cache_creation_input_tokens"], usage["cache_create"]),
+				"service_tier":  usage["service_tier"],
+			}
+			if messageID != "" {
+				out["message_id"] = messageID
+			}
+			if model, ok := msg["model"].(string); ok && model != "" {
+				out["model"] = model
+			}
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "usage", "agent", out)
 		}
 
 	case "user":
@@ -191,7 +254,29 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 				})
 		}
 
+	case "rate_limit_event":
+		// Window naming differs across claude-code versions — accept
+		// rateLimitType (camelCase) and rate_limit_type (snake_case)
+		// and normalize to "5h" / "1h" so mobile doesn't branch.
+		win, _ := firstNonNil(frame["rateLimitType"], frame["rate_limit_type"]).(string)
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "rate_limit", "agent",
+			map[string]any{
+				"window":           win,
+				"status":           frame["status"],
+				"resets_at":        firstNonNil(frame["resetsAt"], frame["resets_at"]),
+				"overage_status":   firstNonNil(frame["overageStatus"], frame["overage_status"]),
+				"overage_disabled": firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]) != nil,
+				"is_using_overage": firstNonNil(frame["isUsingOverage"], frame["is_using_overage"]),
+				"reason":           firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]),
+			})
+
 	case "result":
+		// turn.result is the canonical kind. We also emit "completion"
+		// with the whole frame for one release so older mobile builds
+		// keep working — drop the alias once telemetry shows no caller
+		// depends on it.
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
+			normalizeTurnResult(frame))
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "completion", "agent", frame)
 
 	case "error":
@@ -201,6 +286,58 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		// Unknown frame type — forward verbatim so the app can decide.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", frame)
 	}
+}
+
+// normalizeTurnResult lifts claude's `result` frame into the canonical
+// turn.result shape. Anything missing in the source comes through as
+// nil — the mobile renderer treats absent fields as "this driver
+// doesn't surface that signal" and absents the matching UI bit.
+func normalizeTurnResult(frame map[string]any) map[string]any {
+	out := map[string]any{
+		"cost_usd":           firstNonNil(frame["total_cost_usd"], frame["cost_usd"]),
+		"duration_ms":        frame["duration_ms"],
+		"num_turns":          frame["num_turns"],
+		"terminal_reason":    firstNonNil(frame["terminal_reason"], frame["subtype"]),
+		"permission_denials": frame["permission_denials"],
+		"fast_mode_state":    firstNonNil(frame["fast_mode_state"], frame["fastModeState"]),
+	}
+	// modelUsage is keyed by model name in claude's payload: {<model>:
+	// {inputTokens, outputTokens, cacheReadInputTokens, …}}. Pass it
+	// through as `by_model` after normalizing the inner keys to snake_case
+	// so callers don't have to learn both shapes.
+	if mu, ok := firstNonNil(frame["modelUsage"], frame["model_usage"]).(map[string]any); ok {
+		byModel := map[string]any{}
+		for model, raw := range mu {
+			inner, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			byModel[model] = map[string]any{
+				"input":              firstNonNil(inner["inputTokens"], inner["input_tokens"]),
+				"output":             firstNonNil(inner["outputTokens"], inner["output_tokens"]),
+				"cache_read":         firstNonNil(inner["cacheReadInputTokens"], inner["cache_read_input_tokens"]),
+				"cache_create":       firstNonNil(inner["cacheCreationInputTokens"], inner["cache_creation_input_tokens"]),
+				"cost_usd":           firstNonNil(inner["costUSD"], inner["cost_usd"]),
+				"context_window":     firstNonNil(inner["contextWindow"], inner["context_window"]),
+				"max_output_tokens":  firstNonNil(inner["maxOutputTokens"], inner["max_output_tokens"]),
+			}
+		}
+		out["by_model"] = byModel
+	}
+	return out
+}
+
+// firstNonNil returns the first argument that's not nil. Used to
+// accept multiple casings for the same field — claude-code stream-json
+// is inconsistent about camelCase vs snake_case across versions, and
+// callers shouldn't have to know which we're talking to.
+func firstNonNil(vals ...any) any {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
 }
 
 // Input implements Inputter for M2. text/cancel/approval/attach translate

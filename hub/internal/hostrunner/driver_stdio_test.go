@@ -13,8 +13,9 @@ import (
 
 // TestStdioDriver_TranslatesStreamJSON feeds a canned stream-json transcript
 // through an io.Pipe and asserts the emitted agent_events match the
-// blueprint's translation table: session.init → text → tool_call →
-// tool_result → completion, bracketed by lifecycle.started / .stopped.
+// driver's typed-event contract: session.init → text → tool_call →
+// tool_result → turn.result (+ legacy completion alias), bracketed by
+// lifecycle.started / .stopped.
 func TestStdioDriver_TranslatesStreamJSON(t *testing.T) {
 	frames := []string{
 		`{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-4","tools":["Read","Edit"]}`,
@@ -40,10 +41,11 @@ func TestStdioDriver_TranslatesStreamJSON(t *testing.T) {
 		}
 	}()
 
-	// Expect: lifecycle.started + 5 translated events = 6. Stop adds one more.
-	poster.wait(t, 6, 2*time.Second)
+	// Expect: lifecycle.started + 4 typed events + result-frame fanout
+	// (turn.result + legacy completion alias) = 7. Stop adds one more.
+	poster.wait(t, 7, 2*time.Second)
 	drv.Stop()
-	poster.wait(t, 7, time.Second)
+	poster.wait(t, 8, time.Second)
 
 	evs := poster.snapshot()
 
@@ -86,15 +88,292 @@ func TestStdioDriver_TranslatesStreamJSON(t *testing.T) {
 		t.Fatalf("evs[4] want tool_result tu-1; got %+v", evs[4])
 	}
 
-	// Event 5: completion — we pass the whole frame through.
-	if evs[5].Kind != "completion" || evs[5].Producer != "agent" ||
-		evs[5].Payload["subtype"] != "success" {
-		t.Fatalf("evs[5] want completion/success; got %+v", evs[5])
+	// Event 5: turn.result — canonical kind, normalized payload.
+	if evs[5].Kind != "turn.result" || evs[5].Producer != "agent" {
+		t.Fatalf("evs[5] want turn.result/agent; got %+v", evs[5])
+	}
+	if evs[5].Payload["duration_ms"] != float64(123) {
+		t.Fatalf("evs[5] duration_ms = %v; want 123", evs[5].Payload["duration_ms"])
+	}
+	if evs[5].Payload["terminal_reason"] != "success" {
+		t.Fatalf("evs[5] terminal_reason = %v; want success (from subtype)", evs[5].Payload["terminal_reason"])
 	}
 
-	// Event 6: lifecycle.stopped.
-	if evs[6].Kind != "lifecycle" || evs[6].Payload["phase"] != "stopped" {
-		t.Fatalf("evs[6] want lifecycle.stopped; got %+v", evs[6])
+	// Event 6: completion — legacy alias, unchanged frame passthrough.
+	if evs[6].Kind != "completion" || evs[6].Producer != "agent" ||
+		evs[6].Payload["subtype"] != "success" {
+		t.Fatalf("evs[6] want completion/success; got %+v", evs[6])
+	}
+
+	// Event 7: lifecycle.stopped.
+	if evs[7].Kind != "lifecycle" || evs[7].Payload["phase"] != "stopped" {
+		t.Fatalf("evs[7] want lifecycle.stopped; got %+v", evs[7])
+	}
+}
+
+// TestStdioDriver_RichSessionInit covers the expanded session.init payload —
+// cwd, permission_mode, mcp_servers, slash_commands, version, etc. — with
+// camelCase / snake_case tolerance because claude-code's stream-json drifts
+// between releases. Mobile dispatches by field presence, so absent fields
+// must come through as nil rather than missing keys.
+func TestStdioDriver_RichSessionInit(t *testing.T) {
+	frame := `{"type":"system","subtype":"init",` +
+		`"session_id":"sess-x","model":"claude-opus-4-7","cwd":"/repo",` +
+		`"permissionMode":"acceptEdits","tools":["Read","Edit"],` +
+		`"mcp_servers":[{"name":"hub"}],` +
+		`"slashCommands":["/help","/clear"],` +
+		`"agents":["steward"],"skills":["statusline"],"plugins":[],` +
+		`"claude_code_version":"2.6.0",` +
+		`"outputStyle":"default",` +
+		`"fastModeState":{"available":true}}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-init", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second) // started + session.init
+	drv.Stop()
+
+	evs := poster.snapshot()
+	var init postedEvent
+	for _, e := range evs {
+		if e.Kind == "session.init" {
+			init = e
+			break
+		}
+	}
+	if init.Kind == "" {
+		t.Fatalf("no session.init event; got %+v", evs)
+	}
+	p := init.Payload
+	if p["cwd"] != "/repo" {
+		t.Errorf("cwd = %v; want /repo", p["cwd"])
+	}
+	if p["permission_mode"] != "acceptEdits" {
+		t.Errorf("permission_mode = %v; want acceptEdits (from camelCase source)", p["permission_mode"])
+	}
+	if p["version"] != "2.6.0" {
+		t.Errorf("version = %v; want 2.6.0 (from claude_code_version)", p["version"])
+	}
+	if p["output_style"] != "default" {
+		t.Errorf("output_style = %v; want default (from camelCase outputStyle)", p["output_style"])
+	}
+	if _, ok := p["fast_mode_state"].(map[string]any); !ok {
+		t.Errorf("fast_mode_state = %v; want map (from camelCase fastModeState)", p["fast_mode_state"])
+	}
+	if mcp, ok := p["mcp_servers"].([]any); !ok || len(mcp) != 1 {
+		t.Errorf("mcp_servers = %v; want 1-elem slice", p["mcp_servers"])
+	}
+	if sc, ok := p["slash_commands"].([]any); !ok || len(sc) != 2 {
+		t.Errorf("slash_commands = %v; want 2-elem slice (from camelCase)", p["slash_commands"])
+	}
+}
+
+// TestStdioDriver_UsageEventFromAssistant covers the per-message usage
+// extraction: when an assistant frame's message.usage is present, the
+// driver emits a typed `usage` event (linked back via message_id) so the
+// telemetry strip can render token counts without peeking at text payloads.
+func TestStdioDriver_UsageEventFromAssistant(t *testing.T) {
+	frame := `{"type":"assistant","message":{"id":"msg_42","role":"assistant","model":"claude-opus-4-7","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":120,"output_tokens":35,"cache_read_input_tokens":900,"cache_creation_input_tokens":50,"service_tier":"standard"}}}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-usage", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 3, time.Second) // started + text + usage
+	drv.Stop()
+
+	evs := poster.snapshot()
+	var text, usage postedEvent
+	for _, e := range evs {
+		switch e.Kind {
+		case "text":
+			text = e
+		case "usage":
+			usage = e
+		}
+	}
+	if text.Payload["message_id"] != "msg_42" {
+		t.Errorf("text message_id = %v; want msg_42", text.Payload["message_id"])
+	}
+	if usage.Kind == "" {
+		t.Fatalf("no usage event; got %+v", evs)
+	}
+	p := usage.Payload
+	if p["input_tokens"] != float64(120) {
+		t.Errorf("input_tokens = %v; want 120", p["input_tokens"])
+	}
+	if p["output_tokens"] != float64(35) {
+		t.Errorf("output_tokens = %v; want 35", p["output_tokens"])
+	}
+	if p["cache_read"] != float64(900) {
+		t.Errorf("cache_read = %v; want 900 (lifted from cache_read_input_tokens)", p["cache_read"])
+	}
+	if p["cache_create"] != float64(50) {
+		t.Errorf("cache_create = %v; want 50 (lifted from cache_creation_input_tokens)", p["cache_create"])
+	}
+	if p["model"] != "claude-opus-4-7" {
+		t.Errorf("model = %v; want claude-opus-4-7", p["model"])
+	}
+	if p["message_id"] != "msg_42" {
+		t.Errorf("usage message_id = %v; want msg_42", p["message_id"])
+	}
+}
+
+// TestStdioDriver_AssistantWithoutUsageDoesNotEmit guards against spurious
+// usage events when the message has no usage block — drivers shouldn't
+// invent telemetry the agent didn't send.
+func TestStdioDriver_AssistantWithoutUsageDoesNotEmit(t *testing.T) {
+	frame := `{"type":"assistant","message":{"id":"msg_x","role":"assistant","content":[{"type":"text","text":"hi"}]}}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-noU", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second) // started + text
+	drv.Stop()
+
+	for _, e := range poster.snapshot() {
+		if e.Kind == "usage" {
+			t.Fatalf("usage event emitted without source usage block: %+v", e)
+		}
+	}
+}
+
+// TestStdioDriver_RateLimitEvent normalizes the rate_limit_event frame —
+// claude uses camelCase rateLimitType / resetsAt / overageDisabledReason,
+// our typed shape uses snake_case. Mobile reads `overage_disabled` as a
+// bool flag; the driver coerces non-nil overageDisabledReason to true.
+func TestStdioDriver_RateLimitEvent(t *testing.T) {
+	frame := `{"type":"rate_limit_event","rateLimitType":"5h","status":"warn","resetsAt":"2026-04-25T13:00:00Z","overageStatus":"available","overageDisabledReason":null,"isUsingOverage":false}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-rl", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second) // started + rate_limit
+	drv.Stop()
+
+	var rl postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "rate_limit" {
+			rl = e
+			break
+		}
+	}
+	if rl.Kind == "" {
+		t.Fatalf("no rate_limit event; got %+v", poster.snapshot())
+	}
+	p := rl.Payload
+	if p["window"] != "5h" {
+		t.Errorf("window = %v; want 5h", p["window"])
+	}
+	if p["status"] != "warn" {
+		t.Errorf("status = %v; want warn", p["status"])
+	}
+	if p["resets_at"] != "2026-04-25T13:00:00Z" {
+		t.Errorf("resets_at = %v; want 2026-04-25T13:00:00Z", p["resets_at"])
+	}
+	if p["overage_status"] != "available" {
+		t.Errorf("overage_status = %v; want available", p["overage_status"])
+	}
+	if p["overage_disabled"] != false {
+		t.Errorf("overage_disabled = %v; want false (null reason → not disabled)", p["overage_disabled"])
+	}
+}
+
+func TestStdioDriver_RateLimitDisabledFromReason(t *testing.T) {
+	frame := `{"type":"rate_limit_event","rate_limit_type":"1h","status":"limited","overage_disabled_reason":"opted_out"}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-rl2", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second)
+	drv.Stop()
+
+	var rl postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "rate_limit" {
+			rl = e
+			break
+		}
+	}
+	if rl.Payload["window"] != "1h" {
+		t.Errorf("window = %v; want 1h (snake_case source)", rl.Payload["window"])
+	}
+	if rl.Payload["overage_disabled"] != true {
+		t.Errorf("overage_disabled = %v; want true (non-nil reason)", rl.Payload["overage_disabled"])
+	}
+	if rl.Payload["reason"] != "opted_out" {
+		t.Errorf("reason = %v; want opted_out", rl.Payload["reason"])
+	}
+}
+
+// TestStdioDriver_TurnResultNormalization covers normalizeTurnResult's
+// modelUsage → by_model lift with camelCase inner keys, plus cost / fast
+// mode passthrough. Verified through the driver path so the wiring is
+// covered, not just the helper.
+func TestStdioDriver_TurnResultNormalization(t *testing.T) {
+	frame := `{"type":"result","subtype":"success","duration_ms":4500,"num_turns":3,` +
+		`"total_cost_usd":0.0123,"permission_denials":[],` +
+		`"fastModeState":{"available":true},` +
+		`"modelUsage":{"claude-opus-4-7":{"inputTokens":1200,"outputTokens":340,` +
+		`"cacheReadInputTokens":9100,"cacheCreationInputTokens":80,` +
+		`"costUSD":0.0123,"contextWindow":200000,"maxOutputTokens":8192}}}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-tr", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 3, time.Second) // started + turn.result + completion
+	drv.Stop()
+
+	var tr postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "turn.result" {
+			tr = e
+			break
+		}
+	}
+	if tr.Kind == "" {
+		t.Fatalf("no turn.result event; got %+v", poster.snapshot())
+	}
+	p := tr.Payload
+	if p["cost_usd"] != 0.0123 {
+		t.Errorf("cost_usd = %v; want 0.0123 (from total_cost_usd)", p["cost_usd"])
+	}
+	if p["num_turns"] != float64(3) {
+		t.Errorf("num_turns = %v; want 3", p["num_turns"])
+	}
+	if p["terminal_reason"] != "success" {
+		t.Errorf("terminal_reason = %v; want success", p["terminal_reason"])
+	}
+	byModel, ok := p["by_model"].(map[string]any)
+	if !ok {
+		t.Fatalf("by_model = %v; want map", p["by_model"])
+	}
+	model, ok := byModel["claude-opus-4-7"].(map[string]any)
+	if !ok {
+		t.Fatalf("by_model[claude-opus-4-7] = %v; want map", byModel["claude-opus-4-7"])
+	}
+	if model["input"] != float64(1200) {
+		t.Errorf("by_model.input = %v; want 1200 (from inputTokens)", model["input"])
+	}
+	if model["output"] != float64(340) {
+		t.Errorf("by_model.output = %v; want 340", model["output"])
+	}
+	if model["cache_read"] != float64(9100) {
+		t.Errorf("by_model.cache_read = %v; want 9100", model["cache_read"])
+	}
+	if model["context_window"] != float64(200000) {
+		t.Errorf("by_model.context_window = %v; want 200000", model["context_window"])
 	}
 }
 

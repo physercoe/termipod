@@ -69,7 +69,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     final start = upto.lastIndexOf(RegExp(r'\s'));
     final tokenStart = start + 1;
     final token = upto.substring(tokenStart);
-    if (token.length < 1) return null;
+    if (token.isEmpty) return null;
     final lead = token[0];
     if (lead != '/' && lead != '@') return null;
     final query = token.substring(1).toLowerCase();
@@ -248,7 +248,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               const SizedBox(width: 4),
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _ctrl,
-                builder: (_, value, __) {
+                builder: (_, value, _) {
                   final empty = value.text.trim().isEmpty;
                   return IconButton(
                     tooltip: 'Send as text input',
@@ -318,7 +318,7 @@ class _SuggestionStrip extends StatelessWidget {
         child: ListView.separated(
           scrollDirection: Axis.horizontal,
           itemCount: match.suggestions.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 6),
+          separatorBuilder: (_, _) => const SizedBox(width: 6),
           itemBuilder: (ctx, i) {
             final s = match.suggestions[i];
             return InkWell(

@@ -1,16 +1,13 @@
-/// Liveness classifier for the team steward agent.
-///
-/// A wedged claude process keeps `status='running'` on the hub but stops
-/// emitting `agent_events`, so a binary present/absent signal can show
-/// green forever on a dead steward. The hub now exposes
-/// `last_event_at` (MAX(ts) over agent_events for that agent); we
-/// classify the chip state on `(status, age(last_event_at))`.
-///
-/// Thresholds are placeholders pending real-session telemetry.
+// Liveness classifier for the team steward agent.
+//
+// A wedged claude process keeps `status='running'` on the hub but stops
+// emitting `agent_events`, so a binary present/absent signal can show
+// green forever on a dead steward. The hub now exposes
+// `last_event_at` (MAX(ts) over agent_events for that agent); we
+// classify the chip state on `(status, age(last_event_at))`.
+//
+// Thresholds are placeholders pending real-session telemetry.
 
-import 'package:flutter/foundation.dart';
-
-@immutable
 enum StewardLiveness {
   /// status=running, last event within [healthyWindow]. Green.
   healthy,

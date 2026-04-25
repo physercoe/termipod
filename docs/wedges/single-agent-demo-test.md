@@ -106,31 +106,40 @@ expected fields with claude as the only option.
 
 - A sheet titled **"Start your steward"** slides up automatically
   within 1s of the team route loading.
+- Sheet is non-dismissible: tapping the scrim or swipe-down does
+  nothing, and there's no top-right close (×) button.
 - Host picker shows your one host pre-selected.
-- Backend section shows a single radio: **Claude Code (claude-3-opus)**
-  — pre-selected, no other options visible.
+- Backend section shows a single radio: **Claude Code** with subtitle
+  `opus-4-7 · stream-json · MCP permission gate` — pre-selected,
+  no other options visible.
 - Persona seed field is empty with placeholder text.
-- Buttons: **Cancel** and **Start →**.
+- Buttons: **Skip for now** and **Start →**.
 
-**Tap "Cancel" once** to confirm the dismissal flow:
+**Tap "Skip for now"** to confirm the dismissal flow:
 
 - Sheet closes.
-- Force-quit and reopen the app.
-- The sheet should appear *again* — Cancel doesn't permanently
-  dismiss.
-
-**Tap "Skip" if it exists** (depending on final UX) — only that
-should set the dismissed-at flag.
+- A `steward_bootstrap_dismissed_<teamId>` key is written to
+  SharedPreferences with an ISO8601 timestamp.
+- Force-quit and reopen the app, navigate back to Projects. The
+  sheet should *not* reappear (the flag suppresses it).
+- Manually clear the flag (or tap the AppBar "No steward" chip to
+  open the sheet manually) to continue with AC3.
 
 **Failure modes:**
 
-- Sheet doesn't appear → check `team.agents.count == 0` is actually
-  true (the trigger condition). The hub may have a leftover steward
-  from a previous test run.
+- Sheet doesn't appear → check that no agent with `handle=steward`
+  is in `running`/`pending` state on this team (the trigger
+  condition is "no steward present", not "no agents at all"). A
+  `terminated` steward row is fine — that doesn't count as present.
+- Also confirm at least one host has `status=online`: the trigger
+  requires a connected host, not just a registered one.
 - Sheet appears but Backend section is empty or shows codex → W4
   used the wrong template list. v1 should hard-code claude.
-- Sheet appears on a team with an existing steward → trigger
-  condition is wrong; should only fire for empty teams.
+- Sheet appears on a team with an existing live steward → trigger
+  condition is wrong; should only fire when `stewardPresent` is false.
+- Sheet keeps reappearing after Skip → SharedPreferences write
+  failed, or the dismissed-flag key prefix doesn't match what
+  `_maybeShowBootstrap` reads (`steward_bootstrap_dismissed_`).
 
 ---
 

@@ -106,14 +106,22 @@ func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, p
 // (and any other agent that reads CLAUDE.md on startup) sees the steward
 // persona without the hub having to copy files around itself.
 //
+// personaSeed is a user-supplied addendum (typed into the mobile bootstrap
+// sheet) appended under a "Persona override" section so the agent picks
+// up both the templated body and the operator's customization. Empty
+// seed = no addendum.
+//
 // Behaviour:
-//   - No `prompt:` field on the spec → return rendered unchanged.
+//   - No `prompt:` field, no override, no seed → return unchanged.
 //   - Spec already declares `context_files.CLAUDE.md` → respect it (an
-//     explicit override beats the templated default).
-//   - Prompt file not found on disk overlay or embedded FS → error. A
-//     template referencing a non-existent prompt is a config bug, not
-//     something to silently ignore.
-func (s *Server) resolveContextFiles(rendered string, vars map[string]string) (string, error) {
+//     explicit override beats the templated default). The seed is
+//     ignored in this branch — explicit override means the operator
+//     wrote CLAUDE.md by hand and shouldn't get surprise concatenation.
+//   - Otherwise: read the prompt body (from disk overlay → embedded FS),
+//     expand vars, optionally append the seed, and emit a context_files
+//     block.
+//   - Prompt file not found on disk overlay or embedded FS → error.
+func (s *Server) resolveContextFiles(rendered string, vars map[string]string, personaSeed string) (string, error) {
 	var head struct {
 		Prompt       string            `yaml:"prompt"`
 		ContextFiles map[string]string `yaml:"context_files"`
@@ -123,19 +131,28 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string) (s
 		// 400'ing a spawn that may parse fine on the host-runner side.
 		return rendered, nil
 	}
-	if head.Prompt == "" {
+	if _, hasOverride := head.ContextFiles["CLAUDE.md"]; hasOverride {
 		return rendered, nil
 	}
-	if _, exists := head.ContextFiles["CLAUDE.md"]; exists {
+	hasSeed := strings.TrimSpace(personaSeed) != ""
+	if head.Prompt == "" && !hasSeed {
 		return rendered, nil
 	}
-	body, err := s.readPromptTemplate(head.Prompt)
-	if err != nil {
-		return "", fmt.Errorf("read prompt %q: %w", head.Prompt, err)
+
+	var body string
+	if head.Prompt != "" {
+		raw, err := s.readPromptTemplate(head.Prompt)
+		if err != nil {
+			return "", fmt.Errorf("read prompt %q: %w", head.Prompt, err)
+		}
+		body = expandVars(raw, vars)
 	}
-	expanded := expandVars(body, vars)
+	if hasSeed {
+		body = appendPersonaSeed(body, personaSeed)
+	}
+
 	extra, err := yaml.Marshal(map[string]any{
-		"context_files": map[string]string{"CLAUDE.md": expanded},
+		"context_files": map[string]string{"CLAUDE.md": body},
 	})
 	if err != nil {
 		return "", err
@@ -145,6 +162,27 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string) (s
 		sep = ""
 	}
 	return rendered + sep + string(extra), nil
+}
+
+// appendPersonaSeed concatenates the operator's seed onto the templated
+// CLAUDE.md under a clearly-labeled section so the agent (and a human
+// reading the materialized file) can tell the two apart.
+func appendPersonaSeed(body, seed string) string {
+	seed = strings.TrimSpace(seed)
+	if seed == "" {
+		return body
+	}
+	const header = "## Persona override"
+	if body == "" {
+		return header + "\n\n" + seed + "\n"
+	}
+	sep := "\n\n"
+	if strings.HasSuffix(body, "\n\n") {
+		sep = ""
+	} else if strings.HasSuffix(body, "\n") {
+		sep = "\n"
+	}
+	return body + sep + header + "\n\n" + seed + "\n"
 }
 
 // readPromptTemplate prefers <dataRoot>/team/templates/prompts/<name> so

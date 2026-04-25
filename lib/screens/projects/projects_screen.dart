@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/connection_provider.dart';
@@ -41,6 +42,11 @@ class ProjectsScreen extends ConsumerStatefulWidget {
 }
 
 class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
+  /// Fires once per screen lifetime so a user who Skips the auto-bootstrap
+  /// sheet doesn't get nagged again as the hub state ticks (e.g. a refresh
+  /// rebuilds with the same "no steward" snapshot).
+  bool _bootstrapAttempted = false;
+
   @override
   void initState() {
     super.initState();
@@ -48,14 +54,55 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
         ref.read(hubProvider.notifier).refreshAll();
+        // Cover the cached-state-already-populated case: navigating back to
+        // Projects after the cache has been hydrated produces no provider
+        // transition, so the ref.listen below would never fire.
+        _maybeShowBootstrap(st);
       }
     });
+  }
+
+  /// Auto-presents the steward bootstrap sheet the first time we see a
+  /// configured team that has at least one online host but no steward —
+  /// the W4 first-run UX. Respects a per-team SharedPreferences "dismissed"
+  /// flag so a user who tapped Skip isn't re-prompted on future cold starts.
+  Future<void> _maybeShowBootstrap(HubState st) async {
+    if (_bootstrapAttempted) return;
+    if (!st.configured) return;
+    if (stewardPresent(st.agents)) return;
+    final hasOnlineHost = st.hosts.any(
+      (h) => (h['status']?.toString() ?? '') == 'online',
+    );
+    if (!hasOnlineHost) return;
+    final teamId = st.config?.teamId ?? '';
+    if (teamId.isEmpty) return;
+    // Mark attempted before the await so a fast re-build can't double-fire.
+    _bootstrapAttempted = true;
+    final prefs = await SharedPreferences.getInstance();
+    final dismissed = prefs.getString(bootstrapDismissedKey(teamId));
+    if (dismissed != null && dismissed.isNotEmpty) return;
+    if (!mounted) return;
+    await showSpawnStewardSheet(
+      context,
+      hosts: st.hosts,
+      autoTriggered: true,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(hubProvider);
     final colorScheme = Theme.of(context).colorScheme;
+
+    // React to hub-state transitions rather than reading once in initState —
+    // hosts/agents are populated by refreshAll (an async fetch), so the
+    // first build often has empty lists and the bootstrap conditions only
+    // become true a few frames later.
+    ref.listen<AsyncValue<HubState>>(hubProvider, (_, next) {
+      final st = next.value;
+      if (st == null) return;
+      _maybeShowBootstrap(st);
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -138,7 +185,7 @@ class _StewardChip extends ConsumerWidget {
     final hub = ref.watch(hubProvider).value;
     if (hub == null || !hub.configured) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final present = _stewardPresent(hub.agents);
+    final present = stewardPresent(hub.agents);
     final Color bg;
     final Color fg;
     if (present) {
@@ -195,18 +242,20 @@ class _StewardChip extends ConsumerWidget {
     );
   }
 
-  /// A steward counts as "present" when any agent with handle=='steward'
-  /// is in an active lifecycle state (pending or running). We include
-  /// 'pending' because a freshly-spawned steward is on its way up — no
-  /// reason to flash "No steward" during the 3s reconcile window.
-  static bool _stewardPresent(List<Map<String, dynamic>> agents) {
-    for (final a in agents) {
-      if ((a['handle'] ?? '').toString() != 'steward') continue;
-      final s = (a['status'] ?? '').toString();
-      if (s == 'running' || s == 'pending') return true;
-    }
-    return false;
+}
+
+/// A steward counts as "present" when any agent with handle=='steward' is
+/// in an active lifecycle state (pending or running). We include 'pending'
+/// because a freshly-spawned steward is on its way up — no reason to flash
+/// "No steward" during the 3s reconcile window. Top-level so both the
+/// AppBar chip and the W4 auto-bootstrap trigger share one definition.
+bool stewardPresent(List<Map<String, dynamic>> agents) {
+  for (final a in agents) {
+    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    final s = (a['status'] ?? '').toString();
+    if (s == 'running' || s == 'pending') return true;
   }
+  return false;
 }
 
 // ---------------------------------------------------------------------

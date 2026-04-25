@@ -167,7 +167,7 @@ func TestResolveContextFiles_InlinesPromptFromEmbedded(t *testing.T) {
 	s, _ := newTestServer(t)
 	rendered := "kind: claude-code\nprompt: steward.v1.md\n"
 	vars := map[string]string{"principal.handle": "physercoe"}
-	got, err := s.resolveContextFiles(rendered, vars)
+	got, err := s.resolveContextFiles(rendered, vars, "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestResolveContextFiles_DiskOverlayWins(t *testing.T) {
 
 	rendered := "prompt: steward.v1.md\n"
 	got, err := s.resolveContextFiles(rendered,
-		map[string]string{"principal.handle": "alice"})
+		map[string]string{"principal.handle": "alice"}, "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -223,10 +223,65 @@ func TestResolveContextFiles_DiskOverlayWins(t *testing.T) {
 	}
 }
 
+func TestResolveContextFiles_AppendsPersonaSeed(t *testing.T) {
+	// Mobile bootstrap supplies a free-form persona seed; the hub should
+	// concatenate it onto the rendered CLAUDE.md under a labeled section
+	// so a human reading the file can tell which lines came from the
+	// template vs. the operator.
+	s, _ := newTestServer(t)
+	rendered := "prompt: steward.v1.md\n"
+	got, err := s.resolveContextFiles(rendered,
+		map[string]string{"principal.handle": "alice"},
+		"You are terse. Always cite line numbers.")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	body := parsed.ContextFiles["CLAUDE.md"]
+	if !strings.Contains(body, "# Steward Agent") {
+		t.Errorf("template body missing:\n%s", body)
+	}
+	if !strings.Contains(body, "## Persona override") {
+		t.Errorf("override header missing:\n%s", body)
+	}
+	if !strings.Contains(body, "You are terse") {
+		t.Errorf("seed text missing:\n%s", body)
+	}
+	if strings.Index(body, "# Steward Agent") >
+		strings.Index(body, "## Persona override") {
+		t.Errorf("override appended in wrong position:\n%s", body)
+	}
+}
+
+func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
+	// Even when the template has no prompt: field, supplying a seed
+	// should still produce a CLAUDE.md so a hand-rolled spawn can
+	// author its persona inline.
+	s, _ := newTestServer(t)
+	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "be terse")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if !strings.Contains(parsed.ContextFiles["CLAUDE.md"], "be terse") {
+		t.Errorf("seed not included:\n%s", parsed.ContextFiles["CLAUDE.md"])
+	}
+}
+
 func TestResolveContextFiles_NoPromptFieldUnchanged(t *testing.T) {
 	s, _ := newTestServer(t)
 	in := "backend:\n  cmd: echo hi\n"
-	got, err := s.resolveContextFiles(in, map[string]string{})
+	got, err := s.resolveContextFiles(in, map[string]string{}, "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -236,10 +291,12 @@ func TestResolveContextFiles_NoPromptFieldUnchanged(t *testing.T) {
 }
 
 func TestResolveContextFiles_ExplicitOverrideWins(t *testing.T) {
-	// If a spec already declares context_files.CLAUDE.md, leave it alone.
+	// If a spec already declares context_files.CLAUDE.md, leave it alone
+	// untouched. An operator who hand-rolled the override doesn't want
+	// the templated body silently re-merged in.
 	s, _ := newTestServer(t)
 	in := "prompt: steward.v1.md\ncontext_files:\n  CLAUDE.md: \"my override\"\n"
-	got, err := s.resolveContextFiles(in, map[string]string{})
+	got, err := s.resolveContextFiles(in, map[string]string{}, "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -253,7 +310,7 @@ func TestResolveContextFiles_MissingPromptErrors(t *testing.T) {
 	// surface it loudly rather than silently spawning a contextless agent.
 	s, _ := newTestServer(t)
 	in := "prompt: does-not-exist.md\n"
-	_, err := s.resolveContextFiles(in, map[string]string{})
+	_, err := s.resolveContextFiles(in, map[string]string{}, "")
 	if err == nil {
 		t.Fatal("want error for missing prompt; got nil")
 	}

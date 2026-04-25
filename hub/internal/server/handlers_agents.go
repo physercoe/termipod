@@ -306,6 +306,12 @@ type spawnIn struct {
 	// When set it's strict — the resolver tries only this candidate,
 	// no fallback. Empty means "use template + fallbacks".
 	Mode string `json:"mode,omitempty"`
+	// PersonaSeed is a free-form addendum the user types into the
+	// mobile bootstrap sheet. The hub appends it to the rendered
+	// CLAUDE.md as a "Persona override" section so the agent sees
+	// both the template body and the user's customization on first
+	// turn. Empty means no override.
+	PersonaSeed string `json:"persona_seed,omitempty"`
 }
 
 type spawnOut struct {
@@ -428,7 +434,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}
-	rendered, err = s.resolveContextFiles(rendered, vars)
+	rendered, err = s.resolveContextFiles(rendered, vars, in.PersonaSeed)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}

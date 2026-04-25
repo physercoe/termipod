@@ -767,6 +767,7 @@ class HubClient {
     required String spawnSpecYaml,
     String? hostId,
     String? parentAgentId,
+    String? personaSeed,
   }) async {
     final body = <String, dynamic>{
       'child_handle': childHandle,
@@ -776,6 +777,9 @@ class HubClient {
     if (hostId != null && hostId.isNotEmpty) body['host_id'] = hostId;
     if (parentAgentId != null && parentAgentId.isNotEmpty) {
       body['parent_agent_id'] = parentAgentId;
+    }
+    if (personaSeed != null && personaSeed.trim().isNotEmpty) {
+      body['persona_seed'] = personaSeed.trim();
     }
     final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
     return (out as Map).cast<String, dynamic>();

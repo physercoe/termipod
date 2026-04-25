@@ -94,7 +94,7 @@ func TestResolve_FallsBackOnUnsupportedRequested(t *testing.T) {
 
 func TestResolve_ClaudeCodeM1UnderSubscriptionBlocked(t *testing.T) {
 	// The blueprint billing caveat: Agent SDK (which M1's ACP adapter
-	// wraps) only supports api_key billing.
+	// wraps) only supports api_key billing. Encoded as data, not Go.
 	r, err := Resolve(Input{
 		AgentKind:     "claude-code",
 		Requested:     "M1",
@@ -102,6 +102,9 @@ func TestResolve_ClaudeCodeM1UnderSubscriptionBlocked(t *testing.T) {
 		Billing:       BillingSubscription,
 		HostInstalled: true,
 		HostSupports:  []string{"M1", "M2", "M4"},
+		Incompatibilities: []Incompat{
+			{Mode: "M1", Billing: BillingSubscription, Reason: "agent SDK requires api_key"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("want ok via fallback; got %v", err)
@@ -115,18 +118,48 @@ func TestResolve_ClaudeCodeM1UnderSubscriptionBlocked(t *testing.T) {
 }
 
 func TestResolve_ClaudeCodeM1UnderAPIKeyAllowed(t *testing.T) {
+	// Same incompatibility list — but with api_key billing the rule
+	// shouldn't fire. This is the "data filters by billing too" check.
 	r, err := Resolve(Input{
 		AgentKind:     "claude-code",
 		Requested:     "M1",
 		Billing:       BillingAPIKey,
 		HostInstalled: true,
 		HostSupports:  []string{"M1", "M2", "M4"},
+		Incompatibilities: []Incompat{
+			{Mode: "M1", Billing: BillingSubscription, Reason: "agent SDK requires api_key"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("want ok; got %v", err)
 	}
 	if r.Mode != "M1" {
 		t.Fatalf("Mode = %q; want M1", r.Mode)
+	}
+}
+
+// TestResolve_IncompatibilitiesDataDriven covers the wedge where the
+// resolver no longer hardcodes vendor billing rules. The test passes a
+// hypothetical "M2 + subscription" rule for an arbitrary agent kind and
+// asserts the resolver honors it — proof that the rule set is purely
+// data, not a Go switch on AgentKind.
+func TestResolve_IncompatibilitiesDataDriven(t *testing.T) {
+	r, err := Resolve(Input{
+		AgentKind:     "imaginary-cli",
+		Requested:     "M2",
+		FallbackModes: []string{"M4"},
+		Billing:       BillingSubscription,
+		HostInstalled: true,
+		HostSupports:  []string{"M2", "M4"},
+		Incompatibilities: []Incompat{
+			{Mode: "M2", Billing: BillingSubscription, Reason: "vendor x rejects subscription on M2"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("want ok via fallback; got %v", err)
+	}
+	if r.Mode != "M4" {
+		t.Fatalf("Mode = %q; want M4 (subscription/M2 blocked)", r.Mode)
 	}
 }
 

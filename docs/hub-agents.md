@@ -12,6 +12,12 @@ scheduler.
 - At least one **host** registered — see `docs/hub-host-setup.md`.
 - A bearer token with a kind that permits `/agents/spawn`. Owner and
   user tokens are fine; agent- and host-kind tokens are not.
+- The agent family (template `backend.kind`) must appear in
+  `hub/internal/agentfamilies/agent_families.yaml`. That file is the
+  single source of truth for every CLI the hub knows about — host-runner
+  reads it to probe binaries (`bin`, `version_flag`, `supports`) and the
+  spawn handler reads it to apply mode×billing
+  `incompatibilities` rules. Adding a new family is a YAML edit.
 
 ## 2. The spawn pipeline
 
@@ -54,7 +60,10 @@ backend:
   # Adding a new mode is a YAML-only operation — Go has no fallback.
   permission_modes:
     skip:   "--dangerously-skip-permissions"
-    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
+    # {{mcp_namespace}} expands to the hub's MCP server name
+    # (`hub.MCPServerName`, currently "termipod"). Substitution is
+    # fixed-point so this nested placeholder is resolved.
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
   cmd: "claude --model {{model}} --no-update {{permission_flag}}"
 
 # Optional: bind marker forwarding to a channel so any
@@ -82,6 +91,10 @@ Template expansion runs server-side. Useful placeholders:
 - `{{model}}` — value of `backend.model` (empty if unset)
 - `{{permission_flag}}` — `backend.permission_modes[<spawn.permission_mode>]`
   (empty if the mode isn't declared in the YAML)
+- `{{mcp_namespace}}` — hub-controlled MCP server name (`hub.MCPServerName`).
+  Use it inside a permission flag value like
+  `mcp__{{mcp_namespace}}__permission_prompt` so the rendered command
+  always tracks the hub binary's notion of the namespace.
 
 ## 4. Spawning from mobile
 

@@ -202,6 +202,55 @@ func TestTemplates_RenameRefusesOverwrite(t *testing.T) {
 	}
 }
 
+// TestTemplates_CategoriesFromEmbed asserts the LIST endpoint returns
+// items from every embedded category, even on a fresh data root with no
+// disk overlay yet. The previous fixed list locked categories at
+// {agents,prompts,policies}; the embedded FS also ships projects/, and
+// that should now appear without a Go-side allow-list edit.
+func TestTemplates_CategoriesFromEmbed(t *testing.T) {
+	c := newE2E(t)
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates"
+	status, raw := rawCall(t, c.token, url, "GET", nil)
+	if status != 200 {
+		t.Fatalf("LIST = %d body=%s", status, raw)
+	}
+	cats := map[string]bool{}
+	// crude scan — the JSON shape is [{category, name, ...}, …] and we
+	// don't need a full decoder for this assertion.
+	for _, want := range []string{"agents", "prompts", "policies", "projects"} {
+		if strings.Contains(string(raw), `"category":"`+want+`"`) {
+			cats[want] = true
+		}
+	}
+	for _, want := range []string{"agents", "prompts", "projects"} {
+		if !cats[want] {
+			t.Errorf("category %q not in LIST body=%s", want, raw)
+		}
+	}
+}
+
+// TestTemplates_PutCreatesNewCategory verifies that PUTting into a
+// previously-unknown category (here "tools") creates the directory and
+// shows up in subsequent LISTs. This is the wedge that lets new
+// categories be added by data, not by editing a Go allow-list.
+func TestTemplates_PutCreatesNewCategory(t *testing.T) {
+	c := newE2E(t)
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/tools/example.v1.yaml"
+	body := []byte("template: tools.example\nversion: 1\n")
+	status, raw := rawCallRaw(t, c.token, url, "PUT", "application/yaml", body)
+	if status != 201 {
+		t.Fatalf("PUT new category = %d body=%s", status, raw)
+	}
+	listURL := c.srv.URL + "/v1/teams/" + c.teamID + "/templates"
+	status, raw = rawCall(t, c.token, listURL, "GET", nil)
+	if status != 200 {
+		t.Fatalf("LIST = %d body=%s", status, raw)
+	}
+	if !strings.Contains(string(raw), `"category":"tools"`) {
+		t.Errorf("new category not in LIST body=%s", raw)
+	}
+}
+
 // TestBuildSpawnVars_DataDriven_Model confirms {{model}} resolves from
 // the spec yaml's backend.model field — the whole point of the wedge.
 // A spec with no model → empty string (no Go-side fallback).

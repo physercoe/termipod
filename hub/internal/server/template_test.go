@@ -319,5 +319,37 @@ func TestResolveContextFiles_MissingPromptErrors(t *testing.T) {
 	}
 }
 
+// TestRenderSpawnSpec_FixedPointMCPNamespace verifies that a permission
+// flag value embedding {{mcp_namespace}} is recursively expanded. This
+// is the wedge that lets templates derive the MCP server name from
+// hub.MCPServerName instead of hardcoding "termipod" in three places.
+func TestRenderSpawnSpec_FixedPointMCPNamespace(t *testing.T) {
+	s, _ := newTestServer(t)
+	spec := strings.Join([]string{
+		"backend:",
+		"  permission_modes:",
+		"    prompt: --permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt",
+		"  cmd: claude {{permission_flag}}",
+		"",
+	}, "\n")
+	in := spawnIn{
+		ChildHandle:    "w",
+		Kind:           "claude-code",
+		SpawnSpec:      spec,
+		PermissionMode: "prompt",
+	}
+	got, err := s.renderSpawnSpec(context.Background(), defaultTeamID, in, "")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	want := "claude --permission-prompt-tool mcp__termipod__permission_prompt"
+	if !strings.Contains(got, want) {
+		t.Errorf("fixed-point expansion did not resolve mcp_namespace:\n%s", got)
+	}
+	if strings.Contains(got, "{{") {
+		t.Errorf("placeholders remained after expansion:\n%s", got)
+	}
+}
+
 // sanity: the server helper above should not leak a closed DB.
 var _ = sql.ErrNoRows

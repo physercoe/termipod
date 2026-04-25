@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/modes"
 	"gopkg.in/yaml.v3"
 )
@@ -104,14 +105,30 @@ func (s *Server) resolveSpawnMode(ctx context.Context, in spawnIn) (string, erro
 		supports = []string{"M1", "M2", "M4"}
 	}
 
+	// Pull declarative billing/mode incompatibilities for this family
+	// from the agent_families.yaml registry. Unknown family ⇒ empty
+	// list ⇒ no billing rejections (consistent with the resolver's
+	// permissive default for unknown billing).
+	var incompat []modes.Incompat
+	if fam, ok := agentfamilies.ByName(in.Kind); ok {
+		for _, ic := range fam.Incompatibilities {
+			incompat = append(incompat, modes.Incompat{
+				Mode:    ic.Mode,
+				Billing: modes.Billing(ic.Billing),
+				Reason:  ic.Reason,
+			})
+		}
+	}
+
 	res, err := modes.Resolve(modes.Input{
-		AgentKind:     in.Kind,
-		Requested:     y.DrivingMode,
-		FallbackModes: y.FallbackModes,
-		Override:      in.Mode,
-		Billing:       billing,
-		HostInstalled: installed,
-		HostSupports:  supports,
+		AgentKind:         in.Kind,
+		Requested:         y.DrivingMode,
+		FallbackModes:     y.FallbackModes,
+		Override:          in.Mode,
+		Billing:           billing,
+		HostInstalled:     installed,
+		HostSupports:      supports,
+		Incompatibilities: incompat,
 	})
 	if err != nil {
 		return "", fmt.Errorf("mode resolution failed: %w", err)

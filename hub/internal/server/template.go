@@ -71,6 +71,12 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		"principal.handle": strings.TrimPrefix(resolvedPrincipal, "@"),
 		"model":            model,
 		"permission_flag":  permFlag,
+		// MCP server namespace is a wire-protocol constant, owned by the
+		// hub root package so server + hostrunner agree. Templates that
+		// build claude flags like --permission-prompt-tool need it
+		// embedded inside permission_modes values, which is why
+		// expandVars below iterates to a fixed point.
+		"mcp_namespace": hub.MCPServerName,
 	}
 	if in.ParentID != "" {
 		parentHandle, journal, err := s.lookupParentContext(ctx, team, in.ParentID)
@@ -108,17 +114,32 @@ func backendVarsFromSpec(spec, mode string) (model, permFlag string) {
 
 // expandVars replaces every {{name}} occurrence in s with vars[name];
 // missing keys collapse to the empty string so the output stays parseable.
+//
+// Substitution iterates to a fixed point (capped at expandVarsMaxPasses)
+// so a value can reference another var: e.g. permission_flag's value
+// embeds {{mcp_namespace}}, which only resolves after the first pass
+// substitutes permission_flag itself. The cap prevents pathological
+// recursion if a future var ever references itself; in practice two
+// passes suffice for the templates we ship.
 func expandVars(s string, vars map[string]string) string {
-	if !strings.Contains(s, "{{") {
-		return s
-	}
-	return tmplVarRe.ReplaceAllStringFunc(s, func(match string) string {
-		m := tmplVarRe.FindStringSubmatch(match)
-		if m == nil {
-			return match
+	const expandVarsMaxPasses = 5
+	for i := 0; i < expandVarsMaxPasses; i++ {
+		if !strings.Contains(s, "{{") {
+			return s
 		}
-		return vars[m[1]]
-	})
+		next := tmplVarRe.ReplaceAllStringFunc(s, func(match string) string {
+			m := tmplVarRe.FindStringSubmatch(match)
+			if m == nil {
+				return match
+			}
+			return vars[m[1]]
+		})
+		if next == s {
+			return next
+		}
+		s = next
+	}
+	return s
 }
 
 // renderSpawnSpec expands {{var}} placeholders in spec using values derived

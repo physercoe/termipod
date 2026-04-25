@@ -26,8 +26,11 @@ backend:
     skip: "--dangerously-skip-permissions"
     # "prompt" = route every tool call through the MCP gateway →
     # attention_items. Requires the permission_prompt MCP tool to be
-    # registered (W2). Empty mode falls through to claude's own default.
-    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
+    # registered (W2). The {{mcp_namespace}} placeholder resolves to
+    # hub.MCPServerName so the flag stays in lockstep with the server
+    # name host-runner writes into .mcp.json. Empty mode falls through
+    # to claude's own default.
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
   # cmd is what host-runner actually launches. Flags:
   #   --print                          non-interactive (no TUI repl).
   #   --output-format stream-json      one JSON object per line on stdout.

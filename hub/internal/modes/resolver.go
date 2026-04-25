@@ -31,17 +31,28 @@ const (
 	BillingSubscription Billing = "subscription"
 )
 
+// Incompat is one mode×billing rejection rule. Resolver consults the
+// list attached to the input at spawn time; the data is owned by
+// agentfamilies (embedded YAML) so adding a vendor-side billing quirk
+// never lands as a resolver patch.
+type Incompat struct {
+	Mode    string  // M1|M2|M4 (case-insensitive)
+	Billing Billing // api_key|subscription
+	Reason  string  // human-readable rejection rationale
+}
+
 // Input is the resolver's contract. All slices may be nil; Override is
 // optional. Modes are case-insensitive on input but normalized to
 // upper-case in the result.
 type Input struct {
-	AgentKind     string   // "claude-code", "gemini-cli", "codex", "aider"
-	Requested     string   // template.driving_mode — M1|M2|M4
-	FallbackModes []string // template.fallback_modes — ordered
-	Override      string   // spawn_request.mode — if set, the *only* candidate
-	Billing       Billing
-	HostInstalled bool     // is the agent binary present on this host?
-	HostSupports  []string // host.capabilities.agents[kind].supports
+	AgentKind         string   // "claude-code", "gemini-cli", "codex", "aider"
+	Requested         string   // template.driving_mode — M1|M2|M4
+	FallbackModes     []string // template.fallback_modes — ordered
+	Override          string   // spawn_request.mode — if set, the *only* candidate
+	Billing           Billing
+	HostInstalled     bool     // is the agent binary present on this host?
+	HostSupports      []string // host.capabilities.agents[kind].supports
+	Incompatibilities []Incompat
 }
 
 // Result is the resolver's decision. Reason is a short human-readable
@@ -133,14 +144,23 @@ func rejectReason(mode string, in Input) string {
 	return ""
 }
 
-// billingConflict encodes the known incompatibilities between modes and
-// billing declarations. As of blueprint §5.3 only one combination is
-// hard-blocked: Claude Code M1 under subscription, because the ACP
-// adapter wraps the Agent SDK which does not support subscription
-// billing (anthropics/claude-agent-sdk-python#559).
+// billingConflict walks Input.Incompatibilities looking for a record
+// matching the candidate mode + the declared billing. Reasons are
+// authored at the data layer (agentfamilies/agent_families.yaml) so
+// the resolver stays family-agnostic — adding a new SDK limitation is
+// a YAML edit. An unset (BillingUnknown) declaration never trips a
+// conflict since we don't know what to enforce against.
 func billingConflict(mode string, in Input) string {
-	if in.AgentKind == "claude-code" && mode == "M1" && in.Billing == BillingSubscription {
-		return "M1 requires api_key billing for claude-code (Agent SDK limitation)"
+	if in.Billing == BillingUnknown {
+		return ""
+	}
+	for _, ic := range in.Incompatibilities {
+		if normalize(ic.Mode) == mode && ic.Billing == in.Billing {
+			if ic.Reason != "" {
+				return ic.Reason
+			}
+			return "billing/mode combination disallowed"
+		}
 	}
 	return ""
 }

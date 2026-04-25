@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,27 +12,34 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	hub "github.com/termipod/hub"
 )
 
-// Templates live on disk at <dataRoot>/team/templates/{agents,prompts,policies}/*.
-// They're seeded from the embedded FS on first init (see init.go) and then
-// owned by the user — this handler reads from disk so edits take effect
-// without restarting.
+// Templates live on disk at <dataRoot>/team/templates/<category>/*.
+// They're seeded from the embedded FS on first init (see init.go) and
+// then owned by the user — this handler reads from disk so edits take
+// effect without restarting.
+//
+// Category set is discovered, not hardcoded. The hub ships a set of
+// built-in categories under hub.TemplatesFS (agents, prompts, policies,
+// projects, …) and the user can extend that on disk. Listing scans
+// both; mutations accept any safe-name category and create the
+// directory on first PUT. That way a future "tools/" or "schedules/"
+// category is a YAML drop, not a Go change.
 
 type templateOut struct {
-	Category string `json:"category"` // agents | prompts | policies
+	Category string `json:"category"` // e.g. "agents", "prompts", "projects"
 	Name     string `json:"name"`     // e.g. "steward.v1.yaml"
 	Path     string `json:"path"`     // relative to team/templates
 	Size     int64  `json:"size"`
 	ModTime  string `json:"mod_time"`
 }
 
-var templateCategories = []string{"agents", "prompts", "policies"}
-
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	base := filepath.Join(s.cfg.DataRoot, "team", "templates")
+	cats := discoverTemplateCategories(base)
 	out := []templateOut{}
-	for _, cat := range templateCategories {
+	for _, cat := range cats {
 		dir := filepath.Join(base, cat)
 		entries, err := os.ReadDir(dir)
 		if err != nil && !os.IsNotExist(err) {
@@ -62,6 +70,44 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 		return out[i].Name < out[j].Name
 	})
 	writeJSON(w, http.StatusOK, out)
+}
+
+// discoverTemplateCategories returns the union of category directories
+// found on disk under <base> and inside the embedded TemplatesFS. We
+// merge the two so a fresh install (no disk dir yet) still reports the
+// built-in categories, and a user who creates a new category by PUTting
+// the first file gets it picked up automatically. Hidden dotfiles and
+// non-directories are skipped to keep the wire output sane.
+func discoverTemplateCategories(base string) []string {
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if !safeCategoryName(name) {
+			return
+		}
+		seen[name] = struct{}{}
+	}
+	if entries, err := os.ReadDir(base); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			add(e.Name())
+		}
+	}
+	if entries, err := fs.ReadDir(hub.TemplatesFS, "templates"); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			add(e.Name())
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
@@ -257,14 +303,19 @@ func resolveTemplatePath(dataRoot, cat, name string) (string, bool) {
 	return path, true
 }
 
-func validCategory(c string) bool {
-	for _, x := range templateCategories {
-		if x == c {
-			return true
-		}
-	}
-	return false
-}
+// safeCategoryName accepts any non-hidden, separator-free identifier.
+// Categories are directories under team/templates, so the same path
+// hygiene rules as template names apply: no traversal, no path
+// separators, no dotfiles. Adding a new category is a PUT into a name
+// that passes this check; the directory is created lazily.
+func safeCategoryName(c string) bool { return safeTemplateName(c) }
+
+// validCategory is the legacy alias used by handlers; kept as a thin
+// wrapper so reading the call sites still tells you "this is a category
+// name". Identical to safeCategoryName today; if we ever reintroduce a
+// closed list (e.g. for billing-restricted categories) the guard lives
+// here.
+func validCategory(c string) bool { return safeCategoryName(c) }
 
 // safeTemplateName rejects path separators, parent refs, and hidden files.
 func safeTemplateName(n string) bool {

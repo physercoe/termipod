@@ -9,22 +9,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-)
 
-// knownAgents is the conservative list of agent families whose mode support
-// the blueprint (§5.3.2, §9) already pins down. Anything not in this table is
-// not probed — we'd rather underreport than fabricate capability claims.
-var knownAgents = []struct {
-	Family      string
-	Bin         string
-	VersionFlag string
-	Supports    []string
-}{
-	{"claude-code", "claude", "--version", []string{"M1", "M2", "M4"}},
-	{"gemini-cli", "gemini", "--version", []string{"M1", "M4"}},
-	{"codex", "codex", "--version", []string{"M1", "M4"}},
-	{"aider", "aider", "--version", []string{"M2", "M4"}},
-}
+	"github.com/termipod/hub/internal/agentfamilies"
+)
 
 // AgentCap is the per-family probe result. When Installed is false, Version
 // and Supports are empty — the hub UI renders "not installed" in that case.
@@ -41,24 +28,29 @@ type Capabilities struct {
 	ProbedAt string              `json:"probed_at"`
 }
 
-// ProbeCapabilities runs exec.LookPath for each known family and, if present,
-// invokes its version command with a 2s per-binary timeout. The outer ctx
-// bounds the whole sweep; individual slow binaries do not stall the others
-// beyond their own timeout.
+// ProbeCapabilities runs exec.LookPath for each known family and, if
+// present, invokes its version command with a 2s per-binary timeout.
+// The family list comes from agentfamilies (embedded YAML) — the probe
+// is intentionally schema-driven so adding a CLI never lands as a Go
+// edit. The outer ctx bounds the whole sweep; individual slow
+// binaries do not stall the others beyond their own timeout.
 func ProbeCapabilities(ctx context.Context) Capabilities {
+	fams, _ := agentfamilies.All()
 	out := Capabilities{
-		Agents:   make(map[string]AgentCap, len(knownAgents)),
+		Agents:   make(map[string]AgentCap, len(fams)),
 		ProbedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	for _, a := range knownAgents {
+	for _, a := range fams {
 		path, err := exec.LookPath(a.Bin)
 		if err != nil || path == "" {
 			out.Agents[a.Family] = AgentCap{Installed: false}
 			continue
 		}
 		ac := AgentCap{Installed: true, Supports: append([]string(nil), a.Supports...)}
-		if v, ok := runVersion(ctx, path, a.VersionFlag); ok {
-			ac.Version = v
+		if a.VersionFlag != "" {
+			if v, ok := runVersion(ctx, path, a.VersionFlag); ok {
+				ac.Version = v
+			}
 		}
 		out.Agents[a.Family] = ac
 	}

@@ -1,0 +1,43 @@
+# Single source of truth for which agent CLIs the hub knows about.
+# Adding a new family is a YAML edit, never a Go change.
+#
+# Each entry carries:
+#   - family       — wire-level name used in hosts.capabilities_json,
+#                    template backend.kind, and audit rows.
+#   - bin          — the executable host-runner probes via exec.LookPath.
+#   - version_flag — argument the probe runs to read a version string.
+#                    Empty means "skip the version probe".
+#   - supports     — modes the family is known to support; consumed by
+#                    modes.Resolve to reject incompatible spawn requests.
+#                    Mode tokens: M1|M2|M4 (see blueprint §5.3.1).
+#   - incompatibilities — list of {mode, billing, reason} records read
+#                    by modes.Resolve to fail-fast spawns whose mode +
+#                    declared billing combination is broken at the
+#                    upstream level (e.g. Anthropic SDK limitations).
+#
+# Why a YAML file instead of Go literals: the blueprint (§5.3.2) wants
+# new agent families to land as drop-in declarations, and the hub
+# itself should not encode third-party billing quirks in source. If a
+# vendor ships M1 support tomorrow we add a row here and rebuild — no
+# resolver edits, no probe edits.
+families:
+  - family: claude-code
+    bin: claude
+    version_flag: --version
+    supports: [M1, M2, M4]
+    incompatibilities:
+      - mode: M1
+        billing: subscription
+        reason: "M1 requires api_key billing for claude-code (Agent SDK limitation)"
+  - family: gemini-cli
+    bin: gemini
+    version_flag: --version
+    supports: [M1, M4]
+  - family: codex
+    bin: codex
+    version_flag: --version
+    supports: [M1, M4]
+  - family: aider
+    bin: aider
+    version_flag: --version
+    supports: [M2, M4]

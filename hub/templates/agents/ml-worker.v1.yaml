@@ -16,7 +16,7 @@ backend:
   default_workdir: ~/hub-work
   permission_modes:
     skip: "--dangerously-skip-permissions"
-    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
   cmd: "claude --model {{model}} {{permission_flag}}"
 
 default_role: worker.ml

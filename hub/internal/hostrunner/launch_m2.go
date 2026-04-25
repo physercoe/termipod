@@ -21,6 +21,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	hub "github.com/termipod/hub"
 )
 
 // ProcSpawner is the narrow dependency we inject so tests can stand in a
@@ -270,8 +272,10 @@ func writeContextFiles(workdir string, files map[string]string) error {
 
 // writeMCPConfig writes a `.mcp.json` into the agent workdir that
 // points claude-code at hub-mcp-bridge as the stdio transport for
-// MCP tools. The server name "termipod" is what the steward template
-// expects: --permission-prompt-tool mcp__termipod__permission_prompt.
+// MCP tools. The server name comes from hub.MCPServerName so it stays
+// in lockstep with the {{mcp_namespace}} template render var; the
+// steward template's --permission-prompt-tool flag must reference the
+// same namespace, e.g. mcp__termipod__permission_prompt.
 //
 // Token handling: claude-code reads `.mcp.json` from disk and treats
 // it as plaintext config. We write 0o600 so it isn't world-readable
@@ -283,7 +287,7 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
-			"termipod": map[string]any{
+			hub.MCPServerName: map[string]any{
 				"command": "hub-mcp-bridge",
 				"env": map[string]string{
 					"HUB_URL":   hubURL,

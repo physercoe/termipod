@@ -12,11 +12,24 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_compose.dart';
+import '../../widgets/agent_feed.dart';
 import '../../widgets/steward_badge.dart';
 
-/// Single team-scope channel view. Lists existing events via REST, then
-/// subscribes to the SSE stream for live updates. A bottom composer posts
-/// new `message` events with a single `text` part.
+/// Single team-scope channel view.
+///
+/// Two render modes:
+///   - **Steward room (`#hub-meta`)** when a live steward exists: renders
+///     [AgentFeed] + [AgentCompose] over the steward's agent_events
+///     stream. This is the W5 chat-style transcript — session header,
+///     streaming assistant text, tool_call cards, inline approval prompts.
+///     Composer routes to `POST /agents/{id}/input` so the bytes reach
+///     claude's stdin instead of getting parked in the channel table.
+///   - **Plain team channel** otherwise: lists `channels/.../events` via
+///     REST, subscribes to the SSE stream, and a bottom composer posts
+///     new `message` events. Used for human-only channels and as the
+///     fallback for hub-meta when no steward is alive yet (so the user
+///     sees something rather than an empty rail).
 ///
 /// Reused by the Steward chip (opens `#hub-meta`) and by Team → Channels.
 class TeamChannelScreen extends ConsumerStatefulWidget {
@@ -197,51 +210,106 @@ class _TeamChannelScreenState extends ConsumerState<TeamChannelScreen> {
     }
   }
 
+  /// Looks up the live steward agent for this team. Returns null when no
+  /// agent with handle=='steward' is in a running/pending state — in that
+  /// case the screen falls back to the plain-channel renderer so the room
+  /// still works for human chat (and the user can spawn a steward via the
+  /// AppBar chip).
+  String? _stewardAgentId() {
+    final agents = ref.watch(hubProvider).value?.agents ?? const [];
+    for (final a in agents) {
+      if ((a['handle'] ?? '').toString() != 'steward') continue;
+      final s = (a['status'] ?? '').toString();
+      if (s == 'running' || s == 'pending') {
+        final id = (a['id'] ?? '').toString();
+        if (id.isNotEmpty) return id;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The steward room renders the agent transcript instead of raw channel
+    // events — see file-level docstring for the rationale.
+    final stewardId =
+        widget.channelName == 'hub-meta' ? _stewardAgentId() : null;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          '#${widget.channelName}',
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 16, fontWeight: FontWeight.w700),
-        ),
-      ),
-      body: SafeArea(
-        child: Column(
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (_error != null)
-              Container(
-                width: double.infinity,
-                color: DesignColors.error.withValues(alpha: 0.1),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(_error!,
-                    style: GoogleFonts.jetBrainsMono(
-                        fontSize: 11, color: DesignColors.error)),
-              ),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _events.isEmpty
-                      ? _EmptyChannelView(name: widget.channelName)
-                      : ListView.builder(
-                          controller: _scroll,
-                          padding: const EdgeInsets.all(12),
-                          itemCount: _events.length,
-                          itemBuilder: (_, i) => _EventBubble(evt: _events[i]),
-                        ),
+            Text(
+              '#${widget.channelName}',
+              style: GoogleFonts.spaceGrotesk(
+                  fontSize: 16, fontWeight: FontWeight.w700),
             ),
-            _Composer(
-              controller: _composer,
-              sending: _sending,
-              uploading: _uploading,
-              onSend: _send,
-              onAttach: _pickAndAttach,
-            ),
+            if (stewardId != null) ...[
+              const SizedBox(width: 8),
+              const StewardBadge(),
+            ],
           ],
         ),
       ),
+      body: SafeArea(
+        child: stewardId != null
+            ? _StewardTranscript(agentId: stewardId)
+            : Column(
+                children: [
+                  if (_error != null)
+                    Container(
+                      width: double.infinity,
+                      color: DesignColors.error.withValues(alpha: 0.1),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Text(_error!,
+                          style: GoogleFonts.jetBrainsMono(
+                              fontSize: 11, color: DesignColors.error)),
+                    ),
+                  Expanded(
+                    child: _loading
+                        ? const Center(child: CircularProgressIndicator())
+                        : _events.isEmpty
+                            ? _EmptyChannelView(name: widget.channelName)
+                            : ListView.builder(
+                                controller: _scroll,
+                                padding: const EdgeInsets.all(12),
+                                itemCount: _events.length,
+                                itemBuilder: (_, i) =>
+                                    _EventBubble(evt: _events[i]),
+                              ),
+                  ),
+                  _Composer(
+                    controller: _composer,
+                    sending: _sending,
+                    uploading: _uploading,
+                    onSend: _send,
+                    onAttach: _pickAndAttach,
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+/// Steward-room body: the chat-style agent_events transcript stacked
+/// over an `AgentCompose` input bar. Pulled into its own widget so the
+/// `TeamChannelScreen` build method stays readable, and so future
+/// per-room presentation tweaks (header chips, status pills) live in
+/// one place rather than threading through the channel-mode branch.
+class _StewardTranscript extends StatelessWidget {
+  final String agentId;
+  const _StewardTranscript({required this.agentId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Expanded(child: AgentFeed(agentId: agentId)),
+        AgentCompose(agentId: agentId),
+      ],
     );
   }
 }

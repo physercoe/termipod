@@ -193,16 +193,20 @@ not raw JSON.
 **Steps:**
 
 1. From AC2's sheet, type a short persona seed: `You are terse.`
-2. Tap **Start →**.
-3. Watch the channel list. The team's default channel should now
-   show "Steward" attached as an agent.
-4. Tap into the channel.
+2. Tap **Start →**. The sheet closes; you land back on Projects.
+3. Watch the AppBar **Steward chip** (left of the team switcher).
+   Within ~1s of the spawn ack, the chip flips from grey "No
+   steward" to filled "Steward".
+4. Tap the chip to open `#hub-meta`.
 
 **Expected:**
 
+- The channel app-bar reads `#hub-meta` with a Steward badge pill
+  next to it (signals the chat-style renderer is active, not the
+  plain-channel fallback).
 - Within ~3s of tapping Start, you see a **session header chip** at
-  the top of the transcript — something like "Session started ·
-  opus-4-7".
+  the top of the transcript — something like "Session · opus-4-7"
+  rendered from the `session.init` agent_event.
 - The first time the steward is given a turn (which may be its own
   init prompt or the first user message — depends on the persona-seed
   decision), an assistant text bubble streams in token-by-token.
@@ -213,6 +217,15 @@ not raw JSON.
 
 **Failure modes:**
 
+- Steward chip stays grey → spawn never reached `running`. Check
+  `GET /v1/teams/<t>/agents` for the steward row's `status`; if
+  it's `pending` for >30s, the host-runner didn't pick it up.
+- Channel opens with the *plain* renderer (no Steward badge in the
+  app-bar, attachment paperclip on the composer) → the steward
+  detection in `team_channel_screen.dart` failed. Confirm a steward
+  agent with `status=running` (or `pending`) exists in
+  `hub.agents`. The fallback is intentional — humans can still type
+  in the room — but means the chat transcript won't render.
 - Channel is empty / no session chip → host-runner didn't actually
   spawn claude, or stream-json frames aren't reaching the hub. Check
   `${LogDir}/termipod-agent-${ChildID}.log` on the host — if that's
@@ -220,8 +233,9 @@ not raw JSON.
   forwarding.
 - Bubbles appear but text is whole-paragraph chunks → streaming is
   buffered. Investigate `StdioDriver` line-buffering.
-- Raw JSON shows up → mobile renderer (W5) isn't handling that frame
-  type. Note which frame leaked and file it.
+- Raw JSON shows up → AgentFeed isn't handling that frame kind.
+  Note which kind leaked (the raw card prints the JSON verbatim)
+  and add a case to the `_buildBody` switch.
 
 ---
 

@@ -61,6 +61,13 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   bool _busy = false;
   String? _error;
   String? _hostId;
+  /// Permission mode for claude's tool calls. "skip" = auto-allow (PC
+  /// behaviour, default for the demo), "prompt" = route every tool call
+  /// through the MCP gateway → attention_items (only useful once W2 is
+  /// shipped — picking it on a hub that doesn't register the MCP tool
+  /// will hang claude on the first tool call). Kept here so the user can
+  /// flip between modes per-spawn without editing the steward template.
+  String _permissionMode = 'skip';
   final TextEditingController _personaCtrl = TextEditingController();
 
   @override
@@ -96,6 +103,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         spawnSpecYaml: yaml,
         hostId: _hostId,
         personaSeed: _personaCtrl.text,
+        permissionMode: _permissionMode,
       );
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';
@@ -225,6 +233,13 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                 // requiring another sheet rev when it lands.
                 _BackendRadio(),
                 const SizedBox(height: 12),
+                _PermissionModeSelector(
+                  value: _permissionMode,
+                  onChanged: _busy
+                      ? null
+                      : (v) => setState(() => _permissionMode = v),
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _personaCtrl,
                   minLines: 3,
@@ -292,6 +307,99 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Permission-mode selector. Determines which CLI flag the hub appends
+/// to claude's `cmd` for this spawn:
+///
+///   - "skip" → `--dangerously-skip-permissions`. Auto-allows every tool
+///     call. PC-style behaviour: claude can run tools the same way it
+///     does in a local terminal, no per-tool prompts. This is the demo
+///     default — higher-level decisions (spawning agents, editing
+///     policy, sending money-relevant calls) are what should reach the
+///     human as attention items, not every individual edit.
+///   - "prompt" → `--permission-prompt-tool mcp__termipod__permission_prompt`.
+///     Routes every tool call through the MCP gateway, which currently
+///     surfaces them as attention_items for the principal to approve.
+///     Useful for testing the W2 attention flow, but on a hub that
+///     hasn't registered the MCP tool yet, claude will hang on the
+///     first tool call.
+class _PermissionModeSelector extends StatelessWidget {
+  final String value;
+  final ValueChanged<String>? onChanged;
+  const _PermissionModeSelector({required this.value, this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: Text(
+              'Tool permissions',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+          RadioListTile<String>(
+            value: 'skip',
+            groupValue: value,
+            onChanged: onChanged == null ? null : (v) => onChanged!(v!),
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            title: Text(
+              'Allow all tools (PC mode)',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Auto-approve every tool call — same as running claude '
+              'locally with --dangerously-skip-permissions.',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+          RadioListTile<String>(
+            value: 'prompt',
+            groupValue: value,
+            onChanged: onChanged == null ? null : (v) => onChanged!(v!),
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            title: Text(
+              'Prompt for each tool (attention)',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Text(
+              'Route every tool call through the MCP gateway → attention '
+              'items. Requires the W2 MCP tool registered on this hub; '
+              'otherwise claude will hang on the first tool call.',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

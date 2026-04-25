@@ -53,6 +53,7 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		"now":              time.Now().UTC().Format(time.RFC3339),
 		"principal":        resolvedPrincipal,
 		"principal.handle": strings.TrimPrefix(resolvedPrincipal, "@"),
+		"permission_flag":  permissionFlag(in.PermissionMode),
 	}
 	if in.ParentID != "" {
 		parentHandle, journal, err := s.lookupParentContext(ctx, team, in.ParentID)
@@ -63,6 +64,22 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		vars["journal"] = journal
 	}
 	return vars, nil
+}
+
+// permissionFlag turns the request's PermissionMode into the corresponding
+// claude CLI flag. Templates use the variable in their cmd string so the
+// same template can drive both demo modes (auto-allow vs. attention-gated)
+// without forking the YAML. See spawnIn.PermissionMode for the full
+// semantics of each value.
+func permissionFlag(mode string) string {
+	switch mode {
+	case "skip":
+		return "--dangerously-skip-permissions"
+	case "prompt":
+		return "--permission-prompt-tool mcp__termipod__permission_prompt"
+	default:
+		return ""
+	}
 }
 
 // expandVars replaces every {{name}} occurrence in s with vars[name];

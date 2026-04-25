@@ -22,10 +22,18 @@ backend:
   #                                    stdin so the process stays alive
   #                                    across turns. Without this flag,
   #                                    --print exits after a single reply.
-  #   --permission-prompt-tool ...     route any interactive permission
-  #                                    UI through the host-runner MCP
-  #                                    gateway → attention_items.
-  cmd: "claude --model opus-4-7 --print --output-format stream-json --input-format stream-json --permission-prompt-tool mcp__termipod__permission_prompt"
+  #   {{permission_flag}}              expanded by the hub from the spawn
+  #                                    request's permission_mode field:
+  #                                    "skip"  → --dangerously-skip-permissions
+  #                                              (auto-allow, PC-style)
+  #                                    "prompt"→ --permission-prompt-tool
+  #                                              mcp__termipod__permission_prompt
+  #                                              (route every tool call
+  #                                              through the MCP gateway →
+  #                                              attention_items; needs W2
+  #                                              MCP tool registered)
+  #                                    ""      → no flag (claude default)
+  cmd: "claude --model opus-4-7 --print --output-format stream-json --input-format stream-json {{permission_flag}}"
 
 default_role: team.coordinator
 display_label: "Steward"

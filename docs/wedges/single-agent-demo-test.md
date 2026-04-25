@@ -112,6 +112,19 @@ expected fields with claude as the only option.
 - Backend section shows a single radio: **Claude Code** with subtitle
   `opus-4-7 · stream-json · MCP permission gate` — pre-selected,
   no other options visible.
+- **Tool permissions** section shows two radios:
+  - **Allow all tools (PC mode)** — pre-selected (default for the
+    demo). Subtitle calls out that this auto-approves tool calls,
+    same as `--dangerously-skip-permissions`.
+  - **Prompt for each tool (attention)** — selectable; subtitle
+    warns that it requires the W2 MCP tool registered on this hub
+    or claude will hang on the first tool call.
+  Selection persists into the spawn body as `permission_mode` and
+  is interpolated into the steward template's `cmd` line by the hub
+  via the `{{permission_flag}}` variable. To verify after spawn,
+  SSH the host and `ps -ef | grep claude` — "Allow all" should
+  show `--dangerously-skip-permissions`, "Prompt" should show
+  `--permission-prompt-tool mcp__termipod__permission_prompt`.
 - Persona seed field is empty with placeholder text.
 - Buttons: **Skip for now** and **Start →**.
 

@@ -768,6 +768,7 @@ class HubClient {
     String? hostId,
     String? parentAgentId,
     String? personaSeed,
+    String? permissionMode,
   }) async {
     final body = <String, dynamic>{
       'child_handle': childHandle,
@@ -780,6 +781,9 @@ class HubClient {
     }
     if (personaSeed != null && personaSeed.trim().isNotEmpty) {
       body['persona_seed'] = personaSeed.trim();
+    }
+    if (permissionMode != null && permissionMode.isNotEmpty) {
+      body['permission_mode'] = permissionMode;
     }
     final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
     return (out as Map).cast<String, dynamic>();

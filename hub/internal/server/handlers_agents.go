@@ -312,6 +312,20 @@ type spawnIn struct {
 	// both the template body and the user's customization on first
 	// turn. Empty means no override.
 	PersonaSeed string `json:"persona_seed,omitempty"`
+	// PermissionMode controls how claude (or any backend that templates
+	// against {{permission_flag}}) handles tool-call approval. Recognised
+	// values:
+	//   - "skip"   → expand to `--dangerously-skip-permissions` (auto-allow,
+	//                matches a local `claude` session on a PC).
+	//   - "prompt" → expand to `--permission-prompt-tool mcp__termipod__
+	//                permission_prompt` (route every tool call through the
+	//                hub MCP gateway → attention_items). Only useful once
+	//                that MCP tool is registered.
+	//   - ""       → empty expansion, falls through to whatever default
+	//                claude does in stream-json --print mode.
+	// The mobile bootstrap sheet defaults to "skip" so the demo flow
+	// works without W2 plumbing.
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 type spawnOut struct {

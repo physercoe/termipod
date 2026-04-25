@@ -1,13 +1,19 @@
-// Package buildinfo exposes the running binary's git revision and build
-// time, populated automatically from runtime/debug.ReadBuildInfo when
-// `go build` runs inside a git tree. Both hub-server and host-runner
-// import this so they self-report consistent build metadata.
+// Package buildinfo exposes the running binary's release version, git
+// revision, and build time. Both hub-server and host-runner import this
+// so they self-report consistent build metadata.
 package buildinfo
 
 import (
 	"runtime/debug"
 	"strings"
 )
+
+// Version is the release tag the hub/host-runner binaries report.
+// MUST match pubspec.yaml's `version:` (without the +N build suffix) so
+// mobile and hub use the same x.y.z-alpha numbering. Use
+// `make bump VERSION=...` from the repo root to update both files
+// atomically.
+const Version = "1.0.262-alpha"
 
 var (
 	Commit    string

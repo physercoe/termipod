@@ -17,12 +17,16 @@ import (
 
 	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/auth"
+	"github.com/termipod/hub/internal/buildinfo"
 )
 
-const (
-	APIVersion    = "v1"
-	ServerVersion = "0.1.0-alpha"
-)
+const APIVersion = "v1"
+
+// ServerVersion mirrors buildinfo.Version (single source of truth, kept
+// in sync with pubspec.yaml via `make bump`). Exported here for callers
+// that already import "internal/server" — mcp.go's tools/list payload
+// and handleInfo both read this.
+var ServerVersion = buildinfo.Version
 
 type Config struct {
 	Listen   string // e.g. 127.0.0.1:8443
@@ -376,13 +380,13 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"supported_api_versions":    []string{"v1"},
 		"schema_versions_supported": []int{1},
 	}
-	if Commit != "" {
-		out["commit"] = Commit
+	if buildinfo.Commit != "" {
+		out["commit"] = buildinfo.Commit
 	}
-	if BuildTime != "" {
-		out["build_time"] = BuildTime
+	if buildinfo.BuildTime != "" {
+		out["build_time"] = buildinfo.BuildTime
 	}
-	if Modified {
+	if buildinfo.Modified {
 		out["modified"] = true
 	}
 	writeJSON(w, http.StatusOK, out)

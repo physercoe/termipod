@@ -62,6 +62,40 @@ func (c *Client) PutCapabilities(ctx context.Context, hostID string, caps any) e
 		fmt.Sprintf("/v1/teams/%s/hosts/%s/capabilities", c.Team, hostID), caps, nil)
 }
 
+// AgentFamilyFromHub mirrors the wire shape the hub returns from
+// GET /v1/teams/{team}/agent-families. Mirrors agentfamilies.Family one
+// for one but lives here so the host-runner package doesn't import the
+// hub-internal agentfamilies package — keeps the build dependency one-way.
+type AgentFamilyFromHub struct {
+	Family            string                 `json:"family"`
+	Bin               string                 `json:"bin"`
+	VersionFlag       string                 `json:"version_flag"`
+	Supports          []string               `json:"supports"`
+	Incompatibilities []AgentFamilyIncompat  `json:"incompatibilities,omitempty"`
+	Source            string                 `json:"source,omitempty"`
+}
+
+type AgentFamilyIncompat struct {
+	Mode    string `json:"mode"`
+	Billing string `json:"billing"`
+	Reason  string `json:"reason"`
+}
+
+// ListAgentFamilies fetches the merged registry from the hub. Probe sweeps
+// call this so a hot edit on mobile lands in the next probe without a
+// host-runner restart. On any error the caller should fall back to the
+// embedded YAML (so a brief hub outage doesn't blank capabilities).
+func (c *Client) ListAgentFamilies(ctx context.Context) ([]AgentFamilyFromHub, error) {
+	path := fmt.Sprintf("/v1/teams/%s/agent-families", c.Team)
+	var out struct {
+		Families []AgentFamilyFromHub `json:"families"`
+	}
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return out.Families, nil
+}
+
 type Spawn struct {
 	SpawnID      string          `json:"spawn_id"`
 	ChildID      string          `json:"child_agent_id"`

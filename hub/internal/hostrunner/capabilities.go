@@ -28,14 +28,24 @@ type Capabilities struct {
 	ProbedAt string              `json:"probed_at"`
 }
 
-// ProbeCapabilities runs exec.LookPath for each known family and, if
-// present, invokes its version command with a 2s per-binary timeout.
-// The family list comes from agentfamilies (embedded YAML) — the probe
-// is intentionally schema-driven so adding a CLI never lands as a Go
-// edit. The outer ctx bounds the whole sweep; individual slow
-// binaries do not stall the others beyond their own timeout.
+// ProbeCapabilities probes against the embedded family registry. Kept for
+// callers that don't have a hub-fetched list (one-shot CLI tools, tests).
+// The reconcile loop calls ProbeWithFamilies instead so a hot edit on
+// mobile lands in the next probe sweep without a host-runner rebuild.
 func ProbeCapabilities(ctx context.Context) Capabilities {
 	fams, _ := agentfamilies.All()
+	return ProbeWithFamilies(ctx, fams)
+}
+
+// ProbeWithFamilies runs exec.LookPath for each family and, if present,
+// invokes its version command with a 2s per-binary timeout. The list is
+// supplied by the caller — runner fetches it from the hub on each sweep
+// so adding Kimi from mobile is visible to the probe immediately.
+//
+// Pure function: no global registry read, no network. The outer ctx
+// bounds the whole sweep; individual slow binaries do not stall the
+// others beyond their own per-binary timeout.
+func ProbeWithFamilies(ctx context.Context, fams []agentfamilies.Family) Capabilities {
 	out := Capabilities{
 		Agents:   make(map[string]AgentCap, len(fams)),
 		ProbedAt: time.Now().UTC().Format(time.RFC3339),

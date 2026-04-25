@@ -7,12 +7,21 @@
 // blocked. Keeping that data in agent_families.yaml (and embedding it
 // here) means a new family is a single YAML row, not a coordinated
 // edit across hostrunner + modes + server.
+//
+// At runtime the embedded YAML is the default set; per-family override
+// files under <DataRoot>/agent_families/<family>.yaml replace embedded
+// entries by name and add new ones. The hub API hands operators a
+// CRUD surface over the override directory and calls Invalidate after
+// every mutation so edits land instantly without a restart.
 package agentfamilies
 
 import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -34,56 +43,233 @@ type Incompat struct {
 // YAML schema 1:1; we don't promote internal aliases to the YAML so
 // editing the file feels like editing data, not configuring a struct.
 type Family struct {
-	Family            string     `yaml:"family"`
-	Bin               string     `yaml:"bin"`
-	VersionFlag       string     `yaml:"version_flag"`
-	Supports          []string   `yaml:"supports"`
-	Incompatibilities []Incompat `yaml:"incompatibilities"`
+	Family            string     `yaml:"family" json:"family"`
+	Bin               string     `yaml:"bin" json:"bin"`
+	VersionFlag       string     `yaml:"version_flag" json:"version_flag"`
+	Supports          []string   `yaml:"supports" json:"supports"`
+	Incompatibilities []Incompat `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
 }
 
-var (
-	loaded     []Family
-	loadedErr  error
-	loadedOnce sync.Once
+// Source tags whether a returned Family came from the embedded default,
+// an override of an embedded family, or a custom file with no embedded
+// counterpart. Drives the badge the mobile UI shows next to each row.
+type Source string
+
+const (
+	SourceEmbedded Source = "embedded"
+	SourceOverride Source = "override"
+	SourceCustom   Source = "custom"
 )
 
-// All returns the full family list parsed from the embedded YAML. The
-// parse runs once per process; subsequent calls are cheap. A parse
-// error here is a build-time bug — the YAML is committed alongside
-// the loader — but we surface it rather than panic so tests can fail
-// loudly.
-func All() ([]Family, error) {
-	loadedOnce.Do(func() {
-		b, err := fs.ReadFile(familiesFS, "agent_families.yaml")
-		if err != nil {
-			loadedErr = fmt.Errorf("read agent_families.yaml: %w", err)
-			return
-		}
-		var doc struct {
-			Families []Family `yaml:"families"`
-		}
-		if err := yaml.Unmarshal(b, &doc); err != nil {
-			loadedErr = fmt.Errorf("parse agent_families.yaml: %w", err)
-			return
-		}
-		loaded = doc.Families
-	})
-	return loaded, loadedErr
+// View pairs a family record with its origin tag. List endpoints return
+// []View so the UI can render "default vs custom" without re-reading the
+// disk twice.
+type View struct {
+	Family Family `json:"family"`
+	Source Source `json:"source"`
 }
 
-// ByName returns the family entry whose .Family matches name. The
-// boolean is false when name is unknown — callers treat that as
-// "family not in the closed set" and surface a clean error rather
-// than fabricating defaults.
-func ByName(name string) (Family, bool) {
-	fams, err := All()
+// Registry holds the merged embedded + overlay family list, with a
+// lazy cache that Invalidate clears on every mutation. The zero value
+// is not usable — call New.
+type Registry struct {
+	overlayDir string
+
+	mu       sync.RWMutex
+	cached   []View
+	cachedErr error
+	loaded   bool
+}
+
+// New constructs a registry that reads embedded defaults first, then
+// overlays any *.yaml file found in overlayDir. An empty overlayDir is
+// allowed — the registry behaves as embedded-only.
+func New(overlayDir string) *Registry {
+	return &Registry{overlayDir: overlayDir}
+}
+
+// All returns the full merged list as []View. View pairs the family
+// record with its source tag (embedded / override / custom).
+func (r *Registry) All() ([]View, error) {
+	r.mu.RLock()
+	if r.loaded {
+		out := append([]View(nil), r.cached...)
+		err := r.cachedErr
+		r.mu.RUnlock()
+		return out, err
+	}
+	r.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.loaded {
+		return append([]View(nil), r.cached...), r.cachedErr
+	}
+	views, err := r.loadLocked()
+	r.cached = views
+	r.cachedErr = err
+	r.loaded = true
+	return append([]View(nil), views...), err
+}
+
+// Families returns only the Family records, dropping the source tag.
+// Equivalent to All() projected to .Family for callers that don't care
+// about provenance (host-runner probe, resolver lookup).
+func (r *Registry) Families() ([]Family, error) {
+	views, err := r.All()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Family, len(views))
+	for i, v := range views {
+		out[i] = v.Family
+	}
+	return out, nil
+}
+
+// ByName returns the merged family entry by name. Boolean is false when
+// the name isn't known — callers treat that as "not in the closed set".
+func (r *Registry) ByName(name string) (Family, bool) {
+	views, err := r.All()
 	if err != nil {
 		return Family{}, false
 	}
-	for _, f := range fams {
-		if f.Family == name {
-			return f, true
+	for _, v := range views {
+		if v.Family.Family == name {
+			return v.Family, true
 		}
 	}
 	return Family{}, false
 }
+
+// Invalidate drops the cache. The next All() call re-reads the embedded
+// YAML and rescans the overlay directory. Cheap — call it after every
+// successful PUT/DELETE on the overlay.
+func (r *Registry) Invalidate() {
+	r.mu.Lock()
+	r.cached = nil
+	r.cachedErr = nil
+	r.loaded = false
+	r.mu.Unlock()
+}
+
+// OverlayDir is the absolute path the registry writes override files
+// to. Empty when the registry runs without an overlay (tests, embedded-
+// only mode). Handlers use this to resolve PUT/DELETE targets.
+func (r *Registry) OverlayDir() string { return r.overlayDir }
+
+// loadLocked merges embedded YAML with overlay files. Caller holds r.mu.
+//
+// Resolution order:
+//  1. Parse embedded YAML — these become source=embedded.
+//  2. Scan overlayDir for *.yaml; each parsed file either replaces an
+//     embedded entry by .Family (source flips to override) or adds a
+//     new entry (source=custom).
+//
+// Malformed overlay files are logged-and-skipped, never fatal — a bad
+// hand-edit shouldn't take down the hub. A malformed embedded file is
+// fatal because that's a build-time bug.
+func (r *Registry) loadLocked() ([]View, error) {
+	embedded, err := readEmbedded()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]View, 0, len(embedded))
+	indexByName := make(map[string]int, len(embedded))
+	for _, f := range embedded {
+		indexByName[f.Family] = len(views)
+		views = append(views, View{Family: f, Source: SourceEmbedded})
+	}
+
+	if r.overlayDir == "" {
+		return views, nil
+	}
+	entries, err := os.ReadDir(r.overlayDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return views, nil
+		}
+		return views, fmt.Errorf("read overlay dir: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		path := filepath.Join(r.overlayDir, e.Name())
+		fam, ferr := readOverlayFile(path)
+		if ferr != nil {
+			fmt.Fprintf(os.Stderr, "agentfamilies: skip %s: %v\n", path, ferr)
+			continue
+		}
+		if i, ok := indexByName[fam.Family]; ok {
+			views[i] = View{Family: fam, Source: SourceOverride}
+			continue
+		}
+		indexByName[fam.Family] = len(views)
+		views = append(views, View{Family: fam, Source: SourceCustom})
+	}
+	return views, nil
+}
+
+func readEmbedded() ([]Family, error) {
+	b, err := fs.ReadFile(familiesFS, "agent_families.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("read agent_families.yaml: %w", err)
+	}
+	var doc struct {
+		Families []Family `yaml:"families"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("parse agent_families.yaml: %w", err)
+	}
+	return doc.Families, nil
+}
+
+func readOverlayFile(path string) (Family, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return Family{}, err
+	}
+	var f Family
+	dec := yaml.NewDecoder(strings.NewReader(string(b)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil {
+		return Family{}, fmt.Errorf("parse: %w", err)
+	}
+	if f.Family == "" {
+		return Family{}, fmt.Errorf("missing family name")
+	}
+	return f, nil
+}
+
+// Default is the package-level registry used when callers don't carry
+// their own. It runs embedded-only — server.New replaces it via
+// SetDefault once the DataRoot is known so the spawn path picks up the
+// overlay too.
+var defaultMu sync.RWMutex
+var defaultRegistry = New("")
+
+// SetDefault swaps the package-level registry. Server.New calls it
+// once at startup with a registry rooted at <DataRoot>/agent_families.
+// Tests that need a clean default can call SetDefault(New("")) in a
+// t.Cleanup.
+func SetDefault(r *Registry) {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	defaultRegistry = r
+}
+
+func currentDefault() *Registry {
+	defaultMu.RLock()
+	defer defaultMu.RUnlock()
+	return defaultRegistry
+}
+
+// All is the package-level shim retained for callers that don't hold a
+// Registry handle (host-runner embedded fallback, modes/spawn helpers).
+// Returns the merged Family list of the current default registry.
+func All() ([]Family, error) { return currentDefault().Families() }
+
+// ByName is the package-level shim. Equivalent to
+// currentDefault().ByName(name).
+func ByName(name string) (Family, bool) { return currentDefault().ByName(name) }

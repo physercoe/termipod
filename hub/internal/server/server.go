@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/auth"
 )
 
@@ -37,15 +38,16 @@ type Config struct {
 }
 
 type Server struct {
-	cfg       Config
-	db        *sql.DB
-	router    chi.Router
-	log       *slog.Logger
-	bus       *eventBus
-	sched     *Scheduler
-	policy    *policyStore
-	escalator *Escalator
-	tunnel    *TunnelManager
+	cfg          Config
+	db           *sql.DB
+	router       chi.Router
+	log          *slog.Logger
+	bus          *eventBus
+	sched        *Scheduler
+	policy       *policyStore
+	escalator    *Escalator
+	tunnel       *TunnelManager
+	agentFamilies *agentfamilies.Registry
 }
 
 func New(cfg Config) (*Server, error) {
@@ -58,6 +60,11 @@ func New(cfg Config) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
 	s.policy = newPolicyStore(cfg.DataRoot)
+	s.agentFamilies = agentfamilies.New(agentFamiliesOverlayDir(cfg.DataRoot))
+	// Register as the package default so spawn_mode.go's call to
+	// agentfamilies.ByName picks up the overlay too. Tests that need
+	// embedded-only behaviour can call SetDefault(New("")) in cleanup.
+	agentfamilies.SetDefault(s.agentFamilies)
 	s.sched = NewScheduler(s, cfg.Logger)
 	s.escalator = NewEscalator(s, cfg.Logger, 0)
 	s.tunnel = newTunnelManager()
@@ -198,6 +205,12 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Put("/{category}/{name}", s.handlePutTemplate)
 			r.Delete("/{category}/{name}", s.handleDeleteTemplate)
 			r.Patch("/{category}/{name}", s.handleRenameTemplate)
+		})
+		r.Route("/agent-families", func(r chi.Router) {
+			r.Get("/", s.handleListAgentFamilies)
+			r.Get("/{family}", s.handleGetAgentFamily)
+			r.Put("/{family}", s.handlePutAgentFamily)
+			r.Delete("/{family}", s.handleDeleteAgentFamily)
 		})
 		r.Route("/projects", func(r chi.Router) {
 			r.Post("/", s.handleCreateProject)

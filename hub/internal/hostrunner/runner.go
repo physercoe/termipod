@@ -13,6 +13,7 @@ import (
 	"time"
 
 	hub "github.com/termipod/hub"
+	"github.com/termipod/hub/internal/agentfamilies"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/hostrunner/tbreader"
 	"github.com/termipod/hub/internal/hostrunner/trackio"
@@ -534,10 +535,16 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 // probeLoop runs an initial capability probe and re-probes every
 // ProbeInterval. A PUT is issued only when the hash changes, so the hub
 // sees one write per genuine binary install/upgrade rather than one per tick.
+//
+// Each probe sweep fetches the family registry from the hub so a hot edit
+// on mobile (e.g. adding a `kimi` family) propagates to capabilities on
+// the next tick without restarting host-runner. If the hub is briefly
+// unreachable, the embedded YAML is used as a fallback so a transient
+// network blip doesn't blank the host's capabilities.
 func (a *Runner) probeLoop(ctx context.Context) {
 	var lastHash string
 	push := func() {
-		caps := ProbeCapabilities(ctx)
+		caps := ProbeWithFamilies(ctx, a.fetchFamilies(ctx))
 		h := caps.Hash()
 		if h == lastHash {
 			return
@@ -560,6 +567,36 @@ func (a *Runner) probeLoop(ctx context.Context) {
 			push()
 		}
 	}
+}
+
+// fetchFamilies pulls the merged family list from the hub, falling back
+// to the embedded YAML on error. Logged at warn — hub unreachable is the
+// expected case during a network blip; a longer outage is visible from
+// the heartbeat metric independently.
+func (a *Runner) fetchFamilies(ctx context.Context) []agentfamilies.Family {
+	hubFams, err := a.Client.ListAgentFamilies(ctx)
+	if err != nil {
+		a.Log.Warn("hub family fetch failed; using embedded fallback", "err", err)
+		fams, _ := agentfamilies.All()
+		return fams
+	}
+	out := make([]agentfamilies.Family, 0, len(hubFams))
+	for _, f := range hubFams {
+		incompat := make([]agentfamilies.Incompat, 0, len(f.Incompatibilities))
+		for _, ic := range f.Incompatibilities {
+			incompat = append(incompat, agentfamilies.Incompat{
+				Mode: ic.Mode, Billing: ic.Billing, Reason: ic.Reason,
+			})
+		}
+		out = append(out, agentfamilies.Family{
+			Family:            f.Family,
+			Bin:               f.Bin,
+			VersionFlag:       f.VersionFlag,
+			Supports:          f.Supports,
+			Incompatibilities: incompat,
+		})
+	}
+	return out
 }
 
 // stopTailer tears down marker forwarding for an agent that has left the

@@ -508,6 +508,60 @@ class HubClient {
     }
   }
 
+  /// Lists known agent families: embedded defaults plus any operator-
+  /// authored overrides. Each entry carries a `source` field
+  /// ("embedded" | "override" | "custom") so the UI can render a chip.
+  Future<List<Map<String, dynamic>>> listAgentFamilies() async {
+    final out = await _get('/v1/teams/${cfg.teamId}/agent-families');
+    final fams = (out as Map)['families'] as List? ?? const [];
+    return fams.map((e) => (e as Map).cast<String, dynamic>()).toList();
+  }
+
+  /// Returns the structured record for one family. The `source` field
+  /// disambiguates embedded vs. override vs. custom — callers gate the
+  /// editor on this (embedded entries are read-only previews).
+  Future<Map<String, dynamic>> getAgentFamily(String family) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/agent-families/$family');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Writes (creates or overwrites) an agent-family override. Body is
+  /// raw YAML for a single family record (no `families:` wrapper).
+  /// Server validates strictly — typos in keys or unknown modes 400.
+  Future<Map<String, dynamic>> putAgentFamily(
+    String family,
+    String yamlBody,
+  ) async {
+    final req = await _open(
+      'PUT',
+      '/v1/teams/${cfg.teamId}/agent-families/$family',
+    );
+    req.headers.contentType =
+        ContentType('application', 'yaml', charset: 'utf-8');
+    req.add(utf8.encode(yamlBody));
+    final resp = await req.close();
+    final raw = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, raw);
+    }
+    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  }
+
+  /// Deletes an agent-family override file. 409 from the backend means
+  /// the family is embedded — the caller should disable via override
+  /// instead of deleting.
+  Future<void> deleteAgentFamily(String family) async {
+    final req = await _open(
+      'DELETE',
+      '/v1/teams/${cfg.teamId}/agent-families/$family',
+    );
+    final resp = await req.close();
+    final raw = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, raw);
+    }
+  }
+
   /// Renames a template within its category. Server refuses overwrites
   /// (409) — UI must surface that as a user-visible error.
   Future<void> renameTemplate(

@@ -12,12 +12,14 @@ scheduler.
 - At least one **host** registered — see `docs/hub-host-setup.md`.
 - A bearer token with a kind that permits `/agents/spawn`. Owner and
   user tokens are fine; agent- and host-kind tokens are not.
-- The agent family (template `backend.kind`) must appear in
-  `hub/internal/agentfamilies/agent_families.yaml`. That file is the
-  single source of truth for every CLI the hub knows about — host-runner
-  reads it to probe binaries (`bin`, `version_flag`, `supports`) and the
-  spawn handler reads it to apply mode×billing
-  `incompatibilities` rules. Adding a new family is a YAML edit.
+- The agent family (template `backend.kind`) must appear in the
+  hub's family registry. The embedded defaults live in
+  `hub/internal/agentfamilies/agent_families.yaml`; operators add or
+  override entries on the fly via the API or the **Agent Families**
+  screen in the mobile app. Either source feeds host-runner's probe
+  (`bin`, `version_flag`, `supports`) and the spawn handler's
+  mode×billing `incompatibilities` rules. Adding a new family is a
+  hot edit, not a rebuild — see §3.5 below.
 
 ## 2. The spawn pipeline
 
@@ -95,6 +97,52 @@ Template expansion runs server-side. Useful placeholders:
   Use it inside a permission flag value like
   `mcp__{{mcp_namespace}}__permission_prompt` so the rendered command
   always tracks the hub binary's notion of the namespace.
+
+## 3.5 Editing the agent family registry
+
+The registry started life as a compile-time-only YAML and is now a hot-
+editable surface so a new CLI (e.g. Kimi) can land without a hub rebuild.
+Three layers cooperate:
+
+1. **Embedded defaults** — `hub/internal/agentfamilies/agent_families.yaml`,
+   shipped in the binary. Always present, read-only at runtime.
+2. **Disk overrides** — `<DataRoot>/agent_families/<family>.yaml`. The
+   loader scans this directory on every probe sweep and overlays files
+   on top of embedded entries by `family` name. A file with a name not
+   in embedded → adds a new family. A file with a matching name →
+   replaces the embedded entry wholesale.
+3. **API** — `GET/PUT/DELETE /v1/teams/{team}/agent-families[/<family>]`.
+   PUT writes to the override directory and invalidates the in-memory
+   cache so the next spawn-mode resolution sees the change instantly.
+
+Each list entry is tagged with a `source` field:
+
+- `embedded` — the compile-time default. The mobile editor opens
+  these read-only with an "Override" affordance that scaffolds a
+  starter override body.
+- `override` — embedded family with an override file on disk.
+- `custom` — operator-authored family with no embedded counterpart.
+
+Validation on PUT is strict: unknown YAML keys are rejected, `supports`
+must be a non-empty subset of `{M1, M2, M4}`, and `incompatibilities`
+billing values must be one of `api_key` / `subscription` / unset.
+The `family` in the body must match the URL path component.
+
+DELETE on a `custom` family removes the file. DELETE on an
+`override` reverts the family to its embedded default. DELETE on an
+embedded-only entry returns 409 — there is no override file to remove.
+Disabling an embedded family (e.g. hiding `aider`) is a follow-up;
+today, write an override with a narrowed `supports` list.
+
+Operationally, after an edit:
+
+- Hub: changes are visible to spawn-mode resolution on the next request.
+- Host-runner: pulls the merged registry on each probe sweep
+  (`Runner.ProbeInterval`, default 15 min). On a hub outage, falls
+  back to the embedded YAML so capabilities aren't blanked.
+
+Audit rows (`agent_family.created` / `.updated` / `.deleted`) land
+under the team's audit log.
 
 ## 4. Spawning from mobile
 

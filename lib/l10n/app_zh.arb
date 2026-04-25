@@ -204,6 +204,7 @@
   "retryNow": "立即重试",
   "sshNotAvailable": "SSH 连接不可用",
   "createWindowFailed": "创建窗口失败：{error}",
+  "createSessionFailed": "创建会话失败：{error}",
   "splitPaneFailed": "分割窗格失败：{error}",
   "closePaneTitle": "关闭窗格？",
   "closeLastPaneWarning": "这是最后一个窗口中的最后一个窗格。关闭它将结束会话并断开与服务器的连接。",

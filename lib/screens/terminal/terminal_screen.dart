@@ -57,6 +57,7 @@ import 'package:share_plus/share_plus.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/ansi_text_view.dart';
 import 'widgets/new_window_dialog.dart';
+import 'widgets/new_session_dialog.dart';
 import 'widgets/pane_layout_painters.dart';
 import 'widgets/pane_layout_visualizer.dart';
 import 'widgets/resize_chooser_dialogs.dart';
@@ -2429,7 +2430,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                       const Spacer(),
                       IconButton(
                         icon: Icon(Icons.add, color: colorScheme.primary),
-                        tooltip: 'New Session',
+                        tooltip: AppLocalizations.of(context)!.newSession,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           Future.delayed(const Duration(milliseconds: 200), () {
@@ -2588,18 +2589,15 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     });
   }
 
-  /// Session-creation dialog. Reuses NewWindowDialog with session-flavored
-  /// labels so the form layout / validation rules stay in one place.
+  /// Session-creation dialog. Shares the same NewSessionDialog the
+  /// connections list uses, so validation, default-name generation, and
+  /// l10n stay in one place.
   void _showCreateSessionDialog(TmuxState tmuxState) {
     final existingNames = tmuxState.sessions.map((s) => s.name).toList();
     showDialog<String>(
       context: context,
-      builder: (dialogContext) => NewWindowDialog(
-        existingWindowNames: existingNames,
-        title: 'New Session',
-        hint: 'e.g. work, project',
-        entityLabel: 'Session',
-        requireName: true,
+      builder: (dialogContext) => NewSessionDialog(
+        existingSessionNames: existingNames,
       ),
     ).then((sessionName) {
       if (sessionName != null && sessionName.isNotEmpty) {
@@ -2638,7 +2636,7 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create session: $e')),
+          SnackBar(content: Text(AppLocalizations.of(context)!.createSessionFailed(e.toString()))),
         );
       }
     }

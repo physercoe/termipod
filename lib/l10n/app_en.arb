@@ -220,6 +220,8 @@
   "sshNotAvailable": "SSH connection is not available",
   "createWindowFailed": "Failed to create window: {error}",
   "@createWindowFailed": { "placeholders": { "error": { "type": "String" } } },
+  "createSessionFailed": "Failed to create session: {error}",
+  "@createSessionFailed": { "placeholders": { "error": { "type": "String" } } },
   "splitPaneFailed": "Failed to split pane: {error}",
   "@splitPaneFailed": { "placeholders": { "error": { "type": "String" } } },
   "closePaneTitle": "Close Pane?",

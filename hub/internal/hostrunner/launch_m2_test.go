@@ -341,6 +341,113 @@ func TestSafeContextFileName(t *testing.T) {
 	}
 }
 
+// W2.3: When the spawn carries a per-agent MCP token and the host-runner
+// knows the hub URL, launchM2 must materialize a `.mcp.json` in the
+// workdir so the spawned claude process can resolve the
+// `mcp__termipod__permission_prompt` tool referenced by the steward
+// template's --permission-prompt-tool flag.
+func TestLaunchM2_WritesMCPConfigWhenTokenProvided(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:steward.0"}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-mcp",
+		Handle:  "steward",
+		Kind:    "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"  default_workdir: ~/hub-work\n",
+		Mode:     "M2",
+		MCPToken: "tok-plaintext-abc123",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+		HubURL:   "http://hub.example.local:31919",
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	mcpPath := filepath.Join(homeDir, "hub-work", ".mcp.json")
+	body, err := os.ReadFile(mcpPath)
+	if err != nil {
+		t.Fatalf("read .mcp.json: %v", err)
+	}
+	// claude-code expects `mcpServers.<name>` keyed under "termipod" so
+	// the steward template's mcp__termipod__permission_prompt resolves.
+	for _, want := range []string{
+		`"mcpServers"`,
+		`"termipod"`,
+		`"hub-mcp-bridge"`,
+		`"HUB_URL": "http://hub.example.local:31919"`,
+		`"HUB_TOKEN": "tok-plaintext-abc123"`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf(".mcp.json missing %q\n--- contents ---\n%s", want, string(body))
+		}
+	}
+
+	// Permissions must keep the bearer out of world-readable mode on
+	// shared hosts; 0o600 is the contract for per-agent secrets.
+	info, err := os.Stat(mcpPath)
+	if err != nil {
+		t.Fatalf("stat .mcp.json: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf(".mcp.json perms = %o; want 0600", perm)
+	}
+}
+
+// Without the MCP token, no `.mcp.json` is written — the agent still
+// launches, just without hub MCP access. This is the upgrade path for
+// pre-W2.2 spawns and a graceful fallback when the bearer can't be
+// reached on the spawn list.
+func TestLaunchM2_NoMCPConfigWithoutToken(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:plain.0"}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-no-mcp",
+		Handle:  "plain",
+		Kind:    "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"  default_workdir: ~/hub-work\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+		HubURL:   "http://hub.example.local:31919",
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	if _, err := os.Stat(filepath.Join(homeDir, "hub-work", ".mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf(".mcp.json should not exist when no token is set; err=%v", err)
+	}
+}
+
 func TestShellEscape(t *testing.T) {
 	cases := map[string]string{
 		"/tmp/x.log":         "'/tmp/x.log'",

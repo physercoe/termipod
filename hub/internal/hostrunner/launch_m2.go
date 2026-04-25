@@ -14,6 +14,7 @@ package hostrunner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -73,6 +74,13 @@ type M2LaunchConfig struct {
 	Client   AgentEventPoster
 	Spawner  ProcSpawner
 	LogDir   string
+	// HubURL is the base URL host-runner uses to talk to the hub. It's
+	// written into the agent's `.mcp.json` together with the spawn's
+	// per-agent token so the spawned claude process can resolve
+	// `mcp__termipod__*` tools. Optional — when empty (or when the
+	// spawn carries no token) `.mcp.json` is not written and the agent
+	// runs without hub MCP access.
+	HubURL string
 }
 
 // M2LaunchResult is what launchM2 hands back to runner.go so it can keep
@@ -129,6 +137,24 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		}
 		if err := writeContextFiles(expandedWorkdir, spec.ContextFiles); err != nil {
 			return M2LaunchResult{}, fmt.Errorf("write context_files: %w", err)
+		}
+	}
+
+	// Materialize .mcp.json with the per-agent bearer so claude-code
+	// can speak the hub's MCP endpoint (and therefore resolve the
+	// `mcp__termipod__permission_prompt` tool referenced by the
+	// steward template's --permission-prompt-tool flag). Skipped when
+	// the spawn carries no token or the launcher has no hub URL: the
+	// agent still runs, just without hub-mediated tool gating. We
+	// write directly (not via writeContextFiles) so the dotfile is
+	// kept out of spec.context_files — secrets shouldn't ride in the
+	// spawn_spec_yaml that's persisted on the hub.
+	if cfg.Spawn.MCPToken != "" && cfg.HubURL != "" {
+		if expandedWorkdir == "" {
+			return M2LaunchResult{}, fmt.Errorf("mcp_token set but backend.default_workdir is empty")
+		}
+		if err := writeMCPConfig(expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken); err != nil {
+			return M2LaunchResult{}, fmt.Errorf("write .mcp.json: %w", err)
 		}
 	}
 
@@ -240,6 +266,38 @@ func writeContextFiles(workdir string, files map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// writeMCPConfig writes a `.mcp.json` into the agent workdir that
+// points claude-code at hub-mcp-bridge as the stdio transport for
+// MCP tools. The server name "termipod" is what the steward template
+// expects: --permission-prompt-tool mcp__termipod__permission_prompt.
+//
+// Token handling: claude-code reads `.mcp.json` from disk and treats
+// it as plaintext config. We write 0o600 so it isn't world-readable
+// on shared hosts. Re-running this overwrites — host-runner is
+// idempotent across spawns and a stale token must not linger.
+func writeMCPConfig(workdir, hubURL, token string) error {
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return fmt.Errorf("mkdir workdir: %w", err)
+	}
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"termipod": map[string]any{
+				"command": "hub-mcp-bridge",
+				"env": map[string]string{
+					"HUB_URL":   hubURL,
+					"HUB_TOKEN": token,
+				},
+			},
+		},
+	}
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(workdir, ".mcp.json")
+	return os.WriteFile(target, body, 0o600)
 }
 
 func safeContextFileName(n string) bool {

@@ -78,6 +78,14 @@ type Spawn struct {
 	// (M1|M2|M4). Empty means the hub had no mode info and host-runner
 	// falls back to M4 on launch.
 	Mode string `json:"mode,omitempty"`
+	// MCPToken is the per-agent bearer the spawned agent uses to call
+	// /mcp/{token} on the hub. Surfaced by the hub only to host-kind
+	// callers; host-runner writes it into the agent's local .mcp.json
+	// at launch time so claude-code can resolve `mcp__termipod__*`
+	// tools (notably permission_prompt). Empty for spawns issued before
+	// the per-spawn token wedge (W2.2) — those agents still launch but
+	// can't call hub MCP tools.
+	MCPToken string `json:"mcp_token,omitempty"`
 }
 
 func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn, error) {

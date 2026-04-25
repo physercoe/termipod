@@ -102,6 +102,17 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	if command == "" {
 		return M2LaunchResult{}, fmt.Errorf("M2 launch: backend.cmd is empty in spawn spec")
 	}
+	// `cd <workdir> && <cmd>` so the agent process inherits the right cwd.
+	// We expand ~ ourselves rather than relying on bash's tilde expansion
+	// because the launcher passes the command through `bash -c "..."` and
+	// we want the failure mode to be a clean Go error if HOME is unset.
+	if wd := spec.Backend.DefaultWorkdir; wd != "" {
+		expanded, err := expandHome(wd)
+		if err != nil {
+			return M2LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", wd, err)
+		}
+		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)
+	}
 
 	logPath := filepath.Join(cfg.LogDir, "termipod-agent-"+cfg.Spawn.ChildID+".log")
 	// Truncate any stale log from a prior spawn with this id so the tail
@@ -174,4 +185,26 @@ func escapeSingleQuotes(s string) string {
 		out = append(out, s[i])
 	}
 	return string(out)
+}
+
+// expandHome resolves a leading `~` or `~/` against $HOME. We do this
+// in Go (instead of letting bash do it inside `bash -c`) so a missing
+// HOME yields a structured error here rather than the agent process
+// silently starting in `/`.
+func expandHome(p string) (string, error) {
+	if p == "" || (p[0] != '~') {
+		return p, nil
+	}
+	if len(p) > 1 && p[1] != '/' {
+		// `~user` form — not supported. Return as-is rather than guess.
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "", fmt.Errorf("HOME unresolved")
+	}
+	if p == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, p[2:]), nil
 }

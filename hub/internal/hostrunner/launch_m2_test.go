@@ -145,6 +145,48 @@ func TestLaunchM2_TeesToLogAndStartsDriver(t *testing.T) {
 	}
 }
 
+func TestLaunchM2_WrapsCommandWithWorkdir(t *testing.T) {
+	logDir := t.TempDir()
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:w2.0"}
+	poster := &fakePoster{}
+
+	// Pin HOME so ~ expansion is deterministic.
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	sp := Spawn{
+		ChildID: "agent-wd",
+		Handle:  "w2",
+		Kind:    "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: claude --print\n" +
+			"  default_workdir: ~/hub-work\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+
+	wantPrefix := "cd '" + filepath.Join(homeDir, "hub-work") + "' && "
+	if !strings.HasPrefix(spawner.cmd, wantPrefix) {
+		t.Fatalf("spawner.cmd = %q; want prefix %q", spawner.cmd, wantPrefix)
+	}
+	if !strings.HasSuffix(spawner.cmd, "claude --print") {
+		t.Fatalf("spawner.cmd = %q; want suffix 'claude --print'", spawner.cmd)
+	}
+
+	res.Driver.Stop()
+}
+
 func TestLaunchM2_ErrorsWhenBackendCmdMissing(t *testing.T) {
 	_, err := launchM2(context.Background(), M2LaunchConfig{
 		Spawn:    Spawn{ChildID: "a1", SpawnSpec: ""}, // no backend.cmd

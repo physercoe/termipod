@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +18,14 @@ import (
 	"github.com/termipod/hub/internal/hostrunner/trackio"
 	"github.com/termipod/hub/internal/hostrunner/wandb"
 )
+
+// defaultStewardWorkdir is the directory the built-in steward template
+// expects under `backend.default_workdir` (templates/agents/steward.v1.yaml).
+// host-runner ensures it exists at startup so the M2 launcher's `cd`
+// into it can't fail with ENOENT on a fresh host. This is the
+// in-runner equivalent of "the host installer mkdir's it once" —
+// idempotent, runs regardless of which install track was used.
+const defaultStewardWorkdir = "hub-work"
 
 // Runner is the long-running host-runner loop. It registers the host with the
 // hub (first boot), heartbeats every HeartbeatInterval, and polls every
@@ -162,9 +172,30 @@ func (a *Runner) defaults() {
 	}
 }
 
+// ensureDefaultWorkdir creates ~/hub-work on first boot if absent. The
+// steward template's default_workdir points here; without it, the M2
+// launcher's `cd` would fail before claude ever started. Errors are
+// logged but non-fatal — a misconfigured user can still spawn agents
+// whose templates use a different workdir, and we'd rather see the
+// claude-side error than block startup on a directory we can't create.
+func (a *Runner) ensureDefaultWorkdir() {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		a.Log.Warn("ensureDefaultWorkdir: HOME unresolved; skipping mkdir", "err", err)
+		return
+	}
+	dir := filepath.Join(home, defaultStewardWorkdir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.Log.Warn("ensureDefaultWorkdir: mkdir failed; agents using this default_workdir will error on spawn", "dir", dir, "err", err)
+		return
+	}
+	a.Log.Debug("ensureDefaultWorkdir: ready", "dir", dir)
+}
+
 // Start registers the host (if HostID is empty) and runs until ctx is done.
 func (a *Runner) Start(ctx context.Context) error {
 	a.defaults()
+	a.ensureDefaultWorkdir()
 
 	if a.HostID == "" && a.StateDir != "" {
 		if id, ok := loadStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName); ok {

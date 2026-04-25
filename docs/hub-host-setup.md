@@ -41,6 +41,13 @@ run it under systemd, and how to tell whether it's healthy.
      When the hash stays stable past a threshold, post a `kind=idle`
      attention item.
 
+On startup, the runner also ensures `~/hub-work` exists (mode 0755).
+This is the default workdir for the built-in steward template
+(`templates/agents/steward.v1.yaml` `backend.default_workdir`); the
+M2 launcher `cd`'s into it before spawning the agent process. The
+mkdir is idempotent and non-fatal — a custom template using a
+different workdir is the operator's responsibility.
+
 The hub is the source of truth — host-runner holds no persistent state
 across restarts.
 

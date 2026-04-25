@@ -4,14 +4,28 @@ template: agents.steward
 version: 1
 extends: null
 
+# Drive claude in M2 (structured stdio) so we can render its turns as a
+# chat transcript and gate tool use through the permission_prompt MCP
+# tool. M4 fallback is the runner's own (still useful for hosts that
+# don't expose the MCP gateway port).
+driving_mode: M2
+fallback_modes: [M4]
+
 backend:
   kind: claude-code
   model: opus-4-7
   default_workdir: ~/hub-work
-  # cmd is what host-runner actually launches in the pane. Without it the
-  # TmuxLauncher falls back to a placeholder shell that prints
-  # "pane ready; no backend configured".
-  cmd: "claude --model opus-4-7"
+  # cmd is what host-runner actually launches. Flags:
+  #   --print                          non-interactive (no TUI repl).
+  #   --output-format stream-json      one JSON object per line on stdout.
+  #   --input-format  stream-json      reads user turns as JSON frames on
+  #                                    stdin so the process stays alive
+  #                                    across turns. Without this flag,
+  #                                    --print exits after a single reply.
+  #   --permission-prompt-tool ...     route any interactive permission
+  #                                    UI through the host-runner MCP
+  #                                    gateway → attention_items.
+  cmd: "claude --model opus-4-7 --print --output-format stream-json --input-format stream-json --permission-prompt-tool mcp__termipod__permission_prompt"
 
 default_role: team.coordinator
 display_label: "Steward"

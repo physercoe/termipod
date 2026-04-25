@@ -14,8 +14,11 @@ type SpawnSpec struct {
 
 	// Backend is a loose catch-all for launcher hints; TmuxLauncher reads
 	// `backend.cmd` when present, falling back to its DefaultCmd otherwise.
+	// DefaultWorkdir, when set, is the cwd the M2 launcher cd's into before
+	// spawning the agent process. Leading `~` is expanded against $HOME.
 	Backend struct {
-		Cmd string `yaml:"cmd"`
+		Cmd            string `yaml:"cmd"`
+		DefaultWorkdir string `yaml:"default_workdir"`
 	} `yaml:"backend"`
 
 	// Worktree optionally requests a git worktree before the pane launches.

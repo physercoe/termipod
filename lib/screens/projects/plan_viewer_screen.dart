@@ -184,21 +184,43 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   @override
   Widget build(BuildContext context) {
     final status = (_plan?['status'] ?? '').toString();
+    final projects = ref.watch(hubProvider).value?.projects ?? const [];
+    final projectName = projectNameFor(widget.projectId, projects);
+    final template = (_plan?['template_id'] ?? '').toString();
+    final subtitle = [
+      if (projectName.isNotEmpty && projectName != widget.projectId) projectName,
+      if (template.isNotEmpty) template,
+    ].join(' · ');
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Plan',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
+            Row(
+              children: [
+                Text(
+                  'Plan',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (status.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  PlanStatusChip(status: status),
+                ],
+              ],
             ),
-            if (status.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              PlanStatusChip(status: status),
-            ],
+            if (subtitle.isNotEmpty)
+              Text(
+                subtitle,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: DesignColors.textMuted,
+                ),
+              ),
           ],
         ),
         actions: [
@@ -332,9 +354,15 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
   }
 
   Widget _header(Map<String, dynamic> plan) {
+    final projects = ref.watch(hubProvider).value?.projects ?? const [];
+    final projectId = widget.projectId;
+    final projectName = projectNameFor(projectId, projects);
+    final projectLabel = projectName == projectId || projectId.isEmpty
+        ? (projectId.isEmpty ? '(no project)' : projectId)
+        : '$projectName  ·  ${shortId(projectId)}';
+    final planId = (plan['id'] ?? '').toString();
     final rows = <_KV>[
-      _KV('id', (plan['id'] ?? '').toString()),
-      _KV('project', widget.projectId),
+      _KV('project', projectLabel),
       _KV('version', '${plan['version'] ?? 1}'),
       if ((plan['template_id'] ?? '').toString().isNotEmpty)
         _KV('template', (plan['template_id']).toString()),
@@ -343,6 +371,7 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
         _KV('started', plan['started_at'].toString()),
       if ((plan['completed_at'] ?? '').toString().isNotEmpty)
         _KV('completed', plan['completed_at'].toString()),
+      if (planId.isNotEmpty) _KV('id', shortId(planId)),
     ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -2,8 +2,10 @@
 -- rows exist that share a (team_id, handle) with a live row, this down
 -- migration will fail — that's intentional. Operators must manually
 -- decide whether to drop or rename archived rows before reverting.
-
-PRAGMA defer_foreign_keys = ON;
+--
+-- Runs with foreign_keys=OFF on the migrations connection (see db.go);
+-- otherwise DROP TABLE fires cascading ON DELETE actions on dependent
+-- tables (agent_events, attention_items, agent_handoffs, agent_spawns).
 
 DROP INDEX IF EXISTS agents_team_handle_active;
 
@@ -27,6 +29,8 @@ CREATE TABLE agents_old (
     last_prompt_tail  TEXT,
     created_at        TEXT NOT NULL,
     terminated_at     TEXT,
+    last_capture      TEXT,
+    last_capture_at   TEXT,
     archived_at       TEXT,
     driving_mode      TEXT,
     UNIQUE(team_id, handle)
@@ -36,13 +40,15 @@ INSERT INTO agents_old (
     id, team_id, handle, kind, backend_json, capabilities_json,
     parent_agent_id, status, host_id, pane_id, worktree_path, journal_path,
     budget_cents, spent_cents, idle_since, pause_state, last_prompt_tail,
-    created_at, terminated_at, archived_at, driving_mode
+    created_at, terminated_at, last_capture, last_capture_at,
+    archived_at, driving_mode
 )
 SELECT
     id, team_id, handle, kind, backend_json, capabilities_json,
     parent_agent_id, status, host_id, pane_id, worktree_path, journal_path,
     budget_cents, spent_cents, idle_since, pause_state, last_prompt_tail,
-    created_at, terminated_at, archived_at, driving_mode
+    created_at, terminated_at, last_capture, last_capture_at,
+    archived_at, driving_mode
 FROM agents;
 
 DROP TABLE agents;

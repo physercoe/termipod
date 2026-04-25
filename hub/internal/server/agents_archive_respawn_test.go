@@ -2,8 +2,54 @@ package server
 
 import (
 	"context"
+	"sort"
 	"testing"
 )
+
+// Regression: migration 0023 must preserve every column the application
+// code reads/writes. The first cut of 0023 dropped last_capture and
+// last_capture_at when recreating the table — runtime UPDATEs from the
+// pane-capture handler then failed silently. Asserting via PRAGMA
+// table_info catches column drift on any future agents-table rebuild.
+func TestAgentsTable_HasAllRequiredColumns(t *testing.T) {
+	s, _ := newTestServer(t)
+
+	rows, err := s.db.Query(`PRAGMA table_info(agents)`)
+	if err != nil {
+		t.Fatalf("table_info: %v", err)
+	}
+	defer rows.Close()
+
+	got := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got[name] = true
+	}
+
+	want := []string{
+		"id", "team_id", "handle", "kind", "backend_json", "capabilities_json",
+		"parent_agent_id", "status", "host_id", "pane_id", "worktree_path",
+		"journal_path", "budget_cents", "spent_cents", "idle_since",
+		"pause_state", "last_prompt_tail", "created_at", "terminated_at",
+		"last_capture", "last_capture_at", "archived_at", "driving_mode",
+	}
+	var missing []string
+	for _, c := range want {
+		if !got[c] {
+			missing = append(missing, c)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		t.Fatalf("agents table missing columns: %v", missing)
+	}
+}
 
 // Regression: respawning an agent under the same handle as a previously
 // archived agent must succeed. Before migration 0023 the table-level

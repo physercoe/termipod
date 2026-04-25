@@ -7,10 +7,10 @@
 -- SQLITE_CONSTRAINT_UNIQUE (2067) → HTTP 409.
 --
 -- SQLite has no ALTER TABLE DROP CONSTRAINT, so we recreate the table.
--- defer_foreign_keys lets the self-FK on parent_agent_id and the inbound
--- FKs from other tables hold across the rename within this transaction.
-
-PRAGMA defer_foreign_keys = ON;
+-- The migration runs with foreign_keys=OFF (set on the migrations
+-- connection in db.go) so DROP TABLE doesn't fire ON DELETE CASCADE
+-- against agent_events / agent_handoffs / agent_spawns / attention_items
+-- and silently wipe dependent rows.
 
 CREATE TABLE agents_new (
     id                TEXT PRIMARY KEY,
@@ -32,6 +32,8 @@ CREATE TABLE agents_new (
     last_prompt_tail  TEXT,
     created_at        TEXT NOT NULL,
     terminated_at     TEXT,
+    last_capture      TEXT,
+    last_capture_at   TEXT,
     archived_at       TEXT,
     driving_mode      TEXT
 );
@@ -40,13 +42,15 @@ INSERT INTO agents_new (
     id, team_id, handle, kind, backend_json, capabilities_json,
     parent_agent_id, status, host_id, pane_id, worktree_path, journal_path,
     budget_cents, spent_cents, idle_since, pause_state, last_prompt_tail,
-    created_at, terminated_at, archived_at, driving_mode
+    created_at, terminated_at, last_capture, last_capture_at,
+    archived_at, driving_mode
 )
 SELECT
     id, team_id, handle, kind, backend_json, capabilities_json,
     parent_agent_id, status, host_id, pane_id, worktree_path, journal_path,
     budget_cents, spent_cents, idle_since, pause_state, last_prompt_tail,
-    created_at, terminated_at, archived_at, driving_mode
+    created_at, terminated_at, last_capture, last_capture_at,
+    archived_at, driving_mode
 FROM agents;
 
 DROP TABLE agents;

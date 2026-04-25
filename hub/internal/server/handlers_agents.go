@@ -44,6 +44,12 @@ type agentOut struct {
 	CreatedAt    string          `json:"created_at"`
 	TerminatedAt *string         `json:"terminated_at,omitempty"`
 	ArchivedAt   *string         `json:"archived_at,omitempty"`
+	// LastEventAt is the ts of the most recent agent_events row for this
+	// agent, or nil if no events have been recorded yet. Mobile uses this
+	// to classify a `running` agent as healthy / stale / stuck — a wedged
+	// claude process keeps `status='running'` but stops emitting events,
+	// so `(status, age(LastEventAt))` is the load-bearing liveness signal.
+	LastEventAt *string `json:"last_event_at,omitempty"`
 	// Mode is the resolved driving mode (M1|M2|M4). Empty for legacy
 	// rows predating the resolver; host-runner interprets empty as M4.
 	Mode string `json:"mode,omitempty"`
@@ -91,6 +97,11 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
+	// last_event_at: correlated MAX(ts) over agent_events. The
+	// (agent_id, ts) index already exists, so this stays cheap on rows
+	// with hundreds of events; we accept the per-row scalar subquery
+	// rather than a GROUP BY join because the agents list is bounded
+	// (one steward + a few children) at MVP scale.
 	q := `
 		SELECT id, team_id, handle, kind, backend_json, capabilities_json,
 		       COALESCE(parent_agent_id, ''), COALESCE(host_id, ''),
@@ -98,7 +109,8 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
 		       created_at, terminated_at, COALESCE(driving_mode, ''),
-		       archived_at
+		       archived_at,
+		       (SELECT MAX(ts) FROM agent_events WHERE agent_id = agents.id)
 		FROM agents WHERE team_id = ?`
 	args := []any{team}
 	if host := r.URL.Query().Get("host_id"); host != "" {
@@ -145,7 +157,8 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
 		       created_at, terminated_at, COALESCE(driving_mode, ''),
-		       archived_at
+		       archived_at,
+		       (SELECT MAX(ts) FROM agent_events WHERE agent_id = agents.id)
 		FROM agents WHERE team_id = ? AND id = ?`, team, id)
 	a, err := scanAgent(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -629,16 +642,16 @@ type rowScanner interface {
 
 func scanAgent(r rowScanner) (agentOut, error) {
 	var (
-		a                          agentOut
-		backend, caps              string
-		budget                     sql.NullInt64
-		idleSince, termAt, archAt  sql.NullString
+		a                                   agentOut
+		backend, caps                       string
+		budget                              sql.NullInt64
+		idleSince, termAt, archAt, lastEvAt sql.NullString
 	)
 	if err := r.Scan(&a.ID, &a.TeamID, &a.Handle, &a.Kind, &backend, &caps,
 		&a.ParentID, &a.HostID, &a.Status, &a.PaneID,
 		&a.WorktreePath, &a.JournalPath,
 		&budget, &a.SpentCents, &a.PauseState, &idleSince,
-		&a.CreatedAt, &termAt, &a.Mode, &archAt); err != nil {
+		&a.CreatedAt, &termAt, &a.Mode, &archAt, &lastEvAt); err != nil {
 		return a, err
 	}
 	a.Backend = json.RawMessage(backend)
@@ -655,6 +668,9 @@ func scanAgent(r rowScanner) (agentOut, error) {
 	}
 	if archAt.Valid {
 		a.ArchivedAt = &archAt.String
+	}
+	if lastEvAt.Valid {
+		a.LastEventAt = &lastEvAt.String
 	}
 	return a, nil
 }

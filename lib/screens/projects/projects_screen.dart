@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/open_team_channel.dart';
+import '../../services/steward_liveness.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -173,59 +175,116 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
 /// no state plumbing needed because the channel list is small and the
 /// hub auto-seeds hub-meta.
 ///
-/// The chip dims itself when no steward agent is currently running on the
-/// hub — a live-colour pill on an empty channel was misleading users into
-/// thinking an assistant was there. Tapping a dim chip still works (opens
-/// the channel) but makes it obvious you'd be talking to nobody.
-class _StewardChip extends ConsumerWidget {
+/// The chip's color encodes liveness from `(status, last_event_at)` —
+/// see `services/steward_liveness.dart`. A wedged claude keeps
+/// `status='running'` but stops emitting events, so the binary
+/// present/absent signal could show green forever on a dead steward.
+/// Now: green = healthy, amber = idle, red = stuck, grey = starting /
+/// none. Tap on present states opens hub-meta; tap on `none` opens the
+/// spawn sheet.
+class _StewardChip extends ConsumerStatefulWidget {
   const _StewardChip();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_StewardChip> createState() => _StewardChipState();
+}
+
+class _StewardChipState extends ConsumerState<_StewardChip> {
+  // The liveness classifier compares last_event_at against wall-clock,
+  // so the chip needs to re-render on a wall-clock cadence even when
+  // hub state hasn't changed. 30s is well below the 2-min healthy
+  // window and the 10-min stuck window, so transitions surface within
+  // one tick of crossing a threshold.
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final hub = ref.watch(hubProvider).value;
     if (hub == null || !hub.configured) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
-    final present = stewardPresent(hub.agents);
-    final Color bg;
-    final Color fg;
-    if (present) {
-      bg = scheme.primaryContainer;
-      fg = scheme.onPrimaryContainer;
-    } else {
-      bg = scheme.surfaceContainerHighest;
-      fg = scheme.onSurfaceVariant;
+    final liveness = stewardLiveness(hub.agents);
+
+    late final Color bg;
+    late final Color fg;
+    late final IconData icon;
+    late final String label;
+    late final String tooltip;
+    switch (liveness) {
+      case StewardLiveness.healthy:
+        bg = scheme.primaryContainer;
+        fg = scheme.onPrimaryContainer;
+        icon = Icons.auto_awesome;
+        label = 'Steward';
+        tooltip = 'Steward · healthy';
+        break;
+      case StewardLiveness.idle:
+        bg = const Color(0xFFFFE0A8); // soft amber
+        fg = const Color(0xFF7A4A00);
+        icon = Icons.auto_awesome;
+        label = 'Steward · idle';
+        tooltip = 'No events for 2+ min — might be slow or wedged';
+        break;
+      case StewardLiveness.stuck:
+        bg = DesignColors.error.withValues(alpha: 0.18);
+        fg = DesignColors.error;
+        icon = Icons.error_outline;
+        label = 'Steward · stuck';
+        tooltip = 'No events for 10+ min — recreate from chip';
+        break;
+      case StewardLiveness.starting:
+        bg = scheme.surfaceContainerHighest;
+        fg = scheme.onSurfaceVariant;
+        icon = Icons.hourglass_empty;
+        label = 'Steward · starting';
+        tooltip = 'Spawning — waiting for host-runner';
+        break;
+      case StewardLiveness.none:
+        bg = scheme.surfaceContainerHighest;
+        fg = scheme.onSurfaceVariant;
+        icon = Icons.auto_awesome_outlined;
+        label = 'No steward';
+        tooltip = 'No steward — tap to spawn';
+        break;
     }
+
+    final isAbsent = liveness == StewardLiveness.none;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Tooltip(
-          message: present
-              ? 'Open #hub-meta (steward)'
-              : 'No steward — tap to spawn',
+          message: tooltip,
           child: Material(
             color: bg,
             borderRadius: BorderRadius.circular(16),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: () => present
-                  ? openHubMetaChannel(context, ref)
-                  : showSpawnStewardSheet(context, hosts: hub.hosts),
+              onTap: () => isAbsent
+                  ? showSpawnStewardSheet(context, hosts: hub.hosts)
+                  : openHubMetaChannel(context, ref),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      present
-                          ? Icons.auto_awesome
-                          : Icons.auto_awesome_outlined,
-                      size: 16,
-                      color: fg,
-                    ),
+                    Icon(icon, size: 16, color: fg),
                     const SizedBox(width: 6),
                     Text(
-                      present ? 'Steward' : 'No steward',
+                      label,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -241,7 +300,6 @@ class _StewardChip extends ConsumerWidget {
       ),
     );
   }
-
 }
 
 /// A steward counts as "present" when any agent with handle=='steward' is

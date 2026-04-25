@@ -244,14 +244,32 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
       }
     }
+    // Pluck the most recent session.init payload (a steward that
+    // reconnects can produce more than one). The sticky header below
+    // surfaces it; the regular feed drops the event so it isn't rendered
+    // twice — the rich init blob is too dense for an inline card.
+    Map<String, dynamic>? sessionInit;
+    for (final e in _events.reversed) {
+      if ((e['kind'] ?? '').toString() == 'session.init') {
+        final p = e['payload'];
+        if (p is Map) {
+          sessionInit = p.cast<String, dynamic>();
+          break;
+        }
+      }
+    }
     // Build the visible event list: drop tool_call_update since their
-    // content is now carried on the parent tool_call card.
+    // content is now carried on the parent tool_call card; drop
+    // session.init since the sticky header above renders it.
     final visible = <Map<String, dynamic>>[
       for (final e in _events)
-        if ((e['kind'] ?? '').toString() != 'tool_call_update') e,
+        if ((e['kind'] ?? '').toString() != 'tool_call_update' &&
+            (e['kind'] ?? '').toString() != 'session.init')
+          e,
     ];
     return Column(
       children: [
+        if (sessionInit != null) _SessionHeader(payload: sessionInit),
         Expanded(
           child: Stack(
             children: [
@@ -1291,5 +1309,402 @@ class _CollapsibleMonoState extends State<_CollapsibleMono> {
           ),
       ],
     );
+  }
+}
+
+/// Sticky header rendered above the agent feed when a session.init event
+/// is present. Compact by default — tap to open a bottom-sheet drawer
+/// with the rich session metadata (model, tools, mcp servers, slash
+/// commands, agents, skills, cwd, version, permission mode).
+///
+/// Built from typed `session.init` payload, not claude JSON. Other
+/// drivers can populate the same fields and inherit this UI for free;
+/// fields they don't surface stay absent rather than showing as blanks.
+class _SessionHeader extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  const _SessionHeader({required this.payload});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final model = payload['model']?.toString() ?? '';
+    final permMode = payload['permission_mode']?.toString() ?? '';
+    final tools = _toList(payload['tools']);
+    final mcpServers = _toMapList(payload['mcp_servers']);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _openDrawer(context),
+        child: Container(
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border(bottom: BorderSide(color: border)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.memory, size: 14, color: DesignColors.secondary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  model.isEmpty ? 'session' : model,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isDark
+                        ? DesignColors.textPrimary
+                        : DesignColors.textPrimaryLight,
+                  ),
+                ),
+              ),
+              if (permMode.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                _Pill(label: permMode, color: _permModeColor(permMode)),
+              ],
+              if (tools.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                _Pill(label: '${tools.length} tools', color: mutedColor),
+              ],
+              if (mcpServers.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                _Pill(
+                  label: '${mcpServers.length} mcp',
+                  color: _mcpAggregateColor(mcpServers, mutedColor),
+                ),
+              ],
+              const SizedBox(width: 4),
+              Icon(Icons.expand_more, size: 16, color: mutedColor),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openDrawer(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => _SessionDetailsSheet(payload: payload),
+    );
+  }
+
+  static Color _permModeColor(String mode) {
+    // bypassPermissions / acceptEdits / default / plan: only "default"
+    // and "plan" are restrictive; the others let the agent edit/run
+    // without prompting and deserve an amber pill so the operator notices.
+    switch (mode) {
+      case 'default':
+      case 'plan':
+        return DesignColors.success;
+      case 'acceptEdits':
+        return DesignColors.warning;
+      case 'bypassPermissions':
+        return DesignColors.error;
+      default:
+        return DesignColors.textMuted;
+    }
+  }
+
+  // Aggregate color for the mcp pill: red if any server is in error,
+  // amber if any needs auth, green if all connected, muted otherwise.
+  static Color _mcpAggregateColor(
+      List<Map<String, dynamic>> servers, Color fallback) {
+    var hasError = false;
+    var hasNeedsAuth = false;
+    var allConnected = true;
+    for (final s in servers) {
+      final status = (s['status'] ?? '').toString().toLowerCase();
+      if (status == 'failed' || status == 'error') {
+        hasError = true;
+      } else if (status == 'needs-auth' || status == 'pending-auth') {
+        hasNeedsAuth = true;
+      } else if (status != 'connected' && status != 'ok') {
+        allConnected = false;
+      }
+    }
+    if (hasError) return DesignColors.error;
+    if (hasNeedsAuth) return DesignColors.warning;
+    if (allConnected) return DesignColors.success;
+    return fallback;
+  }
+
+  static List<String> _toList(Object? v) {
+    if (v is! List) return const [];
+    return [for (final e in v) e.toString()];
+  }
+
+  static List<Map<String, dynamic>> _toMapList(Object? v) {
+    if (v is! List) return const [];
+    return [
+      for (final e in v)
+        if (e is Map) e.cast<String, dynamic>(),
+    ];
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Pill({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// Bottom-sheet drawer shown when the operator taps the session header.
+/// Sectioned view of every field session.init exposes; sections absent
+/// from the payload (e.g. plugins on a stripped-down driver) just don't
+/// render, so the drawer adapts to whatever the driver surfaces.
+class _SessionDetailsSheet extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  const _SessionDetailsSheet({required this.payload});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final children = <Widget>[];
+
+    void section(String title, Widget body) {
+      children.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+        child: Text(
+          title,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: mutedColor,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ));
+      children.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: body,
+      ));
+    }
+
+    final model = payload['model']?.toString() ?? '';
+    final version = payload['version']?.toString() ?? '';
+    final permMode = payload['permission_mode']?.toString() ?? '';
+    final outputStyle = payload['output_style']?.toString() ?? '';
+    final cwd = payload['cwd']?.toString() ?? '';
+    final sessionId = payload['session_id']?.toString() ?? '';
+
+    final modelLine = [
+      if (model.isNotEmpty) model,
+      if (version.isNotEmpty) 'v$version',
+    ].join(' · ');
+    if (modelLine.isNotEmpty || permMode.isNotEmpty || outputStyle.isNotEmpty) {
+      section(
+        'AGENT',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (modelLine.isNotEmpty) _kvLine(context, 'model', modelLine),
+            if (permMode.isNotEmpty)
+              _kvLine(context, 'permission', permMode,
+                  valueColor: _SessionHeader._permModeColor(permMode)),
+            if (outputStyle.isNotEmpty) _kvLine(context, 'style', outputStyle),
+            if (sessionId.isNotEmpty) _kvLine(context, 'session', sessionId),
+          ],
+        ),
+      );
+    }
+
+    if (cwd.isNotEmpty) {
+      section('WORKDIR', _kvLine(context, 'cwd', cwd));
+    }
+
+    final tools = _SessionHeader._toList(payload['tools']);
+    if (tools.isNotEmpty) {
+      section('TOOLS · ${tools.length}', _ChipWrap(items: tools));
+    }
+
+    final mcp = _SessionHeader._toMapList(payload['mcp_servers']);
+    if (mcp.isNotEmpty) {
+      section(
+        'MCP SERVERS · ${mcp.length}',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final s in mcp) _McpRow(server: s),
+          ],
+        ),
+      );
+    }
+
+    final slash = _SessionHeader._toList(payload['slash_commands']);
+    if (slash.isNotEmpty) {
+      section('SLASH · ${slash.length}', _ChipWrap(items: slash));
+    }
+
+    final agents = _SessionHeader._toList(payload['agents']);
+    if (agents.isNotEmpty) {
+      section('AGENTS · ${agents.length}', _ChipWrap(items: agents));
+    }
+
+    final skills = _SessionHeader._toList(payload['skills']);
+    if (skills.isNotEmpty) {
+      section('SKILLS · ${skills.length}', _ChipWrap(items: skills));
+    }
+
+    final plugins = _SessionHeader._toList(payload['plugins']);
+    if (plugins.isNotEmpty) {
+      section('PLUGINS · ${plugins.length}', _ChipWrap(items: plugins));
+    }
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: children,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _kvLine(BuildContext ctx, String k, String v, {Color? valueColor}) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: RichText(
+        text: TextSpan(
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 12,
+            color: isDark
+                ? DesignColors.textPrimary
+                : DesignColors.textPrimaryLight,
+          ),
+          children: [
+            TextSpan(text: '$k: ', style: TextStyle(color: muted)),
+            TextSpan(
+              text: v,
+              style: valueColor == null ? null : TextStyle(color: valueColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChipWrap extends StatelessWidget {
+  final List<String> items;
+  const _ChipWrap({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = isDark
+        ? DesignColors.textSecondary
+        : DesignColors.textSecondaryLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final it in items)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: border),
+            ),
+            child: Text(
+              it,
+              style: GoogleFonts.jetBrainsMono(fontSize: 11, color: fg),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _McpRow extends StatelessWidget {
+  final Map<String, dynamic> server;
+  const _McpRow({required this.server});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final name = (server['name'] ?? '?').toString();
+    final status = (server['status'] ?? '').toString();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              name,
+              style: GoogleFonts.jetBrainsMono(fontSize: 12, color: fg),
+            ),
+          ),
+          if (status.isNotEmpty)
+            _Pill(label: status, color: _mcpStatusColor(status)),
+        ],
+      ),
+    );
+  }
+
+  static Color _mcpStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'connected':
+      case 'ok':
+        return DesignColors.success;
+      case 'needs-auth':
+      case 'pending-auth':
+        return DesignColors.warning;
+      case 'failed':
+      case 'error':
+        return DesignColors.error;
+      default:
+        return DesignColors.textMuted;
+    }
   }
 }

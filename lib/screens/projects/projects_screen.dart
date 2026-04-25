@@ -23,7 +23,6 @@ import '../hub/hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
 import '../team/spawn_steward_sheet.dart';
-import '../team/agent_families_screen.dart';
 import '../team/templates_screen.dart';
 
 /// "Projects" tab — project inventory. Agents live inside Project detail;
@@ -121,23 +120,12 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
           const _StewardChip(),
           const TeamSwitcher(),
           IconButton(
-            tooltip: 'Templates',
+            tooltip: 'Templates & engines',
             icon: const Icon(Icons.description_outlined),
             onPressed: async.value?.configured == true
                 ? () {
                     Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => const TemplatesScreen(),
-                    ));
-                  }
-                : null,
-          ),
-          IconButton(
-            tooltip: 'Agent families',
-            icon: const Icon(Icons.bolt_outlined),
-            onPressed: async.value?.configured == true
-                ? () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const AgentFamiliesScreen(),
                     ));
                   }
                 : null,

@@ -6,14 +6,21 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'agent_families_screen.dart';
 import 'template_icon.dart';
 
-/// Browser + editor for team templates (agents / prompts / policies).
-/// Hub seeds these on first init from the embedded FS; the user owns
-/// them after that. The mobile editor is intentionally unstructured —
-/// raw YAML / markdown / JSON in a mono text field — because the
-/// authoritative shape lives in docs/hub-agents.md and we don't want a
-/// schema-aware UI fighting upstream changes.
+/// Browser + editor for team templates (agents / prompts / policies)
+/// plus the agent-family registry. Hub seeds templates on first init
+/// from the embedded FS; the user owns them after that. The mobile
+/// editor is intentionally unstructured — raw YAML / markdown / JSON
+/// in a mono text field — because the authoritative shape lives in
+/// docs/hub-agents.md and we don't want a schema-aware UI fighting
+/// upstream changes.
+///
+/// Two tabs: "Templates" (agent personas, prompts, policies) and
+/// "Engines" (the agent-family registry — claude-code/gemini-cli/…).
+/// Templates reference engines via backend.kind, so they belong on
+/// the same screen. Replaces the old standalone bolt icon entry point.
 class TemplatesScreen extends ConsumerStatefulWidget {
   const TemplatesScreen({super.key});
 
@@ -21,7 +28,11 @@ class TemplatesScreen extends ConsumerStatefulWidget {
   ConsumerState<TemplatesScreen> createState() => _TemplatesScreenState();
 }
 
-class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
+class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  final _familiesKey = GlobalKey<AgentFamiliesTabState>();
+
   List<Map<String, dynamic>>? _rows;
   String? _error;
   bool _loading = true;
@@ -29,7 +40,19 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+    _tabs.addListener(() {
+      if (_tabs.indexIsChanging) return;
+      // Rebuild AppBar so the action buttons swap to the active tab.
+      setState(() {});
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -72,6 +95,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final onTemplates = _tabs.index == 0;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -81,17 +105,34 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'New template',
+            tooltip: onTemplates ? 'New template' : 'New family',
             icon: const Icon(Icons.add),
-            onPressed: _loading ? null : _newTemplate,
+            onPressed: onTemplates
+                ? (_loading ? null : _newTemplate)
+                : () => _familiesKey.currentState?.newFamily(),
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _load,
+            onPressed: onTemplates
+                ? (_loading ? null : _load)
+                : () => _familiesKey.currentState?.load(),
           ),
         ],
+        bottom: TabBar(
+          controller: _tabs,
+          tabs: const [
+            Tab(text: 'Templates'),
+            Tab(text: 'Engines'),
+          ],
+        ),
       ),
-      body: _body(),
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          _body(),
+          AgentFamiliesTab(key: _familiesKey),
+        ],
+      ),
     );
   }
 

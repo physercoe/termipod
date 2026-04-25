@@ -6,31 +6,42 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 
-/// Editor for the hub's agent-family registry. Embedded defaults
-/// (claude-code, gemini-cli, codex, aider) are read-only previews;
-/// custom families and overrides of embedded ones are editable. Save
-/// hits the hub immediately and the next host-runner probe (≈30s)
-/// publishes the change to capabilities — no host-runner restart.
-class AgentFamiliesScreen extends ConsumerStatefulWidget {
-  const AgentFamiliesScreen({super.key});
+/// Embeddable body for the hub's agent-family registry. Lives as a tab
+/// inside TemplatesScreen — templates *use* engines via backend.kind, so
+/// they belong on the same screen. The previous standalone screen used
+/// a bolt icon in the AppBar that read like a snippet preset; merging
+/// removes that ambiguity.
+///
+/// Embedded defaults (claude-code, gemini-cli, codex, aider) are
+/// read-only previews; custom families and overrides of embedded ones
+/// are editable. Save hits the hub immediately and the next
+/// host-runner probe (≈30s) publishes the change to capabilities — no
+/// host-runner restart.
+class AgentFamiliesTab extends ConsumerStatefulWidget {
+  const AgentFamiliesTab({super.key});
 
   @override
-  ConsumerState<AgentFamiliesScreen> createState() =>
-      _AgentFamiliesScreenState();
+  ConsumerState<AgentFamiliesTab> createState() => AgentFamiliesTabState();
 }
 
-class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
+class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
+    with AutomaticKeepAliveClientMixin {
   List<Map<String, dynamic>>? _rows;
   bool _loading = true;
   String? _error;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
-    _load();
+    load();
   }
 
-  Future<void> _load() async {
+  /// Public so the parent TabbedScreen's AppBar refresh action can
+  /// trigger a reload from the active tab.
+  Future<void> load() async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
@@ -52,7 +63,8 @@ class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
     }
   }
 
-  Future<void> _newFamily() async {
+  /// Public for the parent's tab-aware "+ New" AppBar action.
+  Future<void> newFamily() async {
     final name = await showDialog<String>(
       context: context,
       builder: (_) => const _NewFamilyNameDialog(),
@@ -65,32 +77,15 @@ class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
         initialBody: _scaffoldYAML(name),
       ),
     ));
-    await _load();
+    await load();
   }
+
+  bool get loading => _loading;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Agent Families',
-          style:
-              GoogleFonts.spaceGrotesk(fontSize: 18, fontWeight: FontWeight.w700),
-        ),
-        actions: [
-          IconButton(
-            tooltip: 'New family',
-            icon: const Icon(Icons.add),
-            onPressed: _loading ? null : _newFamily,
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _load,
-          ),
-        ],
-      ),
-      body: _body(),
-    );
+    super.build(context);
+    return _body();
   }
 
   Widget _body() {
@@ -118,7 +113,7 @@ class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
                     _loading = true;
                     _error = null;
                   });
-                  _load();
+                  load();
                 },
                 icon: const Icon(Icons.refresh, size: 16),
                 label: const Text('Retry'),
@@ -136,7 +131,7 @@ class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
       );
     }
     return RefreshIndicator(
-      onRefresh: _load,
+      onRefresh: load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
         children: [
@@ -147,7 +142,7 @@ class _AgentFamiliesScreenState extends ConsumerState<AgentFamiliesScreen> {
               style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
             ),
           ),
-          for (final row in rows) _FamilyTile(row: row, onChanged: _load),
+          for (final row in rows) _FamilyTile(row: row, onChanged: load),
         ],
       ),
     );

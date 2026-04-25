@@ -14,7 +14,10 @@ backend:
   kind: claude-code
   model: sonnet-4-6
   default_workdir: ~/hub-work
-  cmd: "claude --model sonnet-4-6"
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
+  cmd: "claude --model {{model}} {{permission_flag}}"
 
 default_role: writer.briefing
 display_label: "Briefing Agent"

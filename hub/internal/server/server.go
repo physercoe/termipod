@@ -195,6 +195,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Route("/templates", func(r chi.Router) {
 			r.Get("/", s.handleListTemplates)
 			r.Get("/{category}/{name}", s.handleGetTemplate)
+			r.Put("/{category}/{name}", s.handlePutTemplate)
+			r.Delete("/{category}/{name}", s.handleDeleteTemplate)
+			r.Patch("/{category}/{name}", s.handleRenameTemplate)
 		})
 		r.Route("/projects", func(r chi.Router) {
 			r.Post("/", s.handleCreateProject)

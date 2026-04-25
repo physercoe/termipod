@@ -46,7 +46,16 @@ for forward compat.
 ```yaml
 # Required-ish for a working pane:
 backend:
-  cmd: "claude --model opus-4-7 --no-update"
+  # The hub binds {{model}} from this field so changing models is a
+  # YAML edit, not a code change.
+  model: claude-opus-4-7
+  # Optional: declare the per-mode flag the hub should expand into
+  # {{permission_flag}} when the spawn request sets permission_mode.
+  # Adding a new mode is a YAML-only operation — Go has no fallback.
+  permission_modes:
+    skip:   "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
+  cmd: "claude --model {{model}} --no-update {{permission_flag}}"
 
 # Optional: bind marker forwarding to a channel so any
 #   <<mcp:post_message {"text":"…"}>>
@@ -70,6 +79,9 @@ Template expansion runs server-side. Useful placeholders:
 - `{{handle}}` — child agent handle
 - `{{principal}}` — the user / parent agent that initiated the spawn
 - `{{journal}}` — relative path to the parent agent's markdown journal
+- `{{model}}` — value of `backend.model` (empty if unset)
+- `{{permission_flag}}` — `backend.permission_modes[<spawn.permission_mode>]`
+  (empty if the mode isn't declared in the YAML)
 
 ## 4. Spawning from mobile
 
@@ -143,10 +155,29 @@ What you cannot do yet from mobile:
 
 - Edit an existing agent's spawn spec (read-only in the detail sheet).
 - Bulk-spawn multiple agents from one YAML.
-- Create a brand-new template; only *use* server-side templates or
-  save device-local presets.
 - Approve-in-place on the spawn dialog — approvals live in the
   Me tab's attention section.
+
+### 4c. Editing templates
+
+The mobile **Templates** screen (Settings → Team → Templates) lists
+every file under `<dataRoot>/team/templates/{agents,prompts,policies}/`
+with full read/write/rename/delete from the device. Behind the
+hood:
+
+- `GET    /v1/teams/{team}/templates`               — list files
+- `GET    /v1/teams/{team}/templates/{cat}/{name}`  — read body
+- `PUT    /v1/teams/{team}/templates/{cat}/{name}`  — create/overwrite
+- `DELETE /v1/teams/{team}/templates/{cat}/{name}`  — remove disk file
+- `PATCH  /v1/teams/{team}/templates/{cat}/{name}`  — rename within
+  the same category (`{"new_name": "..."}`); cross-category moves are
+  rejected because the resolver paths differ.
+
+Every mutation lands in the audit log as `template.created`,
+`template.updated`, `template.deleted`, or `template.renamed`. The
+bundled defaults stay in the embedded FS, so deleting a disk file
+falls back to the built-in copy on the next read — there is no
+"restore" endpoint because re-init is the same operation.
 
 ## 5. Spawning from the REST API
 

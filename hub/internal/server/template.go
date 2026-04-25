@@ -44,7 +44,23 @@ var tmplVarRe = regexp.MustCompile(`\{\{\s*([a-z_][a-z0-9_.]*)\s*\}\}`)
 // buildSpawnVars assembles the variable map shared by renderSpawnSpec and
 // resolveContextFiles so the same {{handle}}/{{principal.handle}} bindings
 // expand to the same values in both the spec YAML and the prompt body.
+//
+// Two of the bindings — {{model}} and {{permission_flag}} — are sourced
+// from the spec yaml itself rather than from Go-side defaults. That way
+// adding a new model or permission mode is a YAML edit, never a code
+// change. The shape we read is:
+//
+//	backend:
+//	  model: claude-opus-4-7
+//	  permission_modes:
+//	    skip:   --dangerously-skip-permissions
+//	    prompt: --permission-prompt-tool mcp__termipod__permission_prompt
+//
+// Missing entries collapse to empty strings so a partially-filled
+// template still spawns without 400ing on placeholder expansion.
 func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, principal string) (map[string]string, error) {
+	model, permFlag := backendVarsFromSpec(in.SpawnSpec, in.PermissionMode)
+
 	resolvedPrincipal := firstNonEmpty(principal, "@principal")
 	vars := map[string]string{
 		"handle":           in.ChildHandle,
@@ -53,7 +69,8 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		"now":              time.Now().UTC().Format(time.RFC3339),
 		"principal":        resolvedPrincipal,
 		"principal.handle": strings.TrimPrefix(resolvedPrincipal, "@"),
-		"permission_flag":  permissionFlag(in.PermissionMode),
+		"model":            model,
+		"permission_flag":  permFlag,
 	}
 	if in.ParentID != "" {
 		parentHandle, journal, err := s.lookupParentContext(ctx, team, in.ParentID)
@@ -66,20 +83,27 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 	return vars, nil
 }
 
-// permissionFlag turns the request's PermissionMode into the corresponding
-// claude CLI flag. Templates use the variable in their cmd string so the
-// same template can drive both demo modes (auto-allow vs. attention-gated)
-// without forking the YAML. See spawnIn.PermissionMode for the full
-// semantics of each value.
-func permissionFlag(mode string) string {
-	switch mode {
-	case "skip":
-		return "--dangerously-skip-permissions"
-	case "prompt":
-		return "--permission-prompt-tool mcp__termipod__permission_prompt"
-	default:
-		return ""
+// backendVarsFromSpec partial-parses the spawn spec to read backend.model
+// and backend.permission_modes[mode]. Both keys are pure data — Go has no
+// hardcoded fallback for them — so a template that doesn't declare them
+// expands {{model}} / {{permission_flag}} to "". The yaml unmarshal is
+// best-effort: if the spec isn't shaped like a backend block we return
+// empty strings rather than failing, since renderSpawnSpec must stay
+// usable for ad-hoc specs the operator types directly.
+func backendVarsFromSpec(spec, mode string) (model, permFlag string) {
+	var head struct {
+		Backend struct {
+			Model           string            `yaml:"model"`
+			PermissionModes map[string]string `yaml:"permission_modes"`
+		} `yaml:"backend"`
 	}
+	if err := yaml.Unmarshal([]byte(spec), &head); err != nil {
+		return "", ""
+	}
+	if mode != "" {
+		permFlag = head.Backend.PermissionModes[mode]
+	}
+	return head.Backend.Model, permFlag
 }
 
 // expandVars replaces every {{name}} occurrence in s with vars[name];

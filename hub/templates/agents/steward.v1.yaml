@@ -13,8 +13,21 @@ fallback_modes: [M4]
 
 backend:
   kind: claude-code
+  # The hub binds {{model}} from this field and {{permission_flag}} from
+  # the permission_modes map below. Editing either is enough — there is
+  # no Go-side default to override. To add a new model, change `model`
+  # and re-spawn. To add a new permission mode (e.g. "ask-once"),
+  # extend permission_modes and pass that key as permission_mode in the
+  # spawn request.
   model: claude-opus-4-7
   default_workdir: ~/hub-work
+  permission_modes:
+    # "skip" = PC-style auto-allow, used by the demo bootstrap sheet.
+    skip: "--dangerously-skip-permissions"
+    # "prompt" = route every tool call through the MCP gateway →
+    # attention_items. Requires the permission_prompt MCP tool to be
+    # registered (W2). Empty mode falls through to claude's own default.
+    prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"
   # cmd is what host-runner actually launches. Flags:
   #   --print                          non-interactive (no TUI repl).
   #   --output-format stream-json      one JSON object per line on stdout.
@@ -26,18 +39,7 @@ backend:
   #                                    combining --print with stream-json
   #                                    output; without it the CLI rejects
   #                                    the flag combination.
-  #   {{permission_flag}}              expanded by the hub from the spawn
-  #                                    request's permission_mode field:
-  #                                    "skip"  → --dangerously-skip-permissions
-  #                                              (auto-allow, PC-style)
-  #                                    "prompt"→ --permission-prompt-tool
-  #                                              mcp__termipod__permission_prompt
-  #                                              (route every tool call
-  #                                              through the MCP gateway →
-  #                                              attention_items; needs W2
-  #                                              MCP tool registered)
-  #                                    ""      → no flag (claude default)
-  cmd: "claude --model claude-opus-4-7 --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
 
 default_role: team.coordinator
 display_label: "Steward"

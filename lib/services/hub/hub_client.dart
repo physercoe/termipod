@@ -471,6 +471,71 @@ class HubClient {
     return resp.transform(utf8.decoder).join();
   }
 
+  /// Writes (creates or overwrites) a template file. Body is the raw
+  /// editor contents — server treats yaml/markdown/json bytes verbatim.
+  /// Returns server-confirmed `{category, name, size}`.
+  Future<Map<String, dynamic>> putTemplate(
+    String category,
+    String name,
+    String body,
+  ) async {
+    final req = await _open(
+      'PUT',
+      '/v1/teams/${cfg.teamId}/templates/$category/$name',
+    );
+    req.headers.contentType =
+        ContentType('application', _mimeForName(name), charset: 'utf-8');
+    req.add(utf8.encode(body));
+    final resp = await req.close();
+    final raw = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, raw);
+    }
+    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  }
+
+  /// Deletes a template file. The bundled defaults live in the embedded
+  /// FS, so deleting a disk file falls back to the built-in on next read.
+  Future<void> deleteTemplate(String category, String name) async {
+    final req = await _open(
+      'DELETE',
+      '/v1/teams/${cfg.teamId}/templates/$category/$name',
+    );
+    final resp = await req.close();
+    final raw = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, raw);
+    }
+  }
+
+  /// Renames a template within its category. Server refuses overwrites
+  /// (409) — UI must surface that as a user-visible error.
+  Future<void> renameTemplate(
+    String category,
+    String name,
+    String newName,
+  ) async {
+    final req = await _open(
+      'PATCH',
+      '/v1/teams/${cfg.teamId}/templates/$category/$name',
+    );
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode({'new_name': newName})));
+    final resp = await req.close();
+    final raw = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, raw);
+    }
+  }
+
+  String _mimeForName(String n) {
+    final lower = n.toLowerCase();
+    if (lower.endsWith('.md')) return 'markdown';
+    if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'yaml';
+    if (lower.endsWith('.json')) return 'json';
+    return 'plain';
+  }
+
   // ---- tokens (owner-only) ----
 
   /// Lists all tokens for the team (metadata only, no plaintext). Requires

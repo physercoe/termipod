@@ -13,7 +13,7 @@ fallback_modes: [M4]
 
 backend:
   kind: claude-code
-  model: opus-4-7
+  model: claude-opus-4-7
   default_workdir: ~/hub-work
   # cmd is what host-runner actually launches. Flags:
   #   --print                          non-interactive (no TUI repl).
@@ -22,6 +22,10 @@ backend:
   #                                    stdin so the process stays alive
   #                                    across turns. Without this flag,
   #                                    --print exits after a single reply.
+  #   --verbose                        required by claude-code when
+  #                                    combining --print with stream-json
+  #                                    output; without it the CLI rejects
+  #                                    the flag combination.
   #   {{permission_flag}}              expanded by the hub from the spawn
   #                                    request's permission_mode field:
   #                                    "skip"  → --dangerously-skip-permissions
@@ -33,7 +37,7 @@ backend:
   #                                              attention_items; needs W2
   #                                              MCP tool registered)
   #                                    ""      → no flag (claude default)
-  cmd: "claude --model opus-4-7 --print --output-format stream-json --input-format stream-json {{permission_flag}}"
+  cmd: "claude --model claude-opus-4-7 --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
 
 default_role: team.coordinator
 display_label: "Steward"

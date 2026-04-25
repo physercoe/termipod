@@ -43,12 +43,18 @@ A quick smoke test that the prereqs are all healthy — run on the host:
 
 ```bash
 echo '{"type":"user","message":{"role":"user","content":"say hi"}}' \
-  | claude --print --output-format stream-json --input-format stream-json --model opus-4-7
+  | claude --print --output-format stream-json --input-format stream-json \
+    --verbose --model claude-opus-4-7
 ```
 
 You should see one or more `{"type":"assistant",...}` lines stream
 back, ending with a `{"type":"result",...}`. If this fails, claude
 itself isn't healthy — fix that before testing the wedge.
+
+`--verbose` is required for `--print --output-format stream-json` —
+without it, claude rejects the combination. The model id is the
+canonical long form `claude-opus-4-7`; the short `opus-4-7` may not
+be accepted by every claude-code version.
 
 ---
 

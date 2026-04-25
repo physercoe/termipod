@@ -12,7 +12,6 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
-import '../../widgets/agent_compose.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/steward_badge.dart';
 
@@ -294,24 +293,17 @@ class _TeamChannelScreenState extends ConsumerState<TeamChannelScreen> {
   }
 }
 
-/// Steward-room body: the chat-style agent_events transcript stacked
-/// over an `AgentCompose` input bar. Pulled into its own widget so the
-/// `TeamChannelScreen` build method stays readable, and so future
-/// per-room presentation tweaks (header chips, status pills) live in
-/// one place rather than threading through the channel-mode branch.
+/// Steward-room body: the chat-style agent_events transcript with its
+/// own composer. `AgentFeed` already builds and lays out an
+/// `AgentCompose` internally (under both empty and populated states),
+/// so this wrapper just hosts the feed — adding a second composer
+/// here stacks two input boxes on top of each other.
 class _StewardTranscript extends StatelessWidget {
   final String agentId;
   const _StewardTranscript({required this.agentId});
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(child: AgentFeed(agentId: agentId)),
-        AgentCompose(agentId: agentId),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => AgentFeed(agentId: agentId);
 }
 
 class _EmptyChannelView extends StatelessWidget {

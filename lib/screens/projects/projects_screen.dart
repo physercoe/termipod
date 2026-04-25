@@ -1739,6 +1739,23 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                     ? 'never'
                     : '${_shortTs(lastSeen)} ago · $lastSeen',
                 mutedColor),
+            Builder(builder: (_) {
+              final commit = h['runner_commit']?.toString() ?? '';
+              final buildTime = h['runner_build_time']?.toString() ?? '';
+              final modified = h['runner_modified'] == true;
+              if (commit.isEmpty && buildTime.isEmpty) {
+                return _kv('Runner', 'unknown', mutedColor);
+              }
+              final parts = <String>[];
+              if (commit.isNotEmpty) {
+                final short = commit.length > 7 ? commit.substring(0, 7) : commit;
+                parts.add('commit $short${modified ? '+dirty' : ''}');
+              }
+              if (buildTime.isNotEmpty) {
+                parts.add('built ${buildTime.length > 10 ? buildTime.substring(0, 10) : buildTime}');
+              }
+              return _kv('Runner', parts.join(' · '), mutedColor);
+            }),
             _kv('Created', h['created_at']?.toString() ?? '', mutedColor),
             _kv('Capabilities',
                 h['capabilities']?.toString() ?? '{}', mutedColor),

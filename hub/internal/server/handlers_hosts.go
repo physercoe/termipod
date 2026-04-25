@@ -34,6 +34,22 @@ type hostOut struct {
 	CapabilitiesJSON     string          `json:"capabilities_json,omitempty"`
 	CapabilitiesProbedAt string          `json:"capabilities_probed_at,omitempty"`
 	CreatedAt            string          `json:"created_at"`
+	// Build metadata reported by the host-runner via the heartbeat body
+	// (HeartbeatIn). Empty when the host hasn't heartbeated since the
+	// host-runner build that started reporting these (v1.0.261+) or when
+	// the binary was built outside a git tree.
+	RunnerCommit    string `json:"runner_commit,omitempty"`
+	RunnerBuildTime string `json:"runner_build_time,omitempty"`
+	RunnerModified  bool   `json:"runner_modified,omitempty"`
+}
+
+// heartbeatIn mirrors hostrunner.HeartbeatIn. Duplicated here (rather than
+// imported) because hub server packages must not depend on host-runner
+// packages — keeps the build dependency one-way.
+type heartbeatIn struct {
+	RunnerCommit    string `json:"runner_commit,omitempty"`
+	RunnerBuildTime string `json:"runner_build_time,omitempty"`
+	RunnerModified  bool   `json:"runner_modified,omitempty"`
 }
 
 // sshHintSecretKeys is the belt-and-suspenders denylist for ssh_hint_json.
@@ -146,7 +162,8 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	rows, err := s.db.QueryContext(r.Context(), `
 		SELECT id, team_id, name, status, last_seen_at, capabilities_json,
-		       ssh_hint_json, capabilities_probed_at, created_at
+		       ssh_hint_json, capabilities_probed_at, created_at,
+		       runner_commit, runner_build_time, runner_modified
 		FROM hosts WHERE team_id = ? ORDER BY created_at`, team)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -156,9 +173,12 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	out := []hostOut{}
 	for rows.Next() {
 		var h hostOut
-		var lastSeen, hint, probed sql.NullString
+		var lastSeen, hint, probed, runnerCommit, runnerBuild sql.NullString
+		var runnerMod sql.NullInt64
 		var caps string
-		if err := rows.Scan(&h.ID, &h.TeamID, &h.Name, &h.Status, &lastSeen, &caps, &hint, &probed, &h.CreatedAt); err != nil {
+		if err := rows.Scan(&h.ID, &h.TeamID, &h.Name, &h.Status, &lastSeen, &caps,
+			&hint, &probed, &h.CreatedAt,
+			&runnerCommit, &runnerBuild, &runnerMod); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -173,19 +193,58 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		if probed.Valid {
 			h.CapabilitiesProbedAt = probed.String
 		}
+		if runnerCommit.Valid {
+			h.RunnerCommit = runnerCommit.String
+		}
+		if runnerBuild.Valid {
+			h.RunnerBuildTime = runnerBuild.String
+		}
+		if runnerMod.Valid && runnerMod.Int64 != 0 {
+			h.RunnerModified = true
+		}
 		out = append(out, h)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 // handleHostHeartbeat updates last_seen_at and keeps status = online.
-// Called every ~10s by the host-runner loop.
+// Called every ~10s by the host-runner loop. Optional JSON body carries
+// host-runner build metadata (commit / build_time / modified) so the
+// hub can show "host-runner is at commit X" without a separate endpoint.
+// Empty body is fine — older host-runners still heartbeat.
 func (s *Server) handleHostHeartbeat(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := chi.URLParam(r, "host")
-	res, err := s.db.ExecContext(r.Context(), `
-		UPDATE hosts SET status='online', last_seen_at = ?
-		WHERE team_id = ? AND id = ?`, NowUTC(), team, host)
+
+	var in heartbeatIn
+	if r.Body != nil {
+		// Tolerate empty body, malformed body, and no Content-Type — older
+		// host-runners send no body at all. We only persist build info when
+		// we successfully parsed it.
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
+		if len(body) > 0 {
+			_ = json.Unmarshal(body, &in)
+		}
+	}
+
+	now := NowUTC()
+	var res sql.Result
+	var err error
+	if in.RunnerCommit != "" || in.RunnerBuildTime != "" {
+		modified := 0
+		if in.RunnerModified {
+			modified = 1
+		}
+		res, err = s.db.ExecContext(r.Context(), `
+			UPDATE hosts SET status='online', last_seen_at = ?,
+			    runner_commit = ?, runner_build_time = ?, runner_modified = ?
+			WHERE team_id = ? AND id = ?`,
+			now, in.RunnerCommit, in.RunnerBuildTime, modified, team, host)
+	} else {
+		res, err = s.db.ExecContext(r.Context(), `
+			UPDATE hosts SET status='online', last_seen_at = ?
+			WHERE team_id = ? AND id = ?`, now, team, host)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -246,13 +305,16 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	host := chi.URLParam(r, "host")
 	var h hostOut
-	var lastSeen, hint, probed sql.NullString
+	var lastSeen, hint, probed, runnerCommit, runnerBuild sql.NullString
+	var runnerMod sql.NullInt64
 	var caps string
 	err := s.db.QueryRowContext(r.Context(), `
 		SELECT id, team_id, name, status, last_seen_at, capabilities_json,
-		       ssh_hint_json, capabilities_probed_at, created_at
+		       ssh_hint_json, capabilities_probed_at, created_at,
+		       runner_commit, runner_build_time, runner_modified
 		FROM hosts WHERE team_id = ? AND id = ?`, team, host).Scan(
-		&h.ID, &h.TeamID, &h.Name, &h.Status, &lastSeen, &caps, &hint, &probed, &h.CreatedAt)
+		&h.ID, &h.TeamID, &h.Name, &h.Status, &lastSeen, &caps, &hint, &probed, &h.CreatedAt,
+		&runnerCommit, &runnerBuild, &runnerMod)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "host not found")
 		return
@@ -271,6 +333,15 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 	}
 	if probed.Valid {
 		h.CapabilitiesProbedAt = probed.String
+	}
+	if runnerCommit.Valid {
+		h.RunnerCommit = runnerCommit.String
+	}
+	if runnerBuild.Valid {
+		h.RunnerBuildTime = runnerBuild.String
+	}
+	if runnerMod.Valid && runnerMod.Int64 != 0 {
+		h.RunnerModified = true
 	}
 	writeJSON(w, http.StatusOK, h)
 }

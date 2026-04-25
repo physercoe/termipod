@@ -1,33 +1,13 @@
 package server
 
-import (
-	"runtime/debug"
-	"strings"
-)
+import "github.com/termipod/hub/internal/buildinfo"
 
-// Commit / BuildTime / Modified are populated from runtime/debug.ReadBuildInfo
-// at startup. Go embeds vcs.* settings automatically when `go build` runs
-// inside a git tree, so no -ldflags or Makefile is required. Values stay
-// empty when the binary was built from a tarball or outside a VCS.
+// Re-export the shared buildinfo so existing handleInfo / external readers
+// stay on `server.Commit` / `server.BuildTime` / `server.Modified`.
+// Single source of truth lives in internal/buildinfo so host-runner can
+// read the same fields without depending on the server package.
 var (
-	Commit    string
-	BuildTime string
-	Modified  bool
+	Commit    = buildinfo.Commit
+	BuildTime = buildinfo.BuildTime
+	Modified  = buildinfo.Modified
 )
-
-func init() {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return
-	}
-	for _, s := range info.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			Commit = s.Value
-		case "vcs.time":
-			BuildTime = s.Value
-		case "vcs.modified":
-			Modified = strings.EqualFold(s.Value, "true")
-		}
-	}
-}

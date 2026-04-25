@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 )
 
@@ -50,8 +51,23 @@ func (c *Client) RegisterHost(ctx context.Context, name string, caps json.RawMes
 	return out.ID, err
 }
 
+// HeartbeatIn carries build metadata so the hub can show "host-runner is
+// at commit X, built Y" without a separate roundtrip. Empty fields are
+// fine — the server stores nullable columns and older clients (or
+// non-VCS builds) just won't update them.
+type HeartbeatIn struct {
+	RunnerCommit    string `json:"runner_commit,omitempty"`
+	RunnerBuildTime string `json:"runner_build_time,omitempty"`
+	RunnerModified  bool   `json:"runner_modified,omitempty"`
+}
+
 func (c *Client) Heartbeat(ctx context.Context, hostID string) error {
-	return c.post(ctx, fmt.Sprintf("/v1/teams/%s/hosts/%s/heartbeat", c.Team, hostID), nil, nil)
+	in := HeartbeatIn{
+		RunnerCommit:    buildinfo.Commit,
+		RunnerBuildTime: buildinfo.BuildTime,
+		RunnerModified:  buildinfo.Modified,
+	}
+	return c.post(ctx, fmt.Sprintf("/v1/teams/%s/hosts/%s/heartbeat", c.Team, hostID), in, nil)
 }
 
 // PutCapabilities uploads the latest capability probe to the hub. Body is any

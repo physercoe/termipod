@@ -58,41 +58,54 @@ be accepted by every claude-code version.
 
 ---
 
-## 1. AC1 — One-line host bootstrap
+## 1. AC1 — Host registers and `~/hub-work` exists
 
-**What you're testing:** the host installer one-liner finishes cleanly
-and `~/hub-work` exists afterwards.
+**What you're testing:** the host-runner registers cleanly with the
+hub and `~/hub-work` exists afterwards.
+
+> **Note on framing.** Earlier drafts of this AC described a
+> `curl … | bash` one-liner installer. That installer doesn't exist
+> yet — host bootstrap today is a token mint on mobile + the manual
+> Track A or Track B setup in [docs/hub-host-setup.md](../hub-host-setup.md).
+> The W0 mkdir we're acceptance-testing here is what `host-runner`
+> does on first start, not what an installer script does.
 
 **Steps:**
 
-1. On the mobile app, open the team and go to **Hosts → Add host**.
-2. Copy the curl-piped installer command shown on the screen. It
-   should look something like:
-   ```
-   curl -sSL https://hub.example.com/install.sh | bash -s -- --token <…>
-   ```
-3. SSH into the fresh host and paste it.
-4. Wait for the script to finish. Note the elapsed time (should be
-   <30s on a normal box).
-5. Without disconnecting from SSH, run:
+1. On the mobile app, open the team you own, go to
+   **Settings → Auth**, tap **New token**, choose **kind: host**,
+   give it a label, and tap **Issue**. Copy the plaintext from the
+   bottom sheet. (When `kind=host`, the sheet also shows a
+   ready-to-paste setup snippet — see step 2.)
+2. SSH into the fresh host. Follow either Track in
+   [docs/hub-host-setup.md](../hub-host-setup.md): Track A
+   (foreground in tmux, no sudo) is fastest for the test; Track B
+   (systemd) is what production uses. Paste the host token from
+   step 1 where the doc says `paste-the-plaintext-token-here`.
+3. Once the runner is running (Track A: shell prompt blocked on the
+   `host-runner run` line; Track B: `systemctl status
+   termipod-host@<user>` shows active), still in the SSH session run:
    ```bash
    ls -ld $HOME/hub-work
    ```
 
 **Expected:**
 
-- Installer exits 0.
 - `ls -ld $HOME/hub-work` shows a directory, mode `0755` (or stricter),
   owned by your user.
-- Within 30s, the host appears in the mobile **Hosts** list with a
-  green "connected" indicator.
+- Within ~15s of the runner starting, the host appears in the mobile
+  app's Hosts list with a green "connected" indicator.
 
 **Failure modes to watch for:**
 
-- Installer exits but `~/hub-work` doesn't exist → W0 didn't land.
-- Host appears but indicator stays grey → host-runner installed but
-  not registering with the hub. Check `journalctl -u termipod-host-runner`
-  on the host. (Out of scope for this wedge but blocks subsequent ACs.)
+- Runner starts but `~/hub-work` doesn't exist → W0 didn't land. Check
+  `hub/internal/hostrunner/runner.go` `defaultStewardWorkdir` plumbing.
+- Host appears but indicator stays grey → registration succeeded but
+  heartbeats aren't reaching the hub. Check the runner's stdout
+  (Track A) or `journalctl -fu termipod-host@<user>` (Track B) for
+  non-200 heartbeat responses.
+- 401/403 on register → the token isn't `kind=host`, or the team in
+  the runner's `--team` flag doesn't match the token's team.
 
 ---
 

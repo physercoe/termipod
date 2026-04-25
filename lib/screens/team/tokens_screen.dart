@@ -87,6 +87,9 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
         context,
         plaintext: plaintext,
         handle: result.handle,
+        kind: result.kind,
+        hubUrl: client.cfg.baseUrl,
+        teamId: client.cfg.teamId,
       );
       await _load();
     } catch (e) {
@@ -350,7 +353,24 @@ Future<void> _showPlaintextSheet(
   BuildContext context, {
   required String plaintext,
   required String handle,
+  required String kind,
+  required String hubUrl,
+  required String teamId,
 }) async {
+  // For host-kind tokens we render a ready-to-paste setup snippet
+  // (Track A from docs/hub-host-setup.md) so the demo path is one
+  // screen instead of "got token, now read the doc". The snippet uses
+  // `tmux display-message -p '#S'` so the runner attaches to whichever
+  // session the operator is already in.
+  final isHost = kind == 'host';
+  final hostSetup = isHost
+      ? '''~/host-runner run \\
+  --hub   $hubUrl \\
+  --team  $teamId \\
+  --token $plaintext \\
+  --tmux-session "\$(tmux display-message -p '#S')"'''
+      : null;
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -362,58 +382,111 @@ Future<void> _showPlaintextSheet(
           top: 20,
           bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Token for $handle',
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Token for $handle',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(
+                'Copy this now. The hub does not store the plaintext — this is the only time it will be shown.',
                 style: GoogleFonts.spaceGrotesk(
-                    fontSize: 18, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 8),
-            Text(
-              'Copy this now. The hub does not store the plaintext — this is the only time it will be shown.',
-              style: GoogleFonts.spaceGrotesk(
-                  fontSize: 12, color: DesignColors.textMuted),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: DesignColors.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
+                    fontSize: 12, color: DesignColors.textMuted),
               ),
-              child: SelectableText(
-                plaintext,
-                style: GoogleFonts.jetBrainsMono(fontSize: 13),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: DesignColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: SelectableText(
+                  plaintext,
+                  style: GoogleFonts.jetBrainsMono(fontSize: 13),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copy'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy'),
+                      onPressed: () async {
+                        await Clipboard.setData(
+                            ClipboardData(text: plaintext));
+                        if (!ctx.mounted) return;
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Token copied'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+              if (hostSetup != null) ...[
+                const SizedBox(height: 24),
+                Text('Run on the host',
+                    style: GoogleFonts.spaceGrotesk(
+                        fontSize: 14, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text(
+                  'Inside a tmux session on the target box (Track A — see docs/hub-host-setup.md for systemd/Track B):',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12, color: DesignColors.textMuted),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: DesignColors.surfaceDark.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: DesignColors.borderDark),
+                  ),
+                  child: SelectableText(
+                    hostSetup,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('Copy setup command'),
                     onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: plaintext));
+                      await Clipboard.setData(ClipboardData(text: hostSetup));
                       if (!ctx.mounted) return;
                       ScaffoldMessenger.of(ctx).showSnackBar(
                         const SnackBar(
-                          content: Text('Token copied'),
+                          content: Text('Setup command copied'),
                           duration: Duration(seconds: 2),
                         ),
                       );
                     },
                   ),
                 ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Done'),
+                const SizedBox(height: 4),
+                Text(
+                  'Prereq: host has \$HOME/host-runner built from `cd hub && go build -o ~/host-runner ./cmd/host-runner`. Already on \$PATH? Drop the leading `~/`.',
+                  style: GoogleFonts.spaceGrotesk(
+                      fontSize: 11, color: DesignColors.textMuted),
                 ),
               ],
-            ),
-          ],
+            ],
+          ),
         ),
       );
     },

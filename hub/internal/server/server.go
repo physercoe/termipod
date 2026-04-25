@@ -371,9 +371,19 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"server_version":            ServerVersion,
 		"supported_api_versions":    []string{"v1"},
 		"schema_versions_supported": []int{1},
-	})
+	}
+	if Commit != "" {
+		out["commit"] = Commit
+	}
+	if BuildTime != "" {
+		out["build_time"] = BuildTime
+	}
+	if Modified {
+		out["modified"] = true
+	}
+	writeJSON(w, http.StatusOK, out)
 }

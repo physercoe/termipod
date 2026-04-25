@@ -26,6 +26,9 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
 
   bool _busy = false;
   String? _probeVersion;
+  String? _probeCommit;
+  String? _probeBuildTime;
+  bool _probeModified = false;
   String? _error;
 
   @override
@@ -47,12 +50,29 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
     super.dispose();
   }
 
+  String _probeBannerText() {
+    final parts = <String>['Hub reachable — server $_probeVersion'];
+    final c = _probeCommit;
+    if (c != null && c.isNotEmpty) {
+      final short = c.length > 7 ? c.substring(0, 7) : c;
+      parts.add('commit $short${_probeModified ? '+dirty' : ''}');
+    }
+    final bt = _probeBuildTime;
+    if (bt != null && bt.isNotEmpty) {
+      parts.add('built ${bt.length > 10 ? bt.substring(0, 10) : bt}');
+    }
+    return parts.join(' · ');
+  }
+
   Future<void> _probeOnly() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
       _busy = true;
       _error = null;
       _probeVersion = null;
+      _probeCommit = null;
+      _probeBuildTime = null;
+      _probeModified = false;
     });
     final probe = HubClient(HubConfig(
       baseUrl: _urlCtrl.text.trim(),
@@ -64,6 +84,9 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
       if (!mounted) return;
       setState(() {
         _probeVersion = info['server_version']?.toString();
+        _probeCommit = info['commit']?.toString();
+        _probeBuildTime = info['build_time']?.toString();
+        _probeModified = info['modified'] == true;
       });
     } catch (e) {
       if (!mounted) return;
@@ -216,7 +239,7 @@ class _HubBootstrapScreenState extends ConsumerState<HubBootstrapScreen> {
                 const SizedBox(height: 16),
                 _StatusBanner(
                   ok: true,
-                  text: 'Hub reachable — server version $_probeVersion',
+                  text: _probeBannerText(),
                 ),
               ],
               if (_error != null) ...[

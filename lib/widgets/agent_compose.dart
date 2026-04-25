@@ -15,9 +15,22 @@ import '../theme/design_colors.dart';
 /// agent_events; host-runner's InputRouter then delivers them to the
 /// running driver over its native transport (stream-json stdin, tmux
 /// send-keys, ACP session/prompt).
+///
+/// W-UI-4: slashCommands / mentions are sourced from the active
+/// session.init payload by AgentFeed and surface as a suggestion chip
+/// strip when the user types a `/` or `@` token. Empty lists silently
+/// disable the matching prefix — drivers that don't surface those
+/// fields just don't get the picker.
 class AgentCompose extends ConsumerStatefulWidget {
   final String agentId;
-  const AgentCompose({super.key, required this.agentId});
+  final List<String> slashCommands;
+  final List<String> mentions;
+  const AgentCompose({
+    super.key,
+    required this.agentId,
+    this.slashCommands = const [],
+    this.mentions = const [],
+  });
 
   @override
   ConsumerState<AgentCompose> createState() => _AgentComposeState();
@@ -30,10 +43,70 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    // Re-render on every keystroke so the suggestion strip can react to
+    // `/` and `@` prefixes at the cursor. The TextField itself doesn't
+    // need a setState; the strip computes from controller.value.
+    _ctrl.addListener(() => setState(() {}));
+  }
+
+  @override
   void dispose() {
     _ctrl.dispose();
     _focus.dispose();
     super.dispose();
+  }
+
+  // Find the token at the current cursor (last whitespace-delimited
+  // chunk that ends at selection.end). Returns null when the cursor is
+  // mid-text or there's no leading prefix character.
+  _PrefixMatch? _activeMatch() {
+    final value = _ctrl.value;
+    final sel = value.selection;
+    if (!sel.isValid || !sel.isCollapsed) return null;
+    final upto = value.text.substring(0, sel.end);
+    final start = upto.lastIndexOf(RegExp(r'\s'));
+    final tokenStart = start + 1;
+    final token = upto.substring(tokenStart);
+    if (token.length < 1) return null;
+    final lead = token[0];
+    if (lead != '/' && lead != '@') return null;
+    final query = token.substring(1).toLowerCase();
+    final pool = lead == '/' ? widget.slashCommands : widget.mentions;
+    if (pool.isEmpty) return null;
+    final matches = <String>[];
+    for (final c in pool) {
+      // Slash commands in claude-code arrive as "/help" — strip the
+      // leading slash before comparing so the user can type "/he" and
+      // still match "/help" without seeing "//help" suggestions.
+      final norm = lead == '/' && c.startsWith('/') ? c.substring(1) : c;
+      if (query.isEmpty || norm.toLowerCase().startsWith(query)) {
+        matches.add(norm);
+      }
+      if (matches.length >= 8) break;
+    }
+    if (matches.isEmpty) return null;
+    return _PrefixMatch(
+      lead: lead,
+      tokenStart: tokenStart,
+      tokenEnd: sel.end,
+      suggestions: matches,
+    );
+  }
+
+  void _applySuggestion(_PrefixMatch m, String suggestion) {
+    final text = _ctrl.text;
+    final replacement = '${m.lead}$suggestion ';
+    final next = text.substring(0, m.tokenStart) +
+        replacement +
+        text.substring(m.tokenEnd);
+    final cursor = m.tokenStart + replacement.length;
+    _ctrl.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+    _focus.requestFocus();
   }
 
   Future<void> _send() async {
@@ -104,6 +177,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
 
+    final match = _activeMatch();
     return Container(
       decoration: BoxDecoration(
         color: bg,
@@ -114,6 +188,13 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (match != null)
+            _SuggestionStrip(
+              match: match,
+              onTap: (s) => _applySuggestion(match, s),
+              border: border,
+              muted: muted,
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 4),
@@ -194,6 +275,73 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Resolved prefix-trigger state — what's at the cursor + what to offer.
+class _PrefixMatch {
+  final String lead; // '/' or '@'
+  final int tokenStart;
+  final int tokenEnd;
+  final List<String> suggestions;
+  const _PrefixMatch({
+    required this.lead,
+    required this.tokenStart,
+    required this.tokenEnd,
+    required this.suggestions,
+  });
+}
+
+/// Horizontal chip strip rendered above the composer when a `/` or `@`
+/// trigger is active. Capped at the same length as `suggestions` (the
+/// match's slice) so a 200-tool driver doesn't blow the row out.
+class _SuggestionStrip extends StatelessWidget {
+  final _PrefixMatch match;
+  final void Function(String) onTap;
+  final Color border;
+  final Color muted;
+  const _SuggestionStrip({
+    required this.match,
+    required this.onTap,
+    required this.border,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6, left: 4),
+      child: SizedBox(
+        height: 28,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: match.suggestions.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 6),
+          itemBuilder: (ctx, i) {
+            final s = match.suggestions[i];
+            return InkWell(
+              onTap: () => onTap(s),
+              borderRadius: BorderRadius.circular(4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: border),
+                ),
+                child: Text(
+                  '${match.lead}$s',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11,
+                    color: muted,
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }

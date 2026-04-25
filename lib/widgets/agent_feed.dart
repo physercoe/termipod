@@ -187,7 +187,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return const Center(child: CircularProgressIndicator());
     }
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final compose = AgentCompose(agentId: widget.agentId);
+    // Source slash/mention pickers (W-UI-4) from session.init when
+    // available. Mentions blend agents + tools + skills since claude
+    // accepts @-references for any of them; an empty session still
+    // gets a working composer (the strips hide themselves).
+    final initForCompose = _latestSessionInitPayload();
+    final composeSlash = _stringList(initForCompose?['slash_commands']);
+    final composeMentions = <String>[
+      ..._stringList(initForCompose?['agents']),
+      ..._stringList(initForCompose?['tools']),
+      ..._stringList(initForCompose?['skills']),
+    ];
+    final compose = AgentCompose(
+      agentId: widget.agentId,
+      slashCommands: composeSlash,
+      mentions: composeMentions,
+    );
     if (_events.isEmpty) {
       return Column(
         children: [
@@ -252,20 +267,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
       }
     }
-    // Pluck the most recent session.init payload (a steward that
-    // reconnects can produce more than one). The sticky header below
-    // surfaces it; the regular feed drops the event so it isn't rendered
-    // twice — the rich init blob is too dense for an inline card.
-    Map<String, dynamic>? sessionInit;
-    for (final e in _events.reversed) {
-      if ((e['kind'] ?? '').toString() == 'session.init') {
-        final p = e['payload'];
-        if (p is Map) {
-          sessionInit = p.cast<String, dynamic>();
-          break;
-        }
-      }
-    }
+    // Sticky header pulls from the latest session.init (a steward
+    // that reconnects can produce more than one). The composer above
+    // already plucked the same payload — kept distinct so a future
+    // header-only optimization stays local.
+    final sessionInit = initForCompose;
     // Telemetry strip inputs (W-UI-3): cumulative cost from all
     // turn.result events, latest per-message usage block, latest
     // rate_limit. We walk forward so latest-wins reflects ordering;
@@ -362,6 +368,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         compose,
       ],
     );
+  }
+
+  // Find the most recent session.init payload, if any. Used by the
+  // composer for picker data — duplicated lookup with the build-time
+  // sessionInit lookup, but this one needs to run before the visible
+  // list is computed so we can pre-build the AgentCompose.
+  Map<String, dynamic>? _latestSessionInitPayload() {
+    for (final e in _events.reversed) {
+      if ((e['kind'] ?? '').toString() == 'session.init') {
+        final p = e['payload'];
+        if (p is Map) return p.cast<String, dynamic>();
+      }
+    }
+    return null;
+  }
+
+  List<String> _stringList(Object? v) {
+    if (v is! List) return const [];
+    return [for (final e in v) e.toString()];
   }
 
   // Folded-into-parent kinds drop out of the visible list. tool_result is

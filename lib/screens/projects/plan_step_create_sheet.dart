@@ -255,7 +255,7 @@ class _PlanStepCreateSheetState extends ConsumerState<PlanStepCreateSheet> {
         'llm_call' =>
           '{\n  "model": "claude-opus-4-7",\n  "prompt": "..."\n}',
         'agent_spawn' =>
-          '{\n  "template": "agents/worker.v1.yaml"\n}',
+          '{\n  "template": "agents/ml-worker.v1.yaml"\n}',
         'mcp_call' => '{\n  "tool": "search",\n  "args": {}\n}',
         'human_decision' =>
           '{\n  "question": "Ship?",\n  "options": ["yes", "no"]\n}',

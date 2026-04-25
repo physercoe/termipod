@@ -106,27 +106,34 @@ SIGKILL it, confirm red within 10 min; tap the chip → recreate flow
 **Goal:** user taps "Recreate steward" on the chip menu → the dead
 steward is torn down and the bootstrap sheet reopens.
 
-**Hub change:** new endpoint `POST /v1/teams/{team}/agents/{id}/terminate`
-that:
-1. PATCHes `agents.status='terminated'`.
-2. Records an attention/audit row so the timeline shows it.
-3. (Optional) signals host-runner via the existing reconcile loop —
-   host-runner will see `status=terminated` and kill the process /
-   tear down the M2 driver. The reconcile path already handles
-   "agent gone from running list", so this should fall out for free.
+**Hub change:** *none required.* The existing
+`PATCH /v1/teams/{team}/agents/{id}` already does everything needed
+when called with `{status: "terminated"}`:
+1. Sets `status='terminated'` and stamps `terminated_at`.
+2. Enqueues a `terminate` host command so host-runner kills the pane.
+3. Records an `agent.terminate` audit row.
 
-**Mobile change:** Steward chip becomes a `PopupMenuButton` when the
-chip state is amber/red/grey:
-- "Recreate steward" → confirm dialog → call terminate → re-trigger
-  the bootstrap sheet (clear the dismissed flag, then route).
-- "Open #hub-meta" (default tap stays unchanged for green).
+`HubClient.terminateAgent()` (mobile) wraps this. No new endpoint.
 
-**Files:** `hub/internal/server/handlers_agents.go`, `lib/widgets/steward_badge.dart`, `lib/screens/team/spawn_steward_sheet.dart` (re-trigger trigger).
+**Mobile change:** Steward chip tap behavior splits by liveness:
+- **healthy** → opens `#hub-meta` directly (unchanged).
+- **idle / stuck / starting** → opens a bottom sheet with two
+  actions: *Open #hub-meta* and *Recreate steward*. Recreate confirms,
+  calls `terminateAgent`, clears the per-team bootstrap-dismissed
+  flag (so the auto-trigger is re-enabled), refreshes hub state,
+  then routes to `showSpawnStewardSheet`.
+- **none** → opens the spawn sheet directly (unchanged).
 
-**Verify:** with a stuck (red) steward, tap chip → "Recreate" → confirm
-→ bootstrap sheet appears → spawn a new one → chip flips to green.
+**Files:** `lib/screens/projects/projects_screen.dart`
+(`_StewardChip` tap dispatch + `_showStewardActionsSheet` +
+`_confirmAndRecreateSteward`).
 
-**Effort:** ~1 day combined.
+**Verify:** with a stuck (red) steward, tap chip → bottom sheet →
+*Recreate steward* → confirm → spawn sheet appears → spawn a new
+one → chip flips to green.
+
+**Effort:** ~½ day (mobile-only since the hub already supports
+terminate).
 
 ### 2c. Doc fixes (free)
 

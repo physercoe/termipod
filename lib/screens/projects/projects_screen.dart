@@ -262,6 +262,7 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
     }
 
     final isAbsent = liveness == StewardLiveness.none;
+    final isHealthy = liveness == StewardLiveness.healthy;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -272,9 +273,17 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
             borderRadius: BorderRadius.circular(16),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
-              onTap: () => isAbsent
-                  ? showSpawnStewardSheet(context, hosts: hub.hosts)
-                  : openHubMetaChannel(context, ref),
+              onTap: () {
+                if (isAbsent) {
+                  showSpawnStewardSheet(context, hosts: hub.hosts);
+                } else if (isHealthy) {
+                  openHubMetaChannel(context, ref);
+                } else {
+                  // idle / stuck / starting — surface the recreate
+                  // affordance alongside the room shortcut.
+                  _showStewardActionsSheet(context, ref, hub.agents);
+                }
+              },
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -300,6 +309,123 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
       ),
     );
   }
+}
+
+/// Bottom sheet shown when the steward chip is tapped in idle/stuck/
+/// starting states. Two actions: open the room (in case it's recoverable
+/// or you want to read the last turn), or recreate the steward.
+Future<void> _showStewardActionsSheet(
+  BuildContext context,
+  WidgetRef ref,
+  List<Map<String, dynamic>> agents,
+) async {
+  final stewardId = _findStewardId(agents);
+  await showModalBottomSheet<void>(
+    context: context,
+    builder: (sheetCtx) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.chat_outlined),
+              title: const Text('Open #hub-meta'),
+              subtitle: const Text('Read the last turn or send a probe'),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                openHubMetaChannel(context, ref);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.refresh, color: DesignColors.error),
+              title: const Text('Recreate steward'),
+              subtitle: const Text('Terminate the current one and spawn a fresh one'),
+              enabled: stewardId != null,
+              onTap: stewardId == null
+                  ? null
+                  : () {
+                      Navigator.pop(sheetCtx);
+                      _confirmAndRecreateSteward(context, ref, stewardId);
+                    },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+/// Finds the agent id of the team's steward (handle == 'steward', not
+/// archived). Returns the most-recent matching row's id, or null if no
+/// such agent exists. Used by the recreate flow.
+String? _findStewardId(List<Map<String, dynamic>> agents) {
+  for (final a in agents) {
+    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    final id = (a['id'] ?? '').toString();
+    if (id.isNotEmpty) return id;
+  }
+  return null;
+}
+
+/// Confirms with the user, terminates the current steward, clears the
+/// per-team bootstrap-dismissed flag (so the spawn sheet is allowed to
+/// auto-trigger again), refreshes hub state, then opens the spawn sheet.
+Future<void> _confirmAndRecreateSteward(
+  BuildContext context,
+  WidgetRef ref,
+  String stewardId,
+) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Recreate steward?'),
+      content: const Text(
+        'The current steward will be terminated and a new one spawned. '
+        'In-flight turns will be lost.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Recreate'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  final hubNotifier = ref.read(hubProvider.notifier);
+  final client = hubNotifier.client;
+  if (client == null) return;
+  try {
+    await client.terminateAgent(stewardId);
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Terminate failed: $e')),
+    );
+    return;
+  }
+
+  // Clear the dismissed flag so the bootstrap sheet's autoTrigger path is
+  // re-enabled — the user explicitly asked to recreate, so any prior
+  // "Skip" choice no longer applies.
+  final teamId = ref.read(hubProvider).value?.config?.teamId ?? '';
+  if (teamId.isNotEmpty) {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(bootstrapDismissedKey(teamId));
+  }
+
+  await hubNotifier.refreshAll();
+
+  if (!context.mounted) return;
+  final hosts = ref.read(hubProvider).value?.hosts ?? const [];
+  await showSpawnStewardSheet(context, hosts: hosts);
 }
 
 /// A steward counts as "present" when any agent with handle=='steward' is

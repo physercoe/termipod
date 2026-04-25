@@ -16,7 +16,6 @@ import '../../widgets/team_switcher.dart';
 import '../projects/project_detail_screen.dart';
 import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
-import '../vault/vault_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
@@ -147,7 +146,6 @@ class MeScreen extends ConsumerWidget {
                   itemBuilder: (_, i) => _MeCard(item: filtered[i]),
                 ),
               ),
-            const SliverToBoxAdapter(child: _VaultSection()),
             const SliverToBoxAdapter(child: _UrgentTasksSection()),
             SliverToBoxAdapter(
               child: _SectionLabel(text: l10n.meDigestSection),
@@ -609,80 +607,6 @@ class _ApprovalActions extends ConsumerWidget {
         );
       }
     }
-  }
-}
-
-/// Device-scoped Vault slot on Me — surfaces snippets + command history
-/// per the user's Gap #3 directive. These collections are principal-
-/// personal data (not team-shared) so Me is the right home. The section
-/// routes into the existing [VaultScreen] which holds both sub-screens.
-class _VaultSection extends StatelessWidget {
-  const _VaultSection();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    final border =
-        isDark ? DesignColors.borderDark : DesignColors.borderLight;
-    final muted =
-        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _SectionLabel(text: 'Vault'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-          child: Material(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const VaultScreen(),
-              )),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: border),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.inventory_2_outlined,
-                        size: 20, color: DesignColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Snippets & History',
-                              style: GoogleFonts.spaceGrotesk(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                              )),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Terminal shortcuts and recent commands',
-                            style: GoogleFonts.jetBrainsMono(
-                              fontSize: 11,
-                              color: muted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right, size: 18, color: muted),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
   }
 }
 

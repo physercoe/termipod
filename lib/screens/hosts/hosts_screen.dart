@@ -15,6 +15,7 @@ import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../projects/projects_screen.dart' show openHostDetail;
 import '../terminal/terminal_screen.dart';
+import '../vault/vault_screen.dart';
 
 /// Unified Hosts tab (Tier-2) per `docs/ia-redesign.md` §5 + §6.4.
 ///
@@ -52,11 +53,18 @@ class _HostRow {
   });
 }
 
-class HostsScreen extends ConsumerWidget {
+class HostsScreen extends ConsumerStatefulWidget {
   const HostsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HostsScreen> createState() => _HostsScreenState();
+}
+
+class _HostsScreenState extends ConsumerState<HostsScreen> {
+  bool _hostsExpanded = true;
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final colorScheme = Theme.of(context).colorScheme;
 
@@ -107,14 +115,20 @@ class HostsScreen extends ConsumerWidget {
               ),
             ],
           ),
+          SliverToBoxAdapter(
+            child: _CollapsibleHeader(
+              label: 'Hosts',
+              count: rows.length,
+              expanded: _hostsExpanded,
+              onTap: () =>
+                  setState(() => _hostsExpanded = !_hostsExpanded),
+            ),
+          ),
           if (rows.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _EmptyState(l10n: l10n),
-            )
-          else
+            SliverToBoxAdapter(child: _EmptyState(l10n: l10n))
+          else if (_hostsExpanded)
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => Padding(
@@ -125,6 +139,8 @@ class HostsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+          const SliverToBoxAdapter(child: _VaultSection()),
+          const SliverToBoxAdapter(child: SizedBox(height: 120)),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -441,6 +457,149 @@ class _ScopeBadge extends StatelessWidget {
         style: GoogleFonts.jetBrainsMono(
             fontSize: 10, fontWeight: FontWeight.w600, color: color),
       ),
+    );
+  }
+}
+
+/// Tappable section header used to fold the host list. Mirrors the
+/// section-label rhythm used elsewhere (Me, Projects) but adds a chevron
+/// + count so the user can collapse the list when the Vault card below
+/// is what they want.
+class _CollapsibleHeader extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool expanded;
+  final VoidCallback onTap;
+  const _CollapsibleHeader({
+    required this.label,
+    required this.count,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
+        child: Row(
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: muted,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$count',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: muted,
+              ),
+            ),
+            const Spacer(),
+            Icon(
+              expanded ? Icons.expand_less : Icons.expand_more,
+              size: 20,
+              color: muted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Device-scoped Vault — surfaces snippets + command-history collections.
+/// Lives on Hosts because the host list and the per-host shortcuts are
+/// the same mental "this device's terminal toolkit"; pulling Vault here
+/// also keeps the Me tab focused on attention items rather than tools.
+class _VaultSection extends StatelessWidget {
+  const _VaultSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+          child: Text(
+            'VAULT',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: muted,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Material(
+            color: bg,
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const VaultScreen(),
+              )),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: border),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.inventory_2_outlined,
+                        size: 20, color: DesignColors.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Snippets & History',
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                              )),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Terminal shortcuts and recent commands',
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 11,
+                              color: muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, size: 18, color: muted),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

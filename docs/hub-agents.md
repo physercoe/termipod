@@ -256,7 +256,7 @@ you tap Refresh again after ~3s to pull the fresh one.
 Agents carry two flags, both rendered on mobile:
 
 - `status`: `pending` / `running` / `idle` / `failed` / `terminated`,
-  colored via `_agentStatusColor` in `lib/screens/hub/hub_screen.dart`.
+  colored via `_agentStatusColor` in `lib/screens/projects/projects_screen.dart`.
 - `pause_state`: `running` / `paused` — shown inline in the org-chart
   row subtitle.
 

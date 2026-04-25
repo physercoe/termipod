@@ -21,22 +21,22 @@ the CEO principle.
 
 | Screen | Actions | Covered by |
 |---|---|---|
-| `lib/screens/hub/projects_screen.dart` | list/filter projects | `projects.list` |
-| `lib/screens/hub/project_detail_screen.dart` | read-only view of channels/tasks/agents/docs | list tools |
-| `lib/screens/hub/plans_screen.dart` | list plans | `plans.list`, `plans.get` |
-| `lib/screens/hub/plan_viewer_screen.dart` | view plan + steps | `plans.get`, `plans.steps.list` |
-| `lib/screens/hub/runs_screen.dart` | list/detail runs | `runs.list`, `runs.get` |
-| `lib/screens/hub/documents_screen.dart` | list docs | `documents.list` |
-| `lib/screens/hub/reviews_screen.dart` | list/filter reviews | `reviews.list` |
-| `lib/screens/hub/audit_screen.dart` | list audit events | `audit.read` |
-| `lib/screens/hub/templates_screen.dart` | list templates | read-only |
-| `lib/screens/hub/archived_agents_screen.dart` | list archived agents | read-only |
-| `lib/screens/hub/team_screen.dart` (Members) | list principals | read-only |
-| `lib/screens/hub/project_create_sheet.dart` | create project | `projects.create` |
-| `lib/screens/hub/plan_create_sheet.dart` | create plan | `plans.create` |
-| `lib/screens/hub/plan_step_create_sheet.dart` | create plan step | `plans.steps.create` |
-| `lib/screens/hub/document_create_sheet.dart` | create document | `documents.create` |
-| `lib/screens/hub/run_create_sheet.dart` | create run | `runs.create` |
+| `lib/screens/projects/projects_screen.dart` | list/filter projects | `projects.list` |
+| `lib/screens/projects/project_detail_screen.dart` | read-only view of channels/tasks/agents/docs | list tools |
+| `lib/screens/projects/plans_screen.dart` | list plans | `plans.list`, `plans.get` |
+| `lib/screens/projects/plan_viewer_screen.dart` | view plan + steps | `plans.get`, `plans.steps.list` |
+| `lib/screens/projects/runs_screen.dart` | list/detail runs | `runs.list`, `runs.get` |
+| `lib/screens/projects/documents_screen.dart` | list docs | `documents.list` |
+| `lib/screens/projects/reviews_screen.dart` | list/filter reviews | `reviews.list` |
+| `lib/screens/team/audit_screen.dart` | list audit events | `audit.read` |
+| `lib/screens/team/templates_screen.dart` | list templates | read-only |
+| `lib/screens/projects/archived_agents_screen.dart` | list archived agents | read-only |
+| `lib/screens/team/team_screen.dart` (Members) | list principals | read-only |
+| `lib/screens/projects/project_create_sheet.dart` | create project | `projects.create` |
+| `lib/screens/projects/plan_create_sheet.dart` | create plan | `plans.create` |
+| `lib/screens/projects/plan_step_create_sheet.dart` | create plan step | `plans.steps.create` |
+| `lib/screens/projects/document_create_sheet.dart` | create document | `documents.create` |
+| `lib/screens/projects/run_create_sheet.dart` | create run | `runs.create` |
 | Project/team channel event post | post channel message/event | `channels.post_event` |
 | `schedule_create_sheet.dart` | create schedule | `schedules.create` (v1.0.153) |
 | `schedule_edit_sheet.dart` | patch / delete schedule | `schedules.update`, `schedules.delete` (v1.0.153) |

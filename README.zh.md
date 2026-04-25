@@ -120,18 +120,17 @@
 
 ### Termipod Hub（可选）
 
-面向团队在多台机器上协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后,TermiPod 将启用一整套工作区界面:
+面向团队在多台机器上协调多个 AI 编码代理的可选层。在 **设置 → Hub** 粘贴 hub URL 与 bearer token 后,五个底部 Tab — **Projects · Activity · Me · Hosts · Settings** — 全部启用。
 
 **研究 Demo 工作流:** 在手机上写下项目 directive → Steward 代理将其分解为 plan → 工人代理通过跨主机 A2A 在 GPU 主机上并行执行 runs → Briefing 代理在夜间汇总为可评审的文档。每一步都会浮到手机上;用户是审批/评审者而非操作者。Hub 内置 ablation sweep、论文复现、benchmark 对比等模板。
 
-- **Inbox**（首页）— 整合 attention 项、未读频道、最近任务的统一工作流收件箱，支持搜索，顶部有待处理项 SliverAppBar
-- **Projects** — 项目清单与 Linear 风格详情页（Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info）。Activity 通过 SSE 流式聊天；Tasks 支持按状态筛选的看板，任务正文可切换 Markdown 预览；Plans 以结构化方式渲染步骤规格，提示 / 命令以代码块呈现；Runs 显示执行时长与 Markdown 格式的摘要；Reviews 支持按项目筛选；Docs 以只读 Markdown 查看器浏览项目的 `docs_root`；Blobs 是端侧缓存的上传文件，可在任意聊天中共享。项目名称 / 目标 / 模板 / docs root / 预算均可原地编辑
-- **Agents** — List / Tree 视图可切换；Tree 按 `agent_spawns` 渲染父→子组织图。FAB 打开 YAML **Spawn Agent** 表单，支持模板选择、主机选择与端侧 **保存预设**（handle + kind + YAML）。已终止的代理可归档到独立的墓碑列表，保留完整 spawn spec 与日志用于事后审计。**trackio / wandb / TensorBoard** 指标摘要会自动以内嵌 sparkline 形式出现在 run 详情页
-- **Hosts** — Host-agent 签到与最近在线时间。NAT 背后的主机会把代理卡片发布到 hub 目录,并通过**反向隧道中继**接收 peer A2A 调用,因此 VPS 上的 Steward 代理可以端到端地调用 GPU 机器上的工人
-- **Templates** — 浏览团队共享的 agent / prompt / policy YAML。决定行为的东西 — 项目模板、代理 skills、launcher 命令 — 都是磁盘上可编辑的数据;新增代理 kind 无需改代码
-- **Team** 设置屏 — **Schedules**（cron 触发定时 spawn）、**Usage**（按项目 / 代理汇总的预算仪表盘）、**审计日志**（策略 / 模板 / 代理生命周期事件）、Members、Policies、Channels
+- **Me**（中心,默认）— 个人 triage:待审批项、紧急任务、最近活动摘要,以及 Vault 入口。在卡片上直接 Approve / Reject。
+- **Projects** — 项目清单。点开任意项目进入详情页:Overview / Tasks / Plans / Runs / Reviews / **Outputs**(run 产出的 checkpoint / 曲线 / 报告) / Documents / Blobs / Channels / Schedules,以及按 `agent_spawns` 渲染父→子关系的 Agents 视图。FAB 打开 YAML Spawn 表单(模板 / 主机选择 + 保存预设),Steward 拥有独立的 spawn 流程。**trackio / wandb / TensorBoard** 指标摘要自动以 sparkline 出现在 Run 详情。项目名称 / 目标 / 模板 / docs root / 预算均可原地编辑。
+- **Activity** — 团队级审计 feed(audit_events 提升至顶层 Tab):策略变更、模板编辑、代理生命周期、频道发帖、run 状态切换,统一的可筛选时间线。
+- **Hosts** — Host-runner 签到与最近在线时间。NAT 背后的主机会把代理卡片发布到 hub 目录,并通过**反向隧道中继**接收 peer A2A 调用,因此 VPS 上的 Steward 代理可以端到端地调用 GPU 机器上的工人。
+- **Team** 屏(Projects 头部图标进入)— Members / Policies / 团队级频道(包含 `#hub-meta` Steward 房间,可从 AppBar chip 直达),Team Settings 内含 cron **Schedules**、按代理汇总的 **Usage / 预算**、**审计日志**,以及 **Templates** 浏览器(团队共享的 agent / prompt / policy YAML)。决定行为的东西 — 项目模板、代理 skills、launcher 命令 — 都是磁盘上可编辑的数据;新增代理 kind 无需改代码。
 
-Hub 本体是 `hub/` 下的独立 Go 守护进程，可通过 `go install` 或直接运行源码部署。详见 [docs/hub-mobile-test.md](docs/hub-mobile-test.md)。
+Hub 本体是 `hub/` 下的独立 Go 守护进程,可通过 `go install` 或直接运行源码部署。详见 [docs/hub-mobile-test.md](docs/hub-mobile-test.md)。
 
 ### 其他
 - **数据导出/导入** — 将连接、密钥、代码片段、历史记录和设置导出为 JSON 备份文件，支持跨设备恢复和从旧版 MuxPod 迁移

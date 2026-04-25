@@ -35,7 +35,7 @@ Every other "Claude Code on your phone" tool is a 1:1 bridge to a single local s
 - **Offline-first** — SQLite snapshot cache shows last-known-good lists on every screen when the hub is unreachable. Subway-safe.
 - **Vendor-agnostic, self-hosted** — Apache 2.0 Go hub you run yourself. No account gating, no cloud relay, no vendor lock-in.
 
-**30-second demo.** Type `ablation sweep on nanoGPT, tell me which optimizer scales better` on your phone. Your VPS steward returns a 6-step plan; you tap Approve. Six training runs spawn on your home GPU box. Three hours later, a briefing document with loss curves lands in your Inbox. You ratify it on the train home.
+**30-second demo.** Type `ablation sweep on nanoGPT, tell me which optimizer scales better` on your phone. Your VPS steward returns a 6-step plan; you tap Approve. Six training runs spawn on your home GPU box. Three hours later, a briefing document with loss curves lands on your **Me** tab. You ratify it on the train home.
 
 See [docs/positioning.md](docs/positioning.md) for the full thesis, ICP, and competitive analysis.
 
@@ -144,19 +144,19 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 ### Termipod Hub (optional)
 
-Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the bottom **Inbox** tab plus the **Hub** tab come alive.
+Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the five-tab IA — **Projects · Activity · Me · Hosts · Settings** — comes alive.
 
 **Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. Templates for ablation sweeps, paper reproductions, and benchmark comparisons ship with the hub.
 
-**Inbox** — unified triage: approvals, agent states (idle / errored), messages, and SSH sessions in one filterable feed. Tap a pending approval to Approve / Reject inline; tap the magnifier to full-text search across all hub events.
+**Me** (center, default) — your personal triage: pending approvals, urgent tasks, recent activity digest, and a Vault shortcut. Tap a pending approval to Approve / Reject inline.
 
-**Hub** — four sub-tabs:
-- **Projects** — Linear-style project detail with Activity / Tasks / Plans / Runs / Reviews / Agents / Docs / Blobs / Info pill sections. Activity chat streams via SSE; Tasks are a filter-by-status Kanban with full-screen detail and markdown body preview; Plans render structured step specs with inline code blocks for prompts / commands; Runs show duration and render summaries as markdown; Reviews are filterable by project; Docs are a read-only browser over the project's `docs_root` with a markdown viewer; Blobs are cached device-local uploads shareable by any chat. Project name / goal / template / docs root / budget are all editable inline
-- **Agents** — list or tree view walking `agent_spawns` for a parent→child org chart; FAB spawns via YAML with template picker, host picker, and saved presets. Terminated agents can be archived to a separate tombstone list with full spawn-spec and journal post-mortem. Metrics digests from **trackio / wandb / TensorBoard** auto-surface as inline sparklines on the run detail screen
-- **Hosts** — host-runner check-ins with last-seen timestamps; hosts behind NAT publish agent-cards to the hub directory and accept peer A2A calls via a **reverse-tunnel relay** so steward agents on a VPS can invoke workers on GPU machines end-to-end
-- **Templates** — browse team-wide agent / prompt / policy YAML. Everything that drives behaviour — project templates, agent skills, launcher commands — is data you can edit on disk; no code changes required to add a new agent kind
+**Projects** — project inventory; tap any row for the Project Detail surface with Overview, Tasks, Plans, Runs, Reviews, **Outputs** (run-produced checkpoints / curves / reports), Documents, Blobs, Channels, Schedules, and an Agents section walking `agent_spawns` for a parent→child org chart. FAB spawns workers via YAML with template picker, host picker, and saved presets; the Steward gets its own spawn flow. Metrics digests from **trackio / wandb / TensorBoard** auto-surface as inline sparklines on Run Detail. Project name / goal / template / docs root / budget are all editable inline.
 
-**Team** screen (header icon on Hub) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and **Settings** with cron **Schedules**, per-agent **Usage / budget** rollups, and an **Audit log** of policy / template / agent-lifecycle events.
+**Activity** — team-wide audit feed (audit_events promoted): policy changes, template edits, agent lifecycle, channel posts, run state transitions — all in one filterable timeline.
+
+**Hosts** — host-runner check-ins with last-seen timestamps; hosts behind NAT publish agent-cards to the hub directory and accept peer A2A calls via a **reverse-tunnel relay** so steward agents on a VPS can invoke workers on GPU machines end-to-end.
+
+**Team** screen (header icon on Projects) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and Team Settings with cron **Schedules**, per-agent **Usage / budget** rollups, an **Audit log**, and the **Templates** browser for team-wide agent / prompt / policy YAML. Everything that drives behaviour — project templates, agent skills, launcher commands — is data you can edit on disk; no code changes required to add a new agent kind.
 
 The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.
 

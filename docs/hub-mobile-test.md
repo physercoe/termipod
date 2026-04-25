@@ -63,6 +63,22 @@ The binary is self-contained — no libc dependency beyond the platform
 default. Cross-compile for a VPS with e.g.
 `GOOS=linux GOARCH=amd64 go build -o hub-server-linux-amd64 ./cmd/hub-server`.
 
+> **Version reporting.** `go build` inside a git tree automatically
+> embeds the commit hash + build time (via `runtime/debug.ReadBuildInfo`),
+> so `/v1/_info` will return them alongside `server_version`. The
+> `server_version` string itself is the constant in
+> `hub/internal/buildinfo/buildinfo.go`, which **must** match
+> `pubspec.yaml`'s `version:`. Bump both atomically from the repo
+> root with:
+>
+> ```bash
+> make bump VERSION=1.0.262-alpha
+> ```
+>
+> This sed-edits both files and computes the matching Android build
+> number. Always use this target rather than editing either file by
+> hand.
+
 ---
 
 ## Track A — LAN / Tailscale quick test
@@ -218,7 +234,23 @@ curl -fsS -H "Authorization: Bearer <owner-token>" \
      https://hub.example.com/v1/_info
 ```
 
-Expected: `{"server_version":"…","supported_api_versions":["v1"],"schema_versions_supported":[1]}`.
+Expected (v1.0.256+):
+
+```json
+{
+  "server_version": "1.0.262-alpha",
+  "supported_api_versions": ["v1"],
+  "schema_versions_supported": [1],
+  "commit": "0426abe…",
+  "build_time": "2026-04-25T15:00:00Z",
+  "modified": false
+}
+```
+
+`server_version` matches `pubspec.yaml`'s `version:` string (kept in
+sync via `make bump`). `commit` / `build_time` / `modified` come from
+`runtime/debug.ReadBuildInfo` and are populated automatically by
+`go build` inside a git tree — empty when built from a tarball.
 
 ---
 

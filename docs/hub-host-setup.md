@@ -26,7 +26,13 @@ run it under systemd, and how to tell whether it's healthy.
    name and capabilities → receives a `host_id`. Persist nothing
    locally; on restart, pass `--host-id` so it skips re-registration.
 2. **Heartbeat** every 10s: `POST /v1/teams/{team}/hosts/{host}/heartbeat`.
-   Updates `hosts.last_seen_at` and clamps `status='online'`.
+   Updates `hosts.last_seen_at` and clamps `status='online'`. Body
+   carries the host-runner binary's build metadata
+   (`runner_commit`, `runner_build_time`, `runner_modified`) so the
+   hub-side host detail sheet can show "host-runner is at commit X,
+   built Y" — first reflected in mobile within ~10s of a redeploy.
+   Empty body still works (older host-runners just don't update
+   those columns).
 3. **Poll** every 3s:
    - `GET /v1/teams/{team}/agents/spawns?host_id=…&status=pending` —
      any spawn assigned to this host that hasn't started yet. For each,
@@ -427,6 +433,7 @@ There are three signals, in decreasing reliability:
 |-------|--------|--------|
 | `hosts.last_seen_at` is within the last ~30s | `GET /v1/teams/{team}/hosts` | Most reliable. If the daemon is wedged, this drifts. |
 | `hosts.status == 'online'` | Same row | **Stale.** Today there is no background sweeper that flips status to `offline`, so an abandoned host sits on `online` forever. Treat status as advisory; rely on `last_seen_at`. See follow-up `TODO host-offline sweeper`. |
+| `hosts.runner_commit` / `runner_build_time` | Same row, populated from heartbeat body (v1.0.261+) | Confirms which host-runner build is actually running. Mobile shows this on the host detail sheet as `Runner: commit abc1234 · built 2026-04-25`. Empty for hosts that haven't heartbeated since the v1.0.261 runner was deployed. |
 | Mobile **Hub → Hosts** tab | Renders both fields | Surfaces the stale status. Until the sweeper lands, trust the timestamp column over the status chip. |
 
 Command-line smoke:

@@ -215,7 +215,7 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
       );
       if (picked == null || !mounted) return;
       final name = picked['name']?.toString() ?? '';
-      final body = await client.getTemplate('agents', name);
+      final body = await client.getTemplate('agents', name, merged: true);
       if (!mounted) return;
       setState(() => _yamlCtl.text = body);
     } catch (e) {

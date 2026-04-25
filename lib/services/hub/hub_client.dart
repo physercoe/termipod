@@ -458,11 +458,20 @@ class HubClient {
 
   /// Returns raw template body (YAML / markdown / JSON — the endpoint
   /// doesn't parse). Caller renders as text.
-  Future<String> getTemplate(String category, String name) async {
-    final req = await _open(
-      'GET',
-      '/v1/teams/${cfg.teamId}/templates/$category/$name',
-    );
+  ///
+  /// When [merged] is true, the server overlays the on-disk template
+  /// onto the embedded built-in (disk wins per-key, missing keys fall
+  /// through). Use this from spawn callers that need a complete spec
+  /// even when the disk copy is stale. The editor calls without
+  /// [merged] so user comments are preserved on round-trip.
+  Future<String> getTemplate(
+    String category,
+    String name, {
+    bool merged = false,
+  }) async {
+    final path = '/v1/teams/${cfg.teamId}/templates/$category/$name'
+        '${merged ? '?merge=1' : ''}';
+    final req = await _open('GET', path);
     final resp = await req.close();
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       final msg = await resp.transform(utf8.decoder).join();

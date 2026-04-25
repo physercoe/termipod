@@ -285,6 +285,63 @@ func TestTemplates_GetFallsBackToEmbedded(t *testing.T) {
 	}
 }
 
+// TestTemplates_GetMergeOverlay covers the overlay-merge fix for stale
+// on-disk templates. The hub's writeBuiltinTemplates intentionally
+// never overwrites disk files on upgrade ("user edits win"), so a user
+// whose data root was seeded by an older hub keeps their stripped-down
+// copy forever — even if the embedded built-in has gained important
+// fields like backend.cmd.
+//
+// With ?merge=1 the disk file overlays onto the embedded base, so
+// missing keys fall through automatically. The editor (no merge flag)
+// still sees the raw disk contents so user comments are preserved.
+func TestTemplates_GetMergeOverlay(t *testing.T) {
+	c := newE2E(t)
+	disk := filepath.Join(c.dataRoot, "team", "templates", "agents", "steward.v1.yaml")
+	// Simulate a stale seed: only kind/model/default_workdir, no cmd
+	// and no permission_modes — exactly the case reported by the user.
+	stale := []byte(strings.Join([]string{
+		"template: agents.steward",
+		"version: 1",
+		"backend:",
+		"  kind: claude-code",
+		"  model: claude-opus-4-7",
+		"  default_workdir: ~/hub-work",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(disk, stale, 0o600); err != nil {
+		t.Fatalf("write stale: %v", err)
+	}
+
+	rawURL := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/agents/steward.v1.yaml"
+	mergeURL := rawURL + "?merge=1"
+
+	// Without merge=1 the editor sees the disk file verbatim — no cmd.
+	status, body := rawCall(t, c.token, rawURL, "GET", nil)
+	if status != 200 {
+		t.Fatalf("raw GET = %d body=%s", status, body)
+	}
+	if strings.Contains(string(body), "cmd:") {
+		t.Errorf("raw GET smuggled in cmd: from embedded:\n%s", body)
+	}
+
+	// With merge=1 the embedded backend.cmd and permission_modes fall
+	// through, and the user's default_workdir is preserved.
+	status, body = rawCall(t, c.token, mergeURL, "GET", nil)
+	if status != 200 {
+		t.Fatalf("merged GET = %d body=%s", status, body)
+	}
+	if !strings.Contains(string(body), "cmd:") {
+		t.Errorf("merged GET missing backend.cmd:\n%s", body)
+	}
+	if !strings.Contains(string(body), "permission_modes:") {
+		t.Errorf("merged GET missing permission_modes:\n%s", body)
+	}
+	if !strings.Contains(string(body), "~/hub-work") {
+		t.Errorf("merged GET dropped user's default_workdir:\n%s", body)
+	}
+}
+
 // TestBuildSpawnVars_DataDriven_Model confirms {{model}} resolves from
 // the spec yaml's backend.model field — the whole point of the wedge.
 // A spec with no model → empty string (no Go-side fallback).

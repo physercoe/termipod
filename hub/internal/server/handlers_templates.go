@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	hub "github.com/termipod/hub"
+	"gopkg.in/yaml.v3"
 )
 
 // Templates live on disk at <dataRoot>/team/templates/<category>/*.
@@ -123,6 +124,7 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, err := os.ReadFile(path)
+	diskMissing := false
 	if err != nil {
 		if !os.IsNotExist(err) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -139,9 +141,97 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "template not found")
 			return
 		}
+		diskMissing = true
+	}
+	// merge=1 overlays the disk file onto the embedded built-in so a
+	// stale on-disk template (e.g. seeded by an older hub before
+	// backend.cmd was added) inherits any keys the user hasn't
+	// explicitly set. Skipped when disk is missing (we already serve
+	// the embedded copy verbatim — no merge needed and it preserves
+	// comments) and when the format isn't a structured map.
+	if !diskMissing && r.URL.Query().Get("merge") == "1" {
+		if merged, ok := mergeTemplateBody(body, cat, name); ok {
+			body = merged
+		}
 	}
 	w.Header().Set("Content-Type", mimeForTemplate(name))
 	_, _ = w.Write(body)
+}
+
+// mergeTemplateBody overlays the on-disk template onto the embedded
+// built-in: embedded acts as the base, disk fills in keys it explicitly
+// sets (including empty values). Missing keys in disk fall through to
+// embedded. Lists are replaced wholesale — merging arrays is ambiguous
+// (concat? union? element-wise?), and a user who sets a list intends
+// the final value.
+//
+// Returns ok=false when there's no embedded built-in for this template,
+// when the format isn't YAML/JSON, or when parsing fails. In all those
+// cases the caller should fall back to the disk body as-is.
+//
+// Comments are not preserved through the parse-marshal cycle. The
+// editor path doesn't pass merge=1 so user comments survive there;
+// merge=1 is for spawn callers that need a complete spec, not for UI
+// display.
+func mergeTemplateBody(disk []byte, cat, name string) ([]byte, bool) {
+	embedded, err := fs.ReadFile(hub.TemplatesFS, "templates/"+cat+"/"+name)
+	if err != nil {
+		return nil, false
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yaml", ".yml":
+		var diskDoc, embDoc map[string]any
+		if err := yaml.Unmarshal(disk, &diskDoc); err != nil || diskDoc == nil {
+			return nil, false
+		}
+		if err := yaml.Unmarshal(embedded, &embDoc); err != nil || embDoc == nil {
+			return nil, false
+		}
+		merged := deepMergeMap(embDoc, diskDoc)
+		out, err := yaml.Marshal(merged)
+		if err != nil {
+			return nil, false
+		}
+		return out, true
+	case ".json":
+		var diskDoc, embDoc map[string]any
+		if err := json.Unmarshal(disk, &diskDoc); err != nil || diskDoc == nil {
+			return nil, false
+		}
+		if err := json.Unmarshal(embedded, &embDoc); err != nil || embDoc == nil {
+			return nil, false
+		}
+		merged := deepMergeMap(embDoc, diskDoc)
+		out, err := json.MarshalIndent(merged, "", "  ")
+		if err != nil {
+			return nil, false
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// deepMergeMap returns a new map where overlay's keys win over base's,
+// recursively merging when both sides hold a map at the same key.
+// Non-map collisions (scalars, lists) are replaced wholesale by overlay.
+func deepMergeMap(base, overlay map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(overlay))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		if existing, ok := out[k]; ok {
+			if bm, bok := existing.(map[string]any); bok {
+				if om, ook := v.(map[string]any); ook {
+					out[k] = deepMergeMap(bm, om)
+					continue
+				}
+			}
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // handlePutTemplate writes or overwrites a template file. Body is the raw

@@ -96,7 +96,11 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     try {
       final client = ref.read(hubProvider.notifier).client;
       if (client == null) throw StateError('Hub not configured');
-      final yaml = await client.getTemplate('agents', 'steward.v1.yaml');
+      final yaml = await client.getTemplate(
+        'agents',
+        'steward.v1.yaml',
+        merged: true,
+      );
       final res = await client.spawnAgent(
         childHandle: 'steward',
         kind: 'claude-code',

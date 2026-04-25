@@ -46,11 +46,15 @@ func (t *TmuxLauncher) LaunchCmd(ctx context.Context, sp Spawn, cmd string) (str
 		cmd = t.DefaultCmd
 	}
 	window := sanitizeWindowName(sp.Handle)
-	// -d: don't switch the client, -n: window name, -P + -F: print target
+	// -d: don't switch the client, -n: window name, -P + -F: print pane_id.
+	// We deliberately return `#{pane_id}` (the `%N` form) and not the
+	// session:window.pane target spec: pane_id is the canonical key used
+	// by `list-panes` output, so reconcile.go's lookup hits. tmux accepts
+	// %N anywhere a target is expected (capture-pane, send-keys, kill-pane).
 	target, err := runTmux(ctx,
 		"new-window", "-d", "-t", t.Session+":",
 		"-n", window,
-		"-P", "-F", "#{session_name}:#{window_index}.#{pane_index}",
+		"-P", "-F", "#{pane_id}",
 		cmd,
 	)
 	if err != nil {

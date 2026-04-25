@@ -393,18 +393,15 @@ class _ProjectsTab extends ConsumerWidget {
     return Stack(
       children: [
         Positioned.fill(child: body),
-        // FAB kept but demoted to `.small` — under the steward-CEO model
-        // projects land via the steward responding on #hub-meta, so the
-        // manual path is a fallback rather than the primary action. Split
-        // into a menu that offers both kinds (Project / Workspace).
         Positioned(
           right: 16,
           bottom: 16,
-          child: FloatingActionButton.small(
+          child: FloatingActionButton.extended(
             heroTag: 'hub-projects-fab',
             onPressed: () => _openCreateMenu(context, ref),
             tooltip: l10n.projectCreateFabTooltip,
-            child: const Icon(Icons.add),
+            icon: const Icon(Icons.add),
+            label: Text(l10n.projectCreateFabLabel),
           ),
         ),
       ],

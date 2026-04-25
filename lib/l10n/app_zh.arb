@@ -633,6 +633,7 @@
   "projectNoAgents": "这个项目下还没有智能体",
   "workspaceNoAgents": "这个工作区下还没有智能体",
   "projectCreateFabTooltip": "新建项目或工作区",
+  "projectCreateFabLabel": "新建",
 
   "workspaceOverviewTitle": "工作区概览",
   "workspaceCadence": "节奏",

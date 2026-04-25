@@ -683,6 +683,7 @@
   "projectNoAgents": "No agents on this project",
   "workspaceNoAgents": "No agents on this workspace",
   "projectCreateFabTooltip": "New project or workspace",
+  "projectCreateFabLabel": "New",
 
   "workspaceOverviewTitle": "Workspace overview",
   "workspaceCadence": "Cadence",

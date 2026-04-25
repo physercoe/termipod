@@ -227,6 +227,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // tool_call card below. Individual tool_call_update events are hidden
     // from the feed — rendering every progress tick floods the list.
     final toolUpdates = <String, Map<String, dynamic>>{};
+    // tool_use_id → tool_result event (full row, so we can also surface ts).
+    // The tool_call card pulls its matching result from here; bare
+    // tool_result cards drop out of the feed because the lineage is now
+    // expressed inside one card per call.
+    final toolResults = <String, Map<String, dynamic>>{};
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -238,6 +243,9 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       } else if (kind == 'tool_call_update') {
         final id = (p['toolCallId'] ?? p['tool_call_id'] ?? '').toString();
         if (id.isNotEmpty) toolUpdates[id] = p.cast<String, dynamic>();
+      } else if (kind == 'tool_result') {
+        final id = p['tool_use_id']?.toString() ?? '';
+        if (id.isNotEmpty) toolResults[id] = e.cast<String, dynamic>();
       } else if (kind == 'input.approval') {
         final rid = p['request_id']?.toString() ?? '';
         final dec = p['decision']?.toString() ?? '';
@@ -258,14 +266,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         }
       }
     }
-    // Build the visible event list: drop tool_call_update since their
-    // content is now carried on the parent tool_call card; drop
-    // session.init since the sticky header above renders it.
+    // Build the visible event list: drop folded-in kinds.
+    //   tool_call_update — folded into parent tool_call card.
+    //   tool_result      — paired with parent tool_call by tool_use_id;
+    //                      orphaned results (no matching call) still render
+    //                      so a one-off tool_result isn't silently swallowed.
+    //   session.init     — surfaced in the sticky header above.
     final visible = <Map<String, dynamic>>[
       for (final e in _events)
-        if ((e['kind'] ?? '').toString() != 'tool_call_update' &&
-            (e['kind'] ?? '').toString() != 'session.init')
-          e,
+        if (!_isHiddenInFeed(e, toolNames)) e,
     ];
     return Column(
       children: [
@@ -282,6 +291,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   event: visible[i],
                   toolNames: toolNames,
                   toolUpdates: toolUpdates,
+                  toolResults: toolResults,
                   resolvedApprovals: resolvedApprovals,
                   agentId: widget.agentId,
                 ),
@@ -320,6 +330,27 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         compose,
       ],
     );
+  }
+
+  // Folded-into-parent kinds drop out of the visible list. tool_result is
+  // only hidden when the matching tool_call is in scope (toolNames has its
+  // id) — a stray result with no parent call still renders so we never
+  // silently lose data.
+  bool _isHiddenInFeed(
+    Map<String, dynamic> e,
+    Map<String, String> toolNames,
+  ) {
+    final kind = (e['kind'] ?? '').toString();
+    if (kind == 'tool_call_update' || kind == 'session.init') return true;
+    if (kind == 'tool_result') {
+      final p = e['payload'];
+      if (p is Map) {
+        final id = p['tool_use_id']?.toString() ?? '';
+        if (id.isNotEmpty && toolNames.containsKey(id)) return true;
+      }
+      return false;
+    }
+    return false;
   }
 }
 
@@ -384,6 +415,12 @@ class AgentEventCard extends StatelessWidget {
   // pulls status/content from here so progress ticks don't need their
   // own card.
   final Map<String, Map<String, dynamic>> toolUpdates;
+  // tool_use_id → matching tool_result event. The tool_call card folds
+  // its result inline (lineage cards, W-UI-2) so each call is one
+  // expandable surface — pending while no result, success/error once
+  // it arrives. Orphaned results (no parent tool_call) are not in this
+  // map and still render as standalone cards.
+  final Map<String, Map<String, dynamic>> toolResults;
   // request_id → prior decision. Present entries mean the user already
   // answered this approval, so we render the chip but not the buttons.
   final Map<String, String> resolvedApprovals;
@@ -394,6 +431,7 @@ class AgentEventCard extends StatelessWidget {
     required this.event,
     this.toolNames = const {},
     this.toolUpdates = const {},
+    this.toolResults = const {},
     this.resolvedApprovals = const {},
     this.agentId,
   });
@@ -545,7 +583,20 @@ class AgentEventCard extends StatelessWidget {
     // Fold the latest tool_call_update so a single card shows the end
     // state (status + optional content preview) without a second row.
     final update = id.isNotEmpty ? toolUpdates[id] : null;
-    final status = (update?['status'] ?? p['status'] ?? '').toString();
+    // Pair with the matching tool_result by tool_use_id (W-UI-2). When
+    // present, the call has resolved — derive a terminal status from
+    // is_error so the card reads "completed" / "failed" without needing
+    // a tool_call_update from drivers that don't emit them.
+    final resultEvent = id.isNotEmpty ? toolResults[id] : null;
+    final resultPayload = resultEvent != null && resultEvent['payload'] is Map
+        ? (resultEvent['payload'] as Map).cast<String, dynamic>()
+        : null;
+    final hasResult = resultPayload != null;
+    final resultIsError = resultPayload?['is_error'] == true;
+    final updateStatus = (update?['status'] ?? p['status'] ?? '').toString();
+    final status = updateStatus.isNotEmpty
+        ? updateStatus
+        : (hasResult ? (resultIsError ? 'failed' : 'completed') : 'pending');
     // ACP tool_call_update.content is a list of content blocks; pull the
     // first text block for a compact preview. Larger outputs land in
     // tool_result anyway so this is just for at-a-glance progress.
@@ -567,13 +618,20 @@ class AgentEventCard extends StatelessWidget {
       children: [
         _kv(ctx, 'tool', name),
         if (id.isNotEmpty) _kv(ctx, 'id', id),
-        if (status.isNotEmpty)
-          _kv(ctx, 'status', status, valueColor: _statusColor(status)),
+        _kv(ctx, 'status', status, valueColor: _statusColor(status)),
         if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
         if (preview != null && preview.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: _CollapsibleMono(text: preview),
+          ),
+        if (hasResult)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: _ToolResultInline(
+              payload: resultPayload,
+              isError: resultIsError,
+            ),
           ),
       ],
     );
@@ -883,8 +941,9 @@ class AgentEventCard extends StatelessWidget {
     );
   }
 
-  // Known ACP tool_call statuses: pending, in_progress, completed, failed.
-  // Colored so the feed is scannable without reading every status string.
+  // Known ACP tool_call statuses + the synthetic "pending" we apply when
+  // the tool_result hasn't arrived yet. Colored so the feed is scannable
+  // without reading every status string.
   Color? _statusColor(String s) {
     switch (s) {
       case 'failed':
@@ -893,6 +952,8 @@ class AgentEventCard extends StatelessWidget {
         return DesignColors.success;
       case 'in_progress':
         return DesignColors.terminalCyan;
+      case 'pending':
+        return DesignColors.warning;
       default:
         return null;
     }
@@ -1706,5 +1767,62 @@ class _McpRow extends StatelessWidget {
       default:
         return DesignColors.textMuted;
     }
+  }
+}
+
+/// Inline tool_result block rendered inside a tool_call card. Reuses
+/// the same collapsible-mono content rendering as the standalone
+/// tool_result card, but framed with a left-rail accent so the lineage
+/// from input → output reads at a glance.
+class _ToolResultInline extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  final bool isError;
+  const _ToolResultInline({required this.payload, required this.isError});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final accent =
+        isError ? DesignColors.error : DesignColors.success;
+    final content = payload['content'];
+    final text = content is String ? content : AgentEventCard._jsonPretty(content);
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: accent, width: 2)),
+      ),
+      padding: const EdgeInsets.fromLTRB(8, 4, 0, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isError ? Icons.error_outline : Icons.check_circle_outline,
+                size: 12,
+                color: accent,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isError ? 'result · error' : 'result',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: mutedColor,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _CollapsibleMono(
+            text: text,
+            color: isError ? DesignColors.error : null,
+          ),
+        ],
+      ),
+    );
   }
 }

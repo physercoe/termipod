@@ -110,4 +110,20 @@ func (a *Runner) tickReconcile(ctx context.Context) {
 			"agent", ag.ID, "handle", ag.Handle,
 			"pane", ag.PaneID, "fg", info.cmd, "from", ag.Status, "to", want)
 	}
+
+	// Driver teardown lives here (not in tickIdle) so a freshly-spawned M2
+	// agent in the brief pending → running window doesn't get its process
+	// killed by the running-set diff. Drivers persist through pending,
+	// running, and paused; they're torn down only when the hub considers
+	// the agent gone (terminal status or no longer assigned to this host).
+	hostStatus := make(map[string]string, len(agents))
+	for _, ag := range agents {
+		hostStatus[ag.ID] = ag.Status
+	}
+	for id := range a.drivers {
+		st, present := hostStatus[id]
+		if !present || st == "terminated" || st == "failed" || st == "crashed" || st == "stale" {
+			a.stopDriver(id)
+		}
+	}
 }

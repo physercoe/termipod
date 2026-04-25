@@ -335,14 +335,10 @@ func (a *Runner) tickIdle(ctx context.Context) {
 			a.stopTailer(id)
 		}
 	}
-	// Drivers follow the same lifetime — stop emits a lifecycle.stopped
-	// event so clients see the transition without waiting for the agent
-	// row to be archived.
-	for id := range a.drivers {
-		if _, ok := seen[id]; !ok {
-			a.stopDriver(id)
-		}
-	}
+	// Driver teardown is owned by tickReconcile, which uses
+	// ListHostAgents and only stops drivers on terminal status. tickIdle's
+	// running-set view would tear down freshly-spawned M2 agents during
+	// the brief pending → running window before reconcile flips them.
 	// Drop worktree bookkeeping for agents the hub no longer considers
 	// running. Anything the terminate handler missed (e.g. host-runner
 	// killed before cleanup) will be re-synced by `git worktree prune`

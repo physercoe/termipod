@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // ProcSpawner is the narrow dependency we inject so tests can stand in a
@@ -106,12 +107,29 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	// We expand ~ ourselves rather than relying on bash's tilde expansion
 	// because the launcher passes the command through `bash -c "..."` and
 	// we want the failure mode to be a clean Go error if HOME is unset.
+	expandedWorkdir := ""
 	if wd := spec.Backend.DefaultWorkdir; wd != "" {
 		expanded, err := expandHome(wd)
 		if err != nil {
 			return M2LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", wd, err)
 		}
+		expandedWorkdir = expanded
 		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)
+	}
+
+	// Materialize context_files (CLAUDE.md, etc.) into the workdir so
+	// Claude Code reads its persona on startup. We only do this when a
+	// workdir is set — without one we'd be writing into an unknown cwd
+	// (likely the host-runner's own dir), which leaks the agent's
+	// configuration into the wrong tree. Failure here is fatal: an agent
+	// missing its CLAUDE.md will behave very differently from one with it.
+	if len(spec.ContextFiles) > 0 {
+		if expandedWorkdir == "" {
+			return M2LaunchResult{}, fmt.Errorf("context_files set but backend.default_workdir is empty")
+		}
+		if err := writeContextFiles(expandedWorkdir, spec.ContextFiles); err != nil {
+			return M2LaunchResult{}, fmt.Errorf("write context_files: %w", err)
+		}
 	}
 
 	logPath := filepath.Join(cfg.LogDir, "termipod-agent-"+cfg.Spawn.ChildID+".log")
@@ -185,6 +203,55 @@ func escapeSingleQuotes(s string) string {
 		out = append(out, s[i])
 	}
 	return string(out)
+}
+
+// writeContextFiles materializes per-agent files (CLAUDE.md, .mcp.json,
+// etc.) into the workdir before launch. Keys must be simple filenames or
+// shallow forward-slash relative paths — anything starting with `/`,
+// containing `..`, or backtracking out of the workdir is rejected so a
+// hostile spawn_spec can't write into /etc.
+func writeContextFiles(workdir string, files map[string]string) error {
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return fmt.Errorf("mkdir workdir: %w", err)
+	}
+	absWorkdir, err := filepath.Abs(workdir)
+	if err != nil {
+		return err
+	}
+	for name, content := range files {
+		if !safeContextFileName(name) {
+			return fmt.Errorf("invalid context_files key %q", name)
+		}
+		target := filepath.Join(absWorkdir, name)
+		// Belt-and-braces: ensure the resolved path stays inside workdir
+		// even after Join's cleanup.
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(absTarget, absWorkdir+string(os.PathSeparator)) && absTarget != absWorkdir {
+			return fmt.Errorf("context_files key %q escapes workdir", name)
+		}
+		if err := os.MkdirAll(filepath.Dir(absTarget), 0o755); err != nil {
+			return fmt.Errorf("mkdir for %s: %w", name, err)
+		}
+		if err := os.WriteFile(absTarget, []byte(content), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func safeContextFileName(n string) bool {
+	if n == "" || strings.HasPrefix(n, "/") || strings.HasPrefix(n, ".") || strings.Contains(n, `\`) {
+		return false
+	}
+	for _, part := range strings.Split(n, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // expandHome resolves a leading `~` or `~/` against $HOME. We do this

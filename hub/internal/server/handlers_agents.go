@@ -419,6 +419,19 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}
+	// Inline the agent's CLAUDE.md (resolved from the template's `prompt:`
+	// field). The host-runner launcher writes context_files entries into
+	// the workdir before spawn so Claude Code sees the persona on
+	// startup. Failures here are a config bug — a template that names a
+	// missing prompt should not silently spawn a contextless agent.
+	vars, err := s.buildSpawnVars(ctx, team, in, principal)
+	if err != nil {
+		return spawnOut{}, http.StatusBadRequest, err
+	}
+	rendered, err = s.resolveContextFiles(rendered, vars)
+	if err != nil {
+		return spawnOut{}, http.StatusBadRequest, err
+	}
 	in.SpawnSpec = rendered
 
 	// Resolve the driving mode before we open the tx so a 400 exits

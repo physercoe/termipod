@@ -31,6 +31,14 @@ type SpawnSpec struct {
 		Branch string `yaml:"branch"`
 		Base   string `yaml:"base"`
 	} `yaml:"worktree"`
+
+	// ContextFiles is a map of relative-filename → file contents that the
+	// launcher writes into the agent's workdir before spawning. The hub
+	// inlines CLAUDE.md (resolved from the template's `prompt:` field)
+	// here so Claude Code sees its persona on startup. Keys must be
+	// simple filenames or shallow relative paths — leading `/`, `..`, or
+	// absolute paths are rejected by the launcher.
+	ContextFiles map[string]string `yaml:"context_files"`
 }
 
 // ParseSpec tolerates empty input and returns a zero-valued spec so callers

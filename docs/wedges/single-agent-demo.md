@@ -127,6 +127,7 @@ already there, with file pointers:
 | `default_workdir` field declared in YAML but never parsed | W1         |
 | `launchM2` does not honor any workdir (cmd starts in `$HOME`) | W1     |
 | Steward template `cmd:` lacks stream-json + perm-tool flags | W1       |
+| `prompt:` field never read; CLAUDE.md not materialized    | W1.5       |
 | `permission_prompt` MCP tool not registered               | W2         |
 | No mobile bootstrap sheet (auto-open when team is empty)  | W4         |
 | Channel renders raw markers, not tool-call cards          | W5         |
@@ -246,6 +247,46 @@ choose M2.
 
 **Done when:** spawning a steward on a real host produces a claude
 process whose cwd is `$HOME/hub-work`, visible via `lsof -p <pid> | grep cwd`.
+
+### W1.5 — Materialize CLAUDE.md into workdir (~0.5d)
+
+The steward template already declares `prompt: steward.v1.md`, but
+nothing reads it. Without CLAUDE.md sitting in the workdir, Claude
+Code launches as a generic assistant — no persona, no etiquette
+rules, no decomposition recipes. M2 supports CLAUDE.md (it's the
+same Claude Code binary as M4), but the launcher has to write the
+file.
+
+**1.5.1** Hub-side: extend `hub/internal/server/template.go` to
+support dotted variable names so prompts can reference
+`{{principal.handle}}` (the bare handle, no `@`-prefix). Regex →
+`\{\{\s*([a-z_][a-z0-9_.]*)\s*\}\}`; `principal.handle` is added
+to the var map alongside the existing `principal` key.
+
+**1.5.2** Add `(s *Server) resolveContextFiles(rendered, vars)` to
+the same file. It reads the `prompt:` field out of the rendered
+spec, loads the prompt from
+`<dataRoot>/team/templates/prompts/<name>` (falling back to the
+embedded FS), expands `{{var}}` placeholders against the same
+binding map renderSpawnSpec used, and inlines the result under
+`context_files.CLAUDE.md` in the spec YAML.
+
+**1.5.3** Call resolveContextFiles in `DoSpawn` right after
+`renderSpawnSpec` so the persisted `spawn_spec_yaml` carries the
+inlined CLAUDE.md.
+
+**1.5.4** Host-runner: add
+`ContextFiles map[string]string \`yaml:"context_files"\`` to
+`hub/internal/hostrunner/spec.go::SpawnSpec`. In
+`launch_m2.go`, before `Spawner.Spawn`, walk
+`spec.ContextFiles` and write each entry under the expanded
+`default_workdir` (creating parents as needed). Reject keys that
+escape the workdir or set context_files without a workdir.
+
+**Done when:** spawning a steward yields
+`$HOME/hub-work/CLAUDE.md` with the rendered persona body, and
+the launched claude process can quote its principal-handle on
+the first turn.
 
 ### W2 — Permission tool through MCP gateway (~1.0d)
 

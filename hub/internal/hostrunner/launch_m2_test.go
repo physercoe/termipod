@@ -241,6 +241,106 @@ func (failingLauncher) LaunchCmd(_ context.Context, _ Spawn, _ string) (string, 
 	return "", io.ErrClosedPipe
 }
 
+func TestLaunchM2_WritesContextFilesIntoWorkdir(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:s.0"}
+	poster := &fakePoster{}
+
+	// Inline a CLAUDE.md via context_files: the launcher must write it
+	// into the workdir before the agent process starts so Claude Code
+	// reads it on init. The spec uses default_workdir to resolve where.
+	sp := Spawn{
+		ChildID: "agent-cf",
+		Handle:  "s",
+		Kind:    "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"  default_workdir: ~/hub-work\n" +
+			"context_files:\n" +
+			"  CLAUDE.md: |\n" +
+			"    hello from steward\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	wantPath := filepath.Join(homeDir, "hub-work", "CLAUDE.md")
+	body, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if !strings.Contains(string(body), "hello from steward") {
+		t.Errorf("CLAUDE.md = %q; want contains 'hello from steward'", string(body))
+	}
+}
+
+func TestLaunchM2_ContextFilesWithoutWorkdirFails(t *testing.T) {
+	// Writing context_files without a workdir would land the file in
+	// host-runner's own cwd, which leaks the agent's persona into the
+	// wrong tree. Reject the spawn instead.
+	logDir := t.TempDir()
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: ""}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-no-wd",
+		Handle:  "s",
+		Kind:    "claude-code",
+		SpawnSpec: "backend:\n" +
+			"  cmd: fake-agent\n" +
+			"context_files:\n" +
+			"  CLAUDE.md: hi\n",
+	}
+
+	_, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err == nil {
+		t.Fatal("want error when context_files set without default_workdir; got nil")
+	}
+	if !strings.Contains(err.Error(), "default_workdir") {
+		t.Fatalf("err = %v; want mention of default_workdir", err)
+	}
+}
+
+func TestSafeContextFileName(t *testing.T) {
+	cases := map[string]bool{
+		"CLAUDE.md":            true,
+		"docs/howto.md":        true,
+		".mcp.json":            false, // hidden
+		"":                     false,
+		"/abs":                 false,
+		"../escape":            false,
+		"sub/../etc/passwd":    false,
+		"ok/sub/file":          true,
+		"with\\backslash":      false,
+		"trailing/":            false,
+	}
+	for in, want := range cases {
+		if got := safeContextFileName(in); got != want {
+			t.Errorf("safeContextFileName(%q) = %v; want %v", in, got, want)
+		}
+	}
+}
+
 func TestShellEscape(t *testing.T) {
 	cases := map[string]string{
 		"/tmp/x.log":         "'/tmp/x.log'",

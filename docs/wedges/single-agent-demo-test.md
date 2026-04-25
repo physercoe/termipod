@@ -134,6 +134,47 @@ should set the dismissed-at flag.
 
 ---
 
+## 2.5. CLAUDE.md materialization (W1.5)
+
+**What you're testing:** the launcher writes the steward persona
+into the workdir before claude starts, so the agent loads its
+etiquette/recipes/role from CLAUDE.md the way it would on a
+hand-edited project.
+
+**Steps:**
+
+1. Spawn a steward (e.g. via the bootstrap sheet from AC2).
+2. SSH into the host and inspect the workdir:
+   ```sh
+   ls -la ~/hub-work/
+   head -20 ~/hub-work/CLAUDE.md
+   ```
+
+**Expected:**
+
+- `CLAUDE.md` exists in `~/hub-work/`.
+- Its contents start with `# Steward Agent` (the rendered
+  template body), and `{{principal.handle}}` placeholders have
+  been expanded to the actual handle (e.g. `physercoe`), no
+  literal `{{…}}` left.
+- Subsequent spawns overwrite the file with the latest rendering
+  rather than appending.
+
+**Failure modes:**
+
+- File missing → check `agents.spawn` response on the hub for a
+  context_files error, or `host-runner` logs for "write
+  context_files" failures. If the spec lacks `context_files:` at
+  all, the hub didn't resolve the prompt — verify
+  `<dataRoot>/team/templates/prompts/steward.v1.md` exists.
+- Literal `{{principal.handle}}` left in the file → hub regex
+  wasn't extended to support dotted vars; check
+  `tmplVarRe` in `template.go`.
+- Wrong handle → token-issue scope JSON probably doesn't carry
+  `handle`; principal will fall back to `@principal`.
+
+---
+
 ## 3. AC3 — Steward channel renders
 
 **What you're testing:** completing the bootstrap sheet produces a
@@ -362,7 +403,7 @@ If the wedge isn't built yet but you want to gut-check the plan,
 read [single-agent-demo.md](single-agent-demo.md) and ask:
 
 - **Does each AC have a wedge task that produces it?** Map: AC1 → W0,
-  AC2 → W4, AC3 → W1+W5, AC4 → W1+W5, AC5/diff-1 → W2+W5.
+  AC2 → W4, AC3 → W1+W1.5+W5, AC4 → W1+W1.5+W5, AC5/diff-1 → W2+W5.
 - **Is anything assumed to exist that doesn't?** The plan calls out
   `mcp_gateway.go`, `attention_items` (kind=approval_request),
   `EnsureWorktree`, `StdioDriver`. Spot-check at least two by

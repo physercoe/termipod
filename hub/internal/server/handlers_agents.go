@@ -488,14 +488,40 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusConflict, err
 	}
 
+	// Mint the agent's MCP bearer token. scope_json carries team + agent_id
+	// so the existing /mcp/{token} resolver (resolveMCPToken) routes the
+	// session to this agent without further lookup. Plaintext is stashed
+	// on agent_spawns; host-runner reads it once at launch to materialize
+	// .mcp.json and never asks again. auth_tokens stores the hash only,
+	// so the plaintext is unrecoverable via that table alone. We insert
+	// inside the spawn tx so a rollback also unwinds the token (no orphan
+	// rows if e.g. agent_spawns INSERT fails).
+	mcpTokenPlaintext := auth.NewToken()
+	mcpTokenID := NewID()
+	mcpScopeJSON, _ := json.Marshal(map[string]any{
+		"team":     team,
+		"role":     "agent",
+		"agent_id": agentID,
+		"handle":   in.ChildHandle,
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO auth_tokens (id, kind, token_hash, scope_json, created_at)
+		VALUES (?, 'agent', ?, ?, ?)`,
+		mcpTokenID, auth.HashToken(mcpTokenPlaintext),
+		string(mcpScopeJSON), now); err != nil {
+		return spawnOut{}, http.StatusInternalServerError, err
+	}
+
 	authority := defaultRawObject(in.Authority)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_spawns (
 			id, parent_agent_id, child_agent_id, spawn_spec_yaml,
-			spawn_authority_json, task_json, spawned_at, worktree_path
-		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+			spawn_authority_json, task_json, spawned_at, worktree_path,
+			mcp_token_plaintext
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), ?)`,
 		spawnID, in.ParentID, agentID, in.SpawnSpec,
-		string(authority), nullBytes(in.Task), now, in.WorktreePath); err != nil {
+		string(authority), nullBytes(in.Task), now, in.WorktreePath,
+		mcpTokenPlaintext); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
 	}
 
@@ -520,6 +546,13 @@ type spawnListOut struct {
 	SpawnedAt    string          `json:"spawned_at"`
 	// Mode is the resolved driving mode; empty if no mode was declared.
 	Mode string `json:"mode,omitempty"`
+	// McpToken is the plaintext bearer the spawned agent uses to call
+	// /mcp/{token} on the hub. Surfaced to host-runner only — this
+	// endpoint requires a host-kind auth token. Treated as a per-agent
+	// secret: host-runner writes it into the agent's local .mcp.json
+	// and never exposes it to mobile/principal clients. Empty for
+	// pre-W2.2 spawns that predate the column.
+	McpToken string `json:"mcp_token,omitempty"`
 }
 
 // handleListSpawns returns agent_spawns rows, filtered by host and/or status.
@@ -534,7 +567,8 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		       a.handle, a.kind, COALESCE(a.host_id, ''), a.status,
 		       sp.spawn_spec_yaml, sp.spawn_authority_json, sp.task_json,
 		       COALESCE(sp.worktree_path, ''), sp.spawned_at,
-		       COALESCE(a.driving_mode, '')
+		       COALESCE(a.driving_mode, ''),
+		       COALESCE(sp.mcp_token_plaintext, '')
 		FROM agent_spawns sp
 		JOIN agents a ON a.id = sp.child_agent_id
 		WHERE a.team_id = ?`
@@ -555,6 +589,13 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
+	// Only host-kind callers (the host-runner) may see the plaintext MCP
+	// bearer; user-kind dashboard callers must not be able to read agent
+	// secrets via the spawn-list endpoint.
+	revealMcpToken := false
+	if tok, ok := auth.FromContext(r.Context()); ok && tok.Kind == "host" {
+		revealMcpToken = true
+	}
 	out := []spawnListOut{}
 	for rows.Next() {
 		var sp spawnListOut
@@ -563,13 +604,17 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&sp.SpawnID, &sp.ParentID, &sp.ChildID,
 			&sp.Handle, &sp.Kind, &sp.HostID, &sp.Status,
 			&sp.SpawnSpec, &authority, &task,
-			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode); err != nil {
+			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode,
+			&sp.McpToken); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		sp.Authority = json.RawMessage(authority)
 		if task.Valid {
 			sp.Task = json.RawMessage(task.String)
+		}
+		if !revealMcpToken {
+			sp.McpToken = ""
 		}
 		out = append(out, sp)
 	}

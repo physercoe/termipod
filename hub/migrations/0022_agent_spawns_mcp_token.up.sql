@@ -1,0 +1,14 @@
+-- W2.2: per-agent MCP token issued at spawn (single-agent demo wedge).
+--
+-- The hub mints an `agent`-kind auth_tokens row at spawn time so the
+-- spawned agent can call /mcp/{token} on the hub for its full toolbelt
+-- (delegate, get_audit, list_agents, permission_prompt, …). Host-runner
+-- needs the *plaintext* once — to materialize the agent's local
+-- .mcp.json — but the auth_tokens table only stores the SHA-256 hash.
+--
+-- Stashing plaintext on agent_spawns lets handleListSpawns return it
+-- alongside the rendered spec the host-runner already polls for. After
+-- launch the plaintext is no longer consulted; we keep it around so a
+-- host-runner restart can still reconstruct the workdir without a fresh
+-- token issuance round-trip.
+ALTER TABLE agent_spawns ADD COLUMN mcp_token_plaintext TEXT;

@@ -187,6 +187,28 @@ func mcpToolDefsExtra() []map[string]any {
 				},
 			},
 		},
+		{
+			// Anthropic's claude-code "--permission-prompt-tool" contract.
+			// The agent runtime calls this with {tool_name, input} whenever
+			// it would otherwise prompt the human; we surface the request
+			// as an attention_item, long-poll for resolution, and reply
+			// {behavior:"allow"|"deny", ...}. Required when the spawn was
+			// launched with --permission-prompt-tool mcp__termipod__permission_prompt
+			// instead of --dangerously-skip-permissions.
+			"name": "permission_prompt",
+			"description": "Approval gate for tool calls (Anthropic permission_prompt contract). " +
+				"Returns {behavior:'allow'|'deny', updatedInput|message}. Requests are " +
+				"surfaced as attention_items so the principal can approve/deny from the inbox.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"tool_name":   map[string]any{"type": "string"},
+					"input":       map[string]any{"type": "object"},
+					"tool_use_id": map[string]any{"type": "string"},
+				},
+				"required": []string{"tool_name", "input"},
+			},
+		},
 	}
 }
 
@@ -755,4 +777,154 @@ func (s *Server) mcpGetAudit(ctx context.Context, team string, raw json.RawMessa
 		rows = []AuditRow{}
 	}
 	return mcpResultJSON(rows), nil
+}
+
+// ---------------------------------------------------------------------
+// permission_prompt — Anthropic --permission-prompt-tool contract
+// ---------------------------------------------------------------------
+
+// permissionPromptArgs matches the shape claude-code sends when the
+// agent attempts a tool call under --permission-prompt-tool. Anthropic
+// reserves the right to add fields, so we keep the input opaque
+// (json.RawMessage) and forward it untouched on allow.
+type permissionPromptArgs struct {
+	ToolName  string          `json:"tool_name"`
+	Input     json.RawMessage `json:"input"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+}
+
+// permissionPromptTimeout caps how long we'll hold the MCP call open
+// while waiting for a human decision. Longer than the 30s claude default
+// would happily wait, shorter than the 15-min "they fell asleep with
+// the phone in their pocket" window where we'd rather fail closed.
+const permissionPromptTimeout = 10 * time.Minute
+
+func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
+	var a permissionPromptArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.ToolName == "" {
+		return nil, &jrpcError{Code: -32602, Message: "tool_name and input required"}
+	}
+	if len(a.Input) == 0 {
+		// Empty input is legal for some tools but the agent always sends
+		// at least `{}`; reject `null`/missing so the resolver UI doesn't
+		// have to special-case it.
+		return nil, &jrpcError{Code: -32602, Message: "input required"}
+	}
+
+	// pending_payload_json carries the data the resolver UI needs to render
+	// a meaningful approve/deny prompt (tool name + redacted input preview).
+	// agent_id lets the mobile inbox associate the prompt with the calling
+	// agent for back-navigation into its transcript.
+	payload, _ := json.Marshal(map[string]any{
+		"tool_name":   a.ToolName,
+		"input":       a.Input,
+		"agent_id":    fromID,
+		"tool_use_id": a.ToolUseID,
+	})
+
+	summary := "tool: " + a.ToolName
+	id := NewID()
+	now := NowUTC()
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind,
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle, pending_payload_json
+		) VALUES (?, NULL, 'team', NULL, 'permission_prompt',
+		          ?, 'minor', '[]', 'open', ?,
+		          'agent', NULLIF(?, ''), ?)`,
+		id, summary, now, actorHandle, string(payload),
+	); err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	s.recordAudit(ctx, team, "permission_prompt.request", "attention", id,
+		"tool call awaiting approval: "+a.ToolName,
+		map[string]any{"tool_name": a.ToolName, "agent_id": fromID})
+
+	pctx, cancel := context.WithTimeout(ctx, permissionPromptTimeout)
+	defer cancel()
+
+	decision, reason, err := s.waitForAttentionDecision(pctx, id)
+	if err != nil {
+		// Timeout / context cancel — fail closed (deny). Mark the row as
+		// resolved so it doesn't loiter in the inbox forever; the audit
+		// trail captures the no-decision outcome.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			_, _ = s.db.ExecContext(context.Background(), `
+				UPDATE attention_items
+				   SET status = 'resolved', resolved_at = ?
+				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
+			return mcpResultJSON(map[string]any{
+				"behavior": "deny",
+				"message":  "no decision within timeout — denied",
+			}), nil
+		}
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+
+	// decisions_json uses approve/reject (existing decide handler). Map to
+	// the permission_prompt response vocabulary (allow/deny). updatedInput
+	// is pass-through today; a future revision can let the principal edit
+	// arguments before approving.
+	if decision == "approve" {
+		return mcpResultJSON(map[string]any{
+			"behavior":     "allow",
+			"updatedInput": json.RawMessage(a.Input),
+		}), nil
+	}
+	msg := reason
+	if msg == "" {
+		msg = "user denied"
+	}
+	return mcpResultJSON(map[string]any{
+		"behavior": "deny",
+		"message":  msg,
+	}), nil
+}
+
+// waitForAttentionDecision polls attention_items until status='resolved'
+// (or ctx fires). Returns the last decision recorded in decisions_json
+// (decision, reason). Backoff is exponential 100ms→2s — fast enough for
+// typical phone-tap latencies, slow enough to not hammer the DB on stuck
+// rows.
+func (s *Server) waitForAttentionDecision(ctx context.Context, id string) (decision string, reason string, err error) {
+	delay := 100 * time.Millisecond
+	const maxDelay = 2 * time.Second
+	for {
+		var status, decisions string
+		row := s.db.QueryRowContext(ctx,
+			`SELECT status, decisions_json FROM attention_items WHERE id = ?`, id)
+		if err := row.Scan(&status, &decisions); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", "", fmt.Errorf("attention %s not found", id)
+			}
+			return "", "", err
+		}
+		if status == "resolved" {
+			var arr []map[string]any
+			_ = json.Unmarshal([]byte(decisions), &arr)
+			if len(arr) == 0 {
+				// resolved without a decide call — treat as deny so the
+				// agent doesn't proceed under an unspecified outcome.
+				return "reject", "resolved without decision", nil
+			}
+			last := arr[len(arr)-1]
+			d, _ := last["decision"].(string)
+			r, _ := last["reason"].(string)
+			return d, r, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < maxDelay {
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+	}
 }

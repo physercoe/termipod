@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // osReadFile is a tiny indirection so the helper below doesn't need to
@@ -315,6 +316,135 @@ func firstFieldFromMCPResult(t *testing.T, out any, key string) string {
 	}
 	v, _ := m[key].(string)
 	return v
+}
+
+// permission_prompt: an Approve decision recorded in decisions_json
+// resolves the long-poll into {behavior:"allow", updatedInput}.
+func TestMCP_PermissionPrompt_ApproveReturnsAllow(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "Bash",
+		"input":     map[string]any{"command": "echo hi"},
+	})
+
+	type res struct {
+		out  any
+		jerr *jrpcError
+	}
+	done := make(chan res, 1)
+	go func() {
+		o, e := s.mcpPermissionPrompt(context.Background(), defaultTeamID, agentID, args)
+		done <- res{out: o, jerr: e}
+	}()
+
+	// Wait for the attention_item to land, then resolve via decisions_json.
+	var attnID string
+	for i := 0; i < 50; i++ {
+		_ = s.db.QueryRow(
+			`SELECT id FROM attention_items WHERE kind = 'permission_prompt' ORDER BY created_at DESC LIMIT 1`,
+		).Scan(&attnID)
+		if attnID != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if attnID == "" {
+		t.Fatal("attention_items row never appeared")
+	}
+	decisions, _ := json.Marshal([]map[string]any{{
+		"at": "now", "by": "@principal", "decision": "approve",
+	}})
+	if _, err := s.db.Exec(
+		`UPDATE attention_items SET status='resolved', decisions_json = ? WHERE id = ?`,
+		string(decisions), attnID,
+	); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	r := <-done
+	if r.jerr != nil {
+		t.Fatalf("permission_prompt: %+v", r.jerr)
+	}
+	body := mcpResultTextBody(t, r.out)
+	if !strings.Contains(body, `"behavior": "allow"`) {
+		t.Errorf("expected allow, got %s", body)
+	}
+	if !strings.Contains(body, `"command"`) {
+		t.Errorf("updatedInput should pass through input, got %s", body)
+	}
+}
+
+// permission_prompt: a Reject decision returns {behavior:"deny", message}.
+func TestMCP_PermissionPrompt_RejectReturnsDeny(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "Bash",
+		"input":     map[string]any{"command": "rm -rf /"},
+	})
+
+	type res struct {
+		out  any
+		jerr *jrpcError
+	}
+	done := make(chan res, 1)
+	go func() {
+		o, e := s.mcpPermissionPrompt(context.Background(), defaultTeamID, agentID, args)
+		done <- res{out: o, jerr: e}
+	}()
+
+	var attnID string
+	for i := 0; i < 50; i++ {
+		_ = s.db.QueryRow(
+			`SELECT id FROM attention_items WHERE kind = 'permission_prompt' ORDER BY created_at DESC LIMIT 1`,
+		).Scan(&attnID)
+		if attnID != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if attnID == "" {
+		t.Fatal("attention_items row never appeared")
+	}
+	decisions, _ := json.Marshal([]map[string]any{{
+		"at": "now", "by": "@principal", "decision": "reject",
+		"reason": "looks dangerous",
+	}})
+	if _, err := s.db.Exec(
+		`UPDATE attention_items SET status='resolved', decisions_json = ? WHERE id = ?`,
+		string(decisions), attnID,
+	); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	r := <-done
+	if r.jerr != nil {
+		t.Fatalf("permission_prompt: %+v", r.jerr)
+	}
+	body := mcpResultTextBody(t, r.out)
+	if !strings.Contains(body, `"behavior": "deny"`) {
+		t.Errorf("expected deny, got %s", body)
+	}
+	if !strings.Contains(body, "looks dangerous") {
+		t.Errorf("expected reason in message, got %s", body)
+	}
+}
+
+// permission_prompt: missing tool_name → -32602.
+func TestMCP_PermissionPrompt_RequiresToolName(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"input": map[string]any{"x": 1},
+	})
+	_, jerr := s.mcpPermissionPrompt(context.Background(), defaultTeamID, agentID, args)
+	if jerr == nil || jerr.Code != -32602 {
+		t.Errorf("want -32602, got %+v", jerr)
+	}
 }
 
 func mcpResultTextBody(t *testing.T, out any) string {

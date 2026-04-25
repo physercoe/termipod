@@ -266,6 +266,31 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         }
       }
     }
+    // Telemetry strip inputs (W-UI-3): cumulative cost from all
+    // turn.result events, latest per-message usage block, latest
+    // rate_limit. We walk forward so latest-wins reflects ordering;
+    // cost is summed because each turn contributes once.
+    double totalCostUsd = 0.0;
+    Map<String, dynamic>? latestUsage;
+    Map<String, dynamic>? latestRateLimit;
+    int turnCount = 0;
+    for (final e in _events) {
+      final kind = (e['kind'] ?? '').toString();
+      final p = e['payload'];
+      if (p is! Map) continue;
+      if (kind == 'turn.result') {
+        turnCount += 1;
+        final c = p['cost_usd'];
+        if (c is num) totalCostUsd += c.toDouble();
+      } else if (kind == 'usage') {
+        latestUsage = p.cast<String, dynamic>();
+      } else if (kind == 'rate_limit') {
+        latestRateLimit = p.cast<String, dynamic>();
+      }
+    }
+    final hasTelemetry = turnCount > 0 ||
+        latestUsage != null ||
+        latestRateLimit != null;
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
     //   tool_result      — paired with parent tool_call by tool_use_id;
@@ -279,6 +304,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     return Column(
       children: [
         if (sessionInit != null) _SessionHeader(payload: sessionInit),
+        if (hasTelemetry)
+          _TelemetryStrip(
+            totalCostUsd: totalCostUsd,
+            turnCount: turnCount,
+            usage: latestUsage,
+            rateLimit: latestRateLimit,
+          ),
         Expanded(
           child: Stack(
             children: [
@@ -336,12 +368,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // only hidden when the matching tool_call is in scope (toolNames has its
   // id) — a stray result with no parent call still renders so we never
   // silently lose data.
+  //
+  // Telemetry-only kinds (usage, rate_limit, turn.result) live in the
+  // strip above the feed; rendering them as cards too would duplicate
+  // the signal. The legacy `completion` alias is kept visible for one
+  // release to ease the driver schema migration (W-DRV).
   bool _isHiddenInFeed(
     Map<String, dynamic> e,
     Map<String, String> toolNames,
   ) {
     final kind = (e['kind'] ?? '').toString();
-    if (kind == 'tool_call_update' || kind == 'session.init') return true;
+    if (kind == 'tool_call_update' ||
+        kind == 'session.init' ||
+        kind == 'usage' ||
+        kind == 'rate_limit' ||
+        kind == 'turn.result') {
+      return true;
+    }
     if (kind == 'tool_result') {
       final p = e['payload'];
       if (p is Map) {
@@ -1767,6 +1810,220 @@ class _McpRow extends StatelessWidget {
       default:
         return DesignColors.textMuted;
     }
+  }
+}
+
+/// Compact telemetry strip rendered between the session header and the
+/// feed. Three signals: cumulative cost (summed turn.result.cost_usd),
+/// most-recent turn token usage, and rate-limit window progress. The
+/// strip is only mounted when at least one of these has data so the
+/// chrome doesn't sit empty before the first turn completes.
+///
+/// Tap → bottom-sheet with a per-model breakdown when by_model lands;
+/// for now keeps the strip compact and tap-inert (the data fits in one
+/// row at typical phone widths).
+class _TelemetryStrip extends StatelessWidget {
+  final double totalCostUsd;
+  final int turnCount;
+  final Map<String, dynamic>? usage;
+  final Map<String, dynamic>? rateLimit;
+  const _TelemetryStrip({
+    required this.totalCostUsd,
+    required this.turnCount,
+    required this.usage,
+    required this.rateLimit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final tiles = <Widget>[];
+    if (turnCount > 0) {
+      tiles.add(_TelemetryTile(
+        icon: Icons.payments_outlined,
+        label: '\$${totalCostUsd.toStringAsFixed(4)}',
+        sub: '$turnCount turn${turnCount == 1 ? '' : 's'}',
+        color: DesignColors.success,
+        fg: fg,
+        muted: mutedColor,
+      ));
+    }
+    final u = usage;
+    if (u != null) {
+      final inTok = (u['input_tokens'] as num?)?.toInt();
+      final outTok = (u['output_tokens'] as num?)?.toInt();
+      final cacheRead = (u['cache_read'] as num?)?.toInt();
+      final headline = '${_fmtTokens(inTok)} → ${_fmtTokens(outTok)}';
+      final sub = cacheRead != null && cacheRead > 0
+          ? 'cache ${_fmtTokens(cacheRead)}'
+          : 'tokens';
+      tiles.add(_TelemetryTile(
+        icon: Icons.bolt_outlined,
+        label: headline,
+        sub: sub,
+        color: DesignColors.terminalCyan,
+        fg: fg,
+        muted: mutedColor,
+      ));
+    }
+    final rl = rateLimit;
+    if (rl != null) {
+      final win = (rl['window'] ?? '').toString();
+      final status = (rl['status'] ?? '').toString();
+      final resetsAtRaw = (rl['resets_at'] ?? '').toString();
+      final resetIn = _resetIn(resetsAtRaw);
+      final color = _rateLimitColor(status, resetIn);
+      final label = win.isEmpty ? 'rate' : win;
+      final sub = resetIn != null
+          ? 'resets ${_fmtCountdown(resetIn)}'
+          : (status.isEmpty ? 'window' : status);
+      tiles.add(_TelemetryTile(
+        icon: Icons.av_timer,
+        label: label,
+        sub: sub,
+        color: color,
+        fg: fg,
+        muted: mutedColor,
+      ));
+    }
+    if (tiles.isEmpty) return const SizedBox.shrink();
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          for (var i = 0; i < tiles.length; i++) ...[
+            Expanded(child: tiles[i]),
+            if (i < tiles.length - 1)
+              Container(
+                width: 1,
+                height: 24,
+                color: border,
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _fmtTokens(int? n) {
+    if (n == null) return '—';
+    if (n < 1000) return '$n';
+    if (n < 1000000) {
+      final k = n / 1000.0;
+      return k >= 10
+          ? '${k.toStringAsFixed(0)}k'
+          : '${k.toStringAsFixed(1)}k';
+    }
+    final m = n / 1000000.0;
+    return '${m.toStringAsFixed(1)}M';
+  }
+
+  // Parse the reset-at ISO timestamp and return time-until as a Duration.
+  // Returns null if the timestamp is empty or unparseable so the strip
+  // falls back to showing the status string instead.
+  static Duration? _resetIn(String iso) {
+    if (iso.isEmpty) return null;
+    final ts = DateTime.tryParse(iso);
+    if (ts == null) return null;
+    final diff = ts.difference(DateTime.now().toUtc());
+    return diff.isNegative ? Duration.zero : diff;
+  }
+
+  static String _fmtCountdown(Duration d) {
+    if (d.inMinutes < 1) return 'now';
+    if (d.inHours < 1) return 'in ${d.inMinutes}m';
+    final m = d.inMinutes % 60;
+    return m == 0 ? 'in ${d.inHours}h' : 'in ${d.inHours}h ${m}m';
+  }
+
+  // Status drives color when present; otherwise fall back to time-pressure
+  // heuristic so a "warn" status near the reset doesn't read green.
+  static Color _rateLimitColor(String status, Duration? resetIn) {
+    switch (status.toLowerCase()) {
+      case 'limited':
+      case 'exceeded':
+        return DesignColors.error;
+      case 'warn':
+      case 'warning':
+        return DesignColors.warning;
+      case 'ok':
+      case 'available':
+        return DesignColors.success;
+    }
+    if (resetIn != null && resetIn.inMinutes <= 5) {
+      return DesignColors.warning;
+    }
+    return DesignColors.textMuted;
+  }
+}
+
+class _TelemetryTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String sub;
+  final Color color;
+  final Color fg;
+  final Color muted;
+  const _TelemetryTile({
+    required this.icon,
+    required this.label,
+    required this.sub,
+    required this.color,
+    required this.fg,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: fg,
+                ),
+              ),
+              Text(
+                sub,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 9,
+                  color: muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

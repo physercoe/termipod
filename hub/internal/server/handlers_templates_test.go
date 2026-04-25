@@ -251,6 +251,40 @@ func TestTemplates_PutCreatesNewCategory(t *testing.T) {
 	}
 }
 
+// TestTemplates_GetFallsBackToEmbedded covers a regression where a fresh
+// hub data root (or one wiped after install) returned 404 for built-in
+// templates, breaking the mobile bootstrap sheet (it fetches
+// agents/steward.v1.yaml and ships the body as the spawn spec). The
+// handler now overlays disk on top of the embedded FS, so a missing
+// disk file falls through to the bundled built-in.
+func TestTemplates_GetFallsBackToEmbedded(t *testing.T) {
+	c := newE2E(t)
+	// Remove the seeded disk copy to simulate a missing/wiped overlay.
+	disk := filepath.Join(c.dataRoot, "team", "templates", "agents", "steward.v1.yaml")
+	if err := os.Remove(disk); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove disk overlay: %v", err)
+	}
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/agents/steward.v1.yaml"
+	status, raw := rawCall(t, c.token, url, "GET", nil)
+	if status != 200 {
+		t.Fatalf("GET = %d body=%s", status, raw)
+	}
+	if !strings.Contains(string(raw), "template: agents.steward") {
+		t.Errorf("embedded fallback body missing template key: %s", raw)
+	}
+	if !strings.Contains(string(raw), "backend:") || !strings.Contains(string(raw), "cmd:") {
+		t.Errorf("embedded fallback body missing backend.cmd: %s", raw)
+	}
+
+	// Truly-unknown name must still 404 — the fallback should not turn
+	// into a "search the FS for anything" oracle.
+	url404 := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/agents/does-not-exist.yaml"
+	status, _ = rawCall(t, c.token, url404, "GET", nil)
+	if status != 404 {
+		t.Errorf("missing template GET = %d, want 404", status)
+	}
+}
+
 // TestBuildSpawnVars_DataDriven_Model confirms {{model}} resolves from
 // the spec yaml's backend.model field — the whole point of the wedge.
 // A spec with no model → empty string (no Go-side fallback).

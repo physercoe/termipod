@@ -343,6 +343,58 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     }
   }
 
+  Future<void> _resetToDefault() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset to default?'),
+        content: Text(
+          'Replaces ${widget.category}/$_name on disk with the built-in '
+          'embedded copy. Use this if your template is missing fields '
+          'because it was seeded by an older hub version.\n\n'
+          'Fails if no built-in version exists for this template.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _saving = true);
+    try {
+      await client.deleteTemplate(widget.category, _name);
+      final embedded = await client.getTemplate(widget.category, _name);
+      await client.putTemplate(widget.category, _name, embedded);
+      if (!mounted) return;
+      setState(() {
+        _ctrl.text = embedded;
+        _savedBody = embedded;
+        _dirty = false;
+        _saving = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Reset to built-in default'),
+            duration: Duration(seconds: 2)),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Reset failed: $e')),
+      );
+    }
+  }
+
   Future<void> _delete() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -443,12 +495,16 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
                 switch (v) {
                   case 'rename':
                     _rename();
+                  case 'reset':
+                    _resetToDefault();
                   case 'delete':
                     _delete();
                 }
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'rename', child: Text('Rename')),
+                PopupMenuItem(
+                    value: 'reset', child: Text('Reset to default')),
                 PopupMenuItem(value: 'delete', child: Text('Delete')),
               ],
             ),

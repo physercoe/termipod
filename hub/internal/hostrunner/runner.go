@@ -460,6 +460,17 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		if cmd != "" {
 			p, err = a.Launcher.LaunchCmd(ctx, sp, cmd)
 		} else {
+			// Falling all the way through to the launcher's "no backend
+			// configured" placeholder almost always means the spawn YAML
+			// reached the runner with an empty `backend.cmd` AND no
+			// matching per-kind template. Surface both inputs so an
+			// operator can tell *which* layer dropped the cmd: a stale
+			// team-local template, a renderer that produced empty output,
+			// or a kind-keyed lookup that doesn't have the spawn's kind.
+			a.Log.Warn("no backend.cmd in spawn spec or template; using launcher default",
+				"handle", sp.Handle, "kind", sp.Kind,
+				"spec_backend_cmd_empty", spec.Backend.Cmd == "",
+				"template_kinds_known", a.templates != nil)
 			p, err = a.Launcher.Launch(ctx, sp)
 		}
 		if err != nil {

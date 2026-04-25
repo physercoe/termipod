@@ -58,6 +58,15 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Seed bundled templates that don't yet exist on disk. Init() does
+	// this once at `hub init`, but a hub upgraded across versions only
+	// runs `hub serve` on subsequent boots, so newly-shipped built-ins
+	// would otherwise be invisible until someone re-ran init. The call
+	// is idempotent and never overwrites an existing file (user edits
+	// stay), so it's safe to run on every start.
+	if err := writeBuiltinTemplates(cfg.DataRoot); err != nil {
+		cfg.Logger.Warn("seed builtin templates", "err", err)
+	}
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
 	s.policy = newPolicyStore(cfg.DataRoot)
 	s.agentFamilies = agentfamilies.New(agentFamiliesOverlayDir(cfg.DataRoot))

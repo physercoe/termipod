@@ -124,12 +124,21 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if !os.IsNotExist(err) {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Disk overlay missing — fall back to the embedded built-in so
+		// callers that depend on bundled templates (most importantly the
+		// mobile spawn-steward sheet) keep working when the team data
+		// root has drifted (fresh install before init copied the files,
+		// data root manually wiped, etc.). 404 only when the name is
+		// neither on disk nor in the embedded FS.
+		body, err = fs.ReadFile(hub.TemplatesFS, "templates/"+cat+"/"+name)
+		if err != nil {
 			writeErr(w, http.StatusNotFound, "template not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
 	}
 	w.Header().Set("Content-Type", mimeForTemplate(name))
 	_, _ = w.Write(body)

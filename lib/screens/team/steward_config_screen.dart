@@ -199,12 +199,30 @@ class _StewardConfigScreenState extends ConsumerState<StewardConfigScreen> {
     );
   }
 
+  /// Picks the steward most likely to be the *current* one. The agents
+  /// list is ordered by created_at, so a previously-terminated steward
+  /// row sits before a freshly-spawned pending one — returning the
+  /// first match would leave this screen showing "No steward is running"
+  /// while the AppBar chip (which iterates with state-aware logic)
+  /// already shows "starting". Prefer running > pending > everything
+  /// else, then falls back to the most recent row by handle.
   static Map<String, dynamic>? _findSteward(
       List<Map<String, dynamic>> agents) {
+    Map<String, dynamic>? running;
+    Map<String, dynamic>? pending;
+    Map<String, dynamic>? other;
     for (final a in agents) {
-      if ((a['handle'] ?? '').toString() == 'steward') return a;
+      if ((a['handle'] ?? '').toString() != 'steward') continue;
+      final status = (a['status'] ?? '').toString();
+      if (status == 'running') {
+        running = a;
+      } else if (status == 'pending') {
+        pending ??= a;
+      } else {
+        other = a; // keep the latest non-live match as a fallback
+      }
     }
-    return null;
+    return running ?? pending ?? other;
   }
 }
 

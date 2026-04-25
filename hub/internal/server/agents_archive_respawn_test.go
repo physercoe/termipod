@@ -97,9 +97,56 @@ func TestDoSpawn_RespawnAfterArchive_SameHandle(t *testing.T) {
 	}
 }
 
-// Negative: while the first agent is still live (not archived), a second
-// spawn under the same handle must still 409. The partial index keeps
-// the original "no two live agents share a handle" rule intact.
+// Regression: respawning after *terminate-without-archive* must succeed.
+// The "Recreate steward" UI calls PATCH status='terminated' but never
+// hits the archive endpoint, so archived_at stays NULL. Migration 0023's
+// partial index (WHERE archived_at IS NULL) kept the handle reserved on
+// the terminated row, re-triggering the original 2067 → 409. Migration
+// 0024 widens the predicate to also exclude non-live statuses.
+func TestDoSpawn_RespawnAfterTerminate_NotArchived(t *testing.T) {
+	s, _ := newTestServer(t)
+	hostID := seedHostCaps(t, s, `{
+		"agents": {
+			"claude-code": {"installed": true, "supports": ["M1","M2","M4"]}
+		}
+	}`)
+
+	out1, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "steward",
+		Kind:        "claude-code",
+		HostID:      hostID,
+		SpawnSpec:   "kind: claude-code\n",
+	})
+	if err != nil {
+		t.Fatalf("first spawn: %v (status=%d)", err, status)
+	}
+
+	// Mirror the UI's "Recreate steward" flow: terminate without archiving.
+	// archived_at stays NULL on the dead row.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET status='terminated' WHERE id=?`,
+		out1.AgentID,
+	); err != nil {
+		t.Fatalf("terminate setup: %v", err)
+	}
+
+	out2, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "steward",
+		Kind:        "claude-code",
+		HostID:      hostID,
+		SpawnSpec:   "kind: claude-code\n",
+	})
+	if err != nil {
+		t.Fatalf("respawn after terminate: %v (status=%d)", err, status)
+	}
+	if out2.AgentID == out1.AgentID {
+		t.Fatalf("respawn reused terminated agent id %q; want a new row", out1.AgentID)
+	}
+}
+
+// Negative: while the first agent is still live (not terminated/archived),
+// a second spawn under the same handle must still 409. The partial index
+// keeps the "no two live agents share a handle" rule intact.
 func TestDoSpawn_DuplicateHandle_LiveAgent_StillRejected(t *testing.T) {
 	s, _ := newTestServer(t)
 	hostID := seedHostCaps(t, s, `{

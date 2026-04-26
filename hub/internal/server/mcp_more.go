@@ -326,6 +326,12 @@ type requestDecisionArgs struct {
 	ScopeID   string   `json:"scope_id"`
 }
 
+// requestDecisionTimeout caps the long-poll for a decision. Mirrors
+// permissionPromptTimeout — long enough that the user has time to read
+// and answer on a phone, short enough that an unanswered prompt times
+// out before claude's outer turn budget gives up on the agent.
+const requestDecisionTimeout = 10 * time.Minute
+
 func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a requestDecisionArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.Question == "" || len(a.Options) == 0 {
@@ -340,23 +346,62 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 	if len(a.Options) > 0 {
 		summary = a.Question + " [" + strings.Join(a.Options, " / ") + "]"
 	}
+	// pending_payload_json carries the structured options so the resolver
+	// UI can render one button per option (Me page + steward inline card).
+	// Without this, decide handlers can only flip approve/reject and the
+	// "pick a color" semantics collapse into a binary.
+	payload, _ := json.Marshal(map[string]any{
+		"question": a.Question,
+		"options":  a.Options,
+		"agent_id": fromID,
+	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
-			actor_kind, actor_handle
+			actor_kind, actor_handle, pending_payload_json
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'decision',
 		          ?, 'minor', '[]', 'open', ?,
-		          'agent', NULLIF(?, ''))`,
-		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle)
+		          'agent', NULLIF(?, ''), ?)`,
+		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle, string(payload))
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
+	s.recordAudit(ctx, team, "decision.request", "attention", id,
+		"decision awaiting user: "+a.Question,
+		map[string]any{"agent_id": fromID, "options": a.Options})
+
+	// Long-poll for resolution so the agent receives the chosen option.
+	// Without this, request_decision was fire-and-forget — the steward
+	// would ask "pick a color" and have no way to know what the user
+	// chose.
+	pctx, cancel := context.WithTimeout(ctx, requestDecisionTimeout)
+	defer cancel()
+	last, err := s.waitForAttentionResolution(pctx, id)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			_, _ = s.db.ExecContext(context.Background(), `
+				UPDATE attention_items
+				   SET status = 'resolved', resolved_at = ?
+				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
+			return mcpResultJSON(map[string]any{
+				"id":      id,
+				"kind":    "decision",
+				"timeout": true,
+			}), nil
+		}
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	optionID, _ := last["option_id"].(string)
+	decision, _ := last["decision"].(string)
+	reason, _ := last["reason"].(string)
 	return mcpResultJSON(map[string]any{
-		"id":          id,
-		"kind":        "decision",
-		"options":     a.Options,
+		"id":           id,
+		"kind":         "decision",
+		"option_id":    optionID,
+		"decision":     decision,
+		"reason":       reason,
 		"requested_by": fromID,
 	}), nil
 }
@@ -910,6 +955,49 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		"behavior": "deny",
 		"message":  msg,
 	}), nil
+}
+
+// waitForAttentionResolution polls attention_items until status='resolved'
+// (or ctx fires). Returns the full last decision dict so callers that
+// care about extra fields (notably option_id from request_decision) can
+// read them without re-parsing decisions_json. Same backoff as
+// waitForAttentionDecision.
+func (s *Server) waitForAttentionResolution(ctx context.Context, id string) (map[string]any, error) {
+	delay := 100 * time.Millisecond
+	const maxDelay = 2 * time.Second
+	for {
+		var status, decisions string
+		row := s.db.QueryRowContext(ctx,
+			`SELECT status, decisions_json FROM attention_items WHERE id = ?`, id)
+		if err := row.Scan(&status, &decisions); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("attention %s not found", id)
+			}
+			return nil, err
+		}
+		if status == "resolved" {
+			var arr []map[string]any
+			_ = json.Unmarshal([]byte(decisions), &arr)
+			if len(arr) == 0 {
+				return map[string]any{
+					"decision": "reject",
+					"reason":   "resolved without decision",
+				}, nil
+			}
+			return arr[len(arr)-1], nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < maxDelay {
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+	}
 }
 
 // waitForAttentionDecision polls attention_items until status='resolved'

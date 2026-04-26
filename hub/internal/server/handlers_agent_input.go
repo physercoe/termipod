@@ -147,13 +147,14 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	s.touchSession(r.Context(), sessionID)
 
 	evt := map[string]any{
-		"id":       id,
-		"agent_id": agent,
-		"seq":      seq,
-		"ts":       ts,
-		"kind":     kind,
-		"producer": producer,
-		"payload":  json.RawMessage(payload),
+		"id":         id,
+		"agent_id":   agent,
+		"seq":        seq,
+		"ts":         ts,
+		"kind":       kind,
+		"producer":   producer,
+		"payload":    json.RawMessage(payload),
+		"session_id": sessionID,
 	}
 	s.bus.Publish(agentBusKey(agent), evt)
 

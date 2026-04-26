@@ -1114,14 +1114,19 @@ class HubClient {
   }
 
   /// Backfill events by monotonic seq. `since` is exclusive (seq > since).
+  /// `sessionId` scopes the result to one session — the new-session flow
+  /// keeps the same agentId, so without this filter a fresh chat would
+  /// replay the prior session's transcript.
   Future<List<Map<String, dynamic>>> listAgentEvents(
     String agentId, {
     int? since,
     int? limit,
+    String? sessionId,
   }) {
     final q = <String, String>{};
     if (since != null) q['since'] = '$since';
     if (limit != null) q['limit'] = '$limit';
+    if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
     return _listJson(
       '/v1/teams/${cfg.teamId}/agents/$agentId/events',
       query: q.isEmpty ? null : q,
@@ -1130,14 +1135,23 @@ class HubClient {
 
   /// SSE tail of the agent's event queue. Subscribes before replaying
   /// backfill from [sinceSeq] so no live event is missed in the gap.
+  /// `sessionId` filters the live + backfilled events server-side to one
+  /// session.
   Stream<Map<String, dynamic>> streamAgentEvents(
     String agentId, {
     int? sinceSeq,
-  }) =>
-      _streamPath(
-        '/v1/teams/${cfg.teamId}/agents/$agentId/stream',
-        since: sinceSeq == null ? null : '$sinceSeq',
-      );
+    String? sessionId,
+  }) {
+    final extra = <String, String>{};
+    if (sessionId != null && sessionId.isNotEmpty) {
+      extra['session'] = sessionId;
+    }
+    return _streamPath(
+      '/v1/teams/${cfg.teamId}/agents/$agentId/stream',
+      since: sinceSeq == null ? null : '$sinceSeq',
+      query: extra.isEmpty ? null : extra,
+    );
+  }
 
   // ---- host lifecycle ----
 
@@ -1155,10 +1169,12 @@ class HubClient {
     required String decision,
     String? by,
     String? reason,
+    String? optionId,
   }) async {
     final body = <String, dynamic>{'decision': decision};
     if (by != null && by.isNotEmpty) body['by'] = by;
     if (reason != null && reason.isNotEmpty) body['reason'] = reason;
+    if (optionId != null && optionId.isNotEmpty) body['option_id'] = optionId;
     final out = await _post('/v1/teams/${cfg.teamId}/attention/$id/decide', body);
     return (out as Map).cast<String, dynamic>();
   }
@@ -2061,11 +2077,15 @@ class HubClient {
   Stream<Map<String, dynamic>> _streamPath(
     String path, {
     String? since,
+    Map<String, String>? query,
   }) async* {
+    final merged = <String, String>{};
+    if (since != null) merged['since'] = since;
+    if (query != null) merged.addAll(query);
     final req = await _open(
       'GET',
       path,
-      query: since == null ? null : {'since': since},
+      query: merged.isEmpty ? null : merged,
     );
     req.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
     req.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');

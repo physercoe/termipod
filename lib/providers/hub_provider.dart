@@ -336,10 +336,22 @@ class HubNotifier extends AsyncNotifier<HubState> {
     }
   }
 
-  Future<void> decide(String id, String decision, {String? reason, String? by}) async {
+  Future<void> decide(
+    String id,
+    String decision, {
+    String? reason,
+    String? by,
+    String? optionId,
+  }) async {
     final client = _client;
     if (client == null) return;
-    await client.decideAttention(id, decision: decision, reason: reason, by: by);
+    await client.decideAttention(
+      id,
+      decision: decision,
+      reason: reason,
+      by: by,
+      optionId: optionId,
+    );
     await _reloadAttention();
   }
 

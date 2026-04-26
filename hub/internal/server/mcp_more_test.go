@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -89,6 +90,95 @@ func TestMCP_RequestDecision_RequiresOptions(t *testing.T) {
 	_, jerr := s.mcpRequestDecision(context.Background(), defaultTeamID, agentID, args)
 	if jerr == nil || jerr.Code != -32602 {
 		t.Errorf("want -32602, got %+v", jerr)
+	}
+}
+
+// request_decision: stores options in pending_payload_json so the
+// resolver UI can render one button per option, and long-polls until
+// the user picks an option — returning the chosen option_id back to
+// the agent so request_decision is no longer fire-and-forget.
+func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"question": "pick a color",
+		"options":  []string{"red", "green", "blue"},
+	})
+
+	type result struct {
+		out  any
+		jerr *jrpcError
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		out, jerr := s.mcpRequestDecision(
+			context.Background(), defaultTeamID, agentID, args)
+		resCh <- result{out: out, jerr: jerr}
+	}()
+
+	// The MCP call is now a long-poll; the attention row needs to exist
+	// before we can decide on it. Spin briefly until it shows up.
+	var attnID string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var id string
+		err := s.db.QueryRow(
+			`SELECT id FROM attention_items WHERE kind = 'decision' ORDER BY created_at DESC LIMIT 1`,
+		).Scan(&id)
+		if err == nil {
+			attnID = id
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if attnID == "" {
+		t.Fatal("attention row never inserted")
+	}
+
+	// pending_payload_json carries the structured options + agent_id so
+	// the mobile decision card can render option buttons and route them
+	// to the right agent's transcript.
+	var payloadJSON string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(pending_payload_json, '') FROM attention_items WHERE id = ?`,
+		attnID,
+	).Scan(&payloadJSON)
+	var payload map[string]any
+	_ = json.Unmarshal([]byte(payloadJSON), &payload)
+	gotOpts, _ := payload["options"].([]any)
+	if len(gotOpts) != 3 {
+		t.Fatalf("payload.options len=%d; want 3 (raw=%s)", len(gotOpts), payloadJSON)
+	}
+	if (payload["agent_id"]).(string) != agentID {
+		t.Errorf("payload.agent_id = %v; want %s", payload["agent_id"], agentID)
+	}
+
+	// User picks "green" — flows through the same decide handler the
+	// approve/reject buttons use, with option_id appended.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/attention/"+attnID+"/decide",
+		map[string]any{
+			"decision":  "approve",
+			"by":        "@user",
+			"option_id": "green",
+		})
+	if status != http.StatusOK {
+		t.Fatalf("decide: status=%d body=%s", status, body)
+	}
+
+	// Long-poll should have unblocked with the chosen option.
+	select {
+	case r := <-resCh:
+		if r.jerr != nil {
+			t.Fatalf("request_decision: %+v", r.jerr)
+		}
+		picked := firstFieldFromMCPResult(t, r.out, "option_id")
+		if picked != "green" {
+			t.Errorf("returned option_id = %q; want green", picked)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("request_decision never returned after decide")
 	}
 }
 

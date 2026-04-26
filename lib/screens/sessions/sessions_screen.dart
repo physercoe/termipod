@@ -483,7 +483,7 @@ class SessionChatScreen extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: AgentFeed(agentId: agentId),
+      body: AgentFeed(agentId: agentId, sessionId: sessionId),
     );
   }
 }

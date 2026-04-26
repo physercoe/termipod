@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -102,13 +103,14 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	s.touchSession(r.Context(), sessionID)
 
 	evt := map[string]any{
-		"id":       id,
-		"agent_id": agent,
-		"seq":      seq,
-		"ts":       ts,
-		"kind":     in.Kind,
-		"producer": in.Producer,
-		"payload":  json.RawMessage(payload),
+		"id":         id,
+		"agent_id":   agent,
+		"seq":        seq,
+		"ts":         ts,
+		"kind":       in.Kind,
+		"producer":   in.Producer,
+		"payload":    json.RawMessage(payload),
+		"session_id": sessionID,
 	}
 	s.bus.Publish(agentBusKey(agent), evt)
 
@@ -145,12 +147,26 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
+	// session=<id> scopes the backfill to one session — needed because the
+	// new-session flow keeps the same agent_id while opening a fresh session
+	// row, and an agent-scoped list would replay the prior closed session's
+	// transcript into a "fresh" chat. Empty session = all events for the
+	// agent (back-compat).
+	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
 
-	rows, err := s.db.QueryContext(r.Context(), `
+	q := `
 		SELECT id, agent_id, seq, ts, kind, producer, payload_json
 		  FROM agent_events
-		 WHERE agent_id = ? AND seq > ?
-		 ORDER BY seq ASC LIMIT ?`, agent, since, limit)
+		 WHERE agent_id = ? AND seq > ?`
+	args := []any{agent, since}
+	if sessionFilter != "" {
+		q += " AND session_id = ?"
+		args = append(args, sessionFilter)
+	}
+	q += " ORDER BY seq ASC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -211,7 +227,12 @@ func (s *Server) handleStreamAgentEvents(w http.ResponseWriter, r *http.Request)
 			since = n
 		}
 	}
-	s.backfillAgentEvents(r, w, flusher, agent, since)
+	// Same session= scoping as the list endpoint. Backfill SQL and the
+	// live publish loop both filter; a live event for a different session
+	// on the same agent (rare today, possible once parallel sessions land)
+	// is silently dropped from this stream.
+	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
+	s.backfillAgentEvents(r, w, flusher, agent, since, sessionFilter)
 
 	ping := time.NewTicker(15 * time.Second)
 	defer ping.Stop()
@@ -223,6 +244,9 @@ func (s *Server) handleStreamAgentEvents(w http.ResponseWriter, r *http.Request)
 			if !ok {
 				return
 			}
+			if sessionFilter != "" && eventSessionID(evt) != sessionFilter {
+				continue
+			}
 			writeSSE(w, flusher, evt)
 		case <-ping.C:
 			_, _ = fmt.Fprint(w, ": ping\n\n")
@@ -231,15 +255,34 @@ func (s *Server) handleStreamAgentEvents(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// eventSessionID extracts the session_id field from a published agent
+// event. The publish path in handlePostAgentEvent doesn't currently set
+// it explicitly — drivers go through s.bus.Publish without the
+// session_id key — so we look up the value in the persisted row when the
+// envelope doesn't carry it. Best-effort: an unparseable id falls back
+// to "" and is treated as "not in this session".
+func eventSessionID(evt map[string]any) string {
+	if v, ok := evt["session_id"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 func (s *Server) backfillAgentEvents(
 	r *http.Request, w http.ResponseWriter, f http.Flusher,
-	agent string, sinceSeq int64,
+	agent string, sinceSeq int64, sessionFilter string,
 ) {
-	rows, err := s.db.QueryContext(r.Context(), `
+	q := `
 		SELECT id, agent_id, seq, ts, kind, producer, payload_json
 		  FROM agent_events
-		 WHERE agent_id = ? AND seq > ?
-		 ORDER BY seq ASC LIMIT 500`, agent, sinceSeq)
+		 WHERE agent_id = ? AND seq > ?`
+	args := []any{agent, sinceSeq}
+	if sessionFilter != "" {
+		q += " AND session_id = ?"
+		args = append(args, sessionFilter)
+	}
+	q += " ORDER BY seq ASC LIMIT 500"
+	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {
 		return
 	}

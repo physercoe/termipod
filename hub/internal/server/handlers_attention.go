@@ -149,6 +149,12 @@ type attentionDecideIn struct {
 	Decision string `json:"decision"` // 'approve' | 'reject'
 	By       string `json:"by,omitempty"`
 	Reason   string `json:"reason,omitempty"`
+	// OptionID names the picked option for kind='decision' attention
+	// items (request_decision MCP tool). The request stores the option
+	// labels in pending_payload_json; the picked id flows back to the
+	// agent via waitForAttentionResolution. Ignored for kinds that
+	// don't have options.
+	OptionID string `json:"option_id,omitempty"`
 }
 
 type attentionDecideOut struct {
@@ -209,12 +215,16 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	var list []map[string]any
 	_ = json.Unmarshal([]byte(decisions), &list)
 	now := NowUTC()
-	list = append(list, map[string]any{
+	entry := map[string]any{
 		"at":       now,
 		"by":       in.By,
 		"decision": in.Decision,
 		"reason":   in.Reason,
-	})
+	}
+	if in.OptionID != "" {
+		entry["option_id"] = in.OptionID
+	}
+	list = append(list, entry)
 	newDecisions, _ := json.Marshal(list)
 
 	// Policy-driven quorum: count approves including the one we just

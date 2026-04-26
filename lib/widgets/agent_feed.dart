@@ -21,12 +21,19 @@ import 'agent_compose.dart';
 /// its own seq cursor so reconnects don't replay the whole history. The
 /// first frame is the in-DB backfill fetched via listAgentEvents; after
 /// that, new frames arrive through streamAgentEvents.
+///
+/// When [sessionId] is set, the backfill and live stream are filtered
+/// to one session. The new-session flow keeps the same agent_id while
+/// opening a fresh session row, so an unfiltered Feed would replay the
+/// prior closed session's transcript into the "fresh" chat.
 class AgentFeed extends ConsumerStatefulWidget {
   final String agentId;
+  final String? sessionId;
   final EdgeInsetsGeometry padding;
   const AgentFeed({
     super.key,
     required this.agentId,
+    this.sessionId,
     this.padding = const EdgeInsets.all(12),
   });
 
@@ -115,7 +122,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return;
     }
     try {
-      final backfill = await client.listAgentEvents(widget.agentId, limit: 500);
+      final backfill = await client.listAgentEvents(
+        widget.agentId,
+        limit: 500,
+        sessionId: widget.sessionId,
+      );
       if (!mounted) return;
       _events
         ..clear()
@@ -147,7 +158,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _reconnectTimer?.cancel();
     _sub?.cancel();
     _sub = client
-        .streamAgentEvents(widget.agentId, sinceSeq: _maxSeq)
+        .streamAgentEvents(
+          widget.agentId,
+          sinceSeq: _maxSeq,
+          sessionId: widget.sessionId,
+        )
         .listen((evt) {
       if (!mounted) return;
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;
@@ -383,11 +398,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // event list so the user sees it in context with the latest
               // turn — the agent is paused waiting for a decision, and
               // hiding the card behind a tab would invert the urgency.
+              //
+              // _PendingDecisions handles the parallel kind=decision case
+              // for request_decision (multi-choice). Both cards filter by
+              // agent_id so a prompt for a different steward doesn't
+              // appear here.
               const Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: _PendingPermissionPrompts(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _PendingDecisions(),
+                    _PendingPermissionPrompts(),
+                  ],
+                ),
               ),
               if (_error != null)
                 Positioned(
@@ -460,10 +486,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   //                    by the telemetry strip.
   //   raw            — thinking blocks + unrecognized frames; debug-only.
   //   system         — non-init system frames; init is in the header.
-  //   input.*        — user-typed input echo; the user's own message is
-  //                    already on screen via the compose box, no need to
-  //                    show it twice as a structured event card.
-  // All of these are revealed when [_verbose] is true.
+  // input.* events are NOT hidden by default — the compose box clears
+  // after send, so the user needs to see their own message echoed back
+  // in the transcript or the chat reads as one-sided.
+  // All verbose-gated kinds are revealed when [_verbose] is true.
   bool _isHiddenInFeed(
     Map<String, dynamic> e,
     Map<String, String> toolNames,
@@ -475,6 +501,23 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         kind == 'rate_limit' ||
         kind == 'turn.result') {
       return true;
+    }
+    if (kind == 'tool_call') {
+      // The MCP gate `permission_prompt` is itself a tool from claude-code's
+      // perspective, so a single Bash invocation produces TWO tool_call
+      // events: one for the gate, one for the gated action. The gate is
+      // already represented as an inline approval card (or auto-allowed for
+      // trivial/routine tiers) — duplicating it as a tool_call card looks
+      // like the "tool box appeared twice" the user reported.
+      final p = e['payload'];
+      if (p is Map) {
+        final name = (p['name'] ?? '').toString();
+        if (name == 'permission_prompt' ||
+            name.endsWith('__permission_prompt')) {
+          return true;
+        }
+      }
+      return false;
     }
     if (kind == 'tool_result') {
       final p = e['payload'];
@@ -493,10 +536,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     'completion',
     'raw',
     'system',
-    'input.text',
-    'input.cancel',
-    'input.approval',
-    'input.attach',
   };
 
   bool _isVerboseOnly(String kind, Object? payload) {
@@ -839,6 +878,236 @@ class _PermissionPromptCardState
                 ),
                 child: Text(_isStrategic ? 'Approve (strategic)' : 'Approve'),
               ),
+              const Spacer(),
+              if (_sending)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Inline decision card for kind=decision attention items raised by the
+/// agent we're watching. The agent's request_decision MCP call long-polls
+/// for the user's pick; surfacing this card in the chat keeps the round-
+/// trip in one place instead of forcing a trip to the Me page.
+class _PendingDecisions extends ConsumerWidget {
+  const _PendingDecisions();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feed = context.findAncestorStateOfType<_AgentFeedState>();
+    final agentId = feed?.widget.agentId ?? '';
+    final attention = ref
+            .watch(hubProvider.select((s) => s.value?.attention)) ??
+        const <Map<String, dynamic>>[];
+    final pending = <Map<String, dynamic>>[];
+    for (final a in attention) {
+      if ((a['kind'] ?? '').toString() != 'decision') continue;
+      if ((a['status'] ?? '').toString() != 'open') continue;
+      final payload = _payloadOf(a);
+      if (agentId.isNotEmpty &&
+          (payload['agent_id'] ?? '').toString() != agentId) {
+        continue;
+      }
+      pending.add(a);
+    }
+    if (pending.isEmpty) return const SizedBox.shrink();
+    return Material(
+      color: Colors.transparent,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final a in pending)
+            _DecisionCard(attention: a, payload: _payloadOf(a)),
+        ],
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _payloadOf(Map<String, dynamic> attention) {
+    final raw = attention['pending_payload'];
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {}
+    }
+    return const {};
+  }
+}
+
+class _DecisionCard extends ConsumerStatefulWidget {
+  final Map<String, dynamic> attention;
+  final Map<String, dynamic> payload;
+  const _DecisionCard({required this.attention, required this.payload});
+
+  @override
+  ConsumerState<_DecisionCard> createState() => _DecisionCardState();
+}
+
+class _DecisionCardState extends ConsumerState<_DecisionCard> {
+  bool _sending = false;
+  String? _error;
+
+  Future<void> _pick(String? optionId, {String decision = 'approve'}) async {
+    final id = (widget.attention['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await ref.read(hubProvider.notifier).decide(
+            id,
+            decision,
+            by: '@mobile',
+            optionId: optionId,
+          );
+    } on HubApiError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Decide failed (${e.status})');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Decide failed: $e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final question = (widget.payload['question'] ??
+            widget.attention['summary'] ??
+            'Decision needed')
+        .toString();
+    final optionsRaw = widget.payload['options'];
+    final options = optionsRaw is List
+        ? [for (final v in optionsRaw) v.toString()]
+        : const <String>[];
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(
+          color: DesignColors.primary.withValues(alpha: 0.6),
+          width: 1.5,
+        ),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.help_outline,
+                  size: 16, color: DesignColors.primary),
+              const SizedBox(width: 6),
+              Text(
+                'DECISION',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: DesignColors.primary,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  question,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (options.isEmpty)
+            Text(
+              'No options provided. Tap Approve or Reject below.',
+              style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final opt in options)
+                  FilledButton.tonal(
+                    onPressed: _sending ? null : () => _pick(opt),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(opt),
+                  ),
+              ],
+            ),
+          if (_error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _error!,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: DesignColors.error),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton.tonal(
+                onPressed:
+                    _sending ? null : () => _pick(null, decision: 'reject'),
+                style: FilledButton.styleFrom(
+                  backgroundColor:
+                      DesignColors.error.withValues(alpha: 0.15),
+                  foregroundColor: DesignColors.error,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Reject'),
+              ),
+              if (options.isEmpty) ...[
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _sending ? null : () => _pick(null),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: DesignColors.success,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 6),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('Approve'),
+                ),
+              ],
               const Spacer(),
               if (_sending)
                 const SizedBox(

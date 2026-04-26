@@ -535,6 +535,76 @@ func TestSessions_SwapAgentInSession(t *testing.T) {
 	}
 }
 
+// New-session UX bug fix: when the user closes a session and opens a
+// fresh one on the same agent, the AgentFeed must show only the new
+// session's events. listAgentEvents?session=<id> is what makes that
+// possible — without the filter the prior closed session's transcript
+// replays into the "fresh" chat.
+func TestAgentEvents_FilterBySession(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// First session — stamp two events, close it.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "old", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open A: %s", body)
+	}
+	var sesA sessionOut
+	_ = json.Unmarshal(body, &sesA)
+	for _, txt := range []string{"old-1", "old-2"} {
+		doReq(t, s, token, http.MethodPost,
+			"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+			map[string]any{
+				"kind": "text", "producer": "agent",
+				"payload": map[string]any{"text": txt},
+			})
+	}
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+sesA.ID+"/close", nil)
+
+	// Second session on the same agent — stamp one event.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "fresh", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open B: %s", body)
+	}
+	var sesB sessionOut
+	_ = json.Unmarshal(body, &sesB)
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind": "text", "producer": "agent",
+			"payload": map[string]any{"text": "fresh-1"},
+		})
+
+	// Unfiltered list returns all 3 — back-compat.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events", nil)
+	var all []agentEventOut
+	_ = json.Unmarshal(body, &all)
+	if len(all) != 3 {
+		t.Errorf("unfiltered events = %d; want 3", len(all))
+	}
+
+	// Filter by sesB returns just fresh-1.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events?session="+sesB.ID,
+		nil)
+	var scoped []agentEventOut
+	_ = json.Unmarshal(body, &scoped)
+	if len(scoped) != 1 {
+		t.Fatalf("session-filtered events = %d; want 1", len(scoped))
+	}
+	var p map[string]any
+	_ = json.Unmarshal(scoped[0].Payload, &p)
+	if got, _ := p["text"].(string); got != "fresh-1" {
+		t.Errorf("filtered event text = %q; want fresh-1", got)
+	}
+}
+
 // Spawn with session_id pointing at a deleted session → 409.
 func TestSessions_SwapRefusesDeletedSession(t *testing.T) {
 	s, token := newA2ATestServer(t)

@@ -2,11 +2,14 @@
 // (blueprint P2.2). Sends text + cancel today; approval and attach are
 // scaffolded so pending-request UI can hook them up without adding a
 // whole new widget later.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
+import '../providers/input_history_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
@@ -124,6 +127,11 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     });
     try {
       await client.postAgentInput(widget.agentId, kind: 'text', body: body);
+      // Mirror the action-bar compose: every successful send goes into the
+      // shared input history so the snippet picker's History tab is the
+      // same list whether the user typed in the steward chat or in a tmux
+      // pane. Best-effort — a slow disk write shouldn't block the UI.
+      unawaited(ref.read(inputHistoryProvider.notifier).add(body));
       if (!mounted) return;
       _ctrl.clear();
       // Keep focus so the user can fire a follow-up without another tap.
@@ -173,6 +181,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     });
     try {
       await client.postAgentInput(widget.agentId, kind: 'text', body: content);
+      unawaited(ref.read(inputHistoryProvider.notifier).add(content));
     } on HubApiError catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Send failed (${e.status})');

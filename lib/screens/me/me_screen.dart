@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -526,7 +528,11 @@ class _MeCard extends ConsumerWidget {
             ],
             if (item.filter == _Filter.approvals) ...[
               const SizedBox(height: 10),
-              _ApprovalActions(id: item.id),
+              _ApprovalActions(
+                id: item.id,
+                kind: item.kind,
+                pendingPayload: _pendingPayload(item.attention),
+              ),
             ],
           ],
         ),
@@ -538,6 +544,21 @@ class _MeCard extends ConsumerWidget {
     // For attention items the inline Approve/Reject/Resolve buttons do the
     // real work; tapping the card is a no-op for now. A future patch can
     // push a full-screen detail view here.
+  }
+
+  // Decode pending_payload — the hub sends it raw on the wire; we need it
+  // pre-parsed so the action row can render decision options without
+  // every consumer re-doing the JSON dance.
+  Map<String, dynamic>? _pendingPayload(Map<String, dynamic>? attention) {
+    final raw = attention?['pending_payload'];
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {}
+    }
+    return null;
   }
 
   Color _accentColor(_MeItem item) {
@@ -582,10 +603,42 @@ class _MeCard extends ConsumerWidget {
 
 class _ApprovalActions extends ConsumerWidget {
   final String id;
-  const _ApprovalActions({required this.id});
+  final String kind;
+  final Map<String, dynamic>? pendingPayload;
+  const _ApprovalActions({
+    required this.id,
+    required this.kind,
+    this.pendingPayload,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final options = _options();
+    if (kind == 'decision' && options.isNotEmpty) {
+      // Per-option buttons + Reject. Picking an option flows through
+      // `decide(decision='approve', option_id=...)` so the hub's quorum
+      // logic still applies and the agent gets the chosen option back
+      // via the request_decision long-poll.
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final opt in options)
+            OutlinedButton(
+              onPressed: () => _pick(context, ref, opt),
+              child: Text(opt),
+            ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.close, size: 16),
+            label: const Text('Reject'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: DesignColors.error,
+            ),
+            onPressed: () => _decide(context, ref, 'reject'),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         OutlinedButton.icon(
@@ -604,6 +657,38 @@ class _ApprovalActions extends ConsumerWidget {
         ),
       ],
     );
+  }
+
+  List<String> _options() {
+    final raw = pendingPayload?['options'];
+    if (raw is! List) return const [];
+    return [for (final v in raw) v.toString()];
+  }
+
+  Future<void> _pick(
+    BuildContext context,
+    WidgetRef ref,
+    String option,
+  ) async {
+    try {
+      await ref.read(hubProvider.notifier).decide(
+            id,
+            'approve',
+            by: '@mobile',
+            optionId: option,
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Picked: $option')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Decide failed: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _decide(

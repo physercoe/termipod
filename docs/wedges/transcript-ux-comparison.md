@@ -233,26 +233,60 @@ Listing explicitly so the wedge doesn't grow:
 
 ---
 
-## 7. Suggested screen-walk before locking the spec
+## 7. Screen-walk findings (2026-04-26)
 
-Two apps, ~30 min each, one note per dimension:
+Did the walk against the App Store screenshots for Happy and the
+README screenshots in `siteboon/claudecodeui` (CloudCLI / "CCUI").
+Image sources at the bottom of this section.
 
-| Dimension | Watch-for in Happy | Watch-for in CloudCLI |
+| Dimension | Happy | CloudCLI / CCUI |
 |---|---|---|
-| Approval card position | inline vs. modal vs. tray | same |
-| Approval card content | which fields shown by default; what's expandable | same |
-| Tool-call default expansion | collapsed vs. expanded | same |
-| Verbose / debug toggle location | per-session toggle, app-level setting? | same |
-| Quick-action chips | what built-ins; how snippets surface | same |
-| Multi-engine UI | how engine choice is presented; per-session? per-message? | direct comparison — they have 4 |
-| Session list navigation | how scoped; where it lives | same |
-| Voice input affordance | mic location; modal during recording | same |
-| Push notification triggers | what events generate push | same |
+| **Tool-call default expansion** | Collapsed to a single-line **file card** with file icon + path. Tap to expand inline; the diff renders right in the transcript with red/green-tinted lines, no line numbers. | Collapsed to a `Using Read > View input parameters > Tool Result` disclosure breadcrumb. Tap to expand, but renders the parameter blob, not a diff-style change view. |
+| **Diff rendering** | Inline minimal diff inside the file card (red removed line, green added line, light context). Second-tap opens a **full-screen code viewer** with proper line numbers + monospace styling. | Code is shown as a syntax-highlighted block inside the tool-call card. Less diff-aware; closer to "here is the file content" than "here is what changed". |
+| **Approval card** | Per textual description: contextual Allow/Deny prompts intercept tool calls + file edits at runtime, "exact operation details + waits for explicit user approval". I didn't see one inline in the four screenshots — likely a popover that fires on demand. | **Pre-approval via Tools Settings modal**: per-tool allowlist (`Bash(git log:*)`, `Write`, `Read`, `Edit`, `Glob`, …) with quick-add chips for common patterns. Plus a global "Skip permission prompts" checkbox (=`--dangerously-skip-permissions`). Runtime prompts only for things outside the allowlist. **Two different philosophies for the same problem.** |
+| **Verbose / debug toggle** | Not visible in any screenshot. Likely either absent or deep in settings; user-facing transcript is already collapsed-by-default. | Not visible. Tools Settings modal serves a different need (permissions); no clear "show raw events" toggle. |
+| **Quick-action chips** | Input row has a left-side cog (settings), a `+` (likely the menu trigger for @/slash commands), and a prominent voice button. No always-on chip strip; affordance is a single discoverable button. | No chip strip. Placeholder text teaches the syntax: `Type / for commands, @ for files, or ask Claude anything…`. Plus a "Default Mode" pill and a discreet token-% indicator. |
+| **Multi-engine UI** | Not surfaced in the screenshots; per the README, support for Claude Code + Codex is by which CLI you've installed locally. No in-app engine picker. | **Explicit engine picker at New Session**: 4 cards — Claude Code / Cursor / Codex / Gemini — with a model dropdown ("Opus") underneath. Engine is a per-session choice; first-class. |
+| **Session list navigation** | **Home screen IS the session list**, in two sections: **Active Sessions** (online, with the host runner connected) and **Previous Sessions** (`last seen 1 day ago`). Each row: project-art avatar, auto-derived title, project path, status. Titles read like working topics ("Voice Assistant Receives Richer Agent Messa…"), not user-named. | **Left sidebar on desktop, bottom-nav on mobile.** Sidebar lists sessions per project, ordered by recency, with turn count + relative timestamp. **`+ New Session` is a prominent button**, not buried. Mobile uses bottom tabs Chat / Shell / Files / Git / Tasks / More. |
+| **Voice input affordance** | **First-class, in-input.** Big mic button next to the text field, with a feature card "Realtime Voice with multiple sessions". This is a positioning bet for them. | Not present in the screenshots. |
+| **Push notification triggers** | Per docs: approval requests + task completion. | Per docs: similar. No screenshots show the notification UI itself. |
+| **Session metadata strip** *(new dimension)* | Below the message list / above input: `master · 14 files · +18 -18 · 54% left`. Branch + diff stats + token budget — the running state of the agent's work, glanceable. | "Default Mode" pill + a token-% indicator next to the input. Lighter than Happy's strip; less work-state, more session-config. |
+| **Project / scope display** *(new dimension)* | Each session header shows project path (`~/Develop/slopus/happy`); session list shows path under each title. Scope is always visible. | Sidebar tree groups sessions by project; less explicit per-session, but the sidebar acts as the scope display. |
+| **Approval philosophy summary** *(synthesized)* | Reactive: ask at runtime, with "exact operation details". One Allow/Deny per call. **Maps to "ask everything outside Trivial".** | Proactive: define an allowlist ahead of time, ask only on misses. Patterns like `Bash(git log:*)` are essentially the user's own tier definition. **Maps closer to our four-tier model — they let the user define the line.** |
 
-Output of the walk: 1-page screenshot diff against the spec proposed
-in §4, with a "match / differ / new pattern" verdict per dimension.
-That's the input to a final spec doc that an implementing wedge can
-build from.
+### Verdict per W1.A/B/C dimension
+
+| Wedge | What to match | What to differ on / improve |
+|---|---|---|
+| **W1.A approval** | Inline Allow/Deny card with operation details (Happy). Match the placement (between turns, where the pending tool_call sits). | Drive by **tier** (`steward-sessions.md` §6.5), not by every-tool. Add a Tools-Settings-style allowlist UI (CCUI's idea) so users can promote a Routine pattern to "auto-allow" — that's what Routine pre-approval looks like in practice. **Combination of the two philosophies.** |
+| **W1.B transcript** | Default-collapsed tool calls as one-line file cards (Happy) with disclosure for inline diff. Token budget below input (Happy). Branch/diff strip below input (Happy) — fits our git-worktree model directly. | Don't ship the breadcrumb-style ("Using Read > Parameters > Result") collapse; CCUI's pattern is wordier and less scannable than Happy's file-card. |
+| **W1.C quick actions** | `Type / for commands, @ for files` placeholder hint (CCUI) — teach the syntax in the affordance. Voice button as a discoverable in-input control (Happy), not a chip. | Add a chip strip too — neither app has built-in command chips, but our snippet provider already exists; surfacing it as chips fills a gap both apps leave. |
+
+### Cross-cutting observations
+
+1. **Sessions are first-class in both apps already.** Happy's home screen is *only* sessions; CCUI's sidebar is sessions. Our current "one persistent steward chat" already feels behind. The `steward-sessions.md` ontology shift moves us toward where they already are.
+
+2. **Engine picker is the multi-engine differentiator visible to users.** CCUI does it as a New-Session step. We have agent-families plumbing; surfacing it as "pick engine + model when you start a session" is the obvious mobile pattern.
+
+3. **The branch/diff strip below input is a cheap win.** Happy's `master · 14 files · +18 -18 · 54% left` is one row of summary that anchors the user in "what is this agent doing right now". We can populate the same shape from worktree state today; no new infra.
+
+4. **Pre-approval allowlist is the missing piece** between "ask everything" (Happy) and our tier model. Adding a `Tools Settings → Auto-allow patterns` surface lets users define their own Routine tier per project. This is the right blend.
+
+5. **Voice is real, not gimmicky** — Happy made it a first-class feature with marketing weight. We've backlogged it; given Happy's positioning bet, we should at least acknowledge the timing.
+
+### Image sources
+
+Happy (App Store screenshots, https://apps.apple.com/us/app/happy-claude-code-client/id6748571505):
+- ios_screenshot_1: code-everything (transcript with file cards + inline diff)
+- ios_screenshot_2: realtime voice (input row + voice button + branch/diff strip + keyboard)
+- ios_screenshot_3: review changes on the go (full-screen diff viewer)
+- ios_screenshot_4: fully encrypted (session list home: Active + Previous)
+
+CloudCLI (siteboon/claudecodeui README, /public/screenshots/):
+- desktop-main.png (sidebar + chat + tool-call disclosures)
+- mobile-chat.png (per-session mobile view + bottom nav)
+- cli-selection.png (engine picker at New Session)
+- tools-modal.png (per-tool allowlist with quick-add chips)
 
 ---
 

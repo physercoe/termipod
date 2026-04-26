@@ -64,6 +64,16 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     await refresh();
     return out['new_agent_id']?.toString();
   }
+
+  /// Soft-deletes a closed session. Hub refuses if the session is
+  /// still open or interrupted; close it first via [close] in that
+  /// case.
+  Future<void> delete(String id) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    await client.deleteSession(id);
+    await refresh();
+  }
 }
 
 final sessionsProvider =

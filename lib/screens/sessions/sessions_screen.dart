@@ -250,6 +250,43 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
 
   Map<String, dynamic> get session => widget.session;
 
+  Future<void> _confirmDelete(BuildContext context) async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete this session?'),
+        content: const Text(
+          'The transcript stays in the audit log but loses its '
+          'session-link. This is final.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(sessionsProvider.notifier).delete(id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
+    }
+  }
+
   Future<void> _resume() async {
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty || _resuming) return;
@@ -353,13 +390,39 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
                     )
                   : const Text('Resume'),
             )
-          : (lastActive.isEmpty
-              ? null
-              : Text(
-                  _shortTimestamp(lastActive),
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10, color: muted),
-                )),
+          : status == 'closed'
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (lastActive.isNotEmpty)
+                      Text(
+                        _shortTimestamp(lastActive),
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                      ),
+                    PopupMenuButton<String>(
+                      tooltip: 'Session actions',
+                      icon:
+                          Icon(Icons.more_vert, size: 18, color: muted),
+                      onSelected: (v) {
+                        if (v == 'delete') _confirmDelete(context);
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              : (lastActive.isEmpty
+                  ? null
+                  : Text(
+                      _shortTimestamp(lastActive),
+                      style: GoogleFonts.jetBrainsMono(
+                          fontSize: 10, color: muted),
+                    )),
       onTap: agentId.isEmpty
           ? null
           : () => Navigator.of(context).push(

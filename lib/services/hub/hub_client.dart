@@ -393,6 +393,14 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Soft-deletes a closed session and clears its session_id from
+  /// transcript / audit / attention rows. Hub refuses with 409 if
+  /// the session is still open or interrupted (close it first).
+  /// Idempotent: deleting an already-deleted session returns 204.
+  Future<void> deleteSession(String id) async {
+    await _delete('/v1/teams/${cfg.teamId}/sessions/$id');
+  }
+
   /// Read-through variant of [listAttention]; see [listRunsCached] for the
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAttentionCached({

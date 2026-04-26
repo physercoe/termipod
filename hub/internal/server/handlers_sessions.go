@@ -93,7 +93,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
-	status := r.URL.Query().Get("status") // "" = all
+	status := r.URL.Query().Get("status") // "" = all-non-deleted
 	q := `
 		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
 		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
@@ -105,6 +105,10 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if status != "" {
 		q += " AND status = ?"
 		args = append(args, status)
+	} else {
+		// Default list excludes soft-deleted rows — explicit ?status=deleted
+		// is still allowed for ops/debug callers that want to see them.
+		q += " AND status != 'deleted'"
 	}
 	q += " ORDER BY last_active_at DESC LIMIT 200"
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
@@ -189,6 +193,80 @@ func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAudit(r.Context(), team, "session.close", "session", id,
 		"session closed", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteSession is a soft delete: marks the session row as
+// `status='deleted'` and clears its session_id from agent_events,
+// audit_events, and attention_items so the transcript-linkage no
+// longer resolves through this session. The events themselves stay —
+// they're the agent's history, owned by audit, not by the session.
+//
+// Refuses to delete an open or interrupted session: the contract is
+// "close first" so an active conversation can't be silently lost.
+// Resume after delete is impossible (the session is no longer
+// listable) which is the point — delete is meant to be the final
+// disposition for sessions the user has explicitly walked away from.
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "session")
+
+	var status string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT status FROM sessions WHERE team_id = ? AND id = ?`,
+		team, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if status == "open" || status == "interrupted" {
+		writeErr(w, http.StatusConflict,
+			"close the session before deleting (status="+status+")")
+		return
+	}
+	if status == "deleted" {
+		// Already deleted — idempotent success is friendlier than 404
+		// for users who tap delete twice.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Single tx so partial deletes can't leak references to a
+	// soft-deleted session if one of the unlinks fails.
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer tx.Rollback()
+	now := NowUTC()
+	if _, err := tx.ExecContext(r.Context(),
+		`UPDATE sessions SET status='deleted', closed_at = COALESCE(closed_at, ?)
+		   WHERE team_id = ? AND id = ?`,
+		now, team, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, table := range []string{
+		"agent_events", "audit_events", "attention_items",
+	} {
+		if _, err := tx.ExecContext(r.Context(),
+			`UPDATE `+table+` SET session_id = NULL WHERE session_id = ?`,
+			id); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.recordAudit(r.Context(), team, "session.delete", "session", id,
+		"session deleted", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 

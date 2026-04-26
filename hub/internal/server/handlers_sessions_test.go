@@ -1,6 +1,7 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -338,6 +339,95 @@ func TestSessions_ResumeRefusesOpenSession(t *testing.T) {
 	if status != http.StatusConflict {
 		t.Errorf("resume on open session: status=%d body=%s; want 409",
 			status, body)
+	}
+}
+
+// Delete refuses an open session, accepts a closed one, clears
+// session_id from the transcript, and absents the row from the
+// default list. Deleted-twice is idempotent (204).
+func TestSessions_Delete(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "delete test", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Stamp an event so we can assert the session_id gets cleared on delete.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "text",
+			"producer": "agent",
+			"payload":  map[string]any{"text": "hi"},
+		})
+
+	// Open session — delete should refuse with 409.
+	status, body = doReq(t, s, token, http.MethodDelete,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+	if status != http.StatusConflict {
+		t.Errorf("delete on open: status=%d body=%s; want 409", status, body)
+	}
+
+	// Close it.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/close", nil)
+
+	// Delete now succeeds.
+	status, body = doReq(t, s, token, http.MethodDelete,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("delete: status=%d body=%s", status, body)
+	}
+
+	// session_id on the prior agent_event should be NULL.
+	var stamped sql.NullString
+	_ = s.db.QueryRow(
+		`SELECT session_id FROM agent_events
+		   WHERE agent_id = ? ORDER BY seq DESC LIMIT 1`,
+		agentID).Scan(&stamped)
+	if stamped.Valid && stamped.String != "" {
+		t.Errorf("event session_id still %q after delete; want NULL",
+			stamped.String)
+	}
+
+	// Default list omits deleted.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions", nil)
+	var listed []sessionOut
+	_ = json.Unmarshal(body, &listed)
+	for _, s := range listed {
+		if s.ID == ses.ID {
+			t.Errorf("deleted session %q still in default list", ses.ID)
+		}
+	}
+
+	// status=deleted query still surfaces it for ops.
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/sessions?status=deleted", nil)
+	var deletedList []sessionOut
+	_ = json.Unmarshal(body, &deletedList)
+	found := false
+	for _, s := range deletedList {
+		if s.ID == ses.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("?status=deleted didn't return the deleted row")
+	}
+
+	// Idempotent re-delete returns 204.
+	status, _ = doReq(t, s, token, http.MethodDelete,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+	if status != http.StatusNoContent {
+		t.Errorf("re-delete: status=%d; want 204 idempotent", status)
 	}
 }
 

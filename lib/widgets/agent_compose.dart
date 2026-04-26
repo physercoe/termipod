@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import 'action_bar/snippet_picker_sheet.dart';
 
 /// Sits under AgentFeed and routes text/cancel inputs to the hub's
 /// /agents/{id}/input endpoint. The hub persists them as producer='user'
@@ -138,6 +139,51 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     }
   }
 
+  /// Insert snippet content at the current cursor position. Mirrors how
+  /// the terminal compose handles tap-to-insert: append at the end if
+  /// the field is empty, otherwise replace the current selection.
+  void _insertSnippet(String content) {
+    final value = _ctrl.value;
+    final sel = value.selection.isValid
+        ? value.selection
+        : TextSelection.collapsed(offset: value.text.length);
+    final next = value.text.replaceRange(sel.start, sel.end, content);
+    final cursor = sel.start + content.length;
+    _ctrl.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: cursor),
+    );
+    _focus.requestFocus();
+  }
+
+  /// Send a snippet's expanded content directly without going through
+  /// the input field. Used by the picker's "send immediately" affordance
+  /// (double-tap a snippet) so a one-shot prompt doesn't need an extra
+  /// tap on Send.
+  Future<void> _sendSnippetImmediately(String content) async {
+    if (_sending) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      setState(() => _error = 'Not connected');
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await client.postAgentInput(widget.agentId, kind: 'text', body: content);
+    } on HubApiError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Send failed (${e.status})');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Send failed: $e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   Future<void> _cancel() async {
     if (_sending) return;
     final client = ref.read(hubProvider.notifier).client;
@@ -212,6 +258,27 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 onPressed: _sending ? null : _cancel,
                 icon: Icon(Icons.stop_circle_outlined,
                     size: 22, color: muted),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+              // Bolt = snippet preset across the app (per
+              // feedback_bolt_icon_ambiguity memory). Opens the same
+              // SnippetPickerSheet the TmuxBackend compose uses, so
+              // user-defined snippets and presets work in steward chat
+              // without a parallel UI.
+              IconButton(
+                tooltip: 'Snippets',
+                onPressed: _sending
+                    ? null
+                    : () => SnippetPickerSheet.show(
+                          context,
+                          ref: ref,
+                          onInsert: _insertSnippet,
+                          onSendImmediately: _sendSnippetImmediately,
+                        ),
+                icon: Icon(Icons.bolt, size: 22, color: muted),
                 padding: EdgeInsets.zero,
                 visualDensity: VisualDensity.compact,
                 constraints:

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -215,6 +216,20 @@ func (a *Runner) Start(ctx context.Context) error {
 			if err := saveStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName, id); err != nil {
 				a.Log.Warn("save host-id failed", "err", err)
 			}
+		}
+	}
+
+	// Sanity-check the dependencies an operator must have on PATH for
+	// agents to actually work end-to-end. Missing binaries don't stop
+	// the runner — agents just fail later with confusing errors —
+	// so we warn loudly at boot instead. The MCP bridge is the most
+	// common miss because docs/hub-host-setup.md split the install
+	// of host-runner and hub-mcp-bridge into separate steps.
+	for _, bin := range []string{"hub-mcp-bridge", "tmux"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			a.Log.Warn("required binary missing from PATH",
+				"bin", bin,
+				"hint", "agents that depend on this will fail (e.g. claude-code session.init reports MCP server failed); install per docs/hub-host-setup.md §4")
 		}
 	}
 

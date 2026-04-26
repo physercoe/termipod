@@ -102,17 +102,26 @@ How the token reaches the host depends on which track you pick below:
 Track A pastes it on the command line, Track B writes it to an env
 file that systemd reads.
 
-## 4. Build the binary
+## 4. Build the binaries
+
+A host needs **two** Go binaries: `host-runner` (the daemon described
+in §1) and `hub-mcp-bridge` (the stdio↔HTTP shim that lets the
+spawned agent reach the hub's MCP endpoint). Without the bridge,
+claude-code's `session.init` reports `termipod: failed` and the
+agent runs without hub-mediated tools.
 
 ```bash
 # On any box with Go 1.23+ (cross-compile for a different target via
 # GOOS=linux GOARCH=amd64):
 cd hub
-go build -o ~/host-runner ./cmd/host-runner
+go build -o ~/host-runner       ./cmd/host-runner
+go build -o ~/hub-mcp-bridge    ./cmd/hub-mcp-bridge
 ```
 
-Copy `~/host-runner` to the target host via scp / rsync / release
-asset. Two install paths follow — pick one.
+Copy both to the target host via scp / rsync / release asset. The
+bridge **must be on `PATH`** for the user account that runs the
+agent — claude-code spawns it by name from `.mcp.json`, not by
+absolute path. Two install paths follow — pick one.
 
 ---
 
@@ -169,11 +178,16 @@ For a host that should come up on boot and survive crashes. Uses the
 shipped template unit so one box can host multiple instances (one per
 login user — see the multi-user section below).
 
-### Install the binary system-wide
+### Install the binaries system-wide
+
+Both go into `/usr/local/bin` so they're on PATH for every login
+user (claude-code spawns the bridge by bare name from `.mcp.json`):
 
 ```bash
-sudo install -o root -g root -m 0755 ~/host-runner /usr/local/bin/host-runner
+sudo install -o root -g root -m 0755 ~/host-runner    /usr/local/bin/host-runner
+sudo install -o root -g root -m 0755 ~/hub-mcp-bridge /usr/local/bin/hub-mcp-bridge
 /usr/local/bin/host-runner --help
+which hub-mcp-bridge   # must print /usr/local/bin/hub-mcp-bridge
 ```
 
 No system user to create — the runner uses an existing login account
@@ -484,3 +498,12 @@ NULL), so the org chart still shows the record.
   instance's `%i`. Either switch the mobile connection to that user,
   or enable a second `termipod-host@<mobile-user>` instance and spawn
   there instead.
+- **Steward's session.init lists `termipod` MCP server as `failed`.**
+  `hub-mcp-bridge` is missing or not on PATH for the spawned agent.
+  Check `which hub-mcp-bridge` as the host-runner's user; if empty,
+  build and install it per §4. Other symptoms: the mobile transcript
+  shows tool calls failing with "command not found"-style errors,
+  and `journalctl -u termipod-host@<user>` may report the bridge
+  exec returned ENOENT. After install, terminate and re-spawn the
+  steward — the failed MCP handshake doesn't auto-recover within a
+  running session.

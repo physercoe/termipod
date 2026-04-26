@@ -5,6 +5,12 @@
 // On first run it registers this host with the hub; subsequent runs pass
 // --host-id to skip registration. Launches spawned agents into tmux panes
 // on behalf of the hub — not an agent itself (no row in the agents table).
+//
+// host-runner is also a busybox-style multicall binary: when invoked
+// under the basename `hub-mcp-bridge` (typically via a symlink in
+// /usr/local/bin), or via the explicit `mcp-bridge` subcommand, it
+// runs the stdio↔HTTP shim that claude-code spawns from `.mcp.json`.
+// One install covers both roles.
 package main
 
 import (
@@ -18,9 +24,18 @@ import (
 	"syscall"
 
 	"github.com/termipod/hub/internal/hostrunner"
+	"github.com/termipod/hub/internal/mcpbridge"
 )
 
 func main() {
+	// Multicall: invoking the binary as `hub-mcp-bridge` (typically a
+	// symlink to host-runner under /usr/local/bin) routes straight to
+	// the bridge with no subcommand, so legacy .mcp.json files that
+	// reference `hub-mcp-bridge` keep working after the merge.
+	if filepath.Base(os.Args[0]) == "hub-mcp-bridge" {
+		os.Exit(mcpbridge.Run(os.Args[1:]))
+	}
+
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -30,6 +45,8 @@ func main() {
 		runDaemon(os.Args[2:])
 	case "register":
 		runRegister(os.Args[2:])
+	case "mcp-bridge":
+		os.Exit(mcpbridge.Run(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -43,8 +60,11 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `host-runner <command> [flags]
 
 Commands:
-  register   Register this host with the hub, print host_id.
-  run        Run the daemon: heartbeat + poll pending spawns + launch.`)
+  register     Register this host with the hub, print host_id.
+  run          Run the daemon: heartbeat + poll pending spawns + launch.
+  mcp-bridge   stdio↔HTTP shim used by spawned agents (claude-code et al.)
+               via .mcp.json. Also reachable by symlinking the binary as
+               hub-mcp-bridge for back-compat with older spawn configs.`)
 }
 
 func runRegister(args []string) {

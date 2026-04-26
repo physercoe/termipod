@@ -102,26 +102,25 @@ How the token reaches the host depends on which track you pick below:
 Track A pastes it on the command line, Track B writes it to an env
 file that systemd reads.
 
-## 4. Build the binaries
+## 4. Build the binary
 
-A host needs **two** Go binaries: `host-runner` (the daemon described
-in §1) and `hub-mcp-bridge` (the stdio↔HTTP shim that lets the
-spawned agent reach the hub's MCP endpoint). Without the bridge,
-claude-code's `session.init` reports `termipod: failed` and the
-agent runs without hub-mediated tools.
+A host needs **one** Go binary: `host-runner`. It is a busybox-style
+multicall binary that also runs the MCP bridge (the stdio↔HTTP shim
+that lets the spawned agent reach the hub's MCP endpoint) when
+invoked as `hub-mcp-bridge` — typically via a symlink under
+`/usr/local/bin`. Without that symlink (or `host-runner mcp-bridge`
+in the spawn's `.mcp.json`), claude-code's `session.init` reports
+`termipod: failed` and the agent runs without hub-mediated tools.
 
 ```bash
 # On any box with Go 1.23+ (cross-compile for a different target via
 # GOOS=linux GOARCH=amd64):
 cd hub
-go build -o ~/host-runner       ./cmd/host-runner
-go build -o ~/hub-mcp-bridge    ./cmd/hub-mcp-bridge
+go build -o ~/host-runner ./cmd/host-runner
 ```
 
-Copy both to the target host via scp / rsync / release asset. The
-bridge **must be on `PATH`** for the user account that runs the
-agent — claude-code spawns it by name from `.mcp.json`, not by
-absolute path. Two install paths follow — pick one.
+Copy `~/host-runner` to the target host. Two install paths follow —
+pick one.
 
 ---
 
@@ -178,14 +177,16 @@ For a host that should come up on boot and survive crashes. Uses the
 shipped template unit so one box can host multiple instances (one per
 login user — see the multi-user section below).
 
-### Install the binaries system-wide
+### Install the binary system-wide
 
-Both go into `/usr/local/bin` so they're on PATH for every login
-user (claude-code spawns the bridge by bare name from `.mcp.json`):
+`host-runner` goes into `/usr/local/bin` so it's on PATH for every
+login user. A symlink named `hub-mcp-bridge` next to it routes
+agent-side spawns into the same binary's bridge mode (claude-code
+spawns `hub-mcp-bridge` by bare name from `.mcp.json`):
 
 ```bash
-sudo install -o root -g root -m 0755 ~/host-runner    /usr/local/bin/host-runner
-sudo install -o root -g root -m 0755 ~/hub-mcp-bridge /usr/local/bin/hub-mcp-bridge
+sudo install -o root -g root -m 0755 ~/host-runner /usr/local/bin/host-runner
+sudo ln -sf host-runner /usr/local/bin/hub-mcp-bridge
 /usr/local/bin/host-runner --help
 which hub-mcp-bridge   # must print /usr/local/bin/hub-mcp-bridge
 ```
@@ -499,11 +500,12 @@ NULL), so the org chart still shows the record.
   or enable a second `termipod-host@<mobile-user>` instance and spawn
   there instead.
 - **Steward's session.init lists `termipod` MCP server as `failed`.**
-  `hub-mcp-bridge` is missing or not on PATH for the spawned agent.
-  Check `which hub-mcp-bridge` as the host-runner's user; if empty,
-  build and install it per §4. Other symptoms: the mobile transcript
-  shows tool calls failing with "command not found"-style errors,
-  and `journalctl -u termipod-host@<user>` may report the bridge
-  exec returned ENOENT. After install, terminate and re-spawn the
-  steward — the failed MCP handshake doesn't auto-recover within a
-  running session.
+  The `hub-mcp-bridge` symlink is missing or not on PATH for the
+  spawned agent. Check `which hub-mcp-bridge` as the host-runner's
+  user; if empty, recreate per §4 (`sudo ln -sf host-runner
+  /usr/local/bin/hub-mcp-bridge`). Other symptoms: the mobile
+  transcript shows tool calls failing with "command not found"-style
+  errors, and `journalctl -u termipod-host@<user>` may report the
+  bridge exec returned ENOENT. After install, terminate and re-spawn
+  the steward — the failed MCP handshake doesn't auto-recover within
+  a running session.

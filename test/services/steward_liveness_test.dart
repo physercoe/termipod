@@ -42,7 +42,9 @@ void main() {
       );
     });
 
-    test('returns idle for event aged 2–10 min', () {
+    test('returns idle for event aged between healthy and stuck windows', () {
+      // Anywhere in the open interval (healthyWindow, stuckWindow).
+      // 5 min is comfortably idle under the current 2 min / 30 min thresholds.
       final t = now.subtract(const Duration(minutes: 5)).toIso8601String();
       expect(
         stewardLiveness([steward(lastEvent: t)], now: now),
@@ -50,8 +52,12 @@ void main() {
       );
     });
 
-    test('returns stuck for event older than 10 min', () {
-      final t = now.subtract(const Duration(minutes: 15)).toIso8601String();
+    test('returns stuck for event older than the stuck window', () {
+      // Use stuckWindow + buffer so the test stays correct if the constant
+      // is bumped again (currently 30 min).
+      final t = now
+          .subtract(stuckWindow + const Duration(minutes: 1))
+          .toIso8601String();
       expect(
         stewardLiveness([steward(lastEvent: t)], now: now),
         StewardLiveness.stuck,
@@ -72,16 +78,16 @@ void main() {
       );
     });
 
-    test('boundary: exactly 2 min is healthy', () {
-      final t = now.subtract(const Duration(minutes: 2)).toIso8601String();
+    test('boundary: exactly healthyWindow is still healthy', () {
+      final t = now.subtract(healthyWindow).toIso8601String();
       expect(
         stewardLiveness([steward(lastEvent: t)], now: now),
         StewardLiveness.healthy,
       );
     });
 
-    test('boundary: exactly 10 min is stuck', () {
-      final t = now.subtract(const Duration(minutes: 10)).toIso8601String();
+    test('boundary: exactly stuckWindow is stuck', () {
+      final t = now.subtract(stuckWindow).toIso8601String();
       expect(
         stewardLiveness([steward(lastEvent: t)], now: now),
         StewardLiveness.stuck,

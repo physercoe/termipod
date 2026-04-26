@@ -131,13 +131,32 @@ a host-runner process attached to your **current** tmux session,
 spawning agents into new windows alongside whatever else you're doing.
 
 **What you need:** the host token from §3, a running tmux session,
-and the binary somewhere on `$PATH` (or a direct path to `~/host-runner`).
+and the binary on `$PATH` so claude-code (running inside the agent
+process spawned by host-runner) can find `hub-mcp-bridge` by name
+without needing root.
+
+The cleanest no-sudo recipe is to drop the binary under `~/.local/bin`
+(usually already on PATH for login shells) and add the bridge symlink
+beside it:
+
+```bash
+mkdir -p ~/.local/bin
+mv ~/host-runner ~/.local/bin/host-runner
+ln -sf host-runner ~/.local/bin/hub-mcp-bridge
+hash -r          # bash/zsh: refresh PATH lookup cache
+which host-runner hub-mcp-bridge  # both should resolve under ~/.local/bin
+```
+
+If `~/.local/bin` isn't on your PATH, add it (e.g. in `~/.bashrc`:
+`export PATH="$HOME/.local/bin:$PATH"`) and reopen the shell. Without
+the symlink, the agent's MCP handshake fails the same way Track B
+fails when its symlink is missing — see §7 troubleshooting.
 
 ```bash
 # Inside a tmux session (attach first with `tmux attach` or start one
 # with `tmux new -s work`):
 
-~/host-runner run \
+host-runner run \
   --hub   https://hub.example.com \
   --team  default \
   --token <paste-the-host-token> \

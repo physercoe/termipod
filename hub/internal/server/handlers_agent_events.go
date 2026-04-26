@@ -87,17 +87,19 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	// same agent; the UNIQUE(agent_id, seq) constraint is the backstop.
 	id := NewID()
 	ts := NowUTC()
+	sessionID := s.lookupSessionForAgent(r.Context(), agent)
 	var seq int64
 	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
-		id, agent, ts, in.Kind, in.Producer, payload, agent).Scan(&seq)
+		id, agent, ts, in.Kind, in.Producer, payload, sessionID, agent).Scan(&seq)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.touchSession(r.Context(), sessionID)
 
 	evt := map[string]any{
 		"id":       id,

@@ -212,6 +212,14 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/input", s.handlePostAgentInput)
 			})
 		})
+		r.Route("/sessions", func(r chi.Router) {
+			r.Post("/", s.handleOpenSession)
+			r.Get("/", s.handleListSessions)
+			r.Route("/{session}", func(r chi.Router) {
+				r.Get("/", s.handleGetSession)
+				r.Post("/close", s.handleCloseSession)
+			})
+		})
 		r.Route("/templates", func(r chi.Router) {
 			r.Get("/", s.handleListTemplates)
 			r.Get("/{category}/{name}", s.handleGetTemplate)

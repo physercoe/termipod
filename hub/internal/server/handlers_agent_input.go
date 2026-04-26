@@ -130,19 +130,21 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	kind := "input." + in.Kind
 	id := NewID()
 	ts := NowUTC()
+	sessionID := s.lookupSessionForAgent(r.Context(), agent)
 	var seq int64
 	// Same COALESCE(MAX)+1 idiom as handlePostAgentEvent — SQLite
 	// serializes writes and UNIQUE(agent_id, seq) backstops any race.
 	err = s.db.QueryRowContext(r.Context(), `
-		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
-		id, agent, ts, kind, producer, payload, agent).Scan(&seq)
+		id, agent, ts, kind, producer, payload, sessionID, agent).Scan(&seq)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.touchSession(r.Context(), sessionID)
 
 	evt := map[string]any{
 		"id":       id,

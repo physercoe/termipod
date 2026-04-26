@@ -1,0 +1,229 @@
+package server
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// Session lifecycle:
+//   open        — current_agent_id is alive, session is the active focal frame
+//   interrupted — host-runner restart killed the agent process; transcript
+//                 preserved by session_id stamping. Mobile shows Resume.
+//                 (W2-S3 lands the resume endpoint + interruption detector.)
+//   closed      — explicit teardown; transcript stays queryable forever,
+//                 worktree retained until separate GC.
+//
+// Artifact loading at open and distillation at close are deferred per
+// the active workband (`docs/steward-sessions.md` §11). The schema
+// carries the columns those wedges will need (worktree_path,
+// spawn_spec_yaml) without forcing them now — present-day handlers
+// just record + retrieve.
+
+type sessionIn struct {
+	Title          string `json:"title,omitempty"`
+	ScopeKind      string `json:"scope_kind,omitempty"`
+	ScopeID        string `json:"scope_id,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+	WorktreePath   string `json:"worktree_path,omitempty"`
+	SpawnSpecYAML  string `json:"spawn_spec_yaml,omitempty"`
+}
+
+type sessionOut struct {
+	ID             string  `json:"id"`
+	TeamID         string  `json:"team_id"`
+	Title          string  `json:"title,omitempty"`
+	ScopeKind      string  `json:"scope_kind,omitempty"`
+	ScopeID        string  `json:"scope_id,omitempty"`
+	CurrentAgentID string  `json:"current_agent_id,omitempty"`
+	Status         string  `json:"status"`
+	OpenedAt       string  `json:"opened_at"`
+	LastActiveAt   string  `json:"last_active_at"`
+	ClosedAt       *string `json:"closed_at,omitempty"`
+	WorktreePath   string  `json:"worktree_path,omitempty"`
+	SpawnSpecYAML  string  `json:"spawn_spec_yaml,omitempty"`
+}
+
+func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	var in sessionIn
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	scopeKind := in.ScopeKind
+	if scopeKind == "" {
+		scopeKind = "team"
+	}
+	id := NewID()
+	now := NowUTC()
+	_, err := s.db.ExecContext(r.Context(), `
+		INSERT INTO sessions (
+			id, team_id, title, scope_kind, scope_id, current_agent_id,
+			status, opened_at, last_active_at, worktree_path, spawn_spec_yaml
+		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''),
+		          'open', ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		id, team, in.Title, scopeKind, in.ScopeID, in.AgentID,
+		now, now, in.WorktreePath, in.SpawnSpecYAML,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.recordAudit(r.Context(), team, "session.open", "session", id,
+		coalesceTitle(in.Title, "session opened"),
+		map[string]any{
+			"scope_kind":     scopeKind,
+			"scope_id":       in.ScopeID,
+			"agent_id":       in.AgentID,
+			"worktree_path":  in.WorktreePath,
+		})
+	writeJSON(w, http.StatusCreated, sessionOut{
+		ID: id, TeamID: team, Title: in.Title,
+		ScopeKind: scopeKind, ScopeID: in.ScopeID,
+		CurrentAgentID: in.AgentID, Status: "open",
+		OpenedAt: now, LastActiveAt: now,
+		WorktreePath: in.WorktreePath, SpawnSpecYAML: in.SpawnSpecYAML,
+	})
+}
+
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	status := r.URL.Query().Get("status") // "" = all
+	q := `
+		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
+		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
+		       status, opened_at, last_active_at, closed_at,
+		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, '')
+		FROM sessions
+		WHERE team_id = ?`
+	args := []any{team}
+	if status != "" {
+		q += " AND status = ?"
+		args = append(args, status)
+	}
+	q += " ORDER BY last_active_at DESC LIMIT 200"
+	rows, err := s.db.QueryContext(r.Context(), q, args...)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := []sessionOut{}
+	for rows.Next() {
+		var (
+			ses      sessionOut
+			closedAt sql.NullString
+		)
+		if err := rows.Scan(&ses.ID, &ses.TeamID, &ses.Title,
+			&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
+			&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
+			&ses.WorktreePath, &ses.SpawnSpecYAML); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if closedAt.Valid {
+			ses.ClosedAt = &closedAt.String
+		}
+		out = append(out, ses)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "session")
+	var (
+		ses      sessionOut
+		closedAt sql.NullString
+	)
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT id, team_id, COALESCE(title, ''), COALESCE(scope_kind, ''),
+		       COALESCE(scope_id, ''), COALESCE(current_agent_id, ''),
+		       status, opened_at, last_active_at, closed_at,
+		       COALESCE(worktree_path, ''), COALESCE(spawn_spec_yaml, '')
+		FROM sessions
+		WHERE team_id = ? AND id = ?`, team, id).Scan(
+		&ses.ID, &ses.TeamID, &ses.Title,
+		&ses.ScopeKind, &ses.ScopeID, &ses.CurrentAgentID,
+		&ses.Status, &ses.OpenedAt, &ses.LastActiveAt, &closedAt,
+		&ses.WorktreePath, &ses.SpawnSpecYAML,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if closedAt.Valid {
+		ses.ClosedAt = &closedAt.String
+	}
+	writeJSON(w, http.StatusOK, ses)
+}
+
+func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "session")
+	now := NowUTC()
+	res, err := s.db.ExecContext(r.Context(), `
+		UPDATE sessions
+		   SET status = 'closed', closed_at = ?, last_active_at = ?
+		 WHERE team_id = ? AND id = ? AND status != 'closed'`,
+		now, now, team, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		// Distinguish "not found" from "already closed" — both are 404 today.
+		writeErr(w, http.StatusNotFound,
+			"session not found or already closed")
+		return
+	}
+	s.recordAudit(r.Context(), team, "session.close", "session", id,
+		"session closed", nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// lookupSessionForAgent returns the open session whose current agent
+// matches the given id, or "" if none exists. Cheap: indexed lookup
+// keyed by current_agent_id. Used by the event-insert path to stamp
+// session_id without the caller having to know about sessions.
+func (s *Server) lookupSessionForAgent(ctx context.Context, agentID string) string {
+	if s.db == nil || agentID == "" {
+		return ""
+	}
+	var id string
+	_ = s.db.QueryRowContext(ctx, `
+		SELECT id FROM sessions
+		 WHERE current_agent_id = ? AND status IN ('open','interrupted')
+		 ORDER BY last_active_at DESC LIMIT 1`, agentID).Scan(&id)
+	return id
+}
+
+// touchSession bumps last_active_at on the session containing this
+// event. Best-effort: an error here doesn't fail the event insert,
+// since session bookkeeping is a tracking concern, not a data
+// integrity one.
+func (s *Server) touchSession(ctx context.Context, sessionID string) {
+	if s.db == nil || sessionID == "" {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE sessions SET last_active_at = ? WHERE id = ?`,
+		NowUTC(), sessionID)
+}
+
+func coalesceTitle(provided, fallback string) string {
+	if provided != "" {
+		return provided
+	}
+	return fallback
+}

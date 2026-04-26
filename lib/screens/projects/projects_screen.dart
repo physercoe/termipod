@@ -313,12 +313,22 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
   }
 }
 
-/// Finds the agent id of the team's steward (handle == 'steward', not
-/// archived). Returns the most-recent matching row's id, or null if no
-/// such agent exists. Used by the recreate flow.
+/// Finds the agent id of the team's *live* steward (handle ==
+/// 'steward', status in {running, pending, paused}). Returns null if
+/// no such agent exists. Used by the recreate flow.
+///
+/// Filtering by live status is load-bearing: if the list contains an
+/// older terminated steward followed by the live one, returning the
+/// terminated id makes the recreate path's PATCH a no-op, then the
+/// fresh spawn collides with the *real* live steward on the
+/// (team_id, handle) unique-handle index → 409 SQLITE_CONSTRAINT_UNIQUE.
 String? _findStewardId(List<Map<String, dynamic>> agents) {
   for (final a in agents) {
     if ((a['handle'] ?? '').toString() != 'steward') continue;
+    final status = (a['status'] ?? '').toString();
+    if (status != 'running' && status != 'pending' && status != 'paused') {
+      continue;
+    }
     final id = (a['id'] ?? '').toString();
     if (id.isNotEmpty) return id;
   }

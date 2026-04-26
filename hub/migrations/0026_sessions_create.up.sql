@@ -58,6 +58,13 @@ ALTER TABLE attention_items ADD COLUMN session_id TEXT;
 -- synthetic "open" session covering its lifetime to date. The
 -- session inherits the latest spawn's worktree_path + spawn_spec_yaml
 -- so resume works against pre-sessions agents too.
+-- Title is left NULL so the mobile fallback ("Steward session")
+-- takes over. Earlier drafts of this shim used a "Legacy steward
+-- (pre-sessions)" string here; that was meant as a marker for
+-- operators reading the DB, but it leaked into the UI as the
+-- session's display title and confused users. See migration 0027
+-- for the same cleanup applied retroactively to deployments that
+-- ran the older form of this insert.
 INSERT INTO sessions (
   id, team_id, title, scope_kind, current_agent_id, status,
   opened_at, last_active_at, worktree_path, spawn_spec_yaml
@@ -65,7 +72,7 @@ INSERT INTO sessions (
 SELECT
   lower(hex(randomblob(16))),
   a.team_id,
-  'Legacy steward (pre-sessions)',
+  NULL,
   'team',
   a.id,
   'open',

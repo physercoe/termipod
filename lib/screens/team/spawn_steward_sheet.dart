@@ -34,23 +34,34 @@ Future<void> showSpawnStewardSheet(
   BuildContext context, {
   required List<Map<String, dynamic>> hosts,
   bool autoTriggered = false,
+  String? sessionId,
 }) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     isDismissible: !autoTriggered,
     enableDrag: !autoTriggered,
-    builder: (_) =>
-        _SpawnStewardSheet(hosts: hosts, autoTriggered: autoTriggered),
+    builder: (_) => _SpawnStewardSheet(
+      hosts: hosts,
+      autoTriggered: autoTriggered,
+      sessionId: sessionId,
+    ),
   );
 }
 
 class _SpawnStewardSheet extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> hosts;
   final bool autoTriggered;
+  /// When non-null, the spawn lands inside this existing session
+  /// (the "Replace steward / switch engine" path). The hub
+  /// terminates the session's prior agent and rewrites the session
+  /// to point at the new spawn — transcript continuity is the whole
+  /// point of this code path.
+  final String? sessionId;
   const _SpawnStewardSheet({
     required this.hosts,
     this.autoTriggered = false,
+    this.sessionId,
   });
 
   @override
@@ -108,6 +119,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         hostId: _hostId,
         personaSeed: _personaCtrl.text,
         permissionMode: _permissionMode,
+        sessionId: widget.sessionId,
       );
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';

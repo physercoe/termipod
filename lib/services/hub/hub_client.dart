@@ -968,6 +968,7 @@ class HubClient {
     String? parentAgentId,
     String? personaSeed,
     String? permissionMode,
+    String? sessionId,
   }) async {
     final body = <String, dynamic>{
       'child_handle': childHandle,
@@ -983,6 +984,14 @@ class HubClient {
     }
     if (permissionMode != null && permissionMode.isNotEmpty) {
       body['permission_mode'] = permissionMode;
+    }
+    // sessionId attaches the spawn to an existing session — used by
+    // the "Replace steward" / "Switch engine" flow on the project
+    // page so the new agent inherits the session's transcript while
+    // the underlying claude/codex/etc. process is restarted with
+    // the operator's new engine/model picks.
+    if (sessionId != null && sessionId.isNotEmpty) {
+      body['session_id'] = sessionId;
     }
     final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
     return (out as Map).cast<String, dynamic>();

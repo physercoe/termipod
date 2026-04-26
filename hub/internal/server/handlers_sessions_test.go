@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -428,6 +429,142 @@ func TestSessions_Delete(t *testing.T) {
 		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
 	if status != http.StatusNoContent {
 		t.Errorf("re-delete: status=%d; want 204 idempotent", status)
+	}
+}
+
+// W2 follow-up: a spawn carrying session_id is a session-swap. The
+// prior agent terminates inside the same tx, the new agent takes
+// the session over with the new spawn_spec, and the transcript
+// (queried by session_id) carries forward — the user explicitly
+// keeps the conversation while switching engine/model.
+func TestSessions_SwapAgentInSession(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
+
+	// Open a session attached to the old agent.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":    "swap test",
+			"agent_id": oldAgentID,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Stamp an event so we can verify transcript continuity.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind": "text", "producer": "agent",
+			"payload": map[string]any{"text": "before swap"},
+		})
+
+	// Read the old handle so we can swap to the same one (typical
+	// "switch model" case keeps handle='steward').
+	var oldHandle, oldKind string
+	_ = s.db.QueryRow(
+		`SELECT handle, kind FROM agents WHERE id = ?`, oldAgentID,
+	).Scan(&oldHandle, &oldKind)
+
+	// Spawn-with-session_id: carries the new spec, atomically
+	// terminates the prior agent, points session at the new one.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":    oldHandle,
+			"kind":            oldKind,
+			"host_id":         "host-x",
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude --new\n",
+			"session_id":      ses.ID,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("swap spawn: status=%d body=%s", status, body)
+	}
+	var spawnRes spawnOut
+	_ = json.Unmarshal(body, &spawnRes)
+	newAgentID := spawnRes.AgentID
+	if newAgentID == "" || newAgentID == oldAgentID {
+		t.Fatalf("expected new agent id; got %q (old %q)",
+			newAgentID, oldAgentID)
+	}
+
+	// Old agent terminated.
+	var oldStatus string
+	_ = s.db.QueryRow(
+		`SELECT status FROM agents WHERE id = ?`, oldAgentID,
+	).Scan(&oldStatus)
+	if oldStatus != "terminated" {
+		t.Errorf("old agent status = %q; want terminated", oldStatus)
+	}
+
+	// Session now points at the new agent, status=open, spec updated.
+	var sesAgentID, sesStatus, sesSpec string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(current_agent_id, ''), status,
+		        COALESCE(spawn_spec_yaml, '')
+		   FROM sessions WHERE id = ?`, ses.ID,
+	).Scan(&sesAgentID, &sesStatus, &sesSpec)
+	if sesAgentID != newAgentID || sesStatus != "open" {
+		t.Errorf("session after swap: agent=%q status=%q",
+			sesAgentID, sesStatus)
+	}
+	if !strings.Contains(sesSpec, "claude --new") {
+		t.Errorf("session.spawn_spec_yaml did not pick up the new spec; got %q", sesSpec)
+	}
+
+	// Stamp an event from the new agent. agent_events query by
+	// session_id should now span both agents.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+newAgentID+"/events",
+		map[string]any{
+			"kind": "text", "producer": "agent",
+			"payload": map[string]any{"text": "after swap"},
+		})
+
+	var transcriptCount int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM agent_events WHERE session_id = ?`,
+		ses.ID,
+	).Scan(&transcriptCount)
+	if transcriptCount < 2 {
+		t.Errorf("transcript by session_id = %d events; want ≥2 spanning swap",
+			transcriptCount)
+	}
+}
+
+// Spawn with session_id pointing at a deleted session → 409.
+func TestSessions_SwapRefusesDeletedSession(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Open + close + delete to reach status=deleted.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "to be deleted", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/close", nil)
+	doReq(t, s, token, http.MethodDelete,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":    "steward",
+			"kind":            "claude-code",
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
+			"session_id":      ses.ID,
+		})
+	if status != http.StatusConflict {
+		t.Errorf("swap into deleted session: status=%d body=%s; want 409",
+			status, body)
 	}
 }
 

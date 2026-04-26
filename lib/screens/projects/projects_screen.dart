@@ -336,9 +336,17 @@ String? _findStewardId(List<Map<String, dynamic>> agents) {
   return null;
 }
 
-/// Confirms with the user, terminates the current steward, clears the
-/// per-team bootstrap-dismissed flag (so the spawn sheet is allowed to
-/// auto-trigger again), refreshes hub state, then opens the spawn sheet.
+/// "Replace steward" — replaces the underlying agent process while
+/// keeping the existing session intact, so the user can switch engine
+/// or model and keep the conversation in the same window. The hub
+/// does the swap in one transaction (terminates the prior agent,
+/// inserts the new one, points the session at it, updates the saved
+/// spawn_spec_yaml) once the spawn sheet's submit lands.
+///
+/// If the steward has no active session (rare — only possible if the
+/// migration shim never ran or the prior session was deleted), this
+/// falls back to a fresh-spawn flow that creates a new session
+/// alongside the new agent.
 Future<void> _confirmAndRecreateSteward(
   BuildContext context,
   WidgetRef ref,
@@ -347,10 +355,12 @@ Future<void> _confirmAndRecreateSteward(
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Recreate steward?'),
+      title: const Text('Replace steward?'),
       content: const Text(
-        'The current steward will be terminated and a new one spawned. '
-        'In-flight turns will be lost.',
+        'The current steward will be terminated and a new one spawned in '
+        'this same session. The transcript stays visible — but the new '
+        'process starts with fresh context, so it will not "remember" '
+        'prior turns until you reference them.',
       ),
       actions: [
         TextButton(
@@ -360,7 +370,7 @@ Future<void> _confirmAndRecreateSteward(
         FilledButton(
           style: FilledButton.styleFrom(backgroundColor: DesignColors.error),
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Recreate'),
+          child: const Text('Replace'),
         ),
       ],
     ),
@@ -371,45 +381,22 @@ Future<void> _confirmAndRecreateSteward(
   final client = hubNotifier.client;
   if (client == null) return;
 
-  // Find the open session (if any) for the steward we're about to
-  // terminate. We close it BEFORE terminate so the session row's
-  // current_agent_id still points at a live agent at the moment of
-  // close — keeps the audit trail clean and avoids the orphan-session
-  // state the bare terminate path used to leave behind.
+  // Locate the active session for this steward so we can carry it
+  // through the swap. Without it the spawn sheet falls back to a
+  // fresh-spawn flow that mints a brand-new session — losing the
+  // prior transcript would be wrong on a tap labelled "Replace".
   final sessionsState = ref.read(sessionsProvider).value;
-  String? priorSessionId;
-  String? worktreePath;
-  String? spawnSpecYaml;
+  String? sessionId;
   if (sessionsState != null) {
     for (final s in sessionsState.active) {
       if ((s['current_agent_id'] ?? '').toString() == stewardId) {
-        priorSessionId = (s['id'] ?? '').toString();
-        worktreePath = (s['worktree_path'] ?? '').toString();
-        spawnSpecYaml = (s['spawn_spec_yaml'] ?? '').toString();
+        sessionId = (s['id'] ?? '').toString();
         break;
       }
     }
   }
-  if (priorSessionId != null && priorSessionId.isNotEmpty) {
-    try {
-      await client.closeSession(priorSessionId);
-    } catch (_) {
-      // Non-fatal: the session might already be closed by another
-      // path. Continue with terminate either way.
-    }
-  }
 
-  try {
-    await client.terminateAgent(stewardId);
-  } catch (e) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Terminate failed: $e')),
-    );
-    return;
-  }
-
-  // Clear the dismissed flag so the bootstrap sheet's autoTrigger path is
+  // Clear the dismissed flag so the bootstrap auto-trigger path is
   // re-enabled — the user explicitly asked to recreate, so any prior
   // "Skip" choice no longer applies.
   final teamId = ref.read(hubProvider).value?.config?.teamId ?? '';
@@ -418,44 +405,46 @@ Future<void> _confirmAndRecreateSteward(
     await prefs.remove(bootstrapDismissedKey(teamId));
   }
 
-  await hubNotifier.refreshAll();
-
   if (!context.mounted) return;
   final hosts = ref.read(hubProvider).value?.hosts ?? const [];
-  await showSpawnStewardSheet(context, hosts: hosts);
+  // Pass sessionId into the spawn sheet — its submit calls
+  // spawnAgent with that id, which the server interprets as
+  // "session-swap": atomically terminates the prior agent and
+  // points the session at the new one inside the same tx. Mobile
+  // doesn't pre-terminate (would race the unique-handle index).
+  await showSpawnStewardSheet(
+    context,
+    hosts: hosts,
+    sessionId: sessionId,
+  );
 
-  // After the spawn sheet closes, the new steward agent should be in
-  // hub state. Open a session attached to it so the next "Direct" tap
-  // lands in chat instead of the SessionsScreen empty state. Carry
-  // forward the prior session's worktree_path + spawn_spec_yaml when
-  // we have them, so resume continues to work for the new session.
   await hubNotifier.refreshAll();
-  if (!context.mounted) return;
-  final hubAfter = ref.read(hubProvider).value;
-  if (hubAfter == null) return;
-  String? newStewardId;
-  for (final a in hubAfter.agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
-    final status = (a['status'] ?? '').toString();
-    if (status != 'running' && status != 'pending') continue;
-    newStewardId = (a['id'] ?? '').toString();
-    break;
-  }
-  if (newStewardId != null && newStewardId.isNotEmpty) {
-    try {
-      await client.openSession(
-        agentId: newStewardId,
-        worktreePath:
-            (worktreePath != null && worktreePath.isNotEmpty) ? worktreePath : null,
-        spawnSpecYaml: (spawnSpecYaml != null && spawnSpecYaml.isNotEmpty)
-            ? spawnSpecYaml
-            : null,
-      );
-      await ref.read(sessionsProvider.notifier).refresh();
-    } catch (_) {
-      // Best-effort: if session creation fails (e.g. the user backed
-      // out of the spawn sheet without spawning), mobile falls back
-      // to SessionsScreen on next Direct tap. No data loss.
+  await ref.read(sessionsProvider.notifier).refresh();
+
+  // Edge case: the steward had no live session (sessionId was null).
+  // The spawn happened as a free-standing agent. Mint a session so
+  // the next Direct tap lands in chat instead of the SessionsScreen
+  // empty state.
+  if (sessionId == null && context.mounted) {
+    final hubAfter = ref.read(hubProvider).value;
+    if (hubAfter != null) {
+      String? newStewardId;
+      for (final a in hubAfter.agents) {
+        if ((a['handle'] ?? '').toString() != 'steward') continue;
+        final status = (a['status'] ?? '').toString();
+        if (status != 'running' && status != 'pending') continue;
+        newStewardId = (a['id'] ?? '').toString();
+        break;
+      }
+      if (newStewardId != null && newStewardId.isNotEmpty) {
+        try {
+          await client.openSession(agentId: newStewardId);
+          await ref.read(sessionsProvider.notifier).refresh();
+        } catch (_) {
+          // Best-effort: if opening fails the user falls back to
+          // SessionsScreen empty state on next Direct tap.
+        }
+      }
     }
   }
 }

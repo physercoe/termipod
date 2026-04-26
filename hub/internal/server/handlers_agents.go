@@ -355,6 +355,16 @@ type spawnIn struct {
 	// The mobile bootstrap sheet defaults to "skip" so the demo flow
 	// works without W2 plumbing.
 	PermissionMode string `json:"permission_mode,omitempty"`
+	// SessionID, when set, attaches this spawn to an existing session
+	// rather than creating a free-standing agent. Used by the
+	// "switch engine / upgrade model" recreate flow: the prior
+	// agent on the session is terminated, the new spawn happens with
+	// the operator's chosen engine/model, and the session is
+	// rewritten to point at the new agent_id with the new
+	// spawn_spec_yaml — all in the same transaction. Transcript
+	// (queried by session_id) carries forward; the session's
+	// closed_at stays NULL throughout.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 type spawnOut struct {
@@ -491,6 +501,38 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusBadRequest, err
 	}
 
+	// Validate the session-swap path before opening the tx so a 4xx
+	// exits without a rollback. SessionID is the W2 follow-up that
+	// lets "Recreate steward" or "Switch engine" land the new agent
+	// inside the existing session, transcript intact, instead of
+	// orphaning the prior session and minting a fresh one.
+	var (
+		swapSessionID  string
+		priorAgentID   string
+	)
+	if in.SessionID != "" {
+		var status, current sql.NullString
+		err := s.db.QueryRowContext(ctx, `
+			SELECT status, current_agent_id
+			  FROM sessions WHERE team_id = ? AND id = ?`,
+			team, in.SessionID).Scan(&status, &current)
+		if errors.Is(err, sql.ErrNoRows) {
+			return spawnOut{}, http.StatusNotFound,
+				errors.New("session not found")
+		}
+		if err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+		if status.String == "deleted" {
+			return spawnOut{}, http.StatusConflict,
+				errors.New("session is deleted; cannot swap")
+		}
+		swapSessionID = in.SessionID
+		if current.Valid {
+			priorAgentID = current.String
+		}
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
@@ -500,6 +542,22 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	agentID := NewID()
 	spawnID := NewID()
 	now := NowUTC()
+
+	// On session-swap, terminate the prior agent inside the tx so the
+	// (team_id, handle) live-handle uniqueness index frees up before
+	// the new INSERT below. Without this, a swap with the same handle
+	// (typical for steward) would 409 even though the user's intent
+	// is exactly "replace the live one".
+	if swapSessionID != "" && priorAgentID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE agents
+			   SET status = 'terminated', terminated_at = ?
+			 WHERE team_id = ? AND id = ?
+			   AND status NOT IN ('terminated','failed','crashed')`,
+			now, team, priorAgentID); err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agents (
@@ -552,6 +610,26 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		string(authority), nullBytes(in.Task), now, in.WorktreePath,
 		mcpTokenPlaintext); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
+	}
+
+	// On session-swap, point the session at the new agent and refresh
+	// the captured spawn_spec / worktree so future resumes use the
+	// freshly-chosen engine/model rather than the prior one. Status
+	// flips back to 'open' (covers the case where the swap happened
+	// against an interrupted session — the new agent is alive now).
+	if swapSessionID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE sessions
+			   SET current_agent_id = ?,
+			       status = 'open',
+			       spawn_spec_yaml = NULLIF(?, ''),
+			       worktree_path = COALESCE(NULLIF(?, ''), worktree_path),
+			       last_active_at = ?
+			 WHERE team_id = ? AND id = ?`,
+			agentID, in.SpawnSpec, in.WorktreePath, now,
+			team, swapSessionID); err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -258,24 +258,45 @@ build from.
 
 ## 8. Where this fits on the roadmap
 
-This wedge slots **before** the steward-sessions.md ontology work in
-implementation order, because:
+**North star (2026-04-26):** the steward workband is the focus. The
+goal is a TermiPod that a Happy / CloudCLI user can switch to without
+losing daily fluency on the (1 host × 1 session × 1 engine) slice,
+while gaining multi-host fleet, team governance, and tier-aware
+decisions on top.
 
-- The Part 1 wedge is non-architectural (UI work on existing event
-  streams) and unblocks user value within ~1 sprint.
-- The sessions ontology is a multi-week architectural shift that
-  benefits from the Part 1 wedge's UX learnings (we'll know what
-  approval / quick-action patterns work before we decide how
-  sessions package them).
+Everything outside the steward workband is deferred until that pivot
+lands. Specifically: code-as-artifact (`docs/code-as-artifact.md`)
+is parked until we can do a real-app screen-walk against
+GitHub Mobile / Cursor mobile / Codex superapp diff surfaces.
 
-So order is:
-1. Walk the apps (this memo, §7).
-2. Lock the W1.A/B/C spec.
-3. Ship W1.A (inline approval) — biggest leverage.
-4. Ship W1.B (transcript styling) — biggest visible improvement.
-5. Ship W1.C (quick actions) — fastest follow-up.
-6. *Then* sit with the steward-sessions doc and decide whether the
-   ontology shift still feels right after using the improved UX.
+### Steward workband, in order
+
+| # | Wedge | Type | Blocks on |
+|---|---|---|---|
+| 1 | Screen-walk Happy + CloudCLI (this memo §7) | Research | nothing |
+| 2 | Lock W1.A/B/C spec from screen-walk findings | Design | (1) |
+| 3 | **W1.A** — Inline tool-call approval, **tier-aware** (`steward-sessions.md` §6.5) | Build | (2) + tier metadata on tool definitions |
+| 4 | **W1.B** — Transcript styling pass | Build | (2) |
+| 5 | **W1.C** — Quick-action chips | Build | (2); reuse snippet provider from terminal_screen |
+| 6 | Sessions ontology — schema + open/close + distillation | Architectural | learnings from (3)–(5); §11 of `steward-sessions.md` |
+| 7 | **Steward UI ↔ hub-meta split** (`steward-sessions.md` §8.5) — replace Me "Direct" FAB with "Start session" | Build | (6) |
+| 8 | Decommission persistent-chat metaphor | Cleanup | (7) |
+
+Roughly: (1)–(5) is one-to-two weeks of UX work. (6)–(8) is the
+multi-week architectural shift that turns the app from "another
+chat client" into the directorial harness this codebase was always
+meant to be.
+
+### Out of band (explicitly deferred until after the pivot)
+
+- Code-as-artifact wedge (`docs/code-as-artifact.md`) — needs a
+  diff-UX reference scan first.
+- @file mentions / fuzzy file picker (W1.D) — useful but not
+  blocking for the Happy-replacement positioning.
+- Voice input (W1.E) — backlog; needs platform plumbing.
+- Per-member stewards (deputy model, ia-redesign §11 F-1) — second
+  user.
+- Cross-team session sharing — not needed at MVP scale.
 
 ---
 

@@ -1,6 +1,19 @@
 # Code as a first-class artifact
 
-> **Status: STUB / DRAFT.** Sketch for discussion. Not implementable
+> **Status: DEFERRED (2026-04-26).** Captured as a gap; not on the
+> active workband. Code-review surfaces in mobile need real-app
+> research that hasn't happened yet — what does diff-on-mobile feel
+> like in GitHub Mobile vs. Codex superapp vs. Cursor mobile? — and
+> a reference scan we can match against. Until that's done this doc
+> is preserved as a sketch, not a spec.
+>
+> **Active focus instead:** steward wedges (transcript, approvals,
+> sessions, hub-meta separation) — the band that lets a user replace
+> Happy / CloudCLI for daily work. See
+> `docs/wedges/transcript-ux-comparison.md` and
+> `docs/steward-sessions.md`.
+
+> Originally drafted: a sketch for discussion. Not implementable
 > from this doc as written. Captures the gap, names the missing
 > primitive, and lists open questions.
 

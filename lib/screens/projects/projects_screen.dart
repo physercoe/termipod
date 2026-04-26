@@ -262,12 +262,14 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
     }
 
     final isAbsent = liveness == StewardLiveness.none;
-    final isHealthy = liveness == StewardLiveness.healthy;
+    final stewardId = isAbsent ? null : _findStewardId(hub.agents);
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Tooltip(
-          message: tooltip,
+          // Long-press hint baked into the tooltip so users discover
+          // recreate without us needing extra chrome on the chip.
+          message: '$tooltip${isAbsent ? '' : '\nLong-press: recreate'}',
           child: Material(
             color: bg,
             borderRadius: BorderRadius.circular(16),
@@ -276,14 +278,17 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
               onTap: () {
                 if (isAbsent) {
                   showSpawnStewardSheet(context, hosts: hub.hosts);
-                } else if (isHealthy) {
-                  openHubMetaChannel(context, ref);
                 } else {
-                  // idle / stuck / starting — surface the recreate
-                  // affordance alongside the room shortcut.
-                  _showStewardActionsSheet(context, ref, hub.agents);
+                  // Tap always enters the steward room. Recreate moved to
+                  // long-press to keep the primary gesture single-purpose;
+                  // the previous "tap → action sheet" flow on idle/stuck
+                  // states added a friction step on every visit.
+                  openHubMetaChannel(context, ref);
                 }
               },
+              onLongPress: stewardId == null
+                  ? null
+                  : () => _confirmAndRecreateSteward(context, ref, stewardId),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -309,51 +314,6 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
       ),
     );
   }
-}
-
-/// Bottom sheet shown when the steward chip is tapped in idle/stuck/
-/// starting states. Two actions: open the room (in case it's recoverable
-/// or you want to read the last turn), or recreate the steward.
-Future<void> _showStewardActionsSheet(
-  BuildContext context,
-  WidgetRef ref,
-  List<Map<String, dynamic>> agents,
-) async {
-  final stewardId = _findStewardId(agents);
-  await showModalBottomSheet<void>(
-    context: context,
-    builder: (sheetCtx) {
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.chat_outlined),
-              title: const Text('Open #hub-meta'),
-              subtitle: const Text('Read the last turn or send a probe'),
-              onTap: () {
-                Navigator.pop(sheetCtx);
-                openHubMetaChannel(context, ref);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.refresh, color: DesignColors.error),
-              title: const Text('Recreate steward'),
-              subtitle: const Text('Terminate the current one and spawn a fresh one'),
-              enabled: stewardId != null,
-              onTap: stewardId == null
-                  ? null
-                  : () {
-                      Navigator.pop(sheetCtx);
-                      _confirmAndRecreateSteward(context, ref, stewardId);
-                    },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      );
-    },
-  );
 }
 
 /// Finds the agent id of the team's steward (handle == 'steward', not

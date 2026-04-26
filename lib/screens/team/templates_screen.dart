@@ -99,7 +99,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Templates',
+          'Library',
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),

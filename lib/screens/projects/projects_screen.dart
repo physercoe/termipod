@@ -120,7 +120,7 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
           const _StewardChip(),
           const TeamSwitcher(),
           IconButton(
-            tooltip: 'Templates & engines',
+            tooltip: 'Library (templates & engines)',
             icon: const Icon(Icons.description_outlined),
             onPressed: async.value?.configured == true
                 ? () {
@@ -1596,25 +1596,9 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
         connections.connections.any((c) => c.id == existingId)) {
       connectionId = existingId;
     } else {
-      // No binding yet (or it points to a deleted connection) — open the
-      // form pre-filled from the host's non-secret hint. The form pops
-      // the new connection id on save; record it as the binding.
-      final hint = {
-        'name': widget.host['name']?.toString() ?? '',
-        ..._parsedHint(),
-      };
-      final result = await Navigator.of(context).push<Object?>(
-        MaterialPageRoute(
-          builder: (_) => ConnectionFormScreen(initialHint: hint),
-        ),
-      );
-      if (!mounted) return;
-      if (result is String && result.isNotEmpty) {
-        await bindings.bind(hostId, result);
-        connectionId = result;
-      } else {
-        return;
-      }
+      connectionId = await _pickOrCreateConnection();
+      if (connectionId == null) return;
+      await bindings.bind(hostId, connectionId);
     }
     if (!mounted) return;
     // Capture the root navigator before popping the bottom sheet — this
@@ -1626,6 +1610,80 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
         builder: (_) => TerminalScreen(connectionId: connectionId!),
       ),
     );
+  }
+
+  /// Show the picker, return the chosen (or newly-created) connection id.
+  /// Returns null if the user dismissed without picking.
+  Future<String?> _pickOrCreateConnection() async {
+    final connections = ref.read(connectionsProvider).connections;
+    final hint = _parsedHint();
+    final hostName = widget.host['name']?.toString() ?? '';
+    final hostHostname = hint['host']?.toString() ?? '';
+    final ranked = [...connections];
+    ranked.sort((a, b) {
+      final sa = _matchScore(a, hostName, hostHostname);
+      final sb = _matchScore(b, hostName, hostHostname);
+      if (sa != sb) return sb.compareTo(sa);
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetCtx) => _ConnectionPickerSheet(
+        connections: ranked,
+        hostName: hostName,
+        hostHostname: hostHostname,
+        scoreOf: (c) => _matchScore(c, hostName, hostHostname),
+      ),
+    );
+    if (!mounted || picked == null) return null;
+    if (picked == _kAddNewSentinel) {
+      final initialHint = {
+        'name': hostName,
+        ...hint,
+      };
+      final result = await Navigator.of(context).push<Object?>(
+        MaterialPageRoute(
+          builder: (_) => ConnectionFormScreen(initialHint: initialHint),
+        ),
+      );
+      if (result is String && result.isNotEmpty) return result;
+      return null;
+    }
+    return picked;
+  }
+
+  /// Returns 0..3 — higher means closer match. The hostname (string the
+  /// host advertises in ssh_hint_json.host) is the strongest signal; the
+  /// host *row name* is a label and may not equal a real hostname, so it
+  /// only contributes a fuzzy bonus.
+  int _matchScore(Connection c, String hostName, String hostHostname) {
+    int score = 0;
+    final ch = c.host.toLowerCase().trim();
+    final cn = c.name.toLowerCase().trim();
+    if (hostHostname.isNotEmpty) {
+      final h = hostHostname.toLowerCase().trim();
+      if (ch == h) score += 3;
+      else if (ch.contains(h) || h.contains(ch)) score += 1;
+    }
+    if (hostName.isNotEmpty) {
+      final n = hostName.toLowerCase().trim();
+      if (cn == n || ch == n) score += 1;
+    }
+    return score;
+  }
+
+  Future<void> _bindToExisting() async {
+    final hostId = widget.host['id']?.toString() ?? '';
+    if (hostId.isEmpty) return;
+    final connectionId = await _pickOrCreateConnection();
+    if (connectionId == null) return;
+    await ref.read(hostBindingsProvider.notifier).bind(hostId, connectionId);
+    if (mounted) setState(() {});
   }
 
   Future<void> _unbind() async {
@@ -1796,13 +1854,22 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
               final hostId = h['id']?.toString() ?? '';
               final hasBinding =
                   ref.watch(hostBindingsProvider).containsKey(hostId);
-              if (!hasBinding) return const SizedBox.shrink();
+              if (hasBinding) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: _busy ? null : _unbind,
+                    icon: const Icon(Icons.link_off, size: 18),
+                    label: const Text('Unbind connection'),
+                  ),
+                );
+              }
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: OutlinedButton.icon(
-                  onPressed: _busy ? null : _unbind,
-                  icon: const Icon(Icons.link_off, size: 18),
-                  label: const Text('Unbind connection'),
+                  onPressed: _busy ? null : _bindToExisting,
+                  icon: const Icon(Icons.link, size: 18),
+                  label: const Text('Bind to a connection'),
                 ),
               );
             }),
@@ -1857,6 +1924,125 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
           ],
         ),
       );
+}
+
+/// Sentinel returned by _ConnectionPickerSheet to signal "user wants to
+/// create a fresh connection from the host hint" — distinguishable from a
+/// real connection id (UUIDs/short ids never start with a colon).
+const String _kAddNewSentinel = ':add-new';
+
+class _ConnectionPickerSheet extends StatelessWidget {
+  final List<Connection> connections;
+  final String hostName;
+  final String hostHostname;
+  final int Function(Connection) scoreOf;
+  const _ConnectionPickerSheet({
+    required this.connections,
+    required this.hostName,
+    required this.hostHostname,
+    required this.scoreOf,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final maxHeight = MediaQuery.of(context).size.height * 0.7;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+              child: Row(
+                children: [
+                  Icon(Icons.link, color: colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Bind to a connection',
+                      style: GoogleFonts.spaceGrotesk(
+                          fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            if (hostHostname.isNotEmpty || hostName.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Host: ${hostName.isNotEmpty ? hostName : ''}'
+                  '${hostName.isNotEmpty && hostHostname.isNotEmpty ? ' · ' : ''}'
+                  '${hostHostname.isNotEmpty ? hostHostname : ''}',
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 11, color: colorScheme.onSurfaceVariant),
+                ),
+              ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: connections.length + 1,
+                itemBuilder: (ctx, i) {
+                  if (i == connections.length) {
+                    return ListTile(
+                      leading: Icon(Icons.add, color: colorScheme.primary),
+                      title: Text(
+                        'Add new connection from host hint',
+                        style: GoogleFonts.spaceGrotesk(
+                            fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text(
+                          'Open the form pre-filled with this host\'s data'),
+                      onTap: () => Navigator.pop(ctx, _kAddNewSentinel),
+                    );
+                  }
+                  final c = connections[i];
+                  final score = scoreOf(c);
+                  return ListTile(
+                    leading: Icon(
+                      score > 0 ? Icons.bookmark : Icons.computer,
+                      color: score >= 3
+                          ? colorScheme.primary
+                          : (score > 0
+                              ? colorScheme.secondary
+                              : colorScheme.onSurfaceVariant),
+                    ),
+                    title: Text(
+                      c.name,
+                      style: GoogleFonts.spaceGrotesk(
+                          fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      '${c.username}@${c.host}'
+                      '${c.port == 22 ? '' : ':${c.port}'}',
+                      style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                    ),
+                    trailing: score >= 3
+                        ? Chip(
+                            label: const Text('match'),
+                            visualDensity: VisualDensity.compact,
+                            backgroundColor:
+                                colorScheme.primaryContainer,
+                            side: BorderSide.none,
+                          )
+                        : null,
+                    onTap: () => Navigator.pop(ctx, c.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SectionHeader extends StatelessWidget {

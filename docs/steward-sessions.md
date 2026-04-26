@@ -354,16 +354,39 @@ human-readable at a glance.
   upgrade ("please let me commit without asking"). They run within
   scope or hit the prompt; that's the contract.
 
-### 6.5.6 Open questions
+### 6.5.6 Approval is richer than yes/no
+
+(A clarification added after the screen-walk in
+`docs/wedges/transcript-ux-comparison.md` §7.5.) The decision card
+isn't a single Allow/Deny widget; it's a small framework. At least
+four classes share a card chrome:
+
+- **Binary** (yes/no, with optional notes both directions)
+- **Always/once** (CCUI-style — promote a Routine pattern to
+  auto-allow as part of approving once)
+- **Multi-choice** (agent presents N options; user picks one) — needs
+  a new tool shape, e.g. `mcp__termipod__decision_request` with an
+  `options[]` payload, parallel to `permission_prompt`
+- **Modify-and-approve** (edit parameters before saying yes) — riskier;
+  gate to specific tool classes
+
+Plus shared lifecycle outcomes that any card can offer alongside the
+class-specific body: **Defer** (ask later / schedule reminder),
+**Delegate** (route to another team member or role), **Cancel task**
+(stop the whole spawn / session). The wedge memo §7.5 is canonical
+for the card-framework spec; this section is the ontology hook.
+
+### 6.5.7 Open questions
 
 1. **Where does a *deny* take the agent?** Hard-stop, or does the
    agent get an error result it can react to (e.g., choose a
-   different tool)? Tentative: error result with `decision=denied`,
-   agent can adapt. Avoids the brittle "user blocked → run failed"
-   pattern.
+   different tool)? Tentative: error result with `decision=denied`
+   plus optional user note. Agent adapts. Avoids the brittle "user
+   blocked → run failed" pattern.
 2. **Group-of-similar approval.** When an agent will run 8 commits
-   over the next hour, does the user approve each? Tentative: a
-   "approve next N of this kind" affordance on the approval card.
+   over the next hour, does the user approve each? Covered by the
+   "Approve always for this tool/pattern" toggle in §6.5.6. The
+   first commit becomes the policy moment; the rest auto-allow.
 3. **Strategic tier identity.** Today nothing in the codebase
    identifies a tool as Strategic. Needs a `tier:` field on tool
    definitions in templates.
@@ -376,6 +399,13 @@ human-readable at a glance.
    That flag bypasses Claude's *own* permission system. The harness
    tier system is independent: even with skip, our hub gates
    Significant+ at the harness level. Worth being explicit in docs.
+6. **Multi-choice provenance.** When the agent emits a
+   `decision_request` with three options, how does the user trust
+   that the options were genuinely the agent's reasoning (vs. an
+   adversarial framing)? Tentative: the original tool call + the
+   options block + the agent's rationale all land in audit; user
+   can scroll back. Strategic-tier multi-choice may require the
+   agent to also write a one-line rationale per option.
 
 ---
 

@@ -258,9 +258,9 @@ Image sources at the bottom of this section.
 
 | Wedge | What to match | What to differ on / improve |
 |---|---|---|
-| **W1.A approval** | Inline Allow/Deny card with operation details (Happy). Match the placement (between turns, where the pending tool_call sits). | Drive by **tier** (`steward-sessions.md` §6.5), not by every-tool. Add a Tools-Settings-style allowlist UI (CCUI's idea) so users can promote a Routine pattern to "auto-allow" — that's what Routine pre-approval looks like in practice. **Combination of the two philosophies.** |
-| **W1.B transcript** | Default-collapsed tool calls as one-line file cards (Happy) with disclosure for inline diff. Token budget below input (Happy). Branch/diff strip below input (Happy) — fits our git-worktree model directly. | Don't ship the breadcrumb-style ("Using Read > Parameters > Result") collapse; CCUI's pattern is wordier and less scannable than Happy's file-card. |
-| **W1.C quick actions** | `Type / for commands, @ for files` placeholder hint (CCUI) — teach the syntax in the affordance. Voice button as a discoverable in-input control (Happy), not a chip. | Add a chip strip too — neither app has built-in command chips, but our snippet provider already exists; surfacing it as chips fills a gap both apps leave. |
+| **W1.A approval** | Inline Allow/Deny card with operation details (Happy). Match the placement (between turns, where the pending tool_call sits). | Drive by **tier** (`steward-sessions.md` §6.5), not by every-tool. Add a Tools-Settings-style allowlist UI (CCUI's idea) so users can promote a Routine pattern to "auto-allow" — that's what Routine pre-approval looks like in practice. **Combination of the two philosophies.** Also: approvals are **richer than Y/N** — see §7.5. |
+| **W1.B transcript** | Default-collapsed tool calls as one-line file cards (Happy) with disclosure for inline diff. Token budget below input (Happy). | The Happy-style **branch/diff strip** below input belongs on **worker UI** (where code work happens), not steward UI (where decisions happen). Steward sessions usually don't have a worktree of their own. See §7.4. |
+| **W1.C compose box** | `Type / for commands, @ for files` placeholder hint (CCUI) teaches syntax. | **Reuse the existing TmuxBackend compose box.** It already has history + snippets + quick-actionbar + key-palette infrastructure; voice is just one input source within it. We don't need to invent a separate "voice button" pattern à la Happy — our compose box already accommodates it. See §7.6. |
 
 ### Cross-cutting observations
 
@@ -268,11 +268,121 @@ Image sources at the bottom of this section.
 
 2. **Engine picker is the multi-engine differentiator visible to users.** CCUI does it as a New-Session step. We have agent-families plumbing; surfacing it as "pick engine + model when you start a session" is the obvious mobile pattern.
 
-3. **The branch/diff strip below input is a cheap win.** Happy's `master · 14 files · +18 -18 · 54% left` is one row of summary that anchors the user in "what is this agent doing right now". We can populate the same shape from worktree state today; no new infra.
+3. **Pre-approval allowlist is the missing piece** between "ask everything" (Happy) and our tier model. Adding a `Tools Settings → Auto-allow patterns` surface lets users define their own Routine tier per project. This is the right blend.
 
-4. **Pre-approval allowlist is the missing piece** between "ask everything" (Happy) and our tier model. Adding a `Tools Settings → Auto-allow patterns` surface lets users define their own Routine tier per project. This is the right blend.
+4. **Steward UI ≠ worker UI.** Happy and CCUI conflate them because they're single-engine clients with one chat surface. Our positioning has them split (the agent harness has roles); our UI should follow. The Happy-style **branch/diff/file-count strip** is *worker* metadata — it makes sense when you're watching a worker write code in a worktree. A steward session, in our ontology (`steward-sessions.md` §2), does coordination, planning, decisions — there is usually no worktree, no diff, no branch. Putting that strip on the steward chat would be a category error. **Worker UI gets the strip; steward UI gets a session-context strip instead** (loaded artifacts, scope label, decisions made so far). This is one of the clearest places where our role-aware harness can render differently than a single-engine client.
 
-5. **Voice is real, not gimmicky** — Happy made it a first-class feature with marketing weight. We've backlogged it; given Happy's positioning bet, we should at least acknowledge the timing.
+5. **Voice is real but doesn't need a separate pattern from us.** Happy makes it a first-class button because their compose box is minimal. Our TmuxBackend compose box already has history + snippets + quick-actionbar + key-palette + compose-mode toggle — voice is just another input source plugged into that existing compose-box pattern. See §7.6 for the unified compose-box plan.
+
+## 7.4 Steward UI vs worker UI (split, not shared)
+
+The screen-walk made this concrete. Two surfaces, three differences:
+
+| | Steward chat | Worker chat |
+|---|---|---|
+| **Conversation content** | Questions, decisions, planning, approvals, briefings | Code edits, tool calls, file changes, test runs, branch operations |
+| **Worktree presence** | Usually none — coordination happens against artifact graph, not a tree | One per spawn (per `agent-harness.md` worktree spec) |
+| **State strip** | Loaded artifacts ("plan + 3 briefings + 8 decisions") + scope ("project X / decision review") + token budget | Branch + file count + +N/-M + token budget (Happy-style) |
+| **Tool-call rendering** | Rare; mostly governance tools (audit, decision, attention, template propose) — render as decision cards, not file cards | Frequent; mostly code tools (read/write/edit/run) — render as Happy-style file cards with inline diff |
+| **Approval card content** | Decisions ("approve this template change?", "ratify this policy?") with policy/scope context | Code-related ("approve this commit?", "approve this push?") with diff + test results |
+| **Distillation outcome** | Decision / Brief / Plan-update artifact (per `steward-sessions.md` §6) | Code-change artifact (per the deferred `code-as-artifact.md`) + worker's task-summary brief |
+
+These are clearly two surfaces, not one. They share the **compose box**
+(see §7.6) and the **transcript styling primitives** (collapsed-card,
+expand-on-tap, debug toggle), but the *payloads* differ.
+
+**Implication for W1.B**: ship the transcript styling pass for steward
+chat first (it's the focus of this workband). Worker UI styling is a
+sibling wedge that ships after the steward sessions ontology lands —
+or in parallel, since they share primitives.
+
+## 7.5 Approval is richer than Allow/Deny
+
+The Happy reference shows a binary card. Real approvals span several
+shapes; the card system should be a small framework, not a fixed
+widget. At least four classes:
+
+### 7.5.1 Binary (yes/no)
+The default for Significant tier:
+- **Approve** (default action, Enter-confirms unless Strategic)
+- **Deny**
+- **Approve with note** (free-text reason, audit-recorded)
+- **Deny with feedback** (note returned to the agent so it can adapt
+  rather than die — addresses §6.5.6 open question 1)
+
+### 7.5.2 Always / once toggle
+Promotes a Routine pattern to auto-allow (CCUI's idea, applied to
+our tier model):
+- **Approve once** (default for Significant)
+- **Approve always for this tool** (write a Routine rule)
+- **Approve always for this *pattern*** (write `Bash(git log:*)`-style rule)
+- Lives in the same card as Binary; expand reveals.
+
+### 7.5.3 Multi-choice (agent presents options)
+For "which way should I go?" decisions:
+- Card shows N options with rich description per option.
+- Pick one (radio), optional note.
+- This needs a new tool shape: `mcp__termipod__decision_request`
+  with `options: [{id, label, description, side_effects}]` —
+  parallel to `permission_prompt` but for branching decisions.
+
+### 7.5.4 Modify-and-approve (edit before yes)
+For "do X with these parameters" where the user wants to tweak X:
+- Card shows the proposed call with editable parameter fields.
+- Approve sends the modified version back to the agent.
+- Riskier — the agent must accept that the executed call may differ
+  from the requested call. Probably gated to certain tool classes.
+
+### 7.5.5 Lifecycle outcomes (the rest of the menu)
+A complete card menu also has:
+- **Defer** ("ask me later", with optional reminder timestamp)
+- **Delegate** (route to another team member or a different role)
+- **Cancel task** (stop the whole spawn / session, not just this call)
+
+### 7.5.6 Scope summary
+Each card needs three things visible regardless of class:
+- **Tier** (Significant / Strategic) — visual weight matches.
+- **Operation summary** (Happy: "exact operation details").
+- **Audit trail** (who proposed, when, in what session).
+
+So W1.A should ship as a small framework — a shared card chrome plus
+class-specific bodies — not a single Allow/Deny widget that we'd
+later need to expand. Build the framework once; bodies plug in.
+
+## 7.6 The compose box, unified
+
+The TmuxBackend already has the right compose box (`terminal_screen.dart`
++ `action_bar_provider.dart`). It carries:
+
+- Command **history** (recent inputs, scrollable).
+- **Snippet** ActionChips (the bolt-icon presets, per-profile).
+- **Quick action bar** (custom buttons configured per panel).
+- **Key palette** / custom keyboard (special keys, modifier toggles).
+- **Compose mode** toggle (multiline draft).
+- **Send** button.
+
+That's already a richer compose box than Happy's mic+text+plus-button
+or CCUI's text+placeholder-hint. We don't need a new pattern — we
+need to **reuse the same compose box across three contexts**:
+
+1. **Tmux raw shell** (today's only consumer).
+2. **Steward chat** (W1.C target — chat input is the same compose box,
+   with steward-relevant snippets and quick actions).
+3. **Worker chat** (later — worker-relevant snippets, e.g. `commit`,
+   `run tests`, `revert`).
+
+Voice input plugs in as a new input *source* within the compose box,
+not as a separate button outside it. Tap mic → speech-to-text feeds
+the compose box like keyboard typing would. This is the right
+abstraction: the compose box is a *what to send* surface, and it
+shouldn't care whether bytes came from keyboard, voice, snippet, or
+quick-action.
+
+**Implication for W1.C**: don't build a "chat input field" widget for
+the steward. Lift the existing TmuxBackend compose box into a shared
+widget (`lib/widgets/compose_box/`) and instantiate it in the steward
+chat with its own snippet/action profile. Voice and @-file mention
+land later as plugged-in input sources, no UI churn.
 
 ### Image sources
 

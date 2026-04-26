@@ -6,8 +6,10 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/notes_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
 import '../../services/hub/open_team_channel.dart';
+import '../../services/notes/notes_db.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
@@ -16,6 +18,7 @@ import '../../widgets/team_switcher.dart';
 import '../projects/project_detail_screen.dart';
 import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
+import 'note_editor_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
@@ -107,6 +110,7 @@ class MeScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            const SliverToBoxAdapter(child: _NotesSection()),
             if (projects.isNotEmpty)
               SliverToBoxAdapter(
                 child: _MyWorkStrip(projects: projects),
@@ -728,6 +732,215 @@ class _UrgentTasksSection extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Personal notes / todos. Local-only sqflite store; notes never
+/// leave the device. Pinned items first, then most-recent first.
+/// Empty state nudges the user to drop a quick thought.
+class _NotesSection extends ConsumerWidget {
+  const _NotesSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(notesProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Text(
+                'NOTES',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'New note',
+                icon: const Icon(Icons.note_add_outlined, size: 20),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const NoteEditorScreen()),
+                ),
+              ),
+            ],
+          ),
+          state.when(
+            loading: () => const SizedBox(
+                height: 36,
+                child: Center(
+                    child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2)))),
+            error: (e, _) => Text('Notes failed to load: $e',
+                style: GoogleFonts.jetBrainsMono(fontSize: 11)),
+            data: (s) {
+              if (s.notes.isEmpty) {
+                return InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const NoteEditorScreen()),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.add, color: colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Drop a quick thought, todo, or memo',
+                            style: GoogleFonts.spaceGrotesk(
+                              fontSize: 13,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              final notes = s.notes.take(5).toList();
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final n in notes)
+                    _NoteTile(note: n),
+                  if (s.notes.length > 5)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: TextButton(
+                        onPressed: () => showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          builder: (_) => const _AllNotesSheet(),
+                        ),
+                        child: Text('Show all ${s.notes.length}'),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoteTile extends ConsumerWidget {
+  final Note note;
+  const _NoteTile({required this.note});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isTodo = note.kind == NoteKind.todo;
+    final preview = note.body.replaceAll('\n', ' ').trim();
+    final displayTitle = note.title.trim().isEmpty
+        ? (preview.isEmpty ? 'Untitled' : preview)
+        : note.title.trim();
+    final showSubtitle = note.title.trim().isNotEmpty && preview.isNotEmpty;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: isTodo
+          ? Checkbox(
+              value: note.done,
+              onChanged: (_) =>
+                  ref.read(notesProvider.notifier).toggleDone(note.id),
+            )
+          : Icon(note.pinned ? Icons.push_pin : Icons.note_outlined,
+              size: 20),
+      title: Text(
+        displayTitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.spaceGrotesk(
+          fontWeight: FontWeight.w600,
+          decoration:
+              isTodo && note.done ? TextDecoration.lineThrough : null,
+        ),
+      ),
+      subtitle: showSubtitle
+          ? Text(
+              preview,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.jetBrainsMono(fontSize: 11),
+            )
+          : null,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => NoteEditorScreen(note: note),
+        ),
+      ),
+    );
+  }
+}
+
+class _AllNotesSheet extends ConsumerWidget {
+  const _AllNotesSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(notesProvider);
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+              child: Row(
+                children: [
+                  Text('All notes',
+                      style: GoogleFonts.spaceGrotesk(
+                          fontSize: 16, fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: state.maybeWhen(
+                data: (s) => ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: s.notes.length,
+                  itemBuilder: (_, i) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _NoteTile(note: s.notes[i]),
+                  ),
+                ),
+                orElse: () => const SizedBox(
+                    height: 120, child: Center(child: CircularProgressIndicator())),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

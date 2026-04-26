@@ -95,6 +95,24 @@ the actual work.
 
 Forced by A1: the human cannot produce enough. Something must.
 
+Agents come in two role-distinguished classes (`agent-harness.md` §4.9
+is canonical):
+
+- **Steward** — manager / orchestrator / head. Plans, decides, spawns,
+  arbitrates, distills. *Does not perform IC work directly* outside
+  the explicit single-agent bootstrap window (`agent-harness.md` §6.2).
+- **Worker** — IC / performer / hand. Bounded, specific work in a
+  worktree. Spawned by a steward (or another worker) for one task.
+
+Both are agents (rows in `agents`); the role is what separates them.
+The split is load-bearing because it determines: which tools the agent
+gets in its allowlist, what its conversation looks like in the mobile
+UI (steward = decision surface, worker = code surface), what it
+distills on session close (steward → decisions/briefs/plans;
+worker → code change + task summary), and what model class it
+defaults to (steward = high-capability for stakes; worker =
+cost-efficient where the task allows).
+
 ### 3.4 Why the three-layer separation is load-bearing
 
 Each boundary resists a specific failure mode.
@@ -109,6 +127,19 @@ Each boundary resists a specific failure mode.
   is lost.
 
 No collapse is safe. Each element is irreducible.
+
+The **steward / worker layer split** within the agent layer (§3.3) is
+similarly irreducible. Collapsing them — letting one agent be both
+manager and IC for sustained work — produces a "general-purpose
+steward" that answers questions, edits files, runs tests, AND
+arbitrates approvals. That's one agent doing three layers' work
+badly: token budget bloats with code context, decision audit drowns
+in tool noise, the principal can't tell governance signal from
+execution signal. Single-engine clients (Happy, CCUI) collapse the
+two because they have one role per app; our positioning depends on
+keeping them separate. See `agent-harness.md` §4.9 for the rule and
+§6.2.1 for the retreat triggers that force handoff back to a worker
+once bootstrap mode ends.
 
 ---
 

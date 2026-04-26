@@ -137,13 +137,25 @@ Role set (MVP has only **Director**; the rest are reserved slots):
 
 - **Director** — owns the goal. Ratifies autonomous decisions. Sees the
   full attention queue. Can do any steward action manually.
-- **Steward** — runs operations on the director's behalf. The LLM steward
-  is the default operator; a human steward is a role a member can take.
-  Bounded by policy (blueprint A3). MVP ships one steward per *team*
-  (rows in `agents` are `UNIQUE(team_id, handle)` and there is no
-  `users`/`team_members` table yet). The intended future shape is one
-  steward per *member*, acting as that member's deputy with their own
-  preferences, memory, and budget envelope — see §11 follow-up.
+- **Steward** — runs operations on the director's behalf as a
+  **manager / orchestrator**, not an IC. Plans, decides, spawns
+  workers, arbitrates approvals, distills sessions into artifacts.
+  The LLM steward is the default operator; a human steward is a role
+  a member can take. Bounded by policy (blueprint A3). The steward
+  *does not perform IC work directly* outside the single-agent
+  bootstrap window (`agent-harness.md` §6.2 / §4.9); when an IC task
+  appears, the steward spawns a worker. MVP ships one steward per
+  *team* (rows in `agents` are `UNIQUE(team_id, handle)` and there is
+  no `users`/`team_members` table yet). The intended future shape is
+  one steward per *member*, acting as that member's deputy with their
+  own preferences, memory, and budget envelope — see §11 follow-up.
+- **Worker** — an IC agent spawned by a steward (or another worker)
+  for bounded specific work. Renders in the mobile UI as a *code
+  surface* (branch + diff + file count + tests) rather than a
+  *decision surface*. Lives in `agents` like a steward but with
+  different tool allowlist, different transcript styling, different
+  distillation outcome. See `agent-harness.md` §4.9 for the full
+  manager-vs-IC table.
 - **Reviewer** — consulted on specific documents or decisions. Has a
   scoped inbox: reviews assigned to them, not the whole team's.
 - **Member** — participates in a team; can propose, comment, execute.
@@ -515,6 +527,23 @@ regression and requires explicit amendment of this document first.
 13. **Governance as a sixth tab.** Violates IA-A3 (governance recedes)
     and §6.6. Team Settings is entered from the Team switcher in the
     top bar, not by adding a tab.
+14. **Rendering steward chat as a coding agent.** Violates the
+    manager / IC split (`agent-harness.md` §4.9). Steward sessions
+    are decision surfaces, not code surfaces — no branch/diff strip
+    below the input, no Happy-style file-card tool calls in the
+    transcript, no commit-status indicators. Those affordances belong
+    to *worker* sessions, where there is a worktree to render. The
+    only steward exception is the single-agent bootstrap window
+    (`agent-harness.md` §6.2), which is time-bounded and ends when
+    workers can spawn.
+15. **Conflating director ↔ steward 1:1 with the team `hub-meta`
+    channel.** Violates `steward-sessions.md` §8.5. The team channel
+    is multi-party broadcast; a steward session is bounded
+    director-only conversation that distills into an artifact on
+    close. Pollution of the team channel with director musings is a
+    leak, not a feature. Once the sessions wedge ships, the Me
+    "Direct" FAB stops opening hub-meta and instead opens
+    "Start session".
 
 ---
 

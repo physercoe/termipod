@@ -8,7 +8,7 @@ import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
-import '../../services/hub/open_team_channel.dart';
+import '../../services/hub/open_steward_session.dart';
 import '../../services/notes/notes_db.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
@@ -54,11 +54,17 @@ class MeScreen extends ConsumerWidget {
     final audit = ref.watch(recentAuditProvider);
 
     return Scaffold(
+      // Per docs/ia-redesign.md §8 forbidden pattern #15 + W2-S3:
+      // this FAB used to open the team-wide hub-meta channel as if
+      // that were the steward 1:1 chat. They're different surfaces
+      // (team broadcast vs director↔steward session). Now it opens
+      // the steward's active session; hub-meta stays reachable via
+      // the team switcher.
       floatingActionButton: hubState.configured
           ? FloatingActionButton.extended(
-              onPressed: () => openHubMetaChannel(context, ref),
+              onPressed: () => openStewardSession(context, ref),
               icon: const Icon(Icons.smart_toy_outlined),
-              label: const Text('Direct'),
+              label: const Text('Steward'),
             )
           : null,
       body: RefreshIndicator(

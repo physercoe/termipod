@@ -10,7 +10,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
-import '../../services/hub/open_team_channel.dart';
+import '../../services/hub/open_steward_session.dart';
 import '../../services/steward_liveness.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -276,15 +276,12 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () {
-                if (isAbsent) {
-                  showSpawnStewardSheet(context, hosts: hub.hosts);
-                } else {
-                  // Tap always enters the steward room. Recreate moved to
-                  // long-press to keep the primary gesture single-purpose;
-                  // the previous "tap → action sheet" flow on idle/stuck
-                  // states added a friction step on every visit.
-                  openHubMetaChannel(context, ref);
-                }
+                // Post-W2-S3: tap routes to the steward's *session*,
+                // not the team-wide hub-meta channel. openStewardSession
+                // handles the full state-machine: active → chat,
+                // interrupted → SessionsScreen with Resume, absent →
+                // spawn sheet. Recreate stays on long-press.
+                openStewardSession(context, ref);
               },
               onLongPress: stewardId == null
                   ? null

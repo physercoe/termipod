@@ -814,12 +814,18 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 	// pending_payload_json carries the data the resolver UI needs to render
 	// a meaningful approve/deny prompt (tool name + redacted input preview).
 	// agent_id lets the mobile inbox associate the prompt with the calling
-	// agent for back-navigation into its transcript.
+	// agent for back-navigation into its transcript. `tier` is resolved
+	// server-side from the tool name (see tiers.go) so the mobile approval
+	// card can pick the right card class without re-deriving the tier
+	// itself — and so the agent can't reclassify its own actions by
+	// claiming a lower tier.
+	tier := tierFor(a.ToolName)
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":   a.ToolName,
 		"input":       a.Input,
 		"agent_id":    fromID,
 		"tool_use_id": a.ToolUseID,
+		"tier":        tier,
 	})
 
 	summary := "tool: " + a.ToolName

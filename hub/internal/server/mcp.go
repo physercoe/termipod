@@ -157,7 +157,19 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 
 func mcpToolDefs() []map[string]any {
 	base := mcpToolDefsBase()
-	return append(base, mcpToolDefsExtra()...)
+	all := append(base, mcpToolDefsExtra()...)
+	// Annotate each definition with its tier (server-authored,
+	// per tiers.go). Custom field; MCP clients ignore unknown
+	// keys, so this is purely informational over the wire.
+	// The authoritative gating lives in `permission_prompt`'s
+	// attention payload (mcp_more.go), so even an MCP client
+	// that strips this field still sees the right approval card.
+	for _, def := range all {
+		if name, _ := def["name"].(string); name != "" {
+			def["tier"] = tierFor(name)
+		}
+	}
+	return all
 }
 
 func mcpToolDefsBase() []map[string]any {

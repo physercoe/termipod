@@ -18,6 +18,7 @@ import '../../widgets/team_switcher.dart';
 import '../projects/project_detail_screen.dart';
 import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
+import '../sessions/sessions_screen.dart';
 import 'note_editor_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
@@ -99,6 +100,15 @@ class MeScreen extends ConsumerWidget {
               ),
               actions: [
                 const TeamSwitcher(),
+                IconButton(
+                  icon: const Icon(Icons.forum_outlined),
+                  tooltip: 'Sessions',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SessionsScreen(),
+                    ),
+                  ),
+                ),
                 IconButton(
                   icon: const Icon(Icons.search),
                   tooltip: 'Search events',

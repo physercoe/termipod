@@ -330,6 +330,58 @@ class HubClient {
         query: status == null ? null : {'status': status},
       );
 
+  // ---- sessions (W2-S1) ----
+  //
+  // Sessions are the durable conversational frame around a steward
+  // (or any agent) — a transcript that survives a host-runner restart
+  // because session_id is stamped on agent_events independent of the
+  // agent process behind it. Status is open | interrupted | closed.
+
+  Future<List<Map<String, dynamic>>> listSessions({String? status}) =>
+      _listJson(
+        '/v1/teams/${cfg.teamId}/sessions',
+        query: status == null ? null : {'status': status},
+      );
+
+  Future<Map<String, dynamic>> getSession(String id) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/sessions/$id');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Opens a new session. Most callers will pass `agentId` to attach
+  /// the session to an existing steward; `worktreePath` and
+  /// `spawnSpecYaml` are needed when the resume flow (W2-S3) wants to
+  /// respawn cleanly without the user re-picking engine/scope.
+  Future<Map<String, dynamic>> openSession({
+    String? title,
+    String? scopeKind,
+    String? scopeId,
+    String? agentId,
+    String? worktreePath,
+    String? spawnSpecYaml,
+  }) async {
+    final body = <String, dynamic>{};
+    if (title != null && title.isNotEmpty) body['title'] = title;
+    if (scopeKind != null && scopeKind.isNotEmpty) body['scope_kind'] = scopeKind;
+    if (scopeId != null && scopeId.isNotEmpty) body['scope_id'] = scopeId;
+    if (agentId != null && agentId.isNotEmpty) body['agent_id'] = agentId;
+    if (worktreePath != null && worktreePath.isNotEmpty) {
+      body['worktree_path'] = worktreePath;
+    }
+    if (spawnSpecYaml != null && spawnSpecYaml.isNotEmpty) {
+      body['spawn_spec_yaml'] = spawnSpecYaml;
+    }
+    final out = await _post('/v1/teams/${cfg.teamId}/sessions', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<void> closeSession(String id) async {
+    // _post requires a non-null body; an empty map is the canonical
+    // payload for endpoints that take none.
+    await _post(
+        '/v1/teams/${cfg.teamId}/sessions/$id/close', const <String, dynamic>{});
+  }
+
   /// Read-through variant of [listAttention]; see [listRunsCached] for the
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAttentionCached({

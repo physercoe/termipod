@@ -250,6 +250,22 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
 
   Map<String, dynamic> get session => widget.session;
 
+  Future<void> _rename(BuildContext context) async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final current = (session['title'] ?? '').toString();
+    final next = await _promptForSessionTitle(context, current);
+    if (next == null || !mounted) return;
+    try {
+      await ref.read(sessionsProvider.notifier).rename(id, next);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
   Future<void> _confirmDelete(BuildContext context) async {
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -370,59 +386,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: status == 'interrupted'
-          ? FilledButton.tonal(
-              onPressed: _resuming ? null : _resume,
-              style: FilledButton.styleFrom(
-                backgroundColor:
-                    DesignColors.warning.withValues(alpha: 0.16),
-                foregroundColor: DesignColors.warning,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 6),
-                minimumSize: const Size(0, 32),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: _resuming
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Resume'),
-            )
-          : status == 'closed'
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (lastActive.isNotEmpty)
-                      Text(
-                        _shortTimestamp(lastActive),
-                        style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10, color: muted),
-                      ),
-                    PopupMenuButton<String>(
-                      tooltip: 'Session actions',
-                      icon:
-                          Icon(Icons.more_vert, size: 18, color: muted),
-                      onSelected: (v) {
-                        if (v == 'delete') _confirmDelete(context);
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text('Delete'),
-                        ),
-                      ],
-                    ),
-                  ],
-                )
-              : (lastActive.isEmpty
-                  ? null
-                  : Text(
-                      _shortTimestamp(lastActive),
-                      style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10, color: muted),
-                    )),
+      trailing: _trailing(context, status, lastActive, muted),
       onTap: agentId.isEmpty
           ? null
           : () => Navigator.of(context).push(
@@ -435,6 +399,104 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
                 ),
               ),
     );
+  }
+
+  Widget? _trailing(
+    BuildContext context,
+    String status,
+    String lastActive,
+    Color muted,
+  ) {
+    // Single popup menu shared across statuses — Rename is always
+    // available; Delete only on closed sessions (open/interrupted have
+    // to be closed first per the hub contract).
+    final menu = PopupMenuButton<String>(
+      tooltip: 'Session actions',
+      icon: Icon(Icons.more_vert, size: 18, color: muted),
+      onSelected: (v) {
+        if (v == 'rename') _rename(context);
+        if (v == 'delete') _confirmDelete(context);
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(value: 'rename', child: Text('Rename')),
+        if (status == 'closed')
+          const PopupMenuItem(value: 'delete', child: Text('Delete')),
+      ],
+    );
+    final timestamp = lastActive.isEmpty
+        ? null
+        : Text(
+            _shortTimestamp(lastActive),
+            style:
+                GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+          );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (status == 'interrupted')
+          FilledButton.tonal(
+            onPressed: _resuming ? null : _resume,
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  DesignColors.warning.withValues(alpha: 0.16),
+              foregroundColor: DesignColors.warning,
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 6),
+              minimumSize: const Size(0, 32),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: _resuming
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Resume'),
+          ),
+        if (timestamp != null) ...[
+          const SizedBox(width: 6),
+          timestamp,
+        ],
+        menu,
+      ],
+    );
+  }
+
+  // Shared with the chat AppBar's rename action so both surfaces show
+  // the same dialog shape.
+  static Future<String?> _promptForSessionTitle(
+    BuildContext context,
+    String current,
+  ) async {
+    final ctrl = TextEditingController(text: current);
+    try {
+      return await showDialog<String?>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Rename session'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'Untitled — empty clears the name',
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   static String _shortPath(String path) {
@@ -454,14 +516,12 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
   }
 }
 
-/// Per-session chat view. For W2-S2 it's a thin wrapper over
-/// [AgentFeed] scoped to the session's current_agent_id, with the
-/// session title in the AppBar. Once W2-S3 lands and resume swaps
-/// agent_ids, the AgentFeed query becomes session-scoped instead so
-/// the transcript carries across the swap; for now agent-scoped is
-/// indistinguishable from session-scoped because each session has
-/// exactly one current agent.
-class SessionChatScreen extends StatelessWidget {
+/// Per-session chat view. Thin wrapper over [AgentFeed] scoped to the
+/// session's current_agent_id with the session title in the AppBar.
+/// AppBar offers a Rename action so the user can title the session
+/// while still chatting in it (the Sessions list also exposes Rename
+/// via the kebab menu).
+class SessionChatScreen extends ConsumerStatefulWidget {
   final String sessionId;
   final String agentId;
   final String title;
@@ -473,17 +533,54 @@ class SessionChatScreen extends StatelessWidget {
   });
 
   @override
+  ConsumerState<SessionChatScreen> createState() =>
+      _SessionChatScreenState();
+}
+
+class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
+  late String _title = widget.title;
+
+  Future<void> _rename() async {
+    final current = _title == '(untitled session)' ? '' : _title;
+    final next = await _SessionTileState._promptForSessionTitle(
+      context,
+      current,
+    );
+    if (next == null || !mounted) return;
+    try {
+      await ref
+          .read(sessionsProvider.notifier)
+          .rename(widget.sessionId, next);
+      if (!mounted) return;
+      setState(() => _title = next.isEmpty ? '(untitled session)' : next);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          title,
+          _title,
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Rename session',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: _rename,
+          ),
+        ],
       ),
-      body: AgentFeed(agentId: agentId, sessionId: sessionId),
+      body: AgentFeed(
+          agentId: widget.agentId, sessionId: widget.sessionId),
     );
   }
 }

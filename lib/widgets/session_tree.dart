@@ -14,6 +14,8 @@ class SessionTree extends StatelessWidget {
   final void Function(String paneId)? onPaneClose;
   final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
+  final void Function(String sessionName)? onSessionRename;
+  final void Function(String sessionName, int windowIndex, String windowName)? onWindowRename;
 
   const SessionTree({
     super.key,
@@ -25,6 +27,8 @@ class SessionTree extends StatelessWidget {
     this.onPaneClose,
     this.onWindowResize,
     this.onWindowClose,
+    this.onSessionRename,
+    this.onWindowRename,
   });
 
   @override
@@ -49,6 +53,8 @@ class SessionTree extends StatelessWidget {
           onPaneClose: onPaneClose,
           onWindowResize: onWindowResize,
           onWindowClose: onWindowClose,
+          onSessionRename: onSessionRename,
+          onWindowRename: onWindowRename,
         );
       },
     );
@@ -65,6 +71,8 @@ class _SessionTile extends StatefulWidget {
   final void Function(String paneId)? onPaneClose;
   final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
+  final void Function(String sessionName)? onSessionRename;
+  final void Function(String sessionName, int windowIndex, String windowName)? onWindowRename;
 
   const _SessionTile({
     required this.session,
@@ -75,6 +83,8 @@ class _SessionTile extends StatefulWidget {
     this.onPaneClose,
     this.onWindowResize,
     this.onWindowClose,
+    this.onSessionRename,
+    this.onWindowRename,
   });
 
   @override
@@ -120,6 +130,7 @@ class _SessionTileState extends State<_SessionTile> {
               onPaneClose: widget.onPaneClose,
               onWindowResize: widget.onWindowResize,
               onWindowClose: widget.onWindowClose,
+              onWindowRename: widget.onWindowRename,
             );
           }),
       ],
@@ -138,6 +149,7 @@ class _WindowTile extends StatefulWidget {
   final void Function(String paneId)? onPaneClose;
   final void Function(TmuxWindow window)? onWindowResize;
   final void Function(String sessionName, int windowIndex, String windowName, bool isLastWindow)? onWindowClose;
+  final void Function(String sessionName, int windowIndex, String windowName)? onWindowRename;
 
   const _WindowTile({
     required this.sessionName,
@@ -149,6 +161,7 @@ class _WindowTile extends StatefulWidget {
     this.onPaneClose,
     this.onWindowResize,
     this.onWindowClose,
+    this.onWindowRename,
   });
 
   @override
@@ -174,6 +187,13 @@ class _WindowTileState extends State<_WindowTile> {
             window: widget.window,
             isActive: widget.window.active,
             onTap: () => setState(() => _isExpanded = !_isExpanded),
+            onRename: widget.onWindowRename != null
+                ? () => widget.onWindowRename!(
+                      widget.sessionName,
+                      widget.window.index,
+                      widget.window.name,
+                    )
+                : null,
             onResize: widget.onWindowResize != null
                 ? () => widget.onWindowResize!(widget.window)
                 : null,

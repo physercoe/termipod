@@ -9,6 +9,7 @@ class TmuxSessionTile extends StatelessWidget {
   final TmuxSession session;
   final bool isActive;
   final VoidCallback? onTap;
+  final VoidCallback? onRename;
   final Widget? trailing;
 
   const TmuxSessionTile({
@@ -16,11 +17,30 @@ class TmuxSessionTile extends StatelessWidget {
     required this.session,
     required this.isActive,
     this.onTap,
+    this.onRename,
     this.trailing,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    // Caller-provided trailing (eg. expand/collapse arrow in SessionTree)
+    // wins; otherwise show a kebab when a rename action is wired up.
+    Widget? effectiveTrailing = trailing;
+    if (effectiveTrailing == null && onRename != null) {
+      effectiveTrailing = PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert,
+            size: 20,
+            color: colorScheme.onSurface.withValues(alpha: 0.6)),
+        padding: EdgeInsets.zero,
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'rename', child: Text('Rename session')),
+        ],
+        onSelected: (v) {
+          if (v == 'rename') onRename?.call();
+        },
+      );
+    }
     return ActiveListTile(
       isActive: isActive,
       leading: Icon(
@@ -29,7 +49,7 @@ class TmuxSessionTile extends StatelessWidget {
       ),
       title: session.name,
       subtitle: '${session.windowCount} windows',
-      trailing: trailing,
+      trailing: effectiveTrailing,
       onTap: onTap,
     );
   }
@@ -150,6 +170,7 @@ class TmuxWindowTile extends StatelessWidget {
   final TmuxWindow window;
   final bool isActive;
   final VoidCallback? onTap;
+  final VoidCallback? onRename;
   final VoidCallback? onResize;
   final VoidCallback? onClose;
 
@@ -158,6 +179,7 @@ class TmuxWindowTile extends StatelessWidget {
     required this.window,
     required this.isActive,
     this.onTap,
+    this.onRename,
     this.onResize,
     this.onClose,
   });
@@ -165,6 +187,7 @@ class TmuxWindowTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final hasMenu = onRename != null || onResize != null || onClose != null;
 
     return ActiveListTile(
       isActive: isActive,
@@ -174,7 +197,7 @@ class TmuxWindowTile extends StatelessWidget {
       ),
       title: '${window.index}: ${window.name}',
       subtitle: '${window.paneCount} panes',
-      trailing: onResize != null || onClose != null
+      trailing: hasMenu
           ? PopupMenuButton<String>(
               icon: Icon(
                 Icons.more_vert,
@@ -183,6 +206,18 @@ class TmuxWindowTile extends StatelessWidget {
               ),
               padding: EdgeInsets.zero,
               itemBuilder: (menuContext) => [
+                if (onRename != null)
+                  PopupMenuItem(
+                    value: 'rename',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_outlined, size: 18,
+                            color: colorScheme.onSurface),
+                        const SizedBox(width: 8),
+                        const Text('Rename window'),
+                      ],
+                    ),
+                  ),
                 if (onResize != null)
                   PopupMenuItem(
                     value: 'resize',
@@ -208,7 +243,9 @@ class TmuxWindowTile extends StatelessWidget {
                   ),
               ],
               onSelected: (value) {
-                if (value == 'resize') {
+                if (value == 'rename') {
+                  onRename?.call();
+                } else if (value == 'resize') {
                   onResize?.call();
                 } else if (value == 'close') {
                   onClose?.call();

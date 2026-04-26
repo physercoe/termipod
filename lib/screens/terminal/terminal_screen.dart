@@ -2456,6 +2456,10 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                           Navigator.pop(context);
                           _selectSession(session.name);
                         },
+                        onRename: () {
+                          Navigator.pop(context);
+                          _renameTmuxSession(session.name);
+                        },
                       );
                     },
                   ),
@@ -2545,6 +2549,14 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
                         onTap: () {
                           Navigator.pop(context);
                           _selectWindow(session.name, window.index);
+                        },
+                        onRename: () {
+                          Navigator.pop(context);
+                          _renameTmuxWindow(
+                            session.name,
+                            window.index,
+                            window.name,
+                          );
                         },
                         onResize: () {
                           Navigator.pop(context);
@@ -3701,6 +3713,104 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen>
         );
       },
     );
+  }
+
+  /// Prompt for a new name and run `tmux rename-session`. Empty input
+  /// is treated as cancel — tmux requires a non-empty session target.
+  Future<void> _renameTmuxSession(String currentName) async {
+    final next = await _promptForTmuxName(
+      title: 'Rename session',
+      hint: 'Session name',
+      initial: currentName,
+    );
+    if (next == null || next.isEmpty || next == currentName) return;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
+      );
+      return;
+    }
+    try {
+      await sshClient.exec(TmuxCommands.renameSession(currentName, next));
+      await _refreshSessionTree();
+    } catch (e) {
+      debugPrint('[Terminal] rename-session failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
+  /// Prompt for a new name and run `tmux rename-window`. Empty resets
+  /// to tmux's default automatic name (per tmux docs: an empty arg is
+  /// invalid, so we no-op on empty rather than send the command).
+  Future<void> _renameTmuxWindow(
+    String sessionName,
+    int windowIndex,
+    String currentName,
+  ) async {
+    final next = await _promptForTmuxName(
+      title: 'Rename window',
+      hint: 'Window name',
+      initial: currentName,
+    );
+    if (next == null || next.isEmpty || next == currentName) return;
+    final sshClient = ref.read(sshProvider(widget.connectionId).notifier).client;
+    if (sshClient == null || !sshClient.isConnected) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context)!.sshNotAvailable)),
+      );
+      return;
+    }
+    try {
+      await sshClient
+          .exec(TmuxCommands.renameWindow(sessionName, windowIndex, next));
+      await _refreshSessionTree();
+    } catch (e) {
+      debugPrint('[Terminal] rename-window failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
+  Future<String?> _promptForTmuxName({
+    required String title,
+    required String hint,
+    required String initial,
+  }) async {
+    final ctrl = TextEditingController(text: initial);
+    try {
+      return await showDialog<String?>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(title),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: InputDecoration(hintText: hint),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+              child: const Text('Rename'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   /// ウィンドウを閉じる

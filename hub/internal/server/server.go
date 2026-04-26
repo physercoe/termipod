@@ -217,6 +217,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Get("/", s.handleListSessions)
 			r.Route("/{session}", func(r chi.Router) {
 				r.Get("/", s.handleGetSession)
+				r.Patch("/", s.handlePatchSession)
 				r.Post("/close", s.handleCloseSession)
 				r.Post("/resume", s.handleResumeSession)
 				r.Delete("/", s.handleDeleteSession)

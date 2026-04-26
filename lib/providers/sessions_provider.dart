@@ -65,6 +65,15 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     return out['new_agent_id']?.toString();
   }
 
+  /// Renames a session. Empty `title` clears the row's title back to
+  /// "(untitled session)".
+  Future<void> rename(String id, String title) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    await client.renameSession(id, title);
+    await refresh();
+  }
+
   /// Soft-deletes a closed session. Hub refuses if the session is
   /// still open or interrupted; close it first via [close] in that
   /// case.

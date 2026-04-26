@@ -535,6 +535,57 @@ func TestSessions_SwapAgentInSession(t *testing.T) {
 	}
 }
 
+// PATCH /sessions/{id} renames the row. Empty title clears it back
+// to NULL so the mobile UI shows "(untitled session)" again.
+func TestSessions_PatchRename(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "old name"})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	status, body = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID,
+		map[string]any{"title": "new name"})
+	if status != http.StatusNoContent {
+		t.Fatalf("rename: status=%d body=%s", status, body)
+	}
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(title, '') FROM sessions WHERE id = ?`, ses.ID,
+	).Scan(&got)
+	if got != "new name" {
+		t.Errorf("title = %q; want new name", got)
+	}
+
+	// Empty title clears it.
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID,
+		map[string]any{"title": ""})
+	var nullable sql.NullString
+	_ = s.db.QueryRow(
+		`SELECT title FROM sessions WHERE id = ?`, ses.ID,
+	).Scan(&nullable)
+	if nullable.Valid {
+		t.Errorf("title after clear = %q; want NULL", nullable.String)
+	}
+
+	// audit row recorded.
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_events WHERE action = 'session.rename' AND target_id = ?`,
+		ses.ID,
+	).Scan(&n)
+	if n != 2 {
+		t.Errorf("audit rename rows = %d; want 2 (set + clear)", n)
+	}
+}
+
 // New-session UX bug fix: when the user closes a session and opens a
 // fresh one on the same agent, the AgentFeed must show only the new
 // session's events. listAgentEvents?session=<id> is what makes that

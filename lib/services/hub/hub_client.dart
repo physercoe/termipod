@@ -375,6 +375,12 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Renames a session. Empty title clears it back to the default
+  /// "(untitled session)" rendering on mobile.
+  Future<void> renameSession(String id, String title) async {
+    await _patch('/v1/teams/${cfg.teamId}/sessions/$id', {'title': title});
+  }
+
   Future<void> closeSession(String id) async {
     // _post requires a non-null body; an empty map is the canonical
     // payload for endpoints that take none.

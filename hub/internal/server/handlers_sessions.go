@@ -196,6 +196,45 @@ func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handlePatchSession updates mutable session fields. Today only `title`
+// is editable — sessions default to NULL title so they render as
+// "(untitled session)" in the list, and the user needs a way to rename
+// them after the fact. An empty title clears it (back to NULL); a
+// non-empty title replaces it. Status/scope/agent are owned by the
+// lifecycle endpoints; this handler refuses to touch them.
+func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "session")
+	var in struct {
+		Title *string `json:"title,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.Title == nil {
+		writeErr(w, http.StatusBadRequest, "no editable fields in body")
+		return
+	}
+	res, err := s.db.ExecContext(r.Context(), `
+		UPDATE sessions SET title = NULLIF(?, '')
+		 WHERE team_id = ? AND id = ? AND status != 'deleted'`,
+		*in.Title, team, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	s.recordAudit(r.Context(), team, "session.rename", "session", id,
+		coalesceTitle(*in.Title, "session title cleared"),
+		map[string]any{"title": *in.Title})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleDeleteSession is a soft delete: marks the session row as
 // `status='deleted'` and clears its session_id from agent_events,
 // audit_events, and attention_items so the transcript-linkage no

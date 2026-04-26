@@ -201,6 +201,15 @@ What we're *missing*:
 - **Conversation-fragment quoting.** A distillation should be able to
   cite specific exchanges from its session ("I asked X, steward said
   Y") so the artifact is self-explaining.
+- **Code as a first-class artifact kind.** Today an agent that
+  modifies a worktree leaves bytes on disk + (sometimes) a row in
+  `artifacts`. There's no surfaced "this agent produced this diff"
+  view in mobile, no PR linkage, no test-run linkage. Code differs
+  from the other rows above: it has structure (language, syntax,
+  symbols), lineage (commits), and downstream effects (tests, builds,
+  deploys) that a generic "document" abstraction doesn't capture.
+  Treated separately in `docs/code-as-artifact.md` (draft); flagged
+  here so the artifact list isn't read as exhaustive.
 
 ### 5.2 Loading: what goes into a session's system prompt
 
@@ -266,6 +275,110 @@ context", not as a teardown. Functionally a soft restart.
 
 ---
 
+## 6.5 Decision tiers (which calls actually reach the user)
+
+A complaint that surfaces immediately when you watch Happy Coder in
+action: every tool call asks for permission. That's right for a
+single-engine client without role/policy infrastructure; it's wrong
+for us. The director's job is to decide *important* things, not
+every read of a config file.
+
+This section proposes the tier vocabulary the harness should expose
+and how it maps to UI.
+
+### 6.5.1 Four tiers (proposed)
+
+The blueprint already has scattered tier names — `significant`,
+`critical` show up in capability scopes (`decision.vote: significant`),
+`requires_approval` keys off them in `agent-harness.md` §4. This
+section names the full ladder explicitly and maps it to UX:
+
+| Tier | Examples | Default behavior |
+|---|---|---|
+| **Trivial** | `read_file`, `list_dir`, `search`, `stat`, `git log` | Never asks; not surfaced. Audit-only. |
+| **Routine** | edit a file inside the agent's worktree, run a test, `npm install` in scope, write a doc draft, post a metric digest | Auto-allowed within capability scope. Visible in audit; user can opt into "show routine activity" verbose mode. Not asked. |
+| **Significant** | commit, push to a non-main branch, spawn a worker, run a long task, send a message in `hub-meta`, propose a template | **Inline approval card** — the Happy-style Allow/Deny prompt. Default deny on timeout. |
+| **Strategic** | money (deploy, billing, paid API call), identity (OAuth grant, SSH key write), policy change, force-push, cross-team action | Always asks; requires reason in the approval form; non-default-yes (must explicitly tap Approve, not just Enter). Optional biometric gate. |
+
+Tier is a property of the **tool definition** (defaulted by category)
+plus the **caller's capability scope** (a worker can't escalate). It
+is not a per-call flag the agent chooses — that would let a clever
+agent reclassify its own actions.
+
+### 6.5.2 Director's view
+
+The director — the human user — should see by default:
+
+- All **Strategic** prompts, with reason field required.
+- All **Significant** prompts, inline in the relevant session.
+- A digest of **Routine** activity in the session sidebar (counts
+  by tool, not individual entries) — toggleable to full inline.
+- **Trivial** never. Audit-only.
+
+This collapses what's currently a 50-prompt-per-task firehose into a
+2–5-decision-per-task surface. That's the point of the tier system.
+
+### 6.5.3 Pre-approval and capability scope
+
+The way a session keeps trivial+routine off the user's screen is by
+**pre-approving** them at session open via the loaded capability
+scope. A session opened with scope `project=X` and the steward
+identity's `default_capabilities` automatically enables:
+
+- read everything in that project's worktrees;
+- write within those worktrees;
+- spawn workers up to the steward's `spawn.descendants` budget;
+- post to `hub-meta` (steward-class capability).
+
+These don't ask because the *session opening* was the user's grant.
+Anything outside that scope escalates to a Significant or Strategic
+prompt depending on its tier.
+
+### 6.5.4 Distillation summarizes by tier
+
+When a session closes, the distillation prompt reports tier-bucketed
+activity: "12 routine edits across 4 files; 2 significant decisions
+(approved deploy, denied billing change); 1 strategic decision
+(rotated API key, biometric confirmed)". This makes the audit trail
+human-readable at a glance.
+
+### 6.5.5 What we're not doing
+
+- **No per-tool override at the user level.** Tier is a property of
+  the harness; users don't reclassify "trivial reads" as "ask every
+  time" through a settings UI. Reason: lots of paper cuts, no upside.
+  If a user genuinely wants an audit-paranoid session, they open it
+  with a custom capability scope (Strategic-as-default) — that's a
+  per-session knob, not a global setting.
+- **No tier auction at runtime.** Agents don't request a tier
+  upgrade ("please let me commit without asking"). They run within
+  scope or hit the prompt; that's the contract.
+
+### 6.5.6 Open questions
+
+1. **Where does a *deny* take the agent?** Hard-stop, or does the
+   agent get an error result it can react to (e.g., choose a
+   different tool)? Tentative: error result with `decision=denied`,
+   agent can adapt. Avoids the brittle "user blocked → run failed"
+   pattern.
+2. **Group-of-similar approval.** When an agent will run 8 commits
+   over the next hour, does the user approve each? Tentative: a
+   "approve next N of this kind" affordance on the approval card.
+3. **Strategic tier identity.** Today nothing in the codebase
+   identifies a tool as Strategic. Needs a `tier:` field on tool
+   definitions in templates.
+4. **Migrating existing tools.** Every MCP tool gets default tier
+   = Routine. Ones that obviously aren't (read_*, list_*, stat_*)
+   get explicitly bumped to Trivial; ones that are obviously not
+   (deploy_*, send_*, charge_*) get Strategic. Catch-all: Routine.
+5. **How does this interact with the existing
+   `--dangerously-skip-permissions` flag in the steward template?**
+   That flag bypasses Claude's *own* permission system. The harness
+   tier system is independent: even with skip, our hub gates
+   Significant+ at the harness level. Worth being explicit in docs.
+
+---
+
 ## 7. Layer-specific session patterns
 
 The user's intuition (paraphrased): "task → one session is OK; project
@@ -328,6 +441,55 @@ If we accept this ontology, several current UI patterns shift.
 
 These are big shifts. None of them require model changes — they're
 all about how the UI scopes, opens, closes, and persists conversations.
+
+---
+
+## 8.5 Steward sessions are not hub-meta
+
+The mobile app currently conflates two surfaces that look the same
+(both are messaging UI) but have opposite semantics:
+
+| | `hub-meta` channel | Steward session |
+|---|---|---|
+| **Audience** | Multi-party — every team member can read and post | 1:1 — director and the steward identity |
+| **Persistence** | Permanent team transcript | Ephemeral, distilled-and-closed |
+| **Authority** | Anyone with team access posts; messages don't have decision weight | Decisions in here become artifacts |
+| **Scope** | Team-wide; broadcast | Bounded to a session scope (project, attention item, etc.) |
+| **Distillation** | None — it's the firehose | Required at close |
+| **What it's for** | "FYI, I'm starting the run" / "@all, who's covering oncall?" / status | "Review this decision with me" / "Help me plan project X" |
+
+The current Me-tab "Direct" FAB opens `hub-meta`, which makes
+director-steward back-and-forth pollute the team channel. That's
+wrong:
+
+1. Other team members see private director musings they shouldn't
+   need to read.
+2. The session lifecycle (open / scope / distill / close) doesn't
+   apply to a persistent channel.
+3. There's no scope separation — an attempt to "talk to the steward
+   about the budget" lives in the same scrollback as "the steward's
+   weekly status post".
+
+**Recommended split:**
+
+- **Steward sessions** are first-class, opened from `Me` (or
+  project / attention item entry points), scoped, lifecycle-managed.
+  Distillation lands as a Decision / Brief / Plan-update artifact.
+- **`hub-meta`** stays as a team channel. The steward identity may
+  still post to it (status, council notes) — those are explicit
+  publishes, not the same thing as a 1:1 session. Other identities
+  (members, workers via attention) post too.
+- **Project channels** (per blueprint §6.6) remain for project-scoped
+  team chatter, parallel to `hub-meta` but smaller scope. Also not
+  the same thing as a project-scoped steward session.
+
+In nav terms: replace the "Direct" FAB on Me with **"Start session"**
+that opens the new steward-session UI. The team channel is reachable
+via the team switcher (already true per ia-redesign §6).
+
+This lands as part of the broader sessions wedge in §11; it's only
+called out here because the conflation is invisible until you're
+trying to write the spec.
 
 ---
 

@@ -88,24 +88,45 @@ Sources are listed at the end of this memo.
 This is the wedge we paused on. Now informed by the scan above, three
 sub-wedges, in order of leverage:
 
-### W1.A — Inline tool-call approval
+### W1.A — Inline tool-call approval (tier-aware)
 **The single most important catch-up item.** Without this, we're
 strictly behind Happy on the single-engine slice.
 
+> **Important:** unlike Happy, we should NOT prompt on every tool
+> call. The decision-tiers framework in `steward-sessions.md` §6.5
+> says only Significant + Strategic tier calls reach the user;
+> Trivial + Routine pre-approve via the session's capability scope.
+> Match Happy on the *card design* (inline placement, expandable
+> details, allow/deny/note); diverge on *what triggers it* (tier
+> filter, not all calls). This is a positioning win — we look more
+> directorial, less assistantial.
+
 What it does: when the steward (or any agent) calls
-`mcp__termipod__permission_prompt`, the request lands as an
-attention item with `scope_kind=agent, scope_id=<id>`. Mobile must:
+`mcp__termipod__permission_prompt` for a Significant or Strategic
+tier action, the request lands as an attention item with
+`scope_kind=agent, scope_id=<id>`. Mobile must:
 
 1. Subscribe to attention items keyed to the active agent's id.
 2. Render an inline approval card in the transcript at the position
    where the pending `tool_call` sits.
-3. Buttons: **Approve** / **Deny** / **Approve with note**.
-4. On tap, send the decision via the existing `Inputter.approval`
-   path. Card collapses to "✓ approved" / "✗ denied" with the
-   decision audited.
-5. Push notification when the prompt arrives if the app is backgrounded.
+3. Show the tier (Significant / Strategic) on the card.
+4. Buttons: **Approve** / **Deny** / **Approve with note**.
+5. Strategic tier additionally requires a typed reason and is
+   non-default-yes (must explicitly tap; no Enter-to-confirm).
+6. On tap, send the decision via the existing `Inputter.approval`
+   path. Card collapses to "✓ approved (tier)" / "✗ denied" with
+   the decision audited.
+7. Push notification when the prompt arrives if the app is backgrounded.
 
-Server side: already exists. Client side: ~2 days. Leverage: huge.
+Server side: already exists for the prompt routing. Tier metadata
+needs to be attached at MCP-tool-definition time (separate small
+infra wedge — could ship as a default-Routine-everywhere bootstrap,
+then explicitly bump tier-bumps later).
+
+Client side: ~2 days for the card + tier filter; another ~1 day
+for the Strategic-tier reason field + biometric gate.
+
+Leverage: huge.
 
 ### W1.B — Transcript styling pass
 What today's debug stream becomes:
@@ -161,8 +182,17 @@ Listing explicitly so the wedge doesn't grow:
   (Android speech, iOS Speech) + privacy review.
 - **Session list as the steward navigation surface** — that's the
   steward-sessions.md ontology shift. Not this wedge.
+- **Splitting steward UI from the hub-meta channel** — also a
+  steward-sessions.md item (§8.5). The current Me "Direct" FAB
+  conflates director↔steward 1:1 with the team channel; fixing
+  that is a sessions-wedge concern, not a transcript-styling one.
+- **Code-change review surface** — separate wedge, see
+  `docs/code-as-artifact.md`. Once W1.A inline approval ships,
+  CodeChange artifacts plug in as a richer payload inside the same
+  card pattern. Don't try to land both in one wedge.
 - **Approval flow for *batches* of tool calls** — Happy does
-  per-call. We do per-call too for now. Batching is post-MVP.
+  per-call. We do per-call too for now. Batching for code-change
+  approvals is in scope for the code-as-artifact wedge, not here.
 - **Push notifications gated on "agent waits for input"** — we'd
   need the agent to emit a clear "I'm blocked on you" signal before
   we wire push. Belongs in the same wedge as inline approval (W1.A)

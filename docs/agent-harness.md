@@ -276,22 +276,38 @@ the codebase or schema, and a target invariant.
 
 ### 4.1 Steward
 
-The team's resident operator. Near-singleton (one per team in MVP;
-ia-redesign §11 F-1 documents the per-member-deputy variant for
-post-MVP). Owns: project decomposition, plan authoring, worker
-spawning, attention escalation, audit narration. **Today:** an
-`agents` row with a special role flag (set by the spawn template).
-**Target:** a first-class entity with its own table or a clearly-
-flagged subset of `agents`, persistent identity (HA-A6) carried
-across model swaps.
+The team's resident **manager / orchestrator / head**. Near-singleton
+(one per team in MVP; ia-redesign §11 F-1 documents the per-member-
+deputy variant for post-MVP). Owns: planning, decomposition, worker
+spawning, decision arbitration, attention escalation, audit
+narration, distillation of sessions into artifacts.
+
+**The steward does not perform IC work directly.** It plans and
+spawns; workers perform. The single explicit exception is the
+single-agent bootstrap window described in §6.2 — when there are
+no workers yet, the steward shells the host directly to demo
+something useful. As soon as workers exist (or once the demo loop
+ends), the steward retreats to the manager role.
+
+Mental model: a chief of staff, not a coder. A director, not a
+performer. A head, not a hand.
+
+**Today:** an `agents` row with a special role flag (set by the spawn
+template). **Target:** a first-class entity with its own table or a
+clearly-flagged subset of `agents`, persistent identity (HA-A6)
+carried across model swaps.
 
 ### 4.2 Worker
 
-An agent spawned for bounded work. Has a parent (steward or another
-worker), a return path (HA-A5), a deadline, a budget. **Today:** a
-regular `agents` row spawned via `agents.spawn`; parent edge lives
-in `agent_spawns`. **Target:** all four invariants enforced at the
-schema level.
+The team's **IC / performer / hand**. An agent spawned for bounded,
+specific work — coding, experiments, analysis, writing. Has a parent
+(steward or another worker), a return path (HA-A5), a deadline, a
+budget, a worktree. Workers do the things; stewards decide what
+things and when.
+
+**Today:** a regular `agents` row spawned via `agents.spawn`; parent
+edge lives in `agent_spawns`. **Target:** all four invariants
+enforced at the schema level.
 
 ### 4.3 Harness
 
@@ -354,6 +370,54 @@ declaring trigger keywords, required tools, expected inputs/outputs.
 The harness consults the skill index when planning a turn. **Today:**
 none. **Target:** post-MVP wedge; design the schema now so skill
 generation can land later (HA Hermes/GEPA inspiration).
+
+### 4.9 Manager vs. IC — the layer split
+
+Steward and worker are at **different layers**. They are not two
+flavors of the same thing. The harness must enforce, render, and
+reason about them as distinct surfaces.
+
+| | Steward (manager / head) | Worker (IC / hand) |
+|---|---|---|
+| **Primary verbs** | plan, decide, spawn, arbitrate, distill, narrate | read, write, edit, run, test, commit, post-result |
+| **Lifetime** | Long-lived identity; many bounded sessions | One spawn = one task; ends when task completes (or fails) |
+| **Worktree** | Usually none; reads artifacts | One per spawn; writes code |
+| **Tool surface** | Governance tools (audit, attention, decision_request, template propose, schedules, channels, plan ops) | Code/IC tools (read, write, edit, bash, test runners, metric posts) |
+| **Approval surface** | Receives the user's decisions; arbitrates | Subject to the steward's policy; asks for permission via the harness |
+| **Conversation content** | Questions, decisions, plans, briefs | Tool calls, file diffs, test outputs, branch state |
+| **State strip in UI** | Loaded artifacts + scope label + token budget | Branch · file count · +N/-M · token budget *(Happy-style)* |
+| **Distillation** | Decision / Brief / Plan-update artifact (`steward-sessions.md` §6) | Task summary + code-change artifact (deferred per `code-as-artifact.md`) |
+| **Default model class** | High-capability (decisions are higher stakes) | Cost-efficient where the task allows |
+| **Plurality** | One per team (MVP); per-member post-MVP | Many per project, many per task |
+| **Mental model** | Chief of staff / director / lead | Engineer / analyst / writer doing the actual work |
+
+**Two rules follow from this split:**
+
+1. **The steward UI must not look like a coding agent.** Specifically:
+   no branch/diff strip on steward chat; no file-card tool calls; no
+   commit-status indicators. Those belong on worker UI. The steward
+   chat is a *decision surface*, not a *code surface*. (Detail and
+   precedent: `docs/wedges/transcript-ux-comparison.md` §7.4.)
+
+2. **The steward should not be the IC.** When a steward starts
+   reaching for code tools (read, edit, bash, commit), that is a
+   signal to spawn a worker. The single-agent bootstrap mode in §6.2
+   is the explicit, time-bounded exception — not the operating
+   model. As soon as a host has been registered with the team and
+   workers can spawn, the steward retreats from direct shell access
+   except for governance-shell concerns (e.g. running a hub-side
+   diagnostic).
+
+**Why this matters now.** Comparable single-engine clients
+(Happy, CCUI) collapse manager and IC into one chat because they
+have one role per app. Our positioning (multi-host, team
+governance) only pays off if the layer split is honored — otherwise
+we're just a thinner client doing the same thing at higher cost.
+
+**Anti-pattern:** a "general-purpose steward" that answers research
+questions, edits files, runs tests, AND handles approvals. That's
+one agent doing three layers' worth of work badly. Spawn workers;
+keep the steward at the layer it's good at.
 
 ---
 
@@ -466,29 +530,64 @@ Concrete numbers (target defaults, not yet implemented):
 - `budget.cost` = token-based + per-tool fixed cost (tool call to
   shell ≠ tool call to MCP read).
 
-### 6.2 What the steward does without workers
+### 6.2 What the steward does without workers (bootstrap mode only)
 
-A complete useful steward-only operating set:
+> **Important framing.** This section describes the **bootstrap
+> window**: a fresh team, no host or one host, no workers spawned
+> yet, the user wants useful behavior in the first 2.5 minutes. In
+> this window the steward acts as both manager *and* IC because
+> there's nobody else. As soon as a worker can be spawned (or the
+> user explicitly directs the steward back to manager work), the
+> steward should hand off and retreat to the role described in
+> §4.1 / §4.9. This is an exception, not the operating model.
+
+A complete useful steward-only operating set, **for bootstrap**:
 
 1. **Direct host operation.** The steward has shell access on its
    host (the host it was spawned on). It can run commands, edit
    files, manage processes. This *is* Claude Code, exposed through
-   our channel UI. No workers needed.
+   our channel UI. Bootstrap-only — once workers exist, the steward
+   delegates.
 2. **Project authoring.** The steward creates projects, plans, tasks,
    schedules, channels via MCP (existing tools, see
-   ux-steward-audit.md §1).
+   ux-steward-audit.md §1). This stays manager-class even after
+   workers exist.
 3. **Document authoring.** The steward writes briefs, reports,
-   notes — first-class `documents` rows.
+   notes — first-class `documents` rows. Manager-class; stays.
 4. **Scheduled work.** Cron-style schedules can fire steward
-   actions (already shipped per blueprint §6.3).
+   actions (already shipped per blueprint §6.3). Stays.
 5. **Attention narration.** Every meaningful action posts a
    structured event to the team channel; Activity tab surfaces it.
+   Stays.
 6. **Self-bootstrap of additional capability.** If the user wants
    more (a second host, a worker), the steward can guide them
    through it — including running the host-registration commands.
+   This *is* the bootstrap path; once it succeeds, item 1 above
+   becomes worker work.
 
 This is enough to ship as v1.0 of the single-host demo, well before
-multi-agent lands.
+multi-agent lands. **But:** the demo loop must also surface "spawn
+a worker for this" as soon as the user asks for any non-trivial code
+work, so the bootstrap exception doesn't silently calcify into a
+permanent operating mode.
+
+### 6.2.1 When does the steward hand off (the retreat trigger)
+
+Concrete signals that bootstrap mode should end and the steward
+should spawn a worker instead:
+
+- The user asks for a multi-step coding task ("implement X", "fix
+  the bug in Y") that lasts more than 2–3 turns of tool use.
+- The current task touches code in a worktree the steward doesn't
+  already own.
+- A test run is needed.
+- Parallelism would help (more than one independent sub-task).
+- The user explicitly says "spawn a worker for this".
+
+In all of these, the steward proposes a worker spawn (with the
+current task as the worker's goal), the user approves, and the
+steward steps back to plan/decide/distill mode for the rest of the
+work. The worker reports back; the steward narrates.
 
 ### 6.3 Escape hatches & approval gates
 

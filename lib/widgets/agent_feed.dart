@@ -47,6 +47,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // we successfully receive an event.
   int _reconnectAttempt = 0;
   Timer? _reconnectTimer;
+  // SSE drops are common for benign reasons (network blip, app suspend,
+  // proxy idle timeout). The banner is noisy when drops self-heal in <5s
+  // because `sinceSeq` ensures no events are missed. Defer the banner
+  // by [_bannerGrace] so quick recoveries are invisible to the user.
+  Timer? _bannerGraceTimer;
+  static const Duration _bannerGrace = Duration(seconds: 5);
   // Counter for events that arrived while the user had scrolled away
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
@@ -62,6 +68,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   @override
   void dispose() {
     _reconnectTimer?.cancel();
+    _bannerGraceTimer?.cancel();
     _sub?.cancel();
     _scroll.dispose();
     super.dispose();
@@ -151,6 +158,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!_followTail) _newWhileAway += 1;
       });
       _reconnectAttempt = 0;
+      // Cancel the pending banner: we recovered before the grace period
+      // expired, so the user never needed to see "stream dropped".
+      _bannerGraceTimer?.cancel();
+      _bannerGraceTimer = null;
       if (_followTail) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
       }
@@ -167,8 +178,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // slow enough that a genuinely-down hub doesn't get hammered.
     final delaySecs = math.min(16, 1 << _reconnectAttempt);
     _reconnectAttempt += 1;
-    setState(() =>
-        _error = 'Stream dropped ($reason) · retrying in ${delaySecs}s');
+    // Schedule the banner grace-period instead of showing immediately.
+    // A successful resubscribe within [_bannerGrace] cancels this timer
+    // and the user never sees the drop. Repeated drops within the same
+    // window leave the original timer in place so the user sees one
+    // banner, not flicker.
+    if (_bannerGraceTimer == null || !_bannerGraceTimer!.isActive) {
+      _bannerGraceTimer = Timer(_bannerGrace, () {
+        if (!mounted) return;
+        setState(() => _error =
+            'Stream dropped ($reason) · retrying in ${delaySecs}s');
+      });
+    }
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(seconds: delaySecs), () {
       if (!mounted) return;
@@ -1883,6 +1904,8 @@ class _TelemetryStrip extends StatelessWidget {
         color: DesignColors.success,
         fg: fg,
         muted: mutedColor,
+        tooltip:
+            'Cumulative cost across $turnCount completed turn${turnCount == 1 ? '' : 's'}.',
       ));
     }
     final u = usage;
@@ -1893,7 +1916,7 @@ class _TelemetryStrip extends StatelessWidget {
       final headline = '${_fmtTokens(inTok)} → ${_fmtTokens(outTok)}';
       final sub = cacheRead != null && cacheRead > 0
           ? 'cache ${_fmtTokens(cacheRead)}'
-          : 'tokens';
+          : 'in → out tokens';
       tiles.add(_TelemetryTile(
         icon: Icons.bolt_outlined,
         label: headline,
@@ -1901,6 +1924,10 @@ class _TelemetryStrip extends StatelessWidget {
         color: DesignColors.terminalCyan,
         fg: fg,
         muted: mutedColor,
+        tooltip:
+            'Last assistant turn: ${inTok ?? 0} input tokens → ${outTok ?? 0} output tokens'
+            '${cacheRead != null && cacheRead > 0 ? ' (prompt cache: $cacheRead)' : ''}.\n'
+            'Suffix is k = thousand, M = million.',
       ));
     }
     final rl = rateLimit;
@@ -1909,19 +1936,33 @@ class _TelemetryStrip extends StatelessWidget {
       final status = (rl['status'] ?? '').toString();
       final resetsAtRaw = (rl['resets_at'] ?? '').toString();
       final resetIn = _resetIn(resetsAtRaw);
-      final color = _rateLimitColor(status, resetIn);
-      final label = win.isEmpty ? 'rate' : win;
-      final sub = resetIn != null
-          ? 'resets ${_fmtCountdown(resetIn)}'
-          : (status.isEmpty ? 'window' : status);
-      tiles.add(_TelemetryTile(
-        icon: Icons.av_timer,
-        label: label,
-        sub: sub,
-        color: color,
-        fg: fg,
-        muted: mutedColor,
-      ));
+      // If we have nothing useful to show — no window label, no parseable
+      // reset, no status — suppress the tile entirely. Previous default
+      // ("rate / window") was confusing and looked like a stuck UI.
+      final hasUsefulContent =
+          win.isNotEmpty || resetIn != null || status.isNotEmpty;
+      if (hasUsefulContent) {
+        final color = _rateLimitColor(status, resetIn);
+        final label = win.isNotEmpty ? _humanWindow(win) : 'rate';
+        final sub = resetIn != null
+            ? 'resets ${_fmtCountdown(resetIn)}'
+            : (status.isNotEmpty ? status : '—');
+        tiles.add(_TelemetryTile(
+          icon: Icons.av_timer,
+          label: label,
+          sub: sub,
+          color: color,
+          fg: fg,
+          muted: mutedColor,
+          tooltip:
+              'Rate-limit window'
+              '${win.isEmpty ? '' : ' ($win)'}'
+              '. Claude tracks usage in two rolling windows (5h and weekly); '
+              'the label names which one this status applies to.'
+              '${status.isEmpty ? '' : '\nStatus: $status.'}'
+              '${resetIn == null ? '' : '\nResets in ${_fmtCountdown(resetIn).replaceFirst('in ', '')}.'}',
+        ));
+      }
     }
     if (tiles.isEmpty) return const SizedBox.shrink();
     return Container(
@@ -1960,12 +2001,23 @@ class _TelemetryStrip extends StatelessWidget {
     return '${m.toStringAsFixed(1)}M';
   }
 
-  // Parse the reset-at ISO timestamp and return time-until as a Duration.
-  // Returns null if the timestamp is empty or unparseable so the strip
-  // falls back to showing the status string instead.
-  static Duration? _resetIn(String iso) {
-    if (iso.isEmpty) return null;
-    final ts = DateTime.tryParse(iso);
+  // Parse the reset-at timestamp and return time-until as a Duration.
+  // Accepts either an ISO-8601 string (Anthropic stream-json's typical
+  // shape) or a numeric Unix epoch in seconds (also seen in the wild —
+  // claude has emitted both depending on version). Returns null if the
+  // timestamp is empty or unparseable so the strip falls back to status.
+  static Duration? _resetIn(String raw) {
+    if (raw.isEmpty) return null;
+    DateTime? ts = DateTime.tryParse(raw);
+    if (ts == null) {
+      // Numeric epoch fallback. Heuristic: <1e12 ⇒ seconds, ≥1e12 ⇒ ms.
+      final secondsOrMs = int.tryParse(raw);
+      if (secondsOrMs != null && secondsOrMs > 0) {
+        ts = secondsOrMs < 1000000000000
+            ? DateTime.fromMillisecondsSinceEpoch(secondsOrMs * 1000, isUtc: true)
+            : DateTime.fromMillisecondsSinceEpoch(secondsOrMs, isUtc: true);
+      }
+    }
     if (ts == null) return null;
     final diff = ts.difference(DateTime.now().toUtc());
     return diff.isNegative ? Duration.zero : diff;
@@ -2006,6 +2058,7 @@ class _TelemetryTile extends StatelessWidget {
   final Color color;
   final Color fg;
   final Color muted;
+  final String? tooltip;
   const _TelemetryTile({
     required this.icon,
     required this.label,
@@ -2013,11 +2066,12 @@ class _TelemetryTile extends StatelessWidget {
     required this.color,
     required this.fg,
     required this.muted,
+    this.tooltip,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final row = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 14, color: color),
@@ -2049,7 +2103,33 @@ class _TelemetryTile extends StatelessWidget {
         ),
       ],
     );
+    final t = tooltip;
+    if (t == null || t.isEmpty) return row;
+    return Tooltip(
+      message: t,
+      waitDuration: const Duration(milliseconds: 250),
+      preferBelow: true,
+      child: row,
+    );
   }
+}
+
+// Map raw rate-limit window strings (whatever claude emits — `5_hour`,
+// `5h`, `weekly`, `week`, `session`, etc.) to a short human label.
+// Unknown values pass through verbatim so we never hide signal.
+String _humanWindow(String raw) {
+  switch (raw.toLowerCase()) {
+    case '5h':
+    case '5_hour':
+    case '5_hours':
+    case 'session':
+      return '5h';
+    case 'weekly':
+    case 'week':
+    case '7d':
+      return 'weekly';
+  }
+  return raw;
 }
 
 /// Inline tool_result block rendered inside a tool_call card. Reuses

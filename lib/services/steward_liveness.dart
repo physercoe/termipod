@@ -32,7 +32,15 @@ enum StewardLiveness {
 const Duration healthyWindow = Duration(minutes: 2);
 
 /// Threshold above which a `running` steward is considered stuck.
-const Duration stuckWindow = Duration(minutes: 10);
+///
+/// 30 min is a band-aid: the real signal we want is "wedged vs.
+/// idle-waiting-for-the-user", which requires correlating
+/// `last_event_at` with the last user input. Without that, the only
+/// safe move is to keep the bar high enough that an idle steward
+/// (sitting on the user's last reply with nothing to do) doesn't get
+/// flagged red after a coffee break. Revisit when we track per-session
+/// last-input-time.
+const Duration stuckWindow = Duration(minutes: 30);
 
 /// Classifies team-level steward liveness from the agents-list payload.
 ///

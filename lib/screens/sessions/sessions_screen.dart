@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -30,6 +31,11 @@ class SessionsScreen extends ConsumerWidget {
               GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 18),
         ),
         actions: [
+          IconButton(
+            tooltip: 'New session',
+            icon: const Icon(Icons.add),
+            onPressed: () => _newSession(context, ref),
+          ),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
@@ -69,6 +75,106 @@ class SessionsScreen extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Open a fresh session attached to the live steward (if any),
+/// after closing the prior open session for that steward.
+///
+/// "New session" semantics for V1 of the workband: one active
+/// session per steward agent. Today's steward is M2 single-process,
+/// so its conversation context is process-bound — a "new session"
+/// that just renames the bookmark wouldn't actually feel fresh
+/// to the user. Closing the prior session signals "this is a
+/// restart of the conversation, the old transcript is final and
+/// goes to Previous". Future wedges can refine this if/when we
+/// support multiple parallel sessions on the same agent.
+Future<void> _newSession(BuildContext context, WidgetRef ref) async {
+  final hub = ref.read(hubProvider).value;
+  if (hub == null || !hub.configured) return;
+  final client = ref.read(hubProvider.notifier).client;
+  if (client == null) return;
+
+  // Find live steward.
+  Map<String, dynamic>? steward;
+  for (final a in hub.agents) {
+    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    final status = (a['status'] ?? '').toString();
+    if (status == 'running' || status == 'pending' || status == 'paused') {
+      steward = a;
+      break;
+    }
+  }
+  if (steward == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No live steward — start one from the project page first.',
+          ),
+        ),
+      );
+    }
+    return;
+  }
+  final stewardId = (steward['id'] ?? '').toString();
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Start a new session?'),
+      content: const Text(
+        'Closes the current session for this steward and opens a fresh '
+        'one. The prior transcript stays available under Previous.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('New session'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  // Close any active session for this steward, carrying its
+  // worktree_path + spawn_spec_yaml forward so the new session
+  // inherits the resume context.
+  String? carryWorktree;
+  String? carrySpec;
+  final state = ref.read(sessionsProvider).value;
+  if (state != null) {
+    for (final s in state.active) {
+      if ((s['current_agent_id'] ?? '').toString() != stewardId) continue;
+      final wp = (s['worktree_path'] ?? '').toString();
+      final spec = (s['spawn_spec_yaml'] ?? '').toString();
+      if (wp.isNotEmpty) carryWorktree = wp;
+      if (spec.isNotEmpty) carrySpec = spec;
+      try {
+        await client.closeSession((s['id'] ?? '').toString());
+      } catch (_) {
+        // Non-fatal — already closed by another path is fine.
+      }
+    }
+  }
+
+  try {
+    await client.openSession(
+      agentId: stewardId,
+      worktreePath: carryWorktree,
+      spawnSpecYaml: carrySpec,
+    );
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('New session failed: $e')),
+    );
+    return;
+  }
+  await ref.read(sessionsProvider.notifier).refresh();
 }
 
 class _EmptyState extends StatelessWidget {

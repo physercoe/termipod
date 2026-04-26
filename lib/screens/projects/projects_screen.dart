@@ -10,6 +10,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/sessions_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/steward_liveness.dart';
 import '../../theme/design_colors.dart';
@@ -369,6 +370,35 @@ Future<void> _confirmAndRecreateSteward(
   final hubNotifier = ref.read(hubProvider.notifier);
   final client = hubNotifier.client;
   if (client == null) return;
+
+  // Find the open session (if any) for the steward we're about to
+  // terminate. We close it BEFORE terminate so the session row's
+  // current_agent_id still points at a live agent at the moment of
+  // close — keeps the audit trail clean and avoids the orphan-session
+  // state the bare terminate path used to leave behind.
+  final sessionsState = ref.read(sessionsProvider).value;
+  String? priorSessionId;
+  String? worktreePath;
+  String? spawnSpecYaml;
+  if (sessionsState != null) {
+    for (final s in sessionsState.active) {
+      if ((s['current_agent_id'] ?? '').toString() == stewardId) {
+        priorSessionId = (s['id'] ?? '').toString();
+        worktreePath = (s['worktree_path'] ?? '').toString();
+        spawnSpecYaml = (s['spawn_spec_yaml'] ?? '').toString();
+        break;
+      }
+    }
+  }
+  if (priorSessionId != null && priorSessionId.isNotEmpty) {
+    try {
+      await client.closeSession(priorSessionId);
+    } catch (_) {
+      // Non-fatal: the session might already be closed by another
+      // path. Continue with terminate either way.
+    }
+  }
+
   try {
     await client.terminateAgent(stewardId);
   } catch (e) {
@@ -393,6 +423,41 @@ Future<void> _confirmAndRecreateSteward(
   if (!context.mounted) return;
   final hosts = ref.read(hubProvider).value?.hosts ?? const [];
   await showSpawnStewardSheet(context, hosts: hosts);
+
+  // After the spawn sheet closes, the new steward agent should be in
+  // hub state. Open a session attached to it so the next "Direct" tap
+  // lands in chat instead of the SessionsScreen empty state. Carry
+  // forward the prior session's worktree_path + spawn_spec_yaml when
+  // we have them, so resume continues to work for the new session.
+  await hubNotifier.refreshAll();
+  if (!context.mounted) return;
+  final hubAfter = ref.read(hubProvider).value;
+  if (hubAfter == null) return;
+  String? newStewardId;
+  for (final a in hubAfter.agents) {
+    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    final status = (a['status'] ?? '').toString();
+    if (status != 'running' && status != 'pending') continue;
+    newStewardId = (a['id'] ?? '').toString();
+    break;
+  }
+  if (newStewardId != null && newStewardId.isNotEmpty) {
+    try {
+      await client.openSession(
+        agentId: newStewardId,
+        worktreePath:
+            (worktreePath != null && worktreePath.isNotEmpty) ? worktreePath : null,
+        spawnSpecYaml: (spawnSpecYaml != null && spawnSpecYaml.isNotEmpty)
+            ? spawnSpecYaml
+            : null,
+      );
+      await ref.read(sessionsProvider.notifier).refresh();
+    } catch (_) {
+      // Best-effort: if session creation fails (e.g. the user backed
+      // out of the spawn sheet without spawning), mobile falls back
+      // to SessionsScreen on next Direct tap. No data loss.
+    }
+  }
 }
 
 /// A steward counts as "present" when any agent with handle=='steward' is

@@ -382,6 +382,17 @@ class HubClient {
         '/v1/teams/${cfg.teamId}/sessions/$id/close', const <String, dynamic>{});
   }
 
+  /// Resumes an interrupted session: spawns a new agent with the
+  /// same handle/kind/host as the session's prior current_agent_id,
+  /// reusing the worktree_path and spawn_spec_yaml captured at open
+  /// time. Returns `{session_id, new_agent_id, prior_agent_id, spawn_id}`.
+  Future<Map<String, dynamic>> resumeSession(String id) async {
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/sessions/$id/resume',
+        const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Read-through variant of [listAttention]; see [listRunsCached] for the
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAttentionCached({

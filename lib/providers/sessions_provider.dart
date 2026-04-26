@@ -53,6 +53,17 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     await client.closeSession(id);
     await refresh();
   }
+
+  /// Resumes an interrupted session and refreshes the list. Returns
+  /// the new agent id so the caller can navigate into the session
+  /// chat without waiting for the next refresh tick.
+  Future<String?> resume(String id) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return null;
+    final out = await client.resumeSession(id);
+    await refresh();
+    return out['new_agent_id']?.toString();
+  }
 }
 
 final sessionsProvider =

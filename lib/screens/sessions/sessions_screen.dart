@@ -131,9 +131,48 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _SessionTile extends StatelessWidget {
+class _SessionTile extends ConsumerStatefulWidget {
   final Map<String, dynamic> session;
   const _SessionTile({required this.session});
+
+  @override
+  ConsumerState<_SessionTile> createState() => _SessionTileState();
+}
+
+class _SessionTileState extends ConsumerState<_SessionTile> {
+  bool _resuming = false;
+
+  Map<String, dynamic> get session => widget.session;
+
+  Future<void> _resume() async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty || _resuming) return;
+    setState(() => _resuming = true);
+    try {
+      final newAgentId =
+          await ref.read(sessionsProvider.notifier).resume(id);
+      if (!mounted) return;
+      if (newAgentId != null && newAgentId.isNotEmpty) {
+        final title = (session['title'] ?? '').toString();
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SessionChatScreen(
+              sessionId: id,
+              agentId: newAgentId,
+              title: title.isEmpty ? '(untitled session)' : title,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Resume failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _resuming = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -188,15 +227,35 @@ class _SessionTile extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: lastActive.isEmpty
-          ? null
-          : Text(
-              _shortTimestamp(lastActive),
-              style:
-                  GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
-            ),
+      trailing: status == 'interrupted'
+          ? FilledButton.tonal(
+              onPressed: _resuming ? null : _resume,
+              style: FilledButton.styleFrom(
+                backgroundColor:
+                    DesignColors.warning.withValues(alpha: 0.16),
+                foregroundColor: DesignColors.warning,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 6),
+                minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: _resuming
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Resume'),
+            )
+          : (lastActive.isEmpty
+              ? null
+              : Text(
+                  _shortTimestamp(lastActive),
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10, color: muted),
+                )),
       onTap: agentId.isEmpty
-          ? () => _showInterrupted(context)
+          ? null
           : () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => SessionChatScreen(
@@ -206,17 +265,6 @@ class _SessionTile extends StatelessWidget {
                   ),
                 ),
               ),
-    );
-  }
-
-  void _showInterrupted(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          "This session has no live agent. Resume support lands "
-          "in a follow-up wedge (W2-S3).",
-        ),
-      ),
     );
   }
 

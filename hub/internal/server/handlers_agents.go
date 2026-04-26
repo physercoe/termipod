@@ -243,6 +243,22 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
 	}
+	// W2-S3 interruption: when an agent flips to crashed or failed
+	// (not terminated — terminated is the user's explicit teardown),
+	// any open session pointing at it goes to "interrupted" so the
+	// session list shows a Resume affordance instead of just a dead
+	// row. The status flip is idempotent — repeated patches stay at
+	// interrupted until resume or close.
+	if in.Status != nil &&
+		(*in.Status == "crashed" || *in.Status == "failed") {
+		_, _ = s.db.ExecContext(r.Context(), `
+			UPDATE sessions
+			   SET status = 'interrupted', last_active_at = ?
+			 WHERE team_id = ?
+			   AND current_agent_id = ?
+			   AND status = 'open'`,
+			NowUTC(), team, id)
+	}
 	// A status=terminated PATCH from the UI marks the row, but without
 	// also enqueuing a host-side kill the pane stays alive. Mirror the
 	// MCP shutdown_self path so both entrypoints converge on the same

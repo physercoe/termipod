@@ -192,6 +192,112 @@ func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleResumeSession respawns the agent inside an interrupted
+// session. Reuses the session's worktree_path and spawn_spec_yaml so
+// the new claude/codex/etc. process picks up exactly where it left
+// off — the worktree's uncommitted edits, branch state, and
+// in-progress files are all preserved. The transcript stays attached
+// to the session via session_id stamping, so the user sees their
+// prior turns plus the new ones in the same chat.
+//
+// Contract: session must be interrupted (a session that's still
+// `open` doesn't need resume; a `closed` one is final). The dead
+// agent stays in the agents table with its terminal status — we
+// don't try to revive it, just spawn a fresh one with the same
+// handle (the unique-handle constraint accepts this because dead
+// agents drop out of the "live" index).
+func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "session")
+
+	var (
+		status, currentAgentID, worktreePath, spawnSpecYAML sql.NullString
+	)
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT status, current_agent_id, worktree_path, spawn_spec_yaml
+		  FROM sessions WHERE team_id = ? AND id = ?`, team, id).Scan(
+		&status, &currentAgentID, &worktreePath, &spawnSpecYAML)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if status.String != "interrupted" {
+		writeErr(w, http.StatusConflict,
+			"session not interrupted (status="+status.String+")")
+		return
+	}
+	if !currentAgentID.Valid || currentAgentID.String == "" {
+		writeErr(w, http.StatusConflict,
+			"session has no current_agent_id to derive handle/host from")
+		return
+	}
+	if !spawnSpecYAML.Valid || spawnSpecYAML.String == "" {
+		writeErr(w, http.StatusConflict,
+			"session has no spawn_spec_yaml — likely opened pre-resume; close + start fresh")
+		return
+	}
+
+	// Pull the dead agent's identity (handle, kind, host, parent) so the
+	// new spawn looks like a continuation rather than a brand-new entity.
+	var (
+		deadHandle, deadKind, deadHostID, deadParentID sql.NullString
+	)
+	if err := s.db.QueryRowContext(r.Context(), `
+		SELECT handle, kind, host_id,
+		       (SELECT parent_agent_id FROM agent_spawns
+		         WHERE child_agent_id = agents.id
+		         ORDER BY spawned_at DESC LIMIT 1)
+		  FROM agents WHERE team_id = ? AND id = ?`,
+		team, currentAgentID.String).Scan(
+		&deadHandle, &deadKind, &deadHostID, &deadParentID,
+	); err != nil {
+		writeErr(w, http.StatusInternalServerError,
+			"lookup dead agent: "+err.Error())
+		return
+	}
+
+	in := spawnIn{
+		ParentID:     deadParentID.String,
+		ChildHandle:  deadHandle.String,
+		Kind:         deadKind.String,
+		HostID:       deadHostID.String,
+		SpawnSpec:    spawnSpecYAML.String,
+		WorktreePath: worktreePath.String,
+	}
+	out, code, derr := s.DoSpawn(r.Context(), team, in)
+	if derr != nil {
+		writeErr(w, code, derr.Error())
+		return
+	}
+
+	// Stamp the new agent onto the session and flip back to open.
+	now := NowUTC()
+	if _, err := s.db.ExecContext(r.Context(), `
+		UPDATE sessions
+		   SET current_agent_id = ?, status = 'open', last_active_at = ?
+		 WHERE team_id = ? AND id = ?`,
+		out.AgentID, now, team, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.recordAudit(r.Context(), team, "session.resume", "session", id,
+		"resumed; new agent="+out.AgentID,
+		map[string]any{
+			"prior_agent_id": currentAgentID.String,
+			"new_agent_id":   out.AgentID,
+		})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session_id":     id,
+		"new_agent_id":   out.AgentID,
+		"prior_agent_id": currentAgentID.String,
+		"spawn_id":       out.SpawnID,
+	})
+}
+
 // lookupSessionForAgent returns the open session whose current agent
 // matches the given id, or "" if none exists. Cheap: indexed lookup
 // keyed by current_agent_id. Used by the event-insert path to stamp

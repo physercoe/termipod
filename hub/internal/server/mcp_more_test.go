@@ -325,7 +325,7 @@ func TestMCP_PermissionPrompt_ApproveReturnsAllow(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
 	args, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash",
+		"tool_name": "Task", // tier=significant per tiers.go; escalates to attention
 		"input":     map[string]any{"command": "echo hi"},
 	})
 
@@ -382,7 +382,7 @@ func TestMCP_PermissionPrompt_RejectReturnsDeny(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
 	args, _ := json.Marshal(map[string]any{
-		"tool_name": "Bash",
+		"tool_name": "Task", // tier=significant per tiers.go; escalates to attention
 		"input":     map[string]any{"command": "rm -rf /"},
 	})
 
@@ -444,6 +444,69 @@ func TestMCP_PermissionPrompt_RequiresToolName(t *testing.T) {
 	_, jerr := s.mcpPermissionPrompt(context.Background(), defaultTeamID, agentID, args)
 	if jerr == nil || jerr.Code != -32602 {
 		t.Errorf("want -32602, got %+v", jerr)
+	}
+}
+
+// permission_prompt: trivial-tier tool (Read) auto-allows immediately,
+// without creating an attention_items row. Routine tools follow the
+// same path. This is the W1.A tier-gating contract — director sees
+// significant+ only.
+func TestMCP_PermissionPrompt_TrivialAutoAllows(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "Read",
+		"input":     map[string]any{"path": "/tmp/x"},
+	})
+
+	out, jerr := s.mcpPermissionPrompt(
+		context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("permission_prompt: %+v", jerr)
+	}
+	body := mcpResultTextBody(t, out)
+	if !strings.Contains(body, `"behavior": "allow"`) {
+		t.Errorf("expected immediate allow, got %s", body)
+	}
+	if !strings.Contains(body, "auto-allowed") {
+		t.Errorf("expected auto-allow message, got %s", body)
+	}
+
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM attention_items WHERE kind = 'permission_prompt'`,
+	).Scan(&n)
+	if n != 0 {
+		t.Errorf("trivial tier should NOT create attention; got %d row(s)", n)
+	}
+}
+
+func TestMCP_PermissionPrompt_RoutineAutoAllows(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "Edit",
+		"input":     map[string]any{"path": "/tmp/x", "content": "hi"},
+	})
+
+	out, jerr := s.mcpPermissionPrompt(
+		context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("permission_prompt: %+v", jerr)
+	}
+	body := mcpResultTextBody(t, out)
+	if !strings.Contains(body, `"behavior": "allow"`) {
+		t.Errorf("expected immediate allow, got %s", body)
+	}
+
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM attention_items WHERE kind = 'permission_prompt'`,
+	).Scan(&n)
+	if n != 0 {
+		t.Errorf("routine tier should NOT create attention; got %d row(s)", n)
 	}
 }
 

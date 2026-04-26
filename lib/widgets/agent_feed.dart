@@ -377,6 +377,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   agentId: widget.agentId,
                 ),
               ),
+              // Inline approval cards (W1.A): when the agent has called
+              // permission_prompt for a tier ≥ significant tool, the hub
+              // posts an open attention_item. Pin it to the bottom of the
+              // event list so the user sees it in context with the latest
+              // turn — the agent is paused waiting for a decision, and
+              // hiding the card behind a tab would invert the urgency.
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _PendingPermissionPrompts(),
+              ),
               if (_error != null)
                 Positioned(
                   left: 0,
@@ -564,6 +576,277 @@ class _VerboseToggleBar extends StatelessWidget {
                 fontWeight: FontWeight.w600,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// W1.A — inline tool-call approval surface for the steward chat.
+///
+/// Reads open `kind=permission_prompt` attention items from
+/// hubProvider, filters to ones whose pending payload's `agent_id`
+/// matches this AgentFeed's agentId, renders a card per pending
+/// item. Each card shows the tier (significant / strategic),
+/// tool name + input preview, and Approve / Deny buttons.
+///
+/// Strategic tier requires a typed reason and is non-default-yes —
+/// the user must explicitly tap Approve, no Enter-to-confirm. This
+/// is the load-bearing difference between "user delegated this
+/// scope" and "user genuinely intervened".
+///
+/// Trivial / Routine tiers don't reach here: the server short-
+/// circuits them in mcpPermissionPrompt with an audit-only allow.
+class _PendingPermissionPrompts extends ConsumerWidget {
+  const _PendingPermissionPrompts();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feed = context.findAncestorStateOfType<_AgentFeedState>();
+    final agentId = feed?.widget.agentId ?? '';
+    final attention = ref
+            .watch(hubProvider.select((s) => s.value?.attention)) ??
+        const <Map<String, dynamic>>[];
+    final pending = <Map<String, dynamic>>[];
+    for (final a in attention) {
+      if ((a['kind'] ?? '').toString() != 'permission_prompt') continue;
+      if ((a['status'] ?? '').toString() != 'open') continue;
+      final payload = _payloadOf(a);
+      if (agentId.isNotEmpty &&
+          (payload['agent_id'] ?? '').toString() != agentId) {
+        continue;
+      }
+      pending.add(a);
+    }
+    if (pending.isEmpty) return const SizedBox.shrink();
+    return Material(
+      color: Colors.transparent,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final a in pending)
+            _PermissionPromptCard(
+              attention: a,
+              payload: _payloadOf(a),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static Map<String, dynamic> _payloadOf(Map<String, dynamic> attention) {
+    final raw = attention['pending_payload'];
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {}
+    }
+    return const {};
+  }
+}
+
+class _PermissionPromptCard extends ConsumerStatefulWidget {
+  final Map<String, dynamic> attention;
+  final Map<String, dynamic> payload;
+  const _PermissionPromptCard({
+    required this.attention,
+    required this.payload,
+  });
+
+  @override
+  ConsumerState<_PermissionPromptCard> createState() =>
+      _PermissionPromptCardState();
+}
+
+class _PermissionPromptCardState
+    extends ConsumerState<_PermissionPromptCard> {
+  bool _sending = false;
+  String? _error;
+  final TextEditingController _reasonCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _reasonCtrl.dispose();
+    super.dispose();
+  }
+
+  String get _tier =>
+      (widget.payload['tier'] ?? 'significant').toString().toLowerCase();
+  bool get _isStrategic => _tier == 'strategic';
+
+  Future<void> _decide(String decision) async {
+    final id = (widget.attention['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final reason = _reasonCtrl.text.trim();
+    if (_isStrategic && decision == 'approve' && reason.isEmpty) {
+      setState(() => _error = 'Strategic-tier approvals require a reason');
+      return;
+    }
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      setState(() => _error = 'Not connected');
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await client.decideAttention(
+        id,
+        decision: decision,
+        reason: reason.isEmpty ? null : reason,
+      );
+      // refreshAll picks up the resolved attention so this card vanishes
+      // on the next provider tick. Cheaper than a per-item invalidate
+      // and consistent with the pattern used by other decide flows.
+      await ref.read(hubProvider.notifier).refreshAll();
+    } on HubApiError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Decide failed (${e.status})');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Decide failed: $e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+
+    final toolName = (widget.payload['tool_name'] ?? 'tool').toString();
+    final input = widget.payload['input'];
+    final inputText = input == null
+        ? ''
+        : (input is String ? input : AgentEventCard._jsonPretty(input));
+    final tierColor = switch (_tier) {
+      'strategic' => DesignColors.error,
+      'significant' => DesignColors.warning,
+      _ => DesignColors.primary,
+    };
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(color: tierColor.withValues(alpha: 0.6), width: 1.5),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.gavel, size: 16, color: tierColor),
+              const SizedBox(width: 6),
+              Text(
+                _tier.toUpperCase(),
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: tierColor,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Approve $toolName?',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          if (inputText.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _CollapsibleMono(text: inputText),
+          ],
+          if (_isStrategic) ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _reasonCtrl,
+              enabled: !_sending,
+              minLines: 1,
+              maxLines: 3,
+              style: GoogleFonts.jetBrainsMono(fontSize: 11),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Reason required for strategic-tier approvals',
+                hintStyle: GoogleFonts.jetBrainsMono(
+                    fontSize: 11, color: muted),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                border: const OutlineInputBorder(),
+              ),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _error!,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: DesignColors.error),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _sending ? null : () => _decide('reject'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: DesignColors.error.withValues(alpha: 0.15),
+                  foregroundColor: DesignColors.error,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Deny'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _sending ? null : () => _decide('approve'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _isStrategic
+                      ? DesignColors.error
+                      : DesignColors.success,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 6),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: Text(_isStrategic ? 'Approve (strategic)' : 'Approve'),
+              ),
+              const Spacer(),
+              if (_sending)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
           ),
         ],
       ),

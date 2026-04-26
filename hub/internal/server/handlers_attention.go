@@ -44,6 +44,12 @@ type attentionOut struct {
 	CreatedAt   string          `json:"created_at"`
 	ResolvedAt  *string         `json:"resolved_at,omitempty"`
 	ResolvedBy  string          `json:"resolved_by,omitempty"`
+	// PendingPayload is the row's pending_payload_json (when present).
+	// W1.A reads it on the mobile side to render an inline approval card
+	// for kind=permission_prompt items: it carries tool_name, input,
+	// agent_id, tool_use_id, and tier (resolved server-side from
+	// tiers.go so the agent can't reclassify its own actions).
+	PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
 }
 
 func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +103,8 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		       summary, severity,
 		       COALESCE(actor_kind, ''), COALESCE(actor_handle, ''),
 		       current_assignees_json, decisions_json, escalation_history_json,
-		       status, created_at, resolved_at, COALESCE(resolved_by, '')
+		       status, created_at, resolved_at, COALESCE(resolved_by, ''),
+		       COALESCE(pending_payload_json, '')
 		FROM attention_items WHERE status = ?`
 	args := []any{status}
 	if scope != "" {
@@ -114,19 +121,22 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 	out := []attentionOut{}
 	for rows.Next() {
 		var a attentionOut
-		var assignees, decisions, esc string
+		var assignees, decisions, esc, pending string
 		var resolvedAt sql.NullString
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
 			&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
 			&a.ActorKind, &a.ActorHandle,
 			&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
-			&resolvedAt, &a.ResolvedBy); err != nil {
+			&resolvedAt, &a.ResolvedBy, &pending); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		a.Assignees = json.RawMessage(assignees)
 		a.Decisions = json.RawMessage(decisions)
 		a.Escalation = json.RawMessage(esc)
+		if pending != "" {
+			a.PendingPayload = json.RawMessage(pending)
+		}
 		if resolvedAt.Valid {
 			a.ResolvedAt = &resolvedAt.String
 		}

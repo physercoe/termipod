@@ -811,6 +811,29 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		return nil, &jrpcError{Code: -32602, Message: "input required"}
 	}
 
+	// Tier gate (W1.A): only escalate to a user prompt for tier ≥
+	// significant. Trivial reads (file/glob/web search) and routine
+	// writes (edits in scope, journal_append, etc.) auto-allow with
+	// an audit trail and skip the attention queue entirely. This is
+	// what makes the "director decides important things, not every
+	// read" promise from docs/steward-sessions.md §6.5 real — under
+	// --permission-prompt-tool the agent would otherwise prompt on
+	// every tool call.
+	tier := tierFor(a.ToolName)
+	if tier == TierTrivial || tier == TierRoutine {
+		s.recordAudit(ctx, team, "permission_prompt.auto_allowed",
+			"agent", fromID,
+			"tier="+tier+" auto-allowed "+a.ToolName,
+			map[string]any{
+				"tool_name": a.ToolName,
+				"tier":      tier,
+			})
+		return mcpResultJSON(map[string]any{
+			"behavior": "allow",
+			"message":  "auto-allowed (tier=" + tier + ")",
+		}), nil
+	}
+
 	// pending_payload_json carries the data the resolver UI needs to render
 	// a meaningful approve/deny prompt (tool name + redacted input preview).
 	// agent_id lets the mobile inbox associate the prompt with the calling
@@ -819,7 +842,6 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 	// card can pick the right card class without re-deriving the tier
 	// itself — and so the agent can't reclassify its own actions by
 	// claiming a lower tier.
-	tier := tierFor(a.ToolName)
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":   a.ToolName,
 		"input":       a.Input,

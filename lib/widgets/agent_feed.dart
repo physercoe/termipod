@@ -42,6 +42,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   StreamSubscription<Map<String, dynamic>>? _sub;
   final ScrollController _scroll = ScrollController();
   bool _followTail = true;
+  // W1.B (steward UX): hide debug-fidelity kinds by default and reveal
+  // them under an explicit toggle (matches Anthropic's Ctrl+O verbose
+  // toggle behavior, and Happy's "transcript styled, raw on demand"
+  // pattern). Default off — most users want a chat surface, not a
+  // protocol trace. Per-AgentFeed instance, not global.
+  bool _verbose = false;
   // Reconnect bookkeeping: exponential backoff (1, 2, 4, 8, 16s cap) so a
   // flaky hub connection doesn't hammer the server. Reset to 0 the moment
   // we successfully receive an event.
@@ -324,10 +330,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     //                      orphaned results (no matching call) still render
     //                      so a one-off tool_result isn't silently swallowed.
     //   session.init     — surfaced in the sticky header above.
+    //   debug-only kinds — gated by _verbose toggle (W1.B).
     final visible = <Map<String, dynamic>>[
       for (final e in _events)
         if (!_isHiddenInFeed(e, toolNames)) e,
     ];
+    // Count the verbose-gated events so the toggle can advertise its
+    // value — "Show debug (12)" carries more signal than a bare button.
+    int hiddenForVerbose = 0;
+    if (!_verbose) {
+      for (final e in _events) {
+        final kind = (e['kind'] ?? '').toString();
+        if (_isVerboseOnly(kind, e['payload'])) hiddenForVerbose++;
+      }
+    }
     return Column(
       children: [
         if (sessionInit != null) _SessionHeader(payload: sessionInit),
@@ -337,6 +353,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             turnCount: turnCount,
             usage: latestUsage,
             rateLimit: latestRateLimit,
+          ),
+        if (_verbose || hiddenForVerbose > 0)
+          _VerboseToggleBar(
+            verbose: _verbose,
+            hiddenCount: hiddenForVerbose,
+            onToggle: () => setState(() => _verbose = !_verbose),
           ),
         Expanded(
           child: Stack(
@@ -417,8 +439,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   //
   // Telemetry-only kinds (usage, rate_limit, turn.result) live in the
   // strip above the feed; rendering them as cards too would duplicate
-  // the signal. The legacy `completion` alias is kept visible for one
-  // release to ease the driver schema migration (W-DRV).
+  // the signal.
+  //
+  // Verbose-gated kinds (W1.B):
+  //   lifecycle      — started/stopped frames; the agent's status pill
+  //                    on the steward badge already conveys this.
+  //   completion     — deprecated alias for turn.result; already covered
+  //                    by the telemetry strip.
+  //   raw            — thinking blocks + unrecognized frames; debug-only.
+  //   system         — non-init system frames; init is in the header.
+  //   input.*        — user-typed input echo; the user's own message is
+  //                    already on screen via the compose box, no need to
+  //                    show it twice as a structured event card.
+  // All of these are revealed when [_verbose] is true.
   bool _isHiddenInFeed(
     Map<String, dynamic> e,
     Map<String, String> toolNames,
@@ -439,7 +472,102 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       }
       return false;
     }
+    if (!_verbose && _isVerboseOnly(kind, e['payload'])) return true;
     return false;
+  }
+
+  static const _kVerboseOnlyKinds = <String>{
+    'lifecycle',
+    'completion',
+    'raw',
+    'system',
+    'input.text',
+    'input.cancel',
+    'input.approval',
+    'input.attach',
+  };
+
+  bool _isVerboseOnly(String kind, Object? payload) {
+    if (!_kVerboseOnlyKinds.contains(kind)) return false;
+    // `system` is a generic envelope. Init lands in the header already
+    // (handled above). Don't suppress the rest just because the family
+    // is verbose-gated — fall through to render text payloads, etc. so
+    // a real system message isn't silently dropped.
+    if (kind == 'system' && payload is Map) {
+      final sub = (payload['subtype'] ?? '').toString();
+      if (sub.isNotEmpty && sub != 'init') return false;
+    }
+    return true;
+  }
+}
+
+/// One-line bar above the event list: shows the verbose toggle and,
+/// when off, how many events are currently hidden by it. Mirrors the
+/// "show raw" toggle in claude-code's terminal (Ctrl+O) — by default
+/// the transcript reads as a chat surface; flip to see the debug
+/// stream when something looks wrong.
+class _VerboseToggleBar extends StatelessWidget {
+  final bool verbose;
+  final int hiddenCount;
+  final VoidCallback onToggle;
+  const _VerboseToggleBar({
+    required this.verbose,
+    required this.hiddenCount,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final label = verbose
+        ? 'Hide debug events'
+        : (hiddenCount > 0
+            ? 'Show debug ($hiddenCount hidden)'
+            : 'Show debug');
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            verbose ? Icons.visibility : Icons.visibility_off_outlined,
+            size: 14,
+            color: muted,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              verbose
+                  ? 'Showing all events (lifecycle, raw, system, input echoes)'
+                  : 'Hiding lifecycle, raw, system, input echoes',
+              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+            ),
+          ),
+          TextButton(
+            onPressed: onToggle,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              minimumSize: const Size(0, 28),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: muted,
+            ),
+            child: Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

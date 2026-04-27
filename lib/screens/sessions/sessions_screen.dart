@@ -656,19 +656,6 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     }
   }
 
-  Future<void> _closeFromList(BuildContext context) async {
-    final id = (session['id'] ?? '').toString();
-    if (id.isEmpty) return;
-    try {
-      await ref.read(sessionsProvider.notifier).close(id);
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Close failed: $e')),
-      );
-    }
-  }
-
   Future<void> _confirmDelete(BuildContext context) async {
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -813,20 +800,21 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     // Single popup menu shared across statuses — Rename is always
     // available; Delete only on closed sessions (open/interrupted have
     // to be closed first per the hub contract).
+    // Per-row session menu. Closing an active session was previously
+    // an option here but was removed: it violated the multi-steward
+    // invariant ("every live steward has a session") by leaving the
+    // steward without one. Use Reset (per-steward kebab on the section
+    // header) to rotate the conversation, or Terminate (chat AppBar)
+    // to end the steward.
     final menu = PopupMenuButton<String>(
       tooltip: 'Session actions',
       icon: Icon(Icons.more_vert, size: 18, color: muted),
       onSelected: (v) {
         if (v == 'rename') _rename(context);
-        if (v == 'close') _closeFromList(context);
         if (v == 'delete') _confirmDelete(context);
       },
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
-        // Close is only useful from the list when the session is active
-        // — closed sessions can't be re-closed, deleted ones are gone.
-        if (status == 'open' || status == 'interrupted')
-          const PopupMenuItem(value: 'close', child: Text('Close')),
         if (status == 'closed')
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
@@ -989,50 +977,19 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
   }
 
-  /// Close the current session (status → closed) without opening a
-  /// fresh one. Different from "+ new session": that flow closes-and-
-  /// reopens; this just closes. The conversation goes to Previous in
-  /// the Sessions list; the steward agent itself stays alive and can
-  /// be opened in a new session later.
-  Future<void> _closeSession() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Close session?'),
-        content: const Text(
-          'Marks this session closed and moves it to Previous. The '
-          "steward stays running; you can start a new session against it "
-          'later from the Sessions list.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Close session'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    try {
-      await ref.read(sessionsProvider.notifier).close(widget.sessionId);
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Close failed: $e')),
-      );
-    }
-  }
-
   /// Terminate the steward agent. Destructive — the agent process is
   /// killed, the session auto-flips to interrupted (and stays that way
   /// until the user explicitly resumes or the steward is replaced).
-  /// Distinct from Close session, which leaves the agent alive.
+  ///
+  /// "Close session" used to live next to this as a separate action,
+  /// but it violated the multi-steward design invariant ("every live
+  /// steward has a session"): closing the only active session would
+  /// leave a steward agent without a current session, an
+  /// agent-without-session intermediate that the design forbids. The
+  /// two clean options are now: Reset (new conversation), which
+  /// preserves the agent and rotates the transcript via the per-
+  /// steward kebab on the Sessions page; or Terminate, which ends
+  /// the steward entirely. See docs/wedges/multi-steward.md §9.
   Future<void> _terminateSteward() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -1103,20 +1060,9 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           PopupMenuButton<String>(
             tooltip: 'Session actions',
             onSelected: (v) {
-              if (v == 'close') _closeSession();
               if (v == 'terminate') _terminateSteward();
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'close',
-                child: ListTile(
-                  leading: Icon(Icons.exit_to_app),
-                  title: Text('Close session'),
-                  subtitle: Text('Steward stays alive'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                ),
-              ),
               PopupMenuItem(
                 value: 'terminate',
                 child: ListTile(
@@ -1125,7 +1071,8 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
                   title: Text('Terminate steward',
                       style: TextStyle(
                           color: Theme.of(context).colorScheme.error)),
-                  subtitle: const Text('Kills the agent process'),
+                  subtitle: const Text(
+                      'Kills the agent process; session interrupts'),
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                 ),

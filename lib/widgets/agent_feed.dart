@@ -704,18 +704,32 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return true;
     }
     if (kind == 'tool_call') {
-      // The MCP gate `permission_prompt` is itself a tool from claude-code's
-      // perspective, so a single Bash invocation produces TWO tool_call
-      // events: one for the gate, one for the gated action. The gate is
-      // already represented as an inline approval card (or auto-allowed for
-      // trivial/routine tiers) — duplicating it as a tool_call card looks
-      // like the "tool box appeared twice" the user reported.
+      // Hide MCP "gate" tool_calls — the ones whose effect is to open
+      // an attention_item that mobile already renders as an inline
+      // card. Showing both surfaces (the tool_call card + the
+      // attention card) double-counts the same event.
+      //
+      // Three gates today, all under mcp__termipod__:
+      //   - permission_prompt — claude-code's --permission-prompt-tool
+      //     contract. Rendered as the inline approval card.
+      //   - request_decision — multi-choice. Rendered as the inline
+      //     SELECT card.
+      //   - request_approval — generic ask-for-human-yes/no. Rendered
+      //     as an attention item on the Me page (no inline card, but
+      //     the tool_call card is still noisy).
+      // Bare names also accepted (no `mcp__<server>__` prefix) so
+      // alternate engines that surface the same tool names hide too.
       final p = e['payload'];
       if (p is Map) {
         final name = (p['name'] ?? '').toString();
-        if (name == 'permission_prompt' ||
-            name.endsWith('__permission_prompt')) {
-          return true;
+        const gates = {
+          'permission_prompt',
+          'request_decision',
+          'request_approval',
+        };
+        if (gates.contains(name)) return true;
+        for (final g in gates) {
+          if (name.endsWith('__$g')) return true;
         }
       }
       return false;

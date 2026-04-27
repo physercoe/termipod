@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
+import '../../services/steward_handle.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -217,7 +218,7 @@ class _TeamChannelScreenState extends ConsumerState<TeamChannelScreen> {
   String? _stewardAgentId() {
     final agents = ref.watch(hubProvider).value?.agents ?? const [];
     for (final a in agents) {
-      if ((a['handle'] ?? '').toString() != 'steward') continue;
+      if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
       final s = (a['status'] ?? '').toString();
       if (s == 'running' || s == 'pending') {
         final id = (a['id'] ?? '').toString();

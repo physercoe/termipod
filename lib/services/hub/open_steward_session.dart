@@ -5,6 +5,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../screens/sessions/sessions_screen.dart';
 import '../../screens/team/spawn_steward_sheet.dart';
+import '../steward_handle.dart';
 
 /// Routes a "talk to the steward" intent to the right surface in the
 /// post-W2 sessions ontology.
@@ -36,10 +37,14 @@ Future<void> openStewardSession(BuildContext context, WidgetRef ref) async {
   final hub = ref.read(hubProvider).value;
   if (hub == null || !hub.configured) return;
 
-  // Find the live steward agent.
+  // Find the most-recently-seen live steward. With multi-steward we
+  // accept any handle that matches isStewardHandle; the first match
+  // wins, which on a single-steward install is the legacy 'steward'
+  // row. Wedge 2 (merged Sessions/Stewards page) replaces this
+  // first-match heuristic with an explicit picker.
   Map<String, dynamic>? steward;
   for (final a in hub.agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'running' || status == 'pending') {
       steward = a;

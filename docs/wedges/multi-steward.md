@@ -244,12 +244,72 @@ no wire-format break.
 
 ---
 
-## 9. The single decision I need from the user
+## 9. Decisions taken
 
-**Identity convention** (§3): A (suffix), B (prefix), or C (template-derived)?
-A is my recommendation. Once you pick, I can land wedge 1 (the
-refactor) the same day and we have a foundation that doesn't depend
-on the rest of the wedges.
+- **Identity convention** (§3): **A — handle suffix.** `_isSteward(h) =
+  h == 'steward' || h.endsWith('-steward')`.
+- **Sessions/Stewards page**: **merged.** Each steward is a section
+  with its current session inline + collapsible "previous" subsection.
+  Me FAB and Projects steward chip both route here.
+- **"Reset" naming**: **`Reset (new conversation)`** — the close-and-
+  reopen action that keeps the same agent alive and starts a fresh
+  transcript. Distinct from Terminate (kills the agent) and from
+  Replace (engine swap inside the existing session).
+- **Template CRUD location**: **stewards-page level**, not per-steward.
+  Stewards page AppBar `⋮` carries `Templates` (pushes the existing
+  TemplatesScreen) + `Engines` (AgentFamiliesScreen). Per-steward
+  kebab no longer offers `Edit template` because changes affect every
+  future spawn, not the current instance.
+- **Spawn-creates-session contract**: **server-side**, via a new
+  `auto_open_session: true` flag on the spawn request. When set and
+  `SessionID` is empty, `DoSpawn` opens a session inside the same tx
+  so a freshly-spawned steward is never agent-without-session.
+- **Workdir per template**: domain templates ship with distinct
+  `default_workdir` values (`~/hub-work/research`, `~/hub-work/infra`,
+  …) so two stewards on the same host don't collide on
+  `~/hub-work`. The base `agents.steward` keeps `~/hub-work` for
+  back-compat.
 
-Everything else is implementation order, and you can ship 1–2 of these
-without committing to all 5.
+## 10. Per-steward menu (final shape)
+
+Per-steward kebab on the merged page — only "this instance" actions:
+
+| Action | What it does |
+|---|---|
+| Reset (new conversation) | Closes current session, opens a fresh one against the same agent. Engine + memory preserved at the agent level; transcript starts empty. |
+| Replace steward | Swap engine/model inside the existing session (existing flow). |
+| Terminate steward | Kills the agent process. Session auto-flips to interrupted. |
+| Rename | Rename the steward's handle (collision check). |
+
+Stewards page AppBar `⋮` — global / type-system actions:
+
+| Action | What it does |
+|---|---|
+| Templates | Push TemplatesScreen (full CRUD on `team/templates/agents/*.yaml`). |
+| Engines | Push AgentFamiliesScreen. |
+| Refresh | Re-pull stewards + sessions from hub. |
+
+## 11. Wedge plan (final)
+
+Three wedges:
+
+1. **`_isSteward(handle)` refactor + spawn-sheet handle field +
+   DoSpawn `auto_open_session`.** Zero UX change for single-steward
+   installs. Adds the foundation for wedge 2.
+   - Server: `auto_open_session bool` on `spawnIn`; when true + no
+     `SessionID`, `DoSpawn` opens a session inside the same tx.
+     Round-trip test.
+   - Templates: ship `agents.steward.research.v1.yaml` and
+     `agents.steward.infra.v1.yaml` with distinct workdirs and
+     light persona prompts.
+   - Mobile: `_isSteward(h)` helper; replace 9 call sites; spawn
+     sheet gains a handle field with regex validator + collision
+     check; template picker filters to `agents.steward*`.
+
+2. **Merged Sessions/Stewards page**: replace `SessionsScreen` with
+   the section-per-steward layout. Reset (new conversation),
+   Replace, Terminate, Rename in per-steward kebab; Templates,
+   Engines, Refresh in AppBar `⋮`.
+
+3. **Me FAB / Projects chip routing** to the merged page, scrolled to
+   the most-recent steward.

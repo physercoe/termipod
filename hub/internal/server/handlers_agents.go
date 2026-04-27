@@ -365,6 +365,14 @@ type spawnIn struct {
 	// (queried by session_id) carries forward; the session's
 	// closed_at stays NULL throughout.
 	SessionID string `json:"session_id,omitempty"`
+	// AutoOpenSession asks DoSpawn to open a fresh session pointing at
+	// the new agent inside the same transaction, when SessionID is
+	// empty. Used by the "spawn new steward" flow so the resulting
+	// steward never exists agent-without-session — the session is the
+	// thing the principal talks to, an instance without one is just a
+	// template definition. Ignored when SessionID is set (the swap
+	// path already updates the named session in-tx).
+	AutoOpenSession bool `json:"auto_open_session,omitempty"`
 }
 
 type spawnOut struct {
@@ -628,6 +636,28 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 			 WHERE team_id = ? AND id = ?`,
 			agentID, in.SpawnSpec, in.WorktreePath, now,
 			team, swapSessionID); err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+	}
+
+	// Auto-open path: when the caller asks for it (multi-steward UX
+	// invariant: "every live steward has a session") and isn't doing
+	// a swap, open a fresh session pointing at the new agent inside
+	// the same tx. This guarantees the spawn either lands a complete
+	// (agent + session) pair or rolls back both — the caller never
+	// observes an agent-without-session intermediate state.
+	if swapSessionID == "" && in.AutoOpenSession {
+		newSessionID := NewID()
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO sessions (
+				id, team_id, title, scope_kind, scope_id, current_agent_id,
+				status, opened_at, last_active_at,
+				worktree_path, spawn_spec_yaml
+			) VALUES (?, ?, NULL, 'team', NULL, ?,
+			          'open', ?, ?,
+			          NULLIF(?, ''), NULLIF(?, ''))`,
+			newSessionID, team, agentID, now, now,
+			in.WorktreePath, in.SpawnSpec); err != nil {
 			return spawnOut{}, http.StatusInternalServerError, err
 		}
 	}

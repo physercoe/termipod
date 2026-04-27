@@ -1,0 +1,55 @@
+# Domain steward: infrastructure / ops focus.
+#
+# Same shape as steward.research.v1 — a thin persona overlay on the
+# base steward template with a distinct workdir and prompt. The two
+# domain stewards demonstrate the multi-steward UX without changing
+# what a steward fundamentally is.
+template: agents.steward.infra
+version: 1
+extends: null
+
+driving_mode: M2
+fallback_modes: [M4]
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/infra
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+
+default_role: team.coordinator
+display_label: "Infra steward"
+
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.infra.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose an ops goal into runbook steps"
+    tags: [planning, ops]
+  - id: incident
+    name: incident
+    description: "Triage an alert and propose a remediation"
+    tags: [ops]
+  - id: deploy
+    name: deploy
+    description: "Author a deploy plan with rollback gates"
+    tags: [ops, deploy]
+
+default_channels:
+  hub-meta: full

@@ -12,6 +12,7 @@ import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/hub/open_steward_session.dart';
+import '../../services/steward_handle.dart';
 import '../../services/steward_liveness.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -325,7 +326,7 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
 /// (team_id, handle) unique-handle index → 409 SQLITE_CONSTRAINT_UNIQUE.
 String? _findStewardId(List<Map<String, dynamic>> agents) {
   for (final a in agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final status = (a['status'] ?? '').toString();
     if (status != 'running' && status != 'pending' && status != 'paused') {
       continue;
@@ -430,7 +431,7 @@ Future<void> _confirmAndRecreateSteward(
     if (hubAfter != null) {
       String? newStewardId;
       for (final a in hubAfter.agents) {
-        if ((a['handle'] ?? '').toString() != 'steward') continue;
+        if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
         final status = (a['status'] ?? '').toString();
         if (status != 'running' && status != 'pending') continue;
         newStewardId = (a['id'] ?? '').toString();
@@ -449,14 +450,15 @@ Future<void> _confirmAndRecreateSteward(
   }
 }
 
-/// A steward counts as "present" when any agent with handle=='steward' is
-/// in an active lifecycle state (pending or running). We include 'pending'
-/// because a freshly-spawned steward is on its way up — no reason to flash
-/// "No steward" during the 3s reconcile window. Top-level so both the
-/// AppBar chip and the W4 auto-bootstrap trigger share one definition.
+/// A steward counts as "present" when any agent matching isStewardHandle
+/// (legacy 'steward' or domain '*-steward') is in an active lifecycle
+/// state (pending or running). We include 'pending' because a freshly-
+/// spawned steward is on its way up — no reason to flash "No steward"
+/// during the 3s reconcile window. Top-level so both the AppBar chip
+/// and the W4 auto-bootstrap trigger share one definition.
 bool stewardPresent(List<Map<String, dynamic>> agents) {
   for (final a in agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final s = (a['status'] ?? '').toString();
     if (s == 'running' || s == 'pending') return true;
   }

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 
@@ -94,10 +95,11 @@ Future<void> _newSession(BuildContext context, WidgetRef ref) async {
   final client = ref.read(hubProvider.notifier).client;
   if (client == null) return;
 
-  // Find live steward.
+  // Find a live steward (first match wins; multi-steward picker
+  // lands in wedge 2 of docs/wedges/multi-steward.md).
   Map<String, dynamic>? steward;
   for (final a in hub.agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'running' || status == 'pending' || status == 'paused') {
       steward = a;

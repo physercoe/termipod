@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 
 /// Team Settings → Steward Config per `docs/ia-redesign.md` §11 Wedge 7.
@@ -212,7 +213,7 @@ class _StewardConfigScreenState extends ConsumerState<StewardConfigScreen> {
     Map<String, dynamic>? pending;
     Map<String, dynamic>? other;
     for (final a in agents) {
-      if ((a['handle'] ?? '').toString() != 'steward') continue;
+      if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
       final status = (a['status'] ?? '').toString();
       if (status == 'running') {
         running = a;

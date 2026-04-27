@@ -1,3 +1,5 @@
+import 'steward_handle.dart';
+
 // Liveness classifier for the team steward agent.
 //
 // A wedged claude process keeps `status='running'` on the hub but stops
@@ -23,8 +25,9 @@ enum StewardLiveness {
   /// status=pending — host-runner hasn't picked up the spawn yet. Grey.
   starting,
 
-  /// No agent with handle=='steward', or it's terminated/failed/archived.
-  /// Grey "No steward" — tap to spawn a new one.
+  /// No live steward (no agent matches isStewardHandle, or all matching
+  /// ones are terminated/failed/archived). Grey "No steward" — tap to
+  /// spawn a new one.
   none,
 }
 
@@ -45,15 +48,18 @@ const Duration stuckWindow = Duration(minutes: 30);
 /// Classifies team-level steward liveness from the agents-list payload.
 ///
 /// `agents` is the `hub_state.agents` list — each row is the JSON map
-/// returned by `GET /v1/teams/{team}/agents`. A team can have multiple
-/// agents but only one is `handle == 'steward'`.
+/// returned by `GET /v1/teams/{team}/agents`. With multi-steward we
+/// classify across every steward handle (`steward`, `*-steward`) and
+/// surface the *worst* state — one healthy + one stuck reads as
+/// "stuck" so the user notices. Single-steward installs are the
+/// degenerate case where the loop only finds one matching row.
 StewardLiveness stewardLiveness(
   List<Map<String, dynamic>> agents, {
   DateTime? now,
 }) {
   final clock = now ?? DateTime.now().toUtc();
   for (final a in agents) {
-    if ((a['handle'] ?? '').toString() != 'steward') continue;
+    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'pending') return StewardLiveness.starting;
     if (status != 'running') continue; // terminated/failed/archived → none

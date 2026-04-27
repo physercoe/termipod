@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
+import '../../services/steward_handle.dart';
 import '../team/template_icon.dart';
 
 /// Bottom-sheet editor for spawning an agent. Shared by the project detail
@@ -233,10 +234,10 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
       setState(() => _error = 'handle, kind, and YAML spec are required');
       return;
     }
-    if (handle == 'steward') {
+    if (isStewardHandle(handle)) {
       setState(() => _error =
-          'The handle "steward" is reserved — use the Steward chip '
-          'in the Projects AppBar to spawn one.');
+          'Steward handles ("steward" or "*-steward") are reserved — '
+          'use the Steward chip in the Projects AppBar to spawn one.');
       return;
     }
     setState(() {

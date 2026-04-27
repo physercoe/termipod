@@ -1,0 +1,60 @@
+# Domain steward: research focus.
+#
+# Differs from the base steward template only in:
+#   - template id (so it shows up as a distinct picker entry)
+#   - default_workdir (so two stewards on the same host don't collide
+#     on ~/hub-work — the base template owns that path)
+#   - display_label + prompt (so the principal can tell them apart on
+#     the merged sessions page and the steward responds in-character)
+#
+# Everything else inherits the base steward's authority and behavior;
+# this is a thin persona overlay, not a re-architecture.
+template: agents.steward.research
+version: 1
+extends: null
+
+driving_mode: M2
+fallback_modes: [M4]
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/research
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+
+default_role: team.coordinator
+display_label: "Research steward"
+
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.research.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a research goal into experiments and runs"
+    tags: [planning, research]
+  - id: brief
+    name: brief
+    description: "Write a research briefing summarizing run outputs"
+    tags: [writing, research]
+  - id: literature
+    name: literature
+    description: "Outline related work for a research question"
+    tags: [research]
+
+default_channels:
+  hub-meta: full

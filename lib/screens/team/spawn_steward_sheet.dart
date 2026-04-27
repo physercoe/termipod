@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 
 /// SharedPreferences key prefix for the per-team "user dismissed the
@@ -80,6 +81,20 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   /// flip between modes per-spawn without editing the steward template.
   String _permissionMode = 'skip';
   final TextEditingController _personaCtrl = TextEditingController();
+  // Multi-steward fields. The handle picker accepts plain `steward`
+  // when no other live steward owns it, or any `<name>-steward` form.
+  // The template picker lists every `agents/steward*.yaml` so domain
+  // templates show up automatically once they land in
+  // team/templates/agents/.
+  late final TextEditingController _handleCtrl;
+  String _templateName = 'steward.v1.yaml';
+  List<String> _stewardTemplates = const ['steward.v1.yaml'];
+  bool _templatesLoading = true;
+  // Live steward handles (running/pending/paused) on this team —
+  // populated from hubProvider in initState. Used to (a) pre-validate
+  // the handle field against collision, (b) pick a sensible default
+  // when 'steward' is taken.
+  Set<String> _liveStewardHandles = const {};
 
   @override
   void initState() {
@@ -91,15 +106,93 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       _hostId = (online.isNotEmpty ? online.first : widget.hosts.first)['id']
           ?.toString();
     }
+    _handleCtrl = TextEditingController();
+    // Pull live stewards from the cached hub state — avoids a second
+    // round-trip when the sheet opens. Empty when hub state isn't
+    // loaded yet (rare).
+    final hub = ref.read(hubProvider).value;
+    if (hub != null) {
+      final live = <String>{};
+      for (final a in hub.agents) {
+        final handle = (a['handle'] ?? '').toString();
+        if (!isStewardHandle(handle)) continue;
+        final status = (a['status'] ?? '').toString();
+        if (status == 'running' ||
+            status == 'pending' ||
+            status == 'paused') {
+          live.add(handle);
+        }
+      }
+      _liveStewardHandles = live;
+    }
+    // Default handle: 'steward' if free, otherwise prompt the user to
+    // type a domain name (we leave it blank so they have to choose).
+    _handleCtrl.text =
+        _liveStewardHandles.contains('steward') ? '' : 'steward';
+    _loadTemplates();
+  }
+
+  Future<void> _loadTemplates() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      if (mounted) setState(() => _templatesLoading = false);
+      return;
+    }
+    try {
+      final all = await client.listTemplates();
+      if (!mounted) return;
+      final picks = <String>[];
+      for (final row in all) {
+        final cat = (row['category'] ?? '').toString();
+        final name = (row['name'] ?? '').toString();
+        if (cat != 'agents') continue;
+        if (!name.startsWith('steward')) continue;
+        picks.add(name);
+      }
+      picks.sort();
+      setState(() {
+        _stewardTemplates = picks.isEmpty ? const ['steward.v1.yaml'] : picks;
+        _templatesLoading = false;
+        if (!_stewardTemplates.contains(_templateName)) {
+          _templateName = _stewardTemplates.first;
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _templatesLoading = false);
+    }
+  }
+
+  // Parse `steward.research.v1.yaml` → `research-steward` to seed the
+  // handle field when the user picks a domain template. Falls back to
+  // empty for anything that doesn't match the convention so we don't
+  // clobber a handle the user already typed.
+  String _suggestedHandleFor(String tpl) {
+    final m = RegExp(r'^steward\.([a-z][a-z0-9-]*)\.v\d+\.yaml$')
+        .firstMatch(tpl);
+    if (m == null) return '';
+    return '${m.group(1)}-steward';
   }
 
   @override
   void dispose() {
     _personaCtrl.dispose();
+    _handleCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _spawn() async {
+    final handle = _handleCtrl.text.trim();
+    final handleErr = validateStewardHandle(handle);
+    if (handleErr != null) {
+      setState(() => _error = handleErr);
+      return;
+    }
+    if (widget.sessionId == null && _liveStewardHandles.contains(handle)) {
+      setState(() => _error =
+          'A live steward already owns the handle "$handle". '
+          'Pick a different one (e.g. ${_suggestNextHandle(handle)}).');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -109,17 +202,21 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       if (client == null) throw StateError('Hub not configured');
       final yaml = await client.getTemplate(
         'agents',
-        'steward.v1.yaml',
+        _templateName,
         merged: true,
       );
       final res = await client.spawnAgent(
-        childHandle: 'steward',
+        childHandle: handle,
         kind: 'claude-code',
         spawnSpecYaml: yaml,
         hostId: _hostId,
         personaSeed: _personaCtrl.text,
         permissionMode: _permissionMode,
         sessionId: widget.sessionId,
+        // Atomic spawn-with-session for the fresh-spawn path. The swap
+        // path (sessionId != null) updates the named session in-tx
+        // server-side; auto_open_session is ignored there.
+        autoOpenSession: widget.sessionId == null,
       );
       if (!mounted) return;
       final status = res['status']?.toString() ?? '';
@@ -138,6 +235,17 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  // Pick the next free derivative when a collision happens. Tries
+  // handle-2, handle-3, …; bounded to keep the suggestion reasonable
+  // for a quick visual hint.
+  String _suggestNextHandle(String taken) {
+    for (var i = 2; i < 20; i++) {
+      final cand = '$taken-$i';
+      if (!_liveStewardHandles.contains(cand)) return cand;
+    }
+    return '${taken}-N';
   }
 
   Future<void> _skip() async {
@@ -225,6 +333,71 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   ),
                 ),
               ] else ...[
+                // Template picker — hidden when only one steward template
+                // is on the team (the legacy single-steward case stays
+                // exactly as it was before multi-steward landed).
+                if (_stewardTemplates.length > 1) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: _templateName,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Template',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _stewardTemplates
+                        .map((t) => DropdownMenuItem<String>(
+                              value: t,
+                              child: Text(t),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() {
+                        _templateName = v;
+                        // Auto-suggest a matching handle when the user
+                        // hasn't typed one yet (or hasn't customized
+                        // beyond a previous suggestion). Don't clobber
+                        // a hand-typed handle.
+                        final suggest = _suggestedHandleFor(v);
+                        if (suggest.isNotEmpty &&
+                            (_handleCtrl.text.trim().isEmpty ||
+                                _handleCtrl.text.trim() == 'steward' ||
+                                _handleCtrl.text.trim()
+                                    .endsWith('-steward'))) {
+                          // Only swap when the new suggestion would
+                          // actually be free; otherwise leave the field
+                          // alone and let the validator yell.
+                          if (!_liveStewardHandles.contains(suggest)) {
+                            _handleCtrl.text = suggest;
+                          }
+                        }
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                // Handle field — required, validates against the
+                // steward-handle convention + collision with live
+                // stewards. Hidden when nothing else exists yet AND
+                // the template is the legacy steward.v1.yaml (single-
+                // steward bootstrap UX is unchanged).
+                if (_liveStewardHandles.isNotEmpty ||
+                    _templateName != 'steward.v1.yaml') ...[
+                  TextFormField(
+                    controller: _handleCtrl,
+                    enabled: !_busy,
+                    decoration: InputDecoration(
+                      labelText: 'Handle',
+                      hintText: 'steward, research-steward, infra-steward, …',
+                      helperText: _templatesLoading
+                          ? 'Loading templates…'
+                          : 'Lowercase + dashes ending in `-steward`. '
+                              'Plain "steward" is the default.',
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 DropdownButtonFormField<String>(
                   initialValue: _hostId,
                   isExpanded: true,

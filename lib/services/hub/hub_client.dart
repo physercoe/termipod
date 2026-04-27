@@ -975,6 +975,7 @@ class HubClient {
     String? personaSeed,
     String? permissionMode,
     String? sessionId,
+    bool autoOpenSession = false,
   }) async {
     final body = <String, dynamic>{
       'child_handle': childHandle,
@@ -998,6 +999,14 @@ class HubClient {
     // the operator's new engine/model picks.
     if (sessionId != null && sessionId.isNotEmpty) {
       body['session_id'] = sessionId;
+    }
+    // auto_open_session is the multi-steward UX invariant ("every live
+    // steward has a session"). When set + sessionId empty, the hub
+    // opens a session pointing at the new agent inside the same tx so
+    // the spawn is atomic. Ignored when sessionId is set (the swap
+    // path already updates the named session in-tx).
+    if (autoOpenSession) {
+      body['auto_open_session'] = true;
     }
     final out = await _post('/v1/teams/${cfg.teamId}/agents/spawn', body);
     return (out as Map).cast<String, dynamic>();

@@ -601,6 +601,90 @@ func TestAgentEvents_TailAndPaginate(t *testing.T) {
 	}
 }
 
+// auto_open_session=true on a spawn-with-no-SessionID opens a session
+// pointing at the new agent inside the same transaction. The
+// multi-steward UX invariant ("every live steward has a session")
+// depends on this being atomic — without it, a process crash between
+// spawn and openSession would leave an agent-without-session orphan.
+func TestSpawn_AutoOpenSession(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	// Find a host to attach the spawn to. seedChannelAndAgent registers
+	// one as a side-effect; reuse it.
+	_, _ = seedChannelAndAgent(t, s, "", "host-x")
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":      "research-steward",
+			"kind":              "claude-code",
+			"host_id":           "host-x",
+			"spawn_spec_yaml":   "kind: claude-code\nbackend:\n  cmd: claude\n",
+			"auto_open_session": true,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("spawn: status=%d body=%s", status, body)
+	}
+	var out spawnOut
+	_ = json.Unmarshal(body, &out)
+	if out.AgentID == "" {
+		t.Fatalf("spawn returned no agent_id: %s", body)
+	}
+
+	// Exactly one open session exists pointing at the new agent.
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM sessions
+		   WHERE current_agent_id = ? AND status = 'open'`,
+		out.AgentID,
+	).Scan(&n)
+	if n != 1 {
+		t.Errorf("auto-open session count = %d; want 1", n)
+	}
+}
+
+// auto_open_session is ignored when SessionID is set (the swap path
+// already updates the named session in-tx). This guards against the
+// caller accidentally setting both flags and getting a duplicate
+// session.
+func TestSpawn_AutoOpenSession_IgnoredOnSwap(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
+
+	// Open a session attached to the existing agent.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "swap test", "agent_id": oldAgentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Swap with auto_open_session set — the swap should win, no extra
+	// session row should appear.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":      "steward",
+			"kind":              "claude-code",
+			"host_id":           "host-x",
+			"spawn_spec_yaml":   "kind: claude-code\nbackend:\n  cmd: claude\n",
+			"session_id":        ses.ID,
+			"auto_open_session": true,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("swap spawn: status=%d body=%s", status, body)
+	}
+	var openCount int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM sessions WHERE status = 'open'`).Scan(&openCount)
+	if openCount != 1 {
+		t.Errorf("open session count after swap = %d; want 1 (auto-open should be ignored when SessionID set)",
+			openCount)
+	}
+}
+
 // PATCH /sessions/{id} renames the row. Empty title clears it back
 // to NULL so the mobile UI shows "(untitled session)" again.
 func TestSessions_PatchRename(t *testing.T) {

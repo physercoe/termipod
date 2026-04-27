@@ -298,7 +298,7 @@ class _MeItem {
   static _Filter _filterForAttention(String kind) {
     switch (kind) {
       case 'approval_request':
-      case 'decision':
+      case 'select':
       case 'template_proposal':
         return _Filter.approvals;
       case 'idle':
@@ -614,7 +614,7 @@ class _ApprovalActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final options = _options();
-    if (kind == 'decision' && options.isNotEmpty) {
+    if (kind == 'select' && options.isNotEmpty) {
       // Per-option buttons + Reject. Picking an option flows through
       // `decide(decision='approve', option_id=...)` so the hub's quorum
       // logic still applies and the agent gets the chosen option back

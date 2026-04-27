@@ -17,7 +17,7 @@ type attentionIn struct {
 	ScopeKind   string   `json:"scope_kind"`            // 'team' | 'project' | 'channel'
 	ScopeID     string   `json:"scope_id,omitempty"`
 	ProjectID   string   `json:"project_id,omitempty"`
-	Kind        string   `json:"kind"`                  // 'decision' | 'approval' | 'idle' | ...
+	Kind        string   `json:"kind"`                  // 'select' | 'approval_request' | 'permission_prompt' | 'template_proposal' | 'idle' | ...
 	Summary     string   `json:"summary"`
 	Severity    string   `json:"severity,omitempty"`
 	RefEventID  string   `json:"ref_event_id,omitempty"`
@@ -149,7 +149,7 @@ type attentionDecideIn struct {
 	Decision string `json:"decision"` // 'approve' | 'reject'
 	By       string `json:"by,omitempty"`
 	Reason   string `json:"reason,omitempty"`
-	// OptionID names the picked option for kind='decision' attention
+	// OptionID names the picked option for kind='select' attention
 	// items (request_decision MCP tool). The request stores the option
 	// labels in pending_payload_json; the picked id flows back to the
 	// agent via waitForAttentionResolution. Ignored for kinds that

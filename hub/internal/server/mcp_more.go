@@ -356,20 +356,24 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 		"agent_id": fromID,
 	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	// Stored as kind='select' (the noun) — the MCP tool stays
+	// `request_decision` (the agent-facing verb) so existing prompts
+	// don't break, but the resolver UI reads `select` which is sharper
+	// than the generic "decision".
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
 			actor_kind, actor_handle, pending_payload_json
-		) VALUES (?, NULL, ?, NULLIF(?, ''), 'decision',
+		) VALUES (?, NULL, ?, NULLIF(?, ''), 'select',
 		          ?, 'minor', '[]', 'open', ?,
 		          'agent', NULLIF(?, ''), ?)`,
 		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle, string(payload))
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
-	s.recordAudit(ctx, team, "decision.request", "attention", id,
-		"decision awaiting user: "+a.Question,
+	s.recordAudit(ctx, team, "select.request", "attention", id,
+		"selection awaiting user: "+a.Question,
 		map[string]any{"agent_id": fromID, "options": a.Options})
 
 	// Long-poll for resolution so the agent receives the chosen option.
@@ -387,7 +391,7 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
 			return mcpResultJSON(map[string]any{
 				"id":      id,
-				"kind":    "decision",
+				"kind":    "select",
 				"timeout": true,
 			}), nil
 		}
@@ -398,7 +402,7 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 	reason, _ := last["reason"].(string)
 	return mcpResultJSON(map[string]any{
 		"id":           id,
-		"kind":         "decision",
+		"kind":         "select",
 		"option_id":    optionID,
 		"decision":     decision,
 		"reason":       reason,

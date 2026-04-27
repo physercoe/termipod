@@ -124,7 +124,7 @@ func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
 	for time.Now().Before(deadline) {
 		var id string
 		err := s.db.QueryRow(
-			`SELECT id FROM attention_items WHERE kind = 'decision' ORDER BY created_at DESC LIMIT 1`,
+			`SELECT id FROM attention_items WHERE kind = 'select' ORDER BY created_at DESC LIMIT 1`,
 		).Scan(&id)
 		if err == nil {
 			attnID = id

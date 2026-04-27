@@ -46,6 +46,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   int _maxSeq = 0;
   String? _error;
   bool _loading = true;
+  // When the bootstrap fetch falls back to the offline cache (server
+  // unreachable, 5xx, etc.), we keep the cached transcript visible and
+  // surface a banner with the snapshot timestamp. Cleared the moment a
+  // live SSE event arrives so the user can tell the feed is current
+  // again.
+  DateTime? _staleSince;
   StreamSubscription<Map<String, dynamic>>? _sub;
   final ScrollController _scroll = ScrollController();
   bool _followTail = true;
@@ -122,7 +128,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return;
     }
     try {
-      final backfill = await client.listAgentEvents(
+      // Read-through cache: when the network fails, we still get the
+      // last persisted transcript so the user can re-read what they had
+      // even on a flaky link. SSE then takes over once the hub is back.
+      final cached = await client.listAgentEventsCached(
         widget.agentId,
         limit: 500,
         sessionId: widget.sessionId,
@@ -130,12 +139,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (!mounted) return;
       _events
         ..clear()
-        ..addAll(backfill);
+        ..addAll(cached.body);
       _maxSeq = _events.fold<int>(0, (m, e) {
         final seq = (e['seq'] as num?)?.toInt() ?? 0;
         return seq > m ? seq : m;
       });
-      setState(() => _loading = false);
+      setState(() {
+        _loading = false;
+        _staleSince = cached.staleSince;
+      });
       _subscribe(client);
       // Give the first-frame layout a tick, then pin to the tail.
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
@@ -169,13 +181,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // The hub replays from `since` inclusive on some endpoints; guard
       // against dupes deterministically by seq.
       if (seq > 0 && seq <= _maxSeq) return;
-      // First successful delivery after a drop clears the banner and the
-      // backoff counter so the next drop starts over at 1s.
+      // First successful delivery after a drop clears the banner, the
+      // backoff counter, and any "Offline · last updated" pill — the
+      // feed is live again the moment SSE pushes a frame.
       final clearedError = _error != null;
       setState(() {
         _events.add(evt);
         if (seq > _maxSeq) _maxSeq = seq;
         if (clearedError) _error = null;
+        _staleSince = null;
         if (!_followTail) _newWhileAway += 1;
       });
       _reconnectAttempt = 0;
@@ -369,6 +383,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             usage: latestUsage,
             rateLimit: latestRateLimit,
           ),
+        if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_verbose || hiddenForVerbose > 0)
           _VerboseToggleBar(
             verbose: _verbose,
@@ -399,7 +414,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // turn — the agent is paused waiting for a decision, and
               // hiding the card behind a tab would invert the urgency.
               //
-              // _PendingDecisions handles the parallel kind=decision case
+              // _PendingSelections handles the parallel kind=select case
               // for request_decision (multi-choice). Both cards filter by
               // agent_id so a prompt for a different steward doesn't
               // appear here.
@@ -410,7 +425,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _PendingDecisions(),
+                    _PendingSelections(),
                     _PendingPermissionPrompts(),
                   ],
                 ),
@@ -549,6 +564,53 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (sub.isNotEmpty && sub != 'init') return false;
     }
     return true;
+  }
+}
+
+/// "Offline · last updated 2m ago" strip shown above the transcript
+/// when the bootstrap fetch fell back to the snapshot cache. Cleared
+/// the moment a live SSE event arrives — same trigger as `_error`,
+/// because either a fresh fetch or the first stream push proves the
+/// hub is reachable again.
+class _OfflineBanner extends StatelessWidget {
+  final DateTime staleSince;
+  const _OfflineBanner({required this.staleSince});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Container(
+      decoration: BoxDecoration(
+        color: DesignColors.warning.withValues(alpha: 0.08),
+        border: Border(bottom: BorderSide(color: border)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off_outlined, size: 14, color: muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              'Offline — showing cached transcript (last updated '
+              '${_relative(staleSince)})',
+              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _relative(DateTime ts) {
+    final diff = DateTime.now().difference(ts);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 }
 
@@ -893,12 +955,12 @@ class _PermissionPromptCardState
   }
 }
 
-/// Inline decision card for kind=decision attention items raised by the
+/// Inline selection card for kind=select attention items raised by the
 /// agent we're watching. The agent's request_decision MCP call long-polls
 /// for the user's pick; surfacing this card in the chat keeps the round-
 /// trip in one place instead of forcing a trip to the Me page.
-class _PendingDecisions extends ConsumerWidget {
-  const _PendingDecisions();
+class _PendingSelections extends ConsumerWidget {
+  const _PendingSelections();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -909,7 +971,7 @@ class _PendingDecisions extends ConsumerWidget {
         const <Map<String, dynamic>>[];
     final pending = <Map<String, dynamic>>[];
     for (final a in attention) {
-      if ((a['kind'] ?? '').toString() != 'decision') continue;
+      if ((a['kind'] ?? '').toString() != 'select') continue;
       if ((a['status'] ?? '').toString() != 'open') continue;
       final payload = _payloadOf(a);
       if (agentId.isNotEmpty &&
@@ -925,7 +987,7 @@ class _PendingDecisions extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (final a in pending)
-            _DecisionCard(attention: a, payload: _payloadOf(a)),
+            _SelectionCard(attention: a, payload: _payloadOf(a)),
         ],
       ),
     );
@@ -944,18 +1006,20 @@ class _PendingDecisions extends ConsumerWidget {
   }
 }
 
-class _DecisionCard extends ConsumerStatefulWidget {
+class _SelectionCard extends ConsumerStatefulWidget {
   final Map<String, dynamic> attention;
   final Map<String, dynamic> payload;
-  const _DecisionCard({required this.attention, required this.payload});
+  const _SelectionCard({required this.attention, required this.payload});
 
   @override
-  ConsumerState<_DecisionCard> createState() => _DecisionCardState();
+  ConsumerState<_SelectionCard> createState() => _SelectionCardState();
 }
 
-class _DecisionCardState extends ConsumerState<_DecisionCard> {
+class _SelectionCardState extends ConsumerState<_SelectionCard> {
   bool _sending = false;
   String? _error;
+  // Header label is "SELECT" — the action is "pick one of these
+  // labelled options", which is sharper than the old generic "decision".
 
   Future<void> _pick(String? optionId, {String decision = 'approve'}) async {
     final id = (widget.attention['id'] ?? '').toString();
@@ -990,7 +1054,7 @@ class _DecisionCardState extends ConsumerState<_DecisionCard> {
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final question = (widget.payload['question'] ??
             widget.attention['summary'] ??
-            'Decision needed')
+            'Selection needed')
         .toString();
     final optionsRaw = widget.payload['options'];
     final options = optionsRaw is List
@@ -1024,7 +1088,7 @@ class _DecisionCardState extends ConsumerState<_DecisionCard> {
                   size: 16, color: DesignColors.primary),
               const SizedBox(width: 6),
               Text(
-                'DECISION',
+                'SELECT',
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,

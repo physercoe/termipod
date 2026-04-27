@@ -493,7 +493,7 @@ func SeedDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedDemoResult
 			decisions_json, escalation_history_json,
 			status, created_at,
 			actor_kind, actor_handle
-		) VALUES (?, ?, 'project', ?, 'decision',
+		) VALUES (?, ?, 'project', ?, 'approval_request',
 		          ?, 'minor', ?,
 		          '[]', '[]',
 		          'open', ?,

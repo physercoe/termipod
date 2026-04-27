@@ -1139,6 +1139,38 @@ class HubClient {
     );
   }
 
+  /// Read-through variant of [listAgentEvents]; see [listAttentionCached]
+  /// for the offline-fallback contract. Sessions are the one surface where
+  /// dropping the transcript on a flaky network hurts most — opening an
+  /// existing session offline now shows the last-seen transcript with an
+  /// "Offline · last updated X" hint, instead of an empty error card.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listAgentEventsCached(
+    String agentId, {
+    int? since,
+    int? limit,
+    String? sessionId,
+  }) {
+    final q = <String, String>{};
+    if (since != null) q['since'] = '$since';
+    if (limit != null) q['limit'] = '$limit';
+    if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/agents/$agentId/events',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listAgentEvents(
+        agentId,
+        since: since,
+        limit: limit,
+        sessionId: sessionId,
+      ),
+      decode: _decodeListMaps,
+    );
+  }
+
   /// SSE tail of the agent's event queue. Subscribes before replaying
   /// backfill from [sinceSeq] so no live event is missed in the gap.
   /// `sessionId` filters the live + backfilled events server-side to one

@@ -8,9 +8,17 @@ import 'hub_provider.dart';
 /// Both the Activity tab (firehose list) and the Me tab (digest mirror
 /// under "Since you were last here") consume this provider per
 /// `docs/ia-redesign.md` §6.3.
+///
+/// Uses the cached read-through so the activity surface survives
+/// offline open: `listAuditEventsCached` falls back to the snapshot
+/// cache on transport failure (same pattern as projects, attention,
+/// hosts, etc.). Without this, opening the Me tab on airplane mode
+/// flashed an error and showed no history even when prior fetches
+/// had populated the cache.
 final recentAuditProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final client = ref.watch(hubProvider.notifier).client;
   if (client == null) return const [];
-  return client.listAuditEvents(limit: 200);
+  final cached = await client.listAuditEventsCached(limit: 200);
+  return cached.body;
 });

@@ -625,6 +625,21 @@ This is the Happy benchmark; we must match or beat it.
 
 ## 7. Multi-agent mode
 
+> **Scope of this section.** This section covers **bursts** — a
+> steward spawning workers on demand for one decomposable task, then
+> dissolving when the task is done. That's the model the codebase
+> implements today.
+>
+> What it does **not** cover: standing teams of agents (squads),
+> peer coordination between stewards (federation), shared mutable
+> state across agents, or hierarchical org structures. Those layer
+> *above* this section and live in `docs/agent-fleet.md` as a
+> design memo (not yet started).
+>
+> The split is deliberate: bursts answer "how does one steward
+> decompose a task?" — squads answer "how does a persistent group
+> of agents organize?". Different problems; different time-scales.
+
 This section defines what changes when there are workers.
 
 ### 7.1 When does the steward fan out
@@ -819,6 +834,10 @@ Total: ~6 person-days on top of B1–B5.
 - Spawn tree view (§7.6).
 - Per-member steward (ia-redesign §11 F-1).
 - Skill marketplace with vetting (§3.3).
+- **Squads / fleet layer** — standing teams of agents organized
+  around a goal, with roles, shared scratchpad, group fan-out and
+  group decisions. Design memo at `docs/agent-fleet.md`. Layers
+  above §7's burst model; not started.
 
 ---
 

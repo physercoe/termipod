@@ -688,7 +688,12 @@ amendment of this document first.
    containment; breaks air-gapped operation; multiplies token surface.
 4. **Policy lives on hosts and drifts from hub.** Violates A3.
 5. **Agents coordinate via shared files or undocumented channels outside
-   A2A + hub channels.** Destroys provenance.
+   A2A + hub channels.** Destroys provenance. *Exception under design
+   (`docs/agent-fleet.md` §5):* a squad's shared scratchpad lives in
+   the existing `documents` table with audit semantics, so it stays on
+   the audit trail. The forbidden case is the *unaudited* shared file,
+   not "shared state per se." When squads land, this rule reads "no
+   shared state outside A2A, hub channels, OR squad-scoped documents."
 6. **App parses ANSI from the pane as the primary agent view.** Fights
    AG-UI; the default surface must be typed events, not raw bytes.
 7. **New REST endpoint on hub that agents will call directly.** Hub

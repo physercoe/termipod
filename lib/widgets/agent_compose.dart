@@ -8,8 +8,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:termipod/l10n/app_localizations.dart';
+
 import '../providers/hub_provider.dart';
 import '../providers/input_history_provider.dart';
+import '../providers/snippet_provider.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
@@ -164,6 +167,61 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     _focus.requestFocus();
   }
 
+  /// Save the current compose text as a draft snippet. Mirrors the
+  /// terminal compose's "save as snippet" flow (terminal_screen.dart
+  /// _handleSaveSnippet): empty → snackbar; otherwise prompt for a
+  /// name, save under category 'drafts', clear the field. Once stashed,
+  /// the text lives in the snippet library, not in limbo.
+  Future<void> _saveAsSnippet() async {
+    final l10n = AppLocalizations.of(context)!;
+    final text = _ctrl.text;
+    if (text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.saveSnippetEmpty)),
+      );
+      return;
+    }
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.saveAsSnippet),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: InputDecoration(hintText: l10n.snippetName),
+          onSubmitted: (v) => Navigator.pop(dialogContext, v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(l10n.buttonCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(
+              dialogContext,
+              nameController.text.trim(),
+            ),
+            child: Text(l10n.buttonSave),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+    if (name == null || name.isEmpty) return;
+    await ref.read(snippetsProvider.notifier).addSnippet(
+          name: name,
+          content: text,
+          category: 'drafts',
+        );
+    if (!mounted) return;
+    _ctrl.clear();
+    _focus.requestFocus();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(l10n.savedToSnippets)),
+    );
+  }
+
   /// Send a snippet's expanded content directly without going through
   /// the input field. Used by the picker's "send immediately" affordance
   /// (double-tap a snippet) so a one-shot prompt doesn't need an extra
@@ -293,31 +351,71 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 constraints:
                     const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
+              // Save current text as a draft snippet. Mirrors terminal
+              // compose's InsertMenu "Save as Snippet" path so the
+              // user has the same one-tap stash affordance whether
+              // they're in tmux or in steward chat.
+              IconButton(
+                tooltip: 'Save as snippet',
+                onPressed: _sending ? null : _saveAsSnippet,
+                icon: Icon(Icons.bookmark_add_outlined,
+                    size: 22, color: muted),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+              // Field metrics matched to action_bar/compose_bar.dart so
+              // the steward composer feels the same as the tmux one:
+              // unbounded line count up to a 120px ceiling, fontSize 14,
+              // and an inline clear button (Icons.close_rounded) that
+              // appears only when the field has text.
               Expanded(
-                child: TextField(
-                  controller: _ctrl,
-                  focusNode: _focus,
-                  enabled: !_sending,
-                  minLines: 1,
-                  maxLines: 6,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  style: GoogleFonts.jetBrainsMono(fontSize: 12),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    hintText: 'Send to agent…',
-                    hintStyle: GoogleFonts.jetBrainsMono(
-                        fontSize: 12, color: muted),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: BorderSide(color: border),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 120),
+                  child: TextField(
+                    controller: _ctrl,
+                    focusNode: _focus,
+                    enabled: !_sending,
+                    minLines: 1,
+                    maxLines: null,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 14),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: 'Send to agent…',
+                      hintStyle: GoogleFonts.jetBrainsMono(
+                          fontSize: 14, color: muted),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: border),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(6),
+                        borderSide: BorderSide(color: border),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      suffixIcon: _ctrl.text.isEmpty
+                          ? null
+                          : GestureDetector(
+                              onTap: () {
+                                _ctrl.clear();
+                                _focus.requestFocus();
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 18,
+                                  color: muted,
+                                ),
+                              ),
+                            ),
+                      suffixIconConstraints: const BoxConstraints(
+                          minWidth: 28, minHeight: 28),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: BorderSide(color: border),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 8),
                   ),
                 ),
               ),

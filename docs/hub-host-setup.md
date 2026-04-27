@@ -495,7 +495,40 @@ to kill the pane, so the row flips cleanly once cleanup completes.
 attached keep their history but lose their `host_id` (ON DELETE SET
 NULL), so the org chart still shows the record.
 
-## 7. Backup and restore
+## 7. Egress proxy (URL masking)
+
+By default `host-runner` runs an in-process reverse proxy on
+`127.0.0.1:41825` and writes that address into each spawned agent's
+`.mcp.json` instead of the public hub URL. The agent's view of "where
+is the hub" is therefore always `http://127.0.0.1:41825/...`; the real
+hub URL is held only by `host-runner` itself.
+
+What this hides:
+
+- A passive `cat .mcp.json` from the agent no longer reveals the
+  public hub URL.
+- An `env`/`printenv` from the agent no longer shows a `HUB_URL`
+  pointing at the hub.
+
+What this does **not** hide:
+
+- The agent's own bearer token still lives in `.mcp.json` (token-
+  injection at the proxy is a follow-up — it requires changing the
+  bridge wire shape).
+- An agent that runs `ss -tnp`, `lsof -i`, or otherwise probes the
+  host's network state can still infer the real hub URL from
+  `host-runner`'s outbound connection. Closing that gap requires an
+  OS sandbox (network namespace + allowlist), which is post-MVP.
+
+**Disable** the proxy by passing `--egress-proxy-addr=''` to
+`host-runner run`; in that case `.mcp.json` carries the real hub URL,
+matching the legacy behavior.
+
+**Pick a different port** by passing `--egress-proxy-addr=127.0.0.1:NNNN`.
+The default avoids common service ports; override if `41825` collides
+on your host.
+
+## 8. Backup and restore
 
 The hub keeps all team state in `<data-root>/hub.db` (SQLite) plus
 `<data-root>/team/` (templates, policy, agent_families overlay) and
@@ -538,7 +571,7 @@ via `reconstruct-db`), live tmux/pane state on connected hosts, and
 mobile-side data (connections, SSH keys, snippets — those export from
 Settings → Data).
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to
   the wrong team. List tokens with

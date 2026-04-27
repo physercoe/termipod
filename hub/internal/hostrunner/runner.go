@@ -90,6 +90,15 @@ type Runner struct {
 	// a reverse tunnel). Falls back to the request Host header otherwise.
 	A2APublicURL string
 
+	// EgressProxyAddr is the bind address for the in-process reverse
+	// proxy that masks the hub URL from spawned agents. Empty disables
+	// the proxy and `.mcp.json` carries the real hub URL (legacy
+	// behavior). Default in main.go is 127.0.0.1:41825 — uncommon
+	// 5-digit port to avoid clashing with anything an operator is
+	// likely to already run.
+	EgressProxyAddr string
+	egressProxy     *egressProxy
+
 	idle      *IdleDetector
 	panes     map[string]paneState    // keyed by agent id
 	tailers   map[string]*Tailer      // keyed by agent id
@@ -230,6 +239,25 @@ func (a *Runner) Start(ctx context.Context) error {
 			a.Log.Warn("required binary missing from PATH",
 				"bin", bin,
 				"hint", "agents that depend on this will fail (e.g. claude-code session.init reports MCP server failed); install per docs/hub-host-setup.md §4")
+		}
+	}
+
+	// Egress proxy: in-process reverse proxy bound to localhost so
+	// spawned agents see "hub is on 127.0.0.1:NNNN" in `.mcp.json`
+	// instead of the public hub URL. Disabled when EgressProxyAddr
+	// is empty (legacy behavior — `.mcp.json` carries the real URL).
+	if a.EgressProxyAddr != "" {
+		ep, err := startEgressProxy(ctx, a.EgressProxyAddr, a.Client.BaseURL, a.Log)
+		if err != nil {
+			a.Log.Warn("egress-proxy disabled (bind failed); .mcp.json will use the real hub URL",
+				"addr", a.EgressProxyAddr, "err", err)
+		} else {
+			a.egressProxy = ep
+			defer func() {
+				shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = a.egressProxy.shutdown(shutCtx)
+			}()
 		}
 	}
 
@@ -434,11 +462,19 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	var drv Driver
 	switch mode {
 	case "M2":
+		// Prefer the egress-proxy URL when the proxy is up — that way
+		// the agent's .mcp.json points at 127.0.0.1:NNNN instead of
+		// the public hub URL. Falls back to the real URL when the
+		// proxy is disabled or its bind failed at start.
+		hubURLForAgent := a.Client.BaseURL
+		if a.egressProxy != nil {
+			hubURLForAgent = a.egressProxy.LocalURL
+		}
 		res, m2err := launchM2(ctx, M2LaunchConfig{
 			Spawn:    sp,
 			Launcher: a.Launcher,
 			Client:   a.agentPoster,
-			HubURL:   a.Client.BaseURL,
+			HubURL:   hubURLForAgent,
 		})
 		if m2err != nil {
 			a.Log.Warn("M2 launch failed; falling back to M4",

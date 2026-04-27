@@ -99,6 +99,10 @@ func runDaemon(args []string) {
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
 	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
 	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
+	egressProxyAddr := fs.String("egress-proxy-addr", hostrunner.DefaultEgressProxyAddr,
+		"bind address for the in-process reverse proxy that masks the hub URL from spawned agents; "+
+			"agents see http://<this addr>/ in their .mcp.json instead of --hub. "+
+			"Empty disables the proxy and .mcp.json carries the real hub URL.")
 	trackioDir := fs.String("trackio-dir", "", "trackio root dir (default: $TRACKIO_DIR or ~/.cache/huggingface/trackio); empty disables the metric-digest poller")
 	wandbDir := fs.String("wandb-dir", "", "wandb offline-run root dir (contains run-*/files/wandb-history.jsonl); empty disables the wandb metric-digest poller")
 	tbDir := fs.String("tb-dir", "", "TensorBoard root logdir; each run's tfevents files live under <tb-dir>/<run-path>. Empty disables the TensorBoard metric-digest poller")
@@ -120,17 +124,18 @@ func runDaemon(args []string) {
 	}
 
 	r := &hostrunner.Runner{
-		Client:         hostrunner.NewClient(*hub, *token, *team),
-		HostName:       *name,
-		HostID:         *hostID,
-		Launcher:       lnch,
-		Log:            log,
-		StateDir:       *stateDir,
-		A2AAddr:        *a2aAddr,
-		A2APublicURL:   *a2aPublicURL,
-		TrackioDir:     *trackioDir,
-		WandbDir:       *wandbDir,
-		TensorBoardDir: *tbDir,
+		Client:          hostrunner.NewClient(*hub, *token, *team),
+		HostName:        *name,
+		HostID:          *hostID,
+		Launcher:        lnch,
+		Log:             log,
+		StateDir:        *stateDir,
+		A2AAddr:         *a2aAddr,
+		A2APublicURL:    *a2aPublicURL,
+		EgressProxyAddr: *egressProxyAddr,
+		TrackioDir:      *trackioDir,
+		WandbDir:        *wandbDir,
+		TensorBoardDir:  *tbDir,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

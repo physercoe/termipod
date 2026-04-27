@@ -7,23 +7,27 @@ import '../../providers/sessions_provider.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
+import '../team/agent_families_screen.dart';
+import '../team/spawn_steward_sheet.dart';
+import '../team/templates_screen.dart';
 
-/// Sessions list, grouped into Active (open + interrupted) and
-/// Previous (closed). Mirrors the home screen of comparable mobile
-/// agent clients (Happy "Active sessions / Previous sessions",
-/// CCUI session sidebar) — sessions are the navigational primitive,
-/// not buried under an agent.
+/// Merged Sessions/Stewards page (multi-steward wedge 2). Each live
+/// steward gets its own section with its current session inline + a
+/// collapsible "previous" subsection of closed sessions for that
+/// steward. AppBar `+` spawns a new steward; `⋮` opens template /
+/// engine management. Per-steward kebab carries Reset (new
+/// conversation), Replace, Terminate, Rename.
 ///
-/// Tap a session → push [SessionChatScreen], which scopes
-/// [AgentFeed] to that session's current_agent_id. When the resume
-/// wedge (W2-S3) lands, interrupted sessions get a Resume affordance
-/// here without changing the screen shape.
+/// Single-steward installs collapse to the one-section view, which
+/// reads close to the prior flat-list page.
 class SessionsScreen extends ConsumerWidget {
   const SessionsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(sessionsProvider);
+    final hubState = ref.watch(hubProvider).value;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -33,14 +37,33 @@ class SessionsScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'New session',
+            tooltip: 'Spawn new steward',
             icon: const Icon(Icons.add),
-            onPressed: () => _newSession(context, ref),
+            onPressed: () => _spawnNewSteward(context, ref),
           ),
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.read(sessionsProvider.notifier).refresh(),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            onSelected: (v) {
+              switch (v) {
+                case 'templates':
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const TemplatesScreen(),
+                  ));
+                case 'engines':
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AgentFamiliesScreen(),
+                  ));
+                case 'refresh':
+                  ref.read(sessionsProvider.notifier).refresh();
+                  ref.read(hubProvider.notifier).refreshAll();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'templates', child: Text('Templates')),
+              PopupMenuItem(value: 'engines', child: Text('Engines')),
+              PopupMenuDivider(),
+              PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+            ],
           ),
         ],
       ),
@@ -54,21 +77,19 @@ class SessionsScreen extends ConsumerWidget {
           ),
         ),
         data: (s) {
-          if (s.isEmpty) return const _EmptyState();
+          final agents =
+              hubState?.agents ?? const <Map<String, dynamic>>[];
+          final groups = _groupByStateward(agents, s);
+          if (groups.isEmpty) return const _EmptyState();
           return RefreshIndicator(
-            onRefresh: () =>
-                ref.read(sessionsProvider.notifier).refresh(),
+            onRefresh: () async {
+              await ref.read(sessionsProvider.notifier).refresh();
+              await ref.read(hubProvider.notifier).refreshAll();
+            },
             child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
-                if (s.active.isNotEmpty) ...[
-                  const _SectionLabel(text: 'ACTIVE'),
-                  for (final ses in s.active) _SessionTile(session: ses),
-                ],
-                if (s.previous.isNotEmpty) ...[
-                  const _SectionLabel(text: 'PREVIOUS'),
-                  for (final ses in s.previous) _SessionTile(session: ses),
-                ],
+                for (final g in groups) _StewardSection(group: g),
               ],
             ),
           );
@@ -78,55 +99,152 @@ class SessionsScreen extends ConsumerWidget {
   }
 }
 
-/// Open a fresh session attached to the live steward (if any),
-/// after closing the prior open session for that steward.
+/// One steward's slice of the sessions list. Holds the agent record
+/// (so we can render engine/model/host pills) and the sessions sorted
+/// into current vs previous.
+class _StewardGroup {
+  final Map<String, dynamic> agent;
+  final Map<String, dynamic>? current; // open or interrupted
+  final List<Map<String, dynamic>> previous; // closed
+  const _StewardGroup({
+    required this.agent,
+    required this.current,
+    required this.previous,
+  });
+
+  String get handle => (agent['handle'] ?? '').toString();
+  String get agentId => (agent['id'] ?? '').toString();
+  String get kind => (agent['kind'] ?? '').toString();
+  String get status => (agent['status'] ?? '').toString();
+}
+
+/// Build one section per live steward + one section per "orphan"
+/// (sessions whose current_agent_id doesn't match any live steward —
+/// happens when the steward was terminated outside this UI).
+/// Stewards without any session at all are still listed (the multi-
+/// steward UX invariant says every live steward has one, so this is
+/// the back-compat case for installs that pre-date auto_open_session).
+List<_StewardGroup> _groupByStateward(
+  List<Map<String, dynamic>> agents,
+  SessionsState sessions,
+) {
+  final byAgent = <String, List<Map<String, dynamic>>>{};
+  for (final ses in [...sessions.active, ...sessions.previous]) {
+    final aid = (ses['current_agent_id'] ?? '').toString();
+    byAgent.putIfAbsent(aid, () => []).add(ses);
+  }
+  final liveStewardIds = <String>{};
+  final groups = <_StewardGroup>[];
+  for (final a in agents) {
+    final handle = (a['handle'] ?? '').toString();
+    if (!isStewardHandle(handle)) continue;
+    final status = (a['status'] ?? '').toString();
+    if (status != 'running' &&
+        status != 'pending' &&
+        status != 'paused') {
+      continue;
+    }
+    final id = (a['id'] ?? '').toString();
+    liveStewardIds.add(id);
+    final mine = byAgent[id] ?? const <Map<String, dynamic>>[];
+    Map<String, dynamic>? current;
+    final previous = <Map<String, dynamic>>[];
+    for (final s in mine) {
+      final st = (s['status'] ?? '').toString();
+      if ((st == 'open' || st == 'interrupted') && current == null) {
+        current = s;
+      } else {
+        previous.add(s);
+      }
+    }
+    groups.add(_StewardGroup(
+      agent: a,
+      current: current,
+      previous: previous,
+    ));
+  }
+  // Sort: stewards with an active session by last_active_at desc;
+  // stewards with only previous sessions go to the bottom.
+  DateTime ts(_StewardGroup g) {
+    final s = g.current ?? (g.previous.isEmpty ? null : g.previous.first);
+    if (s == null) return DateTime.fromMillisecondsSinceEpoch(0);
+    final raw = (s['last_active_at'] ?? s['opened_at'] ?? '').toString();
+    return DateTime.tryParse(raw) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+  }
+  groups.sort((a, b) {
+    if ((a.current == null) != (b.current == null)) {
+      return a.current == null ? 1 : -1;
+    }
+    return ts(b).compareTo(ts(a));
+  });
+  // Orphan sessions: bucket under a synthetic group so they aren't
+  // silently swallowed. Status pill renders "no live agent".
+  final orphanSessions = <Map<String, dynamic>>[];
+  for (final s in [...sessions.active, ...sessions.previous]) {
+    final aid = (s['current_agent_id'] ?? '').toString();
+    if (aid.isEmpty || !liveStewardIds.contains(aid)) {
+      orphanSessions.add(s);
+    }
+  }
+  if (orphanSessions.isNotEmpty) {
+    Map<String, dynamic>? current;
+    final previous = <Map<String, dynamic>>[];
+    for (final s in orphanSessions) {
+      final st = (s['status'] ?? '').toString();
+      if ((st == 'open' || st == 'interrupted') && current == null) {
+        current = s;
+      } else {
+        previous.add(s);
+      }
+    }
+    groups.add(_StewardGroup(
+      agent: const {'handle': '(no live steward)', 'kind': '', 'status': ''},
+      current: current,
+      previous: previous,
+    ));
+  }
+  return groups;
+}
+
+Future<void> _spawnNewSteward(BuildContext context, WidgetRef ref) async {
+  final hub = ref.read(hubProvider).value;
+  if (hub == null || !hub.configured) return;
+  await showSpawnStewardSheet(context, hosts: hub.hosts);
+  if (!context.mounted) return;
+  await ref.read(hubProvider.notifier).refreshAll();
+  await ref.read(sessionsProvider.notifier).refresh();
+}
+
+/// Per-steward "Reset (new conversation)": closes the steward's
+/// current session and opens a fresh one against the same agent. The
+/// agent process keeps running (memory + model state preserved at the
+/// engine level); only the visible transcript starts empty. Used by
+/// the per-steward kebab on the merged sessions page.
 ///
-/// "New session" semantics for V1 of the workband: one active
-/// session per steward agent. Today's steward is M2 single-process,
-/// so its conversation context is process-bound — a "new session"
-/// that just renames the bookmark wouldn't actually feel fresh
-/// to the user. Closing the prior session signals "this is a
-/// restart of the conversation, the old transcript is final and
-/// goes to Previous". Future wedges can refine this if/when we
-/// support multiple parallel sessions on the same agent.
-Future<void> _newSession(BuildContext context, WidgetRef ref) async {
+/// Carries the prior session's worktree_path + spawn_spec_yaml forward
+/// so a future Resume on the new session lands in the same workdir.
+Future<void> _resetStewardConversation(
+  BuildContext context,
+  WidgetRef ref,
+  String stewardId,
+  String? stewardLabelText,
+) async {
   final hub = ref.read(hubProvider).value;
   if (hub == null || !hub.configured) return;
   final client = ref.read(hubProvider.notifier).client;
   if (client == null) return;
 
-  // Find a live steward (first match wins; multi-steward picker
-  // lands in wedge 2 of docs/wedges/multi-steward.md).
-  Map<String, dynamic>? steward;
-  for (final a in hub.agents) {
-    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
-    final status = (a['status'] ?? '').toString();
-    if (status == 'running' || status == 'pending' || status == 'paused') {
-      steward = a;
-      break;
-    }
-  }
-  if (steward == null) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No live steward — start one from the project page first.',
-          ),
-        ),
-      );
-    }
-    return;
-  }
-  final stewardId = (steward['id'] ?? '').toString();
-
+  final label = stewardLabelText ?? 'this steward';
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      title: const Text('Start a new session?'),
-      content: const Text(
-        'Closes the current session for this steward and opens a fresh '
-        'one. The prior transcript stays available under Previous.',
+      title: const Text('Reset conversation?'),
+      content: Text(
+        'Closes $label\'s current session and opens a fresh one. The '
+        'agent process keeps running, so its engine-level memory is '
+        'preserved — but the visible transcript starts empty. The '
+        'prior conversation goes to Previous.',
       ),
       actions: [
         TextButton(
@@ -135,16 +253,13 @@ Future<void> _newSession(BuildContext context, WidgetRef ref) async {
         ),
         FilledButton(
           onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('New session'),
+          child: const Text('Reset (new conversation)'),
         ),
       ],
     ),
   );
   if (ok != true) return;
 
-  // Close any active session for this steward, carrying its
-  // worktree_path + spawn_spec_yaml forward so the new session
-  // inherits the resume context.
   String? carryWorktree;
   String? carrySpec;
   final state = ref.read(sessionsProvider).value;
@@ -172,11 +287,308 @@ Future<void> _newSession(BuildContext context, WidgetRef ref) async {
   } catch (e) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('New session failed: $e')),
+      SnackBar(content: Text('Reset failed: $e')),
     );
     return;
   }
   await ref.read(sessionsProvider.notifier).refresh();
+}
+
+/// One section per steward on the merged page. Renders:
+///   - Header: status pill, handle, engine, model
+///   - Per-steward kebab: Reset (new conversation), Replace, Terminate, Rename
+///   - Current session inline as a tile (open or interrupted)
+///   - Collapsible "previous (N)" subsection of closed sessions
+class _StewardSection extends ConsumerStatefulWidget {
+  final _StewardGroup group;
+  const _StewardSection({required this.group});
+
+  @override
+  ConsumerState<_StewardSection> createState() => _StewardSectionState();
+}
+
+class _StewardSectionState extends ConsumerState<_StewardSection> {
+  bool _showPrevious = false;
+
+  _StewardGroup get group => widget.group;
+
+  Future<void> _rename() async {
+    final id = group.agentId;
+    if (id.isEmpty) return;
+    final next = await _promptForHandle(context, group.handle);
+    if (next == null || next == group.handle || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      await client.renameAgent(id, next);
+      await ref.read(hubProvider.notifier).refreshAll();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _terminate() async {
+    final id = group.agentId;
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Terminate steward?'),
+        content: Text(
+          'Kills ${group.handle}\'s agent process. The session flips to '
+          'interrupted and stays in Previous; you can Resume it later or '
+          'Replace this steward with a fresh one.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Terminate'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      await client.terminateAgent(id);
+      await ref.read(hubProvider.notifier).refreshAll();
+      await ref.read(sessionsProvider.notifier).refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Terminate failed: $e')),
+      );
+    }
+  }
+
+  static Future<String?> _promptForHandle(
+    BuildContext context,
+    String current,
+  ) async {
+    final ctrl = TextEditingController(text: current);
+    try {
+      return await showDialog<String?>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Rename steward'),
+          content: TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: const InputDecoration(
+              hintText: 'steward, research-steward, infra-steward, …',
+            ),
+            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final v = ctrl.text.trim();
+                final err = validateStewardHandle(v);
+                if (err != null) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    SnackBar(content: Text(err)),
+                  );
+                  return;
+                }
+                Navigator.pop(ctx, v);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final isOrphan = group.agentId.isEmpty;
+    final hasMenu = !isOrphan;
+
+    final statusColor = switch (group.status) {
+      'running' => DesignColors.success,
+      'pending' => DesignColors.warning,
+      'paused' => DesignColors.textMuted,
+      _ => muted,
+    };
+    final shortKind = group.kind == 'claude-code' ? 'claude' : group.kind;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: border),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Header ─────────────────────────────────────────────
+            InkWell(
+              onTap: hasMenu
+                  ? () {
+                      if (group.previous.isNotEmpty) {
+                        setState(() => _showPrevious = !_showPrevious);
+                      }
+                    }
+                  : null,
+              borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(10)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                child: Row(
+                  children: [
+                    if (!isOrphan) ...[
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            group.handle,
+                            style: GoogleFonts.spaceGrotesk(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (!isOrphan)
+                            Text(
+                              [
+                                if (shortKind.isNotEmpty) shortKind,
+                                if (group.status.isNotEmpty) group.status,
+                              ].join(' · '),
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: muted,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (hasMenu)
+                      PopupMenuButton<String>(
+                        tooltip: 'Steward actions',
+                        icon: Icon(Icons.more_vert,
+                            size: 18, color: muted),
+                        onSelected: (v) {
+                          switch (v) {
+                            case 'reset':
+                              _resetStewardConversation(context, ref,
+                                  group.agentId, group.handle);
+                            case 'replace':
+                              confirmAndRecreateSteward(
+                                  context, ref, group.agentId);
+                            case 'terminate':
+                              _terminate();
+                            case 'rename':
+                              _rename();
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'reset',
+                            child: Text('Reset (new conversation)'),
+                          ),
+                          PopupMenuItem(
+                            value: 'replace',
+                            child: Text('Replace steward'),
+                          ),
+                          PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: 'rename',
+                            child: Text('Rename'),
+                          ),
+                          PopupMenuItem(
+                            value: 'terminate',
+                            child: Text('Terminate steward'),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            // ── Current session ───────────────────────────────────
+            if (group.current != null)
+              _SessionTile(session: group.current!)
+            else if (!isOrphan)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: Text(
+                  'No active session — Reset (new conversation) to start one.',
+                  style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10, color: muted),
+                ),
+              ),
+            // ── Previous (collapsible) ────────────────────────────
+            if (group.previous.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: InkWell(
+                  onTap: () =>
+                      setState(() => _showPrevious = !_showPrevious),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _showPrevious
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                          size: 14,
+                          color: muted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'previous (${group.previous.length})',
+                          style: GoogleFonts.jetBrainsMono(
+                              fontSize: 10, color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            if (_showPrevious)
+              for (final ses in group.previous) _SessionTile(session: ses),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {
@@ -209,30 +621,6 @@ class _EmptyState extends StatelessWidget {
               style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final muted =
-        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-      child: Text(
-        text,
-        style: GoogleFonts.spaceGrotesk(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: muted,
-          letterSpacing: 0.8,
         ),
       ),
     );

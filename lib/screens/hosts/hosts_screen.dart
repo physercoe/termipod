@@ -60,8 +60,21 @@ class HostsScreen extends ConsumerStatefulWidget {
   ConsumerState<HostsScreen> createState() => _HostsScreenState();
 }
 
+/// Sort order for the merged Hosts list. The page used to ship with a
+/// name-vs-time picker that fell off in an earlier refactor; this
+/// restores it. Persistence is in-memory for the screen lifetime —
+/// the user's choice survives backgrounding the app via Riverpod's
+/// keep-alive but resets across cold starts. Good enough for MVP;
+/// can promote to SharedPreferences once we add a user-prefs sheet.
+enum _HostSort {
+  name,
+  lastActive,
+  status,
+}
+
 class _HostsScreenState extends ConsumerState<HostsScreen> {
   bool _hostsExpanded = true;
+  _HostSort _sort = _HostSort.name;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +91,7 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
       bindings: bindings,
       hubHosts: hubHosts,
     );
+    _sortRows(rows);
 
     return Scaffold(
       body: CustomScrollView(
@@ -102,6 +116,28 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
             ),
             actions: [
               const TeamSwitcher(),
+              PopupMenuButton<_HostSort>(
+                tooltip: 'Sort',
+                icon: const Icon(Icons.sort),
+                onSelected: (v) => setState(() => _sort = v),
+                itemBuilder: (_) => [
+                  CheckedPopupMenuItem(
+                    value: _HostSort.name,
+                    checked: _sort == _HostSort.name,
+                    child: const Text('Name (A→Z)'),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: _HostSort.lastActive,
+                    checked: _sort == _HostSort.lastActive,
+                    child: const Text('Last active (newest first)'),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: _HostSort.status,
+                    checked: _sort == _HostSort.status,
+                    child: const Text('Status (online first)'),
+                  ),
+                ],
+              ),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: 'Refresh',
@@ -205,6 +241,57 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
     }
 
     return rows;
+  }
+
+  // Stable comparator over the union of personal + team rows. Each
+  // sort key reads from whichever side has the data:
+  //   - name: lowercase displayName, both sides have it
+  //   - lastActive: hub_host.last_seen_at (ISO string) when present,
+  //     otherwise hub_host.created_at, otherwise epoch — connections
+  //     don't track last-active locally so they sort to the bottom.
+  //   - status: hub_host.status with online > pending > offline >
+  //     unknown; personal-only rows sit between online and offline
+  //     because they're "reachable in principle".
+  void _sortRows(List<_HostRow> rows) {
+    int cmpName(_HostRow a, _HostRow b) =>
+        a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    DateTime lastActive(_HostRow r) {
+      final h = r.hubHost;
+      if (h == null) return DateTime.fromMillisecondsSinceEpoch(0);
+      final raw = (h['last_seen_at'] ?? h['created_at'] ?? '').toString();
+      return DateTime.tryParse(raw) ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+    }
+    int statusRank(_HostRow r) {
+      final h = r.hubHost;
+      if (h == null) return 2; // personal-only — neutral
+      switch ((h['status'] ?? '').toString()) {
+        case 'online':
+          return 0;
+        case 'pending':
+          return 1;
+        case 'offline':
+          return 3;
+        default:
+          return 4;
+      }
+    }
+    switch (_sort) {
+      case _HostSort.name:
+        rows.sort(cmpName);
+      case _HostSort.lastActive:
+        rows.sort((a, b) {
+          final byTime = lastActive(b).compareTo(lastActive(a));
+          if (byTime != 0) return byTime;
+          return cmpName(a, b);
+        });
+      case _HostSort.status:
+        rows.sort((a, b) {
+          final byStatus = statusRank(a).compareTo(statusRank(b));
+          if (byStatus != 0) return byStatus;
+          return cmpName(a, b);
+        });
+    }
   }
 
   String _connectionSubtitle(Connection c) {

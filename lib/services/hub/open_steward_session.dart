@@ -37,30 +37,41 @@ Future<void> openStewardSession(BuildContext context, WidgetRef ref) async {
   final hub = ref.read(hubProvider).value;
   if (hub == null || !hub.configured) return;
 
-  // Find the most-recently-seen live steward. With multi-steward we
-  // accept any handle that matches isStewardHandle; the first match
-  // wins, which on a single-steward install is the legacy 'steward'
-  // row. Wedge 2 (merged Sessions/Stewards page) replaces this
-  // first-match heuristic with an explicit picker.
-  Map<String, dynamic>? steward;
+  // Multi-steward routing (wedge 3):
+  //   - 0 live stewards → spawn sheet (bootstrap path).
+  //   - 1 live steward + open session → tap-into-chat (preserves the
+  //     low-friction single-steward UX).
+  //   - 2+ live stewards, OR exactly 1 with no open session →
+  //     SessionsScreen so the user picks via the merged page.
+  // Calling out the "1 with no session" case to SessionsScreen is
+  // deliberate: the user might want Resume, or might want to spawn
+  // another steward — either path lives on that surface now.
+  final liveStewards = <Map<String, dynamic>>[];
   for (final a in hub.agents) {
     if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'running' || status == 'pending') {
-      steward = a;
-      break;
+      liveStewards.add(a);
     }
   }
-  if (steward == null) {
+  if (liveStewards.isEmpty) {
     if (context.mounted) {
       await showSpawnStewardSheet(context, hosts: hub.hosts);
     }
     return;
   }
+  if (liveStewards.length > 1) {
+    if (!context.mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const SessionsScreen(),
+    ));
+    return;
+  }
 
-  // Make sure the sessions list is up-to-date before we look for one
-  // that points at this steward.
+  // Single-steward path: refresh sessions, look for an open one, and
+  // jump straight into the chat if it exists.
   await ref.read(sessionsProvider.notifier).refresh();
+  final steward = liveStewards.first;
   final stewardId = (steward['id'] ?? '').toString();
   Map<String, dynamic>? session;
   final state = ref.read(sessionsProvider).value;
@@ -74,7 +85,6 @@ Future<void> openStewardSession(BuildContext context, WidgetRef ref) async {
   }
   if (!context.mounted) return;
 
-  // Active + open → straight into the chat.
   final status = (session?['status'] ?? '').toString();
   if (session != null && status == 'open') {
     await Navigator.of(context).push(MaterialPageRoute(
@@ -89,8 +99,7 @@ Future<void> openStewardSession(BuildContext context, WidgetRef ref) async {
     return;
   }
 
-  // Interrupted, missing, or any other state → SessionsScreen so the
-  // user sees Resume / empty / etc. with full context.
+  // Interrupted, missing, or any other state → SessionsScreen.
   await Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => const SessionsScreen(),
   ));

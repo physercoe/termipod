@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -196,6 +197,12 @@ type agentPatchIn struct {
 	Status     *string `json:"status,omitempty"`
 	PauseState *string `json:"pause_state,omitempty"`
 	PaneID     *string `json:"pane_id,omitempty"`
+	// Handle renames the agent. Used by the multi-steward UX so the
+	// principal can label stewards (research-steward, infra-steward,
+	// …) without respawning. Server enforces the live-handle uniqueness
+	// constraint via the existing `(team_id, handle, status='live')`
+	// index; collisions surface as 409.
+	Handle *string `json:"handle,omitempty"`
 }
 
 // handlePatchAgent lets host-runners / steward update lifecycle fields
@@ -227,6 +234,18 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		sets = append(sets, "pane_id = NULLIF(?, '')")
 		args = append(args, *in.PaneID)
 	}
+	if in.Handle != nil {
+		// Cheap shape-check before the SQL writes: an empty handle is
+		// useless ("which agent?") and would conflict with NOT NULL.
+		// Convention enforcement (must end in -steward for stewards,
+		// etc.) is mobile-side; the server only owns uniqueness.
+		if *in.Handle == "" {
+			writeErr(w, http.StatusBadRequest, "handle may not be empty")
+			return
+		}
+		sets = append(sets, "handle = ?")
+		args = append(args, *in.Handle)
+	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no fields to update")
 		return
@@ -235,6 +254,17 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	q := "UPDATE agents SET " + joinComma(sets) + " WHERE team_id = ? AND id = ?"
 	res, err := s.db.ExecContext(r.Context(), q, args...)
 	if err != nil {
+		// SQLite raises constraint failures as a generic error string —
+		// recognise the unique-handle case so the mobile UX can show
+		// "handle already in use" instead of an opaque 500.
+		msg := err.Error()
+		if in.Handle != nil &&
+			(strings.Contains(msg, "UNIQUE constraint failed") ||
+				strings.Contains(msg, "constraint failed")) {
+			writeErr(w, http.StatusConflict,
+				"handle already in use by another live agent on this team")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}

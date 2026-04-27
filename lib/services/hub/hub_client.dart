@@ -1021,6 +1021,15 @@ class HubClient {
         {'status': 'terminated'});
   }
 
+  /// Renames an agent (handle field). Used by the multi-steward UX to
+  /// label stewards (research-steward, infra-steward, …). Server
+  /// enforces the live-handle uniqueness — collisions surface as 409
+  /// HubApiError so the caller can show "handle already in use".
+  Future<void> renameAgent(String agentId, String newHandle) async {
+    await _patch('/v1/teams/${cfg.teamId}/agents/$agentId',
+        {'handle': newHandle});
+  }
+
   /// Soft-archives a terminated agent so it drops out of the live list.
   /// The row stays in the DB so audit history continues to resolve.
   /// Hub refuses with 409 if the agent is still live.

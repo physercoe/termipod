@@ -14,6 +14,7 @@ import '../../providers/sessions_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/steward_handle.dart';
 import '../../services/steward_liveness.dart';
+import '../sessions/sessions_screen.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -285,9 +286,36 @@ class _StewardChipState extends ConsumerState<_StewardChip> {
                 // spawn sheet. Recreate stays on long-press.
                 openStewardSession(context, ref);
               },
+              // Long-press: single-steward = recreate the only one;
+              // multi-steward = jump to the merged Sessions page where
+              // the user picks which steward via the per-steward kebab.
+              // Avoids ambiguity ("which one are you replacing?") on
+              // installs with more than one live steward.
               onLongPress: stewardId == null
                   ? null
-                  : () => _confirmAndRecreateSteward(context, ref, stewardId),
+                  : () {
+                      var liveCount = 0;
+                      final hub = ref.read(hubProvider).value;
+                      if (hub != null) {
+                        for (final a in hub.agents) {
+                          if (!isStewardHandle(
+                              (a['handle'] ?? '').toString())) continue;
+                          final s = (a['status'] ?? '').toString();
+                          if (s == 'running' ||
+                              s == 'pending' ||
+                              s == 'paused') {
+                            liveCount++;
+                          }
+                        }
+                      }
+                      if (liveCount > 1) {
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const SessionsScreen(),
+                        ));
+                      } else {
+                        confirmAndRecreateSteward(context, ref, stewardId);
+                      }
+                    },
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -348,7 +376,7 @@ String? _findStewardId(List<Map<String, dynamic>> agents) {
 /// migration shim never ran or the prior session was deleted), this
 /// falls back to a fresh-spawn flow that creates a new session
 /// alongside the new agent.
-Future<void> _confirmAndRecreateSteward(
+Future<void> confirmAndRecreateSteward(
   BuildContext context,
   WidgetRef ref,
   String stewardId,

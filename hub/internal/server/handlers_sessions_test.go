@@ -685,6 +685,57 @@ func TestSpawn_AutoOpenSession_IgnoredOnSwap(t *testing.T) {
 	}
 }
 
+// PATCH /agents/{id} accepts a handle field and enforces the live-
+// handle uniqueness constraint. The multi-steward UX needs this so
+// the principal can rename `steward` → `research-steward` without a
+// respawn. Collisions surface as 409 with a friendly message rather
+// than a generic 500.
+func TestPatchAgent_RenameHandle(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Successful rename.
+	status, body := doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID,
+		map[string]any{"handle": "research-steward"})
+	if status != http.StatusNoContent {
+		t.Fatalf("rename: status=%d body=%s; want 204", status, body)
+	}
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT handle FROM agents WHERE id = ?`, agentID,
+	).Scan(&got)
+	if got != "research-steward" {
+		t.Errorf("handle = %q; want research-steward", got)
+	}
+
+	// Empty handle → 400.
+	status, _ = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID,
+		map[string]any{"handle": ""})
+	if status != http.StatusBadRequest {
+		t.Errorf("empty handle: status=%d; want 400", status)
+	}
+
+	// Collision: spawn a second live agent with a distinct handle,
+	// try to rename it onto the first's handle → 409.
+	_, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/spawn",
+		map[string]any{
+			"child_handle":    "infra-steward",
+			"kind":            "claude-code",
+			"spawn_spec_yaml": "kind: claude-code\nbackend:\n  cmd: claude\n",
+		})
+	var spawned spawnOut
+	_ = json.Unmarshal(body, &spawned)
+	status, body = doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+spawned.AgentID,
+		map[string]any{"handle": "research-steward"})
+	if status != http.StatusConflict {
+		t.Errorf("collision: status=%d body=%s; want 409", status, body)
+	}
+}
+
 // PATCH /sessions/{id} renames the row. Empty title clears it back
 // to NULL so the mobile UI shows "(untitled session)" again.
 func TestSessions_PatchRename(t *testing.T) {

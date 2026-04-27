@@ -22,3 +22,11 @@ var TemplatesFS embed.FS
 // would need re-rendering. Templates use {{mcp_namespace}} so a future
 // rename only touches this constant + a redeploy.
 const MCPServerName = "termipod"
+
+// MCPHubServerName is the namespace for the second MCP server every
+// spawned agent gets — the local stdio terminator
+// (internal/hubmcpserver) that exposes the rich authority surface
+// (projects, plans, runs, agents.spawn, a2a.invoke, …). Distinct from
+// MCPServerName so claude-code's tool routing (mcp__<server>__<tool>)
+// doesn't collide. Both servers are registered in writeMCPConfig.
+const MCPHubServerName = "termipod-hub"

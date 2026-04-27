@@ -1,4 +1,4 @@
-package main
+package hubmcpserver
 
 import (
 	"encoding/json"

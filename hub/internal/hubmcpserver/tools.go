@@ -6,7 +6,7 @@
 // what P1.5 requires and nothing more; speculative tools are rejected at
 // tools/call time rather than silently no-op'd so the client can see the
 // schema boundary.
-package main
+package hubmcpserver
 
 import (
 	"crypto/rand"

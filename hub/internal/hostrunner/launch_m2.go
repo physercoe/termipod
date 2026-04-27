@@ -83,6 +83,9 @@ type M2LaunchConfig struct {
 	// spawn carries no token) `.mcp.json` is not written and the agent
 	// runs without hub MCP access.
 	HubURL string
+	// TeamID is needed by the second MCP server (hub-mcp-server) for
+	// HUB_TEAM. Defaults to "default" when empty.
+	TeamID string
 }
 
 // M2LaunchResult is what launchM2 hands back to runner.go so it can keep
@@ -155,7 +158,7 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		if expandedWorkdir == "" {
 			return M2LaunchResult{}, fmt.Errorf("mcp_token set but backend.default_workdir is empty")
 		}
-		if err := writeMCPConfig(expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken); err != nil {
+		if err := writeMCPConfig(expandedWorkdir, cfg.HubURL, cfg.Spawn.MCPToken, cfg.TeamID); err != nil {
 			return M2LaunchResult{}, fmt.Errorf("write .mcp.json: %w", err)
 		}
 	}
@@ -271,19 +274,36 @@ func writeContextFiles(workdir string, files map[string]string) error {
 }
 
 // writeMCPConfig writes a `.mcp.json` into the agent workdir that
-// points claude-code at hub-mcp-bridge as the stdio transport for
-// MCP tools. The server name comes from hub.MCPServerName so it stays
-// in lockstep with the {{mcp_namespace}} template render var; the
-// steward template's --permission-prompt-tool flag must reference the
-// same namespace, e.g. mcp__termipod__permission_prompt.
+// registers BOTH MCP servers the spawned agent talks to:
 //
-// Token handling: claude-code reads `.mcp.json` from disk and treats
-// it as plaintext config. We write 0o600 so it isn't world-readable
-// on shared hosts. Re-running this overwrites — host-runner is
-// idempotent across spawns and a stale token must not linger.
-func writeMCPConfig(workdir, hubURL, token string) error {
+//  1. termipod (hub.MCPServerName) — the in-process MCP catalog reached
+//     through hub-mcp-bridge → /mcp/<token>. Narrow surface: gates
+//     (permission_prompt), attention (request_select / request_approval),
+//     post_excerpt, journal, the orchestrator-worker primitives
+//     (agents.fanout, agents.gather, reports.post). The
+//     --permission-prompt-tool flag in spawn templates points here
+//     (mcp__termipod__permission_prompt).
+//
+//  2. termipod-hub (hub.MCPHubServerName) — the local stdio terminator
+//     reached through hub-mcp-server. Rich authority surface: projects,
+//     plans, runs, documents, reviews, agents.spawn, a2a.invoke,
+//     channels.post_event, schedules.*, tasks.*. Both halves of the
+//     steward's tool needs in one .mcp.json, no second installable
+//     thanks to the host-runner multicall (see cmd/host-runner/main.go).
+//
+// Token handling: both servers receive the same per-agent bearer in
+// HUB_TOKEN. Plaintext .mcp.json at 0o600 — same pattern as before.
+// Re-running overwrites; host-runner is idempotent across spawns and a
+// stale token must not linger.
+//
+// teamID is needed by hub-mcp-server (HUB_TEAM env). Defaults to
+// "default" when empty — matches the hub's defaultTeamID convention.
+func writeMCPConfig(workdir, hubURL, token, teamID string) error {
 	if err := os.MkdirAll(workdir, 0o755); err != nil {
 		return fmt.Errorf("mkdir workdir: %w", err)
+	}
+	if teamID == "" {
+		teamID = "default"
 	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
@@ -292,6 +312,14 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 				"env": map[string]string{
 					"HUB_URL":   hubURL,
 					"HUB_TOKEN": token,
+				},
+			},
+			hub.MCPHubServerName: map[string]any{
+				"command": "hub-mcp-server",
+				"env": map[string]string{
+					"HUB_URL":   hubURL,
+					"HUB_TOKEN": token,
+					"HUB_TEAM":  teamID,
 				},
 			},
 		},

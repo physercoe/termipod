@@ -24,16 +24,27 @@ import (
 	"syscall"
 
 	"github.com/termipod/hub/internal/hostrunner"
+	"github.com/termipod/hub/internal/hubmcpserver"
 	"github.com/termipod/hub/internal/mcpbridge"
 )
 
 func main() {
-	// Multicall: invoking the binary as `hub-mcp-bridge` (typically a
-	// symlink to host-runner under /usr/local/bin) routes straight to
-	// the bridge with no subcommand, so legacy .mcp.json files that
-	// reference `hub-mcp-bridge` keep working after the merge.
-	if filepath.Base(os.Args[0]) == "hub-mcp-bridge" {
+	// Multicall: the binary routes to a different entry point based on
+	// the basename it was invoked as. Both names are symlinked at
+	// /usr/local/bin during install, so spawned agents' .mcp.json can
+	// reference the friendly names and Just Work without a second
+	// installable.
+	switch filepath.Base(os.Args[0]) {
+	case "hub-mcp-bridge":
+		// stdio↔HTTP shim → hub /mcp/<token> → in-process MCP catalog
+		// (gates, attention, post_excerpt). Single-purpose, narrow.
 		os.Exit(mcpbridge.Run(os.Args[1:]))
+	case "hub-mcp-server":
+		// Local MCP terminator → hub REST → rich authority catalog
+		// (projects, plans, runs, agents.spawn, a2a.invoke, …). Both
+		// servers coexist in the same .mcp.json so the steward sees
+		// the union of both surfaces.
+		os.Exit(hubmcpserver.Run(os.Args[1:]))
 	}
 
 	if len(os.Args) < 2 {
@@ -47,6 +58,8 @@ func main() {
 		runRegister(os.Args[2:])
 	case "mcp-bridge":
 		os.Exit(mcpbridge.Run(os.Args[2:]))
+	case "mcp-server":
+		os.Exit(hubmcpserver.Run(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:

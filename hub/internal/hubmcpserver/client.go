@@ -5,7 +5,7 @@
 // any dependency on internal/hostrunner or the hub's own packages is
 // deliberate — the on-wire contract is the only thing we want to bind to,
 // so the hub can evolve its internal client without breaking us.
-package main
+package hubmcpserver
 
 import (
 	"bytes"

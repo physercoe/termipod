@@ -409,19 +409,16 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 ),
               ),
               const SizedBox(width: 4),
-              // Single-slot control with three states:
-              //   sending          → spinner (local POST in flight)
-              //   text + busy      → cancel (red) — agent is still on
-              //                      the previous turn, the user just
-              //                      typed their next prompt and needs
-              //                      to interrupt before it can send.
-              //                      Per device-walkthrough feedback,
-              //                      this is the only situation cancel
-              //                      makes sense: an empty field means
-              //                      the user is just watching the
-              //                      response, not waiting to send.
-              //   text + idle      → send (primary)
-              //   empty            → send (disabled / muted)
+              // Single-slot control:
+              //   sending      → spinner (local POST in flight)
+              //   agent busy   → cancel (red), regardless of field
+              //                  content. User may interrupt at any
+              //                  time — to send a typed prompt that's
+              //                  waiting, or because they spotted the
+              //                  agent doing something unexpected and
+              //                  want to stop it now.
+              //   text + idle  → send (primary)
+              //   empty + idle → send (disabled, muted)
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _ctrl,
                 builder: (_, value, _) {
@@ -436,10 +433,11 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       ),
                     );
                   }
-                  if (!empty && widget.isAgentBusy) {
+                  if (widget.isAgentBusy) {
                     return IconButton(
-                      tooltip:
-                          'Cancel current turn — frees the agent to receive your next prompt',
+                      tooltip: empty
+                          ? 'Cancel current turn — interrupt the agent'
+                          : 'Cancel current turn — frees the agent to receive your next prompt',
                       onPressed: _cancel,
                       icon: Icon(
                         Icons.stop_circle_outlined,

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.298-alpha+10298
+version: 1.0.299-alpha+10299
 
 environment:
   sdk: ^3.10.7
@@ -71,6 +71,13 @@ dependencies:
   media_store_plus: ^0.1.3
   # Markdown rendering for Docs viewer in hub project detail
   flutter_markdown: ^0.7.4
+  # Direct markdown parser dep (also pulled in transitively by
+  # flutter_markdown) — used to type custom MarkdownElementBuilder
+  # closures that override fenced-code rendering with syntax highlights.
+  markdown: ^7.2.2
+  # Syntax highlighting for fenced code blocks in agent transcripts.
+  # Static highlight.js port; covers ~190 languages with built-in themes.
+  flutter_highlight: ^0.7.0
   # Offline snapshot cache for hub list/get responses. SQLite fits the
   # "mutable server content" storage tier; SharedPreferences is reserved
   # for stable config/metadata.

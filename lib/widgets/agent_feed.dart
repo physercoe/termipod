@@ -8,9 +8,13 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_highlight/flutter_highlight.dart';
+import 'package:flutter_highlight/themes/atom-one-dark.dart';
+import 'package:flutter_highlight/themes/atom-one-light.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:markdown/markdown.dart' as md;
 
 import '../providers/hub_provider.dart';
 import '../services/hub/hub_client.dart';
@@ -1666,9 +1670,8 @@ class AgentEventCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _kv(ctx, 'tool', name),
+        _toolNameRow(ctx, name, status),
         if (id.isNotEmpty) _kv(ctx, 'id', id),
-        _kv(ctx, 'status', status, valueColor: _statusColor(status)),
         if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
         if (preview != null && preview.isNotEmpty)
           Padding(
@@ -1684,6 +1687,41 @@ class AgentEventCard extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  // Tool name + per-tool icon + status pill, all on one row. Replaces
+  // the previous two `_kv` rows ("tool: Bash" / "status: pending") so
+  // the most-watched signals (which tool? where in its lifecycle?) are
+  // legible at a glance.
+  Widget _toolNameRow(BuildContext ctx, String name, String status) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Icon(toolIconFor(name), size: 14, color: muted),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              name,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: fg,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (status.isNotEmpty) _StatusPill(status: status),
+        ],
+      ),
     );
   }
 
@@ -1808,36 +1846,37 @@ class AgentEventCard extends StatelessWidget {
     final newText = (p['newText'] ?? p['new_text'] ?? '').toString();
     final oldLines = oldText.isEmpty ? <String>[] : oldText.split('\n');
     final newLines = newText.isEmpty ? <String>[] : newText.split('\n');
-    final buf = StringBuffer();
     int adds = 0;
     int dels = 0;
-    // Naive line-aligned diff: walk both lists in parallel. Adequate for
-    // the preview — the hub stores the authoritative texts, the operator
-    // can pull them on a real screen later.
+    final rows = <_DiffLine>[];
     final maxLen = math.max(oldLines.length, newLines.length);
     for (var i = 0; i < maxLen; i++) {
       final o = i < oldLines.length ? oldLines[i] : null;
       final n = i < newLines.length ? newLines[i] : null;
       if (o == n) {
-        buf.writeln('  ${o ?? ''}');
+        rows.add(_DiffLine(kind: _DiffKind.context, text: o ?? ''));
       } else {
         if (o != null) {
-          buf.writeln('- $o');
+          rows.add(_DiffLine(kind: _DiffKind.delete, text: o));
           dels++;
         }
         if (n != null) {
-          buf.writeln('+ $n');
+          rows.add(_DiffLine(kind: _DiffKind.insert, text: n));
           adds++;
         }
       }
     }
-    final summary = '+$adds / -$dels';
+    final summary = adds > 0 || dels > 0 ? '+$adds / -$dels' : '0 changes';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (path.isNotEmpty) _kv(ctx, 'path', path),
         _kv(ctx, 'change', summary),
-        if (buf.isNotEmpty) _CollapsibleMono(text: buf.toString().trimRight()),
+        if (rows.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: _DiffView(lines: rows),
+          ),
       ],
     );
   }
@@ -1924,6 +1963,11 @@ class AgentEventCard extends StatelessWidget {
       data: s,
       selectable: true,
       shrinkWrap: true,
+      // Override fenced-code rendering with syntax highlighting so the
+      // big block of code Claude tends to paste reads as colored tokens
+      // instead of flat mono. Inline code (no class on the <code>
+      // element) falls through to default styling via the styleSheet.
+      builders: {'code': _HighlightedCodeBuilder(isDark: isDark)},
       // Keep paragraph and block spacing tight so cards don't balloon.
       styleSheet: MarkdownStyleSheet(
         p: base,
@@ -1958,6 +2002,61 @@ class AgentEventCard extends StatelessWidget {
         pPadding: const EdgeInsets.only(bottom: 2),
       ),
     );
+  }
+
+  // Tool-name → glyph map for the tool_call card header strip. Keeps the
+  // transcript scannable: a wall of identical "tool_call" labels reads
+  // like noise; an icon per tool ("Bash → terminal", "Edit → pencil",
+  // "Read → eye") makes each card immediately identifiable. Unknown
+  // names fall through to a generic build glyph.
+  static IconData toolIconFor(String name) {
+    switch (name) {
+      case 'Bash':
+      case 'BashOutput':
+        return Icons.terminal;
+      case 'KillBash':
+        return Icons.cancel_outlined;
+      case 'Edit':
+      case 'MultiEdit':
+        return Icons.edit_outlined;
+      case 'Write':
+        return Icons.note_add_outlined;
+      case 'Read':
+        return Icons.description_outlined;
+      case 'NotebookEdit':
+      case 'NotebookRead':
+        return Icons.menu_book_outlined;
+      case 'Glob':
+        return Icons.folder_open_outlined;
+      case 'Grep':
+        return Icons.search;
+      case 'WebFetch':
+        return Icons.public;
+      case 'WebSearch':
+        return Icons.travel_explore;
+      case 'Task':
+        return Icons.alt_route;
+      case 'TodoWrite':
+        return Icons.checklist;
+      case 'AskUserQuestion':
+        return Icons.help_outline;
+      case 'ExitPlanMode':
+        return Icons.flag_outlined;
+      case 'SlashCommand':
+        return Icons.terminal_outlined;
+    }
+    if (name.startsWith('mcp__termipod__')) {
+      return Icons.hub_outlined; // hub-side MCP tool
+    }
+    if (name.startsWith('mcp__')) {
+      return Icons.api;
+    }
+    // Authority-surface tools (projects.list, agents.spawn, schedules.run, …)
+    // arrive un-namespaced when the steward calls them through the in-process
+    // MCP. Pick a glyph that signals "hub authority" so they're distinct from
+    // engine-local tools above.
+    if (name.contains('.')) return Icons.hub_outlined;
+    return Icons.build_circle_outlined;
   }
 
   Widget _kv(BuildContext ctx, String k, String v, {Color? valueColor}) {
@@ -2059,6 +2158,88 @@ class AgentEventCard extends StatelessWidget {
             ? DesignColors.terminalYellow
             : DesignColors.textMuted;
     }
+  }
+}
+
+/// MarkdownElementBuilder that swaps `<pre><code class="language-X">` blocks
+/// out for a syntax-highlighted view. Inline `<code>` (no class attribute)
+/// returns null so flutter_markdown falls back to its own monochrome
+/// styleSheet rendering — we only want the heavy treatment on fenced
+/// blocks where the language is declared. Fenced blocks without a
+/// language (just ``` ```) get a plaintext highlight (no colors), which
+/// still picks up the themed background + padding so the block visually
+/// stands out from prose.
+class _HighlightedCodeBuilder extends MarkdownElementBuilder {
+  final bool isDark;
+  _HighlightedCodeBuilder({required this.isDark});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final classAttr = element.attributes['class'] ?? '';
+    // Inline `<code>` has no class — let the base styleSheet handle it.
+    // Fenced blocks always get a class even with no language ("language-").
+    if (!classAttr.startsWith('language-')) return null;
+    var language = classAttr.substring('language-'.length).trim();
+    // flutter_highlight expects a known id or 'plaintext'; an unknown id
+    // will raise. Map common aliases and fall back to plaintext for
+    // anything we don't recognize.
+    language = _normalizeLanguage(language);
+    final theme = isDark ? atomOneDarkTheme : atomOneLightTheme;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: isDark
+              ? DesignColors.borderDark
+              : DesignColors.borderLight,
+        ),
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: HighlightView(
+        element.textContent,
+        language: language,
+        theme: theme,
+        padding: const EdgeInsets.all(8),
+        textStyle: GoogleFonts.jetBrainsMono(fontSize: 11, height: 1.35),
+      ),
+    );
+  }
+
+  // highlight.js language ids we keep as-is (the package ships these).
+  // Aliases a user might type in a fence get rerouted here so we don't
+  // throw "no language with that id" at runtime. Unknowns drop to
+  // plaintext (still themed/padded, just not colored).
+  static String _normalizeLanguage(String raw) {
+    if (raw.isEmpty) return 'plaintext';
+    final l = raw.toLowerCase();
+    const aliases = {
+      'sh': 'bash',
+      'shell': 'bash',
+      'zsh': 'bash',
+      'console': 'bash',
+      'js': 'javascript',
+      'ts': 'typescript',
+      'jsx': 'javascript',
+      'tsx': 'typescript',
+      'py': 'python',
+      'rb': 'ruby',
+      'rs': 'rust',
+      'kt': 'kotlin',
+      'cs': 'cs',
+      'h': 'cpp',
+      'hpp': 'cpp',
+      'cc': 'cpp',
+      'cxx': 'cpp',
+      'c++': 'cpp',
+      'objc': 'objectivec',
+      'yml': 'yaml',
+      'md': 'markdown',
+      'tex': 'latex',
+      'plain': 'plaintext',
+      'text': 'plaintext',
+    };
+    return aliases[l] ?? l;
   }
 }
 
@@ -2676,6 +2857,153 @@ class _SessionHeader extends StatelessWidget {
       for (final e in v)
         if (e is Map) e.cast<String, dynamic>(),
     ];
+  }
+}
+
+enum _DiffKind { context, insert, delete }
+
+class _DiffLine {
+  final _DiffKind kind;
+  final String text;
+  const _DiffLine({required this.kind, required this.text});
+}
+
+/// Color-coded diff view for the `diff` event-card body. Each line
+/// renders with a green / red / neutral background — the green-on-add /
+/// red-on-delete convention matches what every code review tool uses,
+/// so the operator doesn't have to read prefixes (+/-) to parse the
+/// change. A line-number gutter on the left reinforces ordering for
+/// long diffs.
+class _DiffView extends StatelessWidget {
+  final List<_DiffLine> lines;
+  const _DiffView({required this.lines});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final mono = GoogleFonts.jetBrainsMono(
+      fontSize: 11,
+      height: 1.35,
+      color: isDark
+          ? DesignColors.textPrimary
+          : DesignColors.textPrimaryLight,
+    );
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final addBg = (isDark
+            ? DesignColors.success
+            : DesignColors.success)
+        .withValues(alpha: isDark ? 0.18 : 0.14);
+    final delBg = DesignColors.error.withValues(alpha: isDark ? 0.18 : 0.12);
+    final ctxBg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+
+    final children = <Widget>[];
+    for (var i = 0; i < lines.length; i++) {
+      final l = lines[i];
+      final bg = switch (l.kind) {
+        _DiffKind.insert => addBg,
+        _DiffKind.delete => delBg,
+        _DiffKind.context => ctxBg,
+      };
+      final marker = switch (l.kind) {
+        _DiffKind.insert => '+',
+        _DiffKind.delete => '-',
+        _DiffKind.context => ' ',
+      };
+      final markerColor = switch (l.kind) {
+        _DiffKind.insert => DesignColors.success,
+        _DiffKind.delete => DesignColors.error,
+        _DiffKind.context => mutedColor,
+      };
+      children.add(Container(
+        color: bg,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 24,
+              child: Text(
+                '${i + 1}',
+                textAlign: TextAlign.right,
+                style: mono.copyWith(color: mutedColor),
+              ),
+            ),
+            const SizedBox(width: 6),
+            SizedBox(
+              width: 12,
+              child: Text(
+                marker,
+                style: mono.copyWith(
+                  color: markerColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                l.text.isEmpty ? ' ' : l.text,
+                style: mono,
+                softWrap: true,
+              ),
+            ),
+          ],
+        ),
+      ));
+    }
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: border),
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+}
+
+/// Compact status pill for the tool_call card header. Mirrors the
+/// pending/in_progress/completed/failed colors that `_statusColor` uses
+/// elsewhere — kept self-contained so the header row can render even
+/// outside an AgentEventCard instance method (statics can't see `this`).
+class _StatusPill extends StatelessWidget {
+  final String status;
+  const _StatusPill({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'failed' => DesignColors.error,
+      'completed' => DesignColors.success,
+      'in_progress' => DesignColors.terminalCyan,
+      'pending' => DesignColors.warning,
+      _ => DesignColors.textMuted,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Text(
+        status,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
   }
 }
 

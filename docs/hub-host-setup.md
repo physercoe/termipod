@@ -143,23 +143,20 @@ beside it:
 mkdir -p ~/.local/bin
 mv ~/host-runner ~/.local/bin/host-runner
 ln -sf host-runner ~/.local/bin/hub-mcp-bridge
-ln -sf host-runner ~/.local/bin/hub-mcp-server
 hash -r          # bash/zsh: refresh PATH lookup cache
-which host-runner hub-mcp-bridge hub-mcp-server  # all three should resolve under ~/.local/bin
+which host-runner hub-mcp-bridge  # both should resolve under ~/.local/bin
 ```
 
 If `~/.local/bin` isn't on your PATH, add it (e.g. in `~/.bashrc`:
 `export PATH="$HOME/.local/bin:$PATH"`) and reopen the shell. Without
-the symlinks, the agent's MCP handshake fails the same way Track B
-fails when its symlinks are missing — see §7 troubleshooting.
+the symlink, the agent's MCP handshake fails the same way Track B
+fails when its symlink is missing — see §7 troubleshooting.
 
-The two symlinks expose two distinct MCP servers to spawned agents:
-`hub-mcp-bridge` is the stdio↔HTTP shim that proxies the narrow
-catalog (gates, attention, post_excerpt) over the hub's `/mcp/<token>`
-endpoint, while `hub-mcp-server` is the local stdio terminator for the
-rich authority surface (agents.spawn, projects, plans, runs, a2a.invoke,
-schedules, channels, …) — both are registered in every spawned agent's
-`.mcp.json` so the steward can reach the union of both surfaces.
+`hub-mcp-bridge` is the stdio↔HTTP shim that connects spawned agents
+to the hub's `/mcp/<token>` endpoint. The hub serves the union of all
+MCP tools (gates, attention, post_excerpt, projects, plans, runs,
+agents.spawn, schedules, channels, a2a.invoke, …) through that single
+endpoint, so one symlink and one `.mcp.json` entry reach everything.
 
 ```bash
 # Inside a tmux session (attach first with `tmux attach` or start one
@@ -208,16 +205,15 @@ login user — see the multi-user section below).
 ### Install the binary system-wide
 
 `host-runner` goes into `/usr/local/bin` so it's on PATH for every
-login user. Two symlinks next to it route agent-side spawns into the
-same binary's MCP modes (claude-code spawns both bare names from
-`.mcp.json`):
+login user. A symlink named `hub-mcp-bridge` next to it routes
+agent-side spawns into the same binary's bridge mode (claude-code
+spawns `hub-mcp-bridge` by bare name from `.mcp.json`):
 
 ```bash
 sudo install -o root -g root -m 0755 ~/host-runner /usr/local/bin/host-runner
 sudo ln -sf host-runner /usr/local/bin/hub-mcp-bridge
-sudo ln -sf host-runner /usr/local/bin/hub-mcp-server
 /usr/local/bin/host-runner --help
-which hub-mcp-bridge hub-mcp-server   # both must resolve under /usr/local/bin
+which hub-mcp-bridge   # must resolve under /usr/local/bin
 ```
 
 No system user to create — the runner uses an existing login account
@@ -627,16 +623,13 @@ If you upgrade host-runner often, the cleanest workflow is: close all open stewa
   instance's `%i`. Either switch the mobile connection to that user,
   or enable a second `termipod-host@<mobile-user>` instance and spawn
   there instead.
-- **Steward's session.init lists `termipod` or `termipod-hub` MCP server
-  as `failed`.** One of the symlinks (`hub-mcp-bridge` for the narrow
-  bridge, `hub-mcp-server` for the rich authority surface) is missing
-  or not on PATH for the spawned agent. Check
-  `which hub-mcp-bridge hub-mcp-server` as the host-runner's user; if
-  either is empty, recreate per §4 (`sudo ln -sf host-runner
-  /usr/local/bin/hub-mcp-bridge && sudo ln -sf host-runner
-  /usr/local/bin/hub-mcp-server`). Other symptoms: the mobile
+- **Steward's session.init lists `termipod` MCP server as `failed`.**
+  The `hub-mcp-bridge` symlink is missing or not on PATH for the
+  spawned agent. Check `which hub-mcp-bridge` as the host-runner's
+  user; if empty, recreate per §4 (`sudo ln -sf host-runner
+  /usr/local/bin/hub-mcp-bridge`). Other symptoms: the mobile
   transcript shows tool calls failing with "command not found"-style
   errors, and `journalctl -u termipod-host@<user>` may report the
-  bridge/server exec returned ENOENT. After install, terminate and
-  re-spawn the steward — the failed MCP handshake doesn't auto-recover
-  within a running session.
+  bridge exec returned ENOENT. After install, terminate and re-spawn
+  the steward — the failed MCP handshake doesn't auto-recover within
+  a running session.

@@ -104,7 +104,12 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			Result: map[string]any{"tools": mcpToolDefs()},
 		})
 	case "tools/call":
-		res, jerr := s.dispatchTool(r.Context(), agent, scope, req.Params)
+		// Pass the path token through to dispatchTool so the
+		// authority-tool fall-through can forward it as the bearer
+		// when invoking the hub's REST surface in-process. The
+		// path token IS the agent's auth_tokens row, so the same
+		// string authenticates both MCP and HTTP.
+		res, jerr := s.dispatchTool(r.Context(), agent, tok, scope, req.Params)
 		resp := jrpcResp{JSONRPC: "2.0", ID: req.ID}
 		if jerr != nil {
 			resp.Error = jerr
@@ -159,6 +164,12 @@ func mcpToolDefs() []map[string]any {
 	base := mcpToolDefsBase()
 	all := append(base, mcpToolDefsExtra()...)
 	all = append(all, orchestrationToolDefs()...)
+	// Rich-authority surface (projects, plans, runs, agents.spawn,
+	// schedules, channels, a2a.invoke, …) imported from the
+	// hubmcpserver package — same catalog the standalone daemon
+	// exposes, served in-process so spawned agents only need the
+	// single bridge entry in .mcp.json.
+	all = append(all, authorityToolDefs()...)
 	// Annotate each definition with its tier (server-authored,
 	// per tiers.go). Custom field; MCP clients ignore unknown
 	// keys, so this is purely informational over the wire.
@@ -291,7 +302,7 @@ type toolCallIn struct {
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScope, params json.RawMessage) (any, *jrpcError) {
+func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, scope mcpScope, params json.RawMessage) (any, *jrpcError) {
 	var call toolCallIn
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, &jrpcError{Code: -32602, Message: "invalid params"}
@@ -354,6 +365,15 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 	case "reports.post":
 		return s.mcpReportsPost(ctx, agentID, call.Arguments)
 	default:
+		// Fall through to the rich-authority catalog (projects,
+		// plans, runs, agents.spawn, schedules, channels, …)
+		// imported from hubmcpserver. Auth runs through the chi
+		// router via chiRouterTransport, so the agent's bearer
+		// authenticates the in-process REST hop just like a real
+		// network call would.
+		if hasAuthorityTool(call.Name) {
+			return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, call.Name, call.Arguments)
+		}
 		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}
 }

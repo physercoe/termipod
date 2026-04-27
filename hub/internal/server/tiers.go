@@ -68,9 +68,49 @@ var toolTiers = map[string]string{
 	"get_audit":              TierTrivial,
 	"permission_prompt":      TierTrivial, // the gate itself, not the gated action
 	// --- orchestrator-worker primitives (mcp_orchestrate.go) ---
-	"agents.fanout":          TierSignificant, // spawns N workers; budget impact
-	"agents.gather":          TierTrivial,     // long-poll read; safe
-	"reports.post":           TierTrivial,     // worker writes own report
+	"agents.fanout": TierSignificant, // spawns N workers; budget impact
+	"agents.gather": TierTrivial,     // long-poll read; safe
+	"reports.post":  TierTrivial,     // worker writes own report
+
+	// --- rich-authority surface (mcp_authority.go → hubmcpserver) ---
+	"projects.list":           TierTrivial,
+	"projects.get":            TierTrivial,
+	"projects.create":         TierSignificant, // new project = new scope
+	"projects.update":         TierRoutine,
+	"plans.list":              TierTrivial,
+	"plans.get":               TierTrivial,
+	"plans.create":            TierRoutine,
+	"plans.steps.create":      TierRoutine,
+	"plans.steps.list":        TierTrivial,
+	"plans.steps.update":      TierRoutine,
+	"runs.list":               TierTrivial,
+	"runs.get":                TierTrivial,
+	"runs.create":             TierRoutine,
+	"runs.attach_artifact":    TierRoutine,
+	"documents.list":          TierTrivial,
+	"documents.create":        TierRoutine,
+	"reviews.list":            TierTrivial,
+	"reviews.create":          TierRoutine,
+	"policy.read":             TierTrivial,
+	"artifacts.list":          TierTrivial,
+	"artifacts.get":           TierTrivial,
+	"artifacts.create":        TierRoutine,
+	"agents.spawn":            TierSignificant, // spawns a worker
+	"channels.post_event":     TierRoutine,
+	"a2a.invoke":              TierSignificant, // peer message
+	"hosts.update_ssh_hint":   TierSignificant, // host config change
+	"project_channels.create": TierRoutine,
+	"team_channels.create":    TierRoutine,
+	"tasks.list":              TierTrivial,
+	"tasks.get":               TierTrivial,
+	"tasks.create":            TierRoutine,
+	"tasks.update":            TierRoutine,
+	"schedules.list":          TierTrivial,
+	"schedules.create":        TierSignificant, // scheduled side effects
+	"schedules.update":        TierRoutine,
+	"schedules.delete":        TierRoutine,
+	"schedules.run":           TierSignificant, // manual fire of a schedule
+	"audit.read":              TierTrivial,
 
 	// --- claude-code's own tool surface ---
 	"Read":           TierTrivial,

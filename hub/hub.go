@@ -21,12 +21,9 @@ var TemplatesFS embed.FS
 // rewriting on next launch, and every steward agent's spawn command
 // would need re-rendering. Templates use {{mcp_namespace}} so a future
 // rename only touches this constant + a redeploy.
+//
+// Single namespace: as of v1.0.297 the hub's in-process MCP catalog
+// also serves the rich-authority surface (projects, plans, runs, …)
+// previously hosted by the standalone hub-mcp-server daemon, so one
+// .mcp.json entry reaches everything (see mcp_authority.go).
 const MCPServerName = "termipod"
-
-// MCPHubServerName is the namespace for the second MCP server every
-// spawned agent gets — the local stdio terminator
-// (internal/hubmcpserver) that exposes the rich authority surface
-// (projects, plans, runs, agents.spawn, a2a.invoke, …). Distinct from
-// MCPServerName so claude-code's tool routing (mcp__<server>__<tool>)
-// doesn't collide. Both servers are registered in writeMCPConfig.
-const MCPHubServerName = "termipod-hub"

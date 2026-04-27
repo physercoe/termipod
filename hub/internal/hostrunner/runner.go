@@ -475,7 +475,6 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 			Launcher: a.Launcher,
 			Client:   a.agentPoster,
 			HubURL:   hubURLForAgent,
-			TeamID:   a.Client.Team,
 		})
 		if m2err != nil {
 			a.Log.Warn("M2 launch failed; falling back to M4",

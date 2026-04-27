@@ -24,27 +24,23 @@ import (
 	"syscall"
 
 	"github.com/termipod/hub/internal/hostrunner"
-	"github.com/termipod/hub/internal/hubmcpserver"
 	"github.com/termipod/hub/internal/mcpbridge"
 )
 
 func main() {
-	// Multicall: the binary routes to a different entry point based on
-	// the basename it was invoked as. Both names are symlinked at
-	// /usr/local/bin during install, so spawned agents' .mcp.json can
-	// reference the friendly names and Just Work without a second
-	// installable.
+	// Multicall: the binary routes to a different entry point when
+	// invoked under the hub-mcp-bridge basename (typically a symlink
+	// at /usr/local/bin). Spawned agents reference the friendly name
+	// in .mcp.json so claude-code Just Works without a second install.
 	switch filepath.Base(os.Args[0]) {
 	case "hub-mcp-bridge":
 		// stdio↔HTTP shim → hub /mcp/<token> → in-process MCP catalog
-		// (gates, attention, post_excerpt). Single-purpose, narrow.
+		// (gates, attention, post_excerpt, journal, the orchestrator-
+		// worker primitives, AND the rich-authority surface — projects,
+		// plans, runs, agents.spawn, schedules, channels, a2a.invoke,
+		// … — wired in-process by mcp_authority.go). One bridge entry
+		// in .mcp.json reaches everything; no second daemon needed.
 		os.Exit(mcpbridge.Run(os.Args[1:]))
-	case "hub-mcp-server":
-		// Local MCP terminator → hub REST → rich authority catalog
-		// (projects, plans, runs, agents.spawn, a2a.invoke, …). Both
-		// servers coexist in the same .mcp.json so the steward sees
-		// the union of both surfaces.
-		os.Exit(hubmcpserver.Run(os.Args[1:]))
 	}
 
 	if len(os.Args) < 2 {
@@ -58,8 +54,6 @@ func main() {
 		runRegister(os.Args[2:])
 	case "mcp-bridge":
 		os.Exit(mcpbridge.Run(os.Args[2:]))
-	case "mcp-server":
-		os.Exit(hubmcpserver.Run(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	default:

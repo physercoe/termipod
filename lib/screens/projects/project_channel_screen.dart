@@ -63,11 +63,15 @@ class _ProjectChannelScreenState extends ConsumerState<ProjectChannelScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final rows = await client.listProjectChannelEvents(
+      // Cached read-through (same shape as team_channel_screen): cold
+      // open offline shows the last-fetched window; SSE handles live
+      // updates.
+      final cached = await client.listProjectChannelEventsCached(
         widget.projectId,
         widget.channelId,
         limit: 50,
       );
+      final rows = cached.body.toList();
       rows.sort((a, b) {
         final at = (a['received_ts'] ?? a['ts'] ?? '').toString();
         final bt = (b['received_ts'] ?? b['ts'] ?? '').toString();

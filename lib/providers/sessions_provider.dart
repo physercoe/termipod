@@ -27,7 +27,10 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
         ? null
         : ref.read(hubProvider.notifier).client;
     if (client == null) return const SessionsState();
-    final all = await client.listSessions();
+    // Cached read-through: cold open offline still surfaces the last
+    // known stewards. Same fallback contract as projects/hosts/etc.
+    final cached = await client.listSessionsCached();
+    final all = cached.body;
     final active = <Map<String, dynamic>>[];
     final previous = <Map<String, dynamic>>[];
     for (final s in all) {

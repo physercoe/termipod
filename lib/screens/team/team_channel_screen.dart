@@ -75,10 +75,14 @@ class _TeamChannelScreenState extends ConsumerState<TeamChannelScreen> {
     if (client == null) return;
     try {
       // Backfill — hub returns newest-first; flip so the UI reads top→bottom.
-      final rows = await client.listTeamChannelEvents(
+      // Cached read-through: an offline cold open shows the last-fetched
+      // window instead of an empty channel + spinner. SSE picks up live
+      // updates after the initial bootstrap.
+      final cached = await client.listTeamChannelEventsCached(
         widget.channelId,
         limit: 50,
       );
+      final rows = cached.body.toList();
       rows.sort((a, b) {
         final at = (a['received_ts'] ?? a['ts'] ?? '').toString();
         final bt = (b['received_ts'] ?? b['ts'] ?? '').toString();

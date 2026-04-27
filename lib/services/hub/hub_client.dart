@@ -343,6 +343,25 @@ class HubClient {
         query: status == null ? null : {'status': status},
       );
 
+  /// Read-through variant of [listSessions]; see [listAttentionCached]
+  /// for the offline-fallback contract. Sessions are the navigational
+  /// primitive of the Stewards page — without this, an airplane-mode
+  /// open would show "no stewards" even when prior fetches populated
+  /// the cache.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listSessionsCached({
+    String? status,
+  }) {
+    final q = status == null ? null : {'status': status};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint:
+          buildEndpointKey('/v1/teams/${cfg.teamId}/sessions', q),
+      fetch: () => listSessions(status: status),
+      decode: _decodeListMaps,
+    );
+  }
+
   Future<Map<String, dynamic>> getSession(String id) async {
     final out = await _get('/v1/teams/${cfg.teamId}/sessions/$id');
     return (out as Map).cast<String, dynamic>();
@@ -957,6 +976,53 @@ class HubClient {
     return _listJson(
       '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
       query: q.isEmpty ? null : q,
+    );
+  }
+
+  /// Read-through caches for channel-event bootstrap. Mirrors the
+  /// agent_events tail caching: each call snapshots the most recent
+  /// window-sized fetch under one cache row per (channel, limit). SSE
+  /// then takes over for live updates into the screen's in-memory
+  /// state, so the cache is only consulted on cold open / network
+  /// failure. We deliberately omit `since` from the cache key — the
+  /// "what did I last read here" snapshot is what offline UX wants;
+  /// every distinct since-cursor would otherwise bloat the cache
+  /// without any payback for offline reads.
+  Future<CachedResponse<List<Map<String, dynamic>>>>
+      listTeamChannelEventsCached(
+    String channelId, {
+    int? limit,
+  }) {
+    final q = limit == null ? null : {'limit': '$limit'};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/channels/$channelId/events',
+        q,
+      ),
+      fetch: () => listTeamChannelEvents(channelId, limit: limit),
+      decode: _decodeListMaps,
+    );
+  }
+
+  Future<CachedResponse<List<Map<String, dynamic>>>>
+      listProjectChannelEventsCached(
+    String projectId,
+    String channelId, {
+    int? limit,
+  }) {
+    final q = limit == null ? null : {'limit': '$limit'};
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/channels/$channelId/events',
+        q,
+      ),
+      fetch: () =>
+          listProjectChannelEvents(projectId, channelId, limit: limit),
+      decode: _decodeListMaps,
     );
   }
 

@@ -571,7 +571,30 @@ via `reconstruct-db`), live tmux/pane state on connected hosts, and
 mobile-side data (connections, SSH keys, snippets — those export from
 Settings → Data).
 
-## 9. Troubleshooting
+## 9. Agent / pane lifecycle around host-runner restart
+
+This trips people up after a host-runner upgrade. Quick reference:
+
+| Event | Agent process | tmux pane | Hub `agents` row |
+|---|---|---|---|
+| Normal operation | Alive, parent = host-runner | Runs `tail -f <log>` (M2) or the CLI directly (M4) | `running` |
+| host-runner exits cleanly (`systemctl restart`) | **Dies** for M2 (parent-pipe close → SIGPIPE). M4 survives (tmux is the parent). | M2: `tail` keeps running on the orphan log file. M4: pane unaffected. | Stays `running` until reconcile catches up. |
+| host-runner crashes/killed | Same as clean exit | Same | Same |
+| host-runner restarts | New process, no record of prior agents | The `tail` panes from prior life are still there but pointing at dead log files | Reconcile loop (every 3s) marks M2 zombies as `crashed` (see below). M4 stays `running`. |
+| Steward marked `crashed` | n/a (already dead) | n/a | Sessions with this `current_agent_id` flip to `interrupted`. Mobile shows **Resume** in the Sessions list. |
+
+**How M2 zombies are detected**: M2 spawns own the agent process directly — host-runner is the parent. The tmux pane runs `tail -f <log>` to mirror output, not the CLI itself, so the pane survives host-runner restart even though the underlying process doesn't. `tickReconcile` looks for panes whose foreground command is `tail` AND whose agent has no in-process driver entry, and marks those `crashed`. The status filter (`running` only) prevents tripping on the brief launch window where a fresh pane hasn't yet registered its driver.
+
+**Practical implications:**
+
+- **Upgrading host-runner stops your stewards.** Plan accordingly: close active sessions first, or accept that you'll see "Interrupted — Resume" prompts in the Sessions list after the restart. Resume re-spawns claude with the same worktree + spec.
+- **Workers spawned in M4 mode** (the default for non-stream-json agents) survive host-runner restart cleanly. They reattach to their existing tmux panes on next reconcile.
+- **"New session" against an existing steward** does NOT respawn the agent process — it just opens a fresh session row pointing at the same live process. The conversation context inside claude-code carries forward; only the mobile transcript view restarts. If the steward is dead (zombie), the new session sees no responses; that's the symptom that points back at this section.
+- **Steward replacement** (engine swap via `replace steward`) explicitly terminates the prior agent and spawns a fresh one inside the same session — different from "new session" because the process actually restarts.
+
+If you upgrade host-runner often, the cleanest workflow is: close all open steward sessions in mobile → restart host-runner → wait ~5s for reconcile → spawn fresh stewards via `Replace steward` or session resume.
+
+## 10. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to
   the wrong team. List tokens with

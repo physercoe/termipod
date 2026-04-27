@@ -142,6 +142,47 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (_scroll.position.pixels <= 120) _maybeLoadOlder();
   }
 
+  // Pull the latest session.init for this agent regardless of which
+  // session it was emitted into. Used to keep the AppBar chip alive
+  // across "new session" opens — claude only emits session.init once
+  // per process start, and it lands in whichever session was open at
+  // that moment. Without this fallback, every new session opened
+  // against an existing steward shows an empty AppBar. Best-effort:
+  // failures are silent because the chip is decorative (it doesn't
+  // affect message delivery).
+  Future<void> _maybeBackfillSessionInit(HubClient client) async {
+    if (_latestSessionInitPayload() != null) return;
+    if (widget.onSessionInit == null) return;
+    try {
+      // Pull the agent's tail across ALL sessions; scan back from
+      // newest for the most recent session.init. Page size is small
+      // because session.init is rare and usually within the last few
+      // hundred events.
+      final any = await client.listAgentEvents(
+        widget.agentId,
+        tail: true,
+        limit: 200,
+        // No sessionId — that's the whole point of the fallback.
+      );
+      if (!mounted) return;
+      for (final e in any.reversed) {
+        if ((e['kind'] ?? '').toString() != 'session.init') continue;
+        final p = e['payload'];
+        if (p is! Map) continue;
+        final payload = p.cast<String, dynamic>();
+        final sid = (payload['session_id'] ?? '').toString();
+        if (sid == _lastReportedInitSid) return;
+        _lastReportedInitSid = sid;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onSessionInit?.call(payload);
+        });
+        return;
+      }
+    } catch (_) {
+      // Silent — chip is decorative.
+    }
+  }
+
   Future<void> _maybeLoadOlder() async {
     if (_loadingOlder || _atHead || _minSeq <= 1) return;
     final client = ref.read(hubProvider.notifier).client;
@@ -238,6 +279,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _subscribe(client);
       // Give the first-frame layout a tick, then pin to the tail.
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
+      // session.init is a one-shot event from the agent process. A
+      // freshly-opened session against an existing steward has none —
+      // the init event lives in the prior closed session. Pull the
+      // agent's most recent session.init regardless of session filter
+      // so the AppBar chip stays informative across "new session" and
+      // resume flows. Cheap: one extra HTTP call on cold open, only
+      // fires when the in-scope feed lacks an init.
+      _maybeBackfillSessionInit(client);
     } on HubApiError catch (e) {
       if (!mounted) return;
       setState(() {
@@ -511,12 +560,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               ),
             ),
           ),
-        if (_verbose || hiddenForVerbose > 0)
-          _VerboseToggleBar(
-            verbose: _verbose,
-            hiddenCount: hiddenForVerbose,
-            onToggle: () => setState(() => _verbose = !_verbose),
-          ),
         Expanded(
           child: Stack(
             children: [
@@ -583,6 +626,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                       count: _newWhileAway,
                       onTap: _jumpToLatest,
                     ),
+                  ),
+                ),
+              // Verbose toggle: tiny floating chip in the top-right.
+              // Replaces the previous full-row strip — the row was
+              // mostly whitespace + a long descriptive label, eating
+              // a transcript line on every steward chat. Only renders
+              // when there's actually something to toggle (events
+              // hidden, or already in verbose mode).
+              if (_verbose || hiddenForVerbose > 0)
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: _VerboseToggleChip(
+                    verbose: _verbose,
+                    hiddenCount: hiddenForVerbose,
+                    onToggle: () => setState(() => _verbose = !_verbose),
                   ),
                 ),
             ],
@@ -746,11 +805,16 @@ class _OfflineBanner extends StatelessWidget {
 /// "show raw" toggle in claude-code's terminal (Ctrl+O) — by default
 /// the transcript reads as a chat surface; flip to see the debug
 /// stream when something looks wrong.
-class _VerboseToggleBar extends StatelessWidget {
+/// Floating chip in the feed's top-right corner. Toggles _verbose so
+/// debug-fidelity events (lifecycle, raw, system) appear as cards.
+/// Replaces the prior full-row toggle bar that ate vertical space on
+/// every chat surface even when nothing was hidden. Tooltip carries
+/// the explanatory copy so the chip stays icon+count-only.
+class _VerboseToggleChip extends StatelessWidget {
   final bool verbose;
   final int hiddenCount;
   final VoidCallback onToggle;
-  const _VerboseToggleBar({
+  const _VerboseToggleChip({
     required this.verbose,
     required this.hiddenCount,
     required this.onToggle,
@@ -761,51 +825,58 @@ class _VerboseToggleBar extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    final border =
-        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final bg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
     final label = verbose
-        ? 'Hide debug events'
-        : (hiddenCount > 0
-            ? 'Show debug ($hiddenCount hidden)'
-            : 'Show debug');
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: border)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: [
-          Icon(
-            verbose ? Icons.visibility : Icons.visibility_off_outlined,
-            size: 14,
-            color: muted,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              verbose
-                  ? 'Showing all events (lifecycle, raw, system, input echoes)'
-                  : 'Hiding lifecycle, raw, system, input echoes',
-              style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+        ? 'on'
+        : (hiddenCount > 0 ? '$hiddenCount' : '');
+    return Tooltip(
+      message: verbose
+          ? 'Hide debug events (lifecycle, raw, system)'
+          : 'Show debug events (lifecycle, raw, system)'
+              '${hiddenCount > 0 ? ' — $hiddenCount currently hidden' : ''}',
+      child: Material(
+        color: bg.withValues(alpha: 0.92),
+        elevation: 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: border),
+        ),
+        child: InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 8, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  verbose
+                      ? Icons.visibility
+                      : Icons.visibility_off_outlined,
+                  size: 14,
+                  color: muted,
+                ),
+                if (label.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  Text(
+                    label,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: muted,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          TextButton(
-            onPressed: onToggle,
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              minimumSize: const Size(0, 28),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              foregroundColor: muted,
-            ),
-            child: Text(
-              label,
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -60,16 +60,46 @@ func isLoginShell(cmd string) bool {
 	return loginShells[cmd]
 }
 
+// isM2TailCmd matches the `tail -f <log>` wrapper that M2's tmux
+// launcher runs in the display pane. tmux's pane_current_command shows
+// the basename, so plain "tail" is the steady state. We accept the
+// `gtail` GNU variant on macOS because Homebrew installs it that way.
+func isM2TailCmd(cmd string) bool {
+	return cmd == "tail" || cmd == "gtail"
+}
+
 // tickReconcile reads tmux ground truth once and PATCHes each non-terminated
 // agent on this host to the status that matches its pane:
 //
 //   - pane_id empty       → skip (spawn hasn't run yet; launchOne owns it)
 //   - pane missing / dead → crashed
+//   - pane is `tail` w/o
+//     a Go driver         → crashed (M2 zombie — see "Why tail without a
+//                           driver = crashed" below)
 //   - fg is a shell       → pending (CLI not running yet, or just exited)
 //   - fg is anything else → running
 //
 // Called every poll tick. Per-agent errors are logged and skipped so one
 // bad agent doesn't block the others.
+//
+// Why "tail without a driver = crashed":
+//
+// M2 spawns own the agent process directly (host-runner is the parent),
+// and the tmux pane runs `tail -f <log>` to mirror the driver's stdout.
+// When host-runner exits (crash, upgrade, systemd restart), the agent
+// process dies with it (parent pipes close → SIGPIPE), but the tail
+// pane keeps running because tmux is independent. The reconcile loop
+// used to see `cmd=tail` and conclude "running" — leaving a zombie
+// agent row pointing at a dead process. Subsequent input from the
+// mobile got delivered to nowhere; new sessions opened against the
+// same agent saw no response.
+//
+// Treating a `tail` pane without a corresponding in-process driver as
+// crashed is correct because the only way to get a tail pane is via
+// M2 launch, and the only way for it to be live is if the current
+// host-runner instance launched it (and therefore has the driver).
+// Empty `a.drivers` after a restart means none of the prior M2 panes
+// are alive, regardless of what tmux says.
 func (a *Runner) tickReconcile(ctx context.Context) {
 	agents, err := a.Client.ListHostAgents(ctx, a.HostID)
 	if err != nil {
@@ -89,9 +119,17 @@ func (a *Runner) tickReconcile(ctx context.Context) {
 			continue
 		}
 		info, ok := panes[ag.PaneID]
+		_, hasDriver := a.drivers[ag.ID]
 		var want string
 		switch {
 		case !ok || info.dead:
+			want = "crashed"
+		case isM2TailCmd(info.cmd) && !hasDriver && ag.Status == "running":
+			// M2 zombie: the tail pane outlived the agent process.
+			// Status filter ensures we don't trip on the brief window
+			// during a fresh launchM2 where the pane exists but the
+			// driver hasn't been registered yet (agent is still
+			// `pending` in that window). See top-of-function comment.
 			want = "crashed"
 		case isLoginShell(info.cmd):
 			want = "pending"

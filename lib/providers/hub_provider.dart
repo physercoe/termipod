@@ -184,7 +184,69 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _blobCache = await _openBlobCache();
     _client!.snapshotCache = _cache;
     _client!.blobCache = _blobCache;
-    return HubState(config: cfg);
+    // Cache-first cold start: read every dashboard endpoint's last
+    // snapshot synchronously so the UI lights up with last-known-good
+    // before the network refresh fires. The microtask-scheduled
+    // refreshAll in build() then overwrites with fresh data — and the
+    // refresh path's `clearStale` logic resets staleSince once each
+    // endpoint succeeds.
+    return _hydrateFromCache(cfg);
+  }
+
+  /// Read the six dashboard list snapshots from the on-disk cache and
+  /// fold them into a HubState the UI can render immediately. Missing
+  /// rows fall back to empty lists; oldest fetchedAt across hits drives
+  /// the "Offline · last updated X" banner. No network here — the
+  /// network refresh is scheduled separately so cache reads stay
+  /// sub-millisecond and the splash screen doesn't block on them.
+  Future<HubState> _hydrateFromCache(HubConfig cfg) async {
+    final cache = _cache;
+    if (cache == null) return HubState(config: cfg);
+    final hubKey = hubCacheKey(baseUrl: cfg.baseUrl, teamId: cfg.teamId);
+    final t = cfg.teamId;
+    // Endpoint keys must match exactly what HubClient.list*Cached() pass
+    // to readThrough, otherwise we read empty even when cache has data.
+    // buildEndpointKey() canonicalizes query params the same way.
+    final results = await Future.wait([
+      cache.get(hubKey,
+          buildEndpointKey('/v1/teams/$t/attention', {'status': 'open'})),
+      cache.get(hubKey, '/v1/teams/$t/hosts'),
+      cache.get(hubKey, '/v1/teams/$t/agents'),
+      cache.get(hubKey, '/v1/teams/$t/projects'),
+      cache.get(hubKey, '/v1/teams/$t/templates'),
+      cache.get(hubKey, '/v1/teams/$t/agents/spawns'),
+    ]);
+    DateTime? oldest;
+    for (final snap in results) {
+      if (snap == null) continue;
+      if (oldest == null || snap.fetchedAt.isBefore(oldest)) {
+        oldest = snap.fetchedAt;
+      }
+    }
+    return HubState(
+      config: cfg,
+      attention: _decodeCachedList(results[0]),
+      hosts: _decodeCachedList(results[1]),
+      agents: _decodeCachedList(results[2]),
+      projects: _decodeCachedList(results[3]),
+      templates: _decodeCachedList(results[4]),
+      spawns: _decodeCachedList(results[5]),
+      // Surfaced as "stale" until refreshAll confirms a fresh fetch and
+      // clears it via clearStale. UI shows the offline banner during
+      // this brief window only when the network is genuinely down — on
+      // a healthy hub the banner blinks past too fast to register.
+      staleSince: oldest,
+    );
+  }
+
+  static List<Map<String, dynamic>> _decodeCachedList(HubSnapshot? snap) {
+    if (snap == null) return const [];
+    final body = snap.body;
+    if (body is! List) return const [];
+    return [
+      for (final r in body)
+        if (r is Map) r.cast<String, dynamic>(),
+    ];
   }
 
   HubClient? get client => _client;

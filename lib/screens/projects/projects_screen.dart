@@ -1246,7 +1246,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final out = await client.getAgent(_id);
+      final out = (await client.getAgentCached(_id)).body;
       if (!mounted) return;
       setState(() => _full = out);
     } catch (_) {

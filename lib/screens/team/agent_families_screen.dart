@@ -45,7 +45,8 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final rows = await client.listAgentFamilies();
+      final rows =
+          (await client.listAgentFamiliesCached()).body.toList();
       rows.sort((a, b) =>
           (a['family'] ?? '').toString().compareTo((b['family'] ?? '').toString()));
       if (!mounted) return;

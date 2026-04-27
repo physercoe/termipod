@@ -643,7 +643,7 @@ class _RunDetailScreenState extends ConsumerState<RunDetailScreen> {
       return;
     }
     try {
-      final r = await client.getRun(widget.runId);
+      final r = (await client.getRunCached(widget.runId)).body;
       // Metric digests + image-panel entries are optional — a run without
       // an attached tracker (or before the poller's first tick) simply has
       // no rows yet. Fetch both in parallel; failures fall back to empty.

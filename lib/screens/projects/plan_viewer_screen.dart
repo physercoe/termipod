@@ -62,13 +62,16 @@ class _PlanViewerScreenState extends ConsumerState<PlanViewerScreen> {
       return;
     }
     try {
+      // Cached variants so re-opens (and offline opens) read the
+      // last-known plan + steps from SQLite while the network call
+      // refreshes them in the background.
       final results = await Future.wait([
-        client.getPlan(widget.planId),
-        client.listPlanSteps(widget.planId),
+        client.getPlanCached(widget.planId),
+        client.listPlanStepsCached(widget.planId),
       ]);
       if (!mounted) return;
-      final plan = results[0] as Map<String, dynamic>;
-      final steps = (results[1] as List<Map<String, dynamic>>).toList();
+      final plan = results[0].body as Map<String, dynamic>;
+      final steps = (results[1].body as List<Map<String, dynamic>>).toList();
       steps.sort((a, b) {
         final ap = (a['phase_idx'] as num?)?.toInt() ?? 0;
         final bp = (b['phase_idx'] as num?)?.toInt() ?? 0;

@@ -233,6 +233,19 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Read-through variant of [getAgent]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getAgentCached(
+    String agentId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/agents/$agentId',
+        fetch: () => getAgent(agentId),
+        decode: _decodeMap,
+      );
+
   /// Parent→child spawn edges. Each row has `parent_agent_id`,
   /// `child_agent_id`, `handle`, `kind`, `status`, plus the original
   /// spawn metadata. Used to render the agent org chart.
@@ -621,6 +634,18 @@ class HubClient {
     final fams = (out as Map)['families'] as List? ?? const [];
     return fams.map((e) => (e as Map).cast<String, dynamic>()).toList();
   }
+
+  /// Read-through variant of [listAgentFamilies]; see [listRunsCached]
+  /// for the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>>
+      listAgentFamiliesCached() =>
+          readThrough<List<Map<String, dynamic>>>(
+            cache: snapshotCache,
+            hubKey: _cacheHubKey,
+            endpoint: '/v1/teams/${cfg.teamId}/agent-families',
+            fetch: listAgentFamilies,
+            decode: _decodeListMaps,
+          );
 
   /// Returns the structured record for one family. The `source` field
   /// disambiguates embedded vs. override vs. custom — callers gate the
@@ -1466,6 +1491,19 @@ class HubClient {
     return _runRowToUI((out as Map).cast<String, dynamic>());
   }
 
+  /// Read-through variant of [getRun]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getRunCached(
+    String runId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/runs/$runId',
+        fetch: () => getRun(runId),
+        decode: _decodeMap,
+      );
+
   Future<Map<String, dynamic>> createRun({
     required String projectId,
     required String kind, // e.g. 'train', 'eval', 'notebook'
@@ -1832,6 +1870,19 @@ class HubClient {
     return _reviewRowToUI((out as Map).cast<String, dynamic>());
   }
 
+  /// Read-through variant of [getReview]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getReviewCached(
+    String reviewId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/reviews/$reviewId',
+        fetch: () => getReview(reviewId),
+        decode: _decodeMap,
+      );
+
   // Review state lives in the UI as 'needs_changes' but the backend column
   // holds 'request_changes'. Translate at the client boundary so callers
   // don't need to know the difference.
@@ -1917,6 +1968,19 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Read-through variant of [getPlan]; see [listRunsCached] for the
+  /// offline-fallback contract.
+  Future<CachedResponse<Map<String, dynamic>>> getPlanCached(
+    String planId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/plans/$planId',
+        fetch: () => getPlan(planId),
+        decode: _decodeMap,
+      );
+
   Future<Map<String, dynamic>> createPlan({
     required String projectId,
     String? templateId,
@@ -1944,6 +2008,19 @@ class HubClient {
 
   Future<List<Map<String, dynamic>>> listPlanSteps(String planId) =>
       _listJson('/v1/teams/${cfg.teamId}/plans/$planId/steps');
+
+  /// Read-through variant of [listPlanSteps]; see [listRunsCached] for
+  /// the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listPlanStepsCached(
+    String planId,
+  ) =>
+      readThrough<List<Map<String, dynamic>>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint: '/v1/teams/${cfg.teamId}/plans/$planId/steps',
+        fetch: () => listPlanSteps(planId),
+        decode: _decodeListMaps,
+      );
 
   Future<Map<String, dynamic>> createPlanStep(
     String planId, {

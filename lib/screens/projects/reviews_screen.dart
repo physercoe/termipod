@@ -608,13 +608,13 @@ class _ReviewDetailSheetState extends ConsumerState<_ReviewDetailSheet> {
       return;
     }
     try {
-      final r = await client.getReview(widget.reviewId);
+      final r = (await client.getReviewCached(widget.reviewId)).body;
       Map<String, dynamic>? doc;
       final docId = (r['document_id'] ?? r['target_id'] ?? '').toString();
       final kind = (r['target_kind'] ?? 'document').toString();
       if (docId.isNotEmpty && (kind == 'document' || kind.isEmpty)) {
         try {
-          doc = await client.getDocument(docId);
+          doc = (await client.getDocumentCached(docId)).body;
         } catch (_) {
           // Document fetch failure shouldn't block the decide flow.
           doc = null;

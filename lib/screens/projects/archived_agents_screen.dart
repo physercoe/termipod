@@ -232,7 +232,7 @@ class _ArchivedAgentDetailScreenState
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final full = await client.getAgent(_id);
+      final full = (await client.getAgentCached(_id)).body;
       String? journal;
       try {
         journal = await client.readAgentJournal(_id);

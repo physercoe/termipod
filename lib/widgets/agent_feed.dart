@@ -408,10 +408,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       ..._stringList(initForCompose?['tools']),
       ..._stringList(initForCompose?['skills']),
     ];
+    // Agent-busy signal for the composer's cancel-on-send overlay:
+    // the latest event's kind tells us whether the current turn has
+    // wrapped. turn.result / completion / lifecycle:exited are the
+    // terminal markers; anything else means "the agent is still
+    // producing output for the in-flight turn". Composer only renders
+    // the cancel button when the user has already typed something —
+    // so this flag matters only in the predictive-input scenario.
+    final isAgentBusy = _isAgentBusy();
     final compose = AgentCompose(
       agentId: widget.agentId,
       slashCommands: composeSlash,
       mentions: composeMentions,
+      isAgentBusy: isAgentBusy,
     );
     if (_events.isEmpty) {
       return Column(
@@ -654,6 +663,39 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         compose,
       ],
     );
+  }
+
+  // Returns true when the current turn hasn't ended yet — the agent is
+  // streaming text, awaiting a tool result, or hasn't emitted a
+  // turn.result. Drives the composer's cancel-on-send overlay so the
+  // user can interrupt a running turn to send their next prompt
+  // (the predictive-input case the user spelled out).
+  //
+  // Scan from the tail backwards looking for the latest "real" event —
+  // skip producer='user' input echoes since those don't reflect agent
+  // state. A terminal kind (turn.result / completion / a lifecycle
+  // exit) means idle; anything else from the agent side means busy.
+  // No events at all → idle.
+  bool _isAgentBusy() {
+    for (final e in _events.reversed) {
+      final producer = (e['producer'] ?? '').toString();
+      if (producer == 'user') continue; // user inputs don't move the state
+      final kind = (e['kind'] ?? '').toString();
+      if (kind == 'turn.result' || kind == 'completion') return false;
+      if (kind == 'lifecycle') {
+        final p = e['payload'];
+        final phase = p is Map ? (p['phase'] ?? '').toString() : '';
+        if (phase == 'exited' || phase == 'stopped') return false;
+        // 'started' and other lifecycle phases are ambiguous; keep
+        // scanning so a recent text/tool_call wins the decision.
+        continue;
+      }
+      // Any other agent-produced kind — text streaming, thought,
+      // tool_call mid-flight, plan, raw, etc. — means the turn is
+      // still in motion.
+      return true;
+    }
+    return false;
   }
 
   // Find the most recent session.init payload, if any. Used by the

@@ -32,11 +32,20 @@ class AgentCompose extends ConsumerStatefulWidget {
   final String agentId;
   final List<String> slashCommands;
   final List<String> mentions;
+  /// True while the current turn hasn't completed (streaming text,
+  /// pending tool result, awaiting turn.result). The composer renders
+  /// cancel-instead-of-send only when the user has typed something
+  /// AND this is true — i.e. the user wrote their next prompt while
+  /// the agent is still answering the previous one and now needs to
+  /// interrupt to send. Default false so a screen with no event
+  /// stream still shows the normal send button.
+  final bool isAgentBusy;
   const AgentCompose({
     super.key,
     required this.agentId,
     this.slashCommands = const [],
     this.mentions = const [],
+    this.isAgentBusy = false,
   });
 
   @override
@@ -400,14 +409,19 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 ),
               ),
               const SizedBox(width: 4),
-              // Single-slot send/cancel control: the field's content
-              // disambiguates intent. With text → primary send button.
-              // Empty → cancel button (red), since the only useful
-              // action with nothing to send is to interrupt whatever
-              // turn the agent is currently running. Saves a button
-              // slot vs a permanently-visible cancel — agent_events
-              // SSE doesn't directly tell the composer "agent busy",
-              // so this empty/non-empty heuristic stands in.
+              // Single-slot control with three states:
+              //   sending          → spinner (local POST in flight)
+              //   text + busy      → cancel (red) — agent is still on
+              //                      the previous turn, the user just
+              //                      typed their next prompt and needs
+              //                      to interrupt before it can send.
+              //                      Per device-walkthrough feedback,
+              //                      this is the only situation cancel
+              //                      makes sense: an empty field means
+              //                      the user is just watching the
+              //                      response, not waiting to send.
+              //   text + idle      → send (primary)
+              //   empty            → send (disabled / muted)
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _ctrl,
                 builder: (_, value, _) {
@@ -422,9 +436,10 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       ),
                     );
                   }
-                  if (empty) {
+                  if (!empty && widget.isAgentBusy) {
                     return IconButton(
-                      tooltip: 'Cancel — interrupt the agent',
+                      tooltip:
+                          'Cancel current turn — frees the agent to receive your next prompt',
                       onPressed: _cancel,
                       icon: Icon(
                         Icons.stop_circle_outlined,
@@ -439,9 +454,10 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                   }
                   return IconButton(
                     tooltip: 'Send as text input',
-                    onPressed: _send,
-                    icon: const Icon(Icons.send,
-                        size: 20, color: DesignColors.primary),
+                    onPressed: empty ? null : _send,
+                    icon: Icon(Icons.send,
+                        size: 20,
+                        color: empty ? muted : DesignColors.primary),
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
                     constraints: const BoxConstraints(

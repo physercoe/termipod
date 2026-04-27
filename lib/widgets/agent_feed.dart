@@ -424,11 +424,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (rid.isNotEmpty) resolvedApprovals[rid] = dec;
       }
     }
-    // Sticky header pulls from the latest session.init (a steward
-    // that reconnects can produce more than one). The composer above
-    // already plucked the same payload — kept distinct so a future
-    // header-only optimization stays local.
-    final sessionInit = initForCompose;
+    // session.init is now reported up to the parent (AppBar) via the
+    // onSessionInit callback above; nothing inline needs the payload.
     // Telemetry strip inputs: cumulative cost from all turn.result
     // events, per-model token totals aggregated from turn.result.by_model
     // (claude's modelUsage, normalized by driver_stdio.go — keys: input,

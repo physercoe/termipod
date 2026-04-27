@@ -125,7 +125,22 @@ class HubNotifier extends AsyncNotifier<HubState> {
       _blobCache = null;
       _templateBodyCache.clear();
     });
-    return _loadConfig();
+    final initial = await _loadConfig();
+    // Cold-start refresh: if SharedPreferences/secure storage already had a
+    // valid hub config (the user has launched the app before, or upgraded
+    // the APK over an existing install), saveConfig won't fire — and
+    // without an explicit refresh, every tab that reads state.projects /
+    // attention / hosts / agents shows empty until something else
+    // schedules one. Activity escapes this because recentAuditProvider is
+    // a standalone FutureProvider that fetches on mount; Projects, Me,
+    // Hosts, Agents do not.
+    //
+    // Microtask-scheduled so this build() resolves first; refreshAll then
+    // mutates state via setter, which is the supported pattern.
+    if (initial.configured) {
+      Future.microtask(refreshAll);
+    }
+    return initial;
   }
 
   /// Fetch a template body, serving from the in-memory cache when possible.

@@ -495,7 +495,50 @@ to kill the pane, so the row flips cleanly once cleanup completes.
 attached keep their history but lose their `host_id` (ON DELETE SET
 NULL), so the org chart still shows the record.
 
-## 7. Troubleshooting
+## 7. Backup and restore
+
+The hub keeps all team state in `<data-root>/hub.db` (SQLite) plus
+`<data-root>/team/` (templates, policy, agent_families overlay) and
+`<data-root>/blobs/` (content-addressed attached files). A backup needs
+to capture all three.
+
+**Take a backup** (safe while the daemon is live — uses
+`VACUUM INTO` so the snapshot is a transactionally-consistent copy):
+
+```bash
+sudo -u termipod-hub /usr/local/bin/hub-server backup \
+  -data /var/lib/termipod-hub \
+  --to /var/backups/termipod/hub-$(date +%F).tar.gz
+```
+
+The output is a single `.tar.gz` containing `hub.db.snapshot`, `team/`
+and `blobs/`. Move it off-host to wherever you keep cold backups.
+
+**Restore on a fresh box**:
+
+```bash
+sudo install -d -m 0700 -o termipod-hub -g termipod-hub /var/lib/termipod-hub
+sudo -u termipod-hub /usr/local/bin/hub-server restore \
+  --from /var/backups/termipod/hub-2026-04-27.tar.gz \
+  -data /var/lib/termipod-hub
+```
+
+`restore` refuses to clobber a non-empty data root unless `--force` is
+passed; the guard is the difference between "I lost my hub" and "I lost
+my hub twice". After restore the hub-server will run pending migrations
+on the next `serve` so an older backup boots cleanly on a newer binary.
+
+**After restore on a new host:** host-runner tokens reference the old
+hub URL. Reissue them via `hub-server tokens issue` and update each
+host's `--hub-token` so heartbeats line up again. The `hosts` rows
+themselves survive the round-trip.
+
+What backup does **not** include: `event_log/` JSONL spool (rebuildable
+via `reconstruct-db`), live tmux/pane state on connected hosts, and
+mobile-side data (connections, SSH keys, snippets — those export from
+Settings → Data).
+
+## 8. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to
   the wrong team. List tokens with

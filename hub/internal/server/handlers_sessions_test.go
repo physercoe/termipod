@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -532,6 +533,71 @@ func TestSessions_SwapAgentInSession(t *testing.T) {
 	if transcriptCount < 2 {
 		t.Errorf("transcript by session_id = %d events; want ≥2 spanning swap",
 			transcriptCount)
+	}
+}
+
+// Long-session UX: cold open must return the newest N events, not
+// the oldest N. ?tail=true switches the order; ?before=<seq> walks
+// backwards into the older history. Without this, listAgentEvents
+// silently truncated big transcripts to their oldest 1000 rows.
+func TestAgentEvents_TailAndPaginate(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Stamp 12 events so we can verify a 5-row tail + a 5-row older page.
+	for i := 1; i <= 12; i++ {
+		doReq(t, s, token, http.MethodPost,
+			"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+			map[string]any{
+				"kind": "text", "producer": "agent",
+				"payload": map[string]any{"text": fmt.Sprintf("e%d", i)},
+			})
+	}
+
+	// tail=true → newest 5, DESC order (e12..e8).
+	_, body := doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events?tail=true&limit=5",
+		nil)
+	var page []agentEventOut
+	_ = json.Unmarshal(body, &page)
+	if len(page) != 5 {
+		t.Fatalf("tail page len=%d; want 5", len(page))
+	}
+	var firstText, lastText map[string]any
+	_ = json.Unmarshal(page[0].Payload, &firstText)
+	_ = json.Unmarshal(page[4].Payload, &lastText)
+	if firstText["text"] != "e12" || lastText["text"] != "e8" {
+		t.Errorf("tail order = [%v..%v]; want [e12..e8]",
+			firstText["text"], lastText["text"])
+	}
+	minSeq := page[4].Seq
+
+	// before=minSeq → next-older 5, DESC (e7..e3).
+	_, body = doReq(t, s, token, http.MethodGet,
+		fmt.Sprintf(
+			"/v1/teams/%s/agents/%s/events?before=%d&limit=5",
+			defaultTeamID, agentID, minSeq),
+		nil)
+	var older []agentEventOut
+	_ = json.Unmarshal(body, &older)
+	if len(older) != 5 {
+		t.Fatalf("older page len=%d; want 5", len(older))
+	}
+	_ = json.Unmarshal(older[0].Payload, &firstText)
+	_ = json.Unmarshal(older[4].Payload, &lastText)
+	if firstText["text"] != "e7" || lastText["text"] != "e3" {
+		t.Errorf("older order = [%v..%v]; want [e7..e3]",
+			firstText["text"], lastText["text"])
+	}
+
+	// since= keeps existing ASC behavior (used by SSE backfill).
+	_, body = doReq(t, s, token, http.MethodGet,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events?since=10&limit=10",
+		nil)
+	var asc []agentEventOut
+	_ = json.Unmarshal(body, &asc)
+	if len(asc) != 2 {
+		t.Fatalf("since=10 len=%d; want 2 (e11, e12)", len(asc))
 	}
 }
 

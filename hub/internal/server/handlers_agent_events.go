@@ -138,6 +138,24 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 			since = n
 		}
 	}
+	// before=<seq> requests the page of events older than seq, used by
+	// the mobile "load older" trigger when the user scrolls past the
+	// top of the loaded transcript. Returned in seq DESC so the caller
+	// can prepend without re-sorting the full list. Mutually exclusive
+	// with since/tail; the first non-empty wins in the order
+	// before > tail > since.
+	var before int64
+	if v := r.URL.Query().Get("before"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			before = n
+		}
+	}
+	// tail=true returns the newest N events in seq DESC. Without this
+	// the cold-open path used `since=0 ORDER BY seq ASC LIMIT N` which
+	// silently truncated long sessions to their oldest N events; the
+	// chat surface needs newest-first to be useful. SSE backfill keeps
+	// using `since` (ASC) because it really does want incremental tail.
+	tail := r.URL.Query().Get("tail") == "true"
 	limit := 200
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -154,17 +172,48 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	// agent (back-compat).
 	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
 
-	q := `
-		SELECT id, agent_id, seq, ts, kind, producer, payload_json
-		  FROM agent_events
-		 WHERE agent_id = ? AND seq > ?`
-	args := []any{agent, since}
-	if sessionFilter != "" {
-		q += " AND session_id = ?"
-		args = append(args, sessionFilter)
+	var (
+		q    string
+		args []any
+	)
+	switch {
+	case before > 0:
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE agent_id = ? AND seq < ?`
+		args = []any{agent, before}
+		if sessionFilter != "" {
+			q += " AND session_id = ?"
+			args = append(args, sessionFilter)
+		}
+		q += " ORDER BY seq DESC LIMIT ?"
+		args = append(args, limit)
+	case tail:
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE agent_id = ?`
+		args = []any{agent}
+		if sessionFilter != "" {
+			q += " AND session_id = ?"
+			args = append(args, sessionFilter)
+		}
+		q += " ORDER BY seq DESC LIMIT ?"
+		args = append(args, limit)
+	default:
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE agent_id = ? AND seq > ?`
+		args = []any{agent, since}
+		if sessionFilter != "" {
+			q += " AND session_id = ?"
+			args = append(args, sessionFilter)
+		}
+		q += " ORDER BY seq ASC LIMIT ?"
+		args = append(args, limit)
 	}
-	q += " ORDER BY seq ASC LIMIT ?"
-	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)
 	if err != nil {

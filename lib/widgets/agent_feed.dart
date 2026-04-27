@@ -44,8 +44,22 @@ class AgentFeed extends ConsumerStatefulWidget {
 class _AgentFeedState extends ConsumerState<AgentFeed> {
   final List<Map<String, dynamic>> _events = [];
   int _maxSeq = 0;
+  // Smallest seq we've loaded so the "load older" pager can ask for
+  // anything strictly before it. 0 once we've reached the head of the
+  // transcript (no older page to fetch).
+  int _minSeq = 0;
   String? _error;
   bool _loading = true;
+  // Cold open uses tail mode so a long transcript shows the most recent
+  // turns instead of the oldest. Bootstrap and load-older both pull
+  // [_pageSize] rows per page so the user can keep scrolling backward.
+  static const int _pageSize = 200;
+  // True while a load-older fetch is in flight; suppresses duplicate
+  // triggers from the scroll listener firing rapidly near the top.
+  bool _loadingOlder = false;
+  // True once a load-older fetch returns fewer than _pageSize rows —
+  // we've reached the start of the session, no more pages exist.
+  bool _atHead = false;
   // When the bootstrap fetch falls back to the offline cache (server
   // unreachable, 5xx, etc.), we keep the cached transcript visible and
   // surface a banner with the snapshot timestamp. Cleared the moment a
@@ -96,6 +110,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // User scrolling up away from the tail should stop auto-follow so
   // incoming events don't yank them back to the bottom mid-read. Any
   // scroll back within ~40px of the bottom re-enables it.
+  //
+  // Reaching the top edge (within ~120px) triggers the load-older
+  // pager — _maybeLoadOlder dedupes against in-flight fetches and the
+  // _atHead flag, so the listener can fire as often as the gesture
+  // wants without piling up requests.
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final atBottom = _scroll.position.pixels >=
@@ -107,6 +126,52 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // pill disappears on the same frame.
         if (atBottom) _newWhileAway = 0;
       });
+    }
+    if (_scroll.position.pixels <= 120) _maybeLoadOlder();
+  }
+
+  Future<void> _maybeLoadOlder() async {
+    if (_loadingOlder || _atHead || _minSeq <= 1) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    setState(() => _loadingOlder = true);
+    final priorMinSeq = _minSeq;
+    final priorMaxExtent =
+        _scroll.hasClients ? _scroll.position.maxScrollExtent : 0.0;
+    final priorPixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+    try {
+      final older = await client.listAgentEvents(
+        widget.agentId,
+        before: priorMinSeq,
+        limit: _pageSize,
+        sessionId: widget.sessionId,
+      );
+      if (!mounted) return;
+      // Server returns DESC; flip to ASC so the prepend keeps the
+      // chat's "older-above" invariant.
+      final ascending = older.reversed.toList();
+      setState(() {
+        _events.insertAll(0, ascending);
+        for (final e in ascending) {
+          final seq = (e['seq'] as num?)?.toInt() ?? 0;
+          if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
+        }
+        _atHead = older.length < _pageSize;
+      });
+      // Anchor the viewport to the same logical row so prepending
+      // doesn't visually yank the user upward — once the new frame
+      // lays out, shift by the height delta.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scroll.hasClients) return;
+        final delta = _scroll.position.maxScrollExtent - priorMaxExtent;
+        if (delta > 0) _scroll.jumpTo(priorPixels + delta);
+      });
+    } catch (_) {
+      // Silent: the user can swipe again, and the next SSE frame will
+      // refresh tail anyway. A persistent failure shows up in the
+      // existing _error banner via _scheduleReconnect.
+    } finally {
+      if (mounted) setState(() => _loadingOlder = false);
     }
   }
 
@@ -128,22 +193,32 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       return;
     }
     try {
-      // Read-through cache: when the network fails, we still get the
-      // last persisted transcript so the user can re-read what they had
-      // even on a flaky link. SSE then takes over once the hub is back.
+      // Read-through cache + tail mode: cold open returns the newest
+      // [_pageSize] events in seq DESC, so a 5k-event session shows
+      // the latest turns instead of the oldest 1k. Reverse to ASC for
+      // display so "older above, newer below" still holds. SSE then
+      // takes over once the hub pushes a frame.
       final cached = await client.listAgentEventsCached(
         widget.agentId,
-        limit: 500,
+        tail: true,
+        limit: _pageSize,
         sessionId: widget.sessionId,
       );
       if (!mounted) return;
+      final ascending = cached.body.reversed.toList();
       _events
         ..clear()
-        ..addAll(cached.body);
-      _maxSeq = _events.fold<int>(0, (m, e) {
+        ..addAll(ascending);
+      _maxSeq = 0;
+      _minSeq = 0;
+      for (final e in _events) {
         final seq = (e['seq'] as num?)?.toInt() ?? 0;
-        return seq > m ? seq : m;
-      });
+        if (seq > _maxSeq) _maxSeq = seq;
+        if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
+      }
+      // If the first page already smaller than our request, nothing
+      // older exists to load — no point spinning the pager later.
+      _atHead = cached.body.length < _pageSize;
       setState(() {
         _loading = false;
         _staleSince = cached.staleSince;
@@ -384,6 +459,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             rateLimit: latestRateLimit,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
+        if (_loadingOlder)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 4),
+            child: Center(
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          ),
         if (_verbose || hiddenForVerbose > 0)
           _VerboseToggleBar(
             verbose: _verbose,

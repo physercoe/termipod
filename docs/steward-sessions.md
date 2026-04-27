@@ -607,6 +607,40 @@ trying to write the spec.
 
 ---
 
+## 11.5. Transcript scaling and offline behaviour
+
+Sessions accumulate `agent_events`; long-running ones can carry tens of
+thousands of rows. The current contract:
+
+- **Cold open** uses `GET /v1/teams/{team}/agents/{id}/events?tail=true&limit=200`.
+  Server returns the newest 200 events in `seq DESC`; mobile reverses
+  to ASC for display.
+- **Scroll up** triggers `?before=<minSeq>&limit=200` to walk
+  backwards. The pager stops once a page comes back smaller than
+  `limit` (we've reached the head of the session).
+- **Live tail** is the SSE stream with `?since=<maxSeq>` (ASC), same
+  contract as before this wedge — incremental delivery of new events.
+- **Server cap** is `limit=1000`. A request bigger than that is
+  silently clamped.
+- **Snapshot cache** stores the most-recent tail page only (the
+  bootstrap fetch). Older pages are network-only; opening offline
+  shows the last-cached tail with an "Offline · cached" banner, and
+  scroll-up fails silently until the network comes back.
+
+Things this design intentionally doesn't do yet:
+
+- Cap the cache by bytes. `HubSnapshotCache._maxRowsPerHub = 500` is a
+  per-row cap; one fat transcript blob counts the same as one tiny
+  attention row.
+- Lazy-render events. `_events` is a single Dart `List<Map>`; the
+  AgentFeed rebuilds against it on every `setState`. Past ~5k items
+  the GC will start to bite. A `ListView.builder` keyed window is the
+  realistic next step.
+- Distill old turns. The transcript grows monotonically; only the
+  user's scroll position determines what's visible. A future wedge
+  can summarise older spans into a single "context pill" event so
+  cold opens load less.
+
 ## 12. Things to read alongside this
 
 - `blueprint.md` §3 (axioms) — the steward role + bounded delegation

@@ -6,6 +6,8 @@
 //   tokens issue        Issue a new token for an agent or user.
 //   tokens list         List tokens (hash-only; plaintext is never stored).
 //   reconstruct-db      Rebuild events DB from event_log/ JSONL.
+//   backup              Snapshot DB + team/ + blobs/ into a tar.gz.
+//   restore             Extract a backup archive into a data root.
 //   seed-demo           Insert ablation-sweep-demo state (no-GPU reviewer flow).
 package main
 
@@ -13,6 +15,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -42,6 +45,10 @@ func main() {
 		runTokens(os.Args[2:], log)
 	case "reconstruct-db":
 		runReconstructDB(os.Args[2:], log)
+	case "backup":
+		runBackup(os.Args[2:], log)
+	case "restore":
+		runRestore(os.Args[2:], log)
 	case "seed-demo":
 		runSeedDemo(os.Args[2:], log)
 	case "-h", "--help", "help":
@@ -62,6 +69,8 @@ Commands:
   tokens issue      Issue a token. Plaintext is printed once.
   tokens list       List token kinds and hashes.
   reconstruct-db    Rebuild DB from event_log/ JSONL.
+  backup            Snapshot the live DB + team/ + blobs/ into a tar.gz.
+  restore           Rehydrate a fresh data root from a backup archive.
   seed-demo         Insert ablation-sweep-demo state for no-GPU reviewer flow.
 
 Run "hub-server <command> -h" for flags.`)
@@ -251,6 +260,67 @@ func runReconstructDB(args []string, log *slog.Logger) {
 		os.Exit(1)
 	}
 	fmt.Printf("reconstruct-db: replayed %d file(s); inserted=%d skipped=%d\n", files, inserted, skipped)
+}
+
+// ---- backup ----
+
+// runBackup writes a consistent snapshot of hub.db plus the team/ and
+// blobs/ directories into a single tar.gz. The DB snapshot uses VACUUM
+// INTO so it's safe to run while hub-server is live.
+func runBackup(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("backup", flag.ExitOnError)
+	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
+	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
+	out := fs.String("to", "", "output archive path (e.g. ~/backups/hub-2026-04-27.tar.gz)")
+	_ = fs.Parse(args)
+
+	if *out == "" {
+		fmt.Fprintln(os.Stderr, "usage: hub-server backup --to <path>")
+		os.Exit(2)
+	}
+	if *dbPath == "" {
+		*dbPath = filepath.Join(*dataRoot, "hub.db")
+	}
+	if err := server.Backup(context.Background(), *dbPath, *dataRoot, *out); err != nil {
+		log.Error("backup failed", "err", err)
+		os.Exit(1)
+	}
+	stat, _ := os.Stat(*out)
+	size := int64(0)
+	if stat != nil {
+		size = stat.Size()
+	}
+	fmt.Printf("backup: wrote %s (%d bytes)\n", *out, size)
+}
+
+// ---- restore ----
+
+// runRestore extracts an archive into a data root and runs migrations
+// on the restored DB. Refuses to overwrite a non-empty data root unless
+// --force is passed; that guard is the difference between "I lost my
+// hub" and "I lost my hub twice".
+func runRestore(args []string, log *slog.Logger) {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	from := fs.String("from", "", "archive path produced by `hub-server backup`")
+	dataRoot := fs.String("data", defaultDataRoot(), "destination data root")
+	force := fs.Bool("force", false, "overwrite an existing non-empty data root")
+	_ = fs.Parse(args)
+
+	if *from == "" {
+		fmt.Fprintln(os.Stderr, "usage: hub-server restore --from <path> [--data <dir>] [--force]")
+		os.Exit(2)
+	}
+	if err := server.Restore(context.Background(), *from, *dataRoot, *force); err != nil {
+		if errors.Is(err, server.ErrDataRootNotEmpty) {
+			log.Error("restore refused", "err", err, "data", *dataRoot,
+				"hint", "pass --force to overwrite, or point --data at a fresh directory")
+			os.Exit(1)
+		}
+		log.Error("restore failed", "err", err)
+		os.Exit(1)
+	}
+	fmt.Printf("restore: extracted %s into %s\n", *from, *dataRoot)
+	fmt.Printf("note: host-runner tokens reference the old hub URL; reissue them via `hub-server tokens issue` if you've moved hosts.\n")
 }
 
 // ---- seed-demo ----

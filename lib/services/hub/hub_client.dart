@@ -1119,18 +1119,34 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
-  /// Backfill events by monotonic seq. `since` is exclusive (seq > since).
+  /// Backfill events by monotonic seq. Modes (mutually exclusive,
+  /// resolved server-side in the order before > tail > since):
+  ///   - [since] (exclusive, seq > since, ASC) — incremental tail used
+  ///     by SSE reconnect; default behavior when none of the others is set.
+  ///   - [tail] true — newest [limit] events, DESC. Used by AgentFeed's
+  ///     cold open so a long transcript shows the most recent turns
+  ///     instead of the oldest.
+  ///   - [before] (exclusive, seq < before, DESC) — load-older paging
+  ///     trigger when the user scrolls past the top of the loaded set.
   /// `sessionId` scopes the result to one session — the new-session flow
   /// keeps the same agentId, so without this filter a fresh chat would
   /// replay the prior session's transcript.
   Future<List<Map<String, dynamic>>> listAgentEvents(
     String agentId, {
     int? since,
+    int? before,
+    bool tail = false,
     int? limit,
     String? sessionId,
   }) {
     final q = <String, String>{};
-    if (since != null) q['since'] = '$since';
+    if (before != null) {
+      q['before'] = '$before';
+    } else if (tail) {
+      q['tail'] = 'true';
+    } else if (since != null) {
+      q['since'] = '$since';
+    }
     if (limit != null) q['limit'] = '$limit';
     if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
     return _listJson(
@@ -1147,11 +1163,16 @@ class HubClient {
   Future<CachedResponse<List<Map<String, dynamic>>>> listAgentEventsCached(
     String agentId, {
     int? since,
+    bool tail = false,
     int? limit,
     String? sessionId,
   }) {
     final q = <String, String>{};
-    if (since != null) q['since'] = '$since';
+    if (tail) {
+      q['tail'] = 'true';
+    } else if (since != null) {
+      q['since'] = '$since';
+    }
     if (limit != null) q['limit'] = '$limit';
     if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
     return readThrough<List<Map<String, dynamic>>>(
@@ -1164,6 +1185,7 @@ class HubClient {
       fetch: () => listAgentEvents(
         agentId,
         since: since,
+        tail: tail,
         limit: limit,
         sessionId: sessionId,
       ),

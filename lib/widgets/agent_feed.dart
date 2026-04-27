@@ -585,7 +585,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               // hiding the card behind a tab would invert the urgency.
               //
               // _PendingSelections handles the parallel kind=select case
-              // for request_decision (multi-choice). Both cards filter by
+              // for request_select (multi-choice). Both cards filter by
               // agent_id so a prompt for a different steward doesn't
               // appear here.
               const Positioned(
@@ -712,7 +712,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // Three gates today, all under mcp__termipod__:
       //   - permission_prompt — claude-code's --permission-prompt-tool
       //     contract. Rendered as the inline approval card.
-      //   - request_decision — multi-choice. Rendered as the inline
+      //   - request_select — multi-choice. Rendered as the inline
       //     SELECT card.
       //   - request_approval — generic ask-for-human-yes/no. Rendered
       //     as an attention item on the Me page (no inline card, but
@@ -724,6 +724,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         final name = (p['name'] ?? '').toString();
         const gates = {
           'permission_prompt',
+          'request_select',
+          // Back-compat: an agent spawned with a stale prompt template
+          // may still call request_decision; the server aliases to
+          // request_select but the tool_call event keeps the old name.
+          // Hide both so the duplicate-card fix covers either spelling.
           'request_decision',
           'request_approval',
         };
@@ -1168,7 +1173,7 @@ class _PermissionPromptCardState
 }
 
 /// Inline selection card for kind=select attention items raised by the
-/// agent we're watching. The agent's request_decision MCP call long-polls
+/// agent we're watching. The agent's request_select MCP call long-polls
 /// for the user's pick; surfacing this card in the chat keeps the round-
 /// trip in one place instead of forcing a trip to the Me page.
 class _PendingSelections extends ConsumerWidget {

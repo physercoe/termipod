@@ -150,7 +150,7 @@ type attentionDecideIn struct {
 	By       string `json:"by,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 	// OptionID names the picked option for kind='select' attention
-	// items (request_decision MCP tool). The request stores the option
+	// items (request_select MCP tool). The request stores the option
 	// labels in pending_payload_json; the picked id flows back to the
 	// agent via waitForAttentionResolution. Ignored for kinds that
 	// don't have options.

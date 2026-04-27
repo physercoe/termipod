@@ -65,7 +65,7 @@ func mcpToolDefsExtra() []map[string]any {
 			},
 		},
 		{
-			"name":        "request_decision",
+			"name":        "request_select",
 			"description": "Ask for a choice between named options. Creates an attention_item.",
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -264,7 +264,7 @@ func (s *Server) mcpDelegate(ctx context.Context, fromID string, raw json.RawMes
 }
 
 // ---------------------------------------------------------------------
-// request_approval / request_decision — create an attention_item
+// request_approval / request_select — create an attention_item
 // ---------------------------------------------------------------------
 
 type requestApprovalArgs struct {
@@ -319,21 +319,21 @@ func (s *Server) mcpRequestApproval(ctx context.Context, team, fromID string, ra
 	}), nil
 }
 
-type requestDecisionArgs struct {
+type requestSelectArgs struct {
 	Question  string   `json:"question"`
 	Options   []string `json:"options"`
 	ScopeKind string   `json:"scope_kind"`
 	ScopeID   string   `json:"scope_id"`
 }
 
-// requestDecisionTimeout caps the long-poll for a decision. Mirrors
+// requestSelectTimeout caps the long-poll for a decision. Mirrors
 // permissionPromptTimeout — long enough that the user has time to read
 // and answer on a phone, short enough that an unanswered prompt times
 // out before claude's outer turn budget gives up on the agent.
-const requestDecisionTimeout = 10 * time.Minute
+const requestSelectTimeout = 10 * time.Minute
 
-func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
-	var a requestDecisionArgs
+func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
+	var a requestSelectArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.Question == "" || len(a.Options) == 0 {
 		return nil, &jrpcError{Code: -32602, Message: "question and non-empty options required"}
 	}
@@ -357,7 +357,7 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
 	// Stored as kind='select' (the noun) — the MCP tool stays
-	// `request_decision` (the agent-facing verb) so existing prompts
+	// `request_select` (the agent-facing verb) so existing prompts
 	// don't break, but the resolver UI reads `select` which is sharper
 	// than the generic "decision".
 	_, err := s.db.ExecContext(ctx, `
@@ -377,10 +377,10 @@ func (s *Server) mcpRequestDecision(ctx context.Context, team, fromID string, ra
 		map[string]any{"agent_id": fromID, "options": a.Options})
 
 	// Long-poll for resolution so the agent receives the chosen option.
-	// Without this, request_decision was fire-and-forget — the steward
+	// Without this, request_select was fire-and-forget — the steward
 	// would ask "pick a color" and have no way to know what the user
 	// chose.
-	pctx, cancel := context.WithTimeout(ctx, requestDecisionTimeout)
+	pctx, cancel := context.WithTimeout(ctx, requestSelectTimeout)
 	defer cancel()
 	last, err := s.waitForAttentionResolution(pctx, id)
 	if err != nil {
@@ -963,7 +963,7 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 
 // waitForAttentionResolution polls attention_items until status='resolved'
 // (or ctx fires). Returns the full last decision dict so callers that
-// care about extra fields (notably option_id from request_decision) can
+// care about extra fields (notably option_id from request_select) can
 // read them without re-parsing decisions_json. Same backoff as
 // waitForAttentionDecision.
 func (s *Server) waitForAttentionResolution(ctx context.Context, id string) (map[string]any, error) {

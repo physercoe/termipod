@@ -618,7 +618,7 @@ class _ApprovalActions extends ConsumerWidget {
       // Per-option buttons + Reject. Picking an option flows through
       // `decide(decision='approve', option_id=...)` so the hub's quorum
       // logic still applies and the agent gets the chosen option back
-      // via the request_decision long-poll.
+      // via the request_select long-poll.
       return Wrap(
         spacing: 8,
         runSpacing: 8,

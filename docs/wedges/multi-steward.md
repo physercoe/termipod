@@ -289,6 +289,98 @@ Stewards page AppBar `⋮` — global / type-system actions:
 | Engines | Push AgentFamiliesScreen. |
 | Refresh | Re-pull stewards + sessions from hub. |
 
+## 10.5. Session state machine — full audit
+
+Added 2026-04-27 after a device walkthrough surfaced "session is in
+state X, what operations apply?" ambiguity. This is the canonical
+table; the per-steward kebab and per-row session menus must match it.
+
+### States
+
+| State | Meaning | How a session reaches it |
+|---|---|---|
+| `open` | Conversation active. Agent is alive (`agents.status` in `running`/`pending`/`paused`) and pointed at by `current_agent_id`. | (a) `openSession` called explicitly. (b) `DoSpawn` with `auto_open_session=true`. (c) `handleResumeSession` flips an interrupted session back. |
+| `interrupted` | Session preserved; the agent it was pointing at died unexpectedly. Transcript intact, can be resumed. | `handlePatchAgent` sees the agent flip to `crashed` or `failed` and updates its open sessions to `interrupted` in the same handler. |
+| `closed` | Conversation ended explicitly. Transcript stays for reference. No actor. | `handleCloseSession`. Today the only path is the per-steward Reset (which closes the prior session before opening a new one). The standalone Close action was removed in v1.0.294. |
+| `deleted` | Soft-deleted. Excluded from default lists. Transcript-link cleared from `agent_events`/`audit_events`/`attention_items`. | `handleDeleteSession`. Refuses if the session is still `open` or `interrupted`. |
+
+### Transitions
+
+```
+       openSession / DoSpawn(auto_open_session)
+                 │
+                 ▼
+              [open] ──── Reset (per-steward kebab) ─── [closed]
+                 │            │
+       agent → crashed/failed │
+                 │            ▼
+                 ▼          (delete)
+          [interrupted] ──── Resume ─── [open]
+                 │
+                 │
+                 ▼
+            (no direct path; close-via-Reset isn't applicable)
+```
+
+What this enforces:
+- A live steward (`agents.status` in `running`/`pending`/`paused`) is
+  *expected* to have exactly one session in `open` or `interrupted`.
+  The "every live steward has a session" invariant.
+- `closed` is only reachable from `open`, and only via Reset.
+- `deleted` is the final disposition; only reachable from `closed`
+  (or `interrupted` if you close it first).
+
+### Operations per state
+
+| Operation | open | interrupted | closed | deleted |
+|---|---|---|---|---|
+| **Tap session row** | → live chat | → chat (read of past + Resume button) | → chat (read-only of transcript) | hidden |
+| **Reset (new conversation)** | ✅ closes current, opens new | ❌ no agent to reset against | ❌ no agent | ❌ |
+| **Replace steward** | ✅ swap agent inside the session | ✅ swap agent inside the session, status → open | ❌ closed is final | ❌ |
+| **Terminate steward** | ✅ kills agent, session → interrupted | ❌ no agent to kill | ❌ no agent | ❌ |
+| **Resume** | ❌ already open | ✅ spawn fresh agent → open | ❌ (read `Reopen` discussion below) | ❌ |
+| **Rename session title** | ✅ | ✅ | ✅ | ❌ |
+| **Start session** (new!) | n/a | n/a | n/a | n/a |
+| **Delete session** | ❌ close first | ❌ close first | ✅ | ✅ idempotent |
+
+> **Start session** is a new affordance shipped 2026-04-27: it appears
+> on the steward section header when a *live steward has no active
+> session* (an edge case that can happen with pre-v1.0.290 spawns or a
+> Reset whose openSession failed silently). Single tap calls
+> `openSession(agentId)`. Not a normal flow — when it appears, the user
+> is in a recoverable but-unexpected state.
+
+### Why no `Reopen` for closed sessions
+
+A closed session's transcript is preserved; the user can tap it and
+read what was said. But there's no way to "unclose" it back to a live
+state. Two reasons:
+
+1. The agent the closed session was pointing at may be terminated by
+   now. Reopening would need to spawn a new agent inside the old
+   session — exactly what Resume does. But resume is for *interrupted*,
+   meaning "I expect to come back". *Closed* meant "I'm done with
+   this." Letting the user undo closed felt like papering over an
+   intentional choice.
+2. The same effect is achievable via per-steward Reset (which opens a
+   fresh session against the same steward) or Replace (which keeps
+   conversational continuity by inheriting the prior session's ID).
+
+If a Reopen affordance turns out to be needed, it's a small wedge —
+just a server endpoint + a per-row menu entry. Held.
+
+### What "tap" does per state (subtle but matters)
+
+| State | Tap behavior today | UX gap if any |
+|---|---|---|
+| `open` | Push SessionChatScreen → live AgentFeed + compose box | None |
+| `interrupted` | Push SessionChatScreen; AgentFeed shows the historical transcript; the per-row Resume button is on the Sessions page (not the chat AppBar) | The chat itself doesn't make read-only-ness obvious; compose box still appears but sends will queue against a dead agent |
+| `closed` | Push SessionChatScreen; transcript appears; compose still sends but goes nowhere useful | Same as interrupted — no clear "this is read-only" banner |
+| `deleted` | Hidden by default | n/a |
+
+The "compose box still appears on dead/closed sessions" is a known
+polish gap. Filed as a follow-up.
+
 ## 11. Wedge plan (final)
 
 Three wedges:

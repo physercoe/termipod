@@ -87,7 +87,7 @@ func TestMCP_RequestDecision_RequiresOptions(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
 	args, _ := json.Marshal(map[string]any{"question": "which?"})
-	_, jerr := s.mcpRequestDecision(context.Background(), defaultTeamID, agentID, args)
+	_, jerr := s.mcpRequestSelect(context.Background(), defaultTeamID, agentID, args)
 	if jerr == nil || jerr.Code != -32602 {
 		t.Errorf("want -32602, got %+v", jerr)
 	}
@@ -112,7 +112,7 @@ func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
 	}
 	resCh := make(chan result, 1)
 	go func() {
-		out, jerr := s.mcpRequestDecision(
+		out, jerr := s.mcpRequestSelect(
 			context.Background(), defaultTeamID, agentID, args)
 		resCh <- result{out: out, jerr: jerr}
 	}()

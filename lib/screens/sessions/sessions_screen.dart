@@ -207,6 +207,30 @@ List<_StewardGroup> _groupByStateward(
   return groups;
 }
 
+/// Open a fresh session against an existing live steward that has no
+/// active one. Different from Reset (which closes a current session
+/// before opening) and from Spawn new steward (which creates a new
+/// agent). Used by the inline "Start session" button on the steward
+/// section header when the steward is alive but session-less.
+Future<void> _startSession(
+  BuildContext context,
+  WidgetRef ref,
+  String agentId,
+  String handle,
+) async {
+  final client = ref.read(hubProvider.notifier).client;
+  if (client == null) return;
+  try {
+    await client.openSession(agentId: agentId);
+    await ref.read(sessionsProvider.notifier).refresh();
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Start session for $handle failed: $e')),
+    );
+  }
+}
+
 Future<void> _spawnNewSteward(BuildContext context, WidgetRef ref) async {
   final hub = ref.read(hubProvider).value;
   if (hub == null || !hub.configured) return;
@@ -544,12 +568,35 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
             if (group.current != null)
               _SessionTile(session: group.current!)
             else if (!isOrphan)
+              // Steward is alive but has no open/interrupted session.
+              // Possible causes: pre-v1.0.290 steward spawned without
+              // auto_open_session, or a Reset whose openSession failed
+              // silently. Either way the user wants a single tap to
+              // reach a chat — provide it inline rather than asking
+              // them to dig through a kebab.
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-                child: Text(
-                  'No active session — Reset (new conversation) to start one.',
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10, color: muted),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'No active session for this steward.',
+                        style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10, color: muted),
+                      ),
+                    ),
+                    FilledButton.tonal(
+                      onPressed: () => _startSession(context, ref,
+                          group.agentId, group.handle),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: const Text('Start session'),
+                    ),
+                  ],
                 ),
               ),
             // ── Previous (collapsible) ────────────────────────────

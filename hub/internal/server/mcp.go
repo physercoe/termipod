@@ -318,8 +318,12 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 		return s.mcpDelegate(ctx, agentID, call.Arguments)
 	case "request_approval":
 		return s.mcpRequestApproval(ctx, scope.Team, agentID, call.Arguments)
-	case "request_decision":
-		return s.mcpRequestDecision(ctx, scope.Team, agentID, call.Arguments)
+	case "request_select", "request_decision":
+		// `request_decision` is the back-compat alias — the tool was
+		// renamed to match the attention-kind it produces (`select`)
+		// in v1.0.295. Templates with the old name keep working until
+		// they re-render.
+		return s.mcpRequestSelect(ctx, scope.Team, agentID, call.Arguments)
 	case "attach":
 		return s.mcpAttach(ctx, call.Arguments)
 	case "get_event":

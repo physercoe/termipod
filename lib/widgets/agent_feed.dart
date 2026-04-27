@@ -2406,23 +2406,40 @@ class _CollapsibleMonoState extends State<_CollapsibleMono> {
 
 /// Open the session.init details bottom sheet for [payload]. Public so
 /// SessionChatScreen can wire its AppBar chip to the same drawer the
-/// inline header used to use.
-void showSessionDetailsSheet(BuildContext context, Map<String, dynamic> payload) {
+/// inline header used to use. [agentKind] surfaces the engine
+/// (claude-code, codex, ...) which session.init doesn't carry.
+void showSessionDetailsSheet(
+  BuildContext context,
+  Map<String, dynamic> payload, {
+  String? agentKind,
+}) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) => _SessionDetailsSheet(payload: payload),
+    builder: (ctx) =>
+        _SessionDetailsSheet(payload: payload, agentKind: agentKind),
   );
 }
 
-/// Compact AppBar chip rendering model + permission mode + tools count
-/// + mcp count from a session.init payload. Tap → details sheet.
+/// Compact AppBar chip rendering engine + model + permission mode +
+/// tools/mcp counts from a session.init payload. Tap → details sheet.
 /// Replaces the inline _SessionHeader so the transcript doesn't burn a
 /// row on a fixed-shape header.
+///
+/// [agentKind] is the agent's runtime (claude-code, codex, ...) from
+/// the agents table. session.init carries the model (LLM weights) but
+/// not the engine that's hosting it; surfacing both lets the operator
+/// tell at a glance "this is claude-code running opus 4.7" rather
+/// than guessing from the model string.
 class SessionInitChip extends StatelessWidget {
   final Map<String, dynamic> payload;
-  const SessionInitChip({super.key, required this.payload});
+  final String? agentKind;
+  const SessionInitChip({
+    super.key,
+    required this.payload,
+    this.agentKind,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2435,13 +2452,21 @@ class SessionInitChip extends StatelessWidget {
     final tools = _SessionHeader._toList(payload['tools']);
     final mcpServers = _SessionHeader._toMapList(payload['mcp_servers']);
     return InkWell(
-      onTap: () => showSessionDetailsSheet(context, payload),
+      onTap: () => showSessionDetailsSheet(context, payload,
+          agentKind: agentKind),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (agentKind != null && agentKind!.isNotEmpty) ...[
+              _Pill(
+                label: _shortKind(agentKind!),
+                color: DesignColors.primary,
+              ),
+              const SizedBox(width: 4),
+            ],
             if (model.isNotEmpty)
               _Pill(
                 label: _shortModel(model),
@@ -2482,6 +2507,13 @@ class SessionInitChip extends StatelessWidget {
       final parts = raw.split('-');
       if (parts.length >= 4) return '${parts[1]} ${parts[2]}.${parts[3]}';
     }
+    return raw;
+  }
+
+  // Engine names ship as "claude-code" / "codex" / etc. The pill is
+  // narrow, so drop the "-code" suffix where it adds no signal.
+  static String _shortKind(String raw) {
+    if (raw == 'claude-code') return 'claude';
     return raw;
   }
 }
@@ -2660,7 +2692,8 @@ class _Pill extends StatelessWidget {
 /// render, so the drawer adapts to whatever the driver surfaces.
 class _SessionDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> payload;
-  const _SessionDetailsSheet({required this.payload});
+  final String? agentKind;
+  const _SessionDetailsSheet({required this.payload, this.agentKind});
 
   @override
   Widget build(BuildContext context) {
@@ -2700,12 +2733,18 @@ class _SessionDetailsSheet extends StatelessWidget {
       if (model.isNotEmpty) model,
       if (version.isNotEmpty) 'v$version',
     ].join(' · ');
-    if (modelLine.isNotEmpty || permMode.isNotEmpty || outputStyle.isNotEmpty) {
+    final hasAgentSection = (agentKind != null && agentKind!.isNotEmpty) ||
+        modelLine.isNotEmpty ||
+        permMode.isNotEmpty ||
+        outputStyle.isNotEmpty;
+    if (hasAgentSection) {
       section(
         'AGENT',
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (agentKind != null && agentKind!.isNotEmpty)
+              _kvLine(context, 'engine', agentKind!),
             if (modelLine.isNotEmpty) _kvLine(context, 'model', modelLine),
             if (permMode.isNotEmpty)
               _kvLine(context, 'permission', permMode,

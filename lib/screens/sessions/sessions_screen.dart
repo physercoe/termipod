@@ -8,7 +8,6 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
-import '../team/agent_families_screen.dart';
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
 
@@ -46,12 +45,11 @@ class SessionsScreen extends ConsumerWidget {
             onSelected: (v) {
               switch (v) {
                 case 'templates':
+                  // TemplatesScreen has tabs for both prompt/persona
+                  // templates and engines (agent_families) — one
+                  // entry covers both surfaces.
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const TemplatesScreen(),
-                  ));
-                case 'engines':
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const AgentFamiliesScreen(),
                   ));
                 case 'refresh':
                   ref.read(sessionsProvider.notifier).refresh();
@@ -59,8 +57,10 @@ class SessionsScreen extends ConsumerWidget {
               }
             },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'templates', child: Text('Templates')),
-              PopupMenuItem(value: 'engines', child: Text('Engines')),
+              PopupMenuItem(
+                value: 'templates',
+                child: Text('Templates & engines'),
+              ),
               PopupMenuDivider(),
               PopupMenuItem(value: 'refresh', child: Text('Refresh')),
             ],

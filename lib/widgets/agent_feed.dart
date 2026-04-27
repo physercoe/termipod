@@ -2090,24 +2090,6 @@ class AgentEventCard extends StatelessWidget {
     );
   }
 
-  // Known ACP tool_call statuses + the synthetic "pending" we apply when
-  // the tool_result hasn't arrived yet. Colored so the feed is scannable
-  // without reading every status string.
-  Color? _statusColor(String s) {
-    switch (s) {
-      case 'failed':
-        return DesignColors.error;
-      case 'completed':
-        return DesignColors.success;
-      case 'in_progress':
-        return DesignColors.terminalCyan;
-      case 'pending':
-        return DesignColors.warning;
-      default:
-        return null;
-    }
-  }
-
   Widget _mono(BuildContext ctx, String s, {Color? color}) {
     final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return SelectableText(
@@ -2971,10 +2953,9 @@ class _DiffView extends StatelessWidget {
   }
 }
 
-/// Compact status pill for the tool_call card header. Mirrors the
-/// pending/in_progress/completed/failed colors that `_statusColor` uses
-/// elsewhere — kept self-contained so the header row can render even
-/// outside an AgentEventCard instance method (statics can't see `this`).
+/// Compact status pill for the tool_call card header.
+/// pending/in_progress/completed/failed each get their own accent so
+/// the user can scan a long transcript without reading every label.
 class _StatusPill extends StatelessWidget {
   final String status;
   const _StatusPill({required this.status});

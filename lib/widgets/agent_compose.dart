@@ -320,50 +320,30 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              IconButton(
-                tooltip: 'Send cancel (Ctrl+C) to the agent',
-                onPressed: _sending ? null : _cancel,
-                icon: Icon(Icons.stop_circle_outlined,
-                    size: 22, color: muted),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-              ),
-              // Bolt = snippet preset across the app (per
-              // feedback_bolt_icon_ambiguity memory). Opens the same
-              // SnippetPickerSheet the TmuxBackend compose uses, so
-              // user-defined snippets and presets work in steward chat
-              // without a parallel UI.
-              IconButton(
-                tooltip: 'Snippets',
-                onPressed: _sending
-                    ? null
-                    : () => SnippetPickerSheet.show(
-                          context,
-                          ref: ref,
-                          onInsert: _insertSnippet,
-                          onSendImmediately: _sendSnippetImmediately,
-                        ),
-                icon: Icon(Icons.bolt, size: 22, color: muted),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
-              ),
-              // Save current text as a draft snippet. Mirrors terminal
-              // compose's InsertMenu "Save as Snippet" path so the
-              // user has the same one-tap stash affordance whether
-              // they're in tmux or in steward chat.
-              IconButton(
-                tooltip: 'Save as snippet',
-                onPressed: _sending ? null : _saveAsSnippet,
-                icon: Icon(Icons.bookmark_add_outlined,
-                    size: 22, color: muted),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints:
-                    const BoxConstraints(minWidth: 36, minHeight: 36),
+              // Bolt = snippet preset (feedback_bolt_icon_ambiguity).
+              // Tap → snippet picker. Long-press → save current compose
+              // text as a draft snippet. Same gesture map as the
+              // action-bar's bolt button (action_bar.dart:139), so the
+              // user's muscle memory carries between tmux and steward
+              // chat without a separate "stash" button.
+              GestureDetector(
+                onLongPress: _sending ? null : _saveAsSnippet,
+                child: IconButton(
+                  tooltip: 'Snippets · long-press to save',
+                  onPressed: _sending
+                      ? null
+                      : () => SnippetPickerSheet.show(
+                            context,
+                            ref: ref,
+                            onInsert: _insertSnippet,
+                            onSendImmediately: _sendSnippetImmediately,
+                          ),
+                  icon: Icon(Icons.bolt, size: 22, color: muted),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
               ),
               // Field metrics matched to action_bar/compose_bar.dart so
               // the steward composer feels the same as the tmux one:
@@ -420,25 +400,48 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 ),
               ),
               const SizedBox(width: 4),
+              // Single-slot send/cancel control: the field's content
+              // disambiguates intent. With text → primary send button.
+              // Empty → cancel button (red), since the only useful
+              // action with nothing to send is to interrupt whatever
+              // turn the agent is currently running. Saves a button
+              // slot vs a permanently-visible cancel — agent_events
+              // SSE doesn't directly tell the composer "agent busy",
+              // so this empty/non-empty heuristic stands in.
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _ctrl,
                 builder: (_, value, _) {
                   final empty = value.text.trim().isEmpty;
+                  if (_sending) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 10),
+                      child: SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+                  if (empty) {
+                    return IconButton(
+                      tooltip: 'Cancel — interrupt the agent',
+                      onPressed: _cancel,
+                      icon: Icon(
+                        Icons.stop_circle_outlined,
+                        size: 22,
+                        color: DesignColors.error,
+                      ),
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                          minWidth: 40, minHeight: 40),
+                    );
+                  }
                   return IconButton(
                     tooltip: 'Send as text input',
-                    onPressed: (_sending || empty) ? null : _send,
-                    icon: _sending
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child:
-                                CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(Icons.send,
-                            size: 20,
-                            color: empty
-                                ? muted
-                                : DesignColors.primary),
+                    onPressed: _send,
+                    icon: const Icon(Icons.send,
+                        size: 20, color: DesignColors.primary),
                     padding: EdgeInsets.zero,
                     visualDensity: VisualDensity.compact,
                     constraints: const BoxConstraints(

@@ -589,6 +589,124 @@ Color _agentStatusColor(String status) {
   }
 }
 
+/// Compact list of agents for the host detail sheet. Live agents
+/// always visible; dead ones (terminated/crashed/failed) collapse
+/// behind a "show N dead" toggle so a host's recent history doesn't
+/// crowd the live set.
+class _HostAgentsSection extends StatefulWidget {
+  final List<Map<String, dynamic>> live;
+  final List<Map<String, dynamic>> dead;
+  final Color muted;
+  const _HostAgentsSection({
+    required this.live,
+    required this.dead,
+    required this.muted,
+  });
+
+  @override
+  State<_HostAgentsSection> createState() => _HostAgentsSectionState();
+}
+
+class _HostAgentsSectionState extends State<_HostAgentsSection> {
+  bool _showDead = false;
+
+  Widget _row(Map<String, dynamic> a) {
+    final handle = (a['handle'] ?? '?').toString();
+    final kind = (a['kind'] ?? '').toString();
+    final status = (a['status'] ?? '').toString();
+    final pane = (a['pane_id'] ?? '').toString();
+    final color = _agentStatusColor(status);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration:
+                BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              handle,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12, fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Text(
+            [
+              if (kind.isNotEmpty) kind,
+              if (status.isNotEmpty) status,
+              if (pane.isNotEmpty) pane,
+            ].join(' · '),
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10, color: widget.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'AGENTS · ${widget.live.length} live'
+          '${widget.dead.isEmpty ? '' : ' · ${widget.dead.length} dead'}',
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: widget.muted,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (widget.live.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Text(
+              'no live agents on this host',
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: widget.muted),
+            ),
+          )
+        else
+          for (final a in widget.live) _row(a),
+        if (widget.dead.isNotEmpty) ...[
+          InkWell(
+            onTap: () => setState(() => _showDead = !_showDead),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    _showDead ? Icons.expand_less : Icons.expand_more,
+                    size: 14, color: widget.muted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'show ${widget.dead.length} dead',
+                    style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10, color: widget.muted),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_showDead)
+            for (final a in widget.dead) _row(a),
+        ],
+      ],
+    );
+  }
+}
+
 class _ProjectsTab extends ConsumerWidget {
   final List<Map<String, dynamic>> items;
   const _ProjectsTab({required this.items});
@@ -1885,7 +2003,41 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
               if (bound == null) return _kv('Bound', 'none', mutedColor);
               return _kv('Bound', '${bound.name} (${bound.host})', mutedColor);
             }),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            // Agents on this host. Sourced from hubProvider so it picks
+            // up new spawns + status changes without a refetch. Live
+            // agents (running/pending/paused) come first; terminated /
+            // crashed / failed only show on the expand-all toggle so
+            // the dead set doesn't crowd the alive set.
+            Builder(builder: (_) {
+              final hostId = h['id']?.toString() ?? '';
+              final all = ref.watch(hubProvider).value?.agents ?? const [];
+              final live = <Map<String, dynamic>>[];
+              final dead = <Map<String, dynamic>>[];
+              for (final a in all) {
+                if ((a['host_id'] ?? '').toString() != hostId) continue;
+                final status = (a['status'] ?? '').toString();
+                if (status == 'running' ||
+                    status == 'pending' ||
+                    status == 'paused') {
+                  live.add(a);
+                } else {
+                  dead.add(a);
+                }
+              }
+              if (live.isEmpty && dead.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _kv('Agents', 'none', mutedColor),
+                );
+              }
+              return _HostAgentsSection(
+                live: live,
+                dead: dead,
+                muted: mutedColor,
+              );
+            }),
+            const SizedBox(height: 8),
             if (_error != null) ...[
               Text(_error!,
                   style: const TextStyle(color: DesignColors.error)),

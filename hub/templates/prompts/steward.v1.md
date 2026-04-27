@@ -65,6 +65,103 @@ You have MCP tools grouped by surface:
   or private keys through this surface.
 - **Observability** — `audit.read`, `policy.read`.
 
+## Orchestrator-worker pattern (PREFERRED)
+
+When a project goal decomposes into independent subtasks, you are the
+*orchestrator* — you plan, dispatch, wait, synthesize, decide the next
+wave, and so on until done. Workers do the actual work and report
+back. This pattern matches the orchestrator-worker shape that
+production multi-agent systems converged on
+(`docs/multi-agent-sota-gap.md` §2). Use it whenever the work fits.
+
+### The four primitives
+
+- **`agents.fanout(correlation_id, workers)`** — spawn N workers in
+  parallel under one correlation_id. Each `worker` carries
+  `{handle, kind, host_id, spawn_spec_yaml, persona_seed, task}`.
+  Server creates N agents in one transaction with auto-opened
+  sessions, posts each worker's task as their first input. Returns
+  the list of agent_ids; workers start working immediately.
+- **`agents.gather(correlation_id, timeout_s)`** — long-poll until
+  every worker in this correlation has either posted a `worker_report`
+  or reached terminal status. Times out at ~10 minutes; partial
+  results returned on timeout. **Don't poll `agents.list` in a loop
+  — `agents.gather` is the right tool for waiting.**
+- **`reports.post(status, summary_md, output_artifacts, ...)`** —
+  workers call this on completion. The structured shape is what
+  unblocks gather. See `worker_report.v1.md` for the full schema.
+- **`agents.spawn(...)`** — single spawn. Use for one-off workers, or
+  when you don't need to fan out. fanout is sugar over a batch of
+  spawns under one correlation.
+
+### The five-step recipe
+
+For any decomposable goal:
+
+1. **Plan all subtasks up front.** Write down what each independent
+   subtask is, what its output looks like, what tools it needs, and
+   when it's done. Don't dispatch one and figure out the rest later.
+2. **Fanout in one wave.** `agents.fanout(correlation_id="<goal>-1",
+   workers=[...])`. One worker per subtask. Each worker's `task`
+   field is its full instruction — it shouldn't need to ask you
+   anything.
+3. **Gather.** `agents.gather(correlation_id="<goal>-1", timeout_s=600)`.
+   Block until every worker reports or hits terminal status.
+4. **Synthesize + decide.** Read the reports (`summary_md`,
+   `output_artifacts`). Decide: ship the result, fan out a follow-up
+   wave, or escalate to {{principal.handle}}.
+5. **Repeat or finish.** If a follow-up wave is needed, increment
+   the correlation_id (`<goal>-2`) and goto 2. When done, post a
+   final summary to `#hub-meta` and let the project move on.
+
+### Worker contract
+
+Every spawned worker's `task` field MUST be self-contained. The
+worker should never need to ask "what do you want me to do?" —
+include all four:
+
+```
+GOAL: <one sentence; the outcome, not the process>
+OUTPUT: <what artifact the worker produces (file, run, doc, …)>
+TOOLS: <the subset the worker should use; e.g. "Bash, Edit, runs.create">
+BOUNDARIES: <what's out of scope; "don't touch master branch">
+DONE WHEN: <termination condition; "trackio run reports loss < 3.0">
+```
+
+A vague task is the #1 cause of orchestrator-worker failure
+(Anthropic's research-system writeup). Spend the extra 10 seconds.
+
+### Anti-pattern: type-based decomposition
+
+DO NOT decompose by task TYPE ("planner agent", "coder agent",
+"tester agent"). That pattern fails in production — Anthropic and
+Cursor both call it the "telephone game" anti-pattern, and one well-
+prompted single agent does the work better.
+
+DO decompose by INDEPENDENT SUBTASK. Examples:
+
+| ❌ Type-based | ✅ Subtask-based |
+|---|---|
+| planner + coder + tester for one feature | one worker per feature |
+| reviewer + writer for a doc | one worker per section |
+| researcher + summarizer for a sweep | one worker per (size, optimizer) pair |
+
+If the work doesn't decompose into independent subtasks, **don't
+fanout — handle it yourself in this session, or spawn one worker.**
+A 1-worker fanout is fine and still gets you the structured report.
+
+### Cost discipline
+
+Fanout costs ~3-10× tokens vs handling the same work yourself.
+Justify it: parallelism is real (ideally ≥2× wall-clock win),
+subtasks are genuinely independent, the task wouldn't fit in one
+worker's context. If those don't hold, do it sequentially in your
+own session.
+
+Sweet spot per Anthropic + CrewAI field measurements: **3–4 workers
+per fanout**. Past that, your routing quality degrades and the
+synthesis overhead eats the parallelism gain.
+
 ## Decomposition recipe: ablation sweep
 
 When a project instantiated from the `ablation-sweep` template lands in your

@@ -158,6 +158,7 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 func mcpToolDefs() []map[string]any {
 	base := mcpToolDefsBase()
 	all := append(base, mcpToolDefsExtra()...)
+	all = append(all, orchestrationToolDefs()...)
 	// Annotate each definition with its tier (server-authored,
 	// per tiers.go). Custom field; MCP clients ignore unknown
 	// keys, so this is purely informational over the wire.
@@ -346,6 +347,12 @@ func (s *Server) dispatchTool(ctx context.Context, agentID string, scope mcpScop
 		return s.mcpGetAudit(ctx, scope.Team, call.Arguments)
 	case "permission_prompt":
 		return s.mcpPermissionPrompt(ctx, scope.Team, agentID, call.Arguments)
+	case "agents.fanout":
+		return s.mcpAgentsFanout(ctx, scope.Team, call.Arguments)
+	case "agents.gather":
+		return s.mcpAgentsGather(ctx, scope.Team, call.Arguments)
+	case "reports.post":
+		return s.mcpReportsPost(ctx, agentID, call.Arguments)
 	default:
 		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}

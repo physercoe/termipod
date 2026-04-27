@@ -67,6 +67,10 @@ var toolTiers = map[string]string{
 	"shutdown_self":          TierSignificant, // irreversible self-terminate
 	"get_audit":              TierTrivial,
 	"permission_prompt":      TierTrivial, // the gate itself, not the gated action
+	// --- orchestrator-worker primitives (mcp_orchestrate.go) ---
+	"agents.fanout":          TierSignificant, // spawns N workers; budget impact
+	"agents.gather":          TierTrivial,     // long-poll read; safe
+	"reports.post":           TierTrivial,     // worker writes own report
 
 	// --- claude-code's own tool surface ---
 	"Read":           TierTrivial,

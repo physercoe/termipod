@@ -26,15 +26,23 @@ import 'agent_compose.dart';
 /// to one session. The new-session flow keeps the same agent_id while
 /// opening a fresh session row, so an unfiltered Feed would replay the
 /// prior closed session's transcript into the "fresh" chat.
+///
+/// [onSessionInit] fires whenever the latest session.init payload
+/// changes (cold open + every reconnect). Used by SessionChatScreen
+/// to lift the model/permission/tools/mcp summary into the AppBar so
+/// the transcript itself doesn't burn a row of vertical real estate
+/// on a fixed-shape header.
 class AgentFeed extends ConsumerStatefulWidget {
   final String agentId;
   final String? sessionId;
   final EdgeInsetsGeometry padding;
+  final void Function(Map<String, dynamic> payload)? onSessionInit;
   const AgentFeed({
     super.key,
     required this.agentId,
     this.sessionId,
     this.padding = const EdgeInsets.all(12),
+    this.onSessionInit,
   });
 
   @override
@@ -66,6 +74,10 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // live SSE event arrives so the user can tell the feed is current
   // again.
   DateTime? _staleSince;
+  // session_id we last forwarded to onSessionInit; only re-fire when it
+  // changes (i.e. when the agent reconnects with a new ACP/Claude
+  // session id) so we don't churn the parent's setState on every event.
+  String? _lastReportedInitSid;
   StreamSubscription<Map<String, dynamic>>? _sub;
   final ScrollController _scroll = ScrollController();
   bool _followTail = true;
@@ -323,6 +335,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // accepts @-references for any of them; an empty session still
     // gets a working composer (the strips hide themselves).
     final initForCompose = _latestSessionInitPayload();
+    // Lift session.init to the parent (AppBar) once per change so a
+    // session header doesn't take up a transcript row on mobile. The
+    // payload identity is stable between events, so we compare
+    // session_id to avoid spamming setState when the parent only cares
+    // about new connections, not every event.
+    if (initForCompose != null) {
+      final sid = (initForCompose['session_id'] ?? '').toString();
+      if (sid != _lastReportedInitSid) {
+        _lastReportedInitSid = sid;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onSessionInit?.call(initForCompose);
+        });
+      }
+    }
     final composeSlash = _stringList(initForCompose?['slash_commands']);
     final composeMentions = <String>[
       ..._stringList(initForCompose?['agents']),
@@ -403,12 +429,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // already plucked the same payload — kept distinct so a future
     // header-only optimization stays local.
     final sessionInit = initForCompose;
-    // Telemetry strip inputs (W-UI-3): cumulative cost from all
-    // turn.result events, latest per-message usage block, latest
-    // rate_limit. We walk forward so latest-wins reflects ordering;
-    // cost is summed because each turn contributes once.
+    // Telemetry strip inputs: cumulative cost from all turn.result
+    // events, per-model token totals aggregated from turn.result.by_model
+    // (claude's modelUsage, normalized by driver_stdio.go — keys: input,
+    // output, cache_read, cache_create, cost_usd per model name), and
+    // latest rate_limit. We sum across all completed turns so the strip
+    // shows session-wide usage, not just the most recent turn.
+    //
+    // by_model is the right source because claude can spawn sub-agents
+    // (e.g. Haiku for small tasks under an Opus parent), each with its
+    // own token totals. The bare `usage` event only carries the parent's
+    // last-message numbers and undercounts when sub-agents are active.
     double totalCostUsd = 0.0;
-    Map<String, dynamic>? latestUsage;
+    final modelTotals = <String, _ModelTokens>{};
     Map<String, dynamic>? latestRateLimit;
     int turnCount = 0;
     for (final e in _events) {
@@ -419,14 +452,22 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         turnCount += 1;
         final c = p['cost_usd'];
         if (c is num) totalCostUsd += c.toDouble();
-      } else if (kind == 'usage') {
-        latestUsage = p.cast<String, dynamic>();
+        final byModel = p['by_model'];
+        if (byModel is Map) {
+          for (final entry in byModel.entries) {
+            final v = entry.value;
+            if (v is! Map) continue;
+            final tot = modelTotals.putIfAbsent(
+                entry.key.toString(), _ModelTokens.empty);
+            tot.add(v.cast<String, dynamic>());
+          }
+        }
       } else if (kind == 'rate_limit') {
         latestRateLimit = p.cast<String, dynamic>();
       }
     }
     final hasTelemetry = turnCount > 0 ||
-        latestUsage != null ||
+        modelTotals.isNotEmpty ||
         latestRateLimit != null;
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
@@ -450,12 +491,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     return Column(
       children: [
-        if (sessionInit != null) _SessionHeader(payload: sessionInit),
+        // session.init is rendered in the parent AppBar via the
+        // onSessionInit callback. We intentionally don't render
+        // _SessionHeader inline anymore — the info is fixed for the
+        // session and cost a full transcript row on mobile.
         if (hasTelemetry)
           _TelemetryStrip(
             totalCostUsd: totalCostUsd,
             turnCount: turnCount,
-            usage: latestUsage,
+            modelTotals: modelTotals,
             rateLimit: latestRateLimit,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
@@ -2292,14 +2336,96 @@ class _CollapsibleMonoState extends State<_CollapsibleMono> {
   }
 }
 
+/// Open the session.init details bottom sheet for [payload]. Public so
+/// SessionChatScreen can wire its AppBar chip to the same drawer the
+/// inline header used to use.
+void showSessionDetailsSheet(BuildContext context, Map<String, dynamic> payload) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (ctx) => _SessionDetailsSheet(payload: payload),
+  );
+}
+
+/// Compact AppBar chip rendering model + permission mode + tools count
+/// + mcp count from a session.init payload. Tap → details sheet.
+/// Replaces the inline _SessionHeader so the transcript doesn't burn a
+/// row on a fixed-shape header.
+class SessionInitChip extends StatelessWidget {
+  final Map<String, dynamic> payload;
+  const SessionInitChip({super.key, required this.payload});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mutedColor = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final model = payload['model']?.toString() ?? '';
+    final permMode = payload['permission_mode']?.toString() ?? '';
+    final tools = _SessionHeader._toList(payload['tools']);
+    final mcpServers = _SessionHeader._toMapList(payload['mcp_servers']);
+    return InkWell(
+      onTap: () => showSessionDetailsSheet(context, payload),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (model.isNotEmpty)
+              _Pill(
+                label: _shortModel(model),
+                color: DesignColors.secondary,
+              ),
+            if (permMode.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              _Pill(
+                label: permMode,
+                color: _SessionHeader._permModeColor(permMode),
+              ),
+            ],
+            if (tools.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              _Pill(label: '${tools.length}t', color: mutedColor),
+            ],
+            if (mcpServers.isNotEmpty) ...[
+              const SizedBox(width: 4),
+              _Pill(
+                label: '${mcpServers.length}mcp',
+                color:
+                    _SessionHeader._mcpAggregateColor(mcpServers, mutedColor),
+              ),
+            ],
+            const SizedBox(width: 2),
+            Icon(Icons.expand_more, size: 14, color: mutedColor),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Trim the long claude/codex model strings (e.g.
+  // "claude-opus-4-7-20260101") down to the family + version so the
+  // pill stays readable in the AppBar. Unknown shapes pass through.
+  static String _shortModel(String raw) {
+    if (raw.startsWith('claude-')) {
+      final parts = raw.split('-');
+      if (parts.length >= 4) return '${parts[1]} ${parts[2]}.${parts[3]}';
+    }
+    return raw;
+  }
+}
+
 /// Sticky header rendered above the agent feed when a session.init event
 /// is present. Compact by default — tap to open a bottom-sheet drawer
 /// with the rich session metadata (model, tools, mcp servers, slash
 /// commands, agents, skills, cwd, version, permission mode).
 ///
-/// Built from typed `session.init` payload, not claude JSON. Other
-/// drivers can populate the same fields and inherit this UI for free;
-/// fields they don't surface stay absent rather than showing as blanks.
+/// Now unused inline (lifted into the SessionChatScreen AppBar via
+/// [SessionInitChip]); kept around because the per-pill helpers
+/// (_permModeColor, _mcpAggregateColor) are reused by the chip.
 class _SessionHeader extends StatelessWidget {
   final Map<String, dynamic> payload;
   const _SessionHeader({required this.payload});
@@ -2698,15 +2824,46 @@ class _McpRow extends StatelessWidget {
 /// Tap → bottom-sheet with a per-model breakdown when by_model lands;
 /// for now keeps the strip compact and tap-inert (the data fits in one
 /// row at typical phone widths).
+/// Aggregated token totals for one model across all turn.result frames.
+/// Mutable so the build-time aggregation loop can fold each frame in
+/// without rebuilding the map every event.
+class _ModelTokens {
+  int input = 0;
+  int output = 0;
+  int cacheRead = 0;
+  int cacheCreate = 0;
+  double costUsd = 0.0;
+
+  static _ModelTokens empty() => _ModelTokens();
+
+  void add(Map<String, dynamic> v) {
+    final i = (v['input'] as num?)?.toInt() ?? 0;
+    final o = (v['output'] as num?)?.toInt() ?? 0;
+    final cr = (v['cache_read'] as num?)?.toInt() ?? 0;
+    final cc = (v['cache_create'] as num?)?.toInt() ?? 0;
+    final c = (v['cost_usd'] as num?)?.toDouble() ?? 0.0;
+    input += i;
+    output += o;
+    cacheRead += cr;
+    cacheCreate += cc;
+    costUsd += c;
+  }
+
+  // Total billable input = fresh input + cache writes (cache reads are
+  // billed at a 10% rate at most providers, so callers can show them
+  // separately rather than rolling them into the headline number).
+  int get billableInput => input + cacheCreate;
+}
+
 class _TelemetryStrip extends StatelessWidget {
   final double totalCostUsd;
   final int turnCount;
-  final Map<String, dynamic>? usage;
+  final Map<String, _ModelTokens> modelTotals;
   final Map<String, dynamic>? rateLimit;
   const _TelemetryStrip({
     required this.totalCostUsd,
     required this.turnCount,
-    required this.usage,
+    required this.modelTotals,
     required this.rateLimit,
   });
 
@@ -2738,26 +2895,56 @@ class _TelemetryStrip extends StatelessWidget {
             'Cumulative cost across $turnCount completed turn${turnCount == 1 ? '' : 's'}.',
       ));
     }
-    final u = usage;
-    if (u != null) {
-      final inTok = (u['input_tokens'] as num?)?.toInt();
-      final outTok = (u['output_tokens'] as num?)?.toInt();
-      final cacheRead = (u['cache_read'] as num?)?.toInt();
-      final headline = '${_fmtTokens(inTok)} → ${_fmtTokens(outTok)}';
-      final sub = cacheRead != null && cacheRead > 0
-          ? 'cache ${_fmtTokens(cacheRead)}'
-          : 'in → out tokens';
+    if (modelTotals.isNotEmpty) {
+      // Aggregate across all models — this is what the user actually
+      // pays for. Headline shows ↑ billable_in / ↓ out; the cache_read
+      // total goes in the sub line because it's billed at a fraction of
+      // the input rate and conflating them inflates the number.
+      var totalBillableIn = 0;
+      var totalOut = 0;
+      var totalCacheRead = 0;
+      modelTotals.forEach((_, t) {
+        totalBillableIn += t.billableInput;
+        totalOut += t.output;
+        totalCacheRead += t.cacheRead;
+      });
+      final tooltip = StringBuffer()
+        ..write('Session-wide token usage across ')
+        ..write(modelTotals.length)
+        ..write(modelTotals.length == 1 ? ' model' : ' models')
+        ..write(':\n');
+      modelTotals.forEach((name, t) {
+        tooltip
+          ..write('• ')
+          ..write(_shortModelName(name))
+          ..write(': ↑ ')
+          ..write(t.billableInput)
+          ..write(' (in ')
+          ..write(t.input)
+          ..write(' + cache_create ')
+          ..write(t.cacheCreate)
+          ..write(') → ↓ ')
+          ..write(t.output)
+          ..write('  ·  cache_read ')
+          ..write(t.cacheRead)
+          ..write('\n');
+      });
+      tooltip.write(
+          '↑ = billable input (fresh + cache writes). ↓ = output. '
+          'cache_read is billed at a fraction of input cost so it sits in the sub-line.');
+      // Single combined arrow icon keeps the tile narrow; the up/down
+      // arrows in the headline carry the directional read.
       tiles.add(_TelemetryTile(
-        icon: Icons.bolt_outlined,
-        label: headline,
-        sub: sub,
+        icon: Icons.swap_vert,
+        label:
+            '↑${_fmtTokens(totalBillableIn)}  ↓${_fmtTokens(totalOut)}',
+        sub: totalCacheRead > 0
+            ? 'cache ${_fmtTokens(totalCacheRead)}'
+            : '${modelTotals.length} model${modelTotals.length == 1 ? '' : 's'}',
         color: DesignColors.terminalCyan,
         fg: fg,
         muted: mutedColor,
-        tooltip:
-            'Last assistant turn: ${inTok ?? 0} input tokens → ${outTok ?? 0} output tokens'
-            '${cacheRead != null && cacheRead > 0 ? ' (prompt cache: $cacheRead)' : ''}.\n'
-            'Suffix is k = thousand, M = million.',
+        tooltip: tooltip.toString(),
       ));
     }
     final rl = rateLimit;
@@ -2818,6 +3005,18 @@ class _TelemetryStrip extends StatelessWidget {
     );
   }
 
+  // Trim claude/codex model strings down for the tooltip per-model
+  // breakdown ("claude-opus-4-7-20260101" → "opus 4.7"). Mirrors the
+  // AppBar SessionInitChip's shortener; kept local to the strip so
+  // the two callers stay decoupled.
+  static String _shortModelName(String raw) {
+    if (raw.startsWith('claude-')) {
+      final parts = raw.split('-');
+      if (parts.length >= 4) return '${parts[1]} ${parts[2]}.${parts[3]}';
+    }
+    return raw;
+  }
+
   static String _fmtTokens(int? n) {
     if (n == null) return '—';
     if (n < 1000) return '$n';
@@ -2862,16 +3061,22 @@ class _TelemetryStrip extends StatelessWidget {
 
   // Status drives color when present; otherwise fall back to time-pressure
   // heuristic so a "warn" status near the reset doesn't read green.
+  // `allowed` is what Anthropic ships in the wild today
+  // (rate_limit_event.status="allowed" — see hub-runner driver_stdio.go);
+  // alias it to the green case so the most-common steady-state reads
+  // OK rather than a muted gray.
   static Color _rateLimitColor(String status, Duration? resetIn) {
     switch (status.toLowerCase()) {
       case 'limited':
       case 'exceeded':
+      case 'denied':
         return DesignColors.error;
       case 'warn':
       case 'warning':
         return DesignColors.warning;
       case 'ok':
       case 'available':
+      case 'allowed':
         return DesignColors.success;
     }
     if (resetIn != null && resetIn.inMinutes <= 5) {
@@ -2945,18 +3150,32 @@ class _TelemetryTile extends StatelessWidget {
 }
 
 // Map raw rate-limit window strings (whatever claude emits — `5_hour`,
-// `5h`, `weekly`, `week`, `session`, etc.) to a short human label.
-// Unknown values pass through verbatim so we never hide signal.
+// `5h`, `five_hour`, `weekly`, `week`, `session`, etc.) to a short human
+// label. Unknown values pass through verbatim so we never hide signal.
+//
+// Anthropic's stream-json `rate_limit_event.rateLimitType` ships
+// english-spelled forms ("five_hour", "one_hour") today; the
+// underscore-numeric variants ("5_hour") show up on older clients.
+// Matching both keeps the strip readable across versions.
 String _humanWindow(String raw) {
   switch (raw.toLowerCase()) {
     case '5h':
     case '5_hour':
     case '5_hours':
+    case 'five_hour':
+    case 'five_hours':
     case 'session':
       return '5h';
+    case '1h':
+    case '1_hour':
+    case '1_hours':
+    case 'one_hour':
+    case 'one_hours':
+      return '1h';
     case 'weekly':
     case 'week':
     case '7d':
+    case 'weekly_opus':
       return 'weekly';
   }
   return raw;

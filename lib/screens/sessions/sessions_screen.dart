@@ -539,6 +539,12 @@ class SessionChatScreen extends ConsumerStatefulWidget {
 
 class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   late String _title = widget.title;
+  // Latest session.init payload reported up by AgentFeed. Drives the
+  // AppBar's compact session chip (model + perm + tool/mcp counts);
+  // tap → details sheet. Lifted out of the transcript so the chat
+  // surface itself isn't paying a row of vertical real estate for a
+  // fixed-shape header.
+  Map<String, dynamic>? _sessionInit;
 
   Future<void> _rename() async {
     final current = _title == '(untitled session)' ? '' : _title;
@@ -572,6 +578,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          if (_sessionInit != null) SessionInitChip(payload: _sessionInit!),
           IconButton(
             tooltip: 'Rename session',
             icon: const Icon(Icons.edit_outlined),
@@ -580,7 +587,10 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         ],
       ),
       body: AgentFeed(
-          agentId: widget.agentId, sessionId: widget.sessionId),
+        agentId: widget.agentId,
+        sessionId: widget.sessionId,
+        onSessionInit: (p) => setState(() => _sessionInit = p),
+      ),
     );
   }
 }

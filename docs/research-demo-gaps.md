@@ -200,7 +200,11 @@ referenced tools (`a2a.invoke`, `agents.spawn`, `runs.create`,
 didn't expose — so the steward couldn't drive the demo end-to-end under
 the principal/director UX model.
 
-Shipped in `hub/cmd/hub-mcp-server/tools.go`:
+Shipped in `hub/internal/hubmcpserver/tools.go` (originally a
+standalone daemon at `cmd/hub-mcp-server`; consolidated into the
+hub's in-process MCP at `/mcp/<token>` in v1.0.297–298 via
+`internal/server/mcp_authority.go` so spawned agents reach it through
+the bridge — single `.mcp.json` entry, single symlink to install):
 - `a2a.invoke(handle, text)` — looks up the agent card from the team
   directory, then POSTs a JSON-RPC `message/send` to the relay URL.
   Unblocks steward→worker handoff.

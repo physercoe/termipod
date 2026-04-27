@@ -205,7 +205,14 @@ registered" within ~30s; the host shows up in the Hosts list.
 
 ---
 
-## Issue 4 — Modern steward chat UI
+## Issue 4 — Modern steward chat UI — **DONE v1.0.299–300**
+
+**Status as of v1.0.300**: W-UI-1 through W-UI-4 all shipped. A
+follow-up content-polish slice (syntax-highlighted code blocks,
+color-coded diffs, per-tool icons in tool_call cards) shipped in
+v1.0.299 and the steward composer reached parity with the action-bar
+composer (field metrics, inline clear button, save-as-snippet) in
+v1.0.300. Per-subwedge completion notes are inline below.
 
 **Goal:** the steward room should look like a professional agent
 console, not a stripped-down Slack channel. The data exists — claude's
@@ -260,33 +267,37 @@ where the source supports it; absent kinds simply don't show.
 Four sub-wedges of mobile work, each landable independently once the
 driver kinds are emitted:
 
-**W-UI-1 — Session header card.** Sticky chip at the top of the
-transcript built from `session.init`. Tap to expand a drawer showing:
-- Model + version + permission mode
-- Tools list (groupable: builtin / mcp / plugin)
-- MCP servers with auth state pills (green / "needs-auth")
-- Slash commands & agents & skills
-- cwd + workdir badge
+**W-UI-1 — Session header card.** — **DONE.** `SessionInitChip` lives
+in the `SessionChatScreen` AppBar (model + kind + permission_mode +
+tool count + mcp count) and tap-to-expand opens the rich detail sheet
+with mcp-server auth pills, slash commands, agents, skills, cwd. See
+`lib/widgets/agent_feed.dart` `class SessionInitChip` and
+`showSessionDetailsSheet`.
 
-**W-UI-2 — Tool-call lineage cards.** Each `tool_call` becomes an
-expandable card; the matching `tool_result` (paired by `tool_use_id`)
-attaches inside it. States: pending → approved / denied (from
-attention_items wiring) → running → success / error. Surfaces input
-args (collapsible JSON view), tool name, duration. The W2.1
-permission_prompt wedge already populates the approval inline; this
-sub-wedge presents it cleanly within the card's "pending" state.
+**W-UI-2 — Tool-call lineage cards.** — **DONE.** Each `tool_call`
+folds its paired `tool_result` (matched by `tool_use_id`) inline,
+with status pending/in_progress/completed/failed. Approval cards
+populate the pending state from attention_items. Polish landed in
+v1.0.299: per-tool icon (Bash → terminal, Edit → pencil, hub
+authority tools → hub glyph) + `_StatusPill` next to the tool name
+replaces the old two-row kv display.
 
-**W-UI-3 — Telemetry strip.** A compact, persistent strip below the
-session header:
-- Running cost meter (cumulative `turn.result.cost_usd`)
-- Turn token-usage chip (in/out/cache, current turn from `usage` events)
-- Rate-limit progress bar (5h window from `rate_limit`; turns red as
-  resets_at approaches)
+**W-UI-3 — Telemetry strip.** — **DONE.** `_TelemetryStrip` shows
+cost (cumulative across turns), session-wide token totals
+(billable in / out / cache), and rate-limit window with reset
+countdown. Aggregates from `turn.result.by_model` for accurate
+multi-model attribution.
 
-**W-UI-4 — Composer enrichment.** Pull from `session.init`:
-- `/`-prefix triggers slash-command picker (filter by `slash_commands`).
-- `@`-prefix triggers tool / agent picker.
-- File-attach already exists; keep it.
+**W-UI-4 — Composer enrichment.** — **DONE.** `/` and `@` prefixes
+trigger a `_SuggestionStrip` sourced from `session.init.slash_commands`
+and the agent roster. File-attach lives on the snippet/bolt path.
+
+**Polish slice (v1.0.299–300):** syntax-highlighted fenced code
+blocks via `flutter_highlight`, color-coded diff view for the `diff`
+event-card body, and the steward composer matched to the tmux
+action-bar composer (font 14, maxHeight 120, inline clear button,
+save-as-snippet button). See commits `feat(chat): syntax-highlight…`
+and `fix(steward-compose): match tmux compose metrics…`.
 
 ### Verify
 
@@ -308,24 +319,27 @@ W-DRV: ~1 day (driver schema work + tests; only StdioDriver needs to
 move, ACPDriver / PaneDriver fall out where applicable).
 W-UI-1…4: ~2–3 days combined.
 
-Total: multi-day, ship after issues 1–3 land.
+**Actual: shipped piecewise across v1.0.281–300.** All W-UI sub-wedges
+landed plus a content-polish slice (v1.0.299) and composer parity
+(v1.0.300).
 
 ---
 
 ## Suggested execution order
 
-| # | Wedge | Effort | Note |
-|---|-------|--------|------|
-| 1 | Issue 1 — drop dup composer | minutes | Visible regression, smallest fix |
-| 2 | Issue 2c — doc fixes (`--verbose`, model id) | minutes | Free |
-| 3 | Issue 3 — "Install host-runner" UI | ~½ day | Unblocks AC1 |
-| 4 | Issue 2a — liveness signal | ~½ day | Mobile chip + hub field |
-| 5 | Issue 2b — recreate-from-phone | ~½ day | Builds on 2a |
-| 6 | W-DRV — typed event schema | ~1 day | Prereq for the modern UI |
-| 7 | W-UI-1 — session header | ~½ day | Easiest visual win |
-| 8 | W-UI-2 — tool-call cards | ~1 day | Heart of the "professional" feel |
-| 9 | W-UI-3 — telemetry strip | ~½ day | Cost / tokens / rate-limit |
-| 10 | W-UI-4 — composer enrichment | ~½ day | Slash + mention pickers |
+All items below shipped piecewise across v1.0.281–300; the table is
+kept for archaeology / wedge sequencing reference.
 
-Items 1–5 land first, then driver normalization (6) before any UI work
-(7–10) so future agent kinds don't need a UI rewrite to participate.
+| # | Wedge | Effort | Status |
+|---|-------|--------|--------|
+| 1 | Issue 1 — drop dup composer | minutes | DONE |
+| 2 | Issue 2c — doc fixes (`--verbose`, model id) | minutes | DONE |
+| 3 | Issue 3 — "Install host-runner" UI | ~½ day | DONE |
+| 4 | Issue 2a — liveness signal | ~½ day | DONE |
+| 5 | Issue 2b — recreate-from-phone | ~½ day | DONE |
+| 6 | W-DRV — typed event schema | ~1 day | DONE (`turn.result.by_model`, `usage`, `rate_limit`, paired `tool_use_id`) |
+| 7 | W-UI-1 — session header | ~½ day | DONE (`SessionInitChip`) |
+| 8 | W-UI-2 — tool-call cards | ~1 day | DONE; per-tool icon polish in v1.0.299 |
+| 9 | W-UI-3 — telemetry strip | ~½ day | DONE (`_TelemetryStrip`) |
+| 10 | W-UI-4 — composer enrichment | ~½ day | DONE (`_SuggestionStrip` + tmux-parity in v1.0.300) |
+| 11 | Polish — syntax highlight + color-coded diff | ~1 day | DONE v1.0.299 |

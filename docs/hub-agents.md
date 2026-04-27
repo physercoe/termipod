@@ -276,22 +276,36 @@ Responses:
 ## 6. Spawning from an existing agent (MCP)
 
 Agents reach the hub over stdio via `hub-mcp-bridge`, POSTing
-newline-delimited JSON-RPC to `/mcp/{token}`. The current MCP tool set
-(see `hub/internal/server/mcp.go`) is:
+newline-delimited JSON-RPC to `/mcp/{token}`. As of v1.0.298 the
+`/mcp/<token>` endpoint serves the union of the narrow surface plus
+the rich-authority catalog — one symlink installs everything spawned
+agents need. Catalog (see `hub/internal/server/mcp.go` +
+`mcp_more.go` + `mcp_orchestrate.go` + `mcp_authority.go` →
+`internal/hubmcpserver/tools.go`):
 
-    post_message, get_feed, list_channels, search,
-    journal_append, journal_read, get_project_doc,
-    get_attention, post_excerpt
+- **Narrow surface** — `post_message`, `get_feed`, `list_channels`,
+  `search`, `journal_append`, `journal_read`, `get_project_doc`,
+  `get_attention`, `post_excerpt`, `delegate`, `request_approval`,
+  `request_select`, `attach`, `get_event`, `get_task`,
+  `get_parent_thread`, `list_agents`, `update_own_task_status`,
+  `templates.propose`, `pause_self`, `shutdown_self`, `get_audit`,
+  `permission_prompt`.
+- **Orchestrator-worker primitives** — `agents.fanout`,
+  `agents.gather`, `reports.post`.
+- **Rich authority** — `projects.{list,get,create,update}`,
+  `plans.{list,get,create}`, `plans.steps.{create,list,update}`,
+  `runs.{list,get,create,attach_artifact}`, `documents.{list,create}`,
+  `reviews.{list,create}`, `policy.read`, `artifacts.{list,get,create}`,
+  `agents.spawn`, `channels.post_event`, `a2a.invoke`,
+  `hosts.update_ssh_hint`, `project_channels.create`,
+  `team_channels.create`, `tasks.{list,get,create,update}`,
+  `schedules.{list,create,update,delete,run}`, `audit.read`.
 
-There is **no `spawn` MCP tool yet**. An agent that wants to delegate
-must either:
-
-- emit a `post_message` asking the user/steward to spawn, or
-- call the REST `/agents/spawn` endpoint directly with its own token
-  (possible but not set up as a one-liner).
-
-Adding `spawn` to the MCP tool registry is an obvious next step and is
-tracked as a follow-up.
+Spawning from MCP: call `agents.spawn` with `child_handle`, `kind`,
+`spawn_spec_yaml` (and optional `host_id` / `parent_agent_id` /
+`worktree_path` / `budget_cents` / `mode`). Returns `201` with the
+new agent row, or `202` with an `attention_id` when policy gates the
+spawn on approval (Significant tier per `tiers.go`).
 
 ## 7. Spawning on a schedule
 

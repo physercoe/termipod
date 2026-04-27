@@ -5,6 +5,14 @@ of v1.0.296: the new orchestrator-worker slice (fanout/gather/reports)
 uses MCP, but A2A is the spec'd peer protocol — when does each apply,
 and have we drifted?
 
+**v1.0.298 update**: the rich-authority MCP catalog (projects, plans,
+runs, agents.spawn, schedules, channels, a2a.invoke, …) that lived
+only in the standalone `hub-mcp-server` daemon was consolidated into
+the hub's own `/mcp/<token>` endpoint via `internal/server/mcp_authority.go`
+(a chi-router HTTP transport reuses the existing tool closures
+in-process). The "phantom `a2a.invoke`" finding in §2 below is
+therefore resolved as of v1.0.298 — see the inline note in the table.
+
 This doc resolves the question by stating what each protocol is for,
 where today's code falls, and what the cleanest split looks like
 going forward.
@@ -52,16 +60,18 @@ convenient — that's the drift.
 | Worker calls `reports.post` (write completion event) | MCP | Right — writing to hub state. |
 | Steward calls `delegate` (mcp_more.go) | MCP, posts a channel event | **Half-right.** Today it just posts a `delegate` event to a channel; receiving agents subscribe. Effectively a typed broadcast. The semantics overlap with A2A's `message/send` but the implementation goes through channels. |
 | Cross-host A2A relay (`/a2a/relay/{host}/{agent}/...`) | A2A | Right. |
-| Steward calls `a2a.invoke(handle, text)` | **Not actually wired in mcp_more.go**, only in standalone hub-mcp-server which isn't spawned anywhere | Phantom — the steward template references it, but the in-process MCP doesn't expose it. Existing demo code can't actually use A2A through MCP today. |
+| Steward calls `a2a.invoke(handle, text)` | **Reachable as of v1.0.298** via `mcp_authority.go` (chi-router transport reuses the hubmcpserver tool catalog in-process) | Right — the hub serves it under `/mcp/<token>`; the steward calls it through the bridge like any other authority tool. |
 | Worker reports back to steward post-task | A2A response **OR** channel post **OR** `reports.post` (just shipped) | Three competing paths, no canonical choice. |
 
-**Two real problems surface from this audit:**
+**One real problem remains from this audit:**
 
-1. **`a2a.invoke` isn't reachable** from the steward via the in-process
-   MCP. The `agents.fanout` I shipped works around this by posting
-   tasks as `input.text` events directly into agent_events. That's
-   fine *if we accept "task delivery is via hub event queue"* as the
-   model, but it makes A2A's task model partially redundant.
+1. ~~**`a2a.invoke` isn't reachable**~~ — **resolved v1.0.298.** The
+   chi-router transport in `mcp_authority.go` exposes the full
+   hubmcpserver catalog through `/mcp/<token>`, including `a2a.invoke`,
+   `agents.spawn`, `runs.create`, `plans.steps.*`, `schedules.*`,
+   `channels.create`, `projects.update`, `hosts.update_ssh_hint`. The
+   steward calls them through the same bridge it uses for everything
+   else. Question 3 in §5 is also closed by this.
 
 2. **Reports have three possible paths.** A2A response (the protocol's
    native completion signal), channel post (broadcast convention),
@@ -154,9 +164,9 @@ viable, MCP is the hub wire."
 **Direction**: Move toward **Design C** when the user actually has a
 multi-host A2A setup that demonstrates the asymmetry pain. Steps:
 
-1. **First, port `a2a.invoke` to the in-process MCP** (or wire the
-   standalone hub-mcp-server into `.mcp.json`). Without it, the
-   steward can't dispatch via A2A from the bridge surface.
+1. ~~**First, port `a2a.invoke` to the in-process MCP**~~ — **done
+   v1.0.298** via `mcp_authority.go`. Steward dispatches via A2A from
+   the bridge surface today.
 2. **Add `a2a_url` to the fanout return** for workers whose host
    exposes A2A. Steward picks per-worker.
 3. **Define `worker_report.v1` as a content-shape convention**
@@ -185,22 +195,30 @@ Three real questions for you:
    to "tell another agent something" and adds confusion. The clean
    answer is yes, retire — but it's used by some recipes today.
 
-3. **The steward template's "Available tools" section lists tools that
-   don't actually exist in the in-process MCP (`agents.spawn`,
-   `a2a.invoke`, `runs.create`, `plans.steps.*`, `schedules.*`,
-   `channels.create`, `projects.update`, `hosts.update_ssh_hint`).**
-   This isn't really a protocol question — it's that the standalone
-   `hub-mcp-server` daemon isn't wired in anywhere. Either port
-   those tools to `mcp_more.go` (Design-A-flavored) or wire the
-   daemon into spawn `.mcp.json` (Design-B-flavored). Pick one.
+3. ~~**The steward template's "Available tools" section lists tools
+   that don't actually exist in the in-process MCP**~~ — **resolved
+   v1.0.298.** All of those tools (`agents.spawn`, `a2a.invoke`,
+   `runs.create`, `plans.steps.*`, `schedules.*`, `channels.create`,
+   `projects.update`, `hosts.update_ssh_hint`) are now reachable via
+   `/mcp/<token>` — `mcp_authority.go` mounts the hubmcpserver catalog
+   in-process through a chi-router transport. One symlink, one
+   `.mcp.json` entry; steward sees the union of the narrow and rich
+   surfaces.
 
 ---
 
 ## 6. Glossary clarifications (to avoid future confusion)
 
-- **MCP server**: the hub. The bridge (`hub-mcp-bridge`) is a
-  stdio↔HTTP shim. Standalone `hub-mcp-server` is a peer alternative
-  that exists in code but isn't currently invoked anywhere.
+- **MCP server**: the hub's `/mcp/<token>` endpoint. The bridge
+  (`hub-mcp-bridge`) is a stdio↔HTTP shim that connects spawned
+  agents to it. As of v1.0.298 the hub serves the union of the narrow
+  catalog (gates, attention, post_excerpt, journal, orchestrator-worker
+  primitives) AND the rich-authority catalog (projects, plans, runs,
+  agents.spawn, schedules, channels, a2a.invoke, …) through that one
+  endpoint — `mcp_authority.go` reuses the `internal/hubmcpserver`
+  tool closures via a chi-router HTTP transport. The standalone
+  `hub-mcp-server` binary still builds but is no longer wired into
+  spawn `.mcp.json`.
 - **MCP tool**: an authority capability the hub exposes
   (`agents.fanout`, `reports.post`, `delegate`, `request_approval`,
   …). Not the same as claude-code's built-in tools (`Bash`, `Edit`,
@@ -224,17 +242,17 @@ Three real questions for you:
 
 ## 7. What actually changes if we pick C
 
-Tiny, if we accept "first ship the wiring, then migrate workers
-piecewise":
+Tiny, with the v1.0.298 consolidation already done:
 
-1. Port `a2a.invoke` from `hub/cmd/hub-mcp-server/tools.go` to
-   `hub/internal/server/mcp_more.go`. ~80 LoC.
+1. ~~Port `a2a.invoke`~~ — **done v1.0.298** via `mcp_authority.go`
+   (chi-router transport reuses `internal/hubmcpserver` tools
+   in-process; nothing duplicated).
 2. Add `a2a_url` to fanout's per-worker result. ~10 LoC.
 3. Update `agents.gather` to also poll A2A task store. ~50 LoC.
 4. Update steward prompt's recipe to prefer `a2a.invoke` when the
    worker advertised an `a2a_url`. ~prompt edit.
 
-Total: roughly half a wedge. Not blocking the demo.
+Total: roughly a third of a wedge. Not blocking the demo.
 
 ---
 

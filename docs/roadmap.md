@@ -110,6 +110,14 @@ working list — what's actually moving this week or next.
 These have design memos in `discussions/` and may or may not be
 prioritized after the demo lands.
 
+- **Simple/Advanced mode for the mobile UI** — Activity / Hosts tabs
+  are operator-shaped; less-technical principals would benefit from
+  hiding or folding them (`discussions/simple-vs-advanced-mode.md`).
+  Revisit post-demo.
+- **Pending dependency upgrades** — ~14 Dependabot PRs open as of
+  v1.0.319, 5 majors deferred for individual review (riverpod 3.3,
+  google_fonts 8, flutter_foreground_task 9, connectivity_plus 7,
+  modernc.org/sqlite 1.50). Triage when post-demo bandwidth opens.
 - **Domain packs / marketplace** — content-pack extensibility
   (`discussions/post-mvp-domain-packs.md`)
 - **Multi-steward wedge 3** — deferred per memory

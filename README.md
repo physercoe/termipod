@@ -49,7 +49,9 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 > SSH/tmux side accurately, but don't reflect the hub workflow which
 > is now the primary surface. **Refresh deferred until after the
 > Candidate-A hardware demo lands** — capturing screenshots before
-> the demo's final UX polish would just need re-doing.
+> the demo's final UX polish would just need re-doing. The refresh
+> itself is planned to be CI-automated; design captured in
+> [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md).
 
 <table>
 <tr>

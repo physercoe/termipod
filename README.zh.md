@@ -47,7 +47,9 @@
 > 的 IA 重设计(Projects · Activity · Me · Hosts · Settings)和
 > v1.0.281+ 的 Steward 聊天工作。SSH/tmux 部分仍然准确,但不能反映
 > 已成为主界面的 Hub 工作流。**截图刷新推迟到 Candidate-A 硬件 demo
-> 落地之后** — 在 demo 最终 UX 打磨前截图,落地后还得重做。
+> 落地之后** — 在 demo 最终 UX 打磨前截图,落地后还得重做。截图自身
+> 计划用 CI 自动生成,设计见
+> [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md)。
 
 <table>
 <tr>

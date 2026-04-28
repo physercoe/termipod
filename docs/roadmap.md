@@ -114,6 +114,11 @@ prioritized after the demo lands.
   are operator-shaped; less-technical principals would benefit from
   hiding or folding them (`discussions/simple-vs-advanced-mode.md`).
   Revisit post-demo.
+- **CI-generated README screenshots** — automate via
+  `integration_test` + `binding.takeScreenshot()` against a
+  `seed-demo` hub; eliminates the screenshot-drift problem
+  (`discussions/screenshot-automation.md`). Defer until post-demo
+  IA stabilizes.
 - **Pending dependency upgrades** — ~14 Dependabot PRs open as of
   v1.0.319, 5 majors deferred for individual review (riverpod 3.3,
   google_fonts 8, flutter_foreground_task 9, connectivity_plus 7,

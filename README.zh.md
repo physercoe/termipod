@@ -43,6 +43,12 @@
 
 ## 截图
 
+> **⚠️ 已过时 — IA 重设计前的 tmux 时代截图。** 这些截图早于 v1.0.175–182
+> 的 IA 重设计(Projects · Activity · Me · Hosts · Settings)和
+> v1.0.281+ 的 Steward 聊天工作。SSH/tmux 部分仍然准确,但不能反映
+> 已成为主界面的 Hub 工作流。**截图刷新推迟到 Candidate-A 硬件 demo
+> 落地之后** — 在 demo 最终 UX 打磨前截图,落地后还得重做。
+
 <table>
 <tr>
 <td align="center"><b>仪表盘</b></td>

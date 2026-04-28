@@ -43,6 +43,14 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 
 ## Screenshots
 
+> **⚠️ Outdated — pre-IA-redesign, tmux-era screens.** These predate
+> the v1.0.175–182 IA redesign (Projects · Activity · Me · Hosts ·
+> Settings) and the v1.0.281+ steward chat work. They still show the
+> SSH/tmux side accurately, but don't reflect the hub workflow which
+> is now the primary surface. **Refresh deferred until after the
+> Candidate-A hardware demo lands** — capturing screenshots before
+> the demo's final UX polish would just need re-doing.
+
 <table>
 <tr>
 <td align="center"><b>Dashboard</b></td>

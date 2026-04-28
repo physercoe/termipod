@@ -13,6 +13,7 @@ import 'package:termipod/screens/home_screen.dart';
 import 'package:termipod/screens/terminal/terminal_screen.dart';
 import 'package:termipod/services/deep_link/deep_link_service.dart';
 import 'package:termipod/services/license_service.dart';
+import 'package:termipod/services/notifications/local_notifications.dart';
 import 'package:termipod/services/public_file_store.dart';
 import 'package:termipod/theme/app_theme.dart';
 
@@ -28,6 +29,11 @@ Future<void> main() async {
 
   // フォントライセンスを登録
   LicenseService.registerLicenses();
+
+  // Local notifications channel registration. Permission prompt is
+  // deferred to the settings screen / first new-attention event so
+  // we don't ambush a fresh user with a permission dialog at launch.
+  await LocalNotifications.instance.init();
 
   // ステータスバーを透明に
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(

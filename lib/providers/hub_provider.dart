@@ -10,6 +10,8 @@ import '../services/hub/blob_bytes_cache.dart';
 import '../services/hub/hub_client.dart';
 import '../services/hub/hub_read_through.dart';
 import '../services/hub/hub_snapshot_cache.dart';
+import '../services/notifications/local_notifications.dart';
+import 'settings_provider.dart';
 
 /// SharedPreferences keys for the hub configuration. The token is *not*
 /// stored here — it lives in flutter_secure_storage under [_kHubTokenKey].
@@ -114,6 +116,14 @@ class HubNotifier extends AsyncNotifier<HubState> {
   /// aggressively and exposing a forceRefresh toggle is a better tradeoff
   /// than re-fetching on every tap. Cleared on refreshAll and clearConfig.
   final Map<String, String> _templateBodyCache = {};
+
+  /// Per-app-session set of attention-item IDs we've already notified
+  /// the user about. Phase 1.5a: skip the first refreshAll completion
+  /// (user is opening the app, no need to ping them about items they're
+  /// about to see) and only emit notifications for IDs that appear in
+  /// later refreshes — i.e. true new arrivals. Reset on hub reconnect.
+  bool _attentionNotifyArmed = false;
+  final Set<String> _notifiedAttentionIds = <String>{};
 
   @override
   Future<HubState> build() async {
@@ -311,6 +321,10 @@ class HubNotifier extends AsyncNotifier<HubState> {
     _client?.close();
     _client = null;
     _templateBodyCache.clear();
+    // Re-arm attention notifications so the next hub reconnect
+    // skips the backlog (Phase 1.5a — initial refresh is silent).
+    _attentionNotifyArmed = false;
+    _notifiedAttentionIds.clear();
     if (_cache != null && prevCfg != null) {
       await _cache!.wipeHub(
         hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
@@ -394,6 +408,68 @@ class HubNotifier extends AsyncNotifier<HubState> {
       error: errors.isEmpty ? null : errors.first,
       clearError: errors.isEmpty,
     ));
+    _maybeNotifyAttention(results[0].body);
+  }
+
+  /// Phase 1.5a: emit a system notification for newly-appeared
+  /// attention items so the principal sees approval requests even
+  /// when not actively staring at the app. Skips the first refresh
+  /// after open (the user is already arriving — don't double-pin).
+  /// Suppressed entirely when the user has notifications disabled
+  /// in settings.
+  void _maybeNotifyAttention(List<Map<String, dynamic>> items) {
+    final settings = ref.read(settingsProvider);
+    if (!settings.enableNotifications) {
+      // Re-arm tracking so a later opt-in doesn't replay the backlog.
+      _attentionNotifyArmed = true;
+      _notifiedAttentionIds
+        ..clear()
+        ..addAll(items.map((i) => (i['id'] ?? '').toString()));
+      return;
+    }
+    if (!_attentionNotifyArmed) {
+      _attentionNotifyArmed = true;
+      _notifiedAttentionIds
+        ..clear()
+        ..addAll(items.map((i) => (i['id'] ?? '').toString()));
+      return;
+    }
+    for (final item in items) {
+      final id = (item['id'] ?? '').toString();
+      if (id.isEmpty) continue;
+      if (_notifiedAttentionIds.contains(id)) continue;
+      _notifiedAttentionIds.add(id);
+      // Best-effort fire-and-forget — failures are non-fatal.
+      unawaited(LocalNotifications.instance.showAttention(
+        id: id.hashCode,
+        title: _attentionTitle(item),
+        body: _attentionBody(item),
+      ));
+    }
+  }
+
+  String _attentionTitle(Map<String, dynamic> item) {
+    final kind = (item['kind'] ?? '').toString();
+    switch (kind) {
+      case 'approval_request':
+        return 'Approval requested';
+      case 'select':
+        return 'Selection requested';
+      case 'template_proposal':
+        return 'Template proposal';
+      case 'idle':
+        return 'Agent idle';
+      case 'agent_error':
+        return 'Agent error';
+      default:
+        return kind.isEmpty ? 'New attention item' : kind;
+    }
+  }
+
+  String _attentionBody(Map<String, dynamic> item) {
+    final summary = (item['summary'] ?? '').toString();
+    if (summary.isNotEmpty) return summary;
+    return 'Tap to review on the Me tab.';
   }
 
   /// Run a cached fetch and reduce it to `(body, staleSince, error)`.

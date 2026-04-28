@@ -1,9 +1,15 @@
 # termipod blueprint
 
-Authoritative reference for termipod's design philosophy, component ontology,
-protocol layering, and primitive schema. Future PRs should trace their design
-choices back to this document; proposals that contradict the axioms or the
-data-ownership law require an explicit amendment here, not a silent deviation.
+> **Type:** axiom
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
+
+**TL;DR.** Authoritative reference for termipod's design philosophy,
+component ontology, protocol layering, and primitive schema. Future
+PRs should trace their design choices back to this document;
+proposals that contradict the axioms or the data-ownership law
+require an explicit amendment here, not a silent deviation.
 
 ---
 

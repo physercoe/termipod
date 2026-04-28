@@ -1,9 +1,15 @@
 # Agent communication protocols — when MCP, when A2A, when channels
 
-Status: **discussion note, 2026-04-27**. Triggered by a sharp reading
+> **Type:** discussion
+> **Status:** Resolved (2026-04-27) → `../decisions/007-mcp-vs-a2a-protocol-roles.md`
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
+
+**TL;DR.** Discussion that fed ADR-007. Triggered by a sharp reading
 of v1.0.296: the new orchestrator-worker slice (fanout/gather/reports)
 uses MCP, but A2A is the spec'd peer protocol — when does each apply,
-and have we drifted?
+and have we drifted? Captured here for the audit trail; the decision
+itself lives in the ADR.
 
 **v1.0.298 update**: the rich-authority MCP catalog (projects, plans,
 runs, agents.spawn, schedules, channels, a2a.invoke, …) that lived

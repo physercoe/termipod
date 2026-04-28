@@ -1,12 +1,17 @@
-# termipod agent harness
+# Agent lifecycle
 
-This document is the third leg of the design tripod, peer to
-`blueprint.md` (architecture/ontology) and `information-architecture.md` (mobile IA).
-Where blueprint defines *what an agent is* and IA defines *where the
-steward appears in the app*, this doc defines the layer in between:
-how an agent is born, what it can do alone, when it spawns workers,
-how context outlives any given process, and what the user sees through
-all of it.
+> **Type:** axiom
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
+
+**TL;DR.** Third leg of the design tripod, peer to `blueprint.md`
+(architecture/ontology) and `information-architecture.md` (mobile
+IA). Where blueprint defines *what an agent is* and IA defines
+*where the steward appears in the app*, this doc defines the layer
+in between: how an agent is born, what it can do alone, when it
+spawns workers, how context outlives any given process, and what
+the user sees through all of it.
 
 The motivating observation is that today's docs jump straight from
 "agent = LLM process with status enum" (blueprint §6.4) to "spawn

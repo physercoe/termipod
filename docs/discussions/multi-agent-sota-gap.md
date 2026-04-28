@@ -1,8 +1,16 @@
 # Multi-agent SOTA — gap analysis vs Termipod
 
-Status: **research note, 2026-04-27**. Written to ground the
-"what's the project-layer multi-agent design?" decision in real
-field practice rather than first-principles speculation.
+> **Type:** discussion
+> **Status:** Resolved (2026-04-27, slice shipped v1.0.296) → `../decisions/008-orchestrator-worker-slice.md`
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
+
+**TL;DR.** Research note that fed ADR-008. Surveys the production
+multi-agent frameworks (Anthropic, LangGraph, CrewAI, OpenAI Agents
+SDK, Devin) and identifies 9 gaps; the recommended 6-item slice
+shipped as v1.0.296. Three deferred gaps (cost caching,
+failure-aware loop, squads) are tracked in `agent-fleet.md` and
+roadmap "Later."
 
 The user's working definition of *project-layer multi-agent* (per the
 discussion that prompted this doc):

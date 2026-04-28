@@ -1,10 +1,16 @@
-# termipod information architecture
+# Information architecture
 
-Authoritative reference for termipod's mobile IA: the philosophy the nav is
-derived from, the ontology of surfaces and roles, the single home of every
-primitive, and the migration plan from the current sprawl. Sister document to
-`blueprint.md` — blueprint defines *what the system is*; this doc defines
-*how a human encounters it on a phone*.
+> **Type:** axiom
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
+
+**TL;DR.** Authoritative reference for termipod's mobile IA: the
+philosophy the nav is derived from, the ontology of surfaces and
+roles, the single home of every primitive, and the migration plan
+from the current sprawl. Sister document to `blueprint.md` —
+blueprint defines *what the system is*; this doc defines *how a
+human encounters it on a phone*.
 
 Any PR that adds a screen, a tab, or a menu entry should trace its placement
 to one of the axioms or the entity matrix here. A proposal that cannot be

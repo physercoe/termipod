@@ -1,11 +1,19 @@
-# Research-Demo Candidates
+# Research-demo candidates
 
-MVP design doc for blueprint §9 P4.3. Three candidate demos, all honoring
-the fixed constraints: multi-host (GPU host + VPS, steward on VPS, worker on
-GPU), natural-language goal in, steward writes the plan, AI-for-science loop
-(code -> run -> curves -> report), review on phone.
+> **Type:** discussion
+> **Status:** Resolved (2026-04-23, Candidate A locked) → `../decisions/001-locked-candidate-a.md`
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.311
 
-Sources cited inline. This is a survey; no code changes.
+**TL;DR.** MVP design doc for blueprint §9 P4.3. Three candidate
+demos compared. Candidate A (nanoGPT-Shakespeare optimizer × size
+sweep, steward-VPS → ml-worker-GPU via A2A) was selected as the
+locked demo target — see ADR-001.
+
+All three honor the fixed constraints: multi-host (GPU host + VPS,
+steward on VPS, worker on GPU), natural-language goal in, steward
+writes the plan, AI-for-science loop (code → run → curves → report),
+review on phone.
 
 ---
 

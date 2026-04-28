@@ -101,7 +101,7 @@ human-read, and YAML would be ceremony for ceremony's sake.
 | DECISION | Proposed · Accepted · Superseded · Deprecated |
 | REFERENCE | Current · Stale (needs update) |
 | HOW-TO | Current · Stale |
-| DISCUSSION | Open · Resolved (→ link to ADR) · Dropped |
+| DISCUSSION | Open · Resolved (→ link to ADR or plan) · Dropped |
 | TUTORIAL | Current · Stale |
 | ARCHIVE | Archived (frozen at vX.Y.Z) |
 
@@ -249,6 +249,22 @@ When you add a doc, walk this checklist:
 
 When you find an existing doc that violates this, fix it in a separate
 PR with `docs:` prefix. Don't bundle doc reorgs into feature commits.
+
+CI runs `scripts/lint-docs.sh` on every push, which enforces three
+rules from this spec:
+
+1. The 5-line status block is present at the top of every doc
+   (excluding `archive/`, `screens/`, `logo/`).
+2. Discussion docs marked `Status: Resolved` link to either a
+   `decisions/NNN-*.md` ADR or a `plans/*.md` plan in their first
+   30 lines (the durable forward pointer that makes Resolved
+   meaningful).
+3. Every internal markdown link `[text](path.md)` resolves to an
+   existing file.
+
+Layer-2 anti-drift signals (stale-doc reports, touched-area reports
+on PRs, ADR backlinks from spine/reference) are follow-ups; the
+linter is the load-bearing piece.
 
 ---
 

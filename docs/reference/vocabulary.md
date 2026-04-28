@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.312
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** The role-bound vocabulary axes used across the app, with
 21 named axes and 4 theme presets. Foundation for a future

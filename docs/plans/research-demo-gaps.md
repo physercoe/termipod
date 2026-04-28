@@ -3,7 +3,7 @@
 > **Type:** plan
 > **Status:** In flight (P0–P3 shipped; P4 backend feature-complete; hardware run remaining)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.312
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** The detailed P4 demo tracker. Pairs with `../roadmap.md` —
 roadmap is the high-level Now/Next/Later view; this doc is the
@@ -34,13 +34,14 @@ belongs in `../spine/blueprint.md` §10 (Non-goals) or gets deferred.
 
 ## Demo-blocker gaps
 
-### P4.1 — built-in project templates — **PARTIAL v1.0.138**
+### P4.1 — built-in project templates — **DONE for Candidate A (v1.0.138 + v1.0.152)**
 
 Seed path added: `seedBuiltinProjectTemplates` in
 `hub/internal/server/init.go` inserts `is_template=1` project rows on first
 init (idempotent via `INSERT OR IGNORE`). The `ablation-sweep` row ships
 with `parameters_json = {model_sizes, optimizers, iters}` and
-`on_create_template_id = agents.steward`, matching the locked demo choice.
+`on_create_template_id = agents.steward`, matching the locked demo choice
+(`../decisions/001-locked-candidate-a.md`).
 
 **v1.0.152:** the project-create sheet now renders a template's
 `parameters_json` as an input form. After picking a template whose
@@ -49,9 +50,10 @@ key. Type inference: `[int]`/`[num]`/`[string]` → comma-separated field,
 bare scalars → typed field, anything else → raw-JSON textarea validated
 on submit. The populated map is sent as `parameters_json` on create.
 
-Still open:
-- Ship `reproduce-paper`, `write-memo`, `benchmark-comparison` templates if
-  the demo ever needs more than one entry point.
+Out of scope for the demo (deferred):
+- `reproduce-paper`, `write-memo`, `benchmark-comparison` templates —
+  Candidate A only needs `ablation-sweep`. Per ADR-001 the other
+  candidates aren't on the MVP path.
 
 ### Mobile project-template picker — **DONE v1.0.134**
 

@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-04-28)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.312
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** How to add a host to a running hub so it can execute
 agents. Covers the `host-runner` daemon: what it is, how to register

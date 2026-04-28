@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.312
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** How to spawn an agent — a backend CLI process
 (claude-code, codex, …) running in a tmux pane on a registered host.

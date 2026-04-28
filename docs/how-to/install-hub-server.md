@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-04-28)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.312
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** End-to-end walkthrough for standing up `hub-server` and
 connecting the TermiPod mobile app's **Hub Dashboard** to it. Two
@@ -34,18 +34,20 @@ and attaches three Android APKs plus an unsigned iOS IPA.
 
 ```bash
 # From the repo root, on the branch containing the hub changes.
-git tag v1.0.221-alpha
-git push origin v1.0.221-alpha
-gh run watch                      # wait for the release build
-gh release view v1.0.221-alpha     # grab the asset URLs
+# Substitute X.Y.Z below with the next available version (current
+# is in `pubspec.yaml`; bump via `make bump VERSION=...`).
+git tag vX.Y.Z-alpha
+git push origin vX.Y.Z-alpha
+gh run watch                       # wait for the release build
+gh release view vX.Y.Z-alpha       # grab the asset URLs
 ```
 
-Assets:
+Assets (where `vX.Y.Z` matches the tag you pushed):
 
-- `termipod-v1.0.221-alpha-arm64-v8a.apk`   ← modern phones
-- `termipod-v1.0.221-alpha-armeabi-v7a.apk` ← older 32-bit ARM
-- `termipod-v1.0.221-alpha-x86_64.apk`      ← emulator / ChromeOS
-- `termipod-v1.0.221-alpha-ios-unsigned.ipa` ← sideload via AltStore/Sideloadly
+- `termipod-vX.Y.Z-alpha-arm64-v8a.apk`     ← modern phones
+- `termipod-vX.Y.Z-alpha-armeabi-v7a.apk`   ← older 32-bit ARM
+- `termipod-vX.Y.Z-alpha-x86_64.apk`        ← emulator / ChromeOS
+- `termipod-vX.Y.Z-alpha-ios-unsigned.ipa`  ← sideload via AltStore/Sideloadly
 
 ### Sideload on Android
 

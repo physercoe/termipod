@@ -20,6 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lint docs
+        # Enforces docs/doc-spec.md §3 status block, resolved-discussion
+        # forward links, and cross-reference resolution. Fast (pure
+        # bash + grep), runs first so doc drift is caught early.
+        run: scripts/lint-docs.sh
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:

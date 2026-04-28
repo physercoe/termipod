@@ -1,296 +1,277 @@
-# Coding conventions (Flutter / Dart)
+# Coding conventions
 
 > **Type:** reference
-> **Status:** Current (2026-04-28) — rewrites the prior React Native version (pre-rebrand legacy in `../archive/tmux-mobile-design-v2.md`)
+> **Status:** Current (2026-04-28)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.311
+> **Last verified vs code:** v1.0.313
 
-**TL;DR.** Code style for the Flutter/Dart mobile app + the Go hub.
-Conventions land here when they're durable; see `../doc-spec.md` for
-the doc system and `../how-to/` for runbooks.
+**TL;DR.** Code style for the termipod Flutter mobile app and Go hub.
+Upstream (Effective Dart, Effective Go, `analysis_options.yaml`, `gofmt`)
+is the source of truth for universal conventions — this doc only
+covers **project-specific deltas** and architectural rules with
+explicit rationale. Read this before opening a PR.
 
 ---
 
-## 1. Naming
+## 1. Sources of truth (read these first)
 
-### Dart / Flutter
-
-| Target | Rule | Example |
+| Surface | Authority | Link |
 |---|---|---|
-| Class / type | PascalCase | `class HubNotifier` |
-| Constructor | PascalCase, named per type | `HubClient.fromConfig(...)` |
-| File | snake_case | `hub_provider.dart`, `agent_compose.dart` |
-| Function / method | camelCase | `listAgentsCached()`, `_decodeListMaps()` |
-| Variable / parameter | camelCase | `hubKey`, `staleSince` |
-| Private (file-scope) | leading underscore | `_AgentComposeState`, `_loadConfig` |
-| Constant | camelCase, prefer `const` | `const defaultEgressPort = 41825` |
-| Enum value | camelCase | `enum _DiffKind { context, insert, delete }` |
-| Provider / notifier | name + `Provider` / `Notifier` | `hubProvider`, `HubNotifier` |
+| Dart language conventions | Effective Dart | https://dart.dev/effective-dart |
+| Flutter widget patterns | Flutter style guide | https://github.com/flutter/flutter/blob/main/docs/contributing/Style-guide-for-Flutter-repo.md |
+| Lints (machine-enforced) | `analysis_options.yaml` | repo root |
+| Riverpod state mgmt | Riverpod docs | https://riverpod.dev |
+| Go style | Effective Go + `gofmt` | https://go.dev/doc/effective_go |
+| Comments & WHY-not-WHAT | `CLAUDE.md` "Doing tasks" | repo root |
+| Doc system | `docs/doc-spec.md` | this directory's parent |
 
-### Go (hub side)
-
-Standard Go: PascalCase for exported, camelCase for unexported. File
-names lowercase with underscores (`mcp_authority.go`).
-
-### Don't
-
-- Hungarian notation (`strHostUrl`, `iCount`)
-- Abbreviations beyond standard ones (`req` / `resp` / `err` / `ctx`
-  are fine; `cfg` is fine; `mgr` / `svc` / `ctlr` are not)
-- Trailing version markers in any name (`HubClientV2`, `_loadConfigNew`)
+If a convention is universal (PascalCase for Dart types, ALL_CAPS
+for Go env vars, `gofmt`-canonical formatting), it lives upstream.
+**This doc only covers what's specific to termipod**, plus project
+policies that span both languages.
 
 ---
 
-## 2. File and directory layout
+## 2. Project layout — where things go
 
-### `lib/` (mobile)
+The directory tree is itself a contract. New code lands in the right
+layer or doesn't land.
+
+### `lib/` (Flutter mobile)
 
 ```
 lib/
-├── main.dart               entry point
-├── providers/              Riverpod state
-├── screens/                top-level routes (one folder per area)
+├── main.dart               entry point — wire providers, run MyApp
+├── providers/              Riverpod state (one notifier per concern)
+├── screens/                top-level routes (one folder per IA area)
 ├── widgets/                shared widgets across screens
-├── services/               business logic + I/O
-│   ├── hub/                hub client + cache + read-through
+├── services/               business logic + I/O (no widgets)
+│   ├── hub/                HubClient + read-through cache
 │   ├── ssh/                dartssh2 wrapper
 │   ├── tmux/               tmux CLI orchestration
 │   └── notification/       local notifications
-├── theme/                  colors + typography
-├── l10n/                   i18n strings
-└── models/                 plain data classes (rare; usually inline)
+├── theme/                  colors + typography (DesignColors)
+├── l10n/                   .arb files; generated via flutter gen-l10n
+└── models/                 plain data classes (rare; mostly inline)
 ```
+
+**Why this layout:** the IA defines visible regions
+(`docs/spine/information-architecture.md`); `screens/` mirrors them.
+Cross-cutting widgets live in `widgets/` so they're not
+accidentally screen-coupled. `services/` is pure logic — never
+imports `package:flutter/widgets.dart`. State is the bridge between
+services and screens.
 
 ### `hub/` (Go)
 
 ```
 hub/
-├── cmd/                    binaries
+├── cmd/                    binaries (each a thin main.go)
 │   ├── hub-server/         the server
-│   ├── host-runner/        the host agent (multicall)
+│   ├── host-runner/        host agent — multicall (also serves
+│   │                       hub-mcp-bridge by basename)
 │   └── …
 ├── internal/               package code (Go internal/ visibility)
-│   ├── server/             HTTP + MCP server
+│   ├── server/             HTTP + MCP catalog
 │   ├── hostrunner/         host-side bookkeeping
-│   ├── hubmcpserver/       MCP tool catalog
+│   ├── hubmcpserver/       rich-authority MCP tools (consumed
+│   │                       in-process by mcp_authority.go)
 │   └── …
-├── migrations/             golang-migrate up/down SQL
+├── migrations/             golang-migrate (NNN_description.up/down.sql)
 └── templates/              embedded YAML/MD agent templates
 ```
 
-### One concern per file
-
-A file holds one widget, one provider, one service, or one Go type.
-Big files (1000+ LOC) are a refactor signal — see
-`../discussions/monolith-refactor.md` for known offenders.
-
----
-
-## 3. State management — Riverpod 3.x
-
-- `AsyncNotifierProvider` for state with async lifecycle (network +
-  cache). Example: `hubProvider`.
-- `NotifierProvider.family` for parameterized state (one notifier per
-  agent ID, per session ID, etc.). Example: `composeDraftProvider`.
-- `FutureProvider.autoDispose` for one-shot fetches that close
-  themselves when the screen unmounts. Example:
-  `recentAuditProvider`.
-- `StreamProvider` for server-sent events (SSE). Example:
-  `agentEventsProvider`.
-
-### Watch vs read
-
-- `ref.watch(...)` in `build()` / when reactive rebuild is wanted
-- `ref.read(...)` in event handlers / one-shot calls — never watch in
-  callbacks
-
-### Disposing
-
-Long-lived clients (HubClient, SQLite handles) clean up via
-`ref.onDispose(...)` in the notifier's `build()`.
-
-### Cache-first pattern
-
-When a provider has a network + cache shape, default to *render
-cache, then refresh* — not network-with-fallback. See
-`../decisions/006-cache-first-cold-start.md`. Implementation lives
-in `lib/services/hub/hub_read_through.dart`.
+**Why `internal/`:** Go's `internal/` makes packages unreachable
+outside the module. Prevents external consumers from binding to
+unstable APIs. Everything that's not a deliberate public surface
+belongs there.
 
 ---
 
-## 4. Storage layering
+## 3. Architecture patterns (load-bearing)
 
-Three separate stores, each for one concern. **Do not mix.**
+These are non-negotiable. Each ties to an ADR or a memory entry; the
+"why" is durable.
 
-| Store | Used for | Example |
+### 3.1 State management — Riverpod 3.x
+
+| Pattern | Use when | Reference |
+|---|---|---|
+| `AsyncNotifierProvider` | Async lifecycle (network + cache) | `hubProvider` |
+| `NotifierProvider.family` | Parameterized state (per agent, per session) | `composeDraftProvider` |
+| `FutureProvider.autoDispose` | One-shot fetch tied to a screen | `recentAuditProvider` |
+| `StreamProvider` | Genuinely streaming sources (SSE) | `agentEventsProvider` |
+
+**Watch vs read:**
+- `ref.watch(...)` only in `build()` (or where reactive rebuild is
+  wanted)
+- `ref.read(...)` in event handlers and one-shot callbacks
+- Never watch in callbacks — produces stale closures and silent rebuild bugs
+
+**Disposal:** long-lived clients (HubClient, SQLite) clean up via
+`ref.onDispose(...)` in the notifier's `build()`. *Why:* Riverpod
+doesn't know your client owns sockets/connections; explicit cleanup
+prevents resource leaks across hot-reload and config changes.
+
+### 3.2 Storage layering — three stores, no overlap
+
+| Store | Concern | Example |
 |---|---|---|
 | `SharedPreferences` | Stable config / metadata | hub URL, team id, theme |
-| `flutter_secure_storage` | Secrets only | hub bearer token, SSH keys, passwords |
+| `flutter_secure_storage` | Secrets only | hub bearer, SSH keys |
 | `sqflite` (`HubSnapshotCache`) | Mutable server content for offline | list/get response snapshots |
 
-**Anti-pattern:** caching server data in SharedPreferences (no
-eviction, no per-hub partitioning, no TTL). **Anti-pattern:**
-storing config in secure storage (slower; no real benefit).
+**Why this rule:** mixing causes real bugs. Caching server data in
+`SharedPreferences` has no eviction, no per-hub partitioning, no TTL —
+data grows forever and stale data leaks across hub reconnects.
+Storing config in secure storage adds keychain latency for no
+benefit. Memory: `feedback_storage_layering`.
+
+### 3.3 Cache-first UX
+
+When a provider has both network and cache: render from cache on
+first paint, refresh on a microtask after `build()` returns. **Not**
+"network first, fall back to cache only when offline."
+
+**Why:** without cache-first, the UI shows empty during the network
+roundtrip even when SQLite has the answer locally in microseconds.
+ADR: `../decisions/006-cache-first-cold-start.md`.
+
+Pattern: implemented in `lib/services/hub/hub_read_through.dart` +
+`lib/providers/hub_provider.dart` `_hydrateFromCache`.
+
+### 3.4 Service composition — prefer one over many
+
+When two services could combine into one (single binary, single
+symlink, single endpoint), do that. Architectural cleanliness
+("two services keep concerns separated") loses to ops simplicity in
+self-hosted MVP.
+
+**Why:** every install step is friction. ADR:
+`../decisions/002-mcp-consolidation.md`. Memory:
+`feedback_one_install_command`.
+
+### 3.5 The director model (UX implication for code)
+
+User expresses intent; agents operate. The mobile app is a
+**conversational + ratification surface**, not a control panel.
+
+For developers: when a feature could be a button or an MCP tool the
+steward calls, prefer the MCP tool. Buttons fall back; the steward's
+toolset must be CEO-class (every authority operation reachable from
+its session).
+
+**Why:** ADR `../decisions/005-owner-authority-model.md`. Memories:
+`feedback_ux_principal_director`, `feedback_steward_executive_role`.
 
 ---
 
-## 5. Async / Future / Stream
+## 4. Naming — project-specific deltas only
 
-- `async`/`await` for sequential work
-- `Future.wait([...])` when calls are independent
-- `Stream` only when the source is genuinely streaming (SSE, file
-  watch). Don't wrap a single Future in a one-shot Stream.
-- Cancel pattern: hold a `StreamSubscription` field and cancel in
-  `dispose()`
+Effective Dart covers PascalCase / camelCase / snake_case file rules.
+The deltas:
 
-### Error handling
+- **Providers / notifiers** carry the suffix: `hubProvider`,
+  `HubNotifier`. Riverpod doesn't enforce this; we do for grep-ability.
+- **Family providers** include the parameter shape: e.g.,
+  `composeDraftProvider(connectionId)` not `composeProvider`.
+- **Files in `screens/`** end with `_screen.dart`; in `widgets/`
+  end with `.dart` only (the dir context is enough).
+- **Service classes** drop the `Service` suffix when the file name
+  already says it: `class HubClient` in `hub_client.dart`, not
+  `class HubClientService`.
+- **No version markers in any name** (`HubClientV2`, `_loadConfigNew`).
+  Versions go in commit messages and changelog.
+- **No abbreviations** beyond Dart standards (`req` / `resp` / `err` /
+  `ctx` ok; `mgr` / `svc` / `ctlr` not).
 
-- `try / on SpecificError / catch (e)` — typed catches first
-- Don't swallow errors silently; either rethrow, log, or surface to
-  the user
-- Network errors: `HubApiError` (typed) for hub-side; `SocketException`
-  / `TimeoutException` / `HttpException` for the offline-failure
-  taxonomy in `hub_read_through.dart`
-
----
-
-## 6. Widgets
-
-### File structure
-
-```dart
-// 1. imports — dart core, then flutter, then package, then relative
-import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/hub_provider.dart';
-import 'agent_compose.dart';
-
-// 2. public widget class
-class AgentFeed extends ConsumerStatefulWidget {
-  final String agentId;
-  final String? sessionId;
-  const AgentFeed({super.key, required this.agentId, this.sessionId});
-
-  @override
-  ConsumerState<AgentFeed> createState() => _AgentFeedState();
-}
-
-// 3. state class
-class _AgentFeedState extends ConsumerState<AgentFeed> {
-  // fields
-  // initState / dispose
-  // private methods (alphabetical or by lifecycle)
-  // build last
-}
-
-// 4. private helper widgets used only by this file
-class _NewEventsPill extends StatelessWidget { … }
-```
-
-### Stateless vs stateful
-
-- `StatelessWidget` if the widget has no internal state and the
-  parent fully drives it
-- `StatefulWidget` for animations, controllers, scroll positions, or
-  any local mutation
-- `ConsumerWidget` / `ConsumerStatefulWidget` to read providers
-
-### Keys
-
-- `ValueKey` for list items where order can change (per
-  `feedback_flutter_sliver_keys` memory: stateful widgets in
-  reorderable Sliver lists need ValueKey even with keyed providers)
-- `GlobalKey` only when truly necessary (e.g., grabbing state from a
-  parent via `currentState`); usually a sign of a structural problem
+For the Go side: standard Go naming. Migration files use the
+`golang-migrate` convention `NNNN_description.up.sql` /
+`NNNN_description.down.sql` with 4-digit zero-pad.
 
 ---
 
-## 7. Comments
+## 5. Comments
 
-Default to no comments. Add one when the WHY is non-obvious: a
-hidden constraint, a subtle invariant, a workaround, or behavior
-that would surprise a reader.
+CLAUDE.md is canonical:
 
-- ✗ `// increment counter` — adds nothing
-- ✓ `// Service tier 'priority' is silently downgraded to 'standard'
-   when over budget; we treat both as success.`
+> Default to writing no comments. Only add one when the WHY is
+> non-obvious: a hidden constraint, a subtle invariant, a workaround
+> for a specific bug, behavior that would surprise a reader.
+>
+> Don't explain WHAT the code does, since well-named identifiers
+> already do that.
 
-Don't reference the current task or commit ("added for the X flow").
-That belongs in the PR description.
+This applies equally to Dart and Go. Multi-paragraph docstrings are
+a refactor signal — extract the explanation into the right
+`docs/discussions/` doc and link.
 
-Multi-paragraph docstrings are usually a refactor signal — extract
-the explanation into the right `discussions/` doc and link.
-
----
-
-## 8. Imports
-
-- Dart core first (`dart:async`, `dart:convert`)
-- Flutter SDK next
-- Third-party `package:` imports
-- Relative imports last
-
-Within each group, alphabetical.
-
-`package:termipod/...` form for files referenced from generated
-locations (l10n); relative paths everywhere else.
+Don't reference the current task / commit ("added for the X flow").
+That belongs in the PR description and rots as the codebase evolves.
 
 ---
 
-## 9. Tests
+## 6. Tests
 
-- Unit tests in `test/` mirroring the source path
-- Integration tests for hub interactions live in `hub/internal/server/*_test.go`
-- For the mobile app, a fake `HubClient` is the standard injection
-  point; don't mock the database — use `sqflite_common_ffi` for FFI
-  in tests
-- Fake providers: `ProviderContainer(overrides: [...])` for unit
-  testing notifiers without widgets
+| Layer | Test approach |
+|---|---|
+| Mobile unit | `test/` mirrors `lib/`; `ProviderContainer(overrides: [...])` for notifier tests |
+| Mobile integration | Fake `HubClient` is the standard injection point — don't mock the cache/database |
+| Hub Go | `httptest.NewServer(s.router)` against a real SQLite (`internal/server/e2e_acceptance_test.go` is the canonical example) |
+| Database in tests | Real SQLite via `sqflite_common_ffi` (mobile) or in-memory (Go); never mock |
 
----
-
-## 10. Go conventions (hub side)
-
-- Standard `gofmt` — non-negotiable, runs in CI
-- Errors wrap with `fmt.Errorf("context: %w", err)`; check with
-  `errors.Is` / `errors.As`
-- Context plumbing — every public function takes `ctx context.Context`
-  as first arg
-- HTTP handlers in `handlers_*.go`; MCP tools in `mcp.go` /
-  `mcp_more.go` / `mcp_authority.go` / `mcp_orchestrate.go`
-- Migrations append-only; never edit a numbered file after merge
-- Tests use `httptest.NewServer(s.router)` — see existing examples in
-  `internal/server/e2e_acceptance_test.go`
+**Why no DB mock:** mocking the cache produces tests that pass
+against fiction. Real SQLite is fast enough and exercises the actual
+contract.
 
 ---
 
-## 11. Build + ship cadence
+## 7. Build cadence
 
-- Every commit bumps the version (`make bump VERSION=x.y.z-alpha`)
-  before commit, so each commit gets its own build
-- Version markers live in: `pubspec.yaml`, `hub/internal/buildinfo/buildinfo.go`
-- Tag releases on a clean main; CI then builds APK + IPA from the
-  tag
-- Doc reorgs / pure-docs commits use `docs:` prefix and bump the
-  version like any other change
+- Every commit bumps the version: `make bump VERSION=x.y.z-alpha`
+- Version bump runs *before* the commit so each commit gets its own
+  build
+- Version markers are in `pubspec.yaml` and
+  `hub/internal/buildinfo/buildinfo.go`; `make bump` updates both
+- Tag releases on a clean main; CI builds APK + IPA from the tag
+- Doc-only commits use the `docs:` prefix and bump like any other
+- Hook bypasses (`--no-verify`, `--no-gpg-sign`) are forbidden
+  unless the user explicitly asks; if a hook fails, fix the
+  underlying issue
 
 ---
 
-## 12. Anti-patterns to avoid
+## 8. Project-specific anti-patterns
 
-- **Backwards-compat shims** for code that isn't actually deployed
-  somewhere we can't redeploy. Just change the code; don't write
-  feature flags for the developer's own machine.
-- **Half-finished implementations.** If a feature can't ship, don't
-  land partial code with a TODO; revert and write a plan in
-  `plans/`.
-- **Comments explaining WHAT.** The code does that. Comments are for
-  WHY.
-- **Speculative abstractions.** Three similar lines is better than a
-  premature interface. Extract on the third or fourth use, not the
-  second.
-- **Mocks where the real thing fits in a test.** SQLite, httptest,
-  and a fake HubClient give you the contract; mocking
-  `HubSnapshotCache` directly gives you a test that passes against
-  fiction.
+These have all caused real bugs in this codebase and have an entry
+in memory or an ADR:
+
+- **Backwards-compat shims for code that isn't actually deployed
+  somewhere we can't redeploy.** This is a single-developer fork —
+  just change the code; don't write feature flags for your own
+  machine. Memory: `feedback_collaboration_lessons` ("delete old
+  paths" gate).
+- **Mocked databases / caches in tests.** See §6 — produces
+  false-passing tests.
+- **Multi-service install where one would do.** See §3.4 + ADR-002.
+- **Network-first cache UX.** See §3.3 + ADR-006.
+- **Hardcoded role-bound strings.** Use the vocabulary axes in
+  `docs/reference/vocabulary.md` so a future per-team overlay
+  (post-MVP packs) is a rename, not a rewrite.
+- **Mixing storage tiers.** See §3.2.
+- **Common ports as defaults.** Ports under 10000 collide with
+  standard services. Memory: `feedback_uncommon_default_ports`.
+- **`tmux` commands from Claude on this dev box.** Memory:
+  `feedback_no_tmux_on_this_machine` (it's running inside tmux —
+  any tmux command kills the user's session).
+
+---
+
+## 9. References
+
+- Doc system: `../doc-spec.md`
+- Architecture: `../spine/blueprint.md`
+- Decisions log: `../decisions/`
+- Active memory: see `MEMORY.md` index in
+  `~/.claude/projects/-home-ubuntu-mux-pod/memory/` (loaded into
+  every session)

@@ -95,17 +95,15 @@ working list — what's actually moving this week or next.
 
 | Item | Why | Where |
 |---|---|---|
-| Doc reorganization | Scaling pain — mixed primitives, no roadmap, stale legacy docs | This commit + follow-ups |
-| Steward chat polish | Device walkthroughs surface bugs; ship as bug-fix-cadence releases | per-version commits |
-| Cache coverage | All hot-path detail screens served from cache before network | Shipped v1.0.303–305; monitor for gaps |
+| **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
 
 ### Next (committed, not started)
 
 | Item | Why | Trigger |
 |---|---|---|
-| **Hardware run of Candidate-A demo** | The actual MVP milestone | Once steward UX is stable across two consecutive walkthroughs without bugs |
-| Retroactive ADRs (~8 decisions) | Discoverability of "why X exists" | Doc reorganization completes |
-| `coding-conventions.md` rewrite for Flutter | Currently references React Native; misleads contributors | Doc reorganization |
+| **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
+| **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
+| **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — currently tractable by hand |
 
 ### Later (intent, no commitment)
 
@@ -135,6 +133,13 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.317 | GitHub-ecosystem hygiene + changelog seed (Dependabot, CodeQL, PR template, stale-doc warning) |
+| v1.0.316 | Status-block linter wired to CI (anti-drift Layer 1) |
+| v1.0.315 | Spine docs reconciled with shipped state (sessions Tentative→Resolved, blueprint phase status, IA wedges marked) |
+| v1.0.314 | coding-conventions rewritten first-principles + memory body audit |
+| v1.0.311 | 8 retroactive ADRs in decisions/ |
+| v1.0.310 | docs/ reorganized into 7-primitive layout; sessions promoted out of DRAFT |
+| v1.0.309 | Foundation: README + roadmap + doc-spec |
 | v1.0.308 | Cancel button surfaces whenever agent is busy |
 | v1.0.305 | Cache coverage extended to all hot-path detail fetches |
 | v1.0.304 | Cache-first cold start (UI lights up before network) |

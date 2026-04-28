@@ -348,7 +348,8 @@ class HubClient {
   // Sessions are the durable conversational frame around a steward
   // (or any agent) — a transcript that survives a host-runner restart
   // because session_id is stamped on agent_events independent of the
-  // agent process behind it. Status is open | interrupted | closed.
+  // agent process behind it. Status is active | paused | archived
+  // (per ADR-009; legacy hubs may still emit open | interrupted | closed).
 
   Future<List<Map<String, dynamic>>> listSessions({String? status}) =>
       _listJson(
@@ -413,15 +414,18 @@ class HubClient {
     await _patch('/v1/teams/${cfg.teamId}/sessions/$id', {'title': title});
   }
 
-  Future<void> closeSession(String id) async {
+  /// Archives a session (was: closeSession). The hub's /close endpoint
+  /// is kept as an alias by ADR-009 for one release; this calls
+  /// /archive directly.
+  Future<void> archiveSession(String id) async {
     // _post requires a non-null body; an empty map is the canonical
     // payload for endpoints that take none.
     await _post(
-        '/v1/teams/${cfg.teamId}/sessions/$id/close', const <String, dynamic>{});
+        '/v1/teams/${cfg.teamId}/sessions/$id/archive', const <String, dynamic>{});
   }
 
-  /// Resumes an interrupted session: spawns a new agent with the
-  /// same handle/kind/host as the session's prior current_agent_id,
+  /// Resumes a paused session: spawns a new agent with the same
+  /// handle/kind/host as the session's prior current_agent_id,
   /// reusing the worktree_path and spawn_spec_yaml captured at open
   /// time. Returns `{session_id, new_agent_id, prior_agent_id, spawn_id}`.
   Future<Map<String, dynamic>> resumeSession(String id) async {
@@ -431,9 +435,9 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
-  /// Soft-deletes a closed session and clears its session_id from
+  /// Soft-deletes an archived session and clears its session_id from
   /// transcript / audit / attention rows. Hub refuses with 409 if
-  /// the session is still open or interrupted (close it first).
+  /// the session is still active or paused (archive it first).
   /// Idempotent: deleting an already-deleted session returns 204.
   Future<void> deleteSession(String id) async {
     await _delete('/v1/teams/${cfg.teamId}/sessions/$id');

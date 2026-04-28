@@ -218,7 +218,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{session}", func(r chi.Router) {
 				r.Get("/", s.handleGetSession)
 				r.Patch("/", s.handlePatchSession)
-				r.Post("/close", s.handleCloseSession)
+				// /archive is canonical (ADR-009); /close is a deprecated
+				// alias kept for one release so an in-flight app build
+				// doesn't break during coordinated rollout.
+				r.Post("/archive", s.handleArchiveSession)
+				r.Post("/close", s.handleArchiveSession)
 				r.Post("/resume", s.handleResumeSession)
 				r.Delete("/", s.handleDeleteSession)
 			})

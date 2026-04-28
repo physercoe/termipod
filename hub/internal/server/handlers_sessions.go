@@ -10,19 +10,17 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Session lifecycle:
-//   open        — current_agent_id is alive, session is the active focal frame
-//   interrupted — host-runner restart killed the agent process; transcript
-//                 preserved by session_id stamping. Mobile shows Resume.
-//                 (W2-S3 lands the resume endpoint + interruption detector.)
-//   closed      — explicit teardown; transcript stays queryable forever,
-//                 worktree retained until separate GC.
+// Session lifecycle (per ADR-009):
+//   active   — engine attached; session is the live focal frame
+//   paused   — host-runner restart killed the agent process; transcript
+//              preserved by session_id stamping. Mobile shows Resume.
+//   archived — explicit teardown after distillation; transcript stays
+//              queryable forever, worktree retained until separate GC.
+//              Resumable via fork (Phase 2).
+//   deleted  — soft-deleted; tombstone for audit chain.
 //
-// Artifact loading at open and distillation at close are deferred per
-// the active workband (`docs/steward-sessions.md` §11). The schema
-// carries the columns those wedges will need (worktree_path,
-// spawn_spec_yaml) without forcing them now — present-day handlers
-// just record + retrieve.
+// Endpoints: POST /archive is the canonical action; /close is kept
+// as a deprecated alias for one release per plan §8.
 
 type sessionIn struct {
 	Title          string `json:"title,omitempty"`
@@ -66,7 +64,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 			id, team_id, title, scope_kind, scope_id, current_agent_id,
 			status, opened_at, last_active_at, worktree_path, spawn_spec_yaml
 		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''),
-		          'open', ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		          'active', ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
 		id, team, in.Title, scopeKind, in.ScopeID, in.AgentID,
 		now, now, in.WorktreePath, in.SpawnSpecYAML,
 	)
@@ -85,7 +83,7 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sessionOut{
 		ID: id, TeamID: team, Title: in.Title,
 		ScopeKind: scopeKind, ScopeID: in.ScopeID,
-		CurrentAgentID: in.AgentID, Status: "open",
+		CurrentAgentID: in.AgentID, Status: "active",
 		OpenedAt: now, LastActiveAt: now,
 		WorktreePath: in.WorktreePath, SpawnSpecYAML: in.SpawnSpecYAML,
 	})
@@ -171,14 +169,17 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ses)
 }
 
-func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
+// handleArchiveSession is the canonical action; /close is kept as an
+// alias for one release per plan §8 so an in-flight app build doesn't
+// break during coordinated rollout.
+func (s *Server) handleArchiveSession(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	id := chi.URLParam(r, "session")
 	now := NowUTC()
 	res, err := s.db.ExecContext(r.Context(), `
 		UPDATE sessions
-		   SET status = 'closed', closed_at = ?, last_active_at = ?
-		 WHERE team_id = ? AND id = ? AND status != 'closed'`,
+		   SET status = 'archived', closed_at = ?, last_active_at = ?
+		 WHERE team_id = ? AND id = ? AND status != 'archived'`,
 		now, now, team, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -186,13 +187,13 @@ func (s *Server) handleCloseSession(w http.ResponseWriter, r *http.Request) {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		// Distinguish "not found" from "already closed" — both are 404 today.
+		// Distinguish "not found" from "already archived" — both are 404 today.
 		writeErr(w, http.StatusNotFound,
-			"session not found or already closed")
+			"session not found or already archived")
 		return
 	}
-	s.recordAudit(r.Context(), team, "session.close", "session", id,
-		"session closed", nil)
+	s.recordAudit(r.Context(), team, "session.archive", "session", id,
+		"session archived", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -241,8 +242,8 @@ func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
 // longer resolves through this session. The events themselves stay —
 // they're the agent's history, owned by audit, not by the session.
 //
-// Refuses to delete an open or interrupted session: the contract is
-// "close first" so an active conversation can't be silently lost.
+// Refuses to delete an active or paused session: the contract is
+// "archive first" so an active conversation can't be silently lost.
 // Resume after delete is impossible (the session is no longer
 // listable) which is the point — delete is meant to be the final
 // disposition for sessions the user has explicitly walked away from.
@@ -262,9 +263,9 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if status == "open" || status == "interrupted" {
+	if status == "active" || status == "paused" {
 		writeErr(w, http.StatusConflict,
-			"close the session before deleting (status="+status+")")
+			"archive the session before deleting (status="+status+")")
 		return
 	}
 	if status == "deleted" {
@@ -309,18 +310,18 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleResumeSession respawns the agent inside an interrupted
-// session. Reuses the session's worktree_path and spawn_spec_yaml so
-// the new claude/codex/etc. process picks up exactly where it left
-// off — the worktree's uncommitted edits, branch state, and
-// in-progress files are all preserved. The transcript stays attached
-// to the session via session_id stamping, so the user sees their
-// prior turns plus the new ones in the same chat.
+// handleResumeSession respawns the agent inside a paused session.
+// Reuses the session's worktree_path and spawn_spec_yaml so the new
+// claude/codex/etc. process picks up exactly where it left off — the
+// worktree's uncommitted edits, branch state, and in-progress files
+// are all preserved. The transcript stays attached to the session
+// via session_id stamping, so the user sees their prior turns plus
+// the new ones in the same chat.
 //
-// Contract: session must be interrupted (a session that's still
-// `open` doesn't need resume; a `closed` one is final). The dead
-// agent stays in the agents table with its terminal status — we
-// don't try to revive it, just spawn a fresh one with the same
+// Contract: session must be paused (an active session doesn't need
+// resume; an archived one is reachable via fork in Phase 2). The
+// dead agent stays in the agents table with its terminal status —
+// we don't try to revive it, just spawn a fresh one with the same
 // handle (the unique-handle constraint accepts this because dead
 // agents drop out of the "live" index).
 func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
@@ -342,9 +343,9 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if status.String != "interrupted" {
+	if status.String != "paused" {
 		writeErr(w, http.StatusConflict,
-			"session not interrupted (status="+status.String+")")
+			"session not paused (status="+status.String+")")
 		return
 	}
 	if !currentAgentID.Valid || currentAgentID.String == "" {
@@ -391,11 +392,11 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stamp the new agent onto the session and flip back to open.
+	// Stamp the new agent onto the session and flip back to active.
 	now := NowUTC()
 	if _, err := s.db.ExecContext(r.Context(), `
 		UPDATE sessions
-		   SET current_agent_id = ?, status = 'open', last_active_at = ?
+		   SET current_agent_id = ?, status = 'active', last_active_at = ?
 		 WHERE team_id = ? AND id = ?`,
 		out.AgentID, now, team, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -415,10 +416,11 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// lookupSessionForAgent returns the open session whose current agent
-// matches the given id, or "" if none exists. Cheap: indexed lookup
-// keyed by current_agent_id. Used by the event-insert path to stamp
-// session_id without the caller having to know about sessions.
+// lookupSessionForAgent returns the live (active or paused) session
+// whose current agent matches the given id, or "" if none exists.
+// Cheap: indexed lookup keyed by current_agent_id. Used by the
+// event-insert path to stamp session_id without the caller having to
+// know about sessions.
 func (s *Server) lookupSessionForAgent(ctx context.Context, agentID string) string {
 	if s.db == nil || agentID == "" {
 		return ""
@@ -426,7 +428,7 @@ func (s *Server) lookupSessionForAgent(ctx context.Context, agentID string) stri
 	var id string
 	_ = s.db.QueryRowContext(ctx, `
 		SELECT id FROM sessions
-		 WHERE current_agent_id = ? AND status IN ('open','interrupted')
+		 WHERE current_agent_id = ? AND status IN ('active','paused')
 		 ORDER BY last_active_at DESC LIMIT 1`, agentID).Scan(&id)
 	return id
 }

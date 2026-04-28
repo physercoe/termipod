@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// W2-S1: open → list → get → close round-trip. Verifies status
+// W2-S1: create → list → get → archive round-trip. Verifies status
 // transitions and audit_events row gets written for both open
 // and close.
 func TestSessions_OpenListGetClose(t *testing.T) {
@@ -25,7 +25,7 @@ func TestSessions_OpenListGetClose(t *testing.T) {
 	if err := json.Unmarshal(body, &opened); err != nil {
 		t.Fatalf("decode open: %v", err)
 	}
-	if opened.ID == "" || opened.Status != "open" {
+	if opened.ID == "" || opened.Status != "active" {
 		t.Fatalf("unexpected open response: %+v", opened)
 	}
 	if opened.OpenedAt == "" || opened.LastActiveAt == "" {
@@ -34,7 +34,7 @@ func TestSessions_OpenListGetClose(t *testing.T) {
 
 	// list returns the session
 	status, body = doReq(t, s, token, http.MethodGet,
-		"/v1/teams/"+defaultTeamID+"/sessions?status=open", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions?status=active", nil)
 	if status != http.StatusOK {
 		t.Fatalf("list: status=%d body=%s", status, body)
 	}
@@ -65,36 +65,36 @@ func TestSessions_OpenListGetClose(t *testing.T) {
 		t.Errorf("get returned %+v", got)
 	}
 
-	// close
+	// archive
 	status, body = doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/sessions/"+opened.ID+"/close", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions/"+opened.ID+"/archive", nil)
 	if status != http.StatusNoContent {
-		t.Fatalf("close: status=%d body=%s", status, body)
+		t.Fatalf("archive: status=%d body=%s", status, body)
 	}
 
-	// closed sessions are absent from status=open list
+	// archived sessions are absent from status=active list
 	_, body = doReq(t, s, token, http.MethodGet,
-		"/v1/teams/"+defaultTeamID+"/sessions?status=open", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions?status=active", nil)
 	var afterOpen []sessionOut
 	_ = json.Unmarshal(body, &afterOpen)
 	for _, ses := range afterOpen {
 		if ses.ID == opened.ID {
-			t.Errorf("closed session still in status=open list")
+			t.Errorf("archived session still in status=active list")
 		}
 	}
 
-	// audit recorded both open and close
+	// audit recorded both open and archive
 	var openCount, closeCount int
 	_ = s.db.QueryRow(
 		`SELECT COUNT(*) FROM audit_events WHERE action = 'session.open' AND target_id = ?`,
 		opened.ID,
 	).Scan(&openCount)
 	_ = s.db.QueryRow(
-		`SELECT COUNT(*) FROM audit_events WHERE action = 'session.close' AND target_id = ?`,
+		`SELECT COUNT(*) FROM audit_events WHERE action = 'session.archive' AND target_id = ?`,
 		opened.ID,
 	).Scan(&closeCount)
 	if openCount != 1 || closeCount != 1 {
-		t.Errorf("audit rows: open=%d close=%d (want 1/1)", openCount, closeCount)
+		t.Errorf("audit rows: open=%d archive=%d (want 1/1)", openCount, closeCount)
 	}
 }
 
@@ -175,8 +175,8 @@ func TestSessions_StampsAgentEvents(t *testing.T) {
 
 // W2-S3: when an agent the session is pointing at goes to status=
 // crashed (the host-runner restart pattern from reconcile.go), the
-// session must auto-flip to 'interrupted'. terminated does NOT
-// trigger this — terminated is the user's explicit teardown.
+// session must auto-flip to 'paused'. terminated does NOT trigger
+// this — terminated is the user's explicit teardown.
 func TestSessions_InterruptOnAgentCrash(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
@@ -205,18 +205,18 @@ func TestSessions_InterruptOnAgentCrash(t *testing.T) {
 		t.Fatalf("patch: %d %s", status, body)
 	}
 
-	// Session should be interrupted now.
+	// Session should be paused now.
 	var sesStatus string
 	_ = s.db.QueryRow(
 		`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
-	if sesStatus != "interrupted" {
-		t.Errorf("session status = %q; want interrupted", sesStatus)
+	if sesStatus != "paused" {
+		t.Errorf("session status = %q; want paused", sesStatus)
 	}
 
-	// terminated MUST NOT auto-interrupt — that's a different signal.
-	// Reset to 'open' to test.
+	// terminated MUST NOT auto-pause — that's a different signal.
+	// Reset to 'active' to test.
 	if _, err := s.db.Exec(
-		`UPDATE sessions SET status='open' WHERE id=?`, ses.ID); err != nil {
+		`UPDATE sessions SET status='active' WHERE id=?`, ses.ID); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
 	doReq(t, s, token, http.MethodPatch,
@@ -224,14 +224,14 @@ func TestSessions_InterruptOnAgentCrash(t *testing.T) {
 		map[string]any{"status": "terminated"})
 	_ = s.db.QueryRow(
 		`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
-	if sesStatus == "interrupted" {
-		t.Errorf("terminated should NOT auto-interrupt; got %q", sesStatus)
+	if sesStatus == "paused" {
+		t.Errorf("terminated should NOT auto-pause; got %q", sesStatus)
 	}
 }
 
-// W2-S3: resume on an interrupted session creates a new agent with
-// the same handle/kind/host/worktree, points the session at it, and
-// flips status back to open. Transcript continuity is implicit:
+// W2-S3: resume on a paused session creates a new agent with the
+// same handle/kind/host/worktree, points the session at it, and
+// flips status back to active. Transcript continuity is implicit:
 // agent_events from the dead agent stay queryable by session_id;
 // new events from the resumed agent get the same session_id.
 func TestSessions_Resume(t *testing.T) {
@@ -253,7 +253,7 @@ func TestSessions_Resume(t *testing.T) {
 	var ses sessionOut
 	_ = json.Unmarshal(body, &ses)
 
-	// Crash the agent → session goes interrupted.
+	// Crash the agent → session goes paused.
 	doReq(t, s, token, http.MethodPatch,
 		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
 		map[string]any{"status": "crashed"})
@@ -278,13 +278,13 @@ func TestSessions_Resume(t *testing.T) {
 		t.Errorf("prior_agent_id = %q; want %q", priorAgentID, oldAgentID)
 	}
 
-	// Session is now back to open and points at the new agent.
+	// Session is now back to active and points at the new agent.
 	var sesStatus, sesAgentID string
 	_ = s.db.QueryRow(
 		`SELECT status, COALESCE(current_agent_id, '')
 		   FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus, &sesAgentID)
-	if sesStatus != "open" {
-		t.Errorf("session status after resume = %q; want open", sesStatus)
+	if sesStatus != "active" {
+		t.Errorf("session status after resume = %q; want active", sesStatus)
 	}
 	if sesAgentID != newAgentID {
 		t.Errorf("session current_agent_id = %q; want %q", sesAgentID, newAgentID)
@@ -317,8 +317,8 @@ func TestSessions_Resume(t *testing.T) {
 	}
 }
 
-// Resume on a still-open session → 409. Sessions that haven't been
-// interrupted have nothing to recover from.
+// Resume on a still-active session → 409. Sessions that haven't been
+// paused have nothing to recover from.
 func TestSessions_ResumeRefusesOpenSession(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
@@ -339,12 +339,12 @@ func TestSessions_ResumeRefusesOpenSession(t *testing.T) {
 	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
 	if status != http.StatusConflict {
-		t.Errorf("resume on open session: status=%d body=%s; want 409",
+		t.Errorf("resume on active session: status=%d body=%s; want 409",
 			status, body)
 	}
 }
 
-// Delete refuses an open session, accepts a closed one, clears
+// Delete refuses an active session, accepts an archived one, clears
 // session_id from the transcript, and absents the row from the
 // default list. Deleted-twice is idempotent (204).
 func TestSessions_Delete(t *testing.T) {
@@ -369,16 +369,16 @@ func TestSessions_Delete(t *testing.T) {
 			"payload":  map[string]any{"text": "hi"},
 		})
 
-	// Open session — delete should refuse with 409.
+	// Active session — delete should refuse with 409.
 	status, body = doReq(t, s, token, http.MethodDelete,
 		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
 	if status != http.StatusConflict {
-		t.Errorf("delete on open: status=%d body=%s; want 409", status, body)
+		t.Errorf("delete on active: status=%d body=%s; want 409", status, body)
 	}
 
-	// Close it.
+	// Archive it.
 	doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/close", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/archive", nil)
 
 	// Delete now succeeds.
 	status, body = doReq(t, s, token, http.MethodDelete,
@@ -501,14 +501,14 @@ func TestSessions_SwapAgentInSession(t *testing.T) {
 		t.Errorf("old agent status = %q; want terminated", oldStatus)
 	}
 
-	// Session now points at the new agent, status=open, spec updated.
+	// Session now points at the new agent, status=active, spec updated.
 	var sesAgentID, sesStatus, sesSpec string
 	_ = s.db.QueryRow(
 		`SELECT COALESCE(current_agent_id, ''), status,
 		        COALESCE(spawn_spec_yaml, '')
 		   FROM sessions WHERE id = ?`, ses.ID,
 	).Scan(&sesAgentID, &sesStatus, &sesSpec)
-	if sesAgentID != newAgentID || sesStatus != "open" {
+	if sesAgentID != newAgentID || sesStatus != "active" {
 		t.Errorf("session after swap: agent=%q status=%q",
 			sesAgentID, sesStatus)
 	}
@@ -635,7 +635,7 @@ func TestSpawn_AutoOpenSession(t *testing.T) {
 	var n int
 	_ = s.db.QueryRow(
 		`SELECT COUNT(*) FROM sessions
-		   WHERE current_agent_id = ? AND status = 'open'`,
+		   WHERE current_agent_id = ? AND status = 'active'`,
 		out.AgentID,
 	).Scan(&n)
 	if n != 1 {
@@ -678,7 +678,7 @@ func TestSpawn_AutoOpenSession_IgnoredOnSwap(t *testing.T) {
 	}
 	var openCount int
 	_ = s.db.QueryRow(
-		`SELECT COUNT(*) FROM sessions WHERE status = 'open'`).Scan(&openCount)
+		`SELECT COUNT(*) FROM sessions WHERE status = 'active'`).Scan(&openCount)
 	if openCount != 1 {
 		t.Errorf("open session count after swap = %d; want 1 (auto-open should be ignored when SessionID set)",
 			openCount)
@@ -790,7 +790,7 @@ func TestSessions_PatchRename(t *testing.T) {
 // New-session UX bug fix: when the user closes a session and opens a
 // fresh one on the same agent, the AgentFeed must show only the new
 // session's events. listAgentEvents?session=<id> is what makes that
-// possible — without the filter the prior closed session's transcript
+// possible — without the filter the prior archived session's transcript
 // replays into the "fresh" chat.
 func TestAgentEvents_FilterBySession(t *testing.T) {
 	s, token := newA2ATestServer(t)
@@ -814,7 +814,7 @@ func TestAgentEvents_FilterBySession(t *testing.T) {
 			})
 	}
 	doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/sessions/"+sesA.ID+"/close", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions/"+sesA.ID+"/archive", nil)
 
 	// Second session on the same agent — stamp one event.
 	status, body = doReq(t, s, token, http.MethodPost,
@@ -872,7 +872,7 @@ func TestSessions_SwapRefusesDeletedSession(t *testing.T) {
 	var ses sessionOut
 	_ = json.Unmarshal(body, &ses)
 	doReq(t, s, token, http.MethodPost,
-		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/close", nil)
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/archive", nil)
 	doReq(t, s, token, http.MethodDelete,
 		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID, nil)
 

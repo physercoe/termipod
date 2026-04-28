@@ -21,6 +21,7 @@ import '../projects/project_detail_screen.dart';
 import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
+import 'approval_detail_screen.dart';
 import 'note_editor_screen.dart';
 
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
@@ -533,6 +534,27 @@ class _MeCard extends ConsumerWidget {
                 kind: item.kind,
                 pendingPayload: _pendingPayload(item.attention),
               ),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: item.attention == null
+                      ? null
+                      : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ApprovalDetailScreen(
+                                attention: item.attention!,
+                              ),
+                            ),
+                          ),
+                  icon: const Icon(Icons.info_outline, size: 14),
+                  label: const Text('Details'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
+                  ),
+                ),
+              ),
             ],
           ],
         ),
@@ -541,9 +563,16 @@ class _MeCard extends ConsumerWidget {
   }
 
   void _primaryAction(BuildContext context, WidgetRef ref) {
-    // For attention items the inline Approve/Reject/Resolve buttons do the
-    // real work; tapping the card is a no-op for now. A future patch can
-    // push a full-screen detail view here.
+    // For approval items, route to the detail screen so the user can
+    // see the requester chain + payload before deciding (the inline
+    // Approve/Deny buttons remain for the quick path). Per ADR-009.
+    if (item.filter == _Filter.approvals && item.attention != null) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ApprovalDetailScreen(attention: item.attention!),
+        ),
+      );
+    }
   }
 
   // Decode pending_payload — the hub sends it raw on the wire; we need it

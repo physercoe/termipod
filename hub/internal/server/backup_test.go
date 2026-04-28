@@ -37,7 +37,7 @@ func TestBackup_RestoreRoundTrip(t *testing.T) {
 	}
 	if _, err := db.Exec(`
 		INSERT INTO sessions (id, team_id, title, scope_kind, current_agent_id, status, opened_at, last_active_at)
-		VALUES ('s1', 'default', 'demo', 'team', 'a1', 'open', '2026-04-27T00:00:00Z', '2026-04-27T00:00:00Z')`); err != nil {
+		VALUES ('s1', 'default', 'demo', 'team', 'a1', 'active', '2026-04-27T00:00:00Z', '2026-04-27T00:00:00Z')`); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
 	for i, txt := range []string{"hello", "world"} {

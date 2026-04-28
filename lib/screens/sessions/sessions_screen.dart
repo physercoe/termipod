@@ -13,10 +13,10 @@ import '../team/templates_screen.dart';
 
 /// Merged Sessions/Stewards page (multi-steward wedge 2). Each live
 /// steward gets its own section with its current session inline + a
-/// collapsible "previous" subsection of closed sessions for that
+/// collapsible "previous" subsection of archived sessions for that
 /// steward. AppBar `+` spawns a new steward; `⋮` opens template /
 /// engine management. Per-steward kebab carries Reset (new
-/// conversation), Replace, Terminate, Rename.
+/// conversation), Replace, Stop session, Rename.
 ///
 /// Single-steward installs collapse to the one-section view, which
 /// reads close to the prior flat-list page.
@@ -151,7 +151,7 @@ List<_StewardGroup> _groupByStateward(
     final previous = <Map<String, dynamic>>[];
     for (final s in mine) {
       final st = (s['status'] ?? '').toString();
-      if ((st == 'open' || st == 'interrupted') && current == null) {
+      if ((st == 'active' || st == 'paused' || st == 'open' || st == 'interrupted') && current == null) {
         current = s;
       } else {
         previous.add(s);
@@ -192,7 +192,7 @@ List<_StewardGroup> _groupByStateward(
     final previous = <Map<String, dynamic>>[];
     for (final s in orphanSessions) {
       final st = (s['status'] ?? '').toString();
-      if ((st == 'open' || st == 'interrupted') && current == null) {
+      if ((st == 'active' || st == 'paused' || st == 'open' || st == 'interrupted') && current == null) {
         current = s;
       } else {
         previous.add(s);
@@ -320,7 +320,7 @@ Future<void> _resetStewardConversation(
 
 /// One section per steward on the merged page. Renders:
 ///   - Header: status pill, handle, engine, model
-///   - Per-steward kebab: Reset (new conversation), Replace, Terminate, Rename
+///   - Per-steward kebab: Reset (new conversation), Replace, Stop session, Rename
 ///   - Current session inline as a tile (open or interrupted)
 ///   - Collapsible "previous (N)" subsection of closed sessions
 class _StewardSection extends ConsumerStatefulWidget {
@@ -354,17 +354,17 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     }
   }
 
-  Future<void> _terminate() async {
+  Future<void> _stopSession() async {
     final id = group.agentId;
     if (id.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Terminate steward?'),
+        title: const Text('Stop session?'),
         content: Text(
-          'Kills ${group.handle}\'s agent process. The session flips to '
-          'interrupted and stays in Previous; you can Resume it later or '
-          'Replace this steward with a fresh one.',
+          'Kills ${group.handle}\'s agent process. The session pauses '
+          'and stays in Previous; you can Resume it later or Replace '
+          'this steward with a fresh one.',
         ),
         actions: [
           TextButton(
@@ -376,7 +376,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Terminate'),
+            child: const Text('Stop'),
           ),
         ],
       ),
@@ -391,7 +391,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Terminate failed: $e')),
+        SnackBar(content: Text('Stop failed: $e')),
       );
     }
   }
@@ -534,8 +534,8 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                             case 'replace':
                               confirmAndRecreateSteward(
                                   context, ref, group.agentId);
-                            case 'terminate':
-                              _terminate();
+                            case 'stop':
+                              _stopSession();
                             case 'rename':
                               _rename();
                           }
@@ -555,8 +555,8 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                             child: Text('Rename'),
                           ),
                           PopupMenuItem(
-                            value: 'terminate',
-                            child: Text('Terminate steward'),
+                            value: 'stop',
+                            child: Text('Stop session'),
                           ),
                         ],
                       ),
@@ -784,6 +784,11 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     final worktree = (session['worktree_path'] ?? '').toString();
 
     final statusColor = switch (status) {
+      'active' => DesignColors.success,
+      'paused' => DesignColors.warning,
+      'archived' => muted,
+      // Tolerate legacy strings during the brief rollout window
+      // (ADR-009): a not-yet-migrated hub may still emit these.
       'open' => DesignColors.success,
       'interrupted' => DesignColors.warning,
       'closed' => muted,
@@ -799,9 +804,11 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         radius: 14,
         backgroundColor: statusColor.withValues(alpha: 0.18),
         child: Icon(
-          status == 'interrupted'
+          (status == 'paused' || status == 'interrupted')
               ? Icons.pause_circle_outline
-              : (status == 'closed' ? Icons.history : Icons.forum_outlined),
+              : ((status == 'archived' || status == 'closed')
+                  ? Icons.history
+                  : Icons.forum_outlined),
           size: 16,
           color: statusColor,
         ),
@@ -851,8 +858,8 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     // an option here but was removed: it violated the multi-steward
     // invariant ("every live steward has a session") by leaving the
     // steward without one. Use Reset (per-steward kebab on the section
-    // header) to rotate the conversation, or Terminate (chat AppBar)
-    // to end the steward.
+    // header) to rotate the conversation, or Stop session (chat
+    // AppBar) to detach the engine.
     final menu = PopupMenuButton<String>(
       tooltip: 'Session actions',
       icon: Icon(Icons.more_vert, size: 18, color: muted),
@@ -862,7 +869,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       },
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
-        if (status == 'closed')
+        if (status == 'archived' || status == 'closed')
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
       ],
     );
@@ -876,7 +883,7 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (status == 'interrupted')
+        if (status == 'paused' || status == 'interrupted')
           FilledButton.tonal(
             onPressed: _resuming ? null : _resume,
             style: FilledButton.styleFrom(
@@ -1024,28 +1031,31 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
   }
 
-  /// Terminate the steward agent. Destructive — the agent process is
-  /// killed, the session auto-flips to interrupted (and stays that way
-  /// until the user explicitly resumes or the steward is replaced).
+  /// Stops the session by killing the attached engine. Destructive —
+  /// the agent process is killed, the session auto-flips to paused
+  /// (and stays that way until the user explicitly resumes or the
+  /// steward is replaced).
   ///
   /// "Close session" used to live next to this as a separate action,
   /// but it violated the multi-steward design invariant ("every live
-  /// steward has a session"): closing the only active session would
-  /// leave a steward agent without a current session, an
-  /// agent-without-session intermediate that the design forbids. The
-  /// two clean options are now: Reset (new conversation), which
+  /// steward has a session"): archiving the only active session
+  /// would leave a steward agent without a current session, an
+  /// agent-without-session intermediate that the design forbids.
+  /// The two clean options are now: Reset (new conversation), which
   /// preserves the agent and rotates the transcript via the per-
-  /// steward kebab on the Sessions page; or Terminate, which ends
-  /// the steward entirely. See docs/wedges/multi-steward.md §9.
-  Future<void> _terminateSteward() async {
+  /// steward kebab on the Sessions page; or Stop session (this
+  /// action), which detaches the engine. Per ADR-009 D6 the action
+  /// is gated on session.state == active so it doesn't render in
+  /// paused/archived sessions where there is no engine to stop.
+  Future<void> _stopSession() async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Terminate steward?'),
+        title: const Text('Stop session?'),
         content: const Text(
-          "Kills the steward's agent process. The session will mark as "
-          'interrupted; you can Resume it later or replace the steward '
-          'with a fresh one (potentially a different engine/model).\n\n'
+          "Kills the steward's agent process. The session will pause; "
+          'you can Resume it later or replace the steward with a fresh '
+          'one (potentially a different engine/model).\n\n'
           "This doesn't delete any history — the transcript stays "
           'available under Previous.',
         ),
@@ -1059,7 +1069,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               backgroundColor: Theme.of(ctx).colorScheme.error,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Terminate'),
+            child: const Text('Stop'),
           ),
         ],
       ),
@@ -1069,8 +1079,8 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     if (client == null) return;
     try {
       await client.terminateAgent(widget.agentId);
-      // Refresh state so the Sessions list reflects the interruption
-      // and the home/projects screens drop the dead steward chip.
+      // Refresh state so the Sessions list reflects the pause and
+      // the home/projects screens drop the dead steward chip.
       await ref.read(hubProvider.notifier).refreshAll();
       await ref.read(sessionsProvider.notifier).refresh();
       if (!mounted) return;
@@ -1078,13 +1088,101 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Terminate failed: $e')),
+        SnackBar(content: Text('Stop failed: $e')),
       );
     }
   }
 
+  /// Returns a chip showing the session's scope (per ADR-009 D7) so
+  /// the user can tell at a glance whether this is a general / team
+  /// session or scoped to a project / attention item. Display-only;
+  /// re-scoping is post-MVP. Returns null when scope can't be
+  /// resolved (no session row yet, or unknown scope_kind).
+  Widget? _buildScopeChip(
+      BuildContext context, WidgetRef ref, Map<String, dynamic>? session) {
+    if (session == null) return null;
+    final kind = (session['scope_kind'] ?? '').toString();
+    final id = (session['scope_id'] ?? '').toString();
+    String label;
+    IconData icon;
+    switch (kind) {
+      case 'project':
+        final hub = ref.read(hubProvider).value;
+        String? name;
+        if (hub != null) {
+          for (final p in hub.projects) {
+            if ((p['id'] ?? '').toString() == id) {
+              name = (p['name'] ?? p['title'] ?? '').toString();
+              break;
+            }
+          }
+        }
+        label = (name != null && name.isNotEmpty)
+            ? 'Project: $name'
+            : 'Project';
+        icon = Icons.folder_outlined;
+      case 'attention':
+        label = 'Approving';
+        icon = Icons.gavel_outlined;
+      case 'team':
+      case '':
+        label = 'General';
+        icon = Icons.forum_outlined;
+      default:
+        label = kind;
+        icon = Icons.label_outline;
+    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: muted.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: muted),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                color: muted,
+                fontWeight: FontWeight.w500,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Session state pair (active|paused|archived) drives affordance
+    // gating per ADR-009 D6: "Stop session" is meaningful only when
+    // there's an engine attached to stop.
+    final sessions = ref.watch(sessionsProvider).value;
+    Map<String, dynamic>? sessionRow;
+    if (sessions != null) {
+      for (final s in [...sessions.active, ...sessions.previous]) {
+        if ((s['id'] ?? '').toString() == widget.sessionId) {
+          sessionRow = s;
+          break;
+        }
+      }
+    }
+    final sessionStatus = (sessionRow?['status'] ?? '').toString();
+    final canStop = sessionStatus == 'active' || sessionStatus == 'open';
+    final scopeChip = _buildScopeChip(context, ref, sessionRow);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -1094,6 +1192,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          if (scopeChip != null) scopeChip,
           if (_sessionInit != null)
             SessionInitChip(
               payload: _sessionInit!,
@@ -1104,28 +1203,29 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             icon: const Icon(Icons.edit_outlined),
             onPressed: _rename,
           ),
-          PopupMenuButton<String>(
-            tooltip: 'Session actions',
-            onSelected: (v) {
-              if (v == 'terminate') _terminateSteward();
-            },
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'terminate',
-                child: ListTile(
-                  leading: Icon(Icons.power_settings_new,
-                      color: Theme.of(context).colorScheme.error),
-                  title: Text('Terminate steward',
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
-                  subtitle: const Text(
-                      'Kills the agent process; session interrupts'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
+          if (canStop)
+            PopupMenuButton<String>(
+              tooltip: 'Session actions',
+              onSelected: (v) {
+                if (v == 'stop') _stopSession();
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'stop',
+                  child: ListTile(
+                    leading: Icon(Icons.power_settings_new,
+                        color: Theme.of(context).colorScheme.error),
+                    title: Text('Stop session',
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                    subtitle: const Text(
+                        'Kills the agent process; session pauses'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
       body: AgentFeed(

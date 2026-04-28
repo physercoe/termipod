@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
+import '../../../services/hub/open_steward_session.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/task_priority_style.dart';
 import '../reviews_screen.dart';
@@ -148,7 +149,10 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
             runSpacing: 6,
             children: [
               _StatusChip(label: status.isEmpty ? 'active' : status),
-              _StewardChip(stewardAgentId: stewardAgentId),
+              _StewardChip(
+                stewardAgentId: stewardAgentId,
+                projectId: widget.ctx.projectId,
+              ),
               if (budgetCents is int)
                 _BudgetChip(usedCents: 0, capCents: budgetCents),
               if (openAttention > 0)
@@ -194,12 +198,16 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-class _StewardChip extends StatelessWidget {
+class _StewardChip extends ConsumerWidget {
   final String stewardAgentId;
-  const _StewardChip({required this.stewardAgentId});
+  final String projectId;
+  const _StewardChip({
+    required this.stewardAgentId,
+    required this.projectId,
+  });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     // With no live steward status feed on the project payload yet, we
     // surface a coarse "configured" vs "not configured" tri-state. Full
     // running/idle/error states land when the steward config API ships
@@ -209,6 +217,19 @@ class _StewardChip extends StatelessWidget {
       label: configured ? 'steward: configured' : 'steward: not-configured',
       color: configured ? DesignColors.terminalCyan : DesignColors.textMuted,
       icon: Icons.smart_toy_outlined,
+      // Per ADR-009 D7: tapping the project's steward chip opens a
+      // session scoped to this project. If a project-scoped session
+      // already exists, openStewardSession routes there; otherwise it
+      // falls back to the steward's default session for now (Phase 2
+      // adds creation of new project-scoped sessions).
+      onTap: configured && projectId.isNotEmpty
+          ? () => openStewardSession(
+                context,
+                ref,
+                scopeKind: 'project',
+                scopeId: projectId,
+              )
+          : null,
     );
   }
 }
@@ -253,11 +274,17 @@ class _Chip extends StatelessWidget {
   final String label;
   final Color color;
   final IconData? icon;
-  const _Chip({required this.label, required this.color, this.icon});
+  final VoidCallback? onTap;
+  const _Chip({
+    required this.label,
+    required this.color,
+    this.icon,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final body = Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
@@ -281,6 +308,12 @@ class _Chip extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (onTap == null) return body;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: body,
     );
   }
 }

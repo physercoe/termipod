@@ -278,15 +278,15 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	// any open session pointing at it goes to "interrupted" so the
 	// session list shows a Resume affordance instead of just a dead
 	// row. The status flip is idempotent — repeated patches stay at
-	// interrupted until resume or close.
+	// paused until resume or archive.
 	if in.Status != nil &&
 		(*in.Status == "crashed" || *in.Status == "failed") {
 		_, _ = s.db.ExecContext(r.Context(), `
 			UPDATE sessions
-			   SET status = 'interrupted', last_active_at = ?
+			   SET status = 'paused', last_active_at = ?
 			 WHERE team_id = ?
 			   AND current_agent_id = ?
-			   AND status = 'open'`,
+			   AND status = 'active'`,
 			NowUTC(), team, id)
 	}
 	// A status=terminated PATCH from the UI marks the row, but without
@@ -653,13 +653,13 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// On session-swap, point the session at the new agent and refresh
 	// the captured spawn_spec / worktree so future resumes use the
 	// freshly-chosen engine/model rather than the prior one. Status
-	// flips back to 'open' (covers the case where the swap happened
-	// against an interrupted session — the new agent is alive now).
+	// flips back to 'active' (covers the case where the swap happened
+	// against a paused session — the new agent is alive now).
 	if swapSessionID != "" {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE sessions
 			   SET current_agent_id = ?,
-			       status = 'open',
+			       status = 'active',
 			       spawn_spec_yaml = NULLIF(?, ''),
 			       worktree_path = COALESCE(NULLIF(?, ''), worktree_path),
 			       last_active_at = ?
@@ -684,7 +684,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 				status, opened_at, last_active_at,
 				worktree_path, spawn_spec_yaml
 			) VALUES (?, ?, NULL, 'team', NULL, ?,
-			          'open', ?, ?,
+			          'active', ?, ?,
 			          NULLIF(?, ''), NULLIF(?, ''))`,
 			newSessionID, team, agentID, now, now,
 			in.WorktreePath, in.SpawnSpec); err != nil {

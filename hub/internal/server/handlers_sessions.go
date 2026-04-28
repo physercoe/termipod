@@ -310,11 +310,20 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleForkSession creates a new active session pre-loaded from
-// an archived source session. Per ADR-009 D4, fork is the
-// resume-from-archive primitive: same scope as the source, points
-// at the team's live steward (or a caller-provided agent), no
-// worktree_path (fork is conversational, not task-resuming).
+// handleForkSession creates a new session shell from an archived
+// source. Per ADR-009 D4, fork is the resume-from-archive primitive:
+// same scope as the source, no worktree_path (fork is
+// conversational, not task-resuming).
+//
+// Attachment model: fork does NOT pick a live steward to attach to.
+// A running steward agent is bound to its own active session via a
+// single stream-json connection; double-binding would race events
+// between two sessions. The fork lands as `paused` with
+// `current_agent_id = NULL`; the caller drives a spawn or
+// replace-steward into the new session to make it live. Callers
+// that genuinely have a session-less steward (e.g. just stopped)
+// may pass `agent_id` to attach explicitly — the server validates
+// the target isn't already owning an active session.
 //
 // Pre-loading the system prompt from the archived session's
 // distillation + last-K transcript is engine-side work that lands
@@ -323,8 +332,7 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 // fetches the source transcript by session_id when the user wants
 // to refer back.
 //
-// Body: {agent_id?: string, title?: string}. agent_id defaults to
-// the team's currently-running steward; title defaults to the
+// Body: {agent_id?: string, title?: string}. title defaults to the
 // source's title (so the fork reads as "continuation of X" by
 // default).
 //
@@ -367,27 +375,37 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve target agent. Caller-provided wins; otherwise pick the
-	// team's live steward. If neither is available, 409 — fork needs
-	// an engine to attach to.
+	// Fork never auto-attaches to an existing live steward. A
+	// running steward agent is bound to its own active session
+	// (one stream-json at a time); pointing a second active
+	// session at it would race events between the two — newer
+	// turns would land on whichever session lookupSessionForAgent
+	// resolves last, and the older session would silently strand
+	// mid-conversation. So fork always returns an unattached
+	// (paused) session by default; the caller (mobile or CLI)
+	// drives a spawn or replace into it to make it live.
+	//
+	// Caller-provided agent_id is still honoured — operators who
+	// know the target agent is between sessions (e.g. just stopped)
+	// can attach explicitly. We validate that the target isn't
+	// already owning an active session to keep the one-active-per-
+	// steward invariant.
 	targetAgent := in.AgentID
-	if targetAgent == "" {
-		// Find a live (running) steward in this team. Steward handles
-		// match the convention in steward_handle.dart / handlers_agents.go;
-		// here we accept anything not in a terminal state with kind
-		// indicating a steward role.
+	if targetAgent != "" {
+		var n int
 		err := s.db.QueryRowContext(r.Context(), `
-			SELECT id FROM agents
-			 WHERE team_id = ? AND status = 'running'
-			   AND (handle = 'steward' OR handle LIKE 'steward-%')
-			 ORDER BY created_at DESC LIMIT 1`, team).Scan(&targetAgent)
-		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, http.StatusConflict,
-				"no live steward to attach the fork to; pass agent_id explicitly")
-			return
-		}
+			SELECT COUNT(1) FROM sessions
+			 WHERE team_id = ? AND current_agent_id = ?
+			   AND status = 'active'`, team, targetAgent).Scan(&n)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if n > 0 {
+			writeErr(w, http.StatusConflict,
+				"agent_id already owns an active session; "+
+					"archive it first or fork without agent_id "+
+					"and spawn a fresh steward")
 			return
 		}
 	}
@@ -401,6 +419,14 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 		scopeKind = "team"
 	}
 
+	// Status follows attachment: attached forks are immediately live,
+	// unattached forks land in paused so the multi-steward invariant
+	// ("every active session has a current_agent_id") still holds.
+	forkStatus := "active"
+	if targetAgent == "" {
+		forkStatus = "paused"
+	}
+
 	newID := NewID()
 	now := NowUTC()
 	_, err = s.db.ExecContext(r.Context(), `
@@ -408,11 +434,11 @@ func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
 			id, team_id, title, scope_kind, scope_id, current_agent_id,
 			status, opened_at, last_active_at,
 			worktree_path, spawn_spec_yaml
-		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?,
-		          'active', ?, ?,
+		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''),
+		          ?, ?, ?,
 		          NULL, NULL)`,
 		newID, team, title, scopeKind, srcScopeID.String,
-		targetAgent, now, now,
+		targetAgent, forkStatus, now, now,
 	)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())

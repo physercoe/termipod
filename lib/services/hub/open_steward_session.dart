@@ -82,9 +82,18 @@ Future<void> openStewardSession(
   }
 
   // Single-steward path: refresh sessions, look for an active one,
-  // and jump straight into the chat if it exists. When a scope was
-  // passed, prefer a session matching that scope; otherwise fall
-  // back to the steward's default session.
+  // and jump straight into the chat if it exists.
+  //
+  // When a scope was passed, prefer a session matching that scope.
+  // If none exists, OPEN one — silently falling through to the
+  // steward's general/team session (the prior behavior) made
+  // project-page taps land on team/general by accident, which read
+  // as a routing bug to the user. Spawning a fresh scoped session
+  // matches the documented "scope from entry point" intent of
+  // ADR-009 D7.
+  //
+  // No scope passed: use the steward's first active session as
+  // before — there's no scope ambiguity to resolve.
   await ref.read(sessionsProvider.notifier).refresh();
   final steward = liveStewards.first;
   final stewardId = (steward['id'] ?? '').toString();
@@ -101,6 +110,23 @@ Future<void> openStewardSession(
           (s['scope_id'] ?? '').toString() == (scopeId ?? '')) {
         scopedMatch = s;
         break;
+      }
+    }
+  }
+  if (scopedMatch == null && scopeKind != null && scopeKind.isNotEmpty) {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client != null) {
+      try {
+        final created = await client.openSession(
+          agentId: stewardId,
+          scopeKind: scopeKind,
+          scopeId: scopeId,
+        );
+        await ref.read(sessionsProvider.notifier).refresh();
+        scopedMatch = created;
+      } catch (_) {
+        // Fall through to fallback so a transient open failure still
+        // gets the user *somewhere* useful instead of a dead tap.
       }
     }
   }

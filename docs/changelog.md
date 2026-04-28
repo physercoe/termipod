@@ -23,6 +23,100 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.326-alpha — 2026-04-28
+
+### Fixed
+- `hub/internal/hostrunner/egress_proxy.go`: rewrite `req.Host` to
+  upstream's host in the reverse-proxy Director. Without this, the
+  agent's local `127.0.0.1:41825` Host header was forwarded upstream;
+  Cloudflare-fronted hubs returned 403 because that hostname isn't a
+  known CF zone. Regression test added.
+- `hub/internal/hostrunner/driver_stdio.go`: also dispatch
+  `type=system,subtype=rate_limit_event` to the rate-limit
+  translator. Recent claude-code SDK versions wrap the signal under a
+  `system` envelope; without the subtype branch the event was
+  passed through as kind=`system` and the mobile telemetry strip
+  never saw a `rate_limit` kind. Both shapes now feed the same
+  helper.
+- `lib/screens/projects/projects_screen.dart`: drop the
+  Project/Workspace bottom-sheet picker that fronted the create FAB.
+  The kind toggle inside `ProjectCreateSheet` already covers the
+  same choice via a SegmentedButton, so the pre-pick was a redundant
+  extra tap.
+- `lib/widgets/agent_feed.dart` `_systemBody`: render claude-code's
+  `task_started` / `task_updated` / `task_notification` system
+  subtypes as one-liners (e.g. `Task updated · is_backgrounded=true`)
+  instead of dumping the full envelope JSON.
+- `hub/internal/server/handlers_agents.go`: extend the auto-pause
+  rule to `terminated`. Previously only `crashed` and `failed`
+  flipped the matching active session to `paused`, so a user who
+  tapped Stop session ended up with a dead agent but a session that
+  still claimed to be active — the chat AppBar kept offering Stop
+  and the sessions list kept the row in the active bucket. Per
+  ADR-009 D6 / the documented Stop-session contract. Existing
+  test renamed/extended to cover all three terminal statuses.
+
+### Changed
+- `lib/widgets/agent_feed.dart`: jump-to-tail pill is now always
+  visible while the user is scrolled away from the bottom (not just
+  when new events arrive) and surfaces the current scroll position
+  as a percentage. Tool-call cards gained a fold chevron in the name
+  row that collapses the body to just the name + status pill, so
+  noisy multi-step calls don't dominate the transcript.
+- `hub/internal/server/handlers_sessions.go` `handleForkSession`:
+  fork no longer auto-attaches to the team's live steward. A
+  running steward agent is bound to its own active session via a
+  single stream-json connection; pointing a second active session
+  at it would race events between the two and silently strand the
+  older conversation mid-turn. Fork now always lands the new
+  session as `paused` with `current_agent_id` NULL by default, and
+  the app drives a spawn (or replace-into-session) into it. An
+  explicit `agent_id` parameter is still honoured for callers
+  that genuinely have a session-less steward, but the server
+  rejects (409) if that agent already owns an active session.
+  Tests reworked: `TestSessions_ForkAlwaysUnattachedByDefault`
+  asserts the no-auto-attach contract, and
+  `TestSessions_ForkRejectsBusyAgent` covers the explicit-but-busy
+  guard.
+- `lib/screens/sessions/sessions_screen.dart` `_forkSession`:
+  always opens the spawn-steward sheet bound to the new session id
+  on a successful fork response with empty agent_id (now the
+  default path), then navigates into the chat once the spawn
+  lands. Replaces the prior misleading "no live steward to attach
+  the fork to" error and the silent dual-attach race.
+- `lib/screens/sessions/sessions_screen.dart`: the synthetic
+  "(no live steward)" group on the Sessions page is renamed to
+  "Detached sessions" with a sub-line explaining why the bucket
+  exists ("Original steward gone — open to read, fork to continue
+  with a fresh one").
+- `lib/services/hub/open_steward_session.dart`: when a scope is
+  passed but no scope-matching session exists for the live
+  steward, open one in that scope instead of silently falling back
+  to the steward's general/team session. Fixes the "tap project
+  steward chip → land in team/general" routing surprise.
+- `lib/screens/team/spawn_steward_sheet.dart`: cap sheet height at
+  85% of the screen and wrap the content in a SingleChildScrollView
+  so the Cancel/Start row stays reachable on short phones.
+- `lib/screens/me/me_screen.dart`: replace the "My work" project
+  strip with an "Active sessions" strip — sessions are what the
+  principal is actively in the middle of, while the Projects tab
+  already covers full project navigation. Each tile shows session
+  title + scope (General / Project: <name> / Approving) + steward
+  name; tap pushes `SessionChatScreen`. Strip is hidden when no
+  active sessions exist. New `meActiveSessionsSection` arb key
+  (en + zh); legacy `meMyWorkSection` key removed since nothing
+  else referenced it.
+- `lib/screens/team/spawn_steward_sheet.dart` + rename dialog in
+  `sessions_screen.dart`: relabel the field as **Name** and accept
+  the bare domain (`research`, `infra-east`); the app appends the
+  `-steward` suffix internally via `normalizeStewardHandle` before
+  submitting. The user no longer has to know about the suffix
+  convention. Helper text now spells out the uniqueness scope —
+  unique among **live stewards on this team**; stopping a steward
+  frees the name for reuse. Stale description text dropped its
+  `#hub-meta` reference and the "one agent" framing now that
+  multi-steward is shipped.
+
 ## v1.0.316-alpha — 2026-04-28
 
 ### Added

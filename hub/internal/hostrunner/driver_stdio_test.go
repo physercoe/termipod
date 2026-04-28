@@ -315,6 +315,45 @@ func TestStdioDriver_RateLimitDisabledFromReason(t *testing.T) {
 	}
 }
 
+// Recent claude-code SDK versions wrap the rate-limit signal under
+// type=system,subtype=rate_limit_event instead of emitting it as a
+// bare top-level type. The driver must dispatch both shapes to the
+// same translator so the mobile telemetry strip lights up regardless
+// of which version the spawned agent runs.
+func TestStdioDriver_RateLimitEventUnderSystemSubtype(t *testing.T) {
+	frame := `{"type":"system","subtype":"rate_limit_event","rateLimitType":"5h","status":"allowed","resetsAt":"2026-04-25T13:00:00Z"}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-rl3", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second)
+	drv.Stop()
+
+	var rl postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "rate_limit" {
+			rl = e
+			break
+		}
+	}
+	if rl.Kind == "" {
+		t.Fatalf("no rate_limit event from system+subtype frame; got %+v", poster.snapshot())
+	}
+	if rl.Payload["window"] != "5h" {
+		t.Errorf("window = %v; want 5h", rl.Payload["window"])
+	}
+	if rl.Payload["status"] != "allowed" {
+		t.Errorf("status = %v; want allowed", rl.Payload["status"])
+	}
+	for _, e := range poster.snapshot() {
+		if e.Kind == "system" {
+			t.Errorf("rate_limit_event was passed through as kind=system instead of being translated: %+v", e)
+		}
+	}
+}
+
 // TestStdioDriver_TurnResultNormalization covers normalizeTurnResult's
 // modelUsage → by_model lift with camelCase inner keys, plus cost / fast
 // mode passthrough. Verified through the driver path so the wiring is

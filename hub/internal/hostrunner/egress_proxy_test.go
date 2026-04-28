@@ -60,6 +60,42 @@ func TestEgressProxy_PassesHTTP(t *testing.T) {
 	}
 }
 
+// Host header rewrite: the default ReverseProxy Director leaves
+// req.Host alone, so without an override the proxy would forward the
+// agent's local "127.0.0.1:41825" Host upstream. Cloudflare-fronted
+// hubs reject that with 403 because the hostname isn't a known CF
+// zone. The Director must overwrite req.Host with upstream.Host.
+func TestEgressProxy_RewritesHostHeader(t *testing.T) {
+	var sawHost string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHost = r.Host
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer upstream.Close()
+
+	ep, err := startEgressProxy(context.Background(), "127.0.0.1:0",
+		upstream.URL, slog.Default())
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = ep.shutdown(ctx)
+	}()
+
+	resp, err := http.Get(ep.LocalURL + "/v1/_info")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+
+	wantHost := strings.TrimPrefix(strings.TrimPrefix(upstream.URL, "https://"), "http://")
+	if sawHost != wantHost {
+		t.Errorf("upstream saw Host = %q; want %q (proxy must rewrite, not forward agent's local Host)", sawHost, wantHost)
+	}
+}
+
 // SSE pass-through: frames must flush as they're written, not buffer
 // until response close. The test server writes one frame, sleeps, then
 // writes another; the proxy must hand the first frame to the reader

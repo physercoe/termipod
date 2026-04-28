@@ -173,11 +173,13 @@ func TestSessions_StampsAgentEvents(t *testing.T) {
 	}
 }
 
-// W2-S3: when an agent the session is pointing at goes to status=
-// crashed (the host-runner restart pattern from reconcile.go), the
-// session must auto-flip to 'paused'. terminated does NOT trigger
-// this — terminated is the user's explicit teardown.
-func TestSessions_InterruptOnAgentCrash(t *testing.T) {
+// When an agent reaches a terminal status (crashed, failed, or
+// terminated), the active session pointing at it has no live process
+// to talk to and must auto-flip to 'paused'. ADR-009 D6 / the mobile
+// Stop session contract require this: without the flip, the chat
+// AppBar keeps offering Stop after the agent is already gone, and
+// the sessions list keeps the row marked active.
+func TestSessions_PauseOnAgentTerminal(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
@@ -197,35 +199,26 @@ func TestSessions_InterruptOnAgentCrash(t *testing.T) {
 	var ses sessionOut
 	_ = json.Unmarshal(body, &ses)
 
-	// Patch the agent to crashed.
-	status, body = doReq(t, s, token, http.MethodPatch,
-		"/v1/teams/"+defaultTeamID+"/agents/"+agentID,
-		map[string]any{"status": "crashed"})
-	if status != http.StatusNoContent {
-		t.Fatalf("patch: %d %s", status, body)
-	}
-
-	// Session should be paused now.
-	var sesStatus string
-	_ = s.db.QueryRow(
-		`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
-	if sesStatus != "paused" {
-		t.Errorf("session status = %q; want paused", sesStatus)
-	}
-
-	// terminated MUST NOT auto-pause — that's a different signal.
-	// Reset to 'active' to test.
-	if _, err := s.db.Exec(
-		`UPDATE sessions SET status='active' WHERE id=?`, ses.ID); err != nil {
-		t.Fatalf("reset: %v", err)
-	}
-	doReq(t, s, token, http.MethodPatch,
-		"/v1/teams/"+defaultTeamID+"/agents/"+agentID,
-		map[string]any{"status": "terminated"})
-	_ = s.db.QueryRow(
-		`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
-	if sesStatus == "paused" {
-		t.Errorf("terminated should NOT auto-pause; got %q", sesStatus)
+	// Each terminal status must independently flip the session to
+	// paused. Reset to 'active' between cases so we're testing the
+	// flip, not residual state.
+	for _, term := range []string{"crashed", "failed", "terminated"} {
+		if _, err := s.db.Exec(
+			`UPDATE sessions SET status='active' WHERE id=?`, ses.ID); err != nil {
+			t.Fatalf("reset for %s: %v", term, err)
+		}
+		status, body = doReq(t, s, token, http.MethodPatch,
+			"/v1/teams/"+defaultTeamID+"/agents/"+agentID,
+			map[string]any{"status": term})
+		if status != http.StatusNoContent {
+			t.Fatalf("patch %s: %d %s", term, status, body)
+		}
+		var sesStatus string
+		_ = s.db.QueryRow(
+			`SELECT status FROM sessions WHERE id = ?`, ses.ID).Scan(&sesStatus)
+		if sesStatus != "paused" {
+			t.Errorf("after %s: session status = %q; want paused", term, sesStatus)
+		}
 	}
 }
 
@@ -530,10 +523,13 @@ func TestSessions_Fork(t *testing.T) {
 	}
 }
 
-// Fork without agent_id falls back to the team's live steward when
-// one exists. With no live steward and no caller-provided agent_id,
-// fork returns 409.
-func TestSessions_ForkAutoStewardFallback(t *testing.T) {
+// Fork without agent_id ALWAYS lands unattached (status=paused,
+// current_agent_id NULL). Even when a live steward exists, fork
+// must not auto-attach: the running steward is bound to its own
+// active session, and double-binding would race events between
+// two sessions. The app drives a spawn or replace-into-session
+// after the fork to make it live.
+func TestSessions_ForkAlwaysUnattachedByDefault(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
 	if _, err := s.db.Exec(
@@ -545,7 +541,8 @@ func TestSessions_ForkAutoStewardFallback(t *testing.T) {
 	// Source session attached to that steward.
 	status, body := doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions",
-		map[string]any{"title": "src", "scope_kind": "team"})
+		map[string]any{"title": "src", "scope_kind": "team",
+			"agent_id": agentID})
 	if status != http.StatusCreated {
 		t.Fatalf("open: %s", body)
 	}
@@ -554,7 +551,8 @@ func TestSessions_ForkAutoStewardFallback(t *testing.T) {
 	doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/archive", nil)
 
-	// Fork with no agent_id → server picks the live steward.
+	// Fork with no agent_id — even though a live steward exists,
+	// the fork must come back unattached.
 	status, body = doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork", nil)
 	if status != http.StatusCreated {
@@ -563,8 +561,62 @@ func TestSessions_ForkAutoStewardFallback(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(body, &resp)
 	gotAgent, _ := resp["agent_id"].(string)
-	if gotAgent == "" {
-		t.Errorf("fork did not auto-resolve agent_id: %s", body)
+	if gotAgent != "" {
+		t.Errorf("fork agent_id = %q; want empty (no auto-attach)", gotAgent)
+	}
+	newID, _ := resp["session_id"].(string)
+	var st string
+	var curr sql.NullString
+	_ = s.db.QueryRow(
+		`SELECT status, current_agent_id FROM sessions WHERE id = ?`, newID,
+	).Scan(&st, &curr)
+	if st != "paused" {
+		t.Errorf("status = %q; want paused", st)
+	}
+	if curr.Valid && curr.String != "" {
+		t.Errorf("current_agent_id = %q; want NULL", curr.String)
+	}
+}
+
+// Explicit agent_id + the agent already owns an active session
+// returns 409. Protects the one-active-session-per-agent invariant
+// against an operator who hand-passes a busy steward.
+func TestSessions_ForkRejectsBusyAgent(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		agentID); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Source session attached, archive it.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "src", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open src: %s", body)
+	}
+	var src sessionOut
+	_ = json.Unmarshal(body, &src)
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/archive", nil)
+
+	// Open a SECOND active session pointing at the same agent (so
+	// the agent is "busy" with another conversation).
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "busy", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open busy: %s", body)
+	}
+
+	// Forking the archived source onto the same busy agent must 409.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork",
+		map[string]any{"agent_id": agentID})
+	if status != http.StatusConflict {
+		t.Errorf("fork busy: status=%d body=%s; want 409", status, body)
 	}
 }
 

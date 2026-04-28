@@ -125,8 +125,10 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
       }
       _liveStewardHandles = live;
     }
-    // Default handle: 'steward' if free, otherwise prompt the user to
-    // type a domain name (we leave it blank so they have to choose).
+    // Default name: 'steward' if free, otherwise leave blank so the
+    // user picks a domain (e.g. `research`, `infra`). The Name field
+    // is the user-facing label; the app appends `-steward`
+    // internally on submit via normalizeStewardHandle.
     _handleCtrl.text =
         _liveStewardHandles.contains('steward') ? '' : 'steward';
     _loadTemplates();
@@ -162,15 +164,16 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     }
   }
 
-  // Parse `steward.research.v1.yaml` → `research-steward` to seed the
-  // handle field when the user picks a domain template. Falls back to
-  // empty for anything that doesn't match the convention so we don't
-  // clobber a handle the user already typed.
+  // Parse `steward.research.v1.yaml` → `research` to seed the Name
+  // field when the user picks a domain template. Returns the bare
+  // name (no `-steward` suffix) since that's what the user types.
+  // Falls back to empty for anything that doesn't match the
+  // convention so we don't clobber a name the user already typed.
   String _suggestedHandleFor(String tpl) {
     final m = RegExp(r'^steward\.([a-z][a-z0-9-]*)\.v\d+\.yaml$')
         .firstMatch(tpl);
     if (m == null) return '';
-    return '${m.group(1)}-steward';
+    return m.group(1)!;
   }
 
   @override
@@ -181,16 +184,22 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   }
 
   Future<void> _spawn() async {
-    final handle = _handleCtrl.text.trim();
+    // The Name field accepts the bare domain (e.g. `research`); the
+    // app appends `-steward` before sending so the server sees the
+    // canonical handle. validateStewardHandle takes the normalized
+    // form so its `[a-z][a-z0-9-]*-steward` pattern still applies.
+    final raw = _handleCtrl.text.trim();
+    final handle = normalizeStewardHandle(raw);
     final handleErr = validateStewardHandle(handle);
     if (handleErr != null) {
       setState(() => _error = handleErr);
       return;
     }
     if (widget.sessionId == null && _liveStewardHandles.contains(handle)) {
+      final suggested = stewardLabel(_suggestNextHandle(handle));
       setState(() => _error =
-          'A live steward already owns the handle "$handle". '
-          'Pick a different one (e.g. ${_suggestNextHandle(handle)}).');
+          'A live steward already uses the name "${stewardLabel(handle)}". '
+          'Pick a different one (e.g. $suggested).');
       return;
     }
     setState(() {
@@ -276,9 +285,20 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
     final scheme = Theme.of(context).colorScheme;
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final canSpawn = widget.hosts.isNotEmpty && !_busy;
+    // Cap the sheet at ~85% of screen height and make its content
+    // scrollable. Without this, tall configurations (template +
+    // handle + host + backend + permission + persona seed) push the
+    // Start/Cancel row off the bottom of the sheet on phones, and
+    // the principal can't reach it. SafeArea handles top/bottom
+    // notches; viewInsets.bottom keeps the layout above the
+    // keyboard when the persona-seed field is focused.
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           child: Column(
@@ -294,7 +314,7 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                     child: Text(
                       widget.autoTriggered
                           ? 'Start your steward'
-                          : 'Spawn the team steward',
+                          : 'Spawn a steward',
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -310,9 +330,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
               ),
               const SizedBox(height: 12),
               Text(
-                'The steward is the one agent that speaks for the team in '
-                '#hub-meta. It takes delegations from you, files attention '
-                'items, and hands work out to project agents.',
+                'A steward is the agent you talk to. It takes your '
+                'directions in chat sessions, raises attention items '
+                'when it needs your call, and hands work out to project '
+                'agents. Teams can run several stewards in parallel '
+                '(one per domain — research, infra, …); each runs as '
+                'its own process and keeps its own conversation.',
                 style: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4),
               ),
               const SizedBox(height: 16),
@@ -354,20 +377,26 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                       if (v == null) return;
                       setState(() {
                         _templateName = v;
-                        // Auto-suggest a matching handle when the user
-                        // hasn't typed one yet (or hasn't customized
-                        // beyond a previous suggestion). Don't clobber
-                        // a hand-typed handle.
+                        // Auto-suggest a matching name (bare, no
+                        // `-steward` suffix) when the user hasn't
+                        // typed one yet, has just the default
+                        // `steward`, or has a prior suggestion in
+                        // place. Don't clobber a hand-typed name.
                         final suggest = _suggestedHandleFor(v);
                         if (suggest.isNotEmpty &&
                             (_handleCtrl.text.trim().isEmpty ||
                                 _handleCtrl.text.trim() == 'steward' ||
-                                _handleCtrl.text.trim()
-                                    .endsWith('-steward'))) {
+                                _stewardTemplates.any((t) =>
+                                    _suggestedHandleFor(t) ==
+                                    _handleCtrl.text.trim()))) {
                           // Only swap when the new suggestion would
-                          // actually be free; otherwise leave the field
-                          // alone and let the validator yell.
-                          if (!_liveStewardHandles.contains(suggest)) {
+                          // actually be free; otherwise leave the
+                          // field alone and let the validator yell.
+                          // _liveStewardHandles stores the canonical
+                          // form (`research-steward`); compare against
+                          // the normalized version of the suggestion.
+                          if (!_liveStewardHandles.contains(
+                              normalizeStewardHandle(suggest))) {
                             _handleCtrl.text = suggest;
                           }
                         }
@@ -387,12 +416,14 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                     controller: _handleCtrl,
                     enabled: !_busy,
                     decoration: InputDecoration(
-                      labelText: 'Handle',
-                      hintText: 'steward, research-steward, infra-steward, …',
+                      labelText: 'Name',
+                      hintText: 'steward, research, infra-east, …',
                       helperText: _templatesLoading
                           ? 'Loading templates…'
-                          : 'Lowercase + dashes ending in `-steward`. '
-                              'Plain "steward" is the default.',
+                          : 'Lowercase, digits, dashes. '
+                              'Must be unique among live stewards on '
+                              'this team — stopping a steward frees '
+                              'the name.',
                       border: const OutlineInputBorder(),
                     ),
                   ),
@@ -495,6 +526,8 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
               ),
             ],
           ),
+        ),
+        ),
         ),
       ),
     );

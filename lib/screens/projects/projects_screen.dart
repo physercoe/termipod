@@ -800,7 +800,7 @@ class _ProjectsTab extends ConsumerWidget {
           bottom: 16,
           child: FloatingActionButton.extended(
             heroTag: 'hub-projects-fab',
-            onPressed: () => _openCreateMenu(context, ref),
+            onPressed: () => _openCreateSheet(context, ref),
             tooltip: l10n.projectCreateFabTooltip,
             icon: const Icon(Icons.add),
             label: Text(l10n.projectCreateFabLabel),
@@ -926,34 +926,6 @@ class _ProjectsTab extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _openCreateMenu(BuildContext context, WidgetRef ref) async {
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.flag_outlined),
-              title: Text(l10n.newProject),
-              subtitle: Text(l10n.kindProjectHelper),
-              onTap: () => Navigator.of(ctx).pop('goal'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.all_inclusive),
-              title: Text(l10n.newWorkspace),
-              subtitle: Text(l10n.kindWorkspaceHelper),
-              onTap: () => Navigator.of(ctx).pop('standing'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (choice == null || !context.mounted) return;
-    await _openCreateSheet(context, ref, initialKind: choice);
   }
 
   Future<void> _openCreateSheet(

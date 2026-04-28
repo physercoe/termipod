@@ -273,14 +273,16 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
 	}
-	// W2-S3 interruption: when an agent flips to crashed or failed
-	// (not terminated — terminated is the user's explicit teardown),
-	// any open session pointing at it goes to "interrupted" so the
-	// session list shows a Resume affordance instead of just a dead
-	// row. The status flip is idempotent — repeated patches stay at
-	// paused until resume or archive.
+	// When an agent flips to a terminal status, the active session
+	// pointing at it has no live process to talk to and must auto-pause
+	// so the session list shows a Resume affordance instead of a dead
+	// row that still claims to be active. ADR-009 D6 / the mobile Stop
+	// session contract both depend on this — without the flip, the
+	// chat AppBar keeps offering Stop after the agent is already gone.
+	// The status flip is idempotent (the WHERE clause anchors to active),
+	// so repeated patches stay at paused until resume or archive.
 	if in.Status != nil &&
-		(*in.Status == "crashed" || *in.Status == "failed") {
+		(*in.Status == "terminated" || *in.Status == "crashed" || *in.Status == "failed") {
 		_, _ = s.db.ExecContext(r.Context(), `
 			UPDATE sessions
 			   SET status = 'paused', last_active_at = ?

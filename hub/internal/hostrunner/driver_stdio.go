@@ -163,6 +163,15 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		// codex driver that doesn't surface mcp_servers just leaves
 		// the field absent and that section absents itself.
 		sub, _ := frame["subtype"].(string)
+		// Recent claude-code SDK versions wrap rate_limit_event under
+		// type=system,subtype=rate_limit_event instead of emitting it
+		// as a bare top-level type. Fall through to the same handler
+		// so the telemetry strip keeps lighting up regardless of which
+		// shape the spawned agent uses.
+		if sub == "rate_limit_event" {
+			d.translateRateLimit(ctx, frame)
+			return
+		}
 		if sub == "init" {
 			payload := map[string]any{
 				"session_id":      frame["session_id"],
@@ -255,20 +264,7 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		}
 
 	case "rate_limit_event":
-		// Window naming differs across claude-code versions — accept
-		// rateLimitType (camelCase) and rate_limit_type (snake_case)
-		// and normalize to "5h" / "1h" so mobile doesn't branch.
-		win, _ := firstNonNil(frame["rateLimitType"], frame["rate_limit_type"]).(string)
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "rate_limit", "agent",
-			map[string]any{
-				"window":           win,
-				"status":           frame["status"],
-				"resets_at":        firstNonNil(frame["resetsAt"], frame["resets_at"]),
-				"overage_status":   firstNonNil(frame["overageStatus"], frame["overage_status"]),
-				"overage_disabled": firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]) != nil,
-				"is_using_overage": firstNonNil(frame["isUsingOverage"], frame["is_using_overage"]),
-				"reason":           firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]),
-			})
+		d.translateRateLimit(ctx, frame)
 
 	case "result":
 		// turn.result is the canonical kind. We also emit "completion"
@@ -286,6 +282,26 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 		// Unknown frame type — forward verbatim so the app can decide.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", frame)
 	}
+}
+
+// translateRateLimit handles both shapes claude-code has shipped for
+// the rate-limit signal: top-level `type=rate_limit_event` (older
+// SDKs) and `type=system,subtype=rate_limit_event` (current). Window
+// naming also differs across versions — accept rateLimitType
+// (camelCase) and rate_limit_type (snake_case) and normalize to "5h"
+// / "1h" so mobile doesn't branch.
+func (d *StdioDriver) translateRateLimit(ctx context.Context, frame map[string]any) {
+	win, _ := firstNonNil(frame["rateLimitType"], frame["rate_limit_type"]).(string)
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "rate_limit", "agent",
+		map[string]any{
+			"window":           win,
+			"status":           frame["status"],
+			"resets_at":        firstNonNil(frame["resetsAt"], frame["resets_at"]),
+			"overage_status":   firstNonNil(frame["overageStatus"], frame["overage_status"]),
+			"overage_disabled": firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]) != nil,
+			"is_using_overage": firstNonNil(frame["isUsingOverage"], frame["is_using_overage"]),
+			"reason":           firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]),
+		})
 }
 
 // normalizeTurnResult lifts claude's `result` frame into the canonical

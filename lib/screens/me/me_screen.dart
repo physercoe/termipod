@@ -9,15 +9,16 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/notes_provider.dart';
+import '../../providers/sessions_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/notes/notes_db.dart';
+import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
-import '../projects/project_detail_screen.dart';
 import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
@@ -27,7 +28,11 @@ import 'note_editor_screen.dart';
 /// Me tab — Tier-0 default landing per `docs/ia-redesign.md` §6.1.
 ///
 /// Sections, top-down:
-///   - My Work — horizontal strip of recent projects (tap → ProjectDetail).
+///   - Active sessions — horizontal strip of in-flight sessions
+///     (tap → SessionChatScreen). Replaces the prior "My work"
+///     project strip; sessions are what the principal is actually
+///     in the middle of, and the Projects tab already covers the
+///     full project list for navigation.
 ///   - Attention — open attention items assigned to or relevant to me,
 ///     filterable by kind.
 ///
@@ -51,10 +56,11 @@ class MeScreen extends ConsumerWidget {
 
     final hubState = hub.value ?? const HubState();
     final items = _buildItems(hubState.attention);
-    final projects = _recentProjects(hubState.projects);
     final filter = ref.watch(_filterProvider);
     final filtered = items.where(filter.matches).toList();
     final audit = ref.watch(recentAuditProvider);
+    final sessionsState = ref.watch(sessionsProvider).value;
+    final activeSessions = _activeSessions(sessionsState);
 
     return Scaffold(
       // Per docs/ia-redesign.md §8 forbidden pattern #15 + W2-S3:
@@ -130,9 +136,13 @@ class MeScreen extends ConsumerWidget {
               ],
             ),
             const SliverToBoxAdapter(child: _NotesSection()),
-            if (projects.isNotEmpty)
+            if (activeSessions.isNotEmpty)
               SliverToBoxAdapter(
-                child: _MyWorkStrip(projects: projects),
+                child: _ActiveSessionsStrip(
+                  sessions: activeSessions,
+                  agents: hubState.agents,
+                  projects: hubState.projects,
+                ),
               ),
             SliverToBoxAdapter(
               child: _SectionLabel(
@@ -192,19 +202,29 @@ class MeScreen extends ConsumerWidget {
     return out;
   }
 
-  /// Most-recent projects for the "My Work" strip. Cap at 6 so the strip
-  /// fits one horizontal flick; full list still reachable from the Projects
-  /// tab.
-  List<Map<String, dynamic>> _recentProjects(
-      List<Map<String, dynamic>> projects) {
-    if (projects.isEmpty) return const [];
-    final sorted = [...projects];
-    sorted.sort((a, b) {
-      final ta = (a['updated_at'] ?? a['created_at'] ?? '').toString();
-      final tb = (b['updated_at'] ?? b['created_at'] ?? '').toString();
+  /// Active sessions for the strip — only `status='active'`, sorted
+  /// by `last_active_at` desc. Capped at 6 so the strip fits one
+  /// horizontal flick; the full list (including paused/archived) is
+  /// reachable via the Sessions icon in the AppBar.
+  ///
+  /// Tolerates the legacy status string `open` during the brief
+  /// rollout window between hub/app updates (ADR-009).
+  List<Map<String, dynamic>> _activeSessions(SessionsState? state) {
+    if (state == null || state.active.isEmpty) return const [];
+    final live = <Map<String, dynamic>>[
+      for (final s in state.active)
+        if ((s['status'] ?? '').toString() == 'active' ||
+            (s['status'] ?? '').toString() == 'open')
+          s,
+    ];
+    live.sort((a, b) {
+      final ta =
+          (a['last_active_at'] ?? a['opened_at'] ?? '').toString();
+      final tb =
+          (b['last_active_at'] ?? b['opened_at'] ?? '').toString();
       return tb.compareTo(ta);
     });
-    return sorted.take(6).toList();
+    return live.take(6).toList();
   }
 
   Map<_Filter, int> _countsByFilter(List<_MeItem> items) {
@@ -1099,9 +1119,55 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _MyWorkStrip extends StatelessWidget {
+/// Horizontal strip of in-flight sessions on the Me page. Each tile
+/// surfaces the session title, scope (general / project: <name> /
+/// attention), and the steward handle the session is bound to. Tap
+/// pushes [SessionChatScreen] for direct entry.
+///
+/// Replaced the prior "My work" project strip: sessions are what
+/// the principal is actively in the middle of, and the Projects tab
+/// already owns the project-list navigation.
+class _ActiveSessionsStrip extends StatelessWidget {
+  final List<Map<String, dynamic>> sessions;
+  final List<Map<String, dynamic>> agents;
   final List<Map<String, dynamic>> projects;
-  const _MyWorkStrip({required this.projects});
+  const _ActiveSessionsStrip({
+    required this.sessions,
+    required this.agents,
+    required this.projects,
+  });
+
+  String _scopeLabel(Map<String, dynamic> s) {
+    final kind = (s['scope_kind'] ?? '').toString();
+    final id = (s['scope_id'] ?? '').toString();
+    switch (kind) {
+      case 'project':
+        for (final p in projects) {
+          if ((p['id'] ?? '').toString() == id) {
+            final name =
+                (p['name'] ?? p['title'] ?? '').toString();
+            return name.isEmpty ? 'Project' : 'Project: $name';
+          }
+        }
+        return 'Project';
+      case 'attention':
+        return 'Approving';
+      case 'team':
+      case '':
+        return 'General';
+      default:
+        return kind;
+    }
+  }
+
+  String _stewardName(String agentId) {
+    if (agentId.isEmpty) return '(no steward)';
+    for (final a in agents) {
+      if ((a['id'] ?? '').toString() != agentId) continue;
+      return stewardLabel((a['handle'] ?? '').toString());
+    }
+    return '';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1116,27 +1182,36 @@ class _MyWorkStrip extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SectionLabel(text: l10n.meMyWorkSection),
+        _SectionLabel(text: l10n.meActiveSessionsSection),
         SizedBox(
-          height: 76,
+          height: 92,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            itemCount: projects.length,
+            itemCount: sessions.length,
             separatorBuilder: (_, __) => const SizedBox(width: 8),
             itemBuilder: (ctx, i) {
-              final p = projects[i];
-              final name = p['name']?.toString() ?? '?';
-              final status = p['status']?.toString() ?? '';
+              final s = sessions[i];
+              final id = (s['id'] ?? '').toString();
+              final agentId = (s['current_agent_id'] ?? '').toString();
+              final rawTitle = (s['title'] ?? '').toString();
+              final title =
+                  rawTitle.isEmpty ? '(untitled session)' : rawTitle;
+              final scope = _scopeLabel(s);
+              final steward = _stewardName(agentId);
               return InkWell(
                 onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
-                  builder: (_) => ProjectDetailScreen(project: p),
+                  builder: (_) => SessionChatScreen(
+                    sessionId: id,
+                    agentId: agentId,
+                    title: title,
+                  ),
                 )),
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
-                  width: 160,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  width: 200,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: bg,
                     borderRadius: BorderRadius.circular(10),
@@ -1147,7 +1222,7 @@ class _MyWorkStrip extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        name,
+                        title,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.spaceGrotesk(
@@ -1155,14 +1230,30 @@ class _MyWorkStrip extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      if (status.isNotEmpty)
-                        Text(
-                          status,
-                          style: GoogleFonts.jetBrainsMono(
-                            fontSize: 10,
-                            color: muted,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            scope,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 10,
+                              color: muted,
+                            ),
                           ),
-                        ),
+                          if (steward.isNotEmpty)
+                            Text(
+                              '· $steward',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: muted,
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                 ),

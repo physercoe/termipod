@@ -209,7 +209,17 @@ List<_StewardGroup> _groupByStateward(
       }
     }
     groups.add(_StewardGroup(
-      agent: const {'handle': '(no live steward)', 'kind': '', 'status': ''},
+      // Sessions whose original steward agent was archived /
+      // terminated outside of this UI, or never resolved (cache lag).
+      // The bucket is informational — these sessions are still
+      // openable for reading history; forking them spawns a fresh
+      // steward into a continuation session via the unattached-fork
+      // path.
+      agent: const {
+        'handle': 'Detached sessions',
+        'kind': '',
+        'status': '',
+      },
       current: current,
       previous: previous,
     ));
@@ -478,7 +488,10 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
     BuildContext context,
     String current,
   ) async {
-    final ctrl = TextEditingController(text: current);
+    // Show the bare name (no `-steward` suffix) so the rename
+    // dialog matches the spawn-steward sheet's UX. The app
+    // re-attaches the suffix on save via normalizeStewardHandle.
+    final ctrl = TextEditingController(text: stewardLabel(current));
     try {
       return await showDialog<String?>(
         context: context,
@@ -488,9 +501,11 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
             controller: ctrl,
             autofocus: true,
             decoration: const InputDecoration(
-              hintText: 'steward, research-steward, infra-steward, …',
+              labelText: 'Name',
+              hintText: 'steward, research, infra-east, …',
             ),
-            onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+            onSubmitted: (v) =>
+                Navigator.pop(ctx, normalizeStewardHandle(v.trim())),
           ),
           actions: [
             TextButton(
@@ -499,7 +514,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
             ),
             FilledButton(
               onPressed: () {
-                final v = ctrl.text.trim();
+                final v = normalizeStewardHandle(ctrl.text.trim());
                 final err = validateStewardHandle(v);
                 if (err != null) {
                   ScaffoldMessenger.of(ctx).showSnackBar(
@@ -592,6 +607,15 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                                 if (group.status.isNotEmpty) group.status,
                               ].join(' · '),
                               style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: muted,
+                              ),
+                            )
+                          else
+                            Text(
+                              'Original steward gone — open to read, '
+                              'fork to continue with a fresh one',
+                              style: GoogleFonts.spaceGrotesk(
                                 fontSize: 10,
                                 color: muted,
                               ),
@@ -1299,8 +1323,13 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   }
 
   /// Forks the archived session (ADR-009 D4): server creates a new
-  /// active session with the same scope, attached to the team's live
-  /// steward. Navigates into the new session's chat on success.
+  /// session with the same scope. When a live steward exists, the
+  /// fork is attached to it (status=active) and we navigate into the
+  /// chat. When none exists, the fork comes back unattached
+  /// (agent_id empty, status=paused) — we open the spawn-steward
+  /// sheet so the user can drive a steward into the new session.
+  /// Either way, the user ends up with a working continuation
+  /// without seeing a misleading "no live steward" error.
   Future<void> _forkSession() async {
     try {
       final out = await ref
@@ -1310,7 +1339,51 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       final newSessionId = (out['session_id'] ?? '').toString();
       final newAgentId = (out['agent_id'] ?? '').toString();
       final title = (out['title'] ?? '').toString();
-      if (newSessionId.isEmpty || newAgentId.isEmpty) return;
+      if (newSessionId.isEmpty) return;
+      if (newAgentId.isEmpty) {
+        // Unattached fork: route through the spawn-steward sheet
+        // bound to this new session id. The sheet's session-swap
+        // path (sessionId != null) atomically spawns the steward
+        // and points the session at it; on close we refresh and
+        // navigate into the chat with the freshly-resolved agent.
+        final hub = ref.read(hubProvider).value;
+        if (hub == null) return;
+        await showSpawnStewardSheet(
+          context,
+          hosts: hub.hosts,
+          sessionId: newSessionId,
+        );
+        if (!mounted) return;
+        await ref.read(hubProvider.notifier).refreshAll();
+        await ref.read(sessionsProvider.notifier).refresh();
+        if (!mounted) return;
+        // Resolve the agent the spawn sheet attached. If the user
+        // dismissed the sheet without spawning, current_agent_id
+        // stays NULL — bail out silently; the paused fork is
+        // visible on the Sessions list and they can finish the
+        // attach later.
+        final fresh = ref.read(sessionsProvider).value;
+        String? attachedAgent;
+        if (fresh != null) {
+          for (final s in [...fresh.active, ...fresh.previous]) {
+            if ((s['id'] ?? '').toString() != newSessionId) continue;
+            final a = (s['current_agent_id'] ?? '').toString();
+            if (a.isNotEmpty) attachedAgent = a;
+            break;
+          }
+        }
+        if (attachedAgent == null) return;
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => SessionChatScreen(
+              sessionId: newSessionId,
+              agentId: attachedAgent!,
+              title: title.isEmpty ? 'Forked session' : title,
+            ),
+          ),
+        );
+        return;
+      }
       // Replace the current archived chat with the fresh fork; users
       // who want to refer back can navigate via the sessions list.
       await Navigator.of(context).pushReplacement(

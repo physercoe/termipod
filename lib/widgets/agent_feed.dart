@@ -131,13 +131,25 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // pager — _maybeLoadOlder dedupes against in-flight fetches and the
   // _atHead flag, so the listener can fire as often as the gesture
   // wants without piling up requests.
+  // Latest scroll progress in 0..100. Refreshed on every scroll tick;
+  // the jump-to-tail pill renders this so users have a sense of where
+  // they are in long sessions ("3% — top of the loaded transcript",
+  // "82% — almost back at tail").
+  int _scrollPercent = 100;
+
   void _onScroll() {
     if (!_scroll.hasClients) return;
     final atBottom = _scroll.position.pixels >=
         _scroll.position.maxScrollExtent - 40;
-    if (_followTail != atBottom) {
+    final maxExt = _scroll.position.maxScrollExtent;
+    final pct = maxExt <= 0
+        ? 100
+        : ((_scroll.position.pixels / maxExt) * 100).clamp(0, 100).round();
+    final percentChanged = pct != _scrollPercent;
+    if (_followTail != atBottom || percentChanged) {
       setState(() {
         _followTail = atBottom;
+        _scrollPercent = pct;
         // Returning to the tail clears the pending-event counter; the
         // pill disappears on the same frame.
         if (atBottom) _newWhileAway = 0;
@@ -629,7 +641,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                     ),
                   ),
                 ),
-              if (!_followTail && _newWhileAway > 0)
+              if (!_followTail)
                 Positioned(
                   left: 0,
                   right: 0,
@@ -637,6 +649,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                   child: Center(
                     child: _NewEventsPill(
                       count: _newWhileAway,
+                      scrollPercent: _scrollPercent,
                       onTap: _jumpToLatest,
                     ),
                   ),
@@ -1451,12 +1464,25 @@ class _SelectionCardState extends ConsumerState<_SelectionCard> {
 }
 
 class _NewEventsPill extends StatelessWidget {
+  // Number of events that arrived while scrolled away from tail. 0
+  // when the user is just reading history with no new traffic — the
+  // pill still renders as a plain jump-to-tail control so they can
+  // snap back without scrolling manually.
   final int count;
+  // Current scroll position as a 0..100 percent so the pill doubles
+  // as a position indicator. Helpful in long sessions where "where am
+  // I?" is non-obvious from row count alone.
+  final int scrollPercent;
   final VoidCallback onTap;
-  const _NewEventsPill({required this.count, required this.onTap});
+  const _NewEventsPill({
+    required this.count,
+    required this.scrollPercent,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final label = count > 0 ? '$count new · $scrollPercent%' : '$scrollPercent%';
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1480,7 +1506,7 @@ class _NewEventsPill extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '$count new',
+                label,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1611,6 +1637,8 @@ class AgentEventCard extends StatelessWidget {
         return _inputCancelBody(ctx, payload);
       case 'input.approval':
         return _inputApprovalBody(ctx, payload);
+      case 'system':
+        return _systemBody(ctx, payload);
       default:
         // Any other hub-side kinds — render their text field when present,
         // fall back to pretty JSON otherwise.
@@ -1646,6 +1674,56 @@ class AgentEventCard extends StatelessWidget {
         if (reqId.isNotEmpty) _kv(ctx, 'request_id', reqId),
       ],
     );
+  }
+
+  // Compact renderer for non-init `system` frames. claude-code emits
+  // these for sub-agent state (task_started / task_updated /
+  // task_notification — shape: {subtype, task_id, ...}) and for the
+  // occasional engine-level message. Without this case the default
+  // branch dumped the full frame JSON, which dominated the transcript
+  // every time the agent backgrounded a task. Render a one-liner per
+  // frame; fall back to pretty JSON for subtypes we don't model.
+  Widget _systemBody(BuildContext ctx, Map<String, dynamic> p) {
+    final subtype = (p['subtype'] ?? '').toString();
+    final taskId = (p['task_id'] ?? '').toString();
+    String? line;
+    switch (subtype) {
+      case 'task_started':
+        // claude usually carries the spawned subagent's name + initial
+        // prompt; show whichever is present without pretending a
+        // structure we may not have.
+        final name = (p['agent'] ?? p['name'] ?? '').toString();
+        final desc = (p['description'] ?? p['prompt'] ?? '').toString();
+        final head = name.isEmpty ? 'Task started' : 'Task started · $name';
+        line = desc.isEmpty ? head : '$head — $desc';
+        break;
+      case 'task_updated':
+        // Surface the patch keys so the user sees *what* changed without
+        // dumping the whole envelope (uuid, session_id, parent_uuid).
+        final patch = p['patch'];
+        if (patch is Map && patch.isNotEmpty) {
+          final pairs = patch.entries
+              .map((e) => '${e.key}=${e.value}')
+              .join(', ');
+          line = 'Task updated · $pairs';
+        } else {
+          line = 'Task updated';
+        }
+        break;
+      case 'task_notification':
+        final msg = (p['message'] ?? p['text'] ?? p['notification'] ?? '').toString();
+        line = msg.isEmpty ? 'Task notification' : 'Task: $msg';
+        break;
+    }
+    if (line != null) {
+      final suffix = taskId.isEmpty ? '' : '  ·  $taskId';
+      return _mono(ctx, '$line$suffix');
+    }
+    // Unknown subtype — keep the legacy JSON dump so nothing is silently
+    // hidden, but tag the subtype on top so the user can spot the kind.
+    final t = p['text']?.toString();
+    if (t != null && t.isNotEmpty) return _textBody(ctx, t);
+    return _textBody(ctx, _jsonPretty(p));
   }
 
   Widget _lifecycleBody(BuildContext ctx, Map<String, dynamic> p) {
@@ -1709,61 +1787,19 @@ class AgentEventCard extends StatelessWidget {
         }
       }
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _toolNameRow(ctx, name, status),
-        if (id.isNotEmpty) _kv(ctx, 'id', id),
-        if (input != null) _CollapsibleMono(text: _jsonPretty(input)),
-        if (preview != null && preview.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: _CollapsibleMono(text: preview),
-          ),
-        if (hasResult)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: _ToolResultInline(
-              payload: resultPayload,
-              isError: resultIsError,
-            ),
-          ),
-      ],
-    );
-  }
-
-  // Tool name + per-tool icon + status pill, all on one row. Replaces
-  // the previous two `_kv` rows ("tool: Bash" / "status: pending") so
-  // the most-watched signals (which tool? where in its lifecycle?) are
-  // legible at a glance.
-  Widget _toolNameRow(BuildContext ctx, String name, String status) {
-    final isDark = Theme.of(ctx).brightness == Brightness.dark;
-    final muted = isDark
-        ? DesignColors.textMuted
-        : DesignColors.textMutedLight;
-    final fg = isDark
-        ? DesignColors.textPrimary
-        : DesignColors.textPrimaryLight;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Icon(toolIconFor(name), size: 14, color: muted),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              name,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: fg,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (status.isNotEmpty) _StatusPill(status: status),
-        ],
-      ),
+    return _FoldableToolCall(
+      // Stable identity so toggling fold state survives card rebuilds
+      // when new events stream in or the parent setState fires. Without
+      // a key the widget would replay its initial _expanded value on
+      // every rebuild.
+      key: id.isNotEmpty ? ValueKey('tool-fold-$id') : null,
+      name: name,
+      status: status,
+      toolId: id,
+      input: input,
+      preview: preview,
+      resultPayload: resultPayload,
+      resultIsError: resultIsError,
     );
   }
 
@@ -2624,6 +2660,146 @@ class _CollapsibleMonoState extends State<_CollapsibleMono> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Tool-call card body with a manual fold control. The body is
+/// expanded by default — this matches the prior behavior so the user
+/// doesn't lose at-a-glance context — but the user can tap the
+/// chevron in the name row to collapse the card down to just the
+/// tool name + status pill. Useful for noisy multi-step calls where
+/// the input or result body is mostly screen-filling JSON.
+class _FoldableToolCall extends StatefulWidget {
+  final String name;
+  final String status;
+  final String toolId;
+  final Object? input;
+  final String? preview;
+  final Map<String, dynamic>? resultPayload;
+  final bool resultIsError;
+  const _FoldableToolCall({
+    super.key,
+    required this.name,
+    required this.status,
+    required this.toolId,
+    required this.input,
+    required this.preview,
+    required this.resultPayload,
+    required this.resultIsError,
+  });
+
+  @override
+  State<_FoldableToolCall> createState() => _FoldableToolCallState();
+}
+
+class _FoldableToolCallState extends State<_FoldableToolCall> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final hasResult = widget.resultPayload != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            children: [
+              Icon(AgentEventCard.toolIconFor(widget.name), size: 14, color: muted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  widget.name,
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (widget.status.isNotEmpty) _StatusPill(status: widget.status),
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: () => setState(() => _expanded = !_expanded),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 16,
+                    color: muted,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (_expanded) ...[
+          if (widget.toolId.isNotEmpty)
+            _ToolKvLine(label: 'id', value: widget.toolId),
+          if (widget.input != null)
+            _CollapsibleMono(text: AgentEventCard._jsonPretty(widget.input)),
+          if (widget.preview != null && widget.preview!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: _CollapsibleMono(text: widget.preview!),
+            ),
+          if (hasResult)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _ToolResultInline(
+                payload: widget.resultPayload!,
+                isError: widget.resultIsError,
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A single label:value line for the foldable tool-call header. Mirrors
+/// the parent card's `_kv` formatting without depending on its private
+/// instance method.
+class _ToolKvLine extends StatelessWidget {
+  final String label;
+  final String value;
+  const _ToolKvLine({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final fg = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: RichText(
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: '$label: ',
+              style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+            ),
+            TextSpan(
+              text: value,
+              style: GoogleFonts.jetBrainsMono(fontSize: 11, color: fg),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

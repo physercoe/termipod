@@ -73,13 +73,19 @@ func startEgressProxy(ctx context.Context, addr, upstreamURL string, log *slog.L
 	// stream. The same setting is fine for short JSON responses; the
 	// extra flushes are a no-op on small bodies.
 	rp.FlushInterval = -1
-	// The default Director sets Host to the upstream's. We keep that
-	// behavior so the hub sees the same Host header it would from a
-	// direct client. Authorization, cookies, and everything else flow
-	// through unmodified.
+	// NewSingleHostReverseProxy's default Director rewrites
+	// req.URL.{Scheme,Host} but leaves req.Host alone. Go's transport
+	// uses req.Host for the outbound Host: header when it's set, so
+	// without overriding it the proxy forwards the agent's local
+	// "127.0.0.1:41825" Host upstream — which Cloudflare-fronted hubs
+	// reject with 403 because that hostname isn't a known CF zone.
+	// Force req.Host to upstream.Host so the upstream (and any CDN in
+	// front of it) sees the right zone. Authorization, cookies, and
+	// everything else flow through unmodified.
 	directorOrig := rp.Director
 	rp.Director = func(req *http.Request) {
 		directorOrig(req)
+		req.Host = upstream.Host
 		// X-Forwarded-* lets the hub log "this came from the egress
 		// proxy on host X" if it ever needs to disambiguate. Not used
 		// today; cheap to set so future debugging is easier.

@@ -1,9 +1,23 @@
-# Test guide: Single-Agent Demo wedge
+# Single-agent demo — test guide
 
-> **Companion to:** [single-agent-demo.md](single-agent-demo.md)
-> **Audience:** the human verifying the wedge — this doc walks you
-> through what to do with your hands, what to expect on screen, and
-> what "broken" looks like for each acceptance criterion.
+> **Type:** plan
+> **Status:** Proposed (companion to `single-agent-demo.md`; same status — largely subsumed by shipped steward-session work)
+> **Audience:** operators
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Manual integration test that walks the
+single-agent-demo.md wedge end-to-end: what to do with your hands,
+what to expect on screen, what "broken" looks like per acceptance
+criterion. Crosses four processes (mobile, hub, host-runner, claude)
+so the interesting bugs show at the seams — drive it to find them.
+
+If you want to test the doc itself (is the plan internally consistent
+and complete enough to act on?), read §0 Doc-review checklist at the
+bottom and skip the rest.
+
+**Companion to:** [`single-agent-demo.md`](single-agent-demo.md)
+
+---
 
 This is a manual integration test, not a unit-test plan. The wedge
 crosses four processes (mobile, hub, host-runner, claude) and the

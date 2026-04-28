@@ -1,7 +1,16 @@
-# Multi-steward — design proposal
+# Multi-steward
 
-Status: **draft, not started**. Discussion-first per the user's "think
-comprehensively before code" direction.
+> **Type:** plan
+> **Status:** In flight (wedges 1+2 shipped v1.0.290–291; wedge 3 deferred)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Design + execution plan for multi-steward support. Wedge
+1 (handle suffix convention `*-steward`) and wedge 2 (domain
+templates: `steward.research`, `steward.infra`) shipped in v1.0.290–
+291. Wedge 3 (per-member stewards) is deferred per
+`../decisions/004-single-steward-mvp.md` — unscheduled until a
+second user shows up.
 
 Asks the user explicitly raised that this design has to answer:
 

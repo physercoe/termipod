@@ -1,9 +1,15 @@
-# Wedge memo: Transcript / approvals / quick-actions UX
+# Transcript / approvals / quick-actions UX — competitive scan
 
-> **Status: DRAFT**, derived from a competitive scan run 2026-04-26.
-> Part of the Part-1 follow-up after `sessions.md` deferred
-> implementation. Do not code from this yet — it's the input to a
-> design discussion, not the spec itself.
+> **Type:** discussion
+> **Status:** Resolved (informed `../plans/steward-ux-fixes.md` Issue 4 W-UI-1..4 + the v1.0.299 polish slice)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Competitive scan of Happy / claudecode-remote / Cursor
+mobile etc. (2026-04-26) for transcript / approvals / quick-actions
+UX patterns. Findings fed the W-UI sub-wedges in
+`../plans/steward-ux-fixes.md` Issue 4, which shipped across
+v1.0.281–v1.0.300. Kept as the audit trail.
 
 ## Why this memo exists
 

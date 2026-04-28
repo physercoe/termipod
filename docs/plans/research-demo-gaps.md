@@ -1,14 +1,24 @@
-# Research-Demo Gaps
+# Research-demo gaps
 
-The MVP (`../spine/blueprint.md` §9 Phase 4) is the end-to-end **research demo**:
+> **Type:** plan
+> **Status:** In flight (P0–P3 shipped; P4 backend feature-complete; hardware run remaining)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** The detailed P4 demo tracker. Pairs with `../roadmap.md` —
+roadmap is the high-level Now/Next/Later view; this doc is the
+demo-scoped delta of what's shipped vs what's needed. Locked target
+is Candidate A per `../decisions/001-locked-candidate-a.md`.
+
+The MVP (`../spine/blueprint.md` §9 Phase 4) is the end-to-end research demo:
 
 > user writes a directive → steward decomposes → fleet executes runs across
 > hosts → briefing agent summarizes overnight → user reviews on phone
 
-Everything in this document is scoped against that demo. Items here are the
-delta between *what's shipped* and *what a user needs to run the demo from
-their phone end-to-end*. If a feature doesn't advance this demo, it belongs
-in `../spine/blueprint.md` §10 (Non-goals) or gets deferred — not listed here.
+Everything here is scoped against that demo. Items are the delta
+between *what's shipped* and *what a user needs to run the demo from
+their phone end-to-end*. If a feature doesn't advance this demo, it
+belongs in `../spine/blueprint.md` §10 (Non-goals) or gets deferred.
 
 ## Status
 

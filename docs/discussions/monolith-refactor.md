@@ -1,8 +1,16 @@
-# Monolith refactor plan — terminal_screen, hub_client, 1k-LOC screens
+# Monolith refactor — terminal_screen, hub_client, 1k-LOC screens
 
-**Status:** Planning doc, post-demo. Tech-debt items #1, #2, #4 from
-internal audit (2026-04-25). Goal: shrink the four largest seams in the
-codebase without changing user-facing behavior.
+> **Type:** discussion
+> **Status:** Open (post-demo — gated on Candidate-A hardware run)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Tech-debt sketch for the four largest files in the
+codebase (`terminal_screen.dart`, `hub_client.dart`, two ~1k-LOC
+screens). Deferred until after the P4 demo: pre-demo, a behavioral
+regression in these files would be catastrophic; post-demo, the
+refactor can fail safely. Goal is to shrink the seams without
+changing user-facing behavior.
 
 **Why now is also why later:** these files block contributor velocity and
 hide bugs, but they don't block the P4 research demo. Sequencing this

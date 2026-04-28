@@ -1,4 +1,17 @@
-# Working Panes
+# Working panes (legacy)
+
+> **Type:** archive
+> **Status:** Archived (frozen — phase 2 worktree status table from MuxPod era)
+> **Audience:** archaeologists only
+> **Last verified vs code:** pre-rebrand
+
+**TL;DR.** Working notes from the MuxPod phase-2 development push:
+which worktree was driven by which Claude pane on which tmux
+session. Of historical interest only — the current architecture
+doesn't use this pane↔worktree binding; agents live in spawn
+records (`agents` table) and host-runner manages worktrees.
+
+---
 
 | 役割 | ターミナル | ID | エージェント | worktree | 状態 |
 |------|-----------|-----|-------------|----------|------|

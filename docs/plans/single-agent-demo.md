@@ -1,8 +1,19 @@
-# Wedge: Single-Agent Demo (claude-only v1)
+# Single-agent demo (claude-only v1)
 
-> **Status:** proposed · **Owner:** physercoe · **Estimate:** ~3.75 dev-days
-> **Parent:** [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md) §11.1 (B1–B5 single-agent path)
-> **Demo lineage:** demo-choice-locked (nanoGPT-Shakespeare) · supersedes nothing
+> **Type:** plan
+> **Status:** Proposed (originally a wedge; predates the v1.0.290+ multi-steward + orchestrator-worker work which delivered the more comprehensive path)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Original "smallest testable path" wedge: user → mobile app
+→ one host → one steward running `claude` in a tmux pane, talking
+back through a chat-like channel surface. Largely subsumed by the
+shipped steward-session work (v1.0.280–v1.0.300+); kept here as a
+reference for the single-agent contract.
+
+**Parent:** `../spine/agent-lifecycle.md` §11.1 (B1–B5 single-agent path)
+**Demo lineage:** Candidate A (`../decisions/001-locked-candidate-a.md`)
+**Original estimate:** ~3.75 dev-days
 
 ## Goal
 

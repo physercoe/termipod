@@ -1,9 +1,19 @@
-# Mobile UX Audit — Steward-CEO Lens (2026-04-23)
+# Mobile UX audit — steward-CEO lens
 
-Read-only audit of every mobile screen vs the shipped MCP tool set as of
-v1.0.151. Applied together: user = owner/principal (ratifies
-ownership-level calls); steward = CEO-class operator (default authority
-over every system surface).
+> **Type:** discussion
+> **Status:** Resolved (audit completed 2026-04-23; queue of identified gaps closed across v1.0.151–v1.0.156, see ADR-005)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Read-only audit of every mobile screen vs the shipped MCP
+tool set as of v1.0.151. Lens: user = owner/principal (ratifies
+ownership-level calls); steward = CEO-class operator (default
+authority over every system surface). The audit produced ADR-005
+(`../decisions/005-owner-authority-model.md`) and a queue of MCP
+gaps that closed v1.0.151–v1.0.156.
+
+A mobile CRUD screen whose primary action has **no steward-callable
+MCP tool** is an **infra gap**, not an intentional boundary.
 
 A mobile CRUD screen whose primary action has **no steward-callable MCP
 tool** is an **infra gap**, not an intentional boundary. This document

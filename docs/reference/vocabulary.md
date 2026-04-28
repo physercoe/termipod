@@ -1,8 +1,18 @@
-# Vocab audit — theme-pack groundwork
+# Vocabulary
 
-**Status:** Reference doc, not a build spec. The theme-pack feature itself
-is deferred to post-demo (see `../plans/research-demo-gaps.md`); this file is the
-artifact that survives until then so that:
+> **Type:** reference
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** The role-bound vocabulary axes used across the app, with
+21 named axes and 4 theme presets. Foundation for a future
+per-team/per-pack vocab overlay (post-MVP per
+`../discussions/post-mvp-domain-packs.md`). New role-bound strings
+land here axis-tagged from day one so the eventual swap is a rename,
+not a rewrite.
+
+The artifact survives until the theme-pack feature ships, so that:
 
 1. New strings land in the correct axis from day one (no retroactive
    sweep).

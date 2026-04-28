@@ -1,15 +1,23 @@
-# Termipod Hub — Agent Spawning
+# Hub agents — spawning reference
 
-How to spawn an **agent** — a backend CLI process (claude-code, codex,
-…) running in a tmux pane on a registered host. Covers the four paths
-that land a row in the `agents` table: mobile, REST, MCP bridge, and
-scheduler.
+> **Type:** reference
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors, operators
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** How to spawn an agent — a backend CLI process
+(claude-code, codex, …) running in a tmux pane on a registered host.
+Covers the four paths that land a row in the `agents` table: mobile,
+REST, MCP bridge, and scheduler. Reference for the spawn surface,
+not a runbook.
+
+---
 
 ## 1. Preconditions
 
 - A hub (`hub-server serve`) reachable from both the mobile / CLI
   caller and the host that will run the agent.
-- At least one **host** registered — see `docs/install-host-runner.md`.
+- At least one **host** registered — see `../how-to/install-host-runner.md`.
 - A bearer token with a kind that permits `/agents/spawn`. Owner and
   user tokens are fine; agent- and host-kind tokens are not.
 - The agent family (template `backend.kind`) must appear in the

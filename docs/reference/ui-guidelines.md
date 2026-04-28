@@ -1,82 +1,129 @@
-# MuxPod UI/UXガイドライン
+# UI guidelines
 
-## カラーパレット
+> **Type:** reference
+> **Status:** Current (2026-04-28) — rewrites the prior MuxPod-era version (pre-rebrand)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
 
-Material Design 3 ダークテーマベース。
+**TL;DR.** Lightweight design language for the Flutter app. Colors,
+spacing, and typography are codified in `lib/theme/`; this doc names
+the conventions and points to the source. Navigation IA is spine
+material — see `../spine/information-architecture.md`.
 
-| 用途 | カラー | 説明 |
-|------|--------|------|
-| 背景 | `#1E1E1E` | メイン背景 |
-| サーフェス | `#2D3133` | カード、コンテナ |
-| プライマリ | `#00C0D1` | アクセント、ボタン、アクティブ状態 |
-| テキスト | `#FFFFFF` | 主要テキスト |
-| テキスト(サブ) | `#9E9E9E` | 補助テキスト |
-| エラー | `#CF6679` | エラー状態 |
-| 成功 | `#4CAF50` | 接続済み等 |
+---
 
-## デザイントークン
+## 1. Source of truth
 
-### 角丸
-- カード/コンテナ: `40px` (MD3スタイル)
-- ボタン: `20px`
-- インプット: `12px`
-- インジケーター(ピル): `10px`
+The Flutter code is authoritative, not this doc:
 
-### スペーシング
-- xs: `4px`
-- sm: `8px`
-- md: `16px`
-- lg: `24px`
-- xl: `32px`
+- Colors: `lib/theme/design_colors.dart` (`DesignColors`)
+- Theme + light/dark: `lib/theme/app_theme.dart`
+- Terminal palette: `lib/theme/terminal_colors.dart`
+- Task priority badges: `lib/theme/task_priority_style.dart`
 
-## 画面構成
+When this doc and the code disagree, the code wins. Update the doc
+in the same commit that changes a token.
 
-### ボトムナビゲーション
+---
 
-| アイコン | ラベル | 画面 |
-|----------|--------|------|
-| サーバー | Net | 接続一覧 |
-| ターミナル | Term | ターミナル表示 |
-| 鍵 | Keys | SSH鍵管理 |
-| 歯車 | Settings | 設定 |
+## 2. Color tokens (current)
 
-### 接続一覧 (Net)
-- 接続カードは展開可能
-- セッション一覧をツリー表示
-- Attached/Detached ステータスバッジ
-- "+ New Session" ボタン
+Pulled from `DesignColors` (v1.0.312):
 
-### ターミナル (Term)
-- 上部: セッション/ウィンドウ/ペイン タブ
-- 中央: ターミナル出力
-- 下部: 特殊キーバー (ESC/TAB/CTRL/ALT)
-- 最下部: 入力欄 + cmdボタン
+| Token | Dark | Light |
+|---|---|---|
+| Primary | `#00C0D1` | (same) |
+| Primary dark | `#009AA8` | (same) |
+| Secondary | `#F59E0B` (amber) | (same) |
+| Background | `#0E0E11` | `#F9FAFB` |
+| Surface | `#1E1F27` | `#FFFFFF` |
+| Canvas | `#101116` | `#F3F4F6` |
+| Input | `#0B0F13` | `#F9FAFB` |
+| Border | `#2A2B36` | `#E5E7EB` |
+| Text — primary | `#FFFFFF` | `#111827` |
+| Text — secondary | `#9CA3AF` | `#4B5563` |
+| Text — muted | `#6B7280` | `#9CA3AF` |
+| Status — success | `#4CAF50` | (same) |
+| Status — warning | `#F59E0B` | (same) |
+| Status — error | `#CF6679` | (same) |
 
-### 通知ルール設定
-- アクティブなルール一覧
-- ルール追加フォーム
-- 条件タイプ: TEXT/REGEX/IDLE/ANY
-- パターンテスト機能
+---
 
-## フォント
+## 3. Spacing
 
-| 用途 | フォント |
-|------|----------|
-| ターミナル(英語) | JetBrainsMono, FiraCode |
-| ターミナル(日本語) | HackGen, PlemolJP |
-| UI | システムフォント |
+Tailwind-style 4px scale. Inline numeric values in widgets, not named
+constants — Dart has no `EdgeInsets` token system worth the ceremony.
 
-## 折りたたみデバイス対応
+| Step | px |
+|---|---|
+| xs | 4 |
+| sm | 8 |
+| md | 16 |
+| lg | 24 |
+| xl | 32 |
 
-- 左パネル: セッションツリー
-- 右パネル: ターミナル表示
-- 縦向き時: 通常のシングルカラム
+`EdgeInsets.symmetric(horizontal: 12, vertical: 8)` is the typical
+card padding.
 
-## アイコン
+---
 
-- Material Icons または Lucide Icons を使用
-- 接続状態: 緑丸(接続中)、グレー丸(切断)、赤丸(エラー)
+## 4. Radius
 
-## ロゴ
+| Surface | Radius |
+|---|---|
+| Cards | 8 |
+| Inputs | 6 |
+| Buttons | 8 |
+| Pills / chips | 16 |
 
-`docs/logo/logo.svg` を参照。
+Code-block surfaces (the syntax-highlight wrapper, diff view) use 4
+to read more like terminal output.
+
+---
+
+## 5. Typography
+
+| Use | Font |
+|---|---|
+| UI text | Space Grotesk (via `google_fonts`) |
+| Mono / code / terminal | JetBrains Mono |
+| Terminal CJK fallback | HackGen / PlemolJP |
+
+Sizes:
+- Body / card content: 13
+- Card headers / labels: 12 (700-weight)
+- Pills / metadata: 10–11
+- Tappable controls: 14 (matches Material default for finger targets)
+
+---
+
+## 6. Iconography
+
+- Material Icons (built into Flutter)
+- Tool-call cards use a per-tool glyph map — see
+  `lib/widgets/agent_feed.dart` `toolIconFor()` for the canonical
+  mapping (Bash → terminal, Edit → pencil, Read → description, etc.)
+
+---
+
+## 7. Information architecture
+
+Bottom-nav structure and screen layouts live in
+`../spine/information-architecture.md`. Don't duplicate here — IA is
+axiom-tier and changes affect every screen.
+
+---
+
+## 8. Folding-device support
+
+Side-by-side layouts kick in via `MediaQuery` width breakpoints. The
+session detail screen is the canonical example — left pane shows the
+session list, right pane the active transcript when the screen is
+wider than ~720dp.
+
+---
+
+## 9. Logo
+
+`../logo/logo.svg` is the source. Assets are pre-rendered into
+`assets/icon/` for app launcher icons.

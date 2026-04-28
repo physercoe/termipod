@@ -1,12 +1,16 @@
 # Code as a first-class artifact
 
-> **Status: DEFERRED (2026-04-26).** Captured as a gap; not on the
-> active workband. Code-review surfaces in mobile need real-app
-> research that hasn't happened yet — what does diff-on-mobile feel
-> like in GitHub Mobile vs. Codex superapp vs. Cursor mobile? — and
-> a reference scan we can match against. Until that's done this doc
-> is preserved as a sketch, not a spec.
->
+> **Type:** discussion
+> **Status:** Open (Deferred 2026-04-26 — needs competitor research before becoming a plan)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Sketch of treating code/diffs as first-class
+artifacts on mobile (review surfaces, inline comments, file-level
+navigation). Deferred until reference research compares GitHub Mobile
+/ Codex superapp / Cursor mobile diff UX. Preserved as design intent,
+not a spec.
+
 > **Active focus instead:** steward wedges (transcript, approvals,
 > sessions, hub-meta separation) — the band that lets a user replace
 > Happy / CloudCLI for daily work. See

@@ -1,8 +1,14 @@
-# Termipod Hub — Host Setup
+# Install host-runner
 
-How to add a **host** to a running hub so it can execute agents. Covers
-the `host-runner` daemon: what it is, how to register the host, how to
-run it under systemd, and how to tell whether it's healthy.
+> **Type:** how-to
+> **Status:** Current (2026-04-28)
+> **Audience:** operators
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** How to add a host to a running hub so it can execute
+agents. Covers the `host-runner` daemon: what it is, how to register
+the host, how to run it under systemd (Track A: tmux session,
+Track B: systemd unit), and how to tell whether it's healthy.
 
 > **Terminology.** In the codebase, *host*, *agent*, and *host-runner*
 > are three distinct things:

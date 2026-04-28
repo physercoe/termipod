@@ -1,12 +1,20 @@
-# Steward UX fixes — wedge plan
+# Steward UX fixes
 
-> **Companion to:** [single-agent-demo.md](single-agent-demo.md) /
-> [single-agent-demo-test.md](single-agent-demo-test.md)
->
-> Drives a follow-up pass on the single-agent demo after the first
-> dogfood: four issues surfaced once a real steward was spawned and
-> talked to from the phone. Three are small, one (the modern chat UI)
-> is multi-wedge.
+> **Type:** plan
+> **Status:** Done (shipped piecewise across v1.0.281–v1.0.300; status snapshot in §"Suggested execution order" table)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Follow-up pass on the single-agent demo after first
+dogfood. Four issues surfaced once a real steward was spawned and
+talked to from the phone. All landed: dup composer dropped, doc
+fixes, host-runner install UI, liveness signal, recreate-from-phone,
+typed driver schema, session header chip, tool-call lineage cards,
+telemetry strip, composer enrichment + content polish (syntax
+highlight, color-coded diffs, per-tool icons, tmux-parity composer).
+
+**Companion to:** [`single-agent-demo.md`](single-agent-demo.md) /
+[`single-agent-demo-test.md`](single-agent-demo-test.md)
 
 ## Driver vs. UI: the load-bearing abstraction
 

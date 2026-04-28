@@ -1,12 +1,15 @@
-# TermiPod — Release Test Plan
+# Release testing
 
-Evergreen manual test plan covering the mobile app + Termipod Hub
-surfaces. Update in place when behavior changes; the version header at
-the top of each section pins the last release the step was verified
-against.
+> **Type:** how-to
+> **Status:** Current (2026-04-28)
+> **Audience:** operators
+> **Last verified vs code:** v1.0.172 (per-section version markers below pin steps individually)
 
-**Latest verified release: v1.0.172-alpha** (seed-demo + mock-trainer
-dress-rehearsal harness on top of the v1.0.49 Observability reorg).
+**TL;DR.** Evergreen manual test plan covering the mobile app +
+Termipod Hub surfaces. Update in place when behavior changes; the
+version header at the top of each section pins the last release the
+step was verified against. Run the relevant subset before tagging a
+release for device test.
 
 Pair this with:
 

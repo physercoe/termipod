@@ -1,4 +1,17 @@
-# MuxPod - 詳細設計書 v2
+# MuxPod 詳細設計書 v2 (legacy)
+
+> **Type:** archive
+> **Status:** Archived (frozen pre-rebrand — references React Native + Zustand, no longer the stack)
+> **Audience:** archaeologists only
+> **Last verified vs code:** pre-v1.0.27 (rebrand to termipod)
+
+**TL;DR.** Original design doc for MuxPod, the predecessor to
+termipod. Captures the pre-rebrand architecture: React Native +
+Zustand mobile, SSH-direct to remote tmux, no hub. Kept for
+historical reference. Current architecture lives in `../spine/`
+(blueprint, information-architecture, agent-lifecycle, sessions).
+
+---
 
 ## 1. システム概要
 

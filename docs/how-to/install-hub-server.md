@@ -1,15 +1,19 @@
-# Termipod Hub — Setup & Mobile Dashboard Guide
+# Install hub-server
 
-End-to-end walkthrough for standing up `hub-server` and connecting the
-TermiPod mobile app's **Hub Dashboard** to it. Covers two tracks:
+> **Type:** how-to
+> **Status:** Current (2026-04-28)
+> **Audience:** operators
+> **Last verified vs code:** v1.0.312
 
-- **A. LAN / Tailscale quick test** — one command on a laptop, `http://`
-  over a trusted network overlay. Takes ~2 minutes.
-- **B. Public VPS with nginx + TLS** — systemd unit, nginx reverse proxy,
-  Let's Encrypt cert. The setup you want for anything longer-lived than a
-  demo.
+**TL;DR.** End-to-end walkthrough for standing up `hub-server` and
+connecting the TermiPod mobile app's **Hub Dashboard** to it. Two
+tracks:
 
-The current release used for testing is **v1.0.221-alpha**.
+- **A. LAN / Tailscale quick test** — one command on a laptop,
+  `http://` over a trusted network overlay. Takes ~2 minutes.
+- **B. Public VPS with nginx + TLS** — systemd unit, nginx reverse
+  proxy, Let's Encrypt cert. The setup you want for anything
+  longer-lived than a demo.
 
 **Companion docs:**
 

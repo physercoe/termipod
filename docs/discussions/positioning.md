@@ -1,7 +1,15 @@
-# TermiPod — Positioning & Business Analysis
+# Positioning & business analysis
 
-**Status:** Draft for review, 2026-04-24.
-**Sources:** `../spine/blueprint.md` (canonical thesis), `../spine/information-architecture.md` (mobile IA), `ux-steward-audit.md`, `research-demo-candidates.md`, competitive research April 2026.
+> **Type:** discussion
+> **Status:** Open (draft for review, 2026-04-24)
+> **Audience:** principal, reviewers
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Business-side framing. Answers seven positioning
+questions (what is termipod / buyer / differentiator / competitive
+landscape / mission / 90-day metrics / 12-month bet). Sources:
+spine/blueprint, spine/information-architecture, ux-steward-audit,
+research-demo-candidates, competitive research April 2026.
 
 This document answers seven questions:
 

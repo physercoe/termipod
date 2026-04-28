@@ -1,9 +1,18 @@
-# Domain-pack extensibility — post-MVP discussion
+# Domain-pack extensibility — post-MVP
 
-Status: **discussion note, 2026-04-27**. Triggered by the question
-"can the architecture support OS-like plugin/app extensibility for
-domain workflows (ML, bioinfo, legal, …) as a paid commercialization
-layer?"
+> **Type:** discussion
+> **Status:** Open (post-MVP; Phase 1 first-party content packs is the validation step before any marketplace engineering)
+> **Audience:** principal, contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Triggered by "can the architecture support OS-like
+plugin/app extensibility for domain workflows (ML, bioinfo, legal,
+…) as a paid commercialization layer?" Answer: yes for content-shaped
+packs (~70% of what a pack would need is already structured data),
+no for executable plugins (would require sandbox runtime, not worth
+it). Phased roadmap: ship one first-party domain pack as embedded
+content first, validate, then graduate to per-team uploads, then
+marketplace.
 
 Long answer: the architecture is **better positioned than you'd
 expect** for content-shaped domain packs, but the "OS plugin" framing

@@ -1,10 +1,20 @@
 # Agent fleet / multi-agent orchestration
 
-Status: **draft, not started**. Discussion-first. Companion to
-`docs/agent-lifecycle.md` §7 (which scopes "multi-agent mode" as
-*one steward spawning workers on demand*) — this doc is the layer above
-that: standing teams of agents, hierarchies, peer coordination, and
-fleet-level operations.
+> **Type:** discussion
+> **Status:** Open (Deferred — far post-MVP per memory)
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Design memo for standing teams of agents (squads),
+hierarchies, peer coordination, and fleet-level operations — the
+layer above today's "one steward spawns workers on demand" model.
+Explicitly deferred far post-MVP; the orchestrator-worker slice
+(ADR-008) covered the project-layer multi-agent shape that the demo
+needs. Kept as a research note for when the question returns.
+
+Companion to `../spine/agent-lifecycle.md` §7 (which scopes
+"multi-agent mode" as *one steward spawning workers on demand*) —
+this doc is the layer above that.
 
 > The current architecture supports independent agents (single steward,
 > spawned workers, multiple stewards via the wedges shipped through

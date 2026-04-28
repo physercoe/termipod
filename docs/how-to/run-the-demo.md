@@ -1,8 +1,14 @@
-# Mock Demo Walkthrough (no GPU)
+# Run the demo
 
-Step-by-step for a reviewer who wants to see the research-demo path
-(project → runs → sparklines → briefing → review → inbox) light up
-without running nanoGPT on a real GPU.
+> **Type:** how-to
+> **Status:** Current (2026-04-28)
+> **Audience:** operators, reviewers
+> **Last verified vs code:** v1.0.312
+
+**TL;DR.** Step-by-step for a reviewer who wants to see the
+research-demo path (project → runs → sparklines → briefing → review
+→ inbox) light up without running nanoGPT on a real GPU. Uses the
+`seed-demo` + `mock-trainer` dress-rehearsal harness.
 
 **Assumptions**
 - Fresh Ubuntu 22.04 or 24.04 box with sudo access.

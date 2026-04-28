@@ -11,6 +11,10 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    # Pre-rebrand spec-kit artifacts moved under docs/archive/ —
+    # contains stub .dart contract files that reference long-removed
+    # model types. Excluded so flutter analyze doesn't trip on them.
+    - docs/archive/specs/**
     - specs/**
     - "**/*.g.dart"
     - "**/*.freezed.dart"

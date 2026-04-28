@@ -215,6 +215,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Route("/sessions", func(r chi.Router) {
 			r.Post("/", s.handleOpenSession)
 			r.Get("/", s.handleListSessions)
+			// Full-text search across this team's session
+			// transcripts (Phase 1.5c). Distinct from
+			// /v1/search which targets channel events.
+			r.Get("/search", s.handleSessionSearch)
 			r.Route("/{session}", func(r chi.Router) {
 				r.Get("/", s.handleGetSession)
 				r.Patch("/", s.handlePatchSession)

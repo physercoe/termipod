@@ -10,6 +10,7 @@ import '../../widgets/agent_feed.dart';
 import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
+import 'search_screen.dart';
 
 /// Merged Sessions/Stewards page (multi-steward wedge 2). Each live
 /// steward gets its own section with its current session inline + a
@@ -35,6 +36,15 @@ class SessionsScreen extends ConsumerWidget {
               GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 18),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Search past sessions',
+            icon: const Icon(Icons.search),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SessionSearchScreen(),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Spawn new steward',
             icon: const Icon(Icons.add),

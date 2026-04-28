@@ -435,6 +435,24 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Phase 1.5c — full-text search across session transcripts.
+  /// Returns a list of result rows shaped:
+  ///   { event_id, session_id, scope_kind, scope_id, session_title,
+  ///     seq, ts, kind, snippet }
+  /// `query` is an FTS5 MATCH expression. `limit` defaults to 50.
+  Future<List<Map<String, dynamic>>> searchSessions(
+    String query, {
+    int? limit,
+  }) async {
+    final q = <String, String>{'q': query};
+    if (limit != null) q['limit'] = '$limit';
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/sessions/search',
+      query: q,
+    );
+    return (out as List).cast<Map<String, dynamic>>();
+  }
+
   /// Forks an archived session into a new active one (ADR-009 D4).
   /// The new session copies scope from the source and attaches to
   /// the team's live steward (or [agentId] if provided). Returns

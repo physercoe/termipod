@@ -1,7 +1,7 @@
 # termipod agent harness
 
 This document is the third leg of the design tripod, peer to
-`blueprint.md` (architecture/ontology) and `ia-redesign.md` (mobile IA).
+`blueprint.md` (architecture/ontology) and `information-architecture.md` (mobile IA).
 Where blueprint defines *what an agent is* and IA defines *where the
 steward appears in the app*, this doc defines the layer in between:
 how an agent is born, what it can do alone, when it spawns workers,
@@ -10,7 +10,7 @@ all of it.
 
 The motivating observation is that today's docs jump straight from
 "agent = LLM process with status enum" (blueprint §6.4) to "spawn
-endpoint reaches host-runner which opens a tmux pane" (`hub-agents.md`).
+endpoint reaches host-runner which opens a tmux pane" (`../reference/hub-agents.md`).
 The layer between — the *harness* — is implicit. Every feature that
 touches steward behavior re-litigates the same questions: where does
 the first steward come from, what does it do without workers, how does
@@ -386,7 +386,7 @@ reason about them as distinct surfaces.
 | **Approval surface** | Receives the user's decisions; arbitrates | Subject to the steward's policy; asks for permission via the harness |
 | **Conversation content** | Questions, decisions, plans, briefs | Tool calls, file diffs, test outputs, branch state |
 | **State strip in UI** | Loaded artifacts + scope label + token budget | Branch · file count · +N/-M · token budget *(Happy-style)* |
-| **Distillation** | Decision / Brief / Plan-update artifact (`steward-sessions.md` §6) | Task summary + code-change artifact (deferred per `code-as-artifact.md`) |
+| **Distillation** | Decision / Brief / Plan-update artifact (`sessions.md` §6) | Task summary + code-change artifact (deferred per `../discussions/code-as-artifact.md`) |
 | **Default model class** | High-capability (decisions are higher stakes) | Cost-efficient where the task allows |
 | **Plurality** | One per team (MVP); per-member post-MVP | Many per project, many per task |
 | **Mental model** | Chief of staff / director / lead | Engineer / analyst / writer doing the actual work |
@@ -397,7 +397,7 @@ reason about them as distinct surfaces.
    no branch/diff strip on steward chat; no file-card tool calls; no
    commit-status indicators. Those belong on worker UI. The steward
    chat is a *decision surface*, not a *code surface*. (Detail and
-   precedent: `docs/wedges/transcript-ux-comparison.md` §7.4.)
+   precedent: `../discussions/transcript-ux-comparison.md` §7.4.)
 
 2. **The steward should not be the IC.** When a steward starts
    reaching for code tools (read, edit, bash, commit), that is a
@@ -437,7 +437,7 @@ biggest gap blocking the single-agent demo.
 2. App detects "team has no steward" and opens the **Steward
    bootstrap** sheet:
    - Choose a host (with a "register a host now" inline path if none
-     exists; reuses `hub-host-setup.md` flow).
+     exists; reuses `install-host-runner.md` flow).
    - Choose a backend (claude-code / codex / local-llm); reasonable
      default per detected capability.
    - Confirm autonomy + budget defaults (autonomy=balanced,
@@ -633,7 +633,7 @@ This is the Happy benchmark; we must match or beat it.
 > What it does **not** cover: standing teams of agents (squads),
 > peer coordination between stewards (federation), shared mutable
 > state across agents, or hierarchical org structures. Those layer
-> *above* this section and live in `docs/agent-fleet.md` as a
+> *above* this section and live in `../discussions/agent-fleet.md` as a
 > design memo (not yet started).
 >
 > The split is deliberate: bursts answer "how does one steward
@@ -770,7 +770,7 @@ implicit capability.)
 | Reviewer | Read-only MCP + post-event | Decision-making, not mutation |
 
 The MCP surface itself (tool catalog) is governed by
-`ux-steward-audit.md` and is closed for MVP-critical actions.
+`../discussions/ux-steward-audit.md` and is closed for MVP-critical actions.
 
 ---
 
@@ -836,7 +836,7 @@ Total: ~6 person-days on top of B1–B5.
 - Skill marketplace with vetting (§3.3).
 - **Squads / fleet layer** — standing teams of agents organized
   around a goal, with roles, shared scratchpad, group fan-out and
-  group decisions. Design memo at `docs/agent-fleet.md`. Layers
+  group decisions. Design memo at `../discussions/agent-fleet.md`. Layers
   above §7's burst model; not started.
 
 ---
@@ -882,7 +882,7 @@ Not blocking; flagging for review.
 
 ## Appendix A — terms cross-reference
 
-| This doc | blueprint.md | ia-redesign.md | hub-agents.md |
+| This doc | blueprint.md | information-architecture.md | hub-agents.md |
 |---|---|---|---|
 | Steward (§4.1) | §3.3 (agent), §6.4 | §4 (role), §6.7 (capability) | spawn target |
 | Worker (§4.2) | §3.3 | §4 | spawn target |

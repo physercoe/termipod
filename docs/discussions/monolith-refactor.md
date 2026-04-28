@@ -299,7 +299,7 @@ After R1+R2+R3, the codebase has no >1k-LOC violations except possibly
 (seed_demo.go, force-unwraps, vocab debt, stale l10n) is best handled
 incrementally as files are touched, not as a dedicated wedge.
 
-The vocab audit (`docs/vocab-audit.md`) already specifies this for
+The vocab audit (`docs/vocabulary.md`) already specifies this for
 role-bound strings. Apply the same principle to:
 - `withOpacity` → `withValues(alpha:)` when the file is touched.
 - `vaultLegacy*` l10n keys — delete next time `app_en.arb` is edited.

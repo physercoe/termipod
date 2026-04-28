@@ -1,7 +1,7 @@
 # Wedge: Single-Agent Demo (claude-only v1)
 
 > **Status:** proposed · **Owner:** physercoe · **Estimate:** ~3.75 dev-days
-> **Parent:** [agent-harness.md](../agent-harness.md) §11.1 (B1–B5 single-agent path)
+> **Parent:** [../spine/agent-lifecycle.md](../spine/agent-lifecycle.md) §11.1 (B1–B5 single-agent path)
 > **Demo lineage:** demo-choice-locked (nanoGPT-Shakespeare) · supersedes nothing
 
 ## Goal

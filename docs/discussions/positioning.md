@@ -1,7 +1,7 @@
 # TermiPod — Positioning & Business Analysis
 
 **Status:** Draft for review, 2026-04-24.
-**Sources:** `docs/blueprint.md` (canonical thesis), `docs/ia-redesign.md` (mobile IA), `docs/ux-steward-audit.md`, `docs/research-demo-candidates.md`, competitive research April 2026.
+**Sources:** `../spine/blueprint.md` (canonical thesis), `../spine/information-architecture.md` (mobile IA), `ux-steward-audit.md`, `research-demo-candidates.md`, competitive research April 2026.
 
 This document answers seven questions:
 

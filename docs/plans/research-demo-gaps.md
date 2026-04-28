@@ -1,6 +1,6 @@
 # Research-Demo Gaps
 
-The MVP (`blueprint.md` §9 Phase 4) is the end-to-end **research demo**:
+The MVP (`../spine/blueprint.md` §9 Phase 4) is the end-to-end **research demo**:
 
 > user writes a directive → steward decomposes → fleet executes runs across
 > hosts → briefing agent summarizes overnight → user reviews on phone
@@ -8,7 +8,7 @@ The MVP (`blueprint.md` §9 Phase 4) is the end-to-end **research demo**:
 Everything in this document is scoped against that demo. Items here are the
 delta between *what's shipped* and *what a user needs to run the demo from
 their phone end-to-end*. If a feature doesn't advance this demo, it belongs
-in `blueprint.md` §10 (Non-goals) or gets deferred — not listed here.
+in `../spine/blueprint.md` §10 (Non-goals) or gets deferred — not listed here.
 
 ## Status
 
@@ -229,7 +229,7 @@ phase runs.
 
 **v1.0.153:** added `schedules.{list,create,update,delete,run}` MCP
 wrappers. Closes the scheduling infra gap called out in the
-steward-CEO audit (`docs/ux-steward-audit.md` §2) and unblocks P4.3
+steward-CEO audit (`../discussions/ux-steward-audit.md` §2) and unblocks P4.3
 overnight cron authoring without relying on the mobile UI. Steward
 prompt updated to list the schedules surface.
 

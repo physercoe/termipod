@@ -1,7 +1,7 @@
 # Wedge memo: Transcript / approvals / quick-actions UX
 
 > **Status: DRAFT**, derived from a competitive scan run 2026-04-26.
-> Part of the Part-1 follow-up after `steward-sessions.md` deferred
+> Part of the Part-1 follow-up after `sessions.md` deferred
 > implementation. Do not code from this yet — it's the input to a
 > design discussion, not the spec itself.
 
@@ -53,7 +53,7 @@ Sources are listed at the end of this memo.
 ### CloudCLI (claudecodeui)
 - **Multi-engine done right looks like:** one app, four agents (Claude Code, Cursor CLI, Codex, Gemini CLI), shared session/projects/git surface. They engineer-the-CLI-into-a-pluggable-protocol; we *also* aim for vendor-agnostic, so this is direct comparison territory.
 - **Integrated shell + file explorer + Git UI** as siblings to the chat. We have terminal_screen, but it's not co-resident with the steward chat. Worth thinking about whether a unified "session workspace" is the right pattern.
-- **Session list with history** is a primitive, not a screen feature. This aligns with the `steward-sessions.md` ontology — sessions as first-class navigable entities.
+- **Session list with history** is a primitive, not a screen feature. This aligns with the `sessions.md` ontology — sessions as first-class navigable entities.
 
 ### Codex superapp
 - **Parallel agents (5 simultaneous in cloud sandboxes).** Their model: many agents, one user, cloud-managed. Ours: many agents, many hosts, user-controlled compute. Their "many parallel" is a distinct lane.
@@ -78,7 +78,7 @@ Sources are listed at the end of this memo.
 - **Transcript styling.** Reads like a debug stream. Anthropic, Happy, CloudCLI all collapse and style.
 - **@file mentions.** Standard in Happy and CloudCLI. Missing here.
 - **Voice input.** Standard in Happy. Missing here.
-- **Session list as navigation primitive.** Happy + CloudCLI both. We're partway there with the per-project agent list but it's not "sessions" per `steward-sessions.md`.
+- **Session list as navigation primitive.** Happy + CloudCLI both. We're partway there with the per-project agent list but it's not "sessions" per `sessions.md`.
 - **Push notifications when agent waits for input.** Missing entirely; we have notifications but not gated on "decision needed".
 
 ---
@@ -93,7 +93,7 @@ sub-wedges, in order of leverage:
 strictly behind Happy on the single-engine slice.
 
 > **Important:** unlike Happy, we should NOT prompt on every tool
-> call. The decision-tiers framework in `steward-sessions.md` §6.5
+> call. The decision-tiers framework in `sessions.md` §6.5
 > says only Significant + Strategic tier calls reach the user;
 > Trivial + Routine pre-approve via the session's capability scope.
 > Match Happy on the *card design* (inline placement, expandable
@@ -181,9 +181,9 @@ Listing explicitly so the wedge doesn't grow:
 - **Voice input** — separate wedge (W1.E). Needs platform plumbing
   (Android speech, iOS Speech) + privacy review.
 - **Session list as the steward navigation surface** — that's the
-  steward-sessions.md ontology shift. Not this wedge.
+  sessions.md ontology shift. Not this wedge.
 - **Splitting steward UI from the hub-meta channel** — also a
-  steward-sessions.md item (§8.5). The current Me "Direct" FAB
+  sessions.md item (§8.5). The current Me "Direct" FAB
   conflates director↔steward 1:1 with the team channel; fixing
   that is a sessions-wedge concern, not a transcript-styling one.
 - **Code-change review surface** — separate wedge, see
@@ -258,19 +258,19 @@ Image sources at the bottom of this section.
 
 | Wedge | What to match | What to differ on / improve |
 |---|---|---|
-| **W1.A approval** | Inline Allow/Deny card with operation details (Happy). Match the placement (between turns, where the pending tool_call sits). | Drive by **tier** (`steward-sessions.md` §6.5), not by every-tool. Add a Tools-Settings-style allowlist UI (CCUI's idea) so users can promote a Routine pattern to "auto-allow" — that's what Routine pre-approval looks like in practice. **Combination of the two philosophies.** Also: approvals are **richer than Y/N** — see §7.5. |
+| **W1.A approval** | Inline Allow/Deny card with operation details (Happy). Match the placement (between turns, where the pending tool_call sits). | Drive by **tier** (`sessions.md` §6.5), not by every-tool. Add a Tools-Settings-style allowlist UI (CCUI's idea) so users can promote a Routine pattern to "auto-allow" — that's what Routine pre-approval looks like in practice. **Combination of the two philosophies.** Also: approvals are **richer than Y/N** — see §7.5. |
 | **W1.B transcript** | Default-collapsed tool calls as one-line file cards (Happy) with disclosure for inline diff. Token budget below input (Happy). | The Happy-style **branch/diff strip** below input belongs on **worker UI** (where code work happens), not steward UI (where decisions happen). Steward sessions usually don't have a worktree of their own. See §7.4. |
 | **W1.C compose box** | `Type / for commands, @ for files` placeholder hint (CCUI) teaches syntax. | **Reuse the existing TmuxBackend compose box.** It already has history + snippets + quick-actionbar + key-palette infrastructure; voice is just one input source within it. We don't need to invent a separate "voice button" pattern à la Happy — our compose box already accommodates it. See §7.6. |
 
 ### Cross-cutting observations
 
-1. **Sessions are first-class in both apps already.** Happy's home screen is *only* sessions; CCUI's sidebar is sessions. Our current "one persistent steward chat" already feels behind. The `steward-sessions.md` ontology shift moves us toward where they already are.
+1. **Sessions are first-class in both apps already.** Happy's home screen is *only* sessions; CCUI's sidebar is sessions. Our current "one persistent steward chat" already feels behind. The `sessions.md` ontology shift moves us toward where they already are.
 
 2. **Engine picker is the multi-engine differentiator visible to users.** CCUI does it as a New-Session step. We have agent-families plumbing; surfacing it as "pick engine + model when you start a session" is the obvious mobile pattern.
 
 3. **Pre-approval allowlist is the missing piece** between "ask everything" (Happy) and our tier model. Adding a `Tools Settings → Auto-allow patterns` surface lets users define their own Routine tier per project. This is the right blend.
 
-4. **Steward UI ≠ worker UI.** Happy and CCUI conflate them because they're single-engine clients with one chat surface. Our positioning has them split (the agent harness has roles); our UI should follow. The Happy-style **branch/diff/file-count strip** is *worker* metadata — it makes sense when you're watching a worker write code in a worktree. A steward session, in our ontology (`steward-sessions.md` §2), does coordination, planning, decisions — there is usually no worktree, no diff, no branch. Putting that strip on the steward chat would be a category error. **Worker UI gets the strip; steward UI gets a session-context strip instead** (loaded artifacts, scope label, decisions made so far). This is one of the clearest places where our role-aware harness can render differently than a single-engine client.
+4. **Steward UI ≠ worker UI.** Happy and CCUI conflate them because they're single-engine clients with one chat surface. Our positioning has them split (the agent harness has roles); our UI should follow. The Happy-style **branch/diff/file-count strip** is *worker* metadata — it makes sense when you're watching a worker write code in a worktree. A steward session, in our ontology (`sessions.md` §2), does coordination, planning, decisions — there is usually no worktree, no diff, no branch. Putting that strip on the steward chat would be a category error. **Worker UI gets the strip; steward UI gets a session-context strip instead** (loaded artifacts, scope label, decisions made so far). This is one of the clearest places where our role-aware harness can render differently than a single-engine client.
 
 5. **Voice is real but doesn't need a separate pattern from us.** Happy makes it a first-class button because their compose box is minimal. Our TmuxBackend compose box already has history + snippets + quick-actionbar + key-palette + compose-mode toggle — voice is just another input source plugged into that existing compose-box pattern. See §7.6 for the unified compose-box plan.
 
@@ -281,11 +281,11 @@ The screen-walk made this concrete. Two surfaces, three differences:
 | | Steward chat | Worker chat |
 |---|---|---|
 | **Conversation content** | Questions, decisions, planning, approvals, briefings | Code edits, tool calls, file changes, test runs, branch operations |
-| **Worktree presence** | Usually none — coordination happens against artifact graph, not a tree | One per spawn (per `agent-harness.md` worktree spec) |
+| **Worktree presence** | Usually none — coordination happens against artifact graph, not a tree | One per spawn (per `agent-lifecycle.md` worktree spec) |
 | **State strip** | Loaded artifacts ("plan + 3 briefings + 8 decisions") + scope ("project X / decision review") + token budget | Branch + file count + +N/-M + token budget (Happy-style) |
 | **Tool-call rendering** | Rare; mostly governance tools (audit, decision, attention, template propose) — render as decision cards, not file cards | Frequent; mostly code tools (read/write/edit/run) — render as Happy-style file cards with inline diff |
 | **Approval card content** | Decisions ("approve this template change?", "ratify this policy?") with policy/scope context | Code-related ("approve this commit?", "approve this push?") with diff + test results |
-| **Distillation outcome** | Decision / Brief / Plan-update artifact (per `steward-sessions.md` §6) | Code-change artifact (per the deferred `code-as-artifact.md`) + worker's task-summary brief |
+| **Distillation outcome** | Decision / Brief / Plan-update artifact (per `sessions.md` §6) | Code-change artifact (per the deferred `code-as-artifact.md`) + worker's task-summary brief |
 
 These are clearly two surfaces, not one. They share the **compose box**
 (see §7.6) and the **transcript styling primitives** (collapsed-card,
@@ -419,11 +419,11 @@ GitHub Mobile / Cursor mobile / Codex superapp diff surfaces.
 |---|---|---|---|
 | 1 | Screen-walk Happy + CloudCLI (this memo §7) | Research | nothing |
 | 2 | Lock W1.A/B/C spec from screen-walk findings | Design | (1) |
-| 3 | **W1.A** — Inline tool-call approval, **tier-aware** (`steward-sessions.md` §6.5) | Build | (2) + tier metadata on tool definitions |
+| 3 | **W1.A** — Inline tool-call approval, **tier-aware** (`sessions.md` §6.5) | Build | (2) + tier metadata on tool definitions |
 | 4 | **W1.B** — Transcript styling pass | Build | (2) |
 | 5 | **W1.C** — Quick-action chips | Build | (2); reuse snippet provider from terminal_screen |
-| 6 | Sessions ontology — schema + open/close + distillation | Architectural | learnings from (3)–(5); §11 of `steward-sessions.md` |
-| 7 | **Steward UI ↔ hub-meta split** (`steward-sessions.md` §8.5) — replace Me "Direct" FAB with "Start session" | Build | (6) |
+| 6 | Sessions ontology — schema + open/close + distillation | Architectural | learnings from (3)–(5); §11 of `sessions.md` |
+| 7 | **Steward UI ↔ hub-meta split** (`sessions.md` §8.5) — replace Me "Direct" FAB with "Start session" | Build | (6) |
 | 8 | Decommission persistent-chat metaphor | Cleanup | (7) |
 
 Roughly: (1)–(5) is one-to-two weeks of UX work. (6)–(8) is the

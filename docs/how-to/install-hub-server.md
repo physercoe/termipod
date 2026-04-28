@@ -13,11 +13,11 @@ The current release used for testing is **v1.0.221-alpha**.
 
 **Companion docs:**
 
-- [`hub-host-setup.md`](hub-host-setup.md) — register a host so agents
+- [`install-host-runner.md`](install-host-runner.md) — register a host so agents
   have somewhere to run (host-runner daemon, token, systemd).
-- [`hub-agents.md`](hub-agents.md) — spawn agents from mobile, REST,
+- [`../reference/hub-agents.md`](../reference/hub-agents.md) — spawn agents from mobile, REST,
   MCP, or on a schedule; spec YAML schema; lifecycle knobs.
-- [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md) — exercise the
+- [`run-the-demo.md`](run-the-demo.md) — exercise the
   research-demo pipeline end-to-end without a GPU, using the shipped
   `seed-demo` subcommand and `mock-trainer` CLI.
 
@@ -326,7 +326,7 @@ You cannot spawn any agent — steward included — without a host to run it
 on. Register one now if you haven't:
 
 1. Build and run `host-runner` on the online server that will host your
-   steward. See [`hub-host-setup.md`](hub-host-setup.md) — Track A for a
+   steward. See [`install-host-runner.md`](install-host-runner.md) — Track A for a
    quick tmux-attached test, Track B for systemd.
 2. On the **Hosts** bottom tab, confirm a row with a recent
    `last_seen_at`. The steward spawn sheet requires `status='online'`;
@@ -383,7 +383,7 @@ which GETs the bundled template and POSTs `/agents/spawn` against a
 freshly-initialized data root. That test is the regression gate for this
 flow; if the welcome card stops working, that test is where to look
 first. The underlying agent-spawn pipeline is documented in
-[`hub-agents.md`](hub-agents.md) §2.
+[`../reference/hub-agents.md`](../reference/hub-agents.md) §2.
 
 ---
 
@@ -472,7 +472,7 @@ try:
 - **`mock-trainer` CLI** (v1.0.170) — `hub/cmd/mock-trainer` writes
   trackio SQLite or wandb-offline JSONL files for dress-rehearsing
   the host-runner → digest → mobile sparkline path. See
-  [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md).
+  [`run-the-demo.md`](run-the-demo.md).
 - **Activity timeline** (v1.0.49 / audit log, extended v1.0.166–167)
   — mutations across runs, documents, reviews, projects, and
   channels now emit `audit_events` rows. `MCP get_audit` tool lets
@@ -484,7 +484,7 @@ try:
 - **Metric-digest pollers** (v1.0.14+) — host-runner reads trackio
   SQLite / wandb-offline JSONL / TensorBoard tfevents and PUTs ≤100
   -point digests to the hub. Per-vendor flags on host-runner; see
-  [`hub-host-setup.md`](hub-host-setup.md) §"Enabling the … poller".
+  [`install-host-runner.md`](install-host-runner.md) §"Enabling the … poller".
 - **A2A relay + tunnel** (v1.0.157) — NAT'd GPU hosts advertise
   agent-cards via the hub relay, tunneled over a long-poll
   connection. Add `-public-url` to `hub-server serve` on the

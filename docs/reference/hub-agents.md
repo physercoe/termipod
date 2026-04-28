@@ -9,7 +9,7 @@ scheduler.
 
 - A hub (`hub-server serve`) reachable from both the mobile / CLI
   caller and the host that will run the agent.
-- At least one **host** registered — see `docs/hub-host-setup.md`.
+- At least one **host** registered — see `docs/install-host-runner.md`.
 - A bearer token with a kind that permits `/agents/spawn`. Owner and
   user tokens are fine; agent- and host-kind tokens are not.
 - The agent family (template `backend.kind`) must appear in the
@@ -147,7 +147,7 @@ under the team's audit log.
 ## 4. Spawning from mobile
 
 There are two spawn paths, matching the IA-redesign agent ontology
-(`docs/ia-redesign.md` §3): one team-scoped singleton (the steward)
+(`docs/information-architecture.md` §3): one team-scoped singleton (the steward)
 and N project-scoped workers. Each has its own UI.
 
 ### 4a. Spawning the steward
@@ -391,7 +391,7 @@ See also: `TODO hub-connectivity-indicator` and
 ## 10. End-to-end smoke
 
 ```bash
-# 0. Register a host (see hub-host-setup.md §4) — keep host-runner running.
+# 0. Register a host (see install-host-runner.md §4) — keep host-runner running.
 # 1. Issue a user token for yourself (run on the hub box, as the hub service user).
 TOK=$(sudo -u termipod-hub /usr/local/bin/hub-server tokens issue \
         -data /var/lib/termipod-hub \

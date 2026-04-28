@@ -95,12 +95,12 @@ the actual work.
 
 Forced by A1: the human cannot produce enough. Something must.
 
-Agents come in two role-distinguished classes (`agent-harness.md` §4.9
+Agents come in two role-distinguished classes (`agent-lifecycle.md` §4.9
 is canonical):
 
 - **Steward** — manager / orchestrator / head. Plans, decides, spawns,
   arbitrates, distills. *Does not perform IC work directly* outside
-  the explicit single-agent bootstrap window (`agent-harness.md` §6.2).
+  the explicit single-agent bootstrap window (`agent-lifecycle.md` §6.2).
 - **Worker** — IC / performer / hand. Bounded, specific work in a
   worktree. Spawned by a steward (or another worker) for one task.
 
@@ -137,7 +137,7 @@ badly: token budget bloats with code context, decision audit drowns
 in tool noise, the principal can't tell governance signal from
 execution signal. Single-engine clients (Happy, CCUI) collapse the
 two because they have one role per app; our positioning depends on
-keeping them separate. See `agent-harness.md` §4.9 for the rule and
+keeping them separate. See `agent-lifecycle.md` §4.9 for the rule and
 §6.2.1 for the retreat triggers that force handoff back to a worker
 once bootstrap mode ends.
 
@@ -689,7 +689,7 @@ amendment of this document first.
 4. **Policy lives on hosts and drifts from hub.** Violates A3.
 5. **Agents coordinate via shared files or undocumented channels outside
    A2A + hub channels.** Destroys provenance. *Exception under design
-   (`docs/agent-fleet.md` §5):* a squad's shared scratchpad lives in
+   (`../discussions/agent-fleet.md` §5):* a squad's shared scratchpad lives in
    the existing `documents` table with audit semantics, so it stays on
    the audit trail. The forbidden case is the *unaudited* shared file,
    not "shared state per se." When squads land, this rule reads "no

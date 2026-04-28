@@ -34,11 +34,22 @@ flutter build apk       # APKビルド
 
 ## ドキュメント
 
-- @/docs/tmux-mobile-design-v2.md - 詳細設計書
-- @/docs/coding-conventions.md - コーディング規約
-- @/docs/ui-guidelines.md - UI/UXガイドライン
-- @/docs/screens/ - 画面デザイン
-- @/docs/logo/logo.svg - ロゴ
+Read @/docs/README.md first — it's the index. Doc structure follows
+@/docs/doc-spec.md (seven primitives: axiom / vision / plan / decision
+/ reference / how-to / discussion + tutorial/archive adjuncts).
+
+- @/docs/README.md — index, where to start
+- @/docs/roadmap.md — vision + phases + Now/Next/Later
+- @/docs/doc-spec.md — contract every doc honors
+- @/docs/spine/ — architecture (blueprint, information-architecture,
+  agent-lifecycle, sessions)
+- @/docs/reference/coding-conventions.md — code style (note: pending
+  rewrite for Flutter; currently references React Native artifacts)
+- @/docs/reference/ui-guidelines.md — UI/UX guidelines
+- @/docs/screens/ — screen designs
+- @/docs/logo/logo.svg — logo
+- @/docs/archive/tmux-mobile-design-v2.md — legacy MuxPod design
+  (pre-rebrand, archived)
 
 ## ディレクトリ構成
 

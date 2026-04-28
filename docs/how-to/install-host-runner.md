@@ -76,7 +76,7 @@ across restarts.
 
 ## 3. Issue a host token (on the hub machine)
 
-Same pattern as the VPS hub setup in `hub-mobile-test.md` §5 — run the
+Same pattern as the VPS hub setup in `install-hub-server.md` §5 — run the
 issuer as the hub's service user against the hub's data root:
 
 ```bash

@@ -137,7 +137,7 @@ terminate).
 
 ### 2c. Doc fixes (free)
 
-`docs/wedges/single-agent-demo-test.md:46` — the prereq smoke test:
+`single-agent-demo-test.md:46` — the prereq smoke test:
 
 ```bash
 echo '{"type":"user","message":{"role":"user","content":"say hi"}}' \
@@ -195,7 +195,7 @@ serves `install.sh` (templated with the hub URL).
 **Files:** `lib/screens/hosts/hosts_screen.dart` (FAB → sheet),
 `lib/screens/hosts/install_runner_screen.dart` (NEW), `lib/services/hub/hub_client.dart` (mintHostToken),
 `hub/internal/server/server.go` (install.sh route, if missing),
-`docs/wedges/single-agent-demo-test.md` (rewrite AC1 step 1 to match).
+`single-agent-demo-test.md` (rewrite AC1 step 1 to match).
 
 **Verify:** fresh team, no hosts; tap FAB → "Install host-runner"; copy
 the command, paste on a fresh VM, run; the screen flips to "✓ Host

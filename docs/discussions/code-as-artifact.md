@@ -10,8 +10,8 @@
 > **Active focus instead:** steward wedges (transcript, approvals,
 > sessions, hub-meta separation) — the band that lets a user replace
 > Happy / CloudCLI for daily work. See
-> `docs/wedges/transcript-ux-comparison.md` and
-> `docs/steward-sessions.md`.
+> `docs/plans/transcript-ux-comparison.md` and
+> `docs/sessions.md`.
 
 > Originally drafted: a sketch for discussion. Not implementable
 > from this doc as written. Captures the gap, names the missing
@@ -19,7 +19,7 @@
 
 ## 1. Why this doc exists
 
-`docs/steward-sessions.md` §5.1 lists the artifacts that constitute
+`docs/sessions.md` §5.1 lists the artifacts that constitute
 the system's durable memory: templates, briefings, decisions,
 plans, policies, attention-resolutions, run metric digests, member
 directory.
@@ -55,7 +55,7 @@ table. Hence: a separate primitive.
 
 ## 3. What we have today
 
-- **Worktrees**: blueprint §6 + `agent-harness.md` describe per-agent
+- **Worktrees**: blueprint §6 + `agent-lifecycle.md` describe per-agent
   git worktrees (`worktrees` table) where an agent's edits land. The
   harness owns the directory; the agent has scoped write access.
 - **`artifacts` table**: a generic primitive for "this agent produced
@@ -103,7 +103,7 @@ Two important things this enables:
    syntax highlighting and the model's "why" body.
 
 2. **Code participates in the decision tier system** (§6.5 of
-   `steward-sessions.md`). A CodeChange transitioning `proposed →
+   `sessions.md`). A CodeChange transitioning `proposed →
    approved` is a Significant or Strategic decision depending on:
    - branch (main vs. feature)
    - merge target (the `pr` link)
@@ -221,7 +221,7 @@ approver linkages (since git doesn't know about either).
   CodeChange transitions (proposed / approved / merged / reverted)
   alongside other audit events.
 - **"Cite this change in a decision."** Decision artifacts
-  (`steward-sessions.md` §6) can reference CodeChange ids the same
+  (`sessions.md` §6) can reference CodeChange ids the same
   way they reference any other artifact.
 - **"Trust-but-verify on autonomy."** In a Significant-tier session
   where commits don't ask, the digest at close lists the
@@ -232,12 +232,12 @@ approver linkages (since git doesn't know about either).
 
 This is a multi-week wedge, dependent on:
 
-- **Decision tiers** (§6.5 of `steward-sessions.md`) — CodeChange
+- **Decision tiers** (§6.5 of `sessions.md`) — CodeChange
   approvals route through tier infrastructure.
 - **Inline approval card** (W1.A from `transcript-ux-comparison.md`)
   — that wedge ships first; CodeChange becomes a richer payload
   inside the same card pattern.
-- **Sessions** (the larger lift in `steward-sessions.md`) — useful
+- **Sessions** (the larger lift in `sessions.md`) — useful
   but not blocking; `session_id` can be NULL on CodeChange until
   sessions exist, then populated.
 

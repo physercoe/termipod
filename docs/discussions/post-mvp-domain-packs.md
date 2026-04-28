@@ -66,7 +66,7 @@ already, even though nobody designed it as such:
 | **Tier policy** | `tiers.go` static + per-project `policy_overrides_json` | Already overridable per project |
 | **Artifact kinds** | `artifacts.kind` is a free-form string | Schema doesn't constrain enum — domain-pack can introduce new kinds |
 | **Channels** | First-class entity, project- and team-scoped | Pack can declare default channels |
-| **Vocab axes** | `docs/vocab-audit.md` already names 21 axes + 4 theme presets | Axis-tagged keys exist but are app-level, not per-team-overridable yet |
+| **Vocab axes** | `docs/vocabulary.md` already names 21 axes + 4 theme presets | Axis-tagged keys exist but are app-level, not per-team-overridable yet |
 | **MCP tool catalog** | Hardcoded server-side (now consolidated in `mcp_authority.go` + `mcp_more.go`) | Static; pack can't add new MCP tools without a server change |
 | **Steward decomposition recipes** | Embedded in `prompts/steward.*.md` | Pure prompt content — the "intelligence" of a pack lives here |
 
@@ -235,7 +235,7 @@ preserve future optionality:
 |---|---|---|
 | **Template ID scoping** | Don't hardcode template IDs in mobile screens; always look up by `template_id` field. | If templates become per-team, hardcoded IDs break. |
 | **Parameter form generality** | Ensure `parameters_json` form engine handles arbitrary JSON Schema, not just our specific shapes. | Future-proofs for third-party params. |
-| **Vocab consistency** | Continue using axis-tagged keys per `docs/vocab-audit.md` standing rule for all role-bound strings. | This IS the foundation of pack-level vocab overlay. Do it now or pay later. |
+| **Vocab consistency** | Continue using axis-tagged keys per `docs/vocabulary.md` standing rule for all role-bound strings. | This IS the foundation of pack-level vocab overlay. Do it now or pay later. |
 | **Artifact kind discipline** | Don't enum-constrain `artifacts.kind`; document the standard kinds but allow new ones. | Already the case. |
 | **Steward template format** | Keep agent templates as YAML + linked prompts (separate files). | Already the case. Don't fork into a single mega-format. |
 | **Tier policy stays per-project overridable** | Already shipped. Document this as the official customization point for "what tier is this in MY domain." | A bioinfo pack might tier `data deletion` as Strategic where ML pack treats it as Routine. |

@@ -198,4 +198,4 @@ lost in conversation history.
 - Decisions made: [`decisions/`](decisions/)
 - Active work units: [`plans/`](plans/)
 - Demo path detail: `discussions/run-the-demo.md` (post-reorg) or
-  current `mock-demo-walkthrough.md`
+  current `run-the-demo.md`

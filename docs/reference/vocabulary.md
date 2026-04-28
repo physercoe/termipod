@@ -1,7 +1,7 @@
 # Vocab audit — theme-pack groundwork
 
 **Status:** Reference doc, not a build spec. The theme-pack feature itself
-is deferred to post-demo (see `research-demo-gaps.md`); this file is the
+is deferred to post-demo (see `../plans/research-demo-gaps.md`); this file is the
 artifact that survives until then so that:
 
 1. New strings land in the correct axis from day one (no retroactive

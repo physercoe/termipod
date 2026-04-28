@@ -13,7 +13,7 @@ Asks the user explicitly raised that this design has to answer:
 What this design intentionally **doesn't** cover (per user direction):
 
 - Per-project stewards (#2 in the user's three options).
-- Per-member stewards (the F-1 thread in `ia-redesign.md` §11).
+- Per-member stewards (the F-1 thread in `../spine/information-architecture.md` §11).
 
 ---
 

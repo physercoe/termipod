@@ -262,7 +262,7 @@ Total: roughly a third of a wedge. Not blocking the demo.
   protocol Termipod implements
 - [MCP spec](https://modelcontextprotocol.io/) — what `mcp_more.go`
   serves
-- `docs/blueprint.md` §5 — protocol layering, originally drawn the
+- `../spine/blueprint.md` §5 — protocol layering, originally drawn the
   same way as this doc but glossed over the orchestration wedge
-- `docs/multi-agent-sota-gap.md` — the production-framework
+- `multi-agent-sota-gap.md` — the production-framework
   reference for what orchestration actually needs

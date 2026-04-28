@@ -66,7 +66,7 @@ hub and `~/hub-work` exists afterwards.
 > **Note on framing.** Earlier drafts of this AC described a
 > `curl … | bash` one-liner installer. That installer doesn't exist
 > yet — host bootstrap today is a token mint on mobile + the manual
-> Track A or Track B setup in [docs/hub-host-setup.md](../hub-host-setup.md).
+> Track A or Track B setup in [../how-to/install-host-runner.md](../how-to/install-host-runner.md).
 > The W0 mkdir we're acceptance-testing here is what `host-runner`
 > does on first start, not what an installer script does.
 
@@ -78,7 +78,7 @@ hub and `~/hub-work` exists afterwards.
    bottom sheet. (When `kind=host`, the sheet also shows a
    ready-to-paste setup snippet — see step 2.)
 2. SSH into the fresh host. Follow either Track in
-   [docs/hub-host-setup.md](../hub-host-setup.md): Track A
+   [../how-to/install-host-runner.md](../how-to/install-host-runner.md): Track A
    (foreground in tmux, no sudo) is fastest for the test; Track B
    (systemd) is what production uses. Paste the host token from
    step 1 where the doc says `paste-the-plaintext-token-here`.

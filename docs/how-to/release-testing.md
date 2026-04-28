@@ -10,10 +10,10 @@ dress-rehearsal harness on top of the v1.0.49 Observability reorg).
 
 Pair this with:
 
-- [`hub-mobile-test.md`](hub-mobile-test.md) — hub server install
-- [`hub-host-setup.md`](hub-host-setup.md) — host-runner install
-- [`hub-agents.md`](hub-agents.md) — agent spawn spec YAML
-- [`mock-demo-walkthrough.md`](mock-demo-walkthrough.md) — no-GPU
+- [`install-hub-server.md`](install-hub-server.md) — hub server install
+- [`install-host-runner.md`](install-host-runner.md) — host-runner install
+- [`../reference/hub-agents.md`](../reference/hub-agents.md) — agent spawn spec YAML
+- [`run-the-demo.md`](run-the-demo.md) — no-GPU
   end-to-end walkthrough (fresh Ubuntu box, known hub URL)
 
 ---
@@ -22,12 +22,12 @@ Pair this with:
 
 1. Mobile APK / IPA from the GitHub Releases page — match the version
    you want to test (`termipod-vX.Y.Z-alpha-arm64-v8a.apk` on modern
-   Android phones). See `hub-mobile-test.md` §1 for sideload details.
+   Android phones). See `install-hub-server.md` §1 for sideload details.
 2. At least one SSH-reachable server with `tmux ≥ 3.2`. Not required
    for hub-only tests but required for §2.
 3. For Hub tests: a hub-server instance + a registered host-runner +
    three tokens (owner, principal with `-handle`, host). Follow
-   `hub-mobile-test.md` Track A (LAN) or Track B (VPS).
+   `install-hub-server.md` Track A (LAN) or Track B (VPS).
 4. A terminal on the hub box (or anywhere with the owner token) to
    seed test data via `curl`.
 
@@ -61,7 +61,7 @@ walkthroughs.
     --size 384 --optimizer lion --iters 1000
   ```
 
-See `docs/research-demo-gaps.md` "Dress-rehearsal harness" for
+See `../plans/research-demo-gaps.md` "Dress-rehearsal harness" for
 the full pipeline recipe.
 
 ---

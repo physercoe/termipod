@@ -7,12 +7,12 @@ without running nanoGPT on a real GPU.
 **Assumptions**
 - Fresh Ubuntu 22.04 or 24.04 box with sudo access.
 - A **hub URL** and a **bearer token** — either because you own the
-  hub (see `hub-mobile-test.md` to stand one up) or because a hub
+  hub (see `install-hub-server.md` to stand one up) or because a hub
   operator minted a `kind=host` (and optionally `kind=user`) token
   for you.
 - A TermiPod APK on your phone (≥ `v1.0.170-alpha`).
 - The hub itself is already running somewhere. Standing up a hub is
-  out of scope here — see `hub-mobile-test.md`.
+  out of scope here — see `install-hub-server.md`.
 
 There are two paths depending on what you have:
 
@@ -35,7 +35,7 @@ root lives). Takes about 10 seconds.
 
 ```bash
 # as the hub's service user, if you installed under systemd (Track B
-# in hub-mobile-test.md):
+# in install-hub-server.md):
 sudo -u termipod-hub /usr/local/bin/hub-server seed-demo \
   --data /var/lib/termipod-hub
 
@@ -138,7 +138,7 @@ For the live-pipeline rehearsal, continue with Path B below.
 You are on a fresh Ubuntu box. You have a hub URL (e.g.
 `https://hub.example.com`) and a **host token** (from your hub
 operator — issued with `hub-server tokens issue -kind host …`; see
-`hub-mobile-test.md` §3). You also want a **principal** (human) token
+`install-hub-server.md` §3). You also want a **principal** (human) token
 for running `curl` to create projects / runs.
 
 ### B.1 System prerequisites
@@ -358,7 +358,7 @@ fine.
 
 **Mobile app can't reach the hub.** The app rejects self-signed TLS
 via `dart:io.HttpClient`. Use Let's Encrypt on the hub (Track B in
-`hub-mobile-test.md`) or a plain `http://` LAN URL over a trusted
+`install-hub-server.md`) or a plain `http://` LAN URL over a trusted
 network.
 
 **Host keeps showing "offline" after a few minutes.** Heartbeat
@@ -374,7 +374,7 @@ Once the mock pipeline works end-to-end:
 - Swap `mock-trainer` for a real training process that writes to
   the same `~/trackio/` directory. No host-runner changes needed.
 - Spawn a steward agent on a separate host (VPS) via
-  `hub-mobile-test.md` and let it drive project creation + run
+  `install-hub-server.md` and let it drive project creation + run
   reservation via MCP — you won't need the `curl` recipes above
   once the steward has a token.
 - Keep `seed-demo` in your toolbox for offline demos where no

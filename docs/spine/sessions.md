@@ -1,19 +1,28 @@
-# Steward Sessions — Ontology Draft
+# Sessions
 
-> **Status: DRAFT for discussion.** Lots of open questions; sections marked
-> "Tentative" are starting positions, not commitments. Do not implement
-> from this doc yet — agree the shape first.
+> **Type:** axiom
+> **Status:** Current (2026-04-28) — promoted out of DRAFT. The system has been built around this ontology across v1.0.280–308.
+> **Audience:** contributors
+> **Last verified vs code:** v1.0.308
+
+**TL;DR.** Defines what a session *is* as a primitive distinct from
+the agent process: durable conversational state that survives engine
+swap, respawn, and respawn-with-clearer-context. Steward is the
+canonical example, but the same ontology covers worker sessions.
+Originally written 2026-04 as a discussion draft; promoted to spine
+once the codebase converged on this shape (soft-delete v1.0.280,
+replace-keeps-session v1.0.281, session state machine v1.0.295).
 
 This is the fourth leg of the design tripod, sibling to:
 
 - `blueprint.md` — architecture, axioms, protocol layering
-- `ia-redesign.md` — mobile information architecture
-- `agent-harness.md` — how an agent is born, lives, spawns, dies
+- `information-architecture.md` — mobile information architecture
+- `agent-lifecycle.md` — how an agent is born, lives, spawns, dies
 
 …and proposes a concept the other three currently underspecify: what
-**a steward session** is, why we need that as a distinct primitive, how
-a steward's *memory* lives outside any one session, and what the
-lifecycle of "starting a steward conversation" should look like.
+**a session** is as a primitive distinct from the agent process —
+why we need that, how a steward's *memory* lives outside any one
+session, and what the lifecycle of "starting a conversation" looks like.
 
 ---
 
@@ -208,7 +217,7 @@ What we're *missing*:
   from the other rows above: it has structure (language, syntax,
   symbols), lineage (commits), and downstream effects (tests, builds,
   deploys) that a generic "document" abstraction doesn't capture.
-  Treated separately in `docs/code-as-artifact.md` (draft); flagged
+  Treated separately in `../discussions/code-as-artifact.md` (draft); flagged
   here so the artifact list isn't read as exhaustive.
 
 ### 5.2 Loading: what goes into a session's system prompt
@@ -290,7 +299,7 @@ and how it maps to UI.
 
 The blueprint already has scattered tier names — `significant`,
 `critical` show up in capability scopes (`decision.vote: significant`),
-`requires_approval` keys off them in `agent-harness.md` §4. This
+`requires_approval` keys off them in `agent-lifecycle.md` §4. This
 section names the full ladder explicitly and maps it to UX:
 
 | Tier | Examples | Default behavior |
@@ -357,7 +366,7 @@ human-readable at a glance.
 ### 6.5.6 Approval is richer than yes/no
 
 (A clarification added after the screen-walk in
-`docs/wedges/transcript-ux-comparison.md` §7.5.) The decision card
+`../discussions/transcript-ux-comparison.md` §7.5.) The decision card
 isn't a single Allow/Deny widget; it's a small framework. At least
 four classes share a card chrome:
 
@@ -645,11 +654,11 @@ Things this design intentionally doesn't do yet:
 
 - `blueprint.md` §3 (axioms) — the steward role + bounded delegation
   framing this builds on.
-- `agent-harness.md` — current spawn/lifecycle, which sessions wrap
+- `agent-lifecycle.md` — current spawn/lifecycle, which sessions wrap
   rather than replace.
-- `ia-redesign.md` §6.1 (Me tab) and §11 F-1 (per-member stewards) —
+- `information-architecture.md` §6.1 (Me tab) and §11 F-1 (per-member stewards) —
   where session UI lives in the IA.
-- `ux-steward-audit.md` — current steward MCP tool gaps; sessions
+- `../discussions/ux-steward-audit.md` — current steward MCP tool gaps; sessions
   multiply some of those (we'll need open/close/distill MCP tools).
 
 ---

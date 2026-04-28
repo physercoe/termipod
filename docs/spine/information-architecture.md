@@ -143,7 +143,7 @@ Role set (MVP has only **Director**; the rest are reserved slots):
   The LLM steward is the default operator; a human steward is a role
   a member can take. Bounded by policy (blueprint A3). The steward
   *does not perform IC work directly* outside the single-agent
-  bootstrap window (`agent-harness.md` §6.2 / §4.9); when an IC task
+  bootstrap window (`agent-lifecycle.md` §6.2 / §4.9); when an IC task
   appears, the steward spawns a worker. MVP ships one steward per
   *team* (rows in `agents` are `UNIQUE(team_id, handle)` and there is
   no `users`/`team_members` table yet). The intended future shape is
@@ -154,7 +154,7 @@ Role set (MVP has only **Director**; the rest are reserved slots):
   surface* (branch + diff + file count + tests) rather than a
   *decision surface*. Lives in `agents` like a steward but with
   different tool allowlist, different transcript styling, different
-  distillation outcome. See `agent-harness.md` §4.9 for the full
+  distillation outcome. See `agent-lifecycle.md` §4.9 for the full
   manager-vs-IC table.
 - **Reviewer** — consulted on specific documents or decisions. Has a
   scoped inbox: reviews assigned to them, not the whole team's.
@@ -528,16 +528,16 @@ regression and requires explicit amendment of this document first.
     and §6.6. Team Settings is entered from the Team switcher in the
     top bar, not by adding a tab.
 14. **Rendering steward chat as a coding agent.** Violates the
-    manager / IC split (`agent-harness.md` §4.9). Steward sessions
+    manager / IC split (`agent-lifecycle.md` §4.9). Steward sessions
     are decision surfaces, not code surfaces — no branch/diff strip
     below the input, no Happy-style file-card tool calls in the
     transcript, no commit-status indicators. Those affordances belong
     to *worker* sessions, where there is a worktree to render. The
     only steward exception is the single-agent bootstrap window
-    (`agent-harness.md` §6.2), which is time-bounded and ends when
+    (`agent-lifecycle.md` §6.2), which is time-bounded and ends when
     workers can spawn.
 15. **Conflating director ↔ steward 1:1 with the team `hub-meta`
-    channel.** Violates `steward-sessions.md` §8.5. The team channel
+    channel.** Violates `sessions.md` §8.5. The team channel
     is multi-party broadcast; a steward session is bounded
     director-only conversation that distills into an artifact on
     close. Pollution of the team channel with director musings is a

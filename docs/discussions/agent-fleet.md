@@ -1,7 +1,7 @@
 # Agent fleet / multi-agent orchestration
 
 Status: **draft, not started**. Discussion-first. Companion to
-`docs/agent-harness.md` §7 (which scopes "multi-agent mode" as
+`docs/agent-lifecycle.md` §7 (which scopes "multi-agent mode" as
 *one steward spawning workers on demand*) — this doc is the layer above
 that: standing teams of agents, hierarchies, peer coordination, and
 fleet-level operations.
@@ -24,7 +24,7 @@ fleet-level operations.
 | **A2A peer messaging** | Shipped. Agents address each other by `handle` via `a2a.invoke(handle, text)`. Strictly 1:1. |
 | **Channels + documents + artifacts** | Shipped. Shared *content*, not shared *state*. Agents read/write through these primitives, but there's no notion of "the squad's current scratchpad" or "the team's working hypothesis." |
 | **`agent_spawns` parent→child edges** | Shipped. Records who spawned whom, but isn't surfaced as a tree, isn't queried for rollup, doesn't influence routing. |
-| **Forbidden patterns** (`blueprint.md` §7) | "Free-form agent-to-agent broadcast" is explicitly listed as forbidden. So is "shared mutable agent memory." Both close some doors that a fleet design wants opened — those rules need revisiting. |
+| **Forbidden patterns** (`../spine/blueprint.md` §7) | "Free-form agent-to-agent broadcast" is explicitly listed as forbidden. So is "shared mutable agent memory." Both close some doors that a fleet design wants opened — those rules need revisiting. |
 
 What's **not** there:
 - Standing teams of agents (a "research squad" that persists across runs).
@@ -235,7 +235,7 @@ These are sketches, not final. Let the design doc settle first.
 
 ## 8. Forbidden patterns (revisit blueprint §7)
 
-`blueprint.md` §7 lists "free-form agent-to-agent broadcast" and
+`../spine/blueprint.md` §7 lists "free-form agent-to-agent broadcast" and
 "shared mutable agent memory" as forbidden. The squad design needs
 both, in bounded forms:
 
@@ -316,13 +316,13 @@ Discuss before committing.
 
 ## 12. Things to read alongside this
 
-- `agent-harness.md` §4.9 (manager/IC layer split) and §7 (multi-agent
+- `agent-lifecycle.md` §4.9 (manager/IC layer split) and §7 (multi-agent
   mode) — the foundation this layers on top of.
-- `blueprint.md` §3.3 (agent ontology) and §7 (forbidden patterns —
+- `../spine/blueprint.md` §3.3 (agent ontology) and §7 (forbidden patterns —
   the ones that need revisiting).
-- `wedges/multi-steward.md` — the sibling design that just shipped.
+- `plans/multi-steward.md` — the sibling design that just shipped.
   Squads are the next layer above multi-steward.
-- `docs/research-demo-candidates.md` §… on LangGraph Supervisor,
+- `research-demo-candidates.md` §… on LangGraph Supervisor,
   CrewAI etc. — prior art we should learn from before designing
   this in detail.
 

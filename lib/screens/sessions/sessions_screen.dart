@@ -295,9 +295,9 @@ Future<void> _resetStewardConversation(
       if (wp.isNotEmpty) carryWorktree = wp;
       if (spec.isNotEmpty) carrySpec = spec;
       try {
-        await client.closeSession((s['id'] ?? '').toString());
+        await client.archiveSession((s['id'] ?? '').toString());
       } catch (_) {
-        // Non-fatal — already closed by another path is fine.
+        // Non-fatal — already archived by another path is fine.
       }
     }
   }

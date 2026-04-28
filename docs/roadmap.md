@@ -118,12 +118,12 @@ working list — what's actually moving this week or next.
 |---|---|---|
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
 | **Agent state & identity (ADR-009)** | Phase 1 + 2 shipped v1.0.320–322: rename close→archive, fork action, scope chip + grouping, approval detail, attention-scope entry. (`plans/agent-state-and-identity.md`) | Done; verifying on device next |
+| **MVP parity gaps — Phase 1.5** | Local notifications (1.5a, v1.0.323+325) + session search (1.5c, v1.0.324) shipped. ntfy killed-state push (1.5b) deferred post-MVP. (`plans/mvp-parity-gaps.md`) | Done; verifying on device next |
 
 ### Next (committed, not started)
 
 | Item | Why | Trigger |
 |---|---|---|
-| **MVP parity gaps — Phase 1.5** | Push notifications + session search are the remaining short-board items vs claudecode-remote / Happy (`plans/mvp-parity-gaps.md`). 3 sub-phases (local notif, ntfy, search). | After agent-state Phase 2 verified on device |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
 | **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — currently tractable by hand |

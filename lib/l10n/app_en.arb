@@ -151,6 +151,8 @@
   "@scrollbackLinesValue": { "placeholders": { "count": { "type": "int" } } },
   "settingHapticFeedback": "Haptic Feedback",
   "settingHapticFeedbackDesc": "Vibrate on key press",
+  "settingNotifications": "Notifications",
+  "settingNotificationsDesc": "Notify on new approval requests and agent events",
   "settingKeepScreenOn": "Keep Screen On",
   "settingKeepScreenOnDesc": "Prevent screen from sleeping",
   "settingInvertPaneNav": "Invert Pane Navigation",

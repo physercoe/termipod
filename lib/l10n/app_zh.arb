@@ -141,6 +141,8 @@
   "scrollbackLinesValue": "{count} 行",
   "settingHapticFeedback": "触觉反馈",
   "settingHapticFeedbackDesc": "按键时振动",
+  "settingNotifications": "通知",
+  "settingNotificationsDesc": "在新审批请求和代理事件时通知",
   "settingKeepScreenOn": "保持屏幕常亮",
   "settingKeepScreenOnDesc": "防止屏幕休眠",
   "settingInvertPaneNav": "反转窗格导航",

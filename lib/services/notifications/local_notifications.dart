@@ -23,6 +23,14 @@ class LocalNotifications {
   bool _initialized = false;
   bool _permissionRequested = false;
 
+  /// Tap handler set by the app (post-init, once the navigator is
+  /// ready) so the notification can route to the right surface
+  /// without the service knowing about Flutter widgets.
+  void Function(NotificationResponse response)? _onTap;
+  void setOnTap(void Function(NotificationResponse response) handler) {
+    _onTap = handler;
+  }
+
   /// Channel for attention-item raised notifications (highest user
   /// salience — these are decisions waiting on the principal).
   static const String attentionChannelId = 'termipod_attention';
@@ -56,6 +64,7 @@ class LocalNotifications {
     try {
       await _plugin.initialize(
         const InitializationSettings(android: android, iOS: ios),
+        onDidReceiveNotificationResponse: (resp) => _onTap?.call(resp),
       );
       if (Platform.isAndroid) {
         final androidImpl =

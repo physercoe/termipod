@@ -12,6 +12,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/key_provider.dart';
 import '../../services/data_port_service.dart';
+import '../../services/notifications/local_notifications.dart';
 import '../../services/public_file_store.dart';
 import 'dart:convert';
 import '../../models/action_bar_config.dart';
@@ -319,6 +320,23 @@ class SettingsScreen extends ConsumerWidget {
                 ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionBehavior),
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_outlined),
+                  title: Text(l10n.settingNotifications),
+                  subtitle: Text(l10n.settingNotificationsDesc),
+                  value: settings.enableNotifications,
+                  onChanged: (value) async {
+                    await ref
+                        .read(settingsProvider.notifier)
+                        .setEnableNotifications(value);
+                    // Lazy permission prompt — fire when the user
+                    // explicitly opts in. Plugin no-ops on platforms
+                    // without the OS gate (iOS pre-13 / web).
+                    if (value) {
+                      await LocalNotifications.instance.requestPermission();
+                    }
+                  },
+                ),
                 SwitchListTile(
                   secondary: const Icon(Icons.vibration),
                   title: Text(l10n.settingHapticFeedback),

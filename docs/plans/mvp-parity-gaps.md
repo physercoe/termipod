@@ -1,9 +1,9 @@
 # MVP parity gaps — push notifications, session search
 
 > **Type:** plan
-> **Status:** Proposed (2026-04-28; pending owner approval)
+> **Status:** In flight — Phase 1.5a + 1.5c shipped (v1.0.323–325); Phase 1.5b deferred post-MVP
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.322
+> **Last verified vs code:** v1.0.325
 
 **TL;DR.** Phase 1+2 of `agent-state-and-identity.md` closed the
 state/identity/scope gaps with single-engine remote-control prior
@@ -79,28 +79,41 @@ ChatGPT / Claude.ai / Cursor.
 
 ## 3. Phases
 
-### Phase 1.5a — Local notifications + foreground SSE wake
+### Phase 1.5a — Local notifications + foreground SSE wake — **SHIPPED**
 
 Goal: when the app is foregrounded or recently-backgrounded, agent
-events that *should* notify (turn end, attention item raised,
-session paused) surface as system notifications.
+events that should notify surface as system notifications.
 
-1. Add `flutter_local_notifications` dependency.
-2. In the existing foreground task, watch the hub SSE stream for:
-   - `turn.result` with `terminal_reason` (agent finished a turn)
-   - `attention_item.raised` (decision/approval request)
-   - `session.paused` (host went offline)
-3. Emit a system notification with title (event kind), body
-   (summary or first 80 chars of relevant text), and tap action
-   that opens the relevant screen (chat / Me / sessions).
-4. Setting toggle in `settings_screen.dart` to disable per kind.
-5. Verification: test on Android device — receive a notification
-   when a steward finishes a turn while the app is backgrounded.
+**Shipped (v1.0.323 + v1.0.325):**
 
-**Limit (documented in-app):** does not fire when the app is
-killed/swiped. Phase 1.5b removes this limit.
+1. ✅ `flutter_local_notifications` 19.4.2 dependency.
+2. ✅ Diff-on-refresh in `hub_provider.refreshAll`: emit a
+   high-priority notification for newly-appeared attention items.
+   First refresh after open is silent. Suppressed when the user
+   has notifications disabled.
+3. ✅ Settings toggle in `settings_screen.dart` (Behavior section)
+   bound to the existing `enableNotifications` flag. Toggling on
+   triggers the OS permission prompt.
+4. ✅ Tap handler routes to home screen with the Me tab selected.
 
-### Phase 1.5b — ntfy integration (killed-state push)
+**Documented limit:** local notifications only fire while the app
+is alive (foreground / backgrounded). Killed-state delivery would
+need ntfy/FCM (Phase 1.5b, deferred post-MVP).
+
+**Not shipped (intentional):**
+- Turn-end / session-paused notifications. Attention items are the
+  highest-salience signal; turn-end is chatty enough to become
+  noise. Add later if device walkthroughs show users want it.
+
+### Phase 1.5b — ntfy integration (killed-state push) — **DEFERRED post-MVP**
+
+**Status:** Owner deferred 2026-04-28 — local notification + tap →
+Me page (Phase 1.5a) is sufficient for MVP. ntfy integration adds
+killed-state delivery but requires user to host or use ntfy.sh,
+adds another config field, and the value over Phase 1.5a is
+incremental (the same notification stream just survives swipe-
+away). Revisit when an external user lands or device walkthroughs
+show the swipe-away case being missed.
 
 Goal: agent-finishes-while-app-is-killed event reaches the user.
 
@@ -117,7 +130,7 @@ Goal: agent-finishes-while-app-is-killed event reaches the user.
    receive the ntfy notification on phone, tap → app opens at
    the right surface.
 
-### Phase 1.5c — Session search screen
+### Phase 1.5c — Session search screen — **SHIPPED (v1.0.324)**
 
 Goal: find a past conversation by content in <5 seconds.
 

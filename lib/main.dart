@@ -17,6 +17,10 @@ import 'package:termipod/services/notifications/local_notifications.dart';
 import 'package:termipod/services/public_file_store.dart';
 import 'package:termipod/theme/app_theme.dart';
 
+// Used by the local notification tap handler (Phase 1.5a) to switch
+// the bottom-nav to the Me tab when the user taps a notification.
+const int _meTabIndex = 2;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -65,6 +69,20 @@ class _MyAppState extends ConsumerState<MyApp> {
   void initState() {
     super.initState();
     _initDeepLinks();
+    _wireNotificationTap();
+  }
+
+  /// Phase 1.5a: when the user taps a notification, pop to the
+  /// home screen and switch the bottom-nav to Me. The plugin's
+  /// onDidReceiveNotificationResponse trampolines into this
+  /// callback (LocalNotifications.setOnTap).
+  void _wireNotificationTap() {
+    LocalNotifications.instance.setOnTap((response) {
+      final nav = _navigatorKey.currentState;
+      if (nav == null) return;
+      nav.popUntil((route) => route.isFirst);
+      ref.read(currentTabProvider.notifier).setTab(_meTabIndex);
+    });
   }
 
   Future<void> _initDeepLinks() async {

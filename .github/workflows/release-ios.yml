@@ -87,7 +87,7 @@ jobs:
           zip -r "termipod-${{ github.ref_name }}-ios-unsigned.ipa" Payload
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: termipod-${{ github.ref_name }}-ios-unsigned.ipa
           fail_on_unmatched_files: false

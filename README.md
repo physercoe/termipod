@@ -37,7 +37,7 @@ Every other "Claude Code on your phone" tool is a 1:1 bridge to a single local s
 
 **30-second demo.** Type `ablation sweep on nanoGPT, tell me which optimizer scales better` on your phone. Your VPS steward returns a 6-step plan; you tap Approve. Six training runs spawn on your home GPU box. Three hours later, a briefing document with loss curves lands on your **Me** tab. You ratify it on the train home.
 
-See [docs/positioning.md](docs/positioning.md) for the full thesis, ICP, and competitive analysis.
+See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the full thesis, ICP, and competitive analysis. The full doc index lives at [docs/README.md](docs/README.md).
 
 ---
 
@@ -146,7 +146,7 @@ Be honest: if you run exactly one Claude Code session on one machine and your la
 
 Opt-in coordination layer for teams running multiple AI agents across machines. Paste a hub URL + bearer token in **Settings → Hub** and the five-tab IA — **Projects · Activity · Me · Hosts · Settings** — comes alive.
 
-**Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. Templates for ablation sweeps, paper reproductions, and benchmark comparisons ship with the hub.
+**Research-demo workflow:** write a project directive on the phone → a steward agent decomposes it into a plan → workers on GPU hosts execute runs in parallel via cross-host A2A → a briefing agent summarizes overnight into a reviewable document. Every step surfaces on the phone; you ratify, not operate. The MVP demo target is the locked **ablation-sweep** template (nanoGPT-Shakespeare optimizer × size; see [docs/decisions/001-locked-candidate-a.md](docs/decisions/001-locked-candidate-a.md)); paper-reproduction and benchmark-comparison templates are deferred until the demo lands.
 
 **Me** (center, default) — your personal triage: pending approvals, urgent tasks, recent activity digest, and a Vault shortcut. Tap a pending approval to Approve / Reject inline.
 
@@ -158,7 +158,7 @@ Opt-in coordination layer for teams running multiple AI agents across machines. 
 
 **Team** screen (header icon on Projects) — Members, Policies, team-scope channels (including the `#hub-meta` steward room, reachable from the AppBar chip), and Team Settings with cron **Schedules**, per-agent **Usage / budget** rollups, an **Audit log**, and the **Templates** browser for team-wide agent / prompt / policy YAML. Everything that drives behaviour — project templates, agent skills, launcher commands — is data you can edit on disk; no code changes required to add a new agent kind.
 
-The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/hub-mobile-test.md](docs/hub-mobile-test.md) for setup and tab-by-tab verification.
+The hub itself ships as a separate Go daemon under `hub/` — install with `go install` or run from source. See [docs/how-to/install-hub-server.md](docs/how-to/install-hub-server.md) for hub setup, [docs/how-to/install-host-runner.md](docs/how-to/install-host-runner.md) for adding a worker host, and [docs/how-to/run-the-demo.md](docs/how-to/run-the-demo.md) for the no-GPU dress rehearsal.
 
 ### Other
 - **Data export / import** — full JSON backup of connections, keys, snippets, history, and settings; restore on a new device or migrate from the legacy MuxPod app
@@ -243,11 +243,11 @@ flutter build ios --release
 
 ### Connect
 
-1. **Add a server** — Tap + on Servers tab, enter host / port / username
-2. **Authenticate** — Password or SSH key (generate in Vault > Keys)
+1. **Add a host** — Tap + on the **Hosts** tab, enter host / port / username
+2. **Authenticate** — Password or SSH key (generate via the Keys tile on the host detail screen)
 3. **Optional** — Configure jump host or SOCKS5 proxy in the connection form
-4. **Navigate** — Expand server > session > window > pane
-5. **Interact** — Action bar for quick keys, compose bar for commands, [+] for snippets and file transfers
+4. **Navigate** — Expand host > session > window > pane
+5. **Interact** — Action bar for quick keys, compose bar for commands, bolt button for snippets, [+] for file transfers
 
 ---
 
@@ -264,32 +264,44 @@ flutter build ios --release
 
 ## Roadmap
 
-Termipod's MVP is the **research demo** described in `docs/blueprint.md` §9 Phase 4:
-user writes a directive → steward decomposes → fleet executes runs across hosts →
-briefing agent summarizes overnight → user reviews on phone.
+The MVP target is the **research demo** described in
+[docs/spine/blueprint.md](docs/spine/blueprint.md) §9 Phase 4: user
+writes a directive → steward decomposes → fleet executes runs across
+hosts → briefing agent summarizes overnight → user reviews on phone.
 
-The demo path is shipped end-to-end: built-in project templates (ablation-sweep,
-reproduce-paper, benchmark-comparison, write-memo) as YAML overlays, a concrete
-steward decomposition recipe, a briefing agent with cron scheduling, cross-host
-A2A via reverse-tunnel relay for NAT'd GPU hosts, and metric digests from
-trackio / wandb / TensorBoard surfaced as inline sparklines on the run detail
-screen. Every hub CRUD surface on mobile is also reachable from the steward as
-an MCP tool, so the phone is a ratify/review surface on top of what the
-steward has already authored.
+**Phase status (as of v1.0.318):**
 
-Still open:
+| Phase | Status |
+|---|---|
+| P0 — Hub primitives (schema) | ✅ Shipped |
+| P1 — Structured wire (protocols) | ✅ Shipped |
+| P2 — App UI | ✅ Shipped |
+| P3 — Integrations (trackio, A2A relay) | ✅ Shipped |
+| P4 — Research demo | 🟡 Backend feature-complete; **hardware run remaining** |
 
-- **iOS TestFlight / App Store distribution** — Android APK ships; iOS builds
-  are local-only today. TestFlight is the next distribution step.
-- **Activity feed on projects / channels tabs** — the reframed v1.0.160 hub
-  screens demote "+ New" into overflow menus; surfacing a unified recent-
-  activity stream (runs, docs, attention, schedule fires) on landing is the
-  follow-up that makes the ratify/review posture feel right.
-- **A2A peer auth** — per-agent tokens on the reverse-tunnel relay so cross-
-  team calls can be authenticated end-to-end.
+The demo path is shipped end-to-end on the dress-rehearsal harness
+(`seed-demo` + `mock-trainer`, no GPU needed). The actual hardware
+run of Candidate A (nanoGPT-Shakespeare optimizer × size sweep) is
+the MVP milestone — gated on two consecutive walkthrough-clean
+device tests.
 
-See [docs/research-demo-gaps.md](docs/research-demo-gaps.md) for the live gap list
-and [docs/blueprint.md](docs/blueprint.md) §9 for the full phase plan.
+**Still open (post-demo):**
+
+- **Briefing agent overnight schedule** — steward schedules the
+  briefing autonomously (today the user fires it).
+- **iOS TestFlight / App Store distribution** — Android APK ships;
+  iOS builds are local-only today.
+- **A2A peer auth** — per-agent tokens on the reverse-tunnel relay
+  so cross-team calls can be authenticated end-to-end.
+- **Domain packs / marketplace** — content-pack extensibility
+  (post-MVP; see
+  [docs/discussions/post-mvp-domain-packs.md](docs/discussions/post-mvp-domain-packs.md)).
+
+Live trackers:
+- [docs/roadmap.md](docs/roadmap.md) — Now / Next / Later
+- [docs/plans/research-demo-gaps.md](docs/plans/research-demo-gaps.md) — demo-scoped detail
+- [docs/changelog.md](docs/changelog.md) — what shipped per release
+- [docs/decisions/](docs/decisions/) — ADRs (numbered, append-only)
 
 ---
 

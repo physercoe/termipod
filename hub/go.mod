@@ -3,7 +3,7 @@ module github.com/termipod/hub
 go 1.23
 
 require (
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/robfig/cron/v3 v3.0.1

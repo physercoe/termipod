@@ -31,6 +31,27 @@ claudecode-remote, …):
 - **Steward-orchestrated** — the steward agent is the entry point;
   user delegates project-shaped goals, not task-shaped commands
 
+### MVP commitment: superset, not replacement (no short-board effect)
+
+The above bullets are the *additional* axes we ship. They are
+**net-add**, not substitutes for the table-stakes axes that
+single-engine remote-control apps already do well. The MVP must be
+**at competitive parity in every axis those apps support** —
+single-session chat, resume, list past sessions, fork to
+explore, sensible session vocabulary. A user switching from
+claudecode-remote / Codex remote / Happy should find their muscle
+memory works here, not be told "we don't do that yet."
+
+A feature being weaker than what those apps ship is a bug, not a
+future enhancement. This is why decisions like ADR-009 (fork
+operator, scope-grouped session list, archive vocabulary) land in
+MVP rather than post-MVP — they aren't polish; they're the
+short-board fix.
+
+The selling point is *both* directions: pick us up to keep the
+single-engine workflow you already know, and grow into the fleet /
+governance / multi-host capabilities when you need them.
+
 ## North Star (next 90 days)
 
 **Run the locked Candidate-A demo end-to-end on hardware.** Steward

@@ -92,6 +92,20 @@ Decomposed:
 
 **The thing none of them can copy cheaply:** TermiPod's three-layer split (hub = names, host-runner = deterministic deputy, agent = stochastic executor) plus A2A routing. Remote Control *can't* add multi-host or multi-vendor without becoming a different product. Happy can't add governance without a hub. OpenHands can't become a mobile director-cockpit without rebuilding its UX top-to-bottom. TermiPod is what you get when you start from "the phone is the cockpit and the agents are distributed" as first principles.
 
+**The "no short-board" commitment.** The differentiation is on the
+*additional* axes we cover (multi-host, multi-vendor, multi-session,
+governance, offline). Differentiation only sells if the *table-stakes*
+axes are at parity — single-session chat, resume, list past sessions,
+fork to explore, sensible session vocabulary. A user switching from
+claudecode-remote / Codex remote / Happy must find their muscle
+memory works. A feature being weaker than what those apps ship is a
+bug, not a future enhancement. The selling point reads both ways:
+*"pick us up to keep the single-engine workflow you already know, and
+grow into the fleet capabilities when you need them."*
+
+This is why ADR-009 (fork operator, scope-grouped list, archive
+vocabulary) lands in MVP — it's the short-board fix, not polish.
+
 ---
 
 ### Second competitive axis: messenger-bridge agents

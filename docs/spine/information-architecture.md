@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.311
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** Authoritative reference for termipod's mobile IA: the
 philosophy the nav is derived from, the ontology of surfaces and
@@ -646,30 +646,31 @@ removes it.
 
 ## 11. Execution plan
 
-The redesign ships as wedges, each its own tag and each smaller than a
-full rewrite. Order reflects decreasing structural leverage — the
-earliest wedges unblock the later ones.
+The redesign shipped as 7 wedges across v1.0.175–v1.0.182. Listed
+here for archaeology — what landed and in what order. Order reflects
+decreasing structural leverage — the earliest wedges unblocked the
+later ones.
 
-**Wedge 1 — Nav skeleton.** Rename Inbox→Me, Hub→Projects, add Activity
+**Wedge 1 ✅ — Nav skeleton.** Rename Inbox→Me, Hub→Projects, add Activity
 tab, replace Servers with Hosts (stub; still lists current SSH
 bookmarks). Settings shrunk to prefs-only, with orphaned sub-pages
 linked from their new homes. No entity moves yet.
 
-**Wedge 2 — Host unification.** Hub's hosts and SSH bookmarks join on
+**Wedge 2 ✅ — Host unification.** Hub's hosts and SSH bookmarks join on
 `host_id`. Introduce scope field. Terminal button on host detail. Keys
 & credentials attach to host. Delete `connections/`, `keys/`, `vault/`
 as top-level.
 
-**Wedge 3 — Me tab shape.** Attention + My Work + digest. Pull reviews
+**Wedge 3 ✅ — Me tab shape.** Attention + My Work + digest. Pull reviews
 and run-follows into Me. Strip non-attention noise.
 
-**Wedge 4 — Projects tab shape.** Consolidate templates to one home.
+**Wedge 4 ✅ — Projects tab shape.** Consolidate templates to one home.
 Project detail density pass: nested sub-tabs instead of sprawl.
 
-**Wedge 5 — Activity tab shape.** Promote audit_screen to top tab.
+**Wedge 5 ✅ — Activity tab shape.** Promote audit_screen to top tab.
 Filters, digest card mirror to Me.
 
-**Wedge 6 — Team switcher + Team Settings scaffold.** Add persistent
+**Wedge 6 ✅ — Team switcher + Team Settings scaffold.** Add persistent
 top-bar Team switcher to every tab (MVP shows one team). Tapping it
 opens Team Settings: Members, Policies, Budgets, Tokens (team),
 Councils (stub), Steward config (stub). Migrate `team_screen.dart` +
@@ -677,15 +678,15 @@ Councils (stub), Steward config (stub). Migrate `team_screen.dart` +
 shrinks to device-only in the same wedge (the move-out and move-in are
 paired).
 
-**Wedge 7 — Steward surface.** Formalize the steward as a first-class
+**Wedge 7 ✅ — Steward surface.** Formalize the steward as a first-class
 actor: render steward messages in every project channel and in a new
 team channel; surface steward-initiated attention items on Me; add
 filter `actor=steward` to Activity; build the Team Settings → Steward
 config screen (autonomy, budget caps, scope allowlist, model
 selection). No new tab.
 
-Each wedge is shippable on its own and leaves the app in a coherent
-state. No wedge blocks daily use.
+All 7 wedges shipped. Subsequent steward UX work (v1.0.281–v1.0.300)
+followed in `../plans/steward-ux-fixes.md`.
 
 ### Follow-ups (unscheduled)
 

@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.311
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** Authoritative reference for termipod's design philosophy,
 component ontology, protocol layering, and primitive schema. Future
@@ -782,92 +782,105 @@ amendment of this document first.
 Phased PR plan. Each phase is independently demoable; phase 2 completes
 the research MVP pitch.
 
-### Phase 0 — primitives (hub schema)
+**Status as of v1.0.314.** Phases P0–P3 shipped; P4 backend is
+feature-complete. The remaining demo work is reliability hardening
+from device walkthroughs and the actual hardware run of Candidate A.
+Per-bullet status below; current Now/Next/Later view is in
+[`../roadmap.md`](../roadmap.md).
 
-- P0.1 `projects` evolution migration: add `goal`, `kind` (goal|standing),
+### Phase 0 — primitives (hub schema) ✅ shipped
+
+- P0.1 ✅ `projects` evolution migration: add `goal`, `kind` (goal|standing),
   `parent_project_id`, `template_id`, `parameters_json`, `is_template`,
   `budget_cents`, `policy_overrides_json`, `steward_agent_id`,
   `on_create_template_id`. Retire separate directive concept.
-- P0.2 `plans` + `plan_steps` tables + MCP tools `plan.instantiate`,
+- P0.2 ✅ `plans` + `plan_steps` tables + MCP tools `plan.instantiate`,
   `plan.advance`, `plan.step.complete`, `plan.get`.
-- P0.3 `schedules` table (generalizes and replaces `agent_schedules`):
+- P0.3 ✅ `schedules` table (generalizes and replaces `agent_schedules`):
   `trigger_kind ∈ {cron, manual, on_create}`; scheduler refactored to
   instantiate plans instead of spawning agents. Migration ports any
   existing `agent_schedules` rows to synthetic single-step templates.
-- P0.4 `runs` table + MCP tools `run.register`, `run.complete`,
+- P0.4 ✅ `runs` table + MCP tools `run.register`, `run.complete`,
   `run.attach_metric_uri`, `run.attach_artifact`.
-- P0.5 `documents` + `reviews` tables + MCP tools.
-- P0.6 `hosts.ssh_hint_json` + `hosts.capabilities_json` columns.
+- P0.5 ✅ `documents` + `reviews` tables + MCP tools.
+- P0.6 ✅ `hosts.ssh_hint_json` + `hosts.capabilities_json` columns.
 
-### Phase 1 — structured wire (protocols)
+### Phase 1 — structured wire (protocols) ✅ shipped
 
-- P1.1 Host-runner multi-mode agent driver (see §5.3.1): **M1 ACP shim**,
+- P1.1 ✅ Host-runner multi-mode agent driver (see §5.3.1): **M1 ACP shim**,
   **M2 structured-stdio shim** (per-agent, starting with Claude Code
   `stream-json`), **M4 manual/pane-only**. Unified `agent_events` queue
   regardless of mode. Hooks side-channel optional.
-- P1.2 Host-runner **plan-step executor** (deterministic phases):
+- P1.2 ✅ Host-runner **plan-step executor** (deterministic phases):
   executes `llm_call`, `shell`, `mcp_call`, `human_decision` steps
   without spawning a supervised agent. `agent_spawn` steps delegate to
   P1.1.
-- P1.3 Host-runner **capability probe** (binary presence + version) on
+- P1.3 ✅ Host-runner **capability probe** (binary presence + version) on
   boot and heartbeat; reports to `hosts.capabilities_json`.
-- P1.4 Hub **mode resolver**: given template mode + spawn override +
+- P1.4 ✅ Hub **mode resolver**: given template mode + spawn override +
   host capabilities + declared billing → concrete mode, or fail-fast
   with reason.
-- P1.5 Hub MCP server exposing authority capabilities (projects, plans,
-  runs, documents, reviews, policy, audit read).
-- P1.6 Host-runner MCP gateway with `hub://` and `host://` mounts;
+- P1.5 ✅ Hub MCP server exposing authority capabilities (projects, plans,
+  runs, documents, reviews, policy, audit read). Consolidated to a
+  single service in v1.0.298 — see [ADR-002](../decisions/002-mcp-consolidation.md).
+- P1.6 ✅ Host-runner MCP gateway with `hub://` and `host://` mounts;
   credential injection on forward.
-- P1.7 `agent_events` store + hub AG-UI broker + `GET /v1/teams/{team}/
+- P1.7 ✅ `agent_events` store + hub AG-UI broker + `GET /v1/teams/{team}/
   agents/{agent}/stream` SSE endpoint.
-- P1.8 Structured input endpoint `POST /v1/teams/{team}/agents/{agent}/
+- P1.8 ✅ Structured input endpoint `POST /v1/teams/{team}/agents/{agent}/
   input`.
 
-### Phase 2 — app UI
+### Phase 2 — app UI ✅ shipped
 
-- P2.1 `AgentFeed` widget (AG-UI card renderer); card library for each
+- P2.1 ✅ `AgentFeed` widget (AG-UI card renderer); card library for each
   event type. Move pane view to "Raw" tab; add mode badge on agent card.
-- P2.2 Structured input wire-up: approve / reject / redirect / cancel as
+- P2.2 ✅ Structured input wire-up: approve / reject / redirect / cancel as
   AG-UI input events.
-- P2.3 Custom event renderers: run sparkline card, artifact thumbnail
+- P2.3 ✅ Custom event renderers: run sparkline card, artifact thumbnail
   card, document review card.
-- P2.4 **Plan viewer screen**: phases, step status, outputs, audit trail
+- P2.4 ✅ **Plan viewer screen**: phases, step status, outputs, audit trail
   of runs of that plan.
-- P2.5 **Workflows tab** (UI-only aggregation over `schedules` +
+- P2.5 ✅ **Workflows tab** (UI-only aggregation over `schedules` +
   templates + history); "Run now" for manual trigger.
-- P2.6 Director home screen ("Triage"): pending reviews, stuck agents,
+- P2.6 ✅ Director home screen ("Triage"): pending reviews, stuck agents,
   overnight briefings. Top-level tab, aggregates across projects.
-- P2.7 Project template picker + instantiation flow; `kind`-aware
+- P2.7 ✅ Project template picker + instantiation flow; `kind`-aware
   (goal projects show progress, standing projects show recent runs).
-- P2.8 **Enter-pane action**: phone `hub_host_bindings` local table +
+- P2.8 ✅ **Enter-pane action**: phone `hub_host_bindings` local table +
   SSH-hint-pre-filled Connection form + `tmux attach` navigation.
 
-### Phase 3 — integrations
+### Phase 3 — integrations ✅ shipped
 
-- P3.1 Host-runner reads the run's metrics over a wandb/trackio-
+- P3.1 ✅ Host-runner reads the run's metrics over a wandb/trackio-
   compatible HTTP endpoint. For MVP, trackio is assumed installed and
   self-hosted on the host (operator installs `pip install trackio` and
   runs it as a local service); the host-runner does not implement a
   native Go endpoint — it only consumes the existing HTTP contract.
   Verify `import trackio as wandb` in user code works end-to-end.
-- P3.2 A2A server on host-runner; publish agent-cards to hub directory.
-- P3.3 Hub A2A directory + reverse-tunnel relay.
-- P3.4 Cross-host A2A smoke test: two host-runners under the same hub
+- P3.2 ✅ A2A server on host-runner; publish agent-cards to hub directory.
+- P3.3 ✅ Hub A2A directory + reverse-tunnel relay. Required because GPU
+  hosts are typically NAT'd — see [ADR-003](../decisions/003-a2a-relay-required.md).
+- P3.4 ✅ Cross-host A2A smoke test: two host-runners under the same hub
   route an A2A task through the hub's directory/relay (agent on host A
   invokes a capability exposed by an agent on host B). This exercises
   P3.2 + P3.3 on the realistic MVP deployment (one hub, many hosts).
   Cross-hub federation (multiple hubs exchanging A2A tasks) is out of
   MVP scope.
 
-### Phase 4 — research demo
+### Phase 4 — research demo 🟡 backend feature-complete; hardware run pending
 
-- P4.1 Built-in project templates: "reproduce paper", "ablation sweep",
-  "write memo", "benchmark comparison".
-- P4.2 Steward decomposition agent recipe (steward reads project.goal +
-  template, emits child tasks + spawns).
-- P4.3 End-to-end demo: user writes a directive → steward decomposes →
-  fleet executes runs across hosts → briefing agent summarizes overnight
-  → user reviews on phone.
+Locked to Candidate A (nanoGPT-Shakespeare optimizer × size sweep) per
+[ADR-001](../decisions/001-locked-candidate-a.md). Detail tracker:
+[`../plans/research-demo-gaps.md`](../plans/research-demo-gaps.md).
+
+- P4.1 ✅ Built-in project templates: "ablation-sweep" shipped (`steward.research`,
+  `ml-worker`, `briefing` templates). "reproduce paper" / "write memo" /
+  "benchmark comparison" deferred — Candidate A only needs ablation-sweep.
+- P4.2 ✅ Steward decomposition recipe (`hub/templates/prompts/steward.research.v1.md`)
+  with the SOTA orchestrator-worker pattern from [ADR-008](../decisions/008-orchestrator-worker-slice.md).
+- P4.3 🟡 End-to-end demo: backend complete; dress-rehearsal harness shipped
+  (seed-demo + mock-trainer, no GPU needed). Hardware run of Candidate A
+  remaining — gated on two consecutive walkthrough-clean device tests.
 
 ---
 

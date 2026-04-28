@@ -3,15 +3,21 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28) — promoted out of DRAFT. The system has been built around this ontology across v1.0.280–308.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.308
+> **Last verified vs code:** v1.0.314
 
 **TL;DR.** Defines what a session *is* as a primitive distinct from
 the agent process: durable conversational state that survives engine
 swap, respawn, and respawn-with-clearer-context. Steward is the
 canonical example, but the same ontology covers worker sessions.
-Originally written 2026-04 as a discussion draft; promoted to spine
-once the codebase converged on this shape (soft-delete v1.0.280,
-replace-keeps-session v1.0.281, session state machine v1.0.295).
+
+**Reading note.** Originally written 2026-04 as a discussion draft
+with many "Tentative:" markers. Promoted to spine v1.0.310 because
+the codebase converged on this shape across v1.0.280–308. Tentative
+answers in the body have been reconciled against shipped state and
+relabelled `Resolved:` (with version where known) or `Open:` where
+the question is genuinely unresolved. Do not implement straight from
+this doc — read it as the ontological frame, then check the code or
+the relevant ADR for the current contract.
 
 This is the fourth leg of the design tripod, sibling to:
 
@@ -144,7 +150,7 @@ session. It determines:
   for a plan-update session).
 
 **Open question**: is scope declared by the user at open time, or
-inferred from where they tapped "open session"? Tentative: both — the
+inferred from where they tapped "open session"? **Resolved (shipped):** both — the
 UI seeds scope from the entry point (project page → project scope,
 attention-item → attention scope), then lets the user edit. A
 free-form "general" scope is allowed but discouraged.
@@ -173,7 +179,7 @@ becomes inactive — no future session reads it as context.
 
 **Open question**: if a session's process crashes mid-conversation, is
 that the same session resumed (same id, same scope, same loaded
-artifacts) or a new one? Tentative: same session — process death is
+artifacts) or a new one? **Resolved v1.0.281 (replace-keeps-session):** same session — process death is
 not session death. Session death is explicit close-or-distill.
 
 Corollary: if a host-runner restarts, in-flight sessions reattach to
@@ -222,7 +228,7 @@ What we're *missing*:
 
 ### 5.2 Loading: what goes into a session's system prompt
 
-Tentative algorithm at session open time, scoped to (e.g.) a project:
+**Shipped algorithm** at session open time, scoped to (e.g.) a project:
 
 1. The persistent steward persona prompt (who you are, how you behave).
 2. The team's policy bundle (capabilities, decision rules, governance).
@@ -251,7 +257,7 @@ If sessions don't distill, they leak: tomorrow's session won't know
 today happened, the audit log has events but no narrative, and the
 user starts treating the steward as forgetful.
 
-But we don't want a heavy form. Tentative: the close screen offers
+But we don't want a heavy form. **Open (partially shipped):** the close screen offers
 **three buttons** plus a "later" punt:
 
 - "Save as Decision" — opens a one-line + reasoning form, prefilled by
@@ -278,7 +284,7 @@ finalization step that produces an artifact write.
 threshold (token usage, idle time) but doesn't force.
 
 **Open question**: is there a hard ceiling? E.g. "any session over 80%
-context must distill before continuing"? Tentative: yes, but framed as
+context must distill before continuing"? **Open:** yes, but framed as
 "let me summarize what we've covered and continue with a clean
 context", not as a teardown. Functionally a soft restart.
 
@@ -389,7 +395,7 @@ for the card-framework spec; this section is the ontology hook.
 
 1. **Where does a *deny* take the agent?** Hard-stop, or does the
    agent get an error result it can react to (e.g., choose a
-   different tool)? Tentative: error result with `decision=denied`
+   different tool)? **Resolved:** error result with `decision=denied`
    plus optional user note. Agent adapts. Avoids the brittle "user
    blocked → run failed" pattern.
 2. **Group-of-similar approval.** When an agent will run 8 commits
@@ -411,7 +417,7 @@ for the card-framework spec; this section is the ontology hook.
 6. **Multi-choice provenance.** When the agent emits a
    `decision_request` with three options, how does the user trust
    that the options were genuinely the agent's reasoning (vs. an
-   adversarial framing)? Tentative: the original tool call + the
+   adversarial framing)? **Resolved (shipped via audit_events):** the original tool call + the
    options block + the agent's rationale all land in audit; user
    can scroll back. Strategic-tier multi-choice may require the
    agent to also write a one-line rationale per option.
@@ -423,7 +429,7 @@ for the card-framework spec; this section is the ontology hook.
 The user's intuition (paraphrased): "task → one session is OK; project
 → multi-session matters; team → ?"
 
-Tentative answers:
+**Resolved answers** (most shipped; check inline notes for status):
 
 ### 7.1 Task layer
 
@@ -431,7 +437,7 @@ One session per task is the natural unit. A task is small enough that
 all its context fits, and the distillation is the commit / brief that
 the agent produces anyway. Today we don't actually have "task
 sessions" because workers run as ephemeral spawns, not steward
-sessions. **Tentative: workers don't have sessions in this sense at
+sessions. **Open (the doc was wrong; workers DO get sessions):** the original draft said workers don't have sessions in this sense at
 all.** Sessions are a steward-side concept; workers are processes
 attached to tasks.
 
@@ -457,10 +463,11 @@ steward all day". Examples of legitimate team-scope sessions:
 - Policy change ("propose updating the retention policy").
 - New-member onboarding ("walk through team conventions").
 
-What about ambient orchestration? **Tentative: not a session.** If we
-want the steward to watch metrics and raise attention items, that's a
-*program* — a scheduled tool the steward identity can run, that
-reads artifacts and writes attention. Not a chat.
+What about ambient orchestration? **Open: not a session today.** If
+we want the steward to watch metrics and raise attention items,
+that's a *program* — a scheduled tool the steward identity can run,
+that reads artifacts and writes attention. Not a chat. Worth
+revisiting if we ship long-running steward background tasks.
 
 ---
 
@@ -556,7 +563,7 @@ trying to write the spec.
 
 1. **Schema.** New `sessions` table? Or a "session" view over existing
    audit/agent rows? A real table is cleaner; the migration cost is
-   small. Tentative: real table.
+   small. **Resolved (shipped):** real `sessions` table per migration 0027.
 2. **Session id namespace.** UUID per session, attached to every
    `agent_event` and `audit_event` produced inside it.
 3. **What "scope" actually serializes as.** A `(kind, id)` tuple plus
@@ -564,14 +571,14 @@ trying to write the spec.
    member | template | run | freeform`.
 4. **Default-capabilities filtering.** Does the session inherit the
    identity's full capability bundle, or a scope-narrowed subset?
-   Tentative: scope-narrowed by default; user can elevate within the
+   **Resolved (shipped via tier system):** scope-narrowed by default; user can elevate within the
    session with a confirmation.
 5. **Token-budget defaults at session open.** Is 80k / 120k / 160k the
    right starting point? Likely depends on Claude variant. Probably a
    per-tier config rather than a hard literal.
 6. **Distillation artifact schema.** Reuse `project_documents` with a
    `kind=session_summary` flag, or a new `session_distillations`
-   table? Tentative: extend project_documents, since they already
+   table? **Resolved (shipped):** extend `project_documents`, since they already
    have the right write/read paths and audit hooks.
 7. **Session resume across host-runner restart.** Same session id,
    re-stream transcript on attach. Implementation is in the host-
@@ -584,7 +591,7 @@ trying to write the spec.
    the user; we'd want them in the close screen. Already mostly
    captured by `usage` events; just needs aggregation.
 10. **UI vocabulary.** "Session" is a programming term. Mobile users
-    might prefer "conversation" or "thread". Tentative: keep
+    might prefer "conversation" or "thread". **Resolved:** keep
     "session" in code, expose a friendlier word on screen. Decide
     later — vocab-audit problem.
 

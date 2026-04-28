@@ -1,0 +1,316 @@
+# Changelog
+
+> **Type:** reference
+> **Status:** Current (2026-04-28)
+> **Audience:** contributors, operators
+> **Last verified vs code:** v1.0.316
+
+**TL;DR.** Append-only record of what shipped in each tagged release.
+One section per version, newest first. Format follows
+[Keep a Changelog](https://keepachangelog.com/) — Added / Changed /
+Fixed / Deprecated / Removed / Security. Entries link to the commit
+or PR for forensic detail.
+
+This complements:
+- `roadmap.md` — current focus and Now/Next/Later view
+- `decisions/` — append-only ADRs for architectural choices
+- Git tag annotations — short-form release notes per tag
+
+History before v1.0.280 lives in git log only. The active-development
+arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
+binding). Seed entries prior to that are in
+[`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.316-alpha — 2026-04-28
+
+### Added
+- `scripts/lint-docs.sh` — enforces doc-spec status block,
+  resolved-discussion forward links, cross-reference resolution, and
+  stale-doc warning (Layer 1 of the anti-drift design).
+- `.github/workflows/codeql.yml` — security/quality scanning on push
+  and weekly cron.
+- `.github/dependabot.yml` — weekly dep-update PRs for Flutter pub +
+  Go modules + GitHub Actions.
+- `.github/pull_request_template.md` — PR checklist mirroring
+  doc-spec §7.
+- `docs/changelog.md` (this file) — Keep-a-Changelog format.
+
+### Changed
+- `doc-spec.md` §7: documents the three CI rules and DISCUSSION
+  resolution accepting both ADR and plan links.
+
+## v1.0.315-alpha — 2026-04-28
+
+### Changed
+- `spine/sessions.md`: 14 "Tentative:" markers walked individually,
+  marked Resolved (with version where known) or Open. Reading note
+  added.
+- `spine/blueprint.md` §9: per-bullet status indicators (✅/🟡) +
+  ADR cross-links.
+- `spine/information-architecture.md` §11: 7 wedges marked ✅ shipped
+  with version range; final paragraph rewritten as archaeology.
+
+## v1.0.314-alpha — 2026-04-28
+
+### Changed
+- `reference/coding-conventions.md`: rewritten first-principles —
+  links to upstream (Effective Dart, `analysis_options.yaml`) instead
+  of duplicating; project-specific deltas only; each rule justified
+  by the bug it prevents.
+
+### Fixed
+- Memory body drift: `user_physercoe.md` (fork name + retired dev
+  machine), `project_research_demo_focus.md` (P4 status),
+  `project_steward_workband.md` (sequence completed).
+
+## v1.0.313-alpha — 2026-04-28
+
+### Added
+- Status blocks on every remaining doc (21 files). Every doc in
+  `docs/` now declares Type / Status / Audience / Last-verified at
+  the top.
+- `reference/ui-guidelines.md` rewritten for Flutter (was
+  pre-rebrand React Native).
+
+### Changed
+- H1s renamed to match filenames where they had drifted
+  (`Wedge memo: Transcript / approvals / quick-actions UX` →
+  `Transcript / approvals / quick-actions UX — competitive scan`,
+  etc.).
+
+## v1.0.312-alpha — 2026-04-28
+
+### Added
+- `reference/coding-conventions.md` rewritten for Flutter/Dart + Go
+  (was pre-rebrand React Native).
+
+### Changed
+- 4 spine docs gain formal status blocks.
+- 3 resolved discussions linked to their ADRs.
+
+## v1.0.311-alpha — 2026-04-27
+
+### Added
+- 8 retroactive ADRs in `docs/decisions/` covering shipped decisions:
+  Candidate-A lock, MCP consolidation, A2A relay, single-steward MVP,
+  owner-authority model, cache-first cold start, MCP-vs-A2A protocol
+  roles, orchestrator-worker slice.
+- `decisions/README.md` indexes them.
+
+## v1.0.310-alpha — 2026-04-27
+
+### Changed
+- 26 doc files reorganized into 7-primitive layout: spine/,
+  reference/, how-to/, decisions/, plans/, discussions/, tutorials/,
+  archive/.
+- Renames per naming spec: `ia-redesign.md` →
+  `information-architecture.md`, `agent-harness.md` →
+  `agent-lifecycle.md`, `steward-sessions.md` → `sessions.md`,
+  `vocab-audit.md` → `vocabulary.md`, `hub-host-setup.md` →
+  `install-host-runner.md`, `hub-mobile-test.md` →
+  `install-hub-server.md`, `release-test-plan.md` →
+  `release-testing.md`, `mock-demo-walkthrough.md` →
+  `run-the-demo.md`, `monolith-refactor-plan.md` →
+  `monolith-refactor.md`, `wedges/` → `plans/`.
+- `spine/sessions.md` promoted out of DRAFT.
+
+## v1.0.309-alpha — 2026-04-27
+
+### Added
+- `docs/README.md` — navigation index.
+- `docs/roadmap.md` — vision + phases + Now/Next/Later.
+- `docs/doc-spec.md` — contract every doc honors (7 primitives,
+  status block spec, naming spec, lifecycle rules).
+
+## v1.0.308-alpha — 2026-04-27
+
+### Changed
+- Steward composer: cancel button surfaces whenever agent is busy
+  (regardless of field content). Tooltip varies by content.
+
+## v1.0.307-alpha — 2026-04-27
+
+### Changed
+- Steward composer: cancel only on text+busy (predictive-input flow).
+  `isAgentBusy` plumbed from `AgentFeed` via event-stream scan.
+
+## v1.0.306-alpha — 2026-04-27
+
+### Changed
+- Steward composer: collapsed cancel onto send slot via text-empty
+  heuristic; bolt long-press = save-as-snippet (mirrors action-bar
+  pattern).
+
+## v1.0.305-alpha — 2026-04-27
+
+### Added
+- Read-through caches for `getAgent`, `getRun`, `getPlan` +
+  `listPlanSteps`, `getReview`, `listAgentFamilies` — every detail
+  screen serves last-known data from cache.
+
+## v1.0.304-alpha — 2026-04-27
+
+### Added
+- Cache-first cold start: `_loadConfig` reads SQLite snapshots
+  synchronously into `HubState`; UI lights up before network refresh
+  resolves. Pairs with v1.0.303's `refreshAll` schedule. (ADR-006)
+
+## v1.0.303-alpha — 2026-04-27
+
+### Fixed
+- Empty Projects/Me/Hosts/Agents on cold start: `HubNotifier.build()`
+  now schedules `Future.microtask(refreshAll)` whenever
+  `_loadConfig()` returns a configured state.
+
+## v1.0.302-alpha — 2026-04-27
+
+### Changed
+- Documentation pass: agent-protocol-roles.md, hub-agents.md,
+  research-demo-gaps.md, steward-ux-fixes.md updated to reflect
+  v1.0.298 MCP consolidation + W-UI completion.
+
+## v1.0.301-alpha — 2026-04-27
+
+### Fixed
+- Drop unused `_statusColor` (CI lint, was unreferenced after v1.0.299
+  refactor).
+
+## v1.0.300-alpha — 2026-04-27
+
+### Changed
+- Steward composer matched to action-bar composer: fontSize 14,
+  maxHeight 120 (unbounded lines), inline clear button, save-as-snippet
+  button.
+
+## v1.0.299-alpha — 2026-04-27
+
+### Added
+- Steward chat polish: syntax-highlighted code blocks via
+  `flutter_highlight`, color-coded diff view with line gutter,
+  per-tool icons on `tool_call` cards.
+
+## v1.0.298-alpha — 2026-04-27
+
+### Changed
+- Single MCP service: `mcp_authority.go` reuses the hubmcpserver
+  catalog in-process via chi-router transport. One `hub-mcp-bridge`
+  symlink, one `.mcp.json` entry. (ADR-002)
+
+## v1.0.297-alpha — 2026-04-27
+
+### Changed
+- *(Superseded by v1.0.298.)* Wired `hub-mcp-server` into spawn
+  `.mcp.json` via host-runner multicall pattern.
+
+## v1.0.296-alpha — 2026-04-27
+
+### Added
+- SOTA orchestrator-worker slice: `agents.fanout`, `agents.gather`,
+  `reports.post` MCP tools + steward template recipe + worker_report
+  v1 schema. (ADR-008)
+- Mobile: per-host agents view.
+
+## v1.0.295-alpha — 2026-04-26
+
+### Changed
+- Renamed `request_decision` → `request_select` MCP tool with
+  back-compat alias. Start-session path for orphaned stewards.
+
+## v1.0.294-alpha — 2026-04-26
+
+### Changed
+- Hide MCP gate `tool_call` cards in transcript; remove standalone
+  Close-session action (close = terminate).
+
+## v1.0.293-alpha — 2026-04-26
+
+### Added
+- Cache sessions list + channel events for offline.
+
+## v1.0.292-alpha — 2026-04-26
+
+### Fixed
+- Cache `recentAuditProvider` for offline activity feed.
+
+## v1.0.291-alpha — 2026-04-26
+
+### Added
+- Multi-steward wedges 2+3: hosts sort + agent rename.
+
+## v1.0.290-alpha — 2026-04-26
+
+### Added
+- Multi-steward wedge 1: handle-suffix convention (`*-steward`),
+  auto-open-session on spawn, domain steward templates
+  (`steward.research`, `steward.infra`).
+
+## v1.0.286-alpha — 2026-04-26
+
+### Added
+- Egress proxy in host-runner: in-process reverse proxy masks the
+  hub URL from spawned agents (`.mcp.json` carries
+  `127.0.0.1:41825/`, not the public hub).
+
+## v1.0.285-alpha — 2026-04-26
+
+### Added
+- Tail-first paginated transcripts.
+- Hub backup/restore via `hub-server backup` / `hub-server restore`.
+
+## v1.0.281-alpha — 2026-04-26
+
+### Changed
+- Replace-steward keeps the session: engine swap continues the
+  conversation. Sessions are durable across respawn.
+
+## v1.0.280-alpha — 2026-04-26
+
+### Added
+- Soft-delete sessions + UI; documented agent-identity binding.
+
+---
+
+## Earlier history
+
+Major work units shipped before v1.0.280, summarized:
+
+- **v1.0.200–203** — Artifacts primitive (§6.6 end-to-end). Outputs
+  is the 4th axis (Files/Outputs/Documents/Assets).
+- **v1.0.208** — Offline snapshot cache: HubSnapshotCache +
+  read-through + mutation invalidation + Settings clear (5 wedges).
+- **v1.0.175–182** — IA redesign: 7 wedges (nav skeleton, host
+  unification, Me tab, Projects tab, Activity tab, Team switcher,
+  Steward surface).
+- **v1.0.166–167** — Activity feed foundation: audit_events as the
+  activity log; mutations call recordAudit; MCP `get_audit` exposes it.
+- **v1.0.157** — A2A relay + tunnel for NAT'd GPU hosts.
+- **v1.0.151–156** — MCP tool surface expansion to close P4.4 audit:
+  `schedules.*`, `tasks.*`, `channels.create`, `projects.update`,
+  `hosts.update_ssh_hint`.
+- **v1.0.141–148** — Trackio metric digest (storage + poller +
+  mobile sparkline).
+- **v1.0.49** — Audit log: `audit_events` table + REST + mobile screen.
+- **v1.0.27** — Rebrand from MuxPod to termipod.
+- **v1.0.18** — File manager (Settings > Browse Files).
+- **v1.0.17** — Compose drafts (Save as Snippet → drafts category).
+- **v1.0.2** — Data Export/Import via DataPortService.
+
+For any version not listed above, `git log v1.0.X-alpha` and
+`git show v1.0.X-alpha` (tag annotation) are authoritative.
+
+---
+
+## Conventions
+
+- **One section per tagged release**, newest first.
+- **Categories** (Keep a Changelog): Added · Changed · Fixed ·
+  Deprecated · Removed · Security. Omit unused categories.
+- **Cross-references**: link to ADRs (`ADR-NNN` or
+  `decisions/NNN-name.md`) when a change implements a decision.
+- **Patch-level entries**: bug-fix-cadence releases roll up; the
+  changelog records substantive changes, not every tag.
+- **Append at top**: new entries go above `## v1.0.316-alpha`.
+- **Don't rewrite history**: changelog is append-only (modulo typo
+  fixes). Past entries are the historical record.

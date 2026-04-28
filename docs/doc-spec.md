@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors (humans + AI agents)
-> **Last verified vs code:** v1.0.308
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** This file defines what a doc *is* in this repo, what every
 doc must declare, where it lives, and how it's named. Adopting it
@@ -81,7 +81,7 @@ human-read, and YAML would be ceremony for ceremony's sake.
 > **Type:** axiom (or: vision | plan | decision | reference | how-to | discussion | tutorial | archive)
 > **Status:** Current (2026-04-28) — see status vocab below
 > **Audience:** contributors (or: operators | end-users | principal | reviewers)
-> **Last verified vs code:** v1.0.308
+> **Last verified vs code:** v1.0.316
 > **Supersedes:** decisions/005-old-name.md (only if applicable)
 
 **TL;DR.** One or two sentences. What this doc tells you, in plain language.
@@ -259,8 +259,9 @@ rules from this spec:
    `decisions/NNN-*.md` ADR or a `plans/*.md` plan in their first
    30 lines (the durable forward pointer that makes Resolved
    meaningful).
-3. Every internal markdown link `[text](path.md)` resolves to an
-   existing file.
+3. Every internal markdown link of the form `[label](relative-path)`
+   resolves to an existing file relative to the source doc's
+   location.
 
 Layer-2 anti-drift signals (stale-doc reports, touched-area reports
 on PRs, ADR backlinks from spine/reference) are follow-ups; the

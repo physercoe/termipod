@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-23)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** Cross-host agent ↔ agent traffic always goes through the
 hub's reverse-tunnel relay, never direct. The demo's GPU host is

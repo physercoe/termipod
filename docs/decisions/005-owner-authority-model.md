@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-23)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** The mobile app is a **principal/director's surface**, not
 an operator's surface. The user directs agents; agents operate the

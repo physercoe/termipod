@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-27, shipped v1.0.296)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** Termipod stewards drive the production-validated
 orchestrator-worker pattern (Anthropic's research system, LangGraph

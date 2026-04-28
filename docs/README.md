@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28)
 > **Audience:** anyone landing in `docs/` for the first time
-> **Last verified vs code:** v1.0.308
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** The index. Tells you where to start based on what you came
 to find. If you're going to add a doc, read [`doc-spec.md`](doc-spec.md)
@@ -40,6 +40,10 @@ first — it defines what every doc must declare and where it lives.
   there; numbers are stable and the status field tells you whether
   a decision is still current.
 
+**I'm wondering "what shipped in version X?"**
+- [`changelog.md`](changelog.md) — append-only release record in
+  Keep-a-Changelog format. One section per tagged release.
+
 **I'm exploring an open question.**
 - [`discussions/`](discussions/) — pre-decision exploration, mixed
   lifecycle. Status header on each file says whether the question
@@ -53,6 +57,7 @@ first — it defines what every doc must declare and where it lives.
 docs/
 ├── README.md                       this file
 ├── roadmap.md                      where we're going (vision + Now/Next/Later)
+├── changelog.md                    append-only record of what shipped, per release
 ├── doc-spec.md                     contract every doc honors
 │
 ├── spine/                          axioms — always-true architecture

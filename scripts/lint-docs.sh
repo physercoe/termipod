@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 # lint-docs.sh — enforce docs/doc-spec.md §3 status block + naming spec.
 #
-# Three checks:
+# Four checks:
 #   1. Status block — every doc in docs/ (except archive/, screens/, logo/)
 #      has the 5-line block at the top: Type / Status / Audience /
 #      Last verified vs code / (optional Supersedes).
 #   2. Resolved discussions — discussions/ docs with Status: Resolved
-#      must link to a decisions/NNN-*.md in their first 30 lines.
+#      must link to a decisions/NNN-*.md or plans/*.md in their first
+#      30 lines.
 #   3. Cross-references — every [text](path.md) link resolves to an
 #      existing file (relative to the file containing the link).
+#   4. Stale-doc warning (non-failing) — docs whose `Last verified vs
+#      code: vX.Y.Z` is more than STALE_THRESHOLD minor versions
+#      behind the current pubspec.yaml version emit a WARN line.
+#      Useful as a CI report; doesn't fail the build.
 #
 # Run from repo root:   scripts/lint-docs.sh
 # CI usage:             added as a step in .github/workflows/ci.yml
 #
-# Exits 0 on clean, 1 on any failure.
+# Exits 0 on clean, 1 on any error-level failure (1-3 above).
+# Stale warnings (4) print but never fail.
+
+# How many minor versions a doc may lag the current pubspec before
+# it earns a WARN line. 5 ≈ "more than a sprint behind." Tune up
+# during heavy refactors.
+STALE_THRESHOLD=${STALE_THRESHOLD:-5}
 
 # Plain shell — set -e and pipefail interact badly with grep -q
 # (which legitimately exits 1 on no-match) inside if conditions and
@@ -114,10 +125,51 @@ while IFS= read -r f; do
   done < <(grep -oE '\[[^]]+\]\([^)]+\)' "$f" | sed -E 's/.*\(([^)]+)\)/\1/')
 done < <(find docs -name "*.md" -type f | sort)
 
+# --- Check 4: stale-doc warning (non-failing) ---
+# Parse the current pubspec version once. The format is
+# `version: 1.0.316-alpha+10316`; we want the minor of the X.Y.Z prefix.
+
+stale_warnings=0
+current_minor=""
+if [ -f pubspec.yaml ]; then
+  current_minor=$(grep -E "^version:" pubspec.yaml | head -1 | \
+    sed -E 's/^version:[[:space:]]*[0-9]+\.[0-9]+\.([0-9]+).*/\1/')
+fi
+
+if [ -n "$current_minor" ]; then
+  while IFS= read -r f; do
+    is_excluded "$f" && continue
+
+    head_block=$(head -20 "$f")
+    # Extract `> **Last verified vs code:** v1.0.NNN`. We only care
+    # about the minor (third component) since major/minor 1.0 is fixed.
+    doc_minor=$(echo "$head_block" | \
+      grep -E "^> \*\*Last verified vs code:\*\*" | \
+      head -1 | \
+      sed -E 's/.*v[0-9]+\.[0-9]+\.([0-9]+).*/\1/')
+
+    # Skip docs whose Last verified is non-numeric (e.g. "pre-rebrand"
+    # in archive/, "v1.0.172 (per-section markers)" in release-testing).
+    case "$doc_minor" in
+      ''|*[!0-9]*) continue ;;
+    esac
+
+    diff=$((current_minor - doc_minor))
+    if [ "$diff" -gt "$STALE_THRESHOLD" ]; then
+      echo "WARN [stale-doc]: $f — Last verified vs v1.0.$doc_minor (current is v1.0.$current_minor, $diff minor versions behind)"
+      stale_warnings=$((stale_warnings + 1))
+    fi
+  done < <(find docs -name "*.md" -type f | sort)
+fi
+
 # --- Summary ---
 
 if [ "$failed" -eq 0 ]; then
-  echo "OK: $checked docs pass status-block + resolved-link + cross-reference checks"
+  msg="OK: $checked docs pass status-block + resolved-link + cross-reference checks"
+  if [ "$stale_warnings" -gt 0 ]; then
+    msg="$msg (with $stale_warnings stale-doc warning(s) above — non-failing)"
+  fi
+  echo "$msg"
   exit 0
 else
   echo ""

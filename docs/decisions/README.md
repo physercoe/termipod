@@ -3,7 +3,7 @@
 > **Type:** axiom
 > **Status:** Current (2026-04-28)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** The decision log. Each numbered file records one
 architectural choice, why we made it, and what followed. Append-only:

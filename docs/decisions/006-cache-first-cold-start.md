@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-27, shipped v1.0.304)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** On cold start, the mobile app reads each dashboard
 endpoint's last on-disk snapshot synchronously and renders the UI

@@ -1,0 +1,53 @@
+# Dependabot configuration — auto-PR for outdated dependencies.
+#
+# Three ecosystems: Flutter (pub), Go (modules), and GitHub Actions.
+# Updates run weekly on Monday morning so reviews land at the start
+# of the week. Security updates run separately (always-on, ignores
+# schedule) — see GitHub's Dependabot Security Updates feature.
+#
+# Maintainer note: dependabot opens individual PRs per package. For
+# large pubspec / go.mod updates, prefer rebase-merge to keep the
+# changelog entries clean.
+
+version: 2
+updates:
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(flutter)"
+    labels:
+      - "dependencies"
+      - "flutter"
+
+  - package-ecosystem: "gomod"
+    directory: "/hub"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(hub)"
+    labels:
+      - "dependencies"
+      - "go"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    commit-message:
+      prefix: "deps(actions)"
+    labels:
+      - "dependencies"
+      - "ci"

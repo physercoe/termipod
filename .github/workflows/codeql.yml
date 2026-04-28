@@ -1,0 +1,56 @@
+# CodeQL static analysis — security + code-quality scanning.
+#
+# Runs on every push to main, every PR, and weekly (so newly-published
+# rules find latent issues even when the codebase isn't churning).
+# Free tier covers public repos; results land in Security tab.
+#
+# Languages: Go (the hub) and Dart (the Flutter app).
+# Dart support is via the standard 'javascript' / 'java' / 'go' /
+# 'python' / 'cpp' / 'csharp' / 'ruby' / 'swift' set; Dart isn't
+# first-class so we run only Go for now and add JavaScript-style
+# scans manually if/when we publish a JS-backed surface.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 03:00 UTC — covers new rules without nagging.
+    - cron: "0 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality is the broader query suite (vs just
+          # security). Catches more antipatterns at the cost of more
+          # noise; tradeoff worth it for a small codebase.
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

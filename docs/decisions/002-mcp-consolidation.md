@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-27, shipped v1.0.298)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** Spawned agents register one MCP server (`hub-mcp-bridge`)
 in their `.mcp.json`. The hub serves the union of the narrow surface

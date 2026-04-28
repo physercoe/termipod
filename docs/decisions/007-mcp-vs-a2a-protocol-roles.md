@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-27)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.310
+> **Last verified vs code:** v1.0.316
 
 **TL;DR.** MCP is the wire for "agent asks the hub to do something
 authoritative." A2A is the wire for "agent talks to another agent."

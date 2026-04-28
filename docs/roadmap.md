@@ -96,11 +96,13 @@ working list — what's actually moving this week or next.
 | Item | Why | Where |
 |---|---|---|
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
+| **Agent state & identity — Phase 1 (demo legibility)** | Walkthrough surfaced misleading state vocabulary + ungated affordances + invisible scope. Phase 1 = rename + gate + scope chip + project-page wiring + approval detail (ADR-009; `plans/agent-state-and-identity.md`) | Phase 1 lands as MVP-demo blocker; Phase 2 follows for full MVP parity with Claude Code remote / Happy |
 
 ### Next (committed, not started)
 
 | Item | Why | Trigger |
 |---|---|---|
+| **Agent state & identity — Phase 2 (MVP completion)** | Fork-from-archive, scope-grouped session list, attention-scope entry. Required for parity with Claude Code remote / Codex (`plans/agent-state-and-identity.md` §6) | After Phase 1 lands and demo legibility is verified |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
 | **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — currently tractable by hand |

@@ -4,6 +4,7 @@
 > **Status:** Current (2026-04-28) — promoted out of DRAFT. The system has been built around this ontology across v1.0.280–308.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.314
+> **Pending change:** ADR-009 (`../decisions/009-agent-state-and-identity.md`) renames the state set `open / interrupted / closed` → `active / paused / archived` and adds a `fork` operator. The vocabulary in this doc is current to shipped code; the rename + body update lands in Phase 1 of `../plans/agent-state-and-identity.md`.
 
 **TL;DR.** Defines what a session *is* as a primitive distinct from
 the agent process: durable conversational state that survives engine

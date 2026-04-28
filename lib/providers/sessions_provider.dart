@@ -73,6 +73,17 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     return out['new_agent_id']?.toString();
   }
 
+  /// Forks an archived session into a new active one (ADR-009 D4).
+  /// Returns the new session payload so the caller can navigate
+  /// directly into the chat without waiting for the next refresh.
+  Future<Map<String, dynamic>?> fork(String id, {String? agentId}) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return null;
+    final out = await client.forkSession(id, agentId: agentId);
+    await refresh();
+    return out;
+  }
+
   /// Renames a session. Empty `title` clears the row's title back to
   /// "(untitled session)".
   Future<void> rename(String id, String title) async {

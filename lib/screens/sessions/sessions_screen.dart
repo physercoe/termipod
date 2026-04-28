@@ -212,16 +212,27 @@ List<_StewardGroup> _groupByStateward(
 /// before opening) and from Spawn new steward (which creates a new
 /// agent). Used by the inline "Start session" button on the steward
 /// section header when the steward is alive but session-less.
+///
+/// Per ADR-009 D7 (Phase 2), prompts the user for scope when they
+/// start from this no-entry-point path — General by default, plus
+/// one option per project. Implicit-from-entry-point still covers
+/// Me-FAB and project-page paths where scope is unambiguous.
 Future<void> _startSession(
   BuildContext context,
   WidgetRef ref,
   String agentId,
   String handle,
 ) async {
+  final picked = await _pickScopeSheet(context, ref);
+  if (picked == null || !context.mounted) return;
   final client = ref.read(hubProvider.notifier).client;
   if (client == null) return;
   try {
-    await client.openSession(agentId: agentId);
+    await client.openSession(
+      agentId: agentId,
+      scopeKind: picked.kind,
+      scopeId: picked.id,
+    );
     await ref.read(sessionsProvider.notifier).refresh();
   } catch (e) {
     if (!context.mounted) return;
@@ -229,6 +240,63 @@ Future<void> _startSession(
       SnackBar(content: Text('Start session for $handle failed: $e')),
     );
   }
+}
+
+/// Scope choice for the open-from-list path. `kind` is the hub's
+/// `scope_kind` value (`team`, `project`, `attention`); `id` is the
+/// `scope_id` (empty for team).
+class _ScopePick {
+  final String kind;
+  final String id;
+  final String label;
+  const _ScopePick(this.kind, this.id, this.label);
+}
+
+Future<_ScopePick?> _pickScopeSheet(
+    BuildContext context, WidgetRef ref) async {
+  final hub = ref.read(hubProvider).value;
+  final projects = hub?.projects ?? const <Map<String, dynamic>>[];
+  final options = <_ScopePick>[
+    const _ScopePick('team', '', 'General'),
+    for (final p in projects)
+      _ScopePick(
+        'project',
+        (p['id'] ?? '').toString(),
+        'Project: ${(p['name'] ?? p['title'] ?? '').toString()}',
+      ),
+  ];
+  return showModalBottomSheet<_ScopePick>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+            child: Text(
+              'Scope for new session',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          for (final o in options)
+            ListTile(
+              leading: Icon(
+                o.kind == 'project'
+                    ? Icons.folder_outlined
+                    : Icons.forum_outlined,
+              ),
+              title: Text(o.label),
+              onTap: () => Navigator.of(ctx).pop(o),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 Future<void> _spawnNewSteward(BuildContext context, WidgetRef ref) async {
@@ -629,13 +697,105 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                 ),
               ),
             if (_showPrevious)
-              for (final ses in group.previous) _SessionTile(session: ses),
+              ..._buildScopeGroupedPrevious(context, ref, group.previous, muted),
             const SizedBox(height: 4),
           ],
         ),
       ),
     );
   }
+}
+
+/// Groups a list of previous (archived/paused) sessions by scope and
+/// emits section headers between groups. Per ADR-009 Phase 2 plan
+/// item 4: General / Project: <name> / Approving / Other. Within
+/// each group, sessions stay in input order (caller pre-sorts by
+/// last_active_at desc).
+List<Widget> _buildScopeGroupedPrevious(
+  BuildContext context,
+  WidgetRef ref,
+  List<Map<String, dynamic>> previous,
+  Color muted,
+) {
+  if (previous.isEmpty) return const [];
+  final hub = ref.watch(hubProvider).value;
+  // Bucket sessions into scope groups, preserving order.
+  final buckets = <String, List<Map<String, dynamic>>>{};
+  final order = <String>[];
+  for (final s in previous) {
+    final kind = (s['scope_kind'] ?? '').toString();
+    final id = (s['scope_id'] ?? '').toString();
+    final key = '$kind|$id';
+    if (!buckets.containsKey(key)) {
+      buckets[key] = [];
+      order.add(key);
+    }
+    buckets[key]!.add(s);
+  }
+  String labelFor(String kind, String id) {
+    switch (kind) {
+      case 'project':
+        if (hub != null) {
+          for (final p in hub.projects) {
+            if ((p['id'] ?? '').toString() == id) {
+              final name = (p['name'] ?? p['title'] ?? '').toString();
+              if (name.isNotEmpty) return 'Project: $name';
+            }
+          }
+        }
+        return 'Project';
+      case 'attention':
+        return 'Approving';
+      case 'team':
+      case '':
+        return 'General';
+      default:
+        return kind;
+    }
+  }
+  // Move the General bucket to the top so the most-common case
+  // doesn't sink under project-specific groups when there are many
+  // projects.
+  order.sort((a, b) {
+    final aGen = a.startsWith('team|') || a.startsWith('|');
+    final bGen = b.startsWith('team|') || b.startsWith('|');
+    if (aGen != bGen) return aGen ? -1 : 1;
+    return 0;
+  });
+  final out = <Widget>[];
+  for (final key in order) {
+    final parts = key.split('|');
+    final kind = parts.first;
+    final id = parts.sublist(1).join('|');
+    final label = labelFor(kind, id);
+    final count = buckets[key]!.length;
+    out.add(Padding(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: muted,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '· $count',
+            style:
+                GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
+          ),
+        ],
+      ),
+    ));
+    for (final s in buckets[key]!) {
+      out.add(_SessionTile(session: s));
+    }
+  }
+  return out;
 }
 
 class _EmptyState extends StatelessWidget {
@@ -699,6 +859,35 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Rename failed: $e')),
+      );
+    }
+  }
+
+  /// Fork an archived session into a new active one (ADR-009 D4).
+  /// Pushes the new session's chat on success.
+  Future<void> _fork(BuildContext context) async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    try {
+      final out = await ref.read(sessionsProvider.notifier).fork(id);
+      if (out == null || !mounted) return;
+      final newSessionId = (out['session_id'] ?? '').toString();
+      final newAgentId = (out['agent_id'] ?? '').toString();
+      final title = (out['title'] ?? '').toString();
+      if (newSessionId.isEmpty || newAgentId.isEmpty) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => SessionChatScreen(
+            sessionId: newSessionId,
+            agentId: newAgentId,
+            title: title.isEmpty ? 'Forked session' : title,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fork failed: $e')),
       );
     }
   }
@@ -866,11 +1055,17 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
       onSelected: (v) {
         if (v == 'rename') _rename(context);
         if (v == 'delete') _confirmDelete(context);
+        if (v == 'fork') _fork(context);
       },
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
-        if (status == 'archived' || status == 'closed')
+        if (status == 'archived' || status == 'closed') ...[
+          const PopupMenuItem(
+            value: 'fork',
+            child: Text('Fork from archive'),
+          ),
           const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
       ],
     );
     final timestamp = lastActive.isEmpty
@@ -1093,6 +1288,38 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
   }
 
+  /// Forks the archived session (ADR-009 D4): server creates a new
+  /// active session with the same scope, attached to the team's live
+  /// steward. Navigates into the new session's chat on success.
+  Future<void> _forkSession() async {
+    try {
+      final out = await ref
+          .read(sessionsProvider.notifier)
+          .fork(widget.sessionId);
+      if (out == null || !mounted) return;
+      final newSessionId = (out['session_id'] ?? '').toString();
+      final newAgentId = (out['agent_id'] ?? '').toString();
+      final title = (out['title'] ?? '').toString();
+      if (newSessionId.isEmpty || newAgentId.isEmpty) return;
+      // Replace the current archived chat with the fresh fork; users
+      // who want to refer back can navigate via the sessions list.
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => SessionChatScreen(
+            sessionId: newSessionId,
+            agentId: newAgentId,
+            title: title.isEmpty ? 'Forked session' : title,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Fork failed: $e')),
+      );
+    }
+  }
+
   /// Returns a chip showing the session's scope (per ADR-009 D7) so
   /// the user can tell at a glance whether this is a general / team
   /// session or scoped to a project / attention item. Display-only;
@@ -1181,6 +1408,8 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     }
     final sessionStatus = (sessionRow?['status'] ?? '').toString();
     final canStop = sessionStatus == 'active' || sessionStatus == 'open';
+    final canFork =
+        sessionStatus == 'archived' || sessionStatus == 'closed';
     final scopeChip = _buildScopeChip(context, ref, sessionRow);
 
     return Scaffold(
@@ -1203,27 +1432,42 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             icon: const Icon(Icons.edit_outlined),
             onPressed: _rename,
           ),
-          if (canStop)
+          if (canStop || canFork)
             PopupMenuButton<String>(
               tooltip: 'Session actions',
               onSelected: (v) {
                 if (v == 'stop') _stopSession();
+                if (v == 'fork') _forkSession();
               },
               itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'stop',
-                  child: ListTile(
-                    leading: Icon(Icons.power_settings_new,
-                        color: Theme.of(context).colorScheme.error),
-                    title: Text('Stop session',
-                        style: TextStyle(
-                            color: Theme.of(context).colorScheme.error)),
-                    subtitle: const Text(
-                        'Kills the agent process; session pauses'),
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
+                if (canStop)
+                  PopupMenuItem(
+                    value: 'stop',
+                    child: ListTile(
+                      leading: Icon(Icons.power_settings_new,
+                          color: Theme.of(context).colorScheme.error),
+                      title: Text('Stop session',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
+                      subtitle: const Text(
+                          'Kills the agent process; session pauses'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
                   ),
-                ),
+                if (canFork)
+                  PopupMenuItem(
+                    value: 'fork',
+                    child: ListTile(
+                      leading: Icon(Icons.fork_right,
+                          color: Theme.of(context).colorScheme.primary),
+                      title: const Text('Fork from archive'),
+                      subtitle: const Text(
+                          'New active session, same scope, fresh transcript'),
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                    ),
+                  ),
               ],
             ),
         ],

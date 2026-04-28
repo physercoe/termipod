@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
 
 /// Detail view for an attention item (approval, select, template
@@ -35,12 +36,34 @@ class ApprovalDetailScreen extends ConsumerWidget {
     final tier = (attention['tier'] ?? '').toString();
     final pending = _decodePayload(attention['pending_payload']);
 
+    final attentionId = (attention['id'] ?? '').toString();
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
           'Approval detail',
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
+        actions: [
+          if (attentionId.isNotEmpty)
+            IconButton(
+              tooltip: 'Discuss with steward',
+              icon: const Icon(Icons.forum_outlined),
+              // ADR-009 D7 + Phase 2: open a session scoped to this
+              // attention item so the steward sees the request's
+              // context in its system prompt and the audit trail
+              // links the conversation to the decision.
+              onPressed: () {
+                Navigator.of(context).pop();
+                openStewardSession(
+                  context,
+                  ref,
+                  scopeKind: 'attention',
+                  scopeId: attentionId,
+                );
+              },
+            ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

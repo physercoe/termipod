@@ -433,6 +433,141 @@ func TestSessions_Delete(t *testing.T) {
 	}
 }
 
+// ADR-009 D4: fork creates a new active session pre-loaded from an
+// archived source. Same scope, same team, points at the live
+// steward (or a caller-provided agent_id). Refuses non-archived
+// sources with 409.
+func TestSessions_Fork(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
+	// Mark the seeded agent as a running steward so the auto-resolve
+	// fallback path can find it.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		agentID); err != nil {
+		t.Fatalf("promote agent to steward: %v", err)
+	}
+
+	// Create a source session, archive it.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "source",
+			"agent_id":   agentID,
+			"scope_kind": "project",
+			"scope_id":   "proj-abc",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open source: %s", body)
+	}
+	var src sessionOut
+	_ = json.Unmarshal(body, &src)
+
+	// Fork on an active source must 409.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork", nil)
+	if status != http.StatusConflict {
+		t.Errorf("fork on active: status=%d body=%s; want 409", status, body)
+	}
+
+	// Archive the source.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/archive", nil)
+
+	// Fork now succeeds.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork",
+		map[string]any{"agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("fork: status=%d body=%s", status, body)
+	}
+	var fork map[string]any
+	_ = json.Unmarshal(body, &fork)
+	newID, _ := fork["session_id"].(string)
+	if newID == "" || newID == src.ID {
+		t.Fatalf("fork returned session_id=%q (source=%q)", newID, src.ID)
+	}
+
+	// New session is active, copies scope, points at the same agent,
+	// has no worktree (fork is conversational).
+	var (
+		nStatus, nScopeKind, nScopeID, nAgent, nWorktree string
+	)
+	_ = s.db.QueryRow(`
+		SELECT status, COALESCE(scope_kind, ''), COALESCE(scope_id, ''),
+		       COALESCE(current_agent_id, ''), COALESCE(worktree_path, '')
+		  FROM sessions WHERE id = ?`, newID).Scan(
+		&nStatus, &nScopeKind, &nScopeID, &nAgent, &nWorktree)
+	if nStatus != "active" {
+		t.Errorf("fork status=%q; want active", nStatus)
+	}
+	if nScopeKind != "project" || nScopeID != "proj-abc" {
+		t.Errorf("fork scope=%q/%q; want project/proj-abc", nScopeKind, nScopeID)
+	}
+	if nAgent != agentID {
+		t.Errorf("fork agent_id=%q; want %q", nAgent, agentID)
+	}
+	if nWorktree != "" {
+		t.Errorf("fork worktree=%q; want empty", nWorktree)
+	}
+
+	// Audit row recorded with source pointer.
+	var auditCount int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_events
+		   WHERE action = 'session.fork' AND target_id = ?`, newID,
+	).Scan(&auditCount)
+	if auditCount != 1 {
+		t.Errorf("session.fork audit count = %d; want 1", auditCount)
+	}
+
+	// Source remains archived (fork doesn't mutate the source).
+	var srcStatusAfter string
+	_ = s.db.QueryRow(
+		`SELECT status FROM sessions WHERE id = ?`, src.ID).Scan(&srcStatusAfter)
+	if srcStatusAfter != "archived" {
+		t.Errorf("source status after fork = %q; want archived", srcStatusAfter)
+	}
+}
+
+// Fork without agent_id falls back to the team's live steward when
+// one exists. With no live steward and no caller-provided agent_id,
+// fork returns 409.
+func TestSessions_ForkAutoStewardFallback(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		agentID); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+
+	// Source session attached to that steward.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "src", "scope_kind": "team"})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var src sessionOut
+	_ = json.Unmarshal(body, &src)
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/archive", nil)
+
+	// Fork with no agent_id → server picks the live steward.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("fork w/o agent_id: status=%d body=%s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	gotAgent, _ := resp["agent_id"].(string)
+	if gotAgent == "" {
+		t.Errorf("fork did not auto-resolve agent_id: %s", body)
+	}
+}
+
 // W2 follow-up: a spawn carrying session_id is a session-swap. The
 // prior agent terminates inside the same tx, the new agent takes
 // the session over with the new spawn_spec, and the transcript

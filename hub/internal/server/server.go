@@ -223,6 +223,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				// doesn't break during coordinated rollout.
 				r.Post("/archive", s.handleArchiveSession)
 				r.Post("/close", s.handleArchiveSession)
+				r.Post("/fork", s.handleForkSession)
 				r.Post("/resume", s.handleResumeSession)
 				r.Delete("/", s.handleDeleteSession)
 			})

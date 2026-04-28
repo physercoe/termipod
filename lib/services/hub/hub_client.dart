@@ -435,6 +435,24 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Forks an archived session into a new active one (ADR-009 D4).
+  /// The new session copies scope from the source and attaches to
+  /// the team's live steward (or [agentId] if provided). Returns
+  /// `{session_id, source_session_id, agent_id, scope_kind,
+  /// scope_id, title}`.
+  Future<Map<String, dynamic>> forkSession(
+    String id, {
+    String? agentId,
+    String? title,
+  }) async {
+    final body = <String, dynamic>{};
+    if (agentId != null && agentId.isNotEmpty) body['agent_id'] = agentId;
+    if (title != null && title.isNotEmpty) body['title'] = title;
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/sessions/$id/fork', body);
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Soft-deletes an archived session and clears its session_id from
   /// transcript / audit / attention rows. Hub refuses with 409 if
   /// the session is still active or paused (archive it first).

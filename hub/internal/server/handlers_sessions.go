@@ -310,6 +310,134 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleForkSession creates a new active session pre-loaded from
+// an archived source session. Per ADR-009 D4, fork is the
+// resume-from-archive primitive: same scope as the source, points
+// at the team's live steward (or a caller-provided agent), no
+// worktree_path (fork is conversational, not task-resuming).
+//
+// Pre-loading the system prompt from the archived session's
+// distillation + last-K transcript is engine-side work that lands
+// when the engine prompt-assembly path supports it. The endpoint
+// today creates the session shell with the right scope; the app
+// fetches the source transcript by session_id when the user wants
+// to refer back.
+//
+// Body: {agent_id?: string, title?: string}. agent_id defaults to
+// the team's currently-running steward; title defaults to the
+// source's title (so the fork reads as "continuation of X" by
+// default).
+//
+// Contract: source session must be archived. Active/paused
+// sessions can't be forked because they're already live; fork on
+// a non-archived session returns 409.
+func (s *Server) handleForkSession(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	srcID := chi.URLParam(r, "session")
+
+	var in struct {
+		AgentID string `json:"agent_id,omitempty"`
+		Title   string `json:"title,omitempty"`
+	}
+	// Empty body is fine — defaults handle the common case.
+	_ = json.NewDecoder(r.Body).Decode(&in)
+
+	var (
+		srcStatus, srcTitle, srcScopeKind, srcScopeID, srcAgentID sql.NullString
+	)
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT status, COALESCE(title, ''), COALESCE(scope_kind, ''),
+		       COALESCE(scope_id, ''), COALESCE(current_agent_id, '')
+		  FROM sessions
+		 WHERE team_id = ? AND id = ?`,
+		team, srcID).Scan(
+		&srcStatus, &srcTitle, &srcScopeKind, &srcScopeID, &srcAgentID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if srcStatus.String != "archived" {
+		writeErr(w, http.StatusConflict,
+			"fork requires archived source (status="+srcStatus.String+")")
+		return
+	}
+
+	// Resolve target agent. Caller-provided wins; otherwise pick the
+	// team's live steward. If neither is available, 409 — fork needs
+	// an engine to attach to.
+	targetAgent := in.AgentID
+	if targetAgent == "" {
+		// Find a live (running) steward in this team. Steward handles
+		// match the convention in steward_handle.dart / handlers_agents.go;
+		// here we accept anything not in a terminal state with kind
+		// indicating a steward role.
+		err := s.db.QueryRowContext(r.Context(), `
+			SELECT id FROM agents
+			 WHERE team_id = ? AND status = 'running'
+			   AND (handle = 'steward' OR handle LIKE 'steward-%')
+			 ORDER BY created_at DESC LIMIT 1`, team).Scan(&targetAgent)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusConflict,
+				"no live steward to attach the fork to; pass agent_id explicitly")
+			return
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	title := in.Title
+	if title == "" {
+		title = srcTitle.String
+	}
+	scopeKind := srcScopeKind.String
+	if scopeKind == "" {
+		scopeKind = "team"
+	}
+
+	newID := NewID()
+	now := NowUTC()
+	_, err = s.db.ExecContext(r.Context(), `
+		INSERT INTO sessions (
+			id, team_id, title, scope_kind, scope_id, current_agent_id,
+			status, opened_at, last_active_at,
+			worktree_path, spawn_spec_yaml
+		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?,
+		          'active', ?, ?,
+		          NULL, NULL)`,
+		newID, team, title, scopeKind, srcScopeID.String,
+		targetAgent, now, now,
+	)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.recordAudit(r.Context(), team, "session.fork", "session", newID,
+		"forked from "+srcID,
+		map[string]any{
+			"source_session_id": srcID,
+			"scope_kind":        scopeKind,
+			"scope_id":          srcScopeID.String,
+			"agent_id":          targetAgent,
+		})
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"session_id":        newID,
+		"source_session_id": srcID,
+		"agent_id":          targetAgent,
+		"scope_kind":        scopeKind,
+		"scope_id":          srcScopeID.String,
+		"title":             title,
+	})
+}
+
 // handleResumeSession respawns the agent inside a paused session.
 // Reuses the session's worktree_path and spawn_spec_yaml so the new
 // claude/codex/etc. process picks up exactly where it left off — the

@@ -122,15 +122,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // by [_bannerGrace] so quick recoveries are invisible to the user.
   Timer? _bannerGraceTimer;
   static const Duration _bannerGrace = Duration(seconds: 5);
-  // Count consecutive close-with-no-events. A clean SSE close after the
-  // agent goes idle (server-side connection cycle, mobile-network
-  // keepalive timeout, Cloudflare tunnel hiccup) is normal and shouldn't
-  // surface "Stream dropped" — the user is staring at a finished
-  // transcript and doesn't care that the carrier closed an idle TCP
-  // socket. After [_silentReconnectThreshold] consecutive empty cycles
-  // we assume something is genuinely wrong and let the banner through.
-  int _consecutiveEmptyDisconnects = 0;
-  static const int _silentReconnectThreshold = 3;
   // Counter for events that arrived while the user had scrolled away
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
@@ -431,7 +422,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!_followTail) _newWhileAway += 1;
       });
       _reconnectAttempt = 0;
-      _consecutiveEmptyDisconnects = 0;
       // Cancel the pending banner: we recovered before the grace period
       // expired, so the user never needed to see "stream dropped".
       _bannerGraceTimer?.cancel();
@@ -456,21 +446,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // slow enough that a genuinely-down hub doesn't get hammered.
     final delaySecs = math.min(16, 1 << _reconnectAttempt);
     _reconnectAttempt += 1;
-    // Distinguish a clean SSE close (onDone) from a real failure
-    // (onError). When the agent has finished a turn the server-side
-    // connection often cycles for benign reasons — proxy idle timeout,
-    // carrier-level keepalive, app suspend — and the next reconnect
-    // re-attaches with no events to deliver because nothing happened
-    // while we were away. Banner-on-grace was popping up in this
-    // happy path and looked like a bug. Suppress it for the first
-    // [_silentReconnectThreshold] consecutive empty close cycles; only
-    // surface the banner when something keeps repeatedly failing.
-    final isEmptyCycle = !isError;
-    if (isEmptyCycle) {
-      _consecutiveEmptyDisconnects += 1;
-    }
-    final shouldShowBanner =
-        isError || _consecutiveEmptyDisconnects >= _silentReconnectThreshold;
+    // Empty SSE closes (onDone with no error) are idle artifacts —
+    // proxy idle timeout, mobile-carrier keepalive, app suspend —
+    // and don't represent a drop the user can act on. The agent
+    // simply has nothing to emit; reconnecting in the background is
+    // sufficient. Earlier this code threshold-counted empty cycles
+    // and surfaced the banner after 3, which lit up "Stream dropped"
+    // on a finished-and-idle session that was working perfectly.
+    // Now: banner only on real errors, where the user might
+    // actually need to retry or check connectivity.
+    final shouldShowBanner = isError;
     if (shouldShowBanner &&
         (_bannerGraceTimer == null || !_bannerGraceTimer!.isActive)) {
       // Schedule the banner grace-period instead of showing immediately.
@@ -487,6 +472,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(Duration(seconds: delaySecs), () {
       if (!mounted) return;
+      // Successful resubscribe attempts clear any stale banner —
+      // even if no events flow, the connection is alive and "Stream
+      // dropped" is no longer accurate.
+      if (_error != null) {
+        setState(() => _error = null);
+      }
+      _bannerGraceTimer?.cancel();
+      _bannerGraceTimer = null;
       _subscribe(client);
     });
   }

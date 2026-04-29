@@ -13,8 +13,10 @@ harness — it gives us deferrable in-stream approval requests, persistent
 threads with first-class `thread/resume`, MCP hot-reload, and explicit
 turn lifecycle notifications. Going through `exec` would force us to
 re-implement all of that ourselves and would lose the per-tool-call
-approval surface entirely. Gemini stays on the exec-per-turn shape
-because gemini-cli has no app-server equivalent today.
+approval surface entirely. Gemini takes the exec-per-turn shape with
+`--resume <UUID>` for cross-process session continuity (PR #14504,
+Dec 2025) — gemini-cli has no app-server equivalent and no in-stream
+approval gate, but it does have proper headless resume now.
 
 ## Context
 
@@ -92,11 +94,15 @@ from the running binary (`codex app-server generate-ts`,
 stdio is exactly what we want — same shape as our existing M2
 stream-json path, just JSON-RPC framing on top.
 
-For Gemini, the same research found no equivalent: gemini-cli has only
-`-p "<prompt>" --output-format stream-json` and an in-flight
-session-id-in-output PR (#14504, gating proper resume). So Gemini
-gets the exec-per-turn driver; we accept that as the cost of vendor
-parity until upstream catches up.
+For Gemini, the same research found no app-server equivalent —
+gemini-cli is a one-process-per-turn shape — but `--resume <UUID>`
+is supported in headless mode and the `init` event's `session_id`
+field that PR #14504 added (merged December 2025) is what we
+capture as the resume cursor. So Gemini gets the exec-per-turn
+driver but with proper conversational continuity across turns; the
+two costs that don't go away are per-turn process startup and the
+absence of an in-stream per-tool-call approval gate. Both
+acceptable for vendor parity.
 
 ## Decision
 
@@ -162,23 +168,34 @@ token rides in `bearer_token_env_var = "TERMIPOD_HUB_TOKEN"` with
 the env var injected per-spawn. Gemini will write `~/.gemini/settings.json`
 (JSON, different shape) when its slice lands.
 
-**D6. Gemini stays on exec-per-turn.**
+**D6. Gemini stays on exec-per-turn (with resume).**
 
 Gemini gets a separate `driver_exec.go` that spawns
-`gemini -p - --output-format stream-json` per user turn. Acceptable
-costs:
+`gemini -p - --output-format stream-json [--resume <uuid>]` per user
+turn. Multi-turn coherence is preserved across spawns via
+`--resume <UUID>`; the UUID is captured from the `init` event's
+`session_id` field that PR #14504 added (merged December 2025). So
+the conversational shape is the same as Codex's `exec resume <id>`
+mode — process-per-turn, state on disk between turns — not
+fresh-from-empty as an earlier draft of this ADR assumed.
 
-- Per-turn process startup overhead (hundreds of ms — fine at human
-  cadence, called out in vendor-comparison docs).
-- No per-tool-call approval gate (only `--yolo` / `--approval-mode`).
-  Strategic-tier gating still works through ADR-011's `request_approval`
-  attention, but mid-turn tool-call denial is a Codex/Claude-only
-  feature on this stack.
-- Session-resume awaiting upstream (#14504); until merged, Gemini
-  stewards start fresh per principal turn.
+What's still missing relative to Codex's app-server:
 
-We revisit when gemini-cli ships an app-server equivalent or when
-session-id-in-output lands — neither is blocked on us.
+- One process per turn rather than one long-lived daemon. Per-turn
+  startup overhead is hundreds of ms — fine at human cadence, called
+  out in vendor-comparison docs.
+- No per-tool-call approval gate. Gemini exposes only `--yolo` and
+  `--approval-mode auto_edit|yolo`, both flag-time decisions; there
+  is no in-stream "the agent wants to run X, allow?" event the way
+  Codex's `item/commandExecution/requestApproval` works. Strategic-
+  tier gating still works through ADR-011's `request_approval`
+  attention (the agent calls our MCP tool itself), but mid-turn
+  per-command denial is a Codex/Claude feature only.
+- No app-server equivalent (no JSON-RPC daemon hosting many threads
+  in one process). For us this affects efficiency at scale, not
+  correctness.
+
+We revisit if gemini-cli ships an app-server equivalent.
 
 **D7. The post-MVP `permission_prompt` bridge wedge becomes Claude-only.**
 

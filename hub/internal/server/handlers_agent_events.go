@@ -49,6 +49,23 @@ func (s *Server) agentBelongsToTeam(r *http.Request, team, agent string) (bool, 
 	return n > 0, nil
 }
 
+// sessionBelongsToTeam gates the cross-agent session-scoped query path.
+// The events endpoint is keyed on agent_id in its URL, but a session
+// outlives the agents it spans (resume mints a fresh agent and keeps
+// the session row), so when session=<id> is set we ignore the URL
+// agent and query by session — provided the session is in the team
+// the URL claims.
+func (s *Server) sessionBelongsToTeam(r *http.Request, team, session string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT COUNT(1) FROM sessions WHERE id = ? AND team_id = ?`,
+		session, team).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	agent := chi.URLParam(r, "agent")
@@ -122,14 +139,39 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
 	agent := chi.URLParam(r, "agent")
-	ok, err := s.agentBelongsToTeam(r, team, agent)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if !ok {
-		writeErr(w, http.StatusNotFound, "agent not found")
-		return
+	// session=<id> scopes the backfill to one session. Two complementary
+	// reasons it has to override the URL's agent filter, not AND with it:
+	//   1. New-session flow keeps the same agent and opens a fresh
+	//      session row; an agent-only list would replay the prior
+	//      closed session's transcript into a "fresh" chat.
+	//   2. Resume mints a *new* agent attached to the existing session;
+	//      events from the prior agent_id stay stamped with that prior
+	//      id, so an agent-only list returns nothing on cold open and
+	//      the transcript looks empty (the bug this branch fixes).
+	// When session is set we authorise the session against the team
+	// instead of the URL agent — the URL agent is only a hint at that
+	// point; the session is the durable scope.
+	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
+	if sessionFilter != "" {
+		ok, err := s.sessionBelongsToTeam(r, team, sessionFilter)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !ok {
+			writeErr(w, http.StatusNotFound, "session not found")
+			return
+		}
+	} else {
+		ok, err := s.agentBelongsToTeam(r, team, agent)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !ok {
+			writeErr(w, http.StatusNotFound, "agent not found")
+			return
+		}
 	}
 
 	since := int64(0)
@@ -143,13 +185,21 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	// top of the loaded transcript. Returned in seq DESC so the caller
 	// can prepend without re-sorting the full list. Mutually exclusive
 	// with since/tail; the first non-empty wins in the order
-	// before > tail > since.
+	// before_ts > before > tail > since.
 	var before int64
 	if v := r.URL.Query().Get("before"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			before = n
 		}
 	}
+	// before_ts=<iso> is the session-scoped variant of `before`. Per-agent
+	// seq is unique within an agent but not across agents; once we cross
+	// agent boundaries inside a session the seq cursor stops being a
+	// total order. ts is. The mobile feed sends before_ts when it has a
+	// session filter and the page being paginated may span multiple
+	// agents — the cold-open page of a resumed session is the canonical
+	// case.
+	beforeTS := strings.TrimSpace(r.URL.Query().Get("before_ts"))
 	// tail=true returns the newest N events in seq DESC. Without this
 	// the cold-open path used `since=0 ORDER BY seq ASC LIMIT N` which
 	// silently truncated long sessions to their oldest N events; the
@@ -165,54 +215,60 @@ func (s *Server) handleListAgentEvents(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	// session=<id> scopes the backfill to one session — needed because the
-	// new-session flow keeps the same agent_id while opening a fresh session
-	// row, and an agent-scoped list would replay the prior closed session's
-	// transcript into a "fresh" chat. Empty session = all events for the
-	// agent (back-compat).
-	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
 
 	var (
 		q    string
 		args []any
 	)
 	switch {
+	case sessionFilter != "" && beforeTS != "":
+		// Session-scoped load-older. Use ts because seq is per-agent
+		// and a session can span multiple agents (resume).
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE session_id = ? AND ts < ?
+			 ORDER BY ts DESC, agent_id, seq DESC LIMIT ?`
+		args = []any{sessionFilter, beforeTS, limit}
+	case sessionFilter != "" && tail:
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE session_id = ?
+			 ORDER BY ts DESC, agent_id, seq DESC LIMIT ?`
+		args = []any{sessionFilter, limit}
+	case sessionFilter != "":
+		// Session-scoped incremental ("since" makes no sense across
+		// agents because seq is per-agent; treat as "tail-equivalent
+		// in ASC order"). Used by SSE backfill paths that pass since=0
+		// or by callers that just want the oldest page.
+		q = `
+			SELECT id, agent_id, seq, ts, kind, producer, payload_json
+			  FROM agent_events
+			 WHERE session_id = ?
+			 ORDER BY ts ASC, agent_id, seq ASC LIMIT ?`
+		args = []any{sessionFilter, limit}
 	case before > 0:
 		q = `
 			SELECT id, agent_id, seq, ts, kind, producer, payload_json
 			  FROM agent_events
-			 WHERE agent_id = ? AND seq < ?`
-		args = []any{agent, before}
-		if sessionFilter != "" {
-			q += " AND session_id = ?"
-			args = append(args, sessionFilter)
-		}
-		q += " ORDER BY seq DESC LIMIT ?"
-		args = append(args, limit)
+			 WHERE agent_id = ? AND seq < ?
+			 ORDER BY seq DESC LIMIT ?`
+		args = []any{agent, before, limit}
 	case tail:
 		q = `
 			SELECT id, agent_id, seq, ts, kind, producer, payload_json
 			  FROM agent_events
-			 WHERE agent_id = ?`
-		args = []any{agent}
-		if sessionFilter != "" {
-			q += " AND session_id = ?"
-			args = append(args, sessionFilter)
-		}
-		q += " ORDER BY seq DESC LIMIT ?"
-		args = append(args, limit)
+			 WHERE agent_id = ?
+			 ORDER BY seq DESC LIMIT ?`
+		args = []any{agent, limit}
 	default:
 		q = `
 			SELECT id, agent_id, seq, ts, kind, producer, payload_json
 			  FROM agent_events
-			 WHERE agent_id = ? AND seq > ?`
-		args = []any{agent, since}
-		if sessionFilter != "" {
-			q += " AND session_id = ?"
-			args = append(args, sessionFilter)
-		}
-		q += " ORDER BY seq ASC LIMIT ?"
-		args = append(args, limit)
+			 WHERE agent_id = ? AND seq > ?
+			 ORDER BY seq ASC LIMIT ?`
+		args = []any{agent, since, limit}
 	}
 
 	rows, err := s.db.QueryContext(r.Context(), q, args...)

@@ -1290,12 +1290,19 @@ class HubClient {
     String agentId, {
     int? since,
     int? before,
+    String? beforeTs,
     bool tail = false,
     int? limit,
     String? sessionId,
   }) {
     final q = <String, String>{};
-    if (before != null) {
+    // Cursor precedence on the server is before_ts > before > tail > since.
+    // before_ts is the session-scoped variant — seq is per-agent so it
+    // can't order events across the agents that one resumed session
+    // spans, but ts can.
+    if (beforeTs != null && beforeTs.isNotEmpty) {
+      q['before_ts'] = beforeTs;
+    } else if (before != null) {
       q['before'] = '$before';
     } else if (tail) {
       q['tail'] = 'true';

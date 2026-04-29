@@ -64,11 +64,22 @@ class AgentFeed extends ConsumerStatefulWidget {
 
 class _AgentFeedState extends ConsumerState<AgentFeed> {
   final List<Map<String, dynamic>> _events = [];
+  // Event ids we've ingested. The de-dup key. Used instead of seq when
+  // the feed is session-scoped: a resumed session spans multiple agents
+  // and seq is per-agent, so seq values can collide between the prior
+  // agent's history and the new agent's live events. id is globally
+  // unique. We keep _maxSeq for the agent-only path's incremental SSE
+  // backfill cursor (since=<seq>); the session path uses ts.
+  final Set<String> _ids = <String>{};
   int _maxSeq = 0;
   // Smallest seq we've loaded so the "load older" pager can ask for
   // anything strictly before it. 0 once we've reached the head of the
-  // transcript (no older page to fetch).
+  // transcript (no older page to fetch). When the feed is session-scoped
+  // the pager uses [_oldestTs] instead.
   int _minSeq = 0;
+  // Oldest ts we've loaded — the load-older cursor for session-scoped
+  // feeds. Empty until cold open returns at least one event.
+  String _oldestTs = '';
   String? _error;
   bool _loading = true;
   // Cold open uses tail mode so a long transcript shows the most recent
@@ -226,30 +237,50 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   Future<void> _maybeLoadOlder() async {
-    if (_loadingOlder || _atHead || _minSeq <= 1) return;
+    if (_loadingOlder || _atHead) return;
+    // Page-cursor preconditions: agent-scoped uses _minSeq (per-agent
+    // monotonic; >1 means there's at least one older row), session-scoped
+    // uses _oldestTs (a non-empty ts means we have at least one event
+    // we can paginate before).
+    final sessionScoped = (widget.sessionId ?? '').isNotEmpty;
+    if (!sessionScoped && _minSeq <= 1) return;
+    if (sessionScoped && _oldestTs.isEmpty) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     setState(() => _loadingOlder = true);
     final priorMinSeq = _minSeq;
+    final priorOldestTs = _oldestTs;
     final priorMaxExtent =
         _scroll.hasClients ? _scroll.position.maxScrollExtent : 0.0;
     final priorPixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     try {
       final older = await client.listAgentEvents(
         widget.agentId,
-        before: priorMinSeq,
+        before: sessionScoped ? null : priorMinSeq,
+        beforeTs: sessionScoped ? priorOldestTs : null,
         limit: _pageSize,
         sessionId: widget.sessionId,
       );
       if (!mounted) return;
       // Server returns DESC; flip to ASC so the prepend keeps the
-      // chat's "older-above" invariant.
-      final ascending = older.reversed.toList();
+      // chat's "older-above" invariant. Filter dupes by id (session
+      // pagination over ts can produce overlap on equal-ts rows).
+      final ascending = <Map<String, dynamic>>[];
+      for (final e in older.reversed) {
+        final id = (e['id'] ?? '').toString();
+        if (id.isNotEmpty && !_ids.add(id)) continue;
+        ascending.add(e);
+      }
       setState(() {
         _events.insertAll(0, ascending);
         for (final e in ascending) {
           final seq = (e['seq'] as num?)?.toInt() ?? 0;
           if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
+          final ts = (e['ts'] ?? '').toString();
+          if (ts.isNotEmpty &&
+              (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
+            _oldestTs = ts;
+          }
         }
         _atHead = older.length < _pageSize;
       });
@@ -304,12 +335,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _events
         ..clear()
         ..addAll(ascending);
+      _ids.clear();
       _maxSeq = 0;
       _minSeq = 0;
+      _oldestTs = '';
       for (final e in _events) {
+        final id = (e['id'] ?? '').toString();
+        if (id.isNotEmpty) _ids.add(id);
         final seq = (e['seq'] as num?)?.toInt() ?? 0;
         if (seq > _maxSeq) _maxSeq = seq;
         if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
+        final ts = (e['ts'] ?? '').toString();
+        if (ts.isNotEmpty && (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
+          _oldestTs = ts;
+        }
       }
       // If the first page already smaller than our request, nothing
       // older exists to load — no point spinning the pager later.
@@ -352,18 +391,34 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   void _subscribe(HubClient client) {
     _reconnectTimer?.cancel();
     _sub?.cancel();
+    // SSE is bus-keyed on widget.agentId — only the current agent's
+    // events flow in. The since cursor is therefore per-agent. For
+    // session-scoped feeds the cold-open page may carry rows from a
+    // prior agent (resume case), so _maxSeq across all loaded events
+    // is too high and would silently skip the new agent's first turns.
+    // Compute the cursor from current-agent rows only.
+    int sinceCursor = _maxSeq;
+    if ((widget.sessionId ?? '').isNotEmpty) {
+      sinceCursor = 0;
+      for (final e in _events) {
+        if ((e['agent_id'] ?? '').toString() != widget.agentId) continue;
+        final s = (e['seq'] as num?)?.toInt() ?? 0;
+        if (s > sinceCursor) sinceCursor = s;
+      }
+    }
     _sub = client
         .streamAgentEvents(
           widget.agentId,
-          sinceSeq: _maxSeq,
+          sinceSeq: sinceCursor,
           sessionId: widget.sessionId,
         )
         .listen((evt) {
       if (!mounted) return;
+      // De-dup by event id — globally unique, works across agents (the
+      // session-scoped feed mixes events from prior + current agent).
+      final id = (evt['id'] ?? '').toString();
+      if (id.isNotEmpty && !_ids.add(id)) return;
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;
-      // The hub replays from `since` inclusive on some endpoints; guard
-      // against dupes deterministically by seq.
-      if (seq > 0 && seq <= _maxSeq) return;
       // First successful delivery after a drop clears the banner, the
       // backoff counter, and any "Offline · last updated" pill — the
       // feed is live again the moment SSE pushes a frame.

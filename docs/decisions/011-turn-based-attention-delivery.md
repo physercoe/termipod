@@ -136,16 +136,19 @@ Claude's `canUseTool` hook protocol returns `{behavior: "allow" |
 "deny", ...}` synchronously. There is no "deferred" branch in the
 schema; returning early without an answer is undefined behavior.
 
-> **Update (2026-04-29, ADR-012 D7):** This applies to Claude only.
-> Codex's `app-server` JSON-RPC protocol exposes deferrable
-> per-tool-call approval requests
+> **Update (2026-04-29, ADR-012 D7 + ADR-013 D4):** This section
+> applies to Claude only. Codex's `app-server` JSON-RPC protocol
+> exposes deferrable per-tool-call approval requests
 > (`item/commandExecution/requestApproval` etc.) over a long-lived
 > stdio pipe with no timeout — the same shape this section
 > identifies as missing from `canUseTool`. So the bridge-mediated
 > stdio mitigation below is now Claude-only; Codex bridges
 > `permission_prompt` directly via app-server. Gemini's CLI has
-> only `--yolo` / `--approval-mode` and inherits the sync-or-bypass
-> trade-off Claude's `canUseTool` has.
+> **no in-stream approval gate at all** — only flag-time `--yolo` /
+> `--approval-mode` decisions — so `permission_prompt` is
+> *unsupported* on gemini rather than sync. Stewards on gemini route
+> risky decisions through `request_approval` (turn-based, vendor-
+> neutral) instead. Pinned in ADR-013.
 
 This is a constraint we can't fix from the hub. The mitigation
 (post-MVP) is **bridge-mediated stdio**: switch the spawn-time

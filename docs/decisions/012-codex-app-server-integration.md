@@ -170,14 +170,16 @@ the env var injected per-spawn. Gemini will write `~/.gemini/settings.json`
 
 **D6. Gemini stays on exec-per-turn (with resume).**
 
-Gemini gets a separate `driver_exec.go` that spawns
-`gemini -p - --output-format stream-json [--resume <uuid>]` per user
-turn. Multi-turn coherence is preserved across spawns via
+Gemini gets a separate `driver_exec_resume.go` that spawns
+`gemini -p <text> --output-format stream-json [--resume <uuid>]` per
+user turn. Multi-turn coherence is preserved across spawns via
 `--resume <UUID>`; the UUID is captured from the `init` event's
 `session_id` field that PR #14504 added (merged December 2025). So
 the conversational shape is the same as Codex's `exec resume <id>`
 mode — process-per-turn, state on disk between turns — not
-fresh-from-empty as an earlier draft of this ADR assumed.
+fresh-from-empty as an earlier draft of this ADR assumed. **ADR-013
+pins the gemini integration contract** (driver shape, frame profile,
+MCP config, approval gap).
 
 What's still missing relative to Codex's app-server:
 

@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://termipod.dev/schemas/agent_families.schema.json",
+  "title": "agent_families.yaml",
+  "description": "Schema for the agent families registry. Each family declares (a) launch contract — bin / version_flag / supports / incompatibilities — and (b) optional frame_profile — declarative stream-json translation rules per ADR-010. Editor LSPs use this for autocomplete + inline validation; AI agent maintainers use it as a structural reference alongside docs/reference/frame-profiles.md.",
+  "type": "object",
+  "required": ["families"],
+  "properties": {
+    "families": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Family" }
+    }
+  },
+  "$defs": {
+    "Family": {
+      "type": "object",
+      "required": ["family", "bin", "supports"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "description": "Wire-level family name. Used in hosts.capabilities_json, template backend.kind, audit rows, and as the overlay-file basename. Lowercase-hyphenated."
+        },
+        "bin": {
+          "type": "string",
+          "description": "Executable host-runner probes via exec.LookPath."
+        },
+        "version_flag": {
+          "type": "string",
+          "description": "Argument the probe runs to read a version string. Empty/omitted skips the version probe."
+        },
+        "supports": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["M1", "M2", "M4"] },
+          "description": "Mode tokens this family is known to support; consumed by modes.Resolve to reject incompatible spawn requests."
+        },
+        "incompatibilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Incompat" }
+        },
+        "frame_profile": {
+          "$ref": "#/$defs/FrameProfile",
+          "description": "Per-engine declarative translator for stream-json frames. Optional in v1; nil falls back to the legacy hardcoded translator (driver_stdio.go)."
+        }
+      }
+    },
+    "Incompat": {
+      "type": "object",
+      "required": ["mode", "billing"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["M1", "M2", "M4"] },
+        "billing": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "FrameProfile": {
+      "type": "object",
+      "required": ["profile_version", "rules"],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Agent-facing prose header. ~3 lines stating dispatch semantics + scope conventions inline so a fresh maintainer reading rule 17 sees the model. Optional but strongly recommended."
+        },
+        "profile_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Schema version. Loaders accept lower versions when forward-compatible; unknown higher versions are rejected so old hubs don't silently misbehave on a new overlay."
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Rule" }
+        }
+      }
+    },
+    "Rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "type": "object",
+          "description": "AND-ed top-level field equality. Empty match (or absent) matches any frame at lowest specificity. Specificity = number of keys; most-specific match wins, ties fire in declaration order.",
+          "additionalProperties": true
+        },
+        "for_each": {
+          "type": "string",
+          "description": "Optional. Expression yielding an array; the rule fires once per element with that element as inner scope ($.) and the parent frame as outer scope ($$.).",
+          "pattern": "^\\$\\$?\\..*"
+        },
+        "when_present": {
+          "type": "string",
+          "description": "Optional. Gates the emit on a non-nil expression evaluation. Used so usage events don't fire as all-nils when the SDK omits message.usage. A gated rule does not trigger the raw fallback.",
+          "pattern": "^\\$\\$?\\..*"
+        },
+        "emit": { "$ref": "#/$defs/Emit" },
+        "sub_rules": {
+          "type": "array",
+          "description": "Only meaningful with for_each. Per-element dispatch on inner-scope shape (e.g. content[].type ∈ {text, tool_use}). First sub-rule whose match is satisfied fires.",
+          "items": { "$ref": "#/$defs/Rule" }
+        }
+      }
+    },
+    "Emit": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "agent_event kind column. Reuse existing kinds where possible (text, tool_call, tool_result, usage, rate_limit, session.init, system, error, raw, …); a new kind requires mobile renderer support."
+        },
+        "producer": {
+          "type": "string",
+          "description": "Producer column. Default 'agent'. Override for system-originated frames to 'system' or for hub-side rules to 'hub'.",
+          "enum": ["agent", "system", "hub", "user", "a2a"]
+        },
+        "payload": {
+          "type": "object",
+          "description": "Map of output field → expression. Expressions are evaluated in the rule's scope (inner if inside for_each, outer via $$.) and resolved to the agent_event row's payload_json.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

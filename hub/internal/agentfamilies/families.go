@@ -52,15 +52,24 @@ type Family struct {
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json
-// frames (ADR-010). Each rule is a (matcher → emit) pair; the host-runner
-// evaluates rules in order and the first match wins. Anything unmatched
-// falls through to today's `kind=raw, payload=verbatim` behavior.
+// frames (ADR-010). Each rule is a (matcher → emit) pair; rules are
+// dispatched by most-specific match (largest match-keyset wins; ties
+// fire in declaration order). Anything unmatched falls through to
+// today's `kind=raw, payload=verbatim` behavior.
+//
+// Description is the agent-facing prose header — three or four lines
+// stating dispatch semantics + scope conventions inline so a fresh AI
+// agent maintainer reading rule 17 sees the model without having to
+// grep the implementation. Optional but strongly recommended for
+// canonical profiles; see `reference/frame-profiles.md` for the
+// recommended template.
 //
 // ProfileVersion is incremented when the schema breaks. Loaders accept
 // lower versions when the change is forward-compatible; an unknown
 // higher version is rejected so old hubs don't silently misbehave on a
 // new overlay.
 type FrameProfile struct {
+	Description    string `yaml:"description,omitempty" json:"description,omitempty"`
 	ProfileVersion int    `yaml:"profile_version" json:"profile_version"`
 	Rules          []Rule `yaml:"rules" json:"rules"`
 }

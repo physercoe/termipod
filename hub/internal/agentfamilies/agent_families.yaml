@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=./agent_families.schema.json
+#
 # Single source of truth for which agent CLIs the hub knows about.
 # Adding a new family is a YAML edit, never a Go change.
 #
@@ -14,6 +16,10 @@
 #                    by modes.Resolve to fail-fast spawns whose mode +
 #                    declared billing combination is broken at the
 #                    upstream level (e.g. Anthropic SDK limitations).
+#   - frame_profile — declarative stream-json translator (ADR-010,
+#                    optional). When absent, the host-runner falls
+#                    back to the hardcoded driver_stdio.go translator.
+#                    See docs/reference/frame-profiles.md to author.
 #
 # Why a YAML file instead of Go literals: the blueprint (§5.3.2) wants
 # new agent families to land as drop-in declarations, and the hub
@@ -29,6 +35,213 @@ families:
       - mode: M1
         billing: subscription
         reason: "M1 requires api_key billing for claude-code (Agent SDK limitation)"
+    # ─── Frame profile (ADR-010) ──────────────────────────────────
+    # Declarative translation of claude-code's stream-json output
+    # into typed agent_events. Mirrors driver_stdio.go::translate()
+    # behavior; the parity test in
+    # hub/internal/hostrunner/profile_translate_parity_test.go runs
+    # both translators against a recorded corpus and fails on diff.
+    #
+    # Authoring & extension: see docs/reference/frame-profiles.md.
+    # Each rule's inline comment notes which SDK release the rule
+    # was authored for, so AI maintainers extending later have the
+    # "git log of the upstream" as context.
+    frame_profile:
+      description: |
+        claude-code stream-json → typed agent_events.
+        Most-specific match wins (largest match-keyset); ties fire in
+        declaration order. Inside for_each, $.foo is the element and
+        $$.foo is the parent frame. a || b returns the first non-nil
+        term; trailing literal acts as default.
+      profile_version: 1
+      rules:
+        # ── system.subtype = init  →  session.init ───────────────
+        # Lifted by mobile's AppBar SessionInitChip + transcript
+        # session.init card. Fields not present in the source frame
+        # come through nil — the renderer dispatches on presence.
+        # claude flips between camelCase and snake_case across SDK
+        # releases (permissionMode vs permission_mode, mcpServers vs
+        # mcp_servers, …); coalesce papers over the variants.
+        - match: { type: system, subtype: init }
+          emit:
+            kind: session.init
+            producer: agent
+            payload:
+              session_id:      "$.session_id"
+              model:           "$.model"
+              cwd:             "$.cwd"
+              permission_mode: "$.permissionMode || $.permission_mode"
+              tools:           "$.tools"
+              mcp_servers:     "$.mcp_servers || $.mcpServers"
+              slash_commands:  "$.slash_commands || $.slashCommands"
+              agents:          "$.agents"
+              skills:          "$.skills"
+              plugins:         "$.plugins"
+              version:         "$.claude_code_version || $.version"
+              output_style:    "$.output_style || $.outputStyle"
+              fast_mode_state: "$.fast_mode_state || $.fastModeState"
+
+        # ── system.subtype = rate_limit_event  →  rate_limit ─────
+        # v1.0.326 wedge: mid-SDK builds wrap the rate-limit signal
+        # under a system envelope instead of emitting it as a
+        # bare top-level type. v1.0.328 added the nested
+        # rate_limit_info shape; the same coalesce handles all three.
+        - match: { type: system, subtype: rate_limit_event }
+          emit:
+            kind: rate_limit
+            producer: agent
+            payload:
+              window:    "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+              status:    "$.rate_limit_info.status || $.status"
+              resets_at: "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at"
+              overage_status:   "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status"
+              is_using_overage: "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage"
+              reason:           "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason"
+
+        # ── system (any other subtype)  →  system ────────────────
+        # task_started / task_updated / task_notification all land
+        # here and are folded by the mobile _systemBody renderer
+        # into one-liners. Anything we don't model gets the full
+        # frame so the transcript stays complete.
+        - match: { type: system }
+          emit:
+            kind: system
+            producer: agent
+            payload:
+              subtype:      "$.subtype"
+              task_id:      "$.task_id"
+              agent:        "$.agent || $.name"
+              description:  "$.description || $.prompt"
+              patch:        "$.patch"
+              message:      "$.message || $.text || $.notification"
+
+        # ── rate_limit_event (top-level)  →  rate_limit ──────────
+        # Older SDK builds emit rate_limit_event as a bare top-level
+        # type. Same coalesce as the system-wrapped variant; the
+        # author chose two rules over one match-with-no-subtype-key
+        # because the dispatch becomes opaque otherwise.
+        - match: { type: rate_limit_event }
+          emit:
+            kind: rate_limit
+            producer: agent
+            payload:
+              window:    "$.rate_limit_info.rateLimitType || $.rateLimitType || $.rate_limit_type"
+              status:    "$.rate_limit_info.status || $.status"
+              resets_at: "$.rate_limit_info.resetsAt || $.resetsAt || $.resets_at"
+              overage_status:   "$.rate_limit_info.overageStatus || $.overageStatus || $.overage_status"
+              is_using_overage: "$.rate_limit_info.isUsingOverage || $.isUsingOverage || $.is_using_overage"
+              reason:           "$.rate_limit_info.overageDisabledReason || $.overageDisabledReason || $.overage_disabled_reason"
+
+        # ── assistant.message.content[]  →  text / tool_call ─────
+        # for_each walks the content blocks; sub_rules dispatch on
+        # the inner block type. Outer scope ($$) gives sub-rules
+        # access to message.id for transcript pairing.
+        - match: { type: assistant }
+          for_each: $.message.content
+          sub_rules:
+            - match: { type: text }
+              emit:
+                kind: text
+                producer: agent
+                payload:
+                  text:       "$.text"
+                  message_id: "$$.message.id"
+            - match: { type: tool_use }
+              emit:
+                kind: tool_call
+                producer: agent
+                payload:
+                  id:    "$.id"
+                  name:  "$.name"
+                  input: "$.input"
+
+        # ── assistant.message.usage  →  usage (when present) ─────
+        # Telemetry strip in mobile; gated by when_present so it
+        # doesn't fire empty rows for assistant frames that omit
+        # the usage block (post-result deltas, for example).
+        - match: { type: assistant }
+          when_present: $.message.usage
+          emit:
+            kind: usage
+            producer: agent
+            payload:
+              input_tokens:  "$.message.usage.input_tokens"
+              output_tokens: "$.message.usage.output_tokens"
+              cache_read:    "$.message.usage.cache_read_input_tokens || $.message.usage.cache_read"
+              cache_create:  "$.message.usage.cache_creation_input_tokens || $.message.usage.cache_create"
+              service_tier:  "$.message.usage.service_tier"
+              message_id:    "$.message.id"
+              model:         "$.message.model"
+
+        # ── user.message.content[].type=tool_result  →  tool_result ─
+        # In stream-json, `user` frames carry the agent's own view
+        # of tool outputs. Plain user-text frames are our own input
+        # being echoed back — the legacy translator skips those by
+        # filtering to tool_result blocks; we mirror via sub_rules.
+        - match: { type: user }
+          for_each: $.message.content
+          sub_rules:
+            - match: { type: tool_result }
+              emit:
+                kind: tool_result
+                producer: agent
+                payload:
+                  tool_use_id: "$.tool_use_id"
+                  content:     "$.content"
+                  is_error:    "$.is_error"
+
+        # ── result  →  turn.result + completion ──────────────────
+        # turn.result is the canonical typed kind; completion is a
+        # deprecated alias kept for one release per ADR. Both rules
+        # match {type: result} (specificity tie) so they co-fire.
+        # Note: modelUsage's inner-key renaming (camelCase →
+        # snake_case) is a known parity gap — the v1 grammar lacks a
+        # map-iter construct, so by_model passes through verbatim.
+        # Tracked for grammar extension after the parity test
+        # surfaces the real diff. See plan Phase 1.5.
+        - match: { type: result }
+          emit:
+            kind: turn.result
+            producer: agent
+            payload:
+              cost_usd:           "$.total_cost_usd || $.cost_usd"
+              duration_ms:        "$.duration_ms"
+              num_turns:          "$.num_turns"
+              terminal_reason:    "$.terminal_reason || $.subtype"
+              permission_denials: "$.permission_denials"
+              fast_mode_state:    "$.fast_mode_state || $.fastModeState"
+              by_model:           "$.modelUsage || $.model_usage"
+        - match: { type: result }
+          emit:
+            kind: completion
+            producer: agent
+            # Deprecated alias kept for one release per ADR-010
+            # plan §4.2. Mobile's _completionBody reads subtype,
+            # duration_ms, and result from the payload root, so
+            # we surface those directly rather than wrapping the
+            # whole frame. Drop this rule once telemetry shows
+            # nothing reads kind=completion.
+            payload:
+              subtype:        "$.subtype"
+              duration_ms:    "$.duration_ms"
+              num_turns:      "$.num_turns"
+              total_cost_usd: "$.total_cost_usd"
+              result:         "$.result"
+
+        # ── error  →  error ──────────────────────────────────────
+        - match: { type: error }
+          emit:
+            kind: error
+            producer: agent
+            payload:
+              error:   "$.error || $.message"
+              code:    "$.code"
+              details: "$.details"
+
+        # No catch-all: unmatched frames fall through to ApplyProfile's
+        # implicit kind=raw, payload=verbatim fallback (ADR-010 D5).
+        # Forward-compatible with new SDK frame types we haven't
+        # profiled yet.
   - family: gemini-cli
     bin: gemini
     version_flag: --version

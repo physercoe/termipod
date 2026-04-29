@@ -273,18 +273,72 @@ frame_profile:
 	}
 }
 
-// TestFrameProfile_AbsentLeavesNil — families without a frame_profile
-// block parse cleanly with FrameProfile == nil. Critical because the
-// embedded agent_families.yaml ships without profiles in v1; the
-// loader must not synthesize an empty one.
-func TestFrameProfile_AbsentLeavesNil(t *testing.T) {
-	for _, name := range []string{"claude-code", "codex", "gemini-cli", "aider"} {
+// TestFrameProfile_EmbeddedClaudeCode — the canonical claude-code
+// profile is the load-bearing example. Verify it parses, declares a
+// schema version, and covers the surfaces driver_stdio.go::translate()
+// covers today (system.init / rate_limit / assistant / user /
+// result / error). Per-rule semantics are exercised by
+// profile_translate_test.go and profile_eval_test.go; this test
+// is the structural contract.
+func TestFrameProfile_EmbeddedClaudeCode(t *testing.T) {
+	f, ok := ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code missing from registry")
+	}
+	fp := f.FrameProfile
+	if fp == nil {
+		t.Fatal("claude-code embedded profile not loaded")
+	}
+	if fp.ProfileVersion != 1 {
+		t.Errorf("profile_version = %d; want 1", fp.ProfileVersion)
+	}
+	if fp.Description == "" {
+		t.Error("description should be set on canonical profiles (agent-readability)")
+	}
+
+	// Each canonical kind must be reachable from at least one rule
+	// or sub-rule. Drives a "did we forget to translate X?" check.
+	wantKinds := map[string]bool{
+		"session.init": false,
+		"rate_limit":   false,
+		"system":       false,
+		"text":         false,
+		"tool_call":    false,
+		"usage":        false,
+		"tool_result":  false,
+		"turn.result":  false,
+		"completion":   false,
+		"error":        false,
+	}
+	var walk func(rules []Rule)
+	walk = func(rules []Rule) {
+		for _, r := range rules {
+			if _, ok := wantKinds[r.Emit.Kind]; ok {
+				wantKinds[r.Emit.Kind] = true
+			}
+			walk(r.SubRules)
+		}
+	}
+	walk(fp.Rules)
+	for kind, seen := range wantKinds {
+		if !seen {
+			t.Errorf("canonical kind %q not produced by any rule", kind)
+		}
+	}
+}
+
+// TestFrameProfile_OtherEnginesStillNil — codex / gemini-cli / aider
+// don't ship profiles in v1 (Phase 3 of the migration plan); they
+// fall through to the legacy translator. Lock that contract so a
+// future PR doesn't accidentally enable a half-finished profile.
+func TestFrameProfile_OtherEnginesStillNil(t *testing.T) {
+	for _, name := range []string{"codex", "gemini-cli", "aider"} {
 		f, ok := ByName(name)
 		if !ok {
 			t.Fatalf("%s missing from registry", name)
 		}
 		if f.FrameProfile != nil {
-			t.Errorf("%s ships embedded with FrameProfile=%+v; v1 should leave it nil",
+			t.Errorf("%s ships embedded with FrameProfile=%+v; should still be nil in v1",
 				name, f.FrameProfile)
 		}
 	}

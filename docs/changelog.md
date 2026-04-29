@@ -23,6 +23,50 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.330-alpha — 2026-04-29
+
+### Added (still dark — profile authored but legacy translator owns traffic)
+- `hub/internal/agentfamilies/agent_families.yaml`: canonical
+  claude-code `frame_profile` block. ~10 rules covering session.init
+  (with camelCase/snake_case coalesce), all three rate_limit_event
+  shape variants (flat / system-subtype / nested rate_limit_info),
+  the system fallback, assistant multi-emit (content blocks +
+  when_present-gated usage), user.tool_result filter, result →
+  turn.result + completion (deprecated alias), and error. Each rule
+  carries an inline `# ` comment naming the SDK release it was
+  authored for so AI maintainers extending later have the
+  upstream-shape lineage.
+- `docs/reference/frame-profiles.md`: the agent-facing authoring
+  reference. Grammar in BNF, dispatch semantics, scope rules, three
+  worked input→output examples (rate_limit shape collapse, assistant
+  multi-emit, system subtype hierarchy), common pitfalls calling out
+  divergences from JSONata-style expectations. ~250 lines.
+- `hub/internal/agentfamilies/agent_families.schema.json`: JSON
+  Schema sidecar so editor LSPs (and AI editors) get autocomplete +
+  inline validation while authoring overlays. yaml-language-server
+  comment in the YAML wires it up automatically.
+- `FrameProfile.Description` field — agent-facing prose header that
+  states dispatch semantics + scope conventions inline so a fresh
+  maintainer reading rule 17 sees the model without grep'ing the
+  implementation.
+- 7 smoke tests against the embedded profile covering every rule
+  surface; full corpus diff test arrives in Phase 1.5.
+
+### Changed
+- `docs/plans/frame-profiles-migration.md` Phase 1.4 expanded with
+  the five agent-native deliverables (description / reference /
+  schema / inline comments / validator). New project memory entry
+  `feedback_agent_native_design.md` captures "agent-native is a
+  design principle" as a durable lesson — applies beyond frame
+  profiles to any future declarative surface (action bar profiles,
+  templates, attention-item options).
+
+### Known parity gap
+- `result.modelUsage` inner-key renaming (camelCase → snake_case in
+  the `by_model` payload). The v1 grammar has no map-iter construct;
+  by_model passes through verbatim. Tracked for grammar extension in
+  Phase 1.5 once the parity diff surfaces the real shape.
+
 ## v1.0.329-alpha — 2026-04-29
 
 ### Added (dark code — not yet wired into live driver)

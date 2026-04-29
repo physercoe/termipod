@@ -117,7 +117,7 @@ func (d *StdioDriver) translateViaProfile(ctx context.Context, frame map[string]
 }
 ```
 
-### 3.4 Author claude-code profile
+### 3.4 Author claude-code profile + agent-readability artifacts
 
 Translate today's `translate()` into rules. Estimated ~12 rules
 covering `system.init`, `system.subtype=rate_limit_event`,
@@ -126,6 +126,41 @@ covering `system.init`, `system.subtype=rate_limit_event`,
 emit, `user.message.content[].type=tool_result`,
 `rate_limit_event` (top-level, three shape variants),
 `result` (`turn.result` + `completion`), `error`, raw fallback.
+
+**Agent-native deliverables.** The system is primarily maintained by
+AI agents (steward + worker engines per ADR-005), not humans —
+authoring artifacts target agent-readability first. Concretely:
+
+- **`description:` field at the FrameProfile root.** ~3 lines stating
+  dispatch semantics + scope conventions inline so an agent editing
+  rule 17 sees the model without grep'ing the implementation.
+- **`docs/reference/frame-profiles.md`** (REFERENCE primitive). The
+  agent-facing how-to-author-a-profile doc. Contents: grammar in
+  BNF, dispatch semantics, scope rules (`$.` vs `$$.`), 3–5 worked
+  input→output examples mirroring `translate()`'s real cases (rate
+  limit shape variants, assistant multi-emit, system subtype
+  hierarchy), and a "common pitfalls" section calling out
+  divergences from JSONata (`$$.` for outer scope, `||` only
+  short-circuits on `nil`).
+- **JSON Schema sidecar** at `hub/internal/agentfamilies/agent_families.schema.json`.
+  Generated from or hand-aligned with the Go struct tags. Editor
+  LSPs (and AI editors) get autocomplete + inline validation. Add a
+  smoke test that the embedded YAML validates against its own
+  schema.
+- **Inline `# ` comments per rule** documenting which SDK shape it
+  was authored against (`# v1.0.328 — handles nested rate_limit_info
+  shape; see docs/changelog.md`). The git-blame-of-the-upstream so
+  agents extending later have context.
+- **Profile validator subcommand** (`hub-server profile validate
+  <file>`). Round-trip + dry-run-against-included-corpus. Errors
+  reference rule index + line for actionable agent feedback. Phase 3
+  could elevate this to a dedicated `termipod-hub` CLI; Phase 1
+  ships it as a hub-server subcommand to keep the surface small.
+
+The 5 deliverables collectively answer "would a fresh AI agent
+get profile authoring right from a 30-second read?" Without them
+the dispatch model is invisible (rule 17 doesn't see rule 5);
+with them, the agent's edit-validate-fix loop is tight.
 
 ### 3.5 Parity test corpus
 

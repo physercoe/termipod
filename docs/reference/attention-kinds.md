@@ -185,6 +185,11 @@ wrong for human-AI interaction:
   place to store "what the agent asked." Turn-based puts persistence
   there.
 
+Full analysis in
+[`../discussions/attention-interaction-model.md`](../discussions/attention-interaction-model.md);
+formal decision in
+[ADR-011](../decisions/011-turn-based-attention-delivery.md).
+
 `permission_prompt` is the only attention kind that still uses
 synchronous block — not by design preference, but because Claude's
 `canUseTool` hook protocol defines no "deferred" branch. It's a

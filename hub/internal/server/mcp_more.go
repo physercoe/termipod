@@ -79,6 +79,30 @@ func mcpToolDefsExtra() []map[string]any {
 			},
 		},
 		{
+			"name": "request_help",
+			"description": "Ask the principal for free-text input when the answer space is open. " +
+				"USE WHEN: you need clarification (\"did you mean X or Y?\"), direction (\"how would you " +
+				"approach this?\"), opinion, or you can't proceed (situation too complex, missing context, " +
+				"hand-back). DO NOT USE for binary go/no-go (use request_approval) or when you can list the " +
+				"valid answers ahead of time (use request_select). Tiebreaker: when in doubt between kinds, " +
+				"prefer the more open one — request_help expands the answer space rather than constraining it. " +
+				"`mode` tunes the urgency framing: 'clarify' for routine questions, 'handoff' when you're " +
+				"genuinely blocked and need the principal to take over. The principal's free-text reply is " +
+				"returned as `body`. See docs/reference/attention-kinds.md for the full decision tree.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"question":   map[string]any{"type": "string", "description": "What you're asking the principal."},
+					"context":    map[string]any{"type": "string", "description": "Optional — your own framing of why you're stuck or what you've already considered."},
+					"mode":       map[string]any{"type": "string", "enum": []string{"clarify", "handoff"}, "description": "clarify=routine question; handoff=I'm blocked, you may want to take over."},
+					"severity":   map[string]any{"type": "string", "enum": []string{"minor", "major", "critical"}},
+					"scope_kind": map[string]any{"type": "string"},
+					"scope_id":   map[string]any{"type": "string"},
+				},
+				"required": []string{"question"},
+			},
+		},
+		{
 			"name": "attach",
 			"description": "Upload a small file as a content-addressed blob. Accepts either " +
 				"content_base64 (inline) or path (server reads — only blessed paths).",
@@ -404,6 +428,122 @@ func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw 
 		"id":           id,
 		"kind":         "select",
 		"option_id":    optionID,
+		"decision":     decision,
+		"reason":       reason,
+		"requested_by": fromID,
+	}), nil
+}
+
+// ---------------------------------------------------------------------
+// request_help — open-ended ask. Free-text answer back from the principal.
+// ---------------------------------------------------------------------
+//
+// The third attention shape, complementing approval (binary) and select
+// (n-ary). Used when the answer space is open: clarification, direction,
+// opinion, or hand-back. The cardinality test (`docs/reference/attention-
+// kinds.md`) is the load-bearing rule the agent uses to pick between the
+// three; the tool description above carries the short form.
+//
+// The principal's reply lands in decisions_json[…].body via the `decide`
+// endpoint and waitForAttentionResolution surfaces the whole last-decision
+// dict, so `body` flows back to the agent without a second round-trip.
+
+type requestHelpArgs struct {
+	Question  string `json:"question"`
+	Context   string `json:"context"`
+	Mode      string `json:"mode"`     // 'clarify' (default) | 'handoff'
+	Severity  string `json:"severity"` // 'minor' (default) | 'major' | 'critical'
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+}
+
+// requestHelpTimeout matches requestSelectTimeout: long enough that the
+// user has time to compose a reply on a phone, short enough that an
+// unanswered prompt times out before the agent's outer turn budget gives up.
+const requestHelpTimeout = 10 * time.Minute
+
+func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
+	var a requestHelpArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.Question == "" {
+		return nil, &jrpcError{Code: -32602, Message: "question required"}
+	}
+	if a.ScopeKind == "" {
+		a.ScopeKind = "team"
+	}
+	mode := a.Mode
+	if mode == "" {
+		mode = "clarify"
+	}
+	if mode != "clarify" && mode != "handoff" {
+		return nil, &jrpcError{Code: -32602, Message: "mode must be 'clarify' or 'handoff'"}
+	}
+	severity := a.Severity
+	if severity == "" {
+		// Default tracks mode: a hand-back is a stronger signal than a
+		// routine clarification, so it surfaces with major severity unless
+		// the agent explicitly downgrades.
+		if mode == "handoff" {
+			severity = "major"
+		} else {
+			severity = "minor"
+		}
+	}
+	id := NewID()
+	now := NowUTC()
+	// pending_payload carries the question, mode, and the agent's own
+	// framing so the resolver UI can show "what they're asking" + "why
+	// they think they need help" without round-tripping the transcript.
+	payload, _ := json.Marshal(map[string]any{
+		"question": a.Question,
+		"context":  a.Context,
+		"mode":     mode,
+		"agent_id": fromID,
+	})
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind,
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle, pending_payload_json
+		) VALUES (?, NULL, ?, NULLIF(?, ''), 'help_request',
+		          ?, ?, '[]', 'open', ?,
+		          'agent', NULLIF(?, ''), ?)`,
+		id, a.ScopeKind, a.ScopeID, a.Question, severity, now, actorHandle, string(payload))
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	s.recordAudit(ctx, team, "help.request", "attention", id,
+		"help requested ("+mode+"): "+a.Question,
+		map[string]any{"agent_id": fromID, "mode": mode, "severity": severity})
+
+	// Long-poll for the principal's reply. `decide` with decision='approve'
+	// + body=<reply> records the answer; decision='reject' = "I'm dismissing
+	// this without answering, agent should give up or try a different
+	// approach." Both resolve the attention.
+	pctx, cancel := context.WithTimeout(ctx, requestHelpTimeout)
+	defer cancel()
+	last, err := s.waitForAttentionResolution(pctx, id)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			_, _ = s.db.ExecContext(context.Background(), `
+				UPDATE attention_items
+				   SET status = 'resolved', resolved_at = ?
+				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
+			return mcpResultJSON(map[string]any{
+				"id":      id,
+				"kind":    "help_request",
+				"timeout": true,
+			}), nil
+		}
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	body, _ := last["body"].(string)
+	decision, _ := last["decision"].(string)
+	reason, _ := last["reason"].(string)
+	return mcpResultJSON(map[string]any{
+		"id":           id,
+		"kind":         "help_request",
+		"body":         body,
 		"decision":     decision,
 		"reason":       reason,
 		"requested_by": fromID,

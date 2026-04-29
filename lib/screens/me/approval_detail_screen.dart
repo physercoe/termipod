@@ -102,9 +102,13 @@ class ApprovalDetailScreen extends ConsumerWidget {
             ]),
           const SizedBox(height: 24),
           Text(
-            'Use the Approve / Deny buttons on the Me-page card to '
-            'resolve. This screen is read-only for now; inline actions '
-            'will land here in a follow-up.',
+            kind == 'help_request'
+                ? 'Reply via the Send / Skip controls on the Me-page card. '
+                    'This screen is read-only for now; the inline composer '
+                    'will land here in a follow-up.'
+                : 'Use the Approve / Deny buttons on the Me-page card to '
+                    'resolve. This screen is read-only for now; inline '
+                    'actions will land here in a follow-up.',
             style: GoogleFonts.jetBrainsMono(
               fontSize: 11,
               color: muted,

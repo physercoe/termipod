@@ -336,6 +336,8 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 		// in v1.0.295. Templates with the old name keep working until
 		// they re-render.
 		return s.mcpRequestSelect(ctx, scope.Team, agentID, call.Arguments)
+	case "request_help":
+		return s.mcpRequestHelp(ctx, scope.Team, agentID, call.Arguments)
 	case "attach":
 		return s.mcpAttach(ctx, call.Arguments)
 	case "get_event":

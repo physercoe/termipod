@@ -155,6 +155,11 @@ type attentionDecideIn struct {
 	// agent via waitForAttentionResolution. Ignored for kinds that
 	// don't have options.
 	OptionID string `json:"option_id,omitempty"`
+	// Body carries the principal's free-text reply for kind='help_request'
+	// attention items (request_help MCP tool). Required when decision='approve'
+	// on a help_request — a reject signals "dismissed, agent should give up".
+	// Ignored for kinds whose answer space is constrained.
+	Body string `json:"body,omitempty"`
 }
 
 type attentionDecideOut struct {
@@ -211,6 +216,16 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// help_request answers via free text in `body`. An approve without a
+	// body is meaningless (the agent is waiting for the user's reply, not
+	// just an "ok"); reject is fine — it dismisses the request without an
+	// answer and the agent should treat it as "give up or try alternative".
+	if kind == "help_request" && in.Decision == "approve" && in.Body == "" {
+		writeErr(w, http.StatusBadRequest,
+			"body required when approving a help_request")
+		return
+	}
+
 	// Append the decision to decisions_json.
 	var list []map[string]any
 	_ = json.Unmarshal([]byte(decisions), &list)
@@ -223,6 +238,12 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.OptionID != "" {
 		entry["option_id"] = in.OptionID
+	}
+	if in.Body != "" {
+		// waitForAttentionResolution returns the last decision dict
+		// verbatim, so request_help's long-poll picks up `body` here
+		// without a separate lookup against pending_payload.
+		entry["body"] = in.Body
 	}
 	list = append(list, entry)
 	newDecisions, _ := json.Marshal(list)

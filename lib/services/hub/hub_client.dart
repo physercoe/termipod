@@ -1385,12 +1385,16 @@ class HubClient {
     String? by,
     String? reason,
     String? optionId,
+    /// Free-text reply for kind='help_request' attentions (request_help
+    /// MCP tool). Required when decision='approve' on a help_request.
+    String? body,
   }) async {
-    final body = <String, dynamic>{'decision': decision};
-    if (by != null && by.isNotEmpty) body['by'] = by;
-    if (reason != null && reason.isNotEmpty) body['reason'] = reason;
-    if (optionId != null && optionId.isNotEmpty) body['option_id'] = optionId;
-    final out = await _post('/v1/teams/${cfg.teamId}/attention/$id/decide', body);
+    final req = <String, dynamic>{'decision': decision};
+    if (by != null && by.isNotEmpty) req['by'] = by;
+    if (reason != null && reason.isNotEmpty) req['reason'] = reason;
+    if (optionId != null && optionId.isNotEmpty) req['option_id'] = optionId;
+    if (body != null && body.isNotEmpty) req['body'] = body;
+    final out = await _post('/v1/teams/${cfg.teamId}/attention/$id/decide', req);
     return (out as Map).cast<String, dynamic>();
   }
 

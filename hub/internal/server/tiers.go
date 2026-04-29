@@ -54,6 +54,8 @@ var toolTiers = map[string]string{
 	"post_excerpt":           TierSignificant, // team-visible broadcast
 	"delegate":               TierSignificant, // redirects another agent's work
 	"request_approval":       TierRoutine,     // meta — wrapped action carries real tier
+	"request_select":         TierRoutine,     // meta — same
+	"request_help":           TierRoutine,     // meta — same
 	"request_decision":       TierRoutine,     // meta — same
 	"attach":                 TierRoutine,
 	"get_event":              TierTrivial,

@@ -23,6 +23,39 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.335-alpha — 2026-04-29
+
+### Added
+- New `help_request` attention kind — the third interaction shape,
+  complementing `approval_request` (binary) and `select` (n-ary).
+  Used when the agent needs free-text input from the principal:
+  clarification, direction, opinion, or hand-back ("I'm stuck, take
+  over"). MCP tool `request_help` parallels `request_approval` and
+  `request_select`; payload carries `question`, optional `context`
+  (agent's framing), and `mode` (`clarify` | `handoff`). The decide
+  endpoint now accepts a `body` field; an approve on a help_request
+  without a body is rejected (400) since the principal's reply *is*
+  the answer. Long-poll surfaces the body to the agent verbatim,
+  same shape as `request_select`'s option_id flow.
+- `docs/reference/attention-kinds.md` — canonical authoring guide
+  for picking between the three kinds. Decision tree by
+  answer-space cardinality, anti-pattern table with what to use
+  instead, worked examples for clarify and handoff modes. The MCP
+  tool docstring on `request_help` carries the short form;
+  contributors and AI agent maintainers consult this doc for the
+  long form. Linked from `hub-agents.md`.
+- Mobile `_HelpRequestActions` widget on the Me page renders a
+  free-text composer (Send / Skip) when a help_request attention
+  appears in the approvals list. Mode chip ("clarify" / "hand-back")
+  surfaces the agent's framing; agent's `context` shows above the
+  composer. The approval-detail screen footer copy is now
+  kind-aware so it doesn't mislead help_request users with
+  "Approve / Deny" instructions.
+
+### Changed
+- `request_select` is now explicitly tracked in `tiers.go` as
+  `TierRoutine` (was relying on the `request_decision` alias entry).
+
 ## v1.0.334-alpha — 2026-04-29
 
 ### Fixed

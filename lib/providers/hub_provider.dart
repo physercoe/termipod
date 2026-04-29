@@ -495,6 +495,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
     String? reason,
     String? by,
     String? optionId,
+    String? body,
   }) async {
     final client = _client;
     if (client == null) return;
@@ -504,6 +505,7 @@ class HubNotifier extends AsyncNotifier<HubState> {
       reason: reason,
       by: by,
       optionId: optionId,
+      body: body,
     );
     await _reloadAttention();
   }

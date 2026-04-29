@@ -295,10 +295,12 @@ agents need. Catalog (see `hub/internal/server/mcp.go` +
 - **Narrow surface** — `post_message`, `get_feed`, `list_channels`,
   `search`, `journal_append`, `journal_read`, `get_project_doc`,
   `get_attention`, `post_excerpt`, `delegate`, `request_approval`,
-  `request_select`, `attach`, `get_event`, `get_task`,
+  `request_select`, `request_help`, `attach`, `get_event`, `get_task`,
   `get_parent_thread`, `list_agents`, `update_own_task_status`,
   `templates.propose`, `pause_self`, `shutdown_self`, `get_audit`,
-  `permission_prompt`.
+  `permission_prompt`. The three `request_*` tools are the agent's
+  human-in-the-loop surface; pick by answer-space cardinality per
+  [`reference/attention-kinds.md`](attention-kinds.md).
 - **Orchestrator-worker primitives** — `agents.fanout`,
   `agents.gather`, `reports.post`.
 - **Rich authority** — `projects.{list,get,create,update}`,

@@ -4,11 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
@@ -62,41 +59,19 @@ func TestProfile_ClaudeCode_ParityWithLegacy(t *testing.T) {
 		legacy := runLegacyTranslate(t, frame)
 		profileEvts := ApplyProfile(frame, profile)
 
-		if diff := diffEventSlices(legacy, profileEvts); diff != "" {
+		if diff := DiffEvents(legacy, profileEvts, ParityIgnoreFields); diff != "" {
 			divergent++
 			t.Errorf("\n=== frame %d/%d diverged ===\n%s\nframe was: %s\n",
-				i, len(corpus), diff, mustEncodeJSON(frame))
+				i, len(corpus), diff, MustEncodeJSON(frame))
 		}
 	}
 	if divergent > 0 {
 		t.Logf("%d/%d frames diverged. Either fix the rule in "+
 			"agent_families.yaml claude-code.frame_profile, or — "+
 			"if the divergence is a documented known-gap field — "+
-			"add it to parityIgnoreFields in profile_parity_test.go.",
+			"add it to ParityIgnoreFields in profile_diff.go.",
 			divergent, len(corpus))
 	}
-}
-
-// parityIgnoreFields lists payload field names that the parity diff
-// skips — known gaps where the profile-driven and legacy translators
-// produce different shapes by design until a future grammar
-// extension lands. Adding a field here is a *deliberate* policy
-// decision; review the comment above the entry before extending.
-var parityIgnoreFields = map[string]string{
-	// Legacy normalizeTurnResult walks modelUsage's per-model map and
-	// renames the inner camelCase keys (inputTokens → input,
-	// cacheReadInputTokens → cache_read, …). The v1 profile grammar
-	// has no map-iter construct; by_model passes through with the
-	// original keys. Tracked in plan §7 ("Subset DSL escape hatch").
-	"by_model": "v1 grammar lacks map-iter; modelUsage passes through verbatim",
-	// Legacy translateRateLimit derives a boolean from
-	// `firstNonNil(reason) != nil`. The v1 grammar has no
-	// "is-this-non-nil" predicate at expression level; the profile
-	// emits the reason string directly and lets the mobile renderer
-	// derive the boolean. Mobile reads `reason`, not `overage_disabled`,
-	// so this is a wire-shape difference without functional impact.
-	// Reconsider when the next engine needs a boolean projection.
-	"overage_disabled": "v1 grammar lacks bool-from-nullable; mobile reads reason directly",
 }
 
 // readCorpus loads a JSONL file (one JSON object per line; blank +
@@ -131,117 +106,21 @@ func readCorpus(t *testing.T, path string) []map[string]any {
 	return out
 }
 
-// runLegacyTranslate runs the legacy translate() against one frame
+// runLegacyTranslate runs the legacy translator against one frame
 // and returns the agent_events it produced. Bypasses the goroutine
 // + scanner machinery (Start / readLoop / Stop) so we get
 // synchronous, deterministic results suitable for diff'ing.
-func runLegacyTranslate(t *testing.T, frame map[string]any) []postedEvent {
+//
+// Calls legacyTranslate directly (not translate, which dispatches
+// based on FrameTranslator) so the parity comparison stays anchored
+// to the legacy implementation regardless of mode flags.
+func runLegacyTranslate(t *testing.T, frame map[string]any) []EmittedEvent {
 	t.Helper()
-	poster := &fakePoster{}
+	cap := &capturingPoster{}
 	drv := &StdioDriver{
 		AgentID: "parity-test",
-		Poster:  poster,
+		Poster:  cap,
 	}
-	drv.translate(context.Background(), frame)
-	return poster.snapshot()
-}
-
-// diffEventSlices compares legacy postedEvents to profile-emitted
-// EmittedEvents. Returns an empty string when they match (modulo
-// parityIgnoreFields), or a multi-line human-readable diff suitable
-// for an AI-agent maintainer to act on. The diff format is:
-//
-//	count differs:    legacy=N  profile=M
-//	event[i] kind:    legacy=…  profile=…
-//	event[i].field:   legacy=…  profile=…  (extra/missing/mismatch)
-//
-// Order matters: legacy emits events in a fixed order
-// (per-block first, then usage; turn.result before completion); the
-// profile must produce them in the same order. If a future change
-// makes order non-deterministic we'll need a multiset compare, but
-// that's a regression we want to surface, not paper over.
-func diffEventSlices(legacy []postedEvent, profile []EmittedEvent) string {
-	var b strings.Builder
-	if len(legacy) != len(profile) {
-		fmt.Fprintf(&b, "  count differs: legacy=%d  profile=%d\n",
-			len(legacy), len(profile))
-		fmt.Fprintf(&b, "  legacy kinds:  %v\n", kindsOf(legacy))
-		fmt.Fprintf(&b, "  profile kinds: %v\n", kindsOfEmitted(profile))
-		return b.String()
-	}
-	for i := range legacy {
-		L := legacy[i]
-		P := profile[i]
-		if L.Kind != P.Kind {
-			fmt.Fprintf(&b, "  event[%d] kind:     legacy=%q  profile=%q\n",
-				i, L.Kind, P.Kind)
-		}
-		legacyProducer := L.Producer
-		profileProducer := P.Producer
-		if legacyProducer != profileProducer {
-			fmt.Fprintf(&b, "  event[%d] producer: legacy=%q  profile=%q\n",
-				i, legacyProducer, profileProducer)
-		}
-		// Payload diff: union of keys, skipping ignored fields. We
-		// align on legacy-keys-not-in-profile (missing) +
-		// profile-keys-not-in-legacy (extra) + present-with-different-value
-		// (mismatch). reflect.DeepEqual handles the recursive case.
-		keys := unionKeys(L.Payload, P.Payload)
-		for _, k := range keys {
-			if _, ignore := parityIgnoreFields[k]; ignore {
-				continue
-			}
-			lv, lOK := L.Payload[k]
-			pv, pOK := P.Payload[k]
-			switch {
-			case lOK && !pOK:
-				fmt.Fprintf(&b, "  event[%d].%s missing in profile: legacy=%v\n",
-					i, k, lv)
-			case pOK && !lOK:
-				fmt.Fprintf(&b, "  event[%d].%s extra in profile: profile=%v\n",
-					i, k, pv)
-			case !reflect.DeepEqual(lv, pv):
-				fmt.Fprintf(&b, "  event[%d].%s differs: legacy=%v  profile=%v\n",
-					i, k, lv, pv)
-			}
-		}
-	}
-	return b.String()
-}
-
-func kindsOf(events []postedEvent) []string {
-	out := make([]string, len(events))
-	for i, e := range events {
-		out[i] = e.Kind
-	}
-	return out
-}
-
-func kindsOfEmitted(events []EmittedEvent) []string {
-	out := make([]string, len(events))
-	for i, e := range events {
-		out[i] = e.Kind
-	}
-	return out
-}
-
-func unionKeys(a, b map[string]any) []string {
-	seen := map[string]bool{}
-	for k := range a {
-		seen[k] = true
-	}
-	for k := range b {
-		seen[k] = true
-	}
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func mustEncodeJSON(v any) string {
-	b, _ := json.Marshal(v)
-	return string(b)
+	drv.legacyTranslate(context.Background(), frame)
+	return cap.events
 }

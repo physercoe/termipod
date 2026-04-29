@@ -41,6 +41,11 @@
         "frame_profile": {
           "$ref": "#/$defs/FrameProfile",
           "description": "Per-engine declarative translator for stream-json frames. Optional in v1; nil falls back to the legacy hardcoded translator (driver_stdio.go)."
+        },
+        "frame_translator": {
+          "type": "string",
+          "enum": ["", "legacy", "profile", "both"],
+          "description": "Selects which translator the host-runner uses. Empty/'legacy' (default) → hardcoded translate(); 'profile' → ApplyProfile authoritative; 'both' → profile authoritative + legacy shadow with divergence logging (ADR-010 Phase 1.6 canary)."
         }
       }
     },

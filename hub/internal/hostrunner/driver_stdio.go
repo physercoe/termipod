@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/termipod/hub/internal/agentfamilies"
 )
 
 // StdioDriver implements M2. It owns a reader against the child's stdout;
@@ -41,6 +43,19 @@ type StdioDriver struct {
 	// (typically the child's stdin + a kill on the *exec.Cmd).
 	Closer func()
 	Log    *slog.Logger
+
+	// FrameTranslator selects which translator runs for each frame:
+	// "" / "legacy" (default) → hardcoded legacyTranslate;
+	// "profile" → data-driven ApplyProfile, legacy not invoked;
+	// "both" → ApplyProfile authoritative, legacy in shadow with
+	// divergence logging. Sourced from the family entry in
+	// agent_families.yaml at driver construction. ADR-010 Phase 1.6.
+	FrameTranslator string
+	// FrameProfile is the per-engine translation rules used when
+	// FrameTranslator is "profile" or "both". Nil means "no profile
+	// authored" — translate() falls through to legacy with a warning
+	// rather than silently dropping events.
+	FrameProfile *agentfamilies.FrameProfile
 
 	mu      sync.Mutex
 	started bool
@@ -165,7 +180,67 @@ func openCaptureFile(agentID string, log *slog.Logger) *os.File {
 	return f
 }
 
-// translate maps a single stream-json frame to zero or more agent_events.
+// translate dispatches one stream-json frame through whichever
+// translator the driver is configured with (ADR-010, Phase 1.6).
+// Three modes:
+//
+//   - ""/"legacy" — the hardcoded translator (legacyTranslate). v1
+//     default; what the host-runner has shipped since M2 landed.
+//   - "profile"  — only the data-driven ApplyProfile fires. Used
+//     once Phase 2's parity canary holds at zero divergences.
+//   - "both"     — profile is authoritative (its events write to
+//     the DB); legacy runs in shadow and any divergence is logged.
+//     Operator-flippable per family during the canary window.
+//
+// FrameProfile must be non-nil for "profile" / "both" mode; if it's
+// nil we fall through to legacy with a one-time warning so a
+// misconfigured family doesn't silently lose events.
+func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
+	mode := d.FrameTranslator
+	if mode == "" {
+		mode = "legacy"
+	}
+	switch mode {
+	case "profile", "both":
+		if d.FrameProfile == nil {
+			d.Log.Warn("frame_translator set but no profile loaded; falling back to legacy",
+				"agent", d.AgentID, "mode", mode)
+			d.legacyTranslate(ctx, frame)
+			return
+		}
+		profileEvents := ApplyProfile(frame, d.FrameProfile)
+		if mode == "both" {
+			// Shadow-run the legacy translator into a capture buffer
+			// so we can diff. No DB writes from the shadow path —
+			// only profile events become real agent_event rows.
+			cap := &capturingPoster{}
+			shadow := &StdioDriver{
+				AgentID: d.AgentID,
+				Poster:  cap,
+				Log:     d.Log,
+				// FrameTranslator/FrameProfile intentionally omitted —
+				// shadow always runs the legacy path.
+			}
+			shadow.legacyTranslate(ctx, frame)
+			if diff := DiffEvents(cap.events, profileEvents, ParityIgnoreFields); diff != "" {
+				d.Log.Warn("frame_translator divergence",
+					"agent", d.AgentID,
+					"diff", diff,
+				)
+			}
+		}
+		for _, e := range profileEvents {
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
+		}
+	default:
+		d.legacyTranslate(ctx, frame)
+	}
+}
+
+// legacyTranslate maps a single stream-json frame to zero or more
+// agent_events using the original hardcoded field paths. Retained as
+// the v1 default + as the shadow translator for "both" mode's
+// divergence logging. Phase 2 (post-canary) deletes this function.
 //
 // The normalization contract here is the load-bearing abstraction
 // between drivers and the mobile UI: claude's stream-json is one
@@ -196,7 +271,7 @@ func openCaptureFile(agentID string, log *slog.Logger) *os.File {
 // the hub keeps a complete transcript even when the schema drifts —
 // other drivers can lift fields they care about into typed kinds in
 // their own translate()s.
-func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
+func (d *StdioDriver) legacyTranslate(ctx context.Context, frame map[string]any) {
 	typ, _ := frame["type"].(string)
 	switch typ {
 	case "system":

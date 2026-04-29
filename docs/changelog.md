@@ -23,6 +23,43 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.333-alpha — 2026-04-29
+
+### Added
+- ADR-010 Phase 1.6: `frame_translator` flag wired end-to-end. New
+  `Family.FrameTranslator` field in `agent_families.yaml` selects
+  the per-engine translator: `""` / `"legacy"` (default; today's
+  hardcoded `legacyTranslate`), `"profile"` (data-driven
+  `ApplyProfile` authoritative, legacy not invoked), `"both"`
+  (profile authoritative + legacy in shadow with divergence logged
+  via slog). Schema sidecar carries the enum so editor LSPs catch
+  typos.
+- Driver dispatch refactor: `StdioDriver.translate()` is now a
+  3-way switch on `FrameTranslator`; the existing translator body
+  moved verbatim into `legacyTranslate` and is reachable from both
+  the default path and the "both" shadow run. `launch_m2.go`
+  populates `FrameTranslator` + `FrameProfile` from the family
+  registry at driver construction.
+- `profile_diff.go`: extracted `DiffEvents` + `ParityIgnoreFields`
+  + `capturingPoster` from the parity test into shared production
+  code so the runtime "both"-mode divergence logging and the test
+  parity diff use the same machinery and respect the same known-gap
+  list. Misconfig (FrameTranslator set, FrameProfile nil) falls
+  through to legacy with a warning rather than silently dropping
+  events.
+- 5 mode-dispatch tests: legacy default, profile-only, both with
+  parity-clean frame (no warning), both with synthetic mismatched
+  profile (warning fires with diff details), profile-mode misconfig
+  fallback.
+
+### Status
+- ADR-010 Phase 1 is complete. The data-driven translator is
+  shipped, parity-tested, flag-controllable, and dark by default.
+  Phase 2 (canary → flip default → delete legacy) starts when the
+  operator flips claude-code's `frame_translator: both` in their
+  hub deploy and runs for a release window without divergence
+  warnings.
+
 ## v1.0.332-alpha — 2026-04-29
 
 ### Added

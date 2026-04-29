@@ -49,6 +49,15 @@ type Family struct {
 	Supports          []string      `yaml:"supports" json:"supports"`
 	Incompatibilities []Incompat    `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
 	FrameProfile      *FrameProfile `yaml:"frame_profile,omitempty" json:"frame_profile,omitempty"`
+	// FrameTranslator selects which translator the host-runner uses
+	// for this engine. Empty (default) is "legacy" — the hardcoded
+	// driver_stdio.go::legacyTranslate. Operators flip to "both"
+	// during the canary window (profile authoritative + legacy
+	// shadow with divergence logging) and to "profile" once parity
+	// holds. ADR-010 Phase 1.6.
+	//
+	// Valid values: "" / "legacy" / "profile" / "both".
+	FrameTranslator string `yaml:"frame_translator,omitempty" json:"frame_translator,omitempty"`
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

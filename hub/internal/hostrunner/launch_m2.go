@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	hub "github.com/termipod/hub"
+	"github.com/termipod/hub/internal/agentfamilies"
 )
 
 // ProcSpawner is the narrow dependency we inject so tests can stand in a
@@ -190,11 +191,25 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		pane = "" // non-fatal; driver owns the real stream
 	}
 
+	// Pull the family's frame_translator policy + profile so the driver
+	// can dispatch via the data-driven path when configured. Unknown
+	// kinds (codex / gemini-cli before they ship profiles) leave both
+	// fields zero → translate() falls through to legacyTranslate. ADR-010
+	// Phase 1.6: default is legacy until canary holds.
+	var frameTranslator string
+	var frameProfile *agentfamilies.FrameProfile
+	if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
+		frameTranslator = fam.FrameTranslator
+		frameProfile = fam.FrameProfile
+	}
+
 	drv := &StdioDriver{
-		AgentID: cfg.Spawn.ChildID,
-		Poster:  cfg.Client,
-		Stdout:  teed,
-		Stdin:   stdin,
+		AgentID:         cfg.Spawn.ChildID,
+		Poster:          cfg.Client,
+		Stdout:          teed,
+		Stdin:           stdin,
+		FrameTranslator: frameTranslator,
+		FrameProfile:    frameProfile,
 		Closer: func() {
 			kill()
 			_ = stdin.Close()

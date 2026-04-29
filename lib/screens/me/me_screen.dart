@@ -43,7 +43,11 @@ import 'note_editor_screen.dart';
 /// Activity is the firehose, Me is the summary).
 ///
 /// Attention sources by filter chip:
-///   - Approvals — kind ∈ {approval_request, decision, template_proposal}.
+///   - Requests  — agent asks for principal input. kind ∈
+///                 {approval_request, select, help_request,
+///                 template_proposal}. Renamed from "Approvals" once
+///                 the filter grew beyond binary approve/deny — every
+///                 kind in this bucket is "agent waiting on the user".
 ///   - Agents    — kind='idle' / 'agent_error'.
 ///   - Messages  — every other attention kind.
 class MeScreen extends ConsumerWidget {
@@ -257,7 +261,7 @@ extension _FilterX on _Filter {
       case _Filter.all:
         return 'All';
       case _Filter.approvals:
-        return 'Approvals';
+        return 'Requests';
       case _Filter.agents:
         return 'Agents';
       case _Filter.messages:

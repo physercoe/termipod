@@ -4047,24 +4047,49 @@ class _TelemetryStrip extends StatelessWidget {
 
   // Parse the reset-at timestamp and return time-until as a Duration.
   // Accepts either an ISO-8601 string (Anthropic stream-json's typical
-  // shape) or a numeric Unix epoch in seconds (also seen in the wild —
-  // claude has emitted both depending on version). Returns null if the
-  // timestamp is empty or unparseable so the strip falls back to status.
+  // shape) or a numeric Unix epoch (claude has emitted both depending
+  // on version, and the numeric form has been seen in seconds, ms, µs,
+  // and ns across SDK versions — different libs pick whichever unit the
+  // upstream HTTP header uses verbatim). Returns null if the timestamp
+  // is empty, unparseable, or resolves to something nonsensically far
+  // in the future (which previously rendered as "resets in 1540333567h"
+  // when a µs-precision value got read as ms).
   static Duration? _resetIn(String raw) {
     if (raw.isEmpty) return null;
     DateTime? ts = DateTime.tryParse(raw);
     if (ts == null) {
-      // Numeric epoch fallback. Heuristic: <1e12 ⇒ seconds, ≥1e12 ⇒ ms.
-      final secondsOrMs = int.tryParse(raw);
-      if (secondsOrMs != null && secondsOrMs > 0) {
-        ts = secondsOrMs < 1000000000000
-            ? DateTime.fromMillisecondsSinceEpoch(secondsOrMs * 1000, isUtc: true)
-            : DateTime.fromMillisecondsSinceEpoch(secondsOrMs, isUtc: true);
+      // Numeric epoch fallback. Pick the unit by magnitude — for any
+      // reset within ~50 years of now, the magnitude buckets don't
+      // overlap, so the heuristic is unambiguous:
+      //   < 1e11  ⇒ seconds  (year 2286 in seconds)
+      //   < 1e14  ⇒ ms       (year 2286 in ms)
+      //   < 1e17  ⇒ µs       (year 2286 in µs)
+      //   else    ⇒ ns
+      var n = int.tryParse(raw);
+      n ??= double.tryParse(raw)?.toInt();
+      if (n != null && n > 0) {
+        int ms;
+        if (n < 100000000000) {
+          ms = n * 1000;
+        } else if (n < 100000000000000) {
+          ms = n;
+        } else if (n < 100000000000000000) {
+          ms = n ~/ 1000;
+        } else {
+          ms = n ~/ 1000000;
+        }
+        ts = DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
       }
     }
     if (ts == null) return null;
     final diff = ts.difference(DateTime.now().toUtc());
-    return diff.isNegative ? Duration.zero : diff;
+    if (diff.isNegative) return Duration.zero;
+    // Sanity bound: rate-limit windows reset within hours, never weeks.
+    // A diff this far out means we still misinterpreted the unit (or
+    // upstream sent garbage); show nothing rather than render a number
+    // the user can't make sense of.
+    if (diff.inDays > 7) return null;
+    return diff;
   }
 
   static String _fmtCountdown(Duration d) {

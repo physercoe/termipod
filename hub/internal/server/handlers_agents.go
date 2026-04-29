@@ -290,6 +290,12 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 			   AND current_agent_id = ?
 			   AND status = 'active'`,
 			NowUTC(), team, id)
+		// Revoke the dead agent's MCP bearer so the (now orphaned)
+		// token can't authorize further /mcp/{token} calls. Without
+		// this, every spawn → terminate cycle accumulates a still-valid
+		// token row, and resume mints another on top — the Auth screen
+		// fills with stale entries indefinitely.
+		_, _ = auth.RevokeAgentTokens(r.Context(), s.db, id, NowUTC())
 	}
 	// A status=terminated PATCH from the UI marks the row, but without
 	// also enqueuing a host-side kill the pane stays alive. Mirror the
@@ -595,6 +601,12 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 			 WHERE team_id = ? AND id = ?
 			   AND status NOT IN ('terminated','failed','crashed')`,
 			now, team, priorAgentID); err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+		// Revoke the prior agent's MCP bearer in the same tx so a
+		// rolled-back swap also rolls back the revoke (no orphaned
+		// "revoked but agent still alive" rows).
+		if _, err := auth.RevokeAgentTokens(ctx, tx, priorAgentID, now); err != nil {
 			return spawnOut{}, http.StatusInternalServerError, err
 		}
 	}

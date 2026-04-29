@@ -23,6 +23,28 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.334-alpha — 2026-04-29
+
+### Fixed
+- Steward auth tokens now revoke when the agent terminates. Each
+  spawn mints a `kind='agent'` row in `auth_tokens` (the bearer the
+  agent uses for `/mcp/{token}`); previously no path revoked it, so
+  every spawn → terminate cycle left a still-valid token row, and
+  pause/resume compounded it (one resume = one fresh token + one
+  orphaned-but-live token). New `auth.RevokeAgentTokens(ctx, exec,
+  agentID, now)` helper accepts either `*sql.DB` or `*sql.Tx`; called
+  from `handlePatchAgent` when status flips to terminated/failed/
+  crashed (covers UI terminate, host-runner ack, and the
+  `shutdown_self` MCP path which lands here via host-runner) and
+  from `handleSpawn`'s session-swap branch in the same tx so a
+  rolled-back swap also rolls back the revoke. Idempotent on the
+  `revoked_at IS NULL` clause.
+- Mobile Auth screen (`tokens_screen.dart`) hides agent-kind rows.
+  They're machine-issued + machine-revoked; surfacing them invited
+  the operator to revoke a live agent's bearer (which would just
+  look like a crash). The "New token" dialog also drops the `agent`
+  kind chip — there's no human-issuance flow for agent tokens.
+
 ## v1.0.333-alpha — 2026-04-29
 
 ### Added

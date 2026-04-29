@@ -47,7 +47,12 @@ class _TokensScreenState extends ConsumerState<TokensScreen> {
       final rows = await client.listTokens();
       if (!mounted) return;
       setState(() {
-        _rows = rows;
+        // Hide kind='agent' rows: those are machine-issued at spawn
+        // time and machine-revoked at terminate time. Listing them
+        // here floods the screen with one row per pause/resume cycle
+        // and invites the operator to revoke a live agent's bearer
+        // (which would just look like the agent crashed).
+        _rows = rows.where((r) => (r['kind'] ?? '').toString() != 'agent').toList();
         _loading = false;
       });
     } on HubApiError catch (e) {
@@ -304,9 +309,14 @@ class _IssueDialogState extends State<_IssueDialog> {
               style: GoogleFonts.spaceGrotesk(
                   fontSize: 12, color: DesignColors.textMuted)),
           const SizedBox(height: 6),
+          // 'agent' kinds are machine-issued at spawn and machine-revoked
+          // at terminate (handlers_agents.go:626). Issuing one by hand here
+          // would create a token that's both invisible (filtered from the
+          // list above) and orphan (no agent_id to revoke against), so the
+          // dialog only offers human/infra kinds.
           Wrap(
             spacing: 8,
-            children: ['user', 'host', 'agent', 'owner'].map((k) {
+            children: ['user', 'host', 'owner'].map((k) {
               final sel = _kind == k;
               return ChoiceChip(
                 label: Text(k),

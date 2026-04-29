@@ -51,6 +51,38 @@ func InsertToken(ctx context.Context, db *sql.DB, kind, scopeJSON, plaintext str
 	return err
 }
 
+// DBExec is the subset of *sql.DB / *sql.Tx that RevokeAgentTokens needs;
+// the helper accepts either so callers in a transaction can revoke
+// inline (handleSpawn's session-swap) and out-of-tx callers can still
+// reach it (handlePatchAgent).
+type DBExec interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// RevokeAgentTokens marks every live agent-kind token bound to agentID
+// as revoked. Called from the agent-terminate paths so a dead agent's
+// bearer can no longer hit /mcp/{token} or post events. Idempotent:
+// already-revoked rows are skipped via the `revoked_at IS NULL` clause.
+// Returns the number of rows revoked.
+func RevokeAgentTokens(ctx context.Context, exec DBExec, agentID, now string) (int64, error) {
+	if agentID == "" {
+		return 0, nil
+	}
+	res, err := exec.ExecContext(ctx, `
+		UPDATE auth_tokens
+		   SET revoked_at = ?
+		 WHERE kind = 'agent'
+		   AND revoked_at IS NULL
+		   AND json_extract(scope_json, '$.agent_id') = ?`,
+		now, agentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // Middleware returns an HTTP middleware that enforces bearer-token auth.
 // Tokens are looked up by sha256 hash; revoked and expired tokens are rejected.
 // The matched token is attached to the request context via FromContext.

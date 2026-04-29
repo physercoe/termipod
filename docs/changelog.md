@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.347
+> **Last verified vs code:** v1.0.348
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,69 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.348-alpha — 2026-04-29
+
+### Added
+- **Gemini integration via exec-per-turn-with-resume** ([ADR-013](decisions/013-gemini-exec-per-turn.md)).
+  Third engine alongside claude-code (M2 stream-json) and codex
+  (M2 app-server JSON-RPC). gemini-cli has no `app-server`
+  equivalent, but headless mode now emits a stable `session_id`
+  (PR [#14504](https://github.com/google-gemini/gemini-cli/pull/14504),
+  Dec 2025) and accepts `--resume <UUID>` for cross-process session
+  continuity. Wedge shipped as slices 1-6, all in this release:
+  - **Slice 1:** ADR-013 written; ADR-011 D6 + ADR-012 D6 cross-link
+    the per-engine `permission_prompt` matrix.
+  - **Slice 2:** gemini-cli frame profile in `agent_families.yaml`
+    — top-level `type`-keyed dispatch (init/message/tool_use/
+    tool_result/error/result) into the same typed agent_event
+    vocabulary claude/codex emit. M2 added to supports. No
+    evaluator extension needed (unlike codex's dotted-path
+    matchesAll).
+  - **Slice 3:** `driver_exec_resume.go` is the spawn-per-turn
+    driver. Captures `session_id` from the first `init` event,
+    threads `--resume <UUID>` through every subsequent argv;
+    `SetResumeSessionID` seeds the cursor on host-runner restart.
+    `launch_m2` short-circuits family=gemini-cli before the
+    long-running spawn machinery — exec-per-turn doesn't anchor a
+    pane (PaneID=""), the bin is resolved via `exec.LookPath`, and
+    a `CommandBuilder` injection seam keeps tests off real exec.
+  - **Slice 4:** `permission_prompt` is unsupported on gemini
+    (ADR-013 D4 — gemini has no in-stream approval gate). Driver
+    rejects `attention_reply` with `kind=permission_prompt` as a
+    defense-in-depth check. Reference + discussion docs grew the
+    per-engine matrix (Claude sync, Codex turn-based, Gemini
+    unsupported). Stewards self-route through `request_approval`.
+  - **Slice 5:** per-family MCP config materializer adds
+    `<workdir>/.gemini/settings.json` (JSON, stdio command+env shape
+    matching claude's `.mcp.json` — gemini-cli's `mcpServers`
+    schema accepts it identically). 0o600 inside .gemini/ 0o700.
+    No CODEX_HOME-style env trick needed; gemini reads project-
+    scoped settings.json automatically.
+  - **Slice 6:** `agents.steward.gemini.v1` template + prompt ship
+    in the embedded fs. Spawn cmd is bin-only (`gemini`) — the
+    driver appends `-p <text> --output-format stream-json
+    --resume <UUID> --yolo` per turn, ADR-013 D7. Prompt grows a
+    "Decisions that need approval" section since gemini has no
+    engine-side gate.
+
+  15 new tests cover every wire-format contract: 7 driver tests
+  (first-turn argv, second-turn --resume threading, rehydration,
+  Stop interrupting in-flight Wait, permission_prompt rejection,
+  nil CommandBuilder), 4 MCP-config tests (wire shape, escapes,
+  perms, dispatcher branch isolation), 3 frame-profile tests
+  (corpus, payload fields, embedded), 1 embedded-template test.
+  Slice 7 (cross-vendor `request_help` smoke against live codex +
+  live gemini binaries) remains unfunded and gated on a test host
+  with both binaries installed — same gate as ADR-012 slice 7.
+
+### Changed
+- **Roadmap "Now" gains the gemini wedge** as Done; verifying on
+  device next. The "Next" entry "Gemini exec-per-turn driver"
+  collapses into the cross-vendor smoke (slice 7 × 2) — codex and
+  gemini share the integration-smoke gate.
 
 ---
 

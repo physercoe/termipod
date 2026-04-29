@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-29)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.335
+> **Last verified vs code:** v1.0.338
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`

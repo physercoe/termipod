@@ -265,12 +265,15 @@ accepts an object and stringifies to `ssh_hint_json`; the hub rejects
 secret keys (password/private_key/passphrase/secret/token) per §4.
 Closes audit-queue row 4 — **P4.4 is now fully DONE**.
 
-Still open:
-- Explicit `request_approval` / `request_decision` wrappers. The
-  `agents.spawn` handler already surfaces approval attention when
-  policy gates it; a standalone approval-request tool would let the
-  steward create one directly. Deferred until the UX audit decides
-  whether to promote approvals to a first-class mobile surface.
+Closed since this doc was written:
+- Explicit `request_approval` / `request_select` (formerly
+  `request_decision`) / `request_help` MCP tools all shipped. v1.0.338
+  converted the three async kinds from long-poll to turn-based
+  delivery: the call returns immediately with `awaiting_response`,
+  the agent ends its turn, and the principal's reply lands as a
+  fresh user turn via `input.attention_reply`. See
+  [`reference/attention-kinds.md`](../reference/attention-kinds.md)
+  for the authoring guide.
 
 Plus AG-UI `a2a.invoke` / `a2a.response` event kinds surfaced on the
 calling agent's stream (§5.4).

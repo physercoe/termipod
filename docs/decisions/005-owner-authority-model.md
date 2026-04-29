@@ -47,9 +47,15 @@ reachable through MCP from the steward's session:
 - A2A: invoke
 
 The user retains owner-class authority for *ratification* — the
-steward asks (`request_select`, `request_approval`,
+steward asks (`request_approval`, `request_select`, `request_help`,
 `permission_prompt`) before taking strategic-tier actions
-(`tiers.go` `TierStrategic`).
+(`tiers.go` `TierStrategic`). The first three are turn-based since
+v1.0.338 — they return immediately and the principal's reply lands
+as a new user turn rather than a tool-result. `permission_prompt`
+remains synchronous because Claude's `canUseTool` hook contract
+defines no deferred branch (vendor constraint, not a design choice).
+See [`reference/attention-kinds.md`](../reference/attention-kinds.md)
+for the per-kind decision tree and resolution semantics.
 
 Mobile UX renders the steward chat as the primary entry point;
 direct-mutation screens (Projects tab create button, etc.) remain

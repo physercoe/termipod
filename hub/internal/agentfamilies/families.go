@@ -43,11 +43,65 @@ type Incompat struct {
 // YAML schema 1:1; we don't promote internal aliases to the YAML so
 // editing the file feels like editing data, not configuring a struct.
 type Family struct {
-	Family            string     `yaml:"family" json:"family"`
-	Bin               string     `yaml:"bin" json:"bin"`
-	VersionFlag       string     `yaml:"version_flag" json:"version_flag"`
-	Supports          []string   `yaml:"supports" json:"supports"`
-	Incompatibilities []Incompat `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
+	Family            string        `yaml:"family" json:"family"`
+	Bin               string        `yaml:"bin" json:"bin"`
+	VersionFlag       string        `yaml:"version_flag" json:"version_flag"`
+	Supports          []string      `yaml:"supports" json:"supports"`
+	Incompatibilities []Incompat    `yaml:"incompatibilities,omitempty" json:"incompatibilities,omitempty"`
+	FrameProfile      *FrameProfile `yaml:"frame_profile,omitempty" json:"frame_profile,omitempty"`
+}
+
+// FrameProfile is the per-engine declarative translator for stream-json
+// frames (ADR-010). Each rule is a (matcher → emit) pair; the host-runner
+// evaluates rules in order and the first match wins. Anything unmatched
+// falls through to today's `kind=raw, payload=verbatim` behavior.
+//
+// ProfileVersion is incremented when the schema breaks. Loaders accept
+// lower versions when the change is forward-compatible; an unknown
+// higher version is rejected so old hubs don't silently misbehave on a
+// new overlay.
+type FrameProfile struct {
+	ProfileVersion int    `yaml:"profile_version" json:"profile_version"`
+	Rules          []Rule `yaml:"rules" json:"rules"`
+}
+
+// Rule is one (match → emit) translation. The vocabulary is fixed:
+//
+//   - Match is a literal-equality predicate over flat top-level fields
+//     of the input frame. `{type: assistant}` matches when
+//     frame["type"] == "assistant". Multiple keys are AND-ed.
+//   - ForEach is an expression yielding an array; the rule fires once
+//     per element with that element as the inner scope and the parent
+//     frame as the outer scope (`$$.…` in expressions).
+//   - WhenPresent gates the emit on a non-nil expression evaluation —
+//     used for "also emit usage when message.usage exists" alongside
+//     a for_each over content blocks.
+//   - Emit declares the resulting agent_event row.
+//
+// Conditional dispatch inside a for_each (claude's
+// `assistant.message.content[].type ∈ {text, tool_use, …}`) is
+// expressed via per-element rules with their own `match` block on the
+// inner scope. See the claude-code profile in agent_families.yaml for
+// the canonical example.
+type Rule struct {
+	Match       map[string]any `yaml:"match,omitempty" json:"match,omitempty"`
+	ForEach     string         `yaml:"for_each,omitempty" json:"for_each,omitempty"`
+	WhenPresent string         `yaml:"when_present,omitempty" json:"when_present,omitempty"`
+	Emit        Emit           `yaml:"emit" json:"emit"`
+	// SubRules fire once each on the inner scope during a for_each.
+	// Used to dispatch on per-element shape (e.g. content[].type =
+	// text vs tool_use). Only meaningful when ForEach is set.
+	SubRules []Rule `yaml:"sub_rules,omitempty" json:"sub_rules,omitempty"`
+}
+
+// Emit declares the agent_event row a rule produces. Kind and
+// Producer are literal strings; Payload values are expressions
+// evaluated against the rule's scope (inner if inside a for_each,
+// outer via `$$.…`).
+type Emit struct {
+	Kind     string            `yaml:"kind" json:"kind"`
+	Producer string            `yaml:"producer,omitempty" json:"producer,omitempty"`
+	Payload  map[string]string `yaml:"payload,omitempty" json:"payload,omitempty"`
 }
 
 // Source tags whether a returned Family came from the embedded default,

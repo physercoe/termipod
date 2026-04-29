@@ -23,6 +23,34 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.329-alpha — 2026-04-29
+
+### Added (dark code — not yet wired into live driver)
+- `hub/internal/agentfamilies`: extended `Family` struct with optional
+  `FrameProfile` (ADR-010 schema). New types `FrameProfile`, `Rule`,
+  `Emit`. YAML round-trip test locks the wire shape so a rename
+  surfaces immediately. Embedded families ship without profiles in
+  v1; `FrameProfile == nil` is the steady state until Phase 1.4
+  authors the claude-code profile.
+- `hub/internal/hostrunner/profile_eval`: new package implementing
+  the hand-rolled expression subset (D2 of ADR-010). Grammar:
+  `$.path`, `$.path[N]`, `$$.outer.path`, `"literal"`, and
+  `a || b || "default"` coalesce. ~150 LoC, zero third-party deps,
+  full test coverage of nil propagation / outer scope / array
+  indexing / malformed input.
+- `hub/internal/hostrunner/profile_translate.go`: `ApplyProfile`
+  evaluates a profile against a frame and returns the emitted events.
+  Most-specific-match-wins dispatch: an init frame fires only the
+  `{type: system, subtype: init}` rule, not the generic `{type:
+  system}` fallback. Rules tied for specificity all fire (assistant's
+  per-block + usage rules co-fire). When-present gates on a
+  non-nil expression; gated rules suppress emit but don't trigger
+  the raw fallback. No-match → `kind=raw` verbatim (D5).
+
+This wedge is the load-bearing infrastructure for plan
+`docs/plans/frame-profiles-migration.md` Phase 1. Phases 1.4–1.6
+(claude-code profile + parity corpus + flag wiring) remain.
+
 ## v1.0.328-alpha — 2026-04-29
 
 ### Added

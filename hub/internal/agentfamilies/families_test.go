@@ -179,6 +179,117 @@ func TestRegistry_OverlayMissingDir(t *testing.T) {
 	}
 }
 
+// TestFrameProfile_YAMLRoundTrip locks the FrameProfile schema by
+// asserting a representative profile encodes + decodes back to an
+// equivalent struct. ADR-010's contract is "the YAML *is* the
+// schema" — if a future struct rename breaks this round-trip, the
+// failure surfaces here before it silently breaks every operator's
+// overlay.
+func TestFrameProfile_YAMLRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	yamlBody := `family: claude-code
+bin: claude
+version_flag: --version
+supports: [M2]
+frame_profile:
+  profile_version: 1
+  rules:
+    - match: { type: rate_limit_event }
+      emit:
+        kind: rate_limit
+        producer: agent
+        payload:
+          window: "$.rate_limit_info.rateLimitType || $.rateLimitType"
+          status: "$.rate_limit_info.status || $.status"
+    - match: { type: assistant }
+      for_each: $.message.content
+      sub_rules:
+        - match: { type: text }
+          emit:
+            kind: text
+            producer: agent
+            payload:
+              text: $.text
+              message_id: $$.message.id
+        - match: { type: tool_use }
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id: $.id
+              name: $.name
+              input: $.input
+`
+	must(t, os.WriteFile(filepath.Join(dir, "claude-code.yaml"),
+		[]byte(yamlBody), 0o644))
+
+	r := New(dir)
+	got, ok := r.ByName("claude-code")
+	if !ok {
+		t.Fatal("claude-code missing after overlay write")
+	}
+	fp := got.FrameProfile
+	if fp == nil {
+		t.Fatal("frame_profile not parsed")
+	}
+	if fp.ProfileVersion != 1 {
+		t.Errorf("profile_version = %d; want 1", fp.ProfileVersion)
+	}
+	if len(fp.Rules) != 2 {
+		t.Fatalf("rules count = %d; want 2", len(fp.Rules))
+	}
+
+	// Rule 0: rate_limit_event → rate_limit. Match key + emit shape.
+	r0 := fp.Rules[0]
+	if r0.Match["type"] != "rate_limit_event" {
+		t.Errorf("rule[0].match[type] = %v; want rate_limit_event", r0.Match["type"])
+	}
+	if r0.Emit.Kind != "rate_limit" {
+		t.Errorf("rule[0].emit.kind = %q; want rate_limit", r0.Emit.Kind)
+	}
+	if r0.Emit.Payload["window"] !=
+		"$.rate_limit_info.rateLimitType || $.rateLimitType" {
+		t.Errorf("rule[0].emit.payload[window] = %q; expression should round-trip verbatim",
+			r0.Emit.Payload["window"])
+	}
+
+	// Rule 1: assistant.content[] dispatch via sub_rules.
+	r1 := fp.Rules[1]
+	if r1.ForEach != "$.message.content" {
+		t.Errorf("rule[1].for_each = %q; want $.message.content", r1.ForEach)
+	}
+	if len(r1.SubRules) != 2 {
+		t.Fatalf("rule[1].sub_rules count = %d; want 2", len(r1.SubRules))
+	}
+	if r1.SubRules[0].Emit.Kind != "text" {
+		t.Errorf("sub_rule[0].emit.kind = %q; want text", r1.SubRules[0].Emit.Kind)
+	}
+	if r1.SubRules[1].Emit.Kind != "tool_call" {
+		t.Errorf("sub_rule[1].emit.kind = %q; want tool_call", r1.SubRules[1].Emit.Kind)
+	}
+	if r1.SubRules[0].Emit.Payload["message_id"] != "$$.message.id" {
+		t.Errorf("outer-scope expression $$.message.id should round-trip; got %q",
+			r1.SubRules[0].Emit.Payload["message_id"])
+	}
+}
+
+// TestFrameProfile_AbsentLeavesNil — families without a frame_profile
+// block parse cleanly with FrameProfile == nil. Critical because the
+// embedded agent_families.yaml ships without profiles in v1; the
+// loader must not synthesize an empty one.
+func TestFrameProfile_AbsentLeavesNil(t *testing.T) {
+	for _, name := range []string{"claude-code", "codex", "gemini-cli", "aider"} {
+		f, ok := ByName(name)
+		if !ok {
+			t.Fatalf("%s missing from registry", name)
+		}
+		if f.FrameProfile != nil {
+			t.Errorf("%s ships embedded with FrameProfile=%+v; v1 should leave it nil",
+				name, f.FrameProfile)
+		}
+	}
+}
+
 func findView(views []View, name string) (View, bool) {
 	for _, v := range views {
 		if v.Family.Family == name {

@@ -23,6 +23,22 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.331-alpha — 2026-04-29
+
+### Removed
+- `aider` retired from supported engines. Project decision: only
+  cover dominant-vendor products (Anthropic claude-code, OpenAI
+  codex, Google gemini-cli). Aider is a small open-source project
+  that doesn't justify the per-engine maintenance cost. Touched:
+  `agent_families.yaml` (entry deleted), `modes/resolver.go`
+  (AgentKind comment), `lib/screens/team/agent_families_screen.dart`
+  (defaults list), `families_test.go` /
+  `spawn_mode_test.go` / `resolver_test.go` (test inputs swapped to
+  `codex` where the test exercised cross-engine resolver behavior),
+  `driver_stdio.go` comment, plus docs (discussion, plan, reference,
+  hub-agents.md, steward-ux-fixes.md). ADR-010 §Context kept its
+  decision-time mention of aider per ADR-immutability convention.
+
 ## v1.0.330-alpha — 2026-04-29
 
 ### Added (still dark — profile authored but legacy translator owns traffic)

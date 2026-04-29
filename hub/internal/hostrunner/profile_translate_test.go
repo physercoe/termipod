@@ -9,7 +9,7 @@ import (
 
 // TestApplyProfile_NilProfile — without a profile, every frame falls
 // through to kind=raw verbatim. This is the steady state for engines
-// we haven't profiled yet (codex / gemini-cli / aider in v1).
+// we haven't profiled yet (codex / gemini-cli in v1).
 func TestApplyProfile_NilProfile(t *testing.T) {
 	frame := map[string]any{"type": "anything", "x": 1}
 	got := ApplyProfile(frame, nil)

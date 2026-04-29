@@ -18,7 +18,7 @@ read the worked examples below before extending or adding a profile.
 
 You're reading this if you need to:
 
-- Add a new engine (codex, gemini-cli, aider, …) to termipod.
+- Add a new engine (codex, gemini-cli, …) to termipod.
 - Update the claude-code profile because the SDK reshaped a frame.
 - Fix an incorrect rule that's producing nil fields in a mobile UI tile.
 - Author an overlay file at `<DataRoot>/agent_families/<family>.yaml`

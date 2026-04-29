@@ -139,8 +139,9 @@ The `family` in the body must match the URL path component.
 DELETE on a `custom` family removes the file. DELETE on an
 `override` reverts the family to its embedded default. DELETE on an
 embedded-only entry returns 409 — there is no override file to remove.
-Disabling an embedded family (e.g. hiding `aider`) is a follow-up;
-today, write an override with a narrowed `supports` list.
+Disabling an embedded family (e.g. hiding one engine without writing
+its override) is a follow-up; today, write an override with a
+narrowed `supports` list.
 
 Operationally, after an edit:
 

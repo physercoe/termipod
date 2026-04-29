@@ -12,7 +12,7 @@ import '../../theme/design_colors.dart';
 /// a bolt icon in the AppBar that read like a snippet preset; merging
 /// removes that ambiguity.
 ///
-/// Embedded defaults (claude-code, gemini-cli, codex, aider) are
+/// Embedded defaults (claude-code, gemini-cli, codex) are
 /// read-only previews; custom families and overrides of embedded ones
 /// are editable. Save hits the hub immediately and the next
 /// host-runner probe (≈30s) publishes the change to capabilities — no

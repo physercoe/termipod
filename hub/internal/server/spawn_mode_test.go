@@ -56,17 +56,17 @@ func TestDoSpawn_ModeFromYAML_PersistsResolvedMode(t *testing.T) {
 
 func TestDoSpawn_ModeOverride_Strict(t *testing.T) {
 	s, _ := newTestServer(t)
-	// Host doesn't support M1 for aider — resolver should reject the
+	// Host doesn't support M1 for codex — resolver should reject the
 	// override (and not silently fall back to M4 from fallback_modes).
 	hostID := seedHostCaps(t, s, `{
 		"agents": {
-			"aider": {"installed": true, "supports": ["M2","M4"]}
+			"codex": {"installed": true, "supports": ["M2","M4"]}
 		}
 	}`)
 
 	_, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "w2",
-		Kind:        "aider",
+		Kind:        "codex",
 		HostID:      hostID,
 		SpawnSpec:   "fallback_modes: [M4]\n",
 		Mode:        "M1",

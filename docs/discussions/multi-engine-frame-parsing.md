@@ -34,7 +34,7 @@ Three forces collide:
 2. **Engine plurality.** Today only claude-code is a first-class
    citizen — `driver_stdio.go::translate()` reads claude's frames by
    shape. `agent_families.yaml` lists four engines we want to support
-   (claude-code, codex, gemini-cli, aider), and the roadmap adds
+   (claude-code, codex, gemini-cli), and the roadmap adds
    more. Each speaks a different stream-json dialect with the same
    underlying *concepts* (assistant text, tool calls, usage, rate
    limits).
@@ -250,7 +250,7 @@ our rules need.
    of recorded frames and asserts identical `agent_events` rows.
 3. Flip the default to profile-driven. Keep the Go translator as a
    fallback for one release in case the profile is buggy.
-4. Remove the Go translator; ship codex / gemini-cli / aider profiles
+4. Remove the Go translator; ship codex / gemini-cli profiles
    as the proof of multi-engine.
 5. Document the profile schema in `reference/frame-profiles.md` so
    operators have something to point at when overlay-editing.

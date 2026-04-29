@@ -49,7 +49,7 @@ func TestResolve_OverrideIsStrict_NoFallback(t *testing.T) {
 	// Override names a mode the host doesn't support. Must fail — we
 	// don't fall back to the template candidates when an override is set.
 	_, err := Resolve(Input{
-		AgentKind:     "aider",
+		AgentKind:     "codex",
 		Requested:     "M4",
 		FallbackModes: []string{"M4"},
 		Override:      "M1",

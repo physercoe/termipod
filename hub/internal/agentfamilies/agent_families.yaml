@@ -250,7 +250,3 @@ families:
     bin: codex
     version_flag: --version
     supports: [M1, M4]
-  - family: aider
-    bin: aider
-    version_flag: --version
-    supports: [M2, M4]

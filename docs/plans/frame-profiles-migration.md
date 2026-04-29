@@ -11,7 +11,7 @@ today's `translate()` exactly, parity-tested against a recorded
 corpus, behind a `frame_translator: legacy` default. **(2)** Flip
 default to `both` (parallel run, profile output writes), then
 `profile`. Legacy stays as emergency escape. **(3)** Author codex /
-gemini-cli / aider profiles; delete legacy translator. Total: ~3
+gemini-cli profiles; delete legacy translator. Total: ~3
 wedges, ~2 weeks at current pace; bulk of effort is the parity
 corpus, not the code.
 
@@ -219,8 +219,10 @@ operator's device fleet AND no field complaints during the canary.
 
 ## 5. Phase 3 — multi-engine (Wedge 3)
 
-**Goal:** codex, gemini-cli, aider all spawn through the
-profile-driven path with no code changes.
+**Goal:** codex and gemini-cli both spawn through the
+profile-driven path with no code changes. Aider was on the roadmap
+as a fourth target but retired 2026-04-29 (project decision: only
+cover dominant-vendor products).
 
 ### 5.1 Per-engine profile authoring
 
@@ -231,8 +233,7 @@ For each engine:
   produces the expected `agent_events` shapes (no legacy comparison
   — there's no legacy translator for these).
 
-Sequencing: codex → gemini-cli → aider, in order of likely user
-demand.
+Sequencing: codex → gemini-cli, in order of likely user demand.
 
 ### 5.2 Engine-specific quirks expected
 
@@ -240,10 +241,7 @@ demand.
   handles via coalesce.
 - **gemini-cli** may emit thoughts as separate frames. Profile rule
   emits `kind=thought` instead of `kind=text` for those.
-- **aider** is more conversational and may not have rate-limit
-  signals at all. Profile simply has fewer rules.
-
-**Wedge ships when:** all three engines have green corpus tests and
+**Wedge ships when:** both engines have green corpus tests and
 the demo passes against at least one non-claude-code engine.
 
 ---

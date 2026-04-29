@@ -45,7 +45,7 @@ type Incompat struct {
 // optional. Modes are case-insensitive on input but normalized to
 // upper-case in the result.
 type Input struct {
-	AgentKind         string   // "claude-code", "gemini-cli", "codex", "aider"
+	AgentKind         string   // "claude-code", "gemini-cli", "codex"
 	Requested         string   // template.driving_mode — M1|M2|M4
 	FallbackModes     []string // template.fallback_modes — ordered
 	Override          string   // spawn_request.mode — if set, the *only* candidate

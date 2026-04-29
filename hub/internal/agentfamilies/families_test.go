@@ -7,20 +7,23 @@ import (
 )
 
 // TestAll_ParsesEmbeddedYAML asserts the embedded YAML is well-formed
-// and contains the four families the blueprint pins down today. If a
-// future PR retires or renames a family this test fails loudly — that
-// failure is the prompt to update callers (resolver/spawn_mode/probe).
+// and contains the three families the blueprint pins down today
+// (claude-code / gemini-cli / codex — dominant-vendor coverage; aider
+// was retired 2026-04-29 per project decision to track only major
+// vendor products). If a future PR retires or renames a family this
+// test fails loudly — that failure is the prompt to update callers
+// (resolver/spawn_mode/probe).
 func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	got, err := All()
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(got) < 4 {
-		t.Fatalf("expected ≥4 families, got %d", len(got))
+	if len(got) < 3 {
+		t.Fatalf("expected ≥3 families, got %d", len(got))
 	}
 	want := map[string]bool{
 		"claude-code": false, "gemini-cli": false,
-		"codex": false, "aider": false,
+		"codex": false,
 	}
 	for _, f := range got {
 		if _, ok := want[f.Family]; ok {
@@ -169,8 +172,8 @@ func TestRegistry_OverlayMissingDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(views) < 4 {
-		t.Fatalf("expected ≥4 embedded families, got %d", len(views))
+	if len(views) < 3 {
+		t.Fatalf("expected ≥3 embedded families, got %d", len(views))
 	}
 	for _, v := range views {
 		if v.Source != SourceEmbedded {
@@ -327,12 +330,12 @@ func TestFrameProfile_EmbeddedClaudeCode(t *testing.T) {
 	}
 }
 
-// TestFrameProfile_OtherEnginesStillNil — codex / gemini-cli / aider
-// don't ship profiles in v1 (Phase 3 of the migration plan); they
-// fall through to the legacy translator. Lock that contract so a
-// future PR doesn't accidentally enable a half-finished profile.
+// TestFrameProfile_OtherEnginesStillNil — codex / gemini-cli don't
+// ship profiles in v1 (Phase 3 of the migration plan); they fall
+// through to the legacy translator. Lock that contract so a future
+// PR doesn't accidentally enable a half-finished profile.
 func TestFrameProfile_OtherEnginesStillNil(t *testing.T) {
-	for _, name := range []string{"codex", "gemini-cli", "aider"} {
+	for _, name := range []string{"codex", "gemini-cli"} {
 		f, ok := ByName(name)
 		if !ok {
 			t.Fatalf("%s missing from registry", name)

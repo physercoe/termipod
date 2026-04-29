@@ -126,7 +126,7 @@ func (d *StdioDriver) readLoop(ctx context.Context) {
 //
 // The normalization contract here is the load-bearing abstraction
 // between drivers and the mobile UI: claude's stream-json is one
-// dialect, codex/aider speak others, but the *typed* event kinds we
+// dialect, codex/gemini-cli speak others, but the *typed* event kinds we
 // emit are stable. Mobile renders by event kind — adding a new agent
 // kind means writing a new driver, not a new screen.
 //

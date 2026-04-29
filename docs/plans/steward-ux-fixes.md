@@ -18,7 +18,7 @@ highlight, color-coded diffs, per-tool icons, tmux-parity composer).
 
 ## Driver vs. UI: the load-bearing abstraction
 
-Claude is one agent kind. Codex, aider, and future kinds each speak a
+Claude is one agent kind. Codex, gemini-cli, and future kinds each speak a
 different protocol on stdio. The mobile UI must not learn claude's
 JSON shape — it would have to relearn for every new kind.
 
@@ -229,7 +229,7 @@ as opaque "raw" cards.
 
 **Constraint:** the UI consumes typed `agent_events`, not claude JSON.
 All driver-side normalization lands first; the mobile then renders by
-event kind. This keeps the design portable to codex/aider/etc.
+event kind. This keeps the design portable to codex/gemini-cli/etc.
 
 ### Information surfaces (what the rich JSON gives us)
 
@@ -267,7 +267,7 @@ stable schema, then map other agent kinds onto the same shape.
 `completion` stays as a deprecated alias for one release so old hubs
 don't break.
 
-Other kinds (codex, aider) implement drivers that emit the same kinds
+Other kinds (codex, gemini-cli) implement drivers that emit the same kinds
 where the source supports it; absent kinds simply don't show.
 
 ### Mobile components (W-UI)

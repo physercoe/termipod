@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -313,6 +314,39 @@ func TestExecResumeDriver_StopKillsInFlight(t *testing.T) {
 	case <-inputDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Input didn't return within 2s after Stop — Kill not propagating")
+	}
+}
+
+// TestExecResumeDriver_RejectsPermissionPromptReply pins ADR-013 D4:
+// gemini doesn't have a permission_prompt vendor capability, so the
+// driver must refuse to deliver an attention_reply with that kind
+// rather than silently turning it into a user-text turn. The hub's
+// dispatcher should never produce one for a gemini agent — this is
+// defense-in-depth.
+func TestExecResumeDriver_RejectsPermissionPromptReply(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		return newFakeGeminiCmd(append([]string{name}, args...), nil)
+	}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-perm",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+	}
+	_ = drv.Start(context.Background())
+	defer drv.Stop()
+
+	err := drv.Input(context.Background(), "attention_reply", map[string]any{
+		"kind":     "permission_prompt",
+		"decision": "approve",
+	})
+	if err == nil {
+		t.Fatal("permission_prompt reply should be rejected on gemini")
+	}
+	if !strings.Contains(err.Error(), "permission_prompt is unsupported on gemini-cli") {
+		t.Errorf("error missing ADR-013 D4 attribution: %v", err)
 	}
 }
 

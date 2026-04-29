@@ -236,11 +236,17 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 		}
 		return d.runTurn(ctx, body)
 	case "attention_reply":
-		// gemini has no permission_prompt (ADR-013 D4), so every
-		// attention_reply is a turn-based reply that becomes a fresh
-		// user-text turn. formatAttentionReplyText prepends a "you
-		// asked X, I answered Y" header so the agent knows which
-		// prior request this answers.
+		// gemini has no permission_prompt (ADR-013 D4) — only the
+		// turn-based vendor-neutral kinds (approval_request, select,
+		// help_request) reach this driver. If the hub somehow
+		// dispatches a permission_prompt reply to a gemini agent,
+		// reject loudly: there's no JSON-RPC id to reply on (gemini
+		// never raised one) and silently turning it into a user-text
+		// turn would produce a confusing transcript and might re-run
+		// the original turn against the wrong shape.
+		if k, _ := payload["kind"].(string); k == "permission_prompt" {
+			return fmt.Errorf("exec-resume driver: permission_prompt is unsupported on gemini-cli (ADR-013 D4); use request_approval instead")
+		}
 		body := formatAttentionReplyText(payload)
 		if body == "" {
 			return fmt.Errorf("exec-resume driver: attention_reply produced no text")

@@ -2,9 +2,10 @@
 
 > **Type:** discussion
 > **Status:** Resolved (2026-04-29) → `../decisions/011-turn-based-attention-delivery.md`,
->   amended by `../decisions/012-codex-app-server-integration.md`
+>   amended by `../decisions/012-codex-app-server-integration.md` and
+>   `../decisions/013-gemini-exec-per-turn.md`
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.347
+> **Last verified vs code:** v1.0.348
 
 **TL;DR.** When an agent calls `request_approval`, `request_select`, or
 `request_help`, today's model holds the MCP call open via a 10-min
@@ -20,7 +21,12 @@ limitation. **Update (ADR-012, v1.0.347):** the
 sync-vendor-limitation argument applies to Claude only; codex's
 `app-server` JSON-RPC protocol permits deferred responses on its
 long-lived stdio pipe, so codex's `permission_prompt` is now
-turn-based on the wire too. The bridge-mediated stdio mitigation
+turn-based on the wire too. **Update (ADR-013, v1.0.348):**
+gemini-cli has *no* in-stream approval gate at all (only
+flag-time `--yolo` / `--approval-mode`), so `permission_prompt`
+is **unsupported** on gemini — neither sync nor turn-based.
+Stewards on gemini route risky decisions through
+`request_approval` instead. The bridge-mediated stdio mitigation
 below stays as the claude-only escape hatch.
 
 ---

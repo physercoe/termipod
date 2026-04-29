@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-29)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.347
+> **Last verified vs code:** v1.0.348
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
@@ -24,13 +24,24 @@ page carries the long form with worked examples.
 
 Two more attention kinds exist but are not agent-callable:
 
-- `permission_prompt` — per-tool-call gate. Sync on Claude (the
-  `canUseTool` hook returns `{behavior: allow|deny}` immediately).
-  Turn-based on Codex via the app-server JSON-RPC approval bridge —
-  the codex driver POSTs an attention_items row keyed on the parked
-  request id and replies on the stdio pipe when `/decide` resolves
-  (ADR-012 D3). Either way, emitted by the engine's permission hook,
-  not by the agent calling a tool.
+- `permission_prompt` — per-tool-call gate. **Per-engine support
+  matrix:**
+  - **Claude:** sync. `canUseTool` hook returns
+    `{behavior: allow|deny}` immediately; no deferred branch.
+  - **Codex:** turn-based. App-server JSON-RPC `requestApproval`
+    requests are parked by the driver and replied on the stdio
+    pipe when `/decide` resolves (ADR-012 D3).
+  - **Gemini:** **unsupported** (ADR-013 D4). gemini-cli has only
+    flag-time `--yolo` / `--approval-mode`; no in-stream gate
+    exists for the hub to bridge. Stewards on gemini route risky
+    decisions through `request_approval` (turn-based,
+    vendor-neutral) instead. The hub will not create a
+    `permission_prompt` row for a gemini agent; the gemini driver
+    rejects `attention_reply` with `kind=permission_prompt` as a
+    defense-in-depth check.
+
+  In every case, emitted by the engine's permission hook (or the
+  engine's wire protocol), not by the agent calling a tool.
 - `template_proposal` — produced by `templates_propose`; the principal
   reviews a structured diff, not a free-text reply. Use that tool when
   the right artifact is the template body itself.
@@ -195,19 +206,25 @@ Full analysis in
 formal decision in
 [ADR-011](../decisions/011-turn-based-attention-delivery.md).
 
-`permission_prompt` is the only attention kind that's still
-sometimes synchronous — and only on Claude. Claude's `canUseTool`
-hook protocol returns `{behavior: allow|deny}` and has no
-"deferred" branch, so the gate must answer immediately. Codex's
-app-server JSON-RPC protocol *does* permit deferred responses on
-the long-lived stdio pipe, so a permission_prompt raised by codex
-is turn-based: the driver POSTs an attention_items row, parks the
-JSON-RPC request id locally, and replies when `/decide` resolves
-(ADR-012 D3, slice 4). The same `dispatchAttentionReply` fan-out
-that handles approval_request / select / help_request now also
-fires for permission_prompt. Bridge-mediated stdio for Claude
-remains the post-MVP escape hatch for the canUseTool sync
-limitation, narrowed to claude-only by ADR-012 D7.
+`permission_prompt` is the only attention kind whose interaction
+shape varies by engine. Three positions:
+
+- **Claude — sync.** `canUseTool` hook returns `{behavior:
+  allow|deny}` and has no "deferred" branch, so the gate must
+  answer immediately. Bridge-mediated stdio (post-MVP escape
+  hatch) is claude-only per ADR-012 D7.
+- **Codex — turn-based.** App-server JSON-RPC permits deferred
+  responses on the long-lived stdio pipe; the driver POSTs an
+  attention_items row, parks the JSON-RPC request id locally, and
+  replies when `/decide` resolves (ADR-012 D3). The same
+  `dispatchAttentionReply` fan-out that handles approval_request
+  / select / help_request now also fires for permission_prompt.
+- **Gemini — unsupported.** gemini-cli has no in-stream approval
+  event; the engine either runs a tool or refuses based on
+  flag-time `--yolo` / `--approval-mode`. Stewards on gemini
+  self-route risky decisions through `request_approval`. ADR-013
+  D4 pins this; ADR-011 D6's update note carries the cross-engine
+  matrix.
 
 ## 6. Severity, not kind
 
@@ -219,13 +236,21 @@ kind to convey urgency — pick by answer-space cardinality and use
 
 ## 7. Vendor neutrality
 
-These kinds are platform-level and engine-agnostic. Claude has
-`AskUserQuestion` as an in-stream tool; Codex/Gemini will have their
-own. Each engine's host-runner translator may also emit a
-`help_request` attention so the question reaches the principal even
-when they're not actively viewing the chat — that's a rendering
-choice per engine, not a coupling between the engine's tool and this
-kind.
+These kinds are platform-level and engine-agnostic *for the three
+agent-callable shapes* (`approval_request`, `select`,
+`help_request`). Claude has `AskUserQuestion` as an in-stream tool;
+Codex/Gemini will have their own. Each engine's host-runner
+translator may also emit a `help_request` attention so the question
+reaches the principal even when they're not actively viewing the
+chat — that's a rendering choice per engine, not a coupling between
+the engine's tool and this kind.
+
+`permission_prompt` is the *exception* to vendor neutrality (see §5).
+It rides on per-engine vendor protocols (Claude `canUseTool`, Codex
+app-server `requestApproval`, gemini unsupported) and so its
+availability is engine-determined. Cross-engine stewards that need
+per-tool-call gating should prefer `request_approval` — it's the
+vendor-neutral equivalent.
 
 ## 8. Where to look in the code
 

@@ -284,23 +284,35 @@ func (d *StdioDriver) translate(ctx context.Context, frame map[string]any) {
 	}
 }
 
-// translateRateLimit handles both shapes claude-code has shipped for
-// the rate-limit signal: top-level `type=rate_limit_event` (older
-// SDKs) and `type=system,subtype=rate_limit_event` (current). Window
-// naming also differs across versions — accept rateLimitType
-// (camelCase) and rate_limit_type (snake_case) and normalize to "5h"
-// / "1h" so mobile doesn't branch.
+// translateRateLimit handles all shapes claude-code has shipped for
+// the rate-limit signal:
+//
+//	older SDKs:    {"type":"rate_limit_event", <fields...>}
+//	mid-SDKs:      {"type":"system", "subtype":"rate_limit_event", <fields...>}
+//	current SDKs:  {"type":"rate_limit_event", "rate_limit_info":{<fields...>}}
+//
+// The current shape nests the actual fields under `rate_limit_info`,
+// so peek there first and merge into the lookup namespace; otherwise
+// the same translator falls back to the flat layout. Window naming
+// also differs (rateLimitType vs rate_limit_type vs five_hour) — keep
+// it as-is and let the mobile humanizer label it.
 func (d *StdioDriver) translateRateLimit(ctx context.Context, frame map[string]any) {
-	win, _ := firstNonNil(frame["rateLimitType"], frame["rate_limit_type"]).(string)
+	src := frame
+	if nested, ok := frame["rate_limit_info"].(map[string]any); ok {
+		src = nested
+	} else if nested, ok := frame["rateLimitInfo"].(map[string]any); ok {
+		src = nested
+	}
+	win, _ := firstNonNil(src["rateLimitType"], src["rate_limit_type"]).(string)
 	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "rate_limit", "agent",
 		map[string]any{
 			"window":           win,
-			"status":           frame["status"],
-			"resets_at":        firstNonNil(frame["resetsAt"], frame["resets_at"]),
-			"overage_status":   firstNonNil(frame["overageStatus"], frame["overage_status"]),
-			"overage_disabled": firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]) != nil,
-			"is_using_overage": firstNonNil(frame["isUsingOverage"], frame["is_using_overage"]),
-			"reason":           firstNonNil(frame["overageDisabledReason"], frame["overage_disabled_reason"]),
+			"status":           src["status"],
+			"resets_at":        firstNonNil(src["resetsAt"], src["resets_at"]),
+			"overage_status":   firstNonNil(src["overageStatus"], src["overage_status"]),
+			"overage_disabled": firstNonNil(src["overageDisabledReason"], src["overage_disabled_reason"]) != nil,
+			"is_using_overage": firstNonNil(src["isUsingOverage"], src["is_using_overage"]),
+			"reason":           firstNonNil(src["overageDisabledReason"], src["overage_disabled_reason"]),
 		})
 }
 
@@ -414,6 +426,22 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 			"tool_use_id": reqID,
 			"content":     text,
 			"is_error":    decision == "deny",
+		}}
+	case "answer":
+		// Inline reply to an AskUserQuestion (and similar) tool call —
+		// content is the user's answer verbatim, surfaced to the agent
+		// as a clean tool_result. Carved off `approval` so the agent
+		// doesn't have to peel a "decision: note" prefix off the body.
+		reqID, _ := payload["request_id"].(string)
+		body, _ := payload["body"].(string)
+		if reqID == "" || body == "" {
+			return nil, fmt.Errorf("stdio driver: answer missing request_id/body")
+		}
+		content = []map[string]any{{
+			"type":        "tool_result",
+			"tool_use_id": reqID,
+			"content":     body,
+			"is_error":    false,
 		}}
 	case "cancel":
 		reason, _ := payload["reason"].(string)

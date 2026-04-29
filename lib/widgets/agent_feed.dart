@@ -102,6 +102,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // by [_bannerGrace] so quick recoveries are invisible to the user.
   Timer? _bannerGraceTimer;
   static const Duration _bannerGrace = Duration(seconds: 5);
+  // Count consecutive close-with-no-events. A clean SSE close after the
+  // agent goes idle (server-side connection cycle, mobile-network
+  // keepalive timeout, Cloudflare tunnel hiccup) is normal and shouldn't
+  // surface "Stream dropped" — the user is staring at a finished
+  // transcript and doesn't care that the carrier closed an idle TCP
+  // socket. After [_silentReconnectThreshold] consecutive empty cycles
+  // we assume something is genuinely wrong and let the banner through.
+  int _consecutiveEmptyDisconnects = 0;
+  static const int _silentReconnectThreshold = 3;
   // Counter for events that arrived while the user had scrolled away
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
@@ -345,6 +354,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (!_followTail) _newWhileAway += 1;
       });
       _reconnectAttempt = 0;
+      _consecutiveEmptyDisconnects = 0;
       // Cancel the pending banner: we recovered before the grace period
       // expired, so the user never needed to see "stream dropped".
       _bannerGraceTimer?.cancel();
@@ -353,24 +363,44 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
       }
     }, onError: (e) {
-      _scheduleReconnect(client, reason: '$e');
+      _scheduleReconnect(client, reason: '$e', isError: true);
     }, onDone: () {
-      _scheduleReconnect(client, reason: 'stream closed');
+      _scheduleReconnect(client, reason: 'stream closed', isError: false);
     });
   }
 
-  void _scheduleReconnect(HubClient client, {required String reason}) {
+  void _scheduleReconnect(
+    HubClient client, {
+    required String reason,
+    required bool isError,
+  }) {
     if (!mounted) return;
     // Cap at 16s — fast enough that a recovered hub is picked up quickly,
     // slow enough that a genuinely-down hub doesn't get hammered.
     final delaySecs = math.min(16, 1 << _reconnectAttempt);
     _reconnectAttempt += 1;
-    // Schedule the banner grace-period instead of showing immediately.
-    // A successful resubscribe within [_bannerGrace] cancels this timer
-    // and the user never sees the drop. Repeated drops within the same
-    // window leave the original timer in place so the user sees one
-    // banner, not flicker.
-    if (_bannerGraceTimer == null || !_bannerGraceTimer!.isActive) {
+    // Distinguish a clean SSE close (onDone) from a real failure
+    // (onError). When the agent has finished a turn the server-side
+    // connection often cycles for benign reasons — proxy idle timeout,
+    // carrier-level keepalive, app suspend — and the next reconnect
+    // re-attaches with no events to deliver because nothing happened
+    // while we were away. Banner-on-grace was popping up in this
+    // happy path and looked like a bug. Suppress it for the first
+    // [_silentReconnectThreshold] consecutive empty close cycles; only
+    // surface the banner when something keeps repeatedly failing.
+    final isEmptyCycle = !isError;
+    if (isEmptyCycle) {
+      _consecutiveEmptyDisconnects += 1;
+    }
+    final shouldShowBanner =
+        isError || _consecutiveEmptyDisconnects >= _silentReconnectThreshold;
+    if (shouldShowBanner &&
+        (_bannerGraceTimer == null || !_bannerGraceTimer!.isActive)) {
+      // Schedule the banner grace-period instead of showing immediately.
+      // A successful resubscribe within [_bannerGrace] cancels this timer
+      // and the user never sees the drop. Repeated drops within the same
+      // window leave the original timer in place so the user sees one
+      // banner, not flicker.
       _bannerGraceTimer = Timer(_bannerGrace, () {
         if (!mounted) return;
         setState(() => _error =
@@ -1754,6 +1784,25 @@ class AgentEventCard extends StatelessWidget {
     final name = p['name']?.toString() ?? '?';
     final id = p['id']?.toString() ?? '';
     final input = p['input'];
+    // AskUserQuestion is the only tool whose answer the user has to
+    // produce — claude-code emits a tool_call and waits for a
+    // tool_result that holds the picked option. Render it inline
+    // here instead of falling through to the generic tool_call card,
+    // so the user doesn't have to copy-paste the question or watch
+    // the agent timeout. Falls back to the standard card if the
+    // payload is missing the expected `questions[]` shape.
+    if (name == 'AskUserQuestion' &&
+        id.isNotEmpty &&
+        input is Map &&
+        input['questions'] is List) {
+      return _AskUserQuestionCard(
+        key: ValueKey('ask-uq-$id'),
+        agentId: agentId,
+        toolUseId: id,
+        input: input.cast<String, dynamic>(),
+        priorAnswer: id.isNotEmpty ? toolResults[id] : null,
+      );
+    }
     // Fold the latest tool_call_update so a single card shows the end
     // state (status + optional content preview) without a second row.
     final update = id.isNotEmpty ? toolUpdates[id] : null;
@@ -2597,6 +2646,244 @@ class _DecisionChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Inline interactive card for `AskUserQuestion` tool calls. The
+/// claude-code agent emits a tool_call whose input carries a list of
+/// `questions[].options[]`; we render the question + options as
+/// buttons here so the user can answer in-flow instead of waiting for
+/// the agent to time out (which it does noisily — the user reported
+/// "looks like the question prompt was canceled" after a missed
+/// reply). Tap → POST input.answer with the chosen option as the
+/// body; the hostrunner's stdio driver wraps it in a tool_result with
+/// the matching tool_use_id and ships it back to claude-code on
+/// stdin.
+///
+/// Multi-question payloads are technically allowed by the SDK but
+/// rare in practice — we render the first question and treat the
+/// rest as fallback (their bodies appear in a small JSON dump). We
+/// can iterate on multi-question UX once a real example shows up.
+class _AskUserQuestionCard extends ConsumerStatefulWidget {
+  final String? agentId;
+  final String toolUseId;
+  final Map<String, dynamic> input;
+  final Map<String, dynamic>? priorAnswer;
+  const _AskUserQuestionCard({
+    super.key,
+    required this.agentId,
+    required this.toolUseId,
+    required this.input,
+    required this.priorAnswer,
+  });
+
+  @override
+  ConsumerState<_AskUserQuestionCard> createState() =>
+      _AskUserQuestionCardState();
+}
+
+class _AskUserQuestionCardState extends ConsumerState<_AskUserQuestionCard> {
+  bool _sending = false;
+  String? _error;
+  String? _localAnswer;
+
+  String? get _effectiveAnswer {
+    if (_localAnswer != null) return _localAnswer;
+    final prior = widget.priorAnswer;
+    if (prior == null) return null;
+    final payload = prior['payload'];
+    if (payload is Map) {
+      final c = payload['content'];
+      if (c is String && c.isNotEmpty) return c;
+    }
+    return null;
+  }
+
+  Future<void> _send(String label) async {
+    final agentId = widget.agentId;
+    if (agentId == null || agentId.isEmpty || widget.toolUseId.isEmpty) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      setState(() => _error = 'Not connected');
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await client.postAgentInput(
+        agentId,
+        kind: 'answer',
+        requestId: widget.toolUseId,
+        body: label,
+      );
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _localAnswer = label;
+      });
+    } on HubApiError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = 'Send failed (${e.status})';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = 'Send failed: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final questions = widget.input['questions'];
+    Map<String, dynamic>? primary;
+    if (questions is List && questions.isNotEmpty) {
+      final q = questions.first;
+      if (q is Map) primary = q.cast<String, dynamic>();
+    }
+    if (primary == null) {
+      // Defensive fallback: payload didn't match the expected shape.
+      // Render the raw input so nothing is silently hidden.
+      return _CollapsibleMono(text: AgentEventCard._jsonPretty(widget.input));
+    }
+    final header = (primary['header'] ?? '').toString();
+    final question = (primary['question'] ?? '').toString();
+    final rawOptions = primary['options'];
+    final options = <_AskOption>[];
+    if (rawOptions is List) {
+      for (final o in rawOptions) {
+        if (o is Map) {
+          final label = (o['label'] ?? '').toString();
+          if (label.isEmpty) continue;
+          options.add(_AskOption(
+            label: label,
+            description: (o['description'] ?? '').toString(),
+          ));
+        }
+      }
+    }
+    final answered = _effectiveAnswer;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (header.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              header,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: muted,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        if (question.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              question,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        if (answered != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: DesignColors.success.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                    color: DesignColors.success.withValues(alpha: 0.5)),
+              ),
+              child: Text(
+                'answered: $answered',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: DesignColors.success,
+                ),
+              ),
+            ),
+          )
+        else if (options.isEmpty)
+          Text(
+            '(no options provided)',
+            style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+          )
+        else
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final o in options)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: OutlinedButton(
+                    onPressed: _sending ? null : () => _send(o.label),
+                    style: OutlinedButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          o.label,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (o.description.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              o.description,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 11,
+                                color: muted,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _error!,
+              style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11, color: DesignColors.error),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AskOption {
+  final String label;
+  final String description;
+  const _AskOption({required this.label, required this.description});
 }
 
 /// Mono text that collapses past _kCollapseLines with a toggle. Long

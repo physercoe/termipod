@@ -23,6 +23,82 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.328-alpha — 2026-04-29
+
+### Added
+- `lib/widgets/agent_feed.dart`: inline answer card for the
+  `AskUserQuestion` tool. claude-code emits a tool_call whose input
+  carries `questions[].options[]`; the card renders the question +
+  options as buttons and ships the picked label back as a
+  `tool_result` so the agent can continue. Previously the prompt
+  silently timed out, leaving a stale "looks like the question
+  prompt was canceled" reply in the transcript.
+- `hub/internal/server/handlers_agent_input.go` + `driver_stdio.go`:
+  new `answer` input kind. Carved off `approval` because the agent
+  expects a clean reply string, not a "decision: note" tuple — the
+  driver wraps `body` in a `tool_result` keyed by `request_id` and
+  ships it on stdin.
+
+### Fixed
+- `hub/internal/hostrunner/driver_stdio.go`:
+  `translateRateLimit` now peeks into `rate_limit_info` (and
+  `rateLimitInfo`) before reading status/window/resets-at fields.
+  Recent claude-code SDK builds nest the actual rate-limit values
+  under that sub-object; with the flat lookup the mobile telemetry
+  strip stayed empty (window/status/resets-at all nil) every time
+  the agent shouted about quota. Three shapes are now handled in
+  one path: top-level fields (legacy), `system.subtype=rate_limit_event`
+  (mid-versions), and the nested `rate_limit_info` (current).
+  Regression test: `TestStdioDriver_RateLimitEventNestedInfo`.
+- `lib/widgets/agent_feed.dart`: SSE re-subscribe no longer pops
+  "Stream dropped" the moment a *clean* close happens. A clean close
+  (`onDone`) after the agent finished a turn is normal — proxy idle
+  timeout, mobile-network keepalive cycle, app suspend — and the
+  reconnect either gets immediate replay or sits idle waiting on the
+  next event. Banner now fires only on real `onError`, or after
+  three consecutive empty close cycles, so a finished transcript
+  doesn't surface a phantom error.
+
+## v1.0.327-alpha — 2026-04-29
+
+### Fixed
+- `hub/migrations/0032_sessions_heal_orphan_active.up.sql`: one-shot
+  migration that flips orphan-active sessions to `paused`. Bad data
+  accumulated when an agent died via a code path that didn't auto-
+  pause its sessions (the auto-pause was added in v1.0.326 but only
+  fires through PATCH /agents/{id} status=terminated). Without this
+  heal, the device-walkthrough showed sessions in the Detached group
+  with a green "active" pill even though the agent was long gone.
+  Regression test: `TestSessions_HealOrphanActive`.
+- `lib/screens/sessions/sessions_screen.dart`: the Detached sessions
+  group now treats every member as Previous and renders any
+  `status=active|open` row as `paused` for display. Same rationale as
+  the migration — the engine these rows pointed to is gone, so a
+  green pill misleads the user. The bucket also auto-expands now
+  (instead of starting collapsed) since Previous is the only content
+  there. The chat AppBar's Stop action drops out when the attached
+  agent isn't live in `hubProvider.agents`, mirroring the list-row
+  defensive override.
+- `lib/providers/sessions_provider.dart`: `resume()` and `fork()` now
+  also call `hubProvider.refreshAll()` so a freshly-spawned steward
+  shows up in the cached agents list immediately. Without this, the
+  resumed/forked session got bucketed into the Detached group on the
+  next render — its `current_agent_id` pointed at an agent the cache
+  hadn't seen yet — until the user pulled-to-refresh.
+
+### Changed
+- `lib/screens/sessions/sessions_screen.dart`: per-row session menu
+  now exposes a status-appropriate terminal action — Stop (active),
+  Archive (paused). Previously the only way to kill a session was
+  via the chat AppBar's Stop, which forced the user to enter the
+  conversation first; archiving a paused session had no surface at
+  all. Existing rename / fork-from-archive / delete entries are
+  unchanged.
+- `lib/screens/sessions/sessions_screen.dart`: Detached group is now
+  default-expanded; previously the user had to tap "previous (N)"
+  to see what was inside, which was confusing because for that
+  group the previous list IS the entire group.
+
 ## v1.0.326-alpha — 2026-04-28
 
 ### Fixed

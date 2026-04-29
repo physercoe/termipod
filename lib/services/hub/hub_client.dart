@@ -1244,6 +1244,12 @@ class HubClient {
   /// Posts structured user input to an agent (P1.8). Lands in
   /// agent_events as producer='user' with kind='input.<kind>'; driver
   /// dispatch is the hub's job downstream. Returns {id, seq, ts}.
+  /// Post a user-side input event to an agent. `kind` selects the
+  /// shape — `text` / `approval` / `answer` / `cancel` / `attach` —
+  /// and the relevant fields ride alongside. `answer` is for inline
+  /// replies to tool questions (e.g. AskUserQuestion); pass the
+  /// originating tool_call id as [requestId] and the chosen reply as
+  /// [body].
   Future<Map<String, dynamic>> postAgentInput(
     String agentId, {
     required String kind,

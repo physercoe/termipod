@@ -354,6 +354,54 @@ func TestStdioDriver_RateLimitEventUnderSystemSubtype(t *testing.T) {
 	}
 }
 
+// Current claude-code (Opus 4.7-era) wraps the rate-limit fields
+// under a `rate_limit_info` sub-object instead of putting them at the
+// top of the frame. translateRateLimit must dig in; otherwise the
+// mobile telemetry strip stays empty even when the SDK is shouting
+// about quota.
+func TestStdioDriver_RateLimitEventNestedInfo(t *testing.T) {
+	frame := `{"type":"rate_limit_event","rate_limit_info":{` +
+		`"status":"allowed","resetsAt":1777443000,` +
+		`"rateLimitType":"five_hour",` +
+		`"overageStatus":"rejected",` +
+		`"overageDisabledReason":"org_level_disabled_until",` +
+		`"isUsingOverage":false},` +
+		`"uuid":"31018394-6e25-4d7a-8e2f-bf7ba4d88eff",` +
+		`"session_id":"c621a4ac-cd41-4be7-9255-2b0ec79ea9e8"}`
+	pr, pw := io.Pipe()
+	poster := &fakePoster{}
+	drv := &StdioDriver{AgentID: "agent-rl4", Poster: poster, Stdout: pr,
+		Closer: func() { _ = pw.Close() }}
+	_ = drv.Start(context.Background())
+	go func() { _, _ = pw.Write([]byte(frame + "\n")) }()
+	poster.wait(t, 2, time.Second)
+	drv.Stop()
+
+	var rl postedEvent
+	for _, e := range poster.snapshot() {
+		if e.Kind == "rate_limit" {
+			rl = e
+			break
+		}
+	}
+	if rl.Kind == "" {
+		t.Fatalf("no rate_limit event from nested rate_limit_info; got %+v",
+			poster.snapshot())
+	}
+	if rl.Payload["window"] != "five_hour" {
+		t.Errorf("window = %v; want five_hour", rl.Payload["window"])
+	}
+	if rl.Payload["status"] != "allowed" {
+		t.Errorf("status = %v; want allowed", rl.Payload["status"])
+	}
+	if rl.Payload["overage_status"] != "rejected" {
+		t.Errorf("overage_status = %v; want rejected", rl.Payload["overage_status"])
+	}
+	if rl.Payload["overage_disabled"] != true {
+		t.Errorf("overage_disabled = %v; want true", rl.Payload["overage_disabled"])
+	}
+}
+
 // TestStdioDriver_TurnResultNormalization covers normalizeTurnResult's
 // modelUsage → by_model lift with camelCase inner keys, plus cost / fast
 // mode passthrough. Verified through the driver path so the wiring is
@@ -523,6 +571,30 @@ func TestStdioDriver_InputFrames(t *testing.T) {
 			},
 		},
 		{
+			name: "answer",
+			kind: "answer",
+			payload: map[string]any{
+				"request_id": "toolu_AskUserQuestion_42",
+				"body":       "Red",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				if block["type"] != "tool_result" {
+					t.Fatalf("answer block type = %v; want tool_result", block["type"])
+				}
+				if block["tool_use_id"] != "toolu_AskUserQuestion_42" {
+					t.Fatalf("answer tool_use_id wrong: %+v", block)
+				}
+				if block["content"] != "Red" {
+					t.Fatalf("answer content = %v; want Red (no decision prefix)", block["content"])
+				}
+				if block["is_error"] != false {
+					t.Fatalf("answer is_error = %v; want false", block["is_error"])
+				}
+			},
+		},
+		{
 			name:    "cancel",
 			kind:    "cancel",
 			payload: map[string]any{"reason": "too slow"},
@@ -574,6 +646,12 @@ func TestStdioDriver_InputMissingFields(t *testing.T) {
 	}
 	if _, err := buildStreamJSONInputFrame("approval", map[string]any{"decision": "allow"}); err == nil {
 		t.Fatal("approval without request_id should error")
+	}
+	if _, err := buildStreamJSONInputFrame("answer", map[string]any{"body": "x"}); err == nil {
+		t.Fatal("answer without request_id should error")
+	}
+	if _, err := buildStreamJSONInputFrame("answer", map[string]any{"request_id": "r"}); err == nil {
+		t.Fatal("answer without body should error")
 	}
 	if _, err := buildStreamJSONInputFrame("attach", map[string]any{}); err == nil {
 		t.Fatal("attach without document_id should error")

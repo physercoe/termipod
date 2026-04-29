@@ -222,6 +222,68 @@ func TestSessions_PauseOnAgentTerminal(t *testing.T) {
 	}
 }
 
+// Migration 0032 heals orphan-active sessions: rows whose
+// status='active' but whose current_agent_id points to a dead/missing
+// agent. These accumulate when an agent died via a path that bypassed
+// the PATCH-status auto-pause — common pre-v1.0.326. The heal SQL is
+// idempotent and matches the migration body verbatim.
+func TestSessions_HealOrphanActive(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Open a session attached to the agent.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":    "orphan heal",
+			"agent_id": agentID,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Bypass the PATCH auto-pause: directly mark the agent terminated
+	// in the DB. This is what happens when an agent dies via a code
+	// path that doesn't run the auto-pause helper.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET status='terminated', terminated_at=? WHERE id=?`,
+		NowUTC(), agentID); err != nil {
+		t.Fatalf("force-terminate: %v", err)
+	}
+
+	// Session is now orphan-active — confirm the bad state exists.
+	var pre string
+	_ = s.db.QueryRow(`SELECT status FROM sessions WHERE id=?`, ses.ID).Scan(&pre)
+	if pre != "active" {
+		t.Fatalf("setup precondition: session status = %q; want active", pre)
+	}
+
+	// Run the heal SQL (mirrors migrations/0032).
+	if _, err := s.db.Exec(`
+		UPDATE sessions
+		   SET status = 'paused',
+		       last_active_at = COALESCE(last_active_at, opened_at)
+		 WHERE status = 'active'
+		   AND (
+		        current_agent_id IS NULL
+		        OR current_agent_id NOT IN (
+		             SELECT id FROM agents
+		              WHERE status NOT IN ('terminated','failed','crashed')
+		                AND archived_at IS NULL
+		           )
+		   )`); err != nil {
+		t.Fatalf("heal: %v", err)
+	}
+
+	var post string
+	_ = s.db.QueryRow(`SELECT status FROM sessions WHERE id=?`, ses.ID).Scan(&post)
+	if post != "paused" {
+		t.Errorf("after heal: session status = %q; want paused", post)
+	}
+}
+
 // W2-S3: resume on a paused session creates a new agent with the
 // same handle/kind/host/worktree, points the session at it, and
 // flips status back to active. Transcript continuity is implicit:

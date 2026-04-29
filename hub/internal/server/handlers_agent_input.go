@@ -81,6 +81,25 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		if in.OptionID != "" {
 			payloadMap["option_id"] = in.OptionID
 		}
+	case "answer":
+		// Generic tool-question response: the body is whatever the
+		// user picked (option label, free-text reply, …) and the
+		// driver wraps it as a tool_result on stdin keyed by
+		// request_id. Carved off `approval` because AskUserQuestion's
+		// expected reply is "the chosen option string" — overloading
+		// approval would surface a clunky "allow: Red" payload to the
+		// agent. RequestID is the originating tool_call id; Body is
+		// the answer text.
+		if in.RequestID == "" {
+			writeErr(w, http.StatusBadRequest, "request_id required")
+			return
+		}
+		if in.Body == "" {
+			writeErr(w, http.StatusBadRequest, "body required")
+			return
+		}
+		payloadMap["request_id"] = in.RequestID
+		payloadMap["body"] = in.Body
 	case "cancel":
 		if in.Reason != "" {
 			payloadMap["reason"] = in.Reason
@@ -92,7 +111,8 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		}
 		payloadMap["document_id"] = in.DocumentID
 	default:
-		writeErr(w, http.StatusBadRequest, "kind must be text|approval|cancel|attach")
+		writeErr(w, http.StatusBadRequest,
+			"kind must be text|approval|answer|cancel|attach")
 		return
 	}
 

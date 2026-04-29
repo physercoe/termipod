@@ -189,25 +189,32 @@ List<_StewardGroup> _groupByStateward(
     return ts(b).compareTo(ts(a));
   });
   // Orphan sessions: bucket under a synthetic group so they aren't
-  // silently swallowed. Status pill renders "no live agent".
+  // silently swallowed. The engine they used to talk to is gone, so
+  // we override the rendered status to 'paused' here (regardless of
+  // what the hub reports) — a hub running old code can leave
+  // status='active' when an agent died via a path that didn't auto-
+  // pause its sessions, and showing those rows with a green active
+  // pill misleads the user into thinking the chat is still live. The
+  // backing row's status isn't mutated; only the copy passed to the
+  // tile is. Migration 0032 heals the data on the hub itself; this
+  // keeps the UI honest until the deployed hub picks it up.
   final orphanSessions = <Map<String, dynamic>>[];
   for (final s in [...sessions.active, ...sessions.previous]) {
     final aid = (s['current_agent_id'] ?? '').toString();
     if (aid.isEmpty || !liveStewardIds.contains(aid)) {
-      orphanSessions.add(s);
+      final asPausedIfActive = {...s};
+      final st = (asPausedIfActive['status'] ?? '').toString();
+      if (st == 'active' || st == 'open') {
+        asPausedIfActive['status'] = 'paused';
+      }
+      orphanSessions.add(asPausedIfActive);
     }
   }
   if (orphanSessions.isNotEmpty) {
-    Map<String, dynamic>? current;
-    final previous = <Map<String, dynamic>>[];
-    for (final s in orphanSessions) {
-      final st = (s['status'] ?? '').toString();
-      if ((st == 'active' || st == 'paused' || st == 'open' || st == 'interrupted') && current == null) {
-        current = s;
-      } else {
-        previous.add(s);
-      }
-    }
+    // Detached sessions have no live engine, so none of them belongs
+    // in the "current" slot — bucket every row into Previous so the
+    // UX matches the underlying reality (no Stop / no live transcript;
+    // only Resume / Fork / Archive make sense).
     groups.add(_StewardGroup(
       // Sessions whose original steward agent was archived /
       // terminated outside of this UI, or never resolved (cache lag).
@@ -220,8 +227,8 @@ List<_StewardGroup> _groupByStateward(
         'kind': '',
         'status': '',
       },
-      current: current,
-      previous: previous,
+      current: null,
+      previous: orphanSessions,
     ));
   }
   return groups;
@@ -420,7 +427,11 @@ class _StewardSection extends ConsumerStatefulWidget {
 }
 
 class _StewardSectionState extends ConsumerState<_StewardSection> {
-  bool _showPrevious = false;
+  // Default-collapse Previous when the steward has a current session
+  // (the row above it is what users want to see); auto-expand when
+  // there's no current — typical of the Detached group, where the
+  // previous list IS the content.
+  late bool _showPrevious = widget.group.current == null;
 
   _StewardGroup get group => widget.group;
 
@@ -926,6 +937,90 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     }
   }
 
+  /// Stop this session's engine from the row (mirrors the chat
+  /// AppBar's Stop). Kills the attached agent → server auto-pauses
+  /// the session. Used for active sessions where the user wants to
+  /// detach the engine without first opening the chat.
+  Future<void> _stopFromRow(BuildContext context) async {
+    final agentId = (session['current_agent_id'] ?? '').toString();
+    if (agentId.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Stop session?'),
+        content: const Text(
+          "Kills the steward's agent process. The session pauses and "
+          "stays in Previous; you can Resume it later or Fork from "
+          "archive once you've moved on.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Stop'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      await client.terminateAgent(agentId);
+      await ref.read(hubProvider.notifier).refreshAll();
+      await ref.read(sessionsProvider.notifier).refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Stop failed: $e')),
+      );
+    }
+  }
+
+  /// Archive a paused session — moves it to Previous so the row no
+  /// longer shows a Resume button. The transcript stays intact and is
+  /// reachable via Fork. Used when the user has moved on from this
+  /// conversation and doesn't want it cluttering the active list.
+  Future<void> _archiveFromRow(BuildContext context) async {
+    final id = (session['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Archive session?'),
+        content: const Text(
+          'Marks the session as done. The transcript stays available '
+          'under Previous, and you can fork it later to continue.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Archive'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await ref.read(sessionsProvider.notifier).archive(id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Archive failed: $e')),
+      );
+    }
+  }
+
   Future<void> _confirmDelete(BuildContext context) async {
     final id = (session['id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -1074,15 +1169,20 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
     String lastActive,
     Color muted,
   ) {
-    // Single popup menu shared across statuses — Rename is always
-    // available; Delete only on closed sessions (open/interrupted have
-    // to be closed first per the hub contract).
-    // Per-row session menu. Closing an active session was previously
-    // an option here but was removed: it violated the multi-steward
-    // invariant ("every live steward has a session") by leaving the
-    // steward without one. Use Reset (per-steward kebab on the section
-    // header) to rotate the conversation, or Stop session (chat
-    // AppBar) to detach the engine.
+    // Per-row session menu. Per-status terminal action:
+    //   active → Stop session (kills agent → auto-pauses)
+    //   paused → Archive (gives up resume; transcript stays, Fork still works)
+    //   archived → Fork (continue with fresh agent) + Delete
+    // Stop used to live only on the chat AppBar, but a list row needs
+    // its own escape hatch — the user shouldn't have to open a session
+    // just to kill it. The multi-steward invariant ("every live
+    // steward has a session") is preserved because Stop terminates
+    // the agent first; the session pauses but the steward dies with
+    // it, so no agent-without-session intermediate.
+    final isActive = status == 'active' || status == 'open';
+    final isPaused = status == 'paused' || status == 'interrupted';
+    final isArchived = status == 'archived' || status == 'closed';
+    final hasAgent = (session['current_agent_id'] ?? '').toString().isNotEmpty;
     final menu = PopupMenuButton<String>(
       tooltip: 'Session actions',
       icon: Icon(Icons.more_vert, size: 18, color: muted),
@@ -1090,10 +1190,22 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         if (v == 'rename') _rename(context);
         if (v == 'delete') _confirmDelete(context);
         if (v == 'fork') _fork(context);
+        if (v == 'stop') _stopFromRow(context);
+        if (v == 'archive') _archiveFromRow(context);
       },
       itemBuilder: (_) => [
         const PopupMenuItem(value: 'rename', child: Text('Rename')),
-        if (status == 'archived' || status == 'closed') ...[
+        if (isActive && hasAgent)
+          const PopupMenuItem(
+            value: 'stop',
+            child: Text('Stop session'),
+          ),
+        if (isActive || isPaused)
+          const PopupMenuItem(
+            value: 'archive',
+            child: Text('Archive'),
+          ),
+        if (isArchived) ...[
           const PopupMenuItem(
             value: 'fork',
             child: Text('Fork from archive'),
@@ -1490,7 +1602,22 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       }
     }
     final sessionStatus = (sessionRow?['status'] ?? '').toString();
-    final canStop = sessionStatus == 'active' || sessionStatus == 'open';
+    // Mirror the sessions-list defensive override: if the session
+    // claims to be active but the attached agent is gone (terminal
+    // status or missing from hub.agents), there's nothing for Stop to
+    // kill. Hide it so the chat AppBar matches reality.
+    final hub = ref.watch(hubProvider).value;
+    bool agentLive = false;
+    if (hub != null) {
+      for (final a in hub.agents) {
+        if ((a['id'] ?? '').toString() != widget.agentId) continue;
+        final st = (a['status'] ?? '').toString();
+        agentLive = st == 'running' || st == 'pending' || st == 'paused';
+        break;
+      }
+    }
+    final canStop =
+        agentLive && (sessionStatus == 'active' || sessionStatus == 'open');
     final canFork =
         sessionStatus == 'archived' || sessionStatus == 'closed';
     final scopeChip = _buildScopeChip(context, ref, sessionRow);

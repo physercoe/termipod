@@ -59,7 +59,7 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     await client.archiveSession(id);
-    await refresh();
+    await _refreshSessionsAndHub();
   }
 
   /// Resumes a paused session and refreshes the list. Returns the new
@@ -69,7 +69,11 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return null;
     final out = await client.resumeSession(id);
-    await refresh();
+    // Resume spawns a fresh agent on the server. Refresh hub state too
+    // so the new live steward shows up in `hubState.agents`; otherwise
+    // the sessions screen routes the resumed session into Detached
+    // because current_agent_id doesn't match any cached live agent.
+    await _refreshSessionsAndHub();
     return out['new_agent_id']?.toString();
   }
 
@@ -80,7 +84,9 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return null;
     final out = await client.forkSession(id, agentId: agentId);
-    await refresh();
+    // Fork that auto-attaches a fresh steward also creates a new
+    // agent — same hub-cache invalidation rationale as resume().
+    await _refreshSessionsAndHub();
     return out;
   }
 
@@ -101,6 +107,17 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     if (client == null) return;
     await client.deleteSession(id);
     await refresh();
+  }
+
+  /// Refresh both the sessions list and the hub-wide cache (which
+  /// holds the agents list). Used by mutations that change which
+  /// agents are live (resume, fork-with-attach, archive of the last
+  /// session of a steward). Without the hub refresh the sessions
+  /// screen falls back to the Detached group because freshly-spawned
+  /// agents aren't in the cached agents map yet.
+  Future<void> _refreshSessionsAndHub() async {
+    await refresh();
+    await ref.read(hubProvider.notifier).refreshAll();
   }
 }
 

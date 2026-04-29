@@ -60,6 +60,9 @@ func TestPostAgentInput_HappyPath_AllKinds(t *testing.T) {
 		{"approval", map[string]any{
 			"kind": "approval", "decision": "approve", "request_id": "r1",
 		}, "input.approval"},
+		{"answer", map[string]any{
+			"kind": "answer", "request_id": "tool-1", "body": "Red",
+		}, "input.answer"},
 		{"cancel", map[string]any{"kind": "cancel"}, "input.cancel"},
 		{"attach", map[string]any{
 			"kind": "attach", "document_id": "doc-1",
@@ -114,6 +117,12 @@ func TestPostAgentInput_ValidationErrors(t *testing.T) {
 			"kind": "approval", "decision": "approve",
 		}},
 		{"missing_document_id", map[string]any{"kind": "attach"}},
+		{"answer_missing_request_id", map[string]any{
+			"kind": "answer", "body": "Red",
+		}},
+		{"answer_missing_body", map[string]any{
+			"kind": "answer", "request_id": "tool-1",
+		}},
 		{"unknown_kind", map[string]any{"kind": "shout", "body": "x"}},
 	}
 	for _, tc := range cases {
@@ -204,7 +213,7 @@ func TestPostAgentInput_UnknownKindMessage(t *testing.T) {
 	}
 	// Contract: error body carries the normative kinds list so clients
 	// can surface a helpful message without hardcoding.
-	if !bytes.Contains(raw, []byte("text|approval|cancel|attach")) {
+	if !bytes.Contains(raw, []byte("text|approval|answer|cancel|attach")) {
 		t.Errorf("error body missing kinds list: %s", raw)
 	}
 }

@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-04-29)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -117,6 +117,7 @@ working list — what's actually moving this week or next.
 | Item | Why | Where |
 |---|---|---|
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
+| **Codex integration (ADR-012)** | Multi-engine is a foundational feature — single-engine = MuxPod's positioning. Slices 1-6 shipped v1.0.342–v1.0.347: app-server JSON-RPC driver, frame profile, approval bridge, MCP config, steward template. (`decisions/012-codex-app-server-integration.md`) | Done; verifying on device + integration smoke against a real codex binary next |
 | **Agent state & identity (ADR-009)** | Phase 1 + 2 shipped v1.0.320–322: rename close→archive, fork action, scope chip + grouping, approval detail, attention-scope entry. (`plans/agent-state-and-identity.md`) | Done; verifying on device next |
 | **MVP parity gaps — Phase 1.5** | Local notifications (1.5a, v1.0.323+325) + session search (1.5c, v1.0.324) shipped. ntfy killed-state push (1.5b) deferred post-MVP. (`plans/mvp-parity-gaps.md`) | Done; verifying on device next |
 
@@ -125,6 +126,8 @@ working list — what's actually moving this week or next.
 | Item | Why | Trigger |
 |---|---|---|
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
+| **Codex integration smoke (slice 7)** | Cross-vendor `request_help` smoke against a live codex binary + a live gemini binary, validating the vendor-neutral attention surface end-to-end | Real codex + gemini binaries available in a test host |
+| **Gemini exec-per-turn driver** | Closes ADR-012 D6 — gemini-cli is exec-per-turn-with-resume (PR #14504), so the driver shape differs from codex's app-server but the frame-profile substrate ports cleanly | After codex device smoke confirms the multi-engine architecture holds |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
 | **Anti-drift Layer 3** | OpenAPI for hub REST + ADR backlinks from spine docs | Triggers when surface drift bites — currently tractable by hand |
 

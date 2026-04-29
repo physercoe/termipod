@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-23)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** The mobile app is a **principal/director's surface**, not
 an operator's surface. The user directs agents; agents operate the
@@ -52,9 +52,14 @@ steward asks (`request_approval`, `request_select`, `request_help`,
 (`tiers.go` `TierStrategic`). The first three are turn-based since
 v1.0.338 ([ADR-011](011-turn-based-attention-delivery.md)) — they
 return immediately and the principal's reply lands as a new user
-turn rather than a tool-result. `permission_prompt` remains
-synchronous because Claude's `canUseTool` hook contract defines no
-deferred branch (vendor constraint, not a design choice).
+turn rather than a tool-result. `permission_prompt` is sync on
+Claude (the `canUseTool` hook contract has no deferred branch —
+vendor constraint, not a design choice) but turn-based on Codex
+since v1.0.345 ([ADR-012](012-codex-app-server-integration.md)
+D3) — codex's `app-server` JSON-RPC protocol permits arbitrary
+response latency on the long-lived stdio pipe, and slice 4 of the
+codex wedge bridges those server-initiated approval requests to
+attention_items just like the three async kinds.
 See [`reference/attention-kinds.md`](../reference/attention-kinds.md)
 for the per-kind decision tree and resolution semantics.
 

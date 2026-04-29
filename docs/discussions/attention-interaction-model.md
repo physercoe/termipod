@@ -1,9 +1,10 @@
 # Attention interaction model — long-poll vs turn-based
 
 > **Type:** discussion
-> **Status:** Resolved (2026-04-29) → `../decisions/011-turn-based-attention-delivery.md`
+> **Status:** Resolved (2026-04-29) → `../decisions/011-turn-based-attention-delivery.md`,
+>   amended by `../decisions/012-codex-app-server-integration.md`
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.338
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** When an agent calls `request_approval`, `request_select`, or
 `request_help`, today's model holds the MCP call open via a 10-min
@@ -15,7 +16,12 @@ attention kinds can be made turn-based but one cannot, and what
 "turn-based" looks like end-to-end. Resolution: ADR-011 accepted
 turn-based delivery for the three async kinds and documented
 `permission_prompt`'s sync constraint as a vendor-contract
-limitation.
+limitation. **Update (ADR-012, v1.0.347):** the
+sync-vendor-limitation argument applies to Claude only; codex's
+`app-server` JSON-RPC protocol permits deferred responses on its
+long-lived stdio pipe, so codex's `permission_prompt` is now
+turn-based on the wire too. The bridge-mediated stdio mitigation
+below stays as the claude-only escape hatch.
 
 ---
 
@@ -141,7 +147,7 @@ Bridge-mediated stdio is a workaround for a forced-sync constraint.
 Turn-based is the better model when sync isn't forced. We need only
 one workaround, for the one kind that genuinely can't be turn-based.
 
-## 6. Why permission_prompt stays sync
+## 6. Why permission_prompt stays sync (Claude only)
 
 The engine's permission hook protocol is defined as a synchronous
 request/response. Claude's `canUseTool` callback returns
@@ -157,14 +163,26 @@ deferred" turn, end its current run, wait for the user's approval,
 re-spawn or wake with the approval as the next user turn, then
 re-attempt the tool call. This is what hand-off agents like Devin
 do. It requires the engine to define a "deferred" branch in its
-hook protocol — none of Claude/Codex/Gemini do. Without that,
-faking it (return `{deny, "ask again later"}` and hope the model
-interprets it correctly) is prompt-engineering on top of undefined
-behavior.
+hook protocol.
 
-So `permission_prompt` is sync **because the engines we support
-define the contract that way**, not because of design preference.
-With the engines we have, we're stuck with sync at that boundary.
+**Update (ADR-012, 2026-04-29):** Codex's `app-server` JSON-RPC
+protocol *does* permit this. Server-initiated approval requests
+(`item/commandExecution/requestApproval` and siblings) are
+JSON-RPC requests with `id` that the client may respond to at any
+time on the long-lived stdio pipe — there's no wall-clock cap
+baked into the protocol. So codex's `permission_prompt` is now
+turn-based by construction (slice 4 of the codex wedge: driver
+POSTs an attention_items row, parks the JSON-RPC id, replies on
+`/decide` resolution). The "we need bridge-mediated stdio for
+permission_prompt" mitigation below applies to Claude only.
+Gemini's flag-based gate (`--yolo` / `--approval-mode`) doesn't
+support per-tool-call gating in either direction, so its
+`permission_prompt` story is "no in-stream gate, rely on
+strategic-tier `request_approval`."
+
+So `permission_prompt` is sync **on Claude because Claude's
+`canUseTool` contract is sync**. Codex is turn-based for free;
+gemini doesn't expose the hook at all.
 
 Mitigation for `permission_prompt`'s sync constraint: bridge-mediated
 stdio (§5). Engine ↔ bridge stdio has no timeout; bridge ↔ hub SSE

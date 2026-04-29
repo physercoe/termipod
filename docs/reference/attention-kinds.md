@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-29)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.338
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** When an agent needs the principal to weigh in, it picks one
 of three interaction shapes — `approval_request` (binary), `select`
@@ -24,8 +24,13 @@ page carries the long form with worked examples.
 
 Two more attention kinds exist but are not agent-callable:
 
-- `permission_prompt` — Claude SDK's pre-tool gate; emitted by the
-  engine's permission hook, not by the agent calling a tool.
+- `permission_prompt` — per-tool-call gate. Sync on Claude (the
+  `canUseTool` hook returns `{behavior: allow|deny}` immediately).
+  Turn-based on Codex via the app-server JSON-RPC approval bridge —
+  the codex driver POSTs an attention_items row keyed on the parked
+  request id and replies on the stdio pipe when `/decide` resolves
+  (ADR-012 D3). Either way, emitted by the engine's permission hook,
+  not by the agent calling a tool.
 - `template_proposal` — produced by `templates_propose`; the principal
   reviews a structured diff, not a free-text reply. Use that tool when
   the right artifact is the template body itself.
@@ -190,12 +195,19 @@ Full analysis in
 formal decision in
 [ADR-011](../decisions/011-turn-based-attention-delivery.md).
 
-`permission_prompt` is the only attention kind that still uses
-synchronous block — not by design preference, but because Claude's
-`canUseTool` hook protocol defines no "deferred" branch. It's a
-vendor contract limitation. Post-MVP plan: bridge-mediated stdio
-transport so the engine can wait indefinitely without exposing the
-wait to the network.
+`permission_prompt` is the only attention kind that's still
+sometimes synchronous — and only on Claude. Claude's `canUseTool`
+hook protocol returns `{behavior: allow|deny}` and has no
+"deferred" branch, so the gate must answer immediately. Codex's
+app-server JSON-RPC protocol *does* permit deferred responses on
+the long-lived stdio pipe, so a permission_prompt raised by codex
+is turn-based: the driver POSTs an attention_items row, parks the
+JSON-RPC request id locally, and replies when `/decide` resolves
+(ADR-012 D3, slice 4). The same `dispatchAttentionReply` fan-out
+that handles approval_request / select / help_request now also
+fires for permission_prompt. Bridge-mediated stdio for Claude
+remains the post-MVP escape hatch for the canUseTool sync
+limitation, narrowed to claude-only by ADR-012 D7.
 
 ## 6. Severity, not kind
 

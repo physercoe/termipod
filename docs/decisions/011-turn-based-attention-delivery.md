@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-29)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.338
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** `request_approval`, `request_select`, and `request_help`
 return immediately with `{id, status: "awaiting_response"}`. The

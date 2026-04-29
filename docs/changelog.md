@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-04-29)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,71 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.347-alpha — 2026-04-29
+
+### Added
+- **Codex integration via app-server JSON-RPC** ([ADR-012](decisions/012-codex-app-server-integration.md)).
+  Codex CLI joins claude-code as a first-class engine; the hub
+  drives `codex app-server --listen stdio://` over a long-lived
+  JSON-RPC pipe rather than `codex exec --json` per turn. Wedge
+  shipped as slices 1-6:
+  - **Slice 2 (v1.0.343):** frame profile in `agent_families.yaml`
+    translates app-server's thread/turn/item lifecycle plus
+    telemetry into the same typed agent_event vocabulary
+    claude uses. `matchesAll` grew dotted-path support
+    (`params.item.type: agentMessage`) for one-method-many-types
+    dispatch.
+  - **Slice 3 (v1.0.344):** `driver_appserver.go` is the JSON-RPC
+    client + thread manager. Handshake is initialize → initialized
+    notification → thread/start (or thread/resume <id>); Input(text)
+    maps to turn/start; the Driver interface is the launch_m2
+    return type so codex and claude both fit.
+  - **Slice 4 (v1.0.345):** approval bridge. Codex's
+    `item/commandExecution/requestApproval` and siblings POST an
+    `attention_items` row (kind=permission_prompt) and park the
+    JSON-RPC request id locally; `dispatchAttentionReply` fires for
+    permission_prompt too, and the driver's `Input("attention_reply")`
+    looks up the parked id and writes the per-method JSON-RPC
+    response on /decide resolution. Vendor-neutral equivalent of
+    Claude's permission_prompt without the canUseTool sync limit.
+  - **Slice 5 (v1.0.346):** per-family MCP config materializer.
+    Claude keeps `.mcp.json`; codex writes `.codex/config.toml`
+    (TOML, hand-formatted, no library dep). Token at 0o600.
+  - **Slice 6 (v1.0.347):** `agents.steward.codex.v1` template +
+    prompt ship in the embedded fs. Spawn cmd
+    `CODEX_HOME=.codex codex app-server --listen stdio://` bypasses
+    codex's trusted-projects gate.
+- **Decision history on Me page.** Clock icon opens recent resolved
+  attentions; tap into one to see the per-decision audit trail
+  (timestamp, decider, verdict, reason/body/option) on the detail
+  screen.
+
+### Changed
+- **Permission_prompt is now per-engine, not per-architecture.**
+  Sync on Claude (canUseTool contract); turn-based on Codex
+  (app-server deferrable JSON-RPC). ADR-011 D6's
+  bridge-mediated-stdio post-MVP wedge is now Claude-only by
+  construction (ADR-012 D7).
+- **Me filter chip "Approvals" → "Requests"** since the bucket
+  spans approval_request, select, help_request, template_proposal —
+  none of which are pure approve/deny.
+
+### Fixed
+- **Resume preserves transcript.** Stopping an active session and
+  resuming it minted a new agent and the chat opened empty — the
+  list/SSE endpoints AND'd `agent_id = ?` even when `session=<id>`
+  was provided. Now session=<id> scopes by session_id (with team
+  auth), orders by ts, and the mobile feed dedupes by event id +
+  paginates with a new `before_ts` cursor since per-agent seq is
+  unusable as a cross-agent total order.
+- **Stream-dropped banner on idle close cycles.** SSE onDone with
+  no error is an idle artifact (proxy keepalive, mobile carrier),
+  not a real drop. Banner now fires only on onError.
+- **Rate-limit countdown rendering "1540333567h"** when Anthropic
+  shipped resetsAt as a microsecond-precision integer. Unit
+  heuristic now handles seconds / ms / µs / ns plus a 7-day
+  sanity bound so any future unit confusion drops the tile.
 
 ## v1.0.338-alpha — 2026-04-29
 

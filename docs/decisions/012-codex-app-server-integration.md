@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-29)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.340
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** When we add Codex as a second engine alongside Claude Code,
 the integration point is `codex app-server` (the long-lived JSON-RPC
@@ -264,17 +264,45 @@ That shrinks the bridge wedge's scope and makes it less urgent.
   - `010-frame-profiles-as-data.md` — the substrate this builds on
   - `011-turn-based-attention-delivery.md` — D6 (`permission_prompt`
     sync exception) is now Claude-only per this ADR's D7
-- Implementation (forward-looking; this ADR is the plan, code lands
-  in subsequent wedges):
+- Implementation (slices 1-6 shipped v1.0.342–v1.0.347):
   - `hub/internal/agentfamilies/agent_families.yaml` — codex family
-    + frame profile rules keyed on `method` field
+    + frame profile rules keyed on `method` field, with
+    `params.item.type` dispatch via the dotted-path matchesAll
+    extension. Slice 2 (v1.0.343).
+  - `hub/internal/hostrunner/profile_translate.go` —
+    `matchesAll` grew dotted-path support so JSON-RPC envelopes
+    (`{method, params: {item: {type: ...}}}`) dispatch at one
+    rule per item shape. Slice 2 (v1.0.343).
   - `hub/internal/hostrunner/driver_appserver.go` — JSON-RPC client,
-    thread manager, approval bridge (new file)
+    thread manager (initialize → thread/start → turn/start),
+    notification translator, server-initiated request handler, and
+    the slice-4 approval bridge (POST attention → park id → reply
+    on /decide). Slices 3-4 (v1.0.344-v1.0.345).
   - `hub/internal/hostrunner/launch_m2.go` — per-family
-    `writeMCPConfig` dispatch (TOML for codex, JSON for claude)
-  - `hub/internal/server/handlers_attention.go` —
-    `dispatchAttentionReply` extension to route JSON-RPC approval
-    responses on resolved `permission_prompt` attentions
+    `writeMCPConfigForFamily` dispatch (TOML for codex via
+    `writeCodexMCPConfig`; JSON for claude unchanged); driver
+    dispatch chooses `*AppServerDriver` for `family=codex`,
+    `*StdioDriver` otherwise; `M2LaunchResult.Driver` typed as
+    the `Driver` interface. Slices 3+5 (v1.0.344, v1.0.346).
+  - `hub/internal/server/handlers_attention.go` — `attentionIn`
+    widened with `session_id`, `actor_handle`, `pending_payload`;
+    `dispatchAttentionReply` extended to fire for
+    `kind=permission_prompt`. Slice 4 (v1.0.345).
+  - `hub/internal/hostrunner/client.go` — `AttentionIn` widened
+    and `PostAttention` returns `AttentionOut{id, created_at}` so
+    the driver can stash the new id for response routing. Slice 4.
+  - `hub/templates/agents/steward.codex.v1.yaml` +
+    `hub/templates/prompts/steward.codex.v1.md` — built-in
+    template; cmd `CODEX_HOME=.codex codex app-server --listen
+    stdio://`. Slice 6 (v1.0.347).
+- Test coverage: every wire-format contract is unit-tested
+  (TestProfile_Codex_*, TestAppServerDriver_*,
+  TestWriteMCPConfigForFamily_*, TestDecide_PermissionPromptFansOutAttentionReply,
+  TestEmbeddedCodexStewardTemplate_ShipsExpectedShape,
+  TestLaunchM2_CodexFamily_WiresAppServerDriver). Slice 7 (real
+  cross-vendor `request_help` smoke against live codex + live
+  gemini binaries) is the remaining unfunded work — gated on
+  having those binaries available for an integration smoke.
 - External documentation:
   - https://developers.openai.com/codex/app-server (protocol reference)
   - https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md

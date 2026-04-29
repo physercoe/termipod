@@ -3,7 +3,7 @@
 > **Type:** decision
 > **Status:** Accepted (2026-04-29)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.328
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** Move every claude-code / codex / gemini-cli stream-json
 field path out of `driver_stdio.go` and into per-engine *frame
@@ -95,7 +95,11 @@ The expression vocabulary supported in v1:
 - **Outer scope** — `$$.message.id` references the parent frame
   during `for_each` walks (the inner walk variable is `$.`).
 - **Boolean predicate** — `match` blocks accept literal-equality
-  checks only (`{ type: assistant }` matches when `frame.type == "assistant"`).
+  checks only. Keys default to top-level (`{ type: assistant }` matches
+  when `frame.type == "assistant"`); dotted keys walk nested objects
+  (`{ params.item.type: agentMessage }` was added in v1.0.343 for the
+  codex profile, where the discriminator sits inside the JSON-RPC
+  `params` envelope — see `reference/frame-profiles.md` Example 4).
 
 That's the entire grammar. Everything claude-code's translator does
 today fits within it. If a future rule needs richer expressions

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-04-29)
 > **Audience:** contributors (humans + AI agent maintainers)
-> **Last verified vs code:** v1.0.329
+> **Last verified vs code:** v1.0.347
 
 **TL;DR.** A frame profile is a YAML block that tells the host-runner
 how to translate one engine's stream-json output into the hub's typed
@@ -116,7 +116,9 @@ That's the entire language. Concretely:
 ## 4. Rule shape
 
 ```yaml
-- match: { ... }              # AND-ed top-level field equality (required)
+- match: { ... }              # AND-ed field equality (required)
+                              # keys default to top-level; dotted keys
+                              # (params.item.type) walk nested objects.
   for_each: <expr>            # optional: array to iterate
   when_present: <expr>        # optional: gate emit on non-nil expression
   emit:
@@ -311,6 +313,46 @@ For a `task_started` frame, only the third rule's match-set is
 satisfied (`{type: system}`, size 1) → it fires alone. For an init
 frame, both rule 1 (size 2) and rule 3 (size 1) match → only rule 1
 fires (most specific wins).
+
+### Example 4 — nested matcher (JSON-RPC envelope, codex)
+
+JSON-RPC notifications wrap their payload under `params`, so the
+discriminator the rule needs to match (the item's `type`) sits one
+level deep. Match keys can be dotted paths to express that —
+`params.item.type: agentMessage` walks into `params`, then `item`,
+then compares `type`. Flat-key matchers (claude's `type:
+assistant`) keep working unchanged; the dot is the toggle.
+
+```yaml
+- match:
+    method: item/started
+    params.item.type: commandExecution
+  emit:
+    kind: tool_call
+    payload:
+      id:    "$.params.item.id"
+      name:  "\"commandExecution\""
+      input: "$.params.item"
+
+- match:
+    method: item/started
+    params.item.type: agentMessage
+  emit:
+    kind: system  # final text comes via item/completed; mark the start
+    payload:
+      kind:    "\"agent_message_started\""
+      item_id: "$.params.item.id"
+```
+
+Most-specific-match-wins still applies — both rules have
+match-keyset size 2, so only the rule whose `params.item.type`
+literal matches fires. Unmatched item types fall through to the
+implicit kind=raw fallback.
+
+Use dotted matchers when a single method (or other top-level
+discriminator) carries multiple shapes inside one nested field.
+Don't use them as a substitute for `for_each` over arrays — the
+dotted path walks one nested object, not a sequence.
 
 ## 6. Authoring workflow
 

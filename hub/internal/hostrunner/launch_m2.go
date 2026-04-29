@@ -406,22 +406,66 @@ func writeMCPConfig(workdir, hubURL, token string) error {
 
 // writeMCPConfigForFamily picks the right materializer by family.
 // Claude-code (the default) writes .mcp.json; codex writes
-// .codex/config.toml per ADR-012 D5; gemini will write
-// .gemini/settings.json when its driver lands.
+// .codex/config.toml per ADR-012 D5; gemini writes
+// .gemini/settings.json per ADR-013 D5.
 //
 // Spawn templates are responsible for pointing the engine at this
 // config. Codex picks up `.codex/config.toml` only from "trusted
 // projects" by default, so the codex spawn template sets
-// `CODEX_HOME=<workdir>/.codex` in the launch env (slice 6 wedge);
-// that bypasses the trust-list and keeps each spawn's MCP scope
-// isolated to its own workdir.
+// `CODEX_HOME=<workdir>/.codex` in the launch env; that bypasses
+// the trust-list and keeps each spawn's MCP scope isolated to its
+// own workdir. Gemini reads project-scoped `<workdir>/.gemini/
+// settings.json` automatically — no equivalent gate to bypass.
 func writeMCPConfigForFamily(family, workdir, hubURL, token string) error {
 	switch family {
 	case "codex":
 		return writeCodexMCPConfig(workdir, hubURL, token)
+	case "gemini-cli":
+		return writeGeminiMCPConfig(workdir, hubURL, token)
 	default:
 		return writeMCPConfig(workdir, hubURL, token)
 	}
+}
+
+// writeGeminiMCPConfig emits gemini-cli's JSON form at
+// <workdir>/.gemini/settings.json (ADR-013 D5):
+//
+//	{
+//	  "mcpServers": {
+//	    "termipod": {
+//	      "command": "hub-mcp-bridge",
+//	      "env": { "HUB_URL": "<url>", "HUB_TOKEN": "<token>" }
+//	    }
+//	  }
+//	}
+//
+// Wire shape matches claude's .mcp.json exactly because gemini-cli's
+// settings.json mcpServers schema accepts the same stdio
+// command+env transport. Different file location (project-scoped
+// .gemini/ rather than top-level dotfile), same hub-mcp-bridge on
+// the other end. File mode 0o600; .gemini directory mode 0o700.
+func writeGeminiMCPConfig(workdir, hubURL, token string) error {
+	dir := filepath.Join(workdir, ".gemini")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("mkdir .gemini: %w", err)
+	}
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			hub.MCPServerName: map[string]any{
+				"command": "hub-mcp-bridge",
+				"env": map[string]string{
+					"HUB_URL":   hubURL,
+					"HUB_TOKEN": token,
+				},
+			},
+		},
+	}
+	body, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(dir, "settings.json")
+	return os.WriteFile(target, body, 0o600)
 }
 
 // writeCodexMCPConfig emits codex's TOML form:

@@ -140,24 +140,36 @@ bridge in a follow-up ADR. For now: no permission_prompt, period.
 
 `writeMCPConfigForFamily` (introduced in ADR-012 D5 / slice 5) gains
 a `gemini` branch that writes `<workdir>/.gemini/settings.json`. The
-shape:
+shape mirrors claude's `.mcp.json` — gemini-cli's `mcpServers`
+schema accepts the stdio `command + env` transport identically, and
+keeping the wire shape parallel keeps `hub-mcp-bridge` itself
+unaware of which engine is on the other side:
 
 ```json
 {
   "mcpServers": {
-    "termipod-hub": {
-      "url": "http://127.0.0.1:<port>/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
+    "termipod": {
+      "command": "hub-mcp-bridge",
+      "env": {
+        "HUB_URL": "<url>",
+        "HUB_TOKEN": "<token>"
+      }
     }
   }
 }
 ```
 
 File mode `0o600` and `mkdir -p .gemini` follow the codex precedent.
-Per-project (`.gemini/`) rather than user-level (`~/.gemini/`)
-because we want the same per-spawn isolation we get for codex —
-multiple agents on the same host writing into the same global config
-would race.
+Per-project (`<workdir>/.gemini/`) rather than user-level
+(`~/.gemini/`) because we want the same per-spawn isolation we get
+for codex — multiple agents on the same host writing into the same
+global config would race. gemini-cli reads project-scoped
+`<workdir>/.gemini/settings.json` automatically when the cwd matches
+(no equivalent of codex's trusted-projects gate to bypass).
+
+Server alias `termipod` (the existing `hub.MCPServerName` constant)
+already avoids underscores, which gemini-cli's docs warn about for
+policy-engine parsing — no rename needed.
 
 **D6. Cancellation is SIGTERM the subprocess; resume preserves
 continuity.**

@@ -1398,6 +1398,19 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Fetches the originating context for an attention item — the
+  /// session it was raised from, the agent that raised it, and the
+  /// last 10 transcript turns leading up to the request. Drives the
+  /// approval-detail screen's transcript block + "Open in chat" jump.
+  /// Returns shape `{attention_id, session_id?, agent_id?, agent_handle?, events: [...]}`
+  /// where `events` is newest-first (seq DESC). Empty `events` means
+  /// the attention was system-originated or pre-dates the
+  /// session_id population (v1.0.336).
+  Future<Map<String, dynamic>> getAttentionContext(String id) async {
+    final out = await _get('/v1/teams/${cfg.teamId}/attention/$id/context');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   Future<Map<String, dynamic>> resolveAttention(
     String id, {
     String? by,

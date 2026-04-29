@@ -37,6 +37,12 @@ type attentionOut struct {
 	RefTaskID   string          `json:"ref_task_id,omitempty"`
 	ActorKind   string          `json:"actor_kind,omitempty"`
 	ActorHandle string          `json:"actor_handle,omitempty"`
+	// SessionID names the chat session the originating agent was running
+	// in when it raised this attention. Populated by the request_*
+	// MCP handlers; empty for system-originated attentions (budget,
+	// spawn approval) and pre-v1.0.336 rows. Drives the detail screen's
+	// "Open in chat" jump and the recent-transcript context block.
+	SessionID   string          `json:"session_id,omitempty"`
 	Assignees   json.RawMessage `json:"assignees"`
 	Decisions   json.RawMessage `json:"decisions"`
 	Escalation  json.RawMessage `json:"escalation_history"`
@@ -102,6 +108,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(ref_event_id, ''), COALESCE(ref_task_id, ''),
 		       summary, severity,
 		       COALESCE(actor_kind, ''), COALESCE(actor_handle, ''),
+		       COALESCE(session_id, ''),
 		       current_assignees_json, decisions_json, escalation_history_json,
 		       status, created_at, resolved_at, COALESCE(resolved_by, ''),
 		       COALESCE(pending_payload_json, '')
@@ -125,7 +132,7 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 		var resolvedAt sql.NullString
 		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
 			&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
-			&a.ActorKind, &a.ActorHandle,
+			&a.ActorKind, &a.ActorHandle, &a.SessionID,
 			&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
 			&resolvedAt, &a.ResolvedBy, &pending); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -373,6 +380,111 @@ func (s *Server) installProposedTemplate(payload string) ([]byte, error) {
 		"path":     dst,
 		"bytes":    len(body),
 	})
+}
+
+// attentionContextOut is the payload returned by /attention/{id}/context.
+// Two layers of context: the originating session's identity (so the
+// detail screen can render an "Open in chat" jump) and the recent
+// transcript turns leading up to the request (the actual *why*).
+//
+// `events` is newest-first (seq DESC) so the renderer can take the
+// first N for the most relevant slice without sorting; the typical
+// caller wants the last 5-10 turns. ts is bounded by the attention's
+// created_at to avoid leaking events that happened *after* the
+// attention was raised — those weren't context for the agent's ask.
+type attentionContextOut struct {
+	AttentionID string                   `json:"attention_id"`
+	SessionID   string                   `json:"session_id,omitempty"`
+	AgentID     string                   `json:"agent_id,omitempty"`
+	AgentHandle string                   `json:"agent_handle,omitempty"`
+	Events      []map[string]any         `json:"events"`
+}
+
+func (s *Server) handleAttentionContext(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "id")
+
+	var (
+		sessionID, createdAt string
+		actorHandle          sql.NullString
+	)
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT COALESCE(session_id, ''), created_at, actor_handle
+		  FROM attention_items
+		 WHERE id = ?`, id).Scan(&sessionID, &createdAt, &actorHandle)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "attention not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	out := attentionContextOut{
+		AttentionID: id,
+		SessionID:   sessionID,
+		Events:      []map[string]any{},
+	}
+	if actorHandle.Valid {
+		out.AgentHandle = actorHandle.String
+	}
+
+	// No session pointer = no context to render. Return empty events
+	// rather than 404 so the mobile detail screen can degrade gracefully
+	// (older attention rows from before this column was populated).
+	if sessionID == "" {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+
+	// Resolve the agent_id via the session row. Sessions point at their
+	// current_agent_id; for resumed sessions this is the live agent, for
+	// archived sessions it's the most recent. Either way, the recent
+	// transcript belongs to that agent_id.
+	var currentAgentID sql.NullString
+	if err := s.db.QueryRowContext(r.Context(), `
+		SELECT current_agent_id FROM sessions
+		 WHERE team_id = ? AND id = ?`, team, sessionID).Scan(&currentAgentID); err == nil {
+		if currentAgentID.Valid {
+			out.AgentID = currentAgentID.String
+		}
+	}
+
+	// Pull the last 10 events from this session up to the attention's
+	// created_at. Newest-first so the caller can slice without sorting.
+	rows, err := s.db.QueryContext(r.Context(), `
+		SELECT id, agent_id, seq, ts, kind, producer, payload_json
+		  FROM agent_events
+		 WHERE session_id = ?
+		   AND ts <= ?
+		 ORDER BY seq DESC
+		 LIMIT 10`, sessionID, createdAt)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			eid, agentID, kind, producer, payload, ts string
+			seq                                       int64
+		)
+		if err := rows.Scan(&eid, &agentID, &seq, &ts, &kind, &producer, &payload); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out.Events = append(out.Events, map[string]any{
+			"id":       eid,
+			"agent_id": agentID,
+			"seq":      seq,
+			"ts":       ts,
+			"kind":     kind,
+			"producer": producer,
+			"payload":  json.RawMessage(payload),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type attentionResolveIn struct {

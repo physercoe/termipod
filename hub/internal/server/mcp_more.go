@@ -323,15 +323,16 @@ func (s *Server) mcpRequestApproval(ctx context.Context, team, fromID string, ra
 	id := NewID()
 	now := NowUTC()
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	sessionID := s.lookupAgentSession(ctx, fromID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
-			actor_kind, actor_handle
+			actor_kind, actor_handle, session_id
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'approval_request',
 		          ?, ?, '[]', 'open', ?,
-		          'agent', NULLIF(?, ''))`,
-		id, a.ScopeKind, a.ScopeID, a.Summary, severity, now, actorHandle)
+		          'agent', NULLIF(?, ''), NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, a.Summary, severity, now, actorHandle, sessionID)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
@@ -380,6 +381,7 @@ func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw 
 		"agent_id": fromID,
 	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	sessionID := s.lookupAgentSession(ctx, fromID)
 	// Stored as kind='select' (the noun) — the MCP tool stays
 	// `request_select` (the agent-facing verb) so existing prompts
 	// don't break, but the resolver UI reads `select` which is sharper
@@ -388,11 +390,11 @@ func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw 
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
-			actor_kind, actor_handle, pending_payload_json
+			actor_kind, actor_handle, pending_payload_json, session_id
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'select',
 		          ?, 'minor', '[]', 'open', ?,
-		          'agent', NULLIF(?, ''), ?)`,
-		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle, string(payload))
+		          'agent', NULLIF(?, ''), ?, NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, summary, now, actorHandle, string(payload), sessionID)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
@@ -500,15 +502,16 @@ func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw js
 		"agent_id": fromID,
 	})
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	sessionID := s.lookupAgentSession(ctx, fromID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			summary, severity, current_assignees_json, status, created_at,
-			actor_kind, actor_handle, pending_payload_json
+			actor_kind, actor_handle, pending_payload_json, session_id
 		) VALUES (?, NULL, ?, NULLIF(?, ''), 'help_request',
 		          ?, ?, '[]', 'open', ?,
-		          'agent', NULLIF(?, ''), ?)`,
-		id, a.ScopeKind, a.ScopeID, a.Question, severity, now, actorHandle, string(payload))
+		          'agent', NULLIF(?, ''), ?, NULLIF(?, ''))`,
+		id, a.ScopeKind, a.ScopeID, a.Question, severity, now, actorHandle, string(payload), sessionID)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}

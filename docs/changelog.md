@@ -23,6 +23,40 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.336-alpha — 2026-04-29
+
+### Added
+- Approval detail screen now renders origin context: agent + session
+  pointers ("Open in chat" jumps directly to the originating session's
+  transcript), the last 10 transcript turns leading up to the request
+  (filtered by session_id, capped by attention.created_at), and
+  inline action controls that mirror the Me-page card. Resolving from
+  the detail screen pops back to the Me page since the row drops off
+  the open list.
+- Server: request_approval / request_select / request_help all stamp
+  attention_items.session_id at insert time via new
+  Server.lookupAgentSession helper. Empty for system-originated
+  attentions (budget, spawn approval) and pre-v1.0.336 rows; the
+  detail screen degrades gracefully to a metadata-only view.
+- New endpoint: GET /v1/teams/{team}/attention/{id}/context returns
+  {session_id, agent_id, agent_handle, events: [...]} with newest-
+  first transcript turns. Two tests pin the contract — full round
+  trip from request_help and the no-session-pointer fallback.
+- attentionOut now carries session_id; the list endpoint exposes it
+  to mobile so the Me-page card can pre-decide whether the detail
+  screen will have anything to render.
+
+### Changed
+- Inline action widgets (InlineApprovalActions, InlineHelpRequestActions)
+  extracted from me_screen.dart to lib/screens/me/inline_actions.dart
+  so the approval detail screen can reuse them without a circular
+  import. Both gain an optional onResolved callback so the detail
+  screen can pop after a successful decide; the Me-page card leaves
+  it null and lets the row drop out of the open list on its own.
+- approval_detail_screen.dart rewritten as a ConsumerStatefulWidget
+  that fetches context on mount; the apologetic "actions will land
+  here in a follow-up" footer is gone — actions are inline.
+
 ## v1.0.335-alpha — 2026-04-29
 
 ### Added

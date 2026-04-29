@@ -731,6 +731,30 @@ func (s *Server) lookupHandleByID(ctx context.Context, team, agentID string) (st
 	return h, err
 }
 
+// lookupAgentSession returns the session_id this agent is currently the
+// current_agent_id of, or "" if the agent has no live session pointer.
+// Used by the request_* MCP tools to stamp attention_items.session_id so
+// the mobile detail screen can render the originating chat's recent
+// turns and offer "Open in chat" without a second lookup. Empty agentID
+// or no-row both return ""; callers don't need a hard error here, the
+// session pointer is decorative — attention semantics are unchanged
+// when it's missing.
+func (s *Server) lookupAgentSession(ctx context.Context, agentID string) string {
+	if agentID == "" {
+		return ""
+	}
+	var id string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id FROM sessions
+		 WHERE current_agent_id = ?
+		 ORDER BY last_active_at DESC
+		 LIMIT 1`, agentID).Scan(&id)
+	if err != nil {
+		return ""
+	}
+	return id
+}
+
 func appendJournal(path, header, entry string) error {
 	if header == "" {
 		header = "## " + NowUTC()

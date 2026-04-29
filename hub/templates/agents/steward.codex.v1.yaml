@@ -1,0 +1,78 @@
+# Codex steward template — ADR-012 D1.
+#
+# Drives `codex app-server` over its JSON-RPC stdio protocol. Slice 3
+# of the codex wedge (driver_appserver.go) handles the framing; this
+# template is what makes that driver reachable to the steward UX.
+#
+# Built-in. Copied to team/templates/agents/ on first init; user
+# edits win — subsequent inits never overwrite.
+template: agents.steward.codex
+version: 1
+extends: null
+
+# M2 (structured stdio) is the only mode that makes sense for
+# app-server — its whole point is the JSON-RPC stdio framing. The M4
+# pane fallback exists for hosts that can't expose the agent's stdio
+# at all; it loses turn-based interaction but keeps a live transcript.
+driving_mode: M2
+fallback_modes: [M4]
+
+backend:
+  kind: codex
+  # Codex picks the model server-side (the app-server's `model/list`
+  # method enumerates available models; `turn/start` accepts an
+  # override). We don't bake a model name into cmd because the
+  # protocol picks per-turn — leaving it open lets the steward
+  # promote/demote without re-spawning.
+  default_workdir: ~/hub-work
+  # No permission_modes map: codex's per-tool-call gate is in-stream
+  # via item/*/requestApproval JSON-RPC requests (ADR-012 D3 / slice
+  # 4 bridge), not a flag. The bridge runs on every spawn whose
+  # AppServerDriver has Attention wired (production path).
+  #
+  # cmd shape:
+  #   CODEX_HOME=.codex
+  #     — points codex at the project-scoped MCP config slice 5
+  #       writes to <workdir>/.codex/config.toml. After the
+  #       launcher's `cd <workdir>`, `.codex` is the relative dir.
+  #       Setting CODEX_HOME bypasses codex's "trusted projects"
+  #       gate so each spawn's MCP scope stays isolated to its own
+  #       workdir.
+  #   codex app-server --listen stdio://
+  #     — long-lived JSON-RPC daemon, line-delimited JSON-RPC over
+  #       this process's stdin/stdout. The driver speaks initialize,
+  #       thread/start, turn/start, and routes notifications + the
+  #       slice-4 approval bridge over the same pipe.
+  cmd: "CODEX_HOME=.codex codex app-server --listen stdio://"
+
+default_role: team.coordinator
+display_label: "Steward (codex)"
+
+# Same governance shape as the claude steward — codex stewards
+# coordinate the same way once the JSON-RPC layer is hidden.
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.codex.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a project goal into plan steps"
+    tags: [planning]
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
+default_channels:
+  hub-meta: full

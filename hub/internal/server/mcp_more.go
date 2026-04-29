@@ -50,8 +50,12 @@ func mcpToolDefsExtra() []map[string]any {
 			},
 		},
 		{
-			"name":        "request_approval",
-			"description": "Ask a human (or higher-tier agent) to approve an action.",
+			"name": "request_approval",
+			"description": "Ask a human (or higher-tier agent) to approve an action. " +
+				"Returns immediately with `{id, status: \"awaiting_response\"}`. " +
+				"END YOUR TURN AFTER CALLING. The principal's decision arrives as " +
+				"your next user turn (e.g. \"Approved\" / \"Rejected: <reason>\"). " +
+				"See docs/reference/attention-kinds.md.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -65,8 +69,12 @@ func mcpToolDefsExtra() []map[string]any {
 			},
 		},
 		{
-			"name":        "request_select",
-			"description": "Ask for a choice between named options. Creates an attention_item.",
+			"name": "request_select",
+			"description": "Ask for a choice between named options. Creates an " +
+				"attention_item. Returns immediately with `{id, status: " +
+				"\"awaiting_response\"}`. END YOUR TURN AFTER CALLING. The " +
+				"principal's pick arrives as your next user turn (e.g. " +
+				"\"Selected: <option>\"). See docs/reference/attention-kinds.md.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -87,8 +95,10 @@ func mcpToolDefsExtra() []map[string]any {
 				"valid answers ahead of time (use request_select). Tiebreaker: when in doubt between kinds, " +
 				"prefer the more open one — request_help expands the answer space rather than constraining it. " +
 				"`mode` tunes the urgency framing: 'clarify' for routine questions, 'handoff' when you're " +
-				"genuinely blocked and need the principal to take over. The principal's free-text reply is " +
-				"returned as `body`. See docs/reference/attention-kinds.md for the full decision tree.",
+				"genuinely blocked and need the principal to take over. " +
+				"Returns immediately with `{id, status: \"awaiting_response\"}`. END YOUR TURN AFTER CALLING. " +
+				"The principal's free-text reply arrives as your next user turn. " +
+				"See docs/reference/attention-kinds.md for the full decision tree.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -351,12 +361,6 @@ type requestSelectArgs struct {
 	ScopeID   string   `json:"scope_id"`
 }
 
-// requestSelectTimeout caps the long-poll for a decision. Mirrors
-// permissionPromptTimeout — long enough that the user has time to read
-// and answer on a phone, short enough that an unanswered prompt times
-// out before claude's outer turn budget gives up on the agent.
-const requestSelectTimeout = 10 * time.Minute
-
 func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a requestSelectArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.Question == "" || len(a.Options) == 0 {
@@ -402,36 +406,16 @@ func (s *Server) mcpRequestSelect(ctx context.Context, team, fromID string, raw 
 		"selection awaiting user: "+a.Question,
 		map[string]any{"agent_id": fromID, "options": a.Options})
 
-	// Long-poll for resolution so the agent receives the chosen option.
-	// Without this, request_select was fire-and-forget — the steward
-	// would ask "pick a color" and have no way to know what the user
-	// chose.
-	pctx, cancel := context.WithTimeout(ctx, requestSelectTimeout)
-	defer cancel()
-	last, err := s.waitForAttentionResolution(pctx, id)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			_, _ = s.db.ExecContext(context.Background(), `
-				UPDATE attention_items
-				   SET status = 'resolved', resolved_at = ?
-				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
-			return mcpResultJSON(map[string]any{
-				"id":      id,
-				"kind":    "select",
-				"timeout": true,
-			}), nil
-		}
-		return nil, &jrpcError{Code: -32000, Message: err.Error()}
-	}
-	optionID, _ := last["option_id"].(string)
-	decision, _ := last["decision"].(string)
-	reason, _ := last["reason"].(string)
+	// Turn-based delivery: return immediately with awaiting_response,
+	// then end the turn (per the tool description). The principal's
+	// pick is delivered as a fresh user turn through agent_input
+	// kind='attention_reply' when /decide resolves the attention. The
+	// long-poll model this replaced was fragile against transport
+	// idle timeouts and pinned engine resources for nothing.
 	return mcpResultJSON(map[string]any{
 		"id":           id,
 		"kind":         "select",
-		"option_id":    optionID,
-		"decision":     decision,
-		"reason":       reason,
+		"status":       "awaiting_response",
 		"requested_by": fromID,
 	}), nil
 }
@@ -458,11 +442,6 @@ type requestHelpArgs struct {
 	ScopeKind string `json:"scope_kind"`
 	ScopeID   string `json:"scope_id"`
 }
-
-// requestHelpTimeout matches requestSelectTimeout: long enough that the
-// user has time to compose a reply on a phone, short enough that an
-// unanswered prompt times out before the agent's outer turn budget gives up.
-const requestHelpTimeout = 10 * time.Minute
 
 func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
 	var a requestHelpArgs
@@ -519,36 +498,17 @@ func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw js
 		"help requested ("+mode+"): "+a.Question,
 		map[string]any{"agent_id": fromID, "mode": mode, "severity": severity})
 
-	// Long-poll for the principal's reply. `decide` with decision='approve'
-	// + body=<reply> records the answer; decision='reject' = "I'm dismissing
-	// this without answering, agent should give up or try a different
-	// approach." Both resolve the attention.
-	pctx, cancel := context.WithTimeout(ctx, requestHelpTimeout)
-	defer cancel()
-	last, err := s.waitForAttentionResolution(pctx, id)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			_, _ = s.db.ExecContext(context.Background(), `
-				UPDATE attention_items
-				   SET status = 'resolved', resolved_at = ?
-				 WHERE id = ? AND status = 'open'`, NowUTC(), id)
-			return mcpResultJSON(map[string]any{
-				"id":      id,
-				"kind":    "help_request",
-				"timeout": true,
-			}), nil
-		}
-		return nil, &jrpcError{Code: -32000, Message: err.Error()}
-	}
-	body, _ := last["body"].(string)
-	decision, _ := last["decision"].(string)
-	reason, _ := last["reason"].(string)
+	// Turn-based delivery: return immediately with awaiting_response,
+	// then end the turn (per the tool description). The principal's
+	// reply is delivered as a fresh user turn through agent_input
+	// kind='attention_reply' when /decide resolves the attention. The
+	// long-poll model this replaced was fragile against transport
+	// idle timeouts; turn-based puts persistence in the conversation
+	// history, so a 3-day-later reply still reaches the agent.
 	return mcpResultJSON(map[string]any{
 		"id":           id,
 		"kind":         "help_request",
-		"body":         body,
-		"decision":     decision,
-		"reason":       reason,
+		"status":       "awaiting_response",
 		"requested_by": fromID,
 	}), nil
 }

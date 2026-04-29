@@ -595,6 +595,75 @@ func TestStdioDriver_InputFrames(t *testing.T) {
 			},
 		},
 		{
+			name: "attention_reply_help",
+			kind: "attention_reply",
+			payload: map[string]any{
+				"request_id": "att_abcdef1234567890",
+				"kind":       "help_request",
+				"decision":   "approve",
+				"body":       "Refactor auth first.",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				// MUST be a user-text turn, NOT a tool_result — the
+				// agent's tool call has already returned with
+				// awaiting_response. Reply lands as a fresh turn.
+				if block["type"] != "text" {
+					t.Fatalf("attention_reply must be type=text (user turn), got %v", block["type"])
+				}
+				text := block["text"].(string)
+				if !strings.Contains(text, "Refactor auth first.") {
+					t.Fatalf("body missing: %q", text)
+				}
+				if !strings.Contains(text, "att_abcd") {
+					t.Fatalf("correlation id prefix missing: %q", text)
+				}
+				if !strings.Contains(text, "help_request") {
+					t.Fatalf("kind missing from prefix: %q", text)
+				}
+			},
+		},
+		{
+			name: "attention_reply_select",
+			kind: "attention_reply",
+			payload: map[string]any{
+				"request_id": "att_xyz",
+				"kind":       "select",
+				"decision":   "approve",
+				"option_id":  "Red",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				text := block["text"].(string)
+				if !strings.Contains(text, "Selected: Red") {
+					t.Fatalf("select reply missing 'Selected: Red': %q", text)
+				}
+			},
+		},
+		{
+			name: "attention_reply_approval",
+			kind: "attention_reply",
+			payload: map[string]any{
+				"request_id": "att_app",
+				"kind":       "approval_request",
+				"decision":   "reject",
+				"reason":     "wrong host",
+			},
+			check: func(t *testing.T, frame map[string]any) {
+				msg := frame["message"].(map[string]any)
+				block := msg["content"].([]any)[0].(map[string]any)
+				text := block["text"].(string)
+				if !strings.Contains(text, "Rejected") {
+					t.Fatalf("approval reply missing Rejected: %q", text)
+				}
+				if !strings.Contains(text, "wrong host") {
+					t.Fatalf("reason missing: %q", text)
+				}
+			},
+		},
+		{
 			name:    "cancel",
 			kind:    "cancel",
 			payload: map[string]any{"reason": "too slow"},

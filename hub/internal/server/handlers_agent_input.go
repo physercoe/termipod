@@ -100,6 +100,33 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		}
 		payloadMap["request_id"] = in.RequestID
 		payloadMap["body"] = in.Body
+	case "attention_reply":
+		// Turn-based wake-up for request_approval / request_select /
+		// request_help. The agent's tool returned immediately with
+		// awaiting_response and the agent ended its turn; this delivery
+		// is a fresh user turn (NOT a tool_result, that's `answer`'s job).
+		// Server-side fan-out from /decide is the primary producer; we
+		// also accept it via this HTTP handler for completeness so an
+		// operator can manually wake an agent from the CLI in a pinch.
+		// `kind` here is the attention's kind (approval_request | select |
+		// help_request) — the driver uses it to format the user turn.
+		if in.RequestID == "" {
+			writeErr(w, http.StatusBadRequest, "request_id required")
+			return
+		}
+		payloadMap["request_id"] = in.RequestID
+		if in.Body != "" {
+			payloadMap["body"] = in.Body
+		}
+		if in.Decision != "" {
+			payloadMap["decision"] = in.Decision
+		}
+		if in.OptionID != "" {
+			payloadMap["option_id"] = in.OptionID
+		}
+		if in.Note != "" {
+			payloadMap["note"] = in.Note
+		}
 	case "cancel":
 		if in.Reason != "" {
 			payloadMap["reason"] = in.Reason
@@ -112,7 +139,7 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		payloadMap["document_id"] = in.DocumentID
 	default:
 		writeErr(w, http.StatusBadRequest,
-			"kind must be text|approval|answer|cancel|attach")
+			"kind must be text|approval|answer|attention_reply|cancel|attach")
 		return
 	}
 

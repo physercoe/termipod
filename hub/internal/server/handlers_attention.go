@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -328,6 +329,19 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 			out.Executed = b
 		}
 	}
+	// Turn-based fan-out: when an attention raised by an agent is
+	// resolved, deliver the resolution back to the agent as a fresh
+	// user turn (input.attention_reply). The agent's request_*
+	// MCP tool returned immediately with awaiting_response and ended
+	// its turn; this is what wakes it up. Best-effort — the resolve
+	// itself is what counts; fan-out failures don't roll back the
+	// decide. permission_prompt + template_proposal are excluded:
+	// the first is sync-blocking by vendor contract (waitForAttentionDecision
+	// path, separate from this handler's response semantics) and
+	// the second has its own follow-up flow.
+	if resolved && (kind == "approval_request" || kind == "select" || kind == "help_request") {
+		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in)
+	}
 	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,
 		in.Decision+" attention ("+kind+")",
 		map[string]any{
@@ -515,4 +529,89 @@ func (s *Server) handleResolveAttention(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// dispatchAttentionReply posts an `input.attention_reply` agent_event so
+// the originating agent receives the principal's decision as a fresh user
+// turn. This is the wake-up path for the turn-based request_approval /
+// request_select / request_help flow: those tools return immediately with
+// `awaiting_response`, the agent ends its turn, and this delivery is what
+// resumes the conversation.
+//
+// Target agent: lookup via attention.session_id → sessions.current_agent_id.
+// The current_agent_id may differ from the agent that raised the attention
+// (e.g. session was resumed with a fresh agent in the meantime); that's
+// correct — the new agent inherits the conversation context and is who
+// should receive the reply.
+//
+// Best-effort: returns the first error encountered but the decide handler
+// ignores it (the resolve already committed; we don't want a dispatch hiccup
+// to make the decision look failed). For attentions with no session_id
+// (system-originated rows, legacy rows pre-v1.0.336), we silently skip
+// the fan-out — there's no agent to deliver to.
+func (s *Server) dispatchAttentionReply(ctx context.Context, attentionID, kind string, in *attentionDecideIn) error {
+	var sessionID sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT session_id FROM attention_items WHERE id = ?`, attentionID,
+	).Scan(&sessionID); err != nil {
+		return err
+	}
+	if !sessionID.Valid || sessionID.String == "" {
+		return nil
+	}
+	var currentAgentID sql.NullString
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT current_agent_id FROM sessions WHERE id = ?`, sessionID.String,
+	).Scan(&currentAgentID); err != nil {
+		return err
+	}
+	if !currentAgentID.Valid || currentAgentID.String == "" {
+		return nil
+	}
+
+	// payload carries the structured fields the driver needs to build a
+	// readable user turn for the engine. The driver formats the surface
+	// representation (text content) per kind; carrying the raw fields here
+	// keeps the dispatch policy layered above the engine wire shape.
+	payloadMap := map[string]any{
+		"request_id": attentionID,
+		"kind":       kind,
+		"decision":   in.Decision,
+	}
+	if in.Body != "" {
+		payloadMap["body"] = in.Body
+	}
+	if in.OptionID != "" {
+		payloadMap["option_id"] = in.OptionID
+	}
+	if in.Reason != "" {
+		payloadMap["reason"] = in.Reason
+	}
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return err
+	}
+
+	id := NewID()
+	ts := NowUTC()
+	agentID := currentAgentID.String
+	if _, err := s.db.ExecContext(ctx, `
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?
+		  FROM agent_events WHERE agent_id = ?`,
+		id, agentID, ts, "input.attention_reply", "user", string(payload), sessionID.String, agentID,
+	); err != nil {
+		return err
+	}
+	s.touchSession(ctx, sessionID.String)
+	s.bus.Publish(agentBusKey(agentID), map[string]any{
+		"id":         id,
+		"agent_id":   agentID,
+		"ts":         ts,
+		"kind":       "input.attention_reply",
+		"producer":   "user",
+		"payload":    json.RawMessage(payload),
+		"session_id": sessionID.String,
+	})
+	return nil
 }

@@ -122,23 +122,75 @@ always to apply rule 4 (when in doubt, pick more open).
 | `request_approval` for "I'm stuck, can you help?" | A binary approve doesn't carry information; agent will need a follow-up | `request_help` (`mode: handoff`) |
 | `request_help` for "delete this file?" | Open answer space invites the principal to type "yes" or "no" — they want a button | `request_approval` |
 
-## 5. Resolution semantics
+## 5. Resolution semantics — turn-based delivery
 
-All three kinds resolve through the same `/v1/teams/{team}/attention/{id}/decide`
-endpoint, but `decide` carries different fields per kind:
+The three async kinds are **turn-based**: the agent's `request_*` MCP
+call returns immediately with `{id, status: "awaiting_response"}`,
+and the agent ends its turn. The principal's reply lands as a
+**fresh user turn** on the agent's transcript via
+`input.attention_reply` when `/decide` resolves the attention. There
+is no long-poll, no transport-imposed timeout, and no "didn't answer
+in 10 minutes" failure mode.
 
 ```text
-approval_request → { decision: "approve" | "reject" }
+agent: request_help({question: "..."})
+hub:   → returns {id, status: "awaiting_response"}
+agent: ends turn
+       (engine sits idle, no tokens consumed)
+
+principal opens app at any later time (minutes / hours / days)
+       /decide → { decision: "approve", body: "..." }
+hub:   resolves attention + posts input.attention_reply event
+runner: forwards as a user turn to the engine
+agent: wakes, sees "[reply to help_request <id>] <body>",
+       processes, continues
+```
+
+`/decide` request shape per kind:
+
+```text
+approval_request → { decision: "approve" | "reject", reason?: "..." }
 select           → { decision: "approve", option_id: "<picked option>" }
-                 → { decision: "reject" }    # dismiss; no option chosen
+                 → { decision: "reject", reason?: "..." }   # dismiss
 help_request     → { decision: "approve", body: "<free-text reply>" }
-                 → { decision: "reject", reason: "..." }    # dismiss
+                 → { decision: "reject", reason?: "..." }   # dismiss
 ```
 
 For `help_request`, an `approve` without a `body` is a 400 — the
 principal must either type a reply (approve+body) or dismiss
-(reject). The agent's long-poll on `request_help` returns the last
-decision dict verbatim, so `body` flows back without a second hop.
+(reject). The user-turn text the engine sees is rendered per kind:
+
+- `approval_request` approve → "Approved" (or "Approved. Reason: …")
+- `approval_request` reject → "Rejected" (or "Rejected. Reason: …")
+- `select` approve → "Selected: <option>"
+- `select` reject → "No option chosen"
+- `help_request` approve → "<body>" verbatim
+- `help_request` reject → "Dismissed without reply"
+
+A short correlation prefix `[reply to <kind> <short-id>]` is included
+so the agent can match replies to multiple in-flight requests.
+
+### Why turn-based, not long-poll
+
+The earlier model long-polled the MCP call for 10 minutes. That was
+wrong for human-AI interaction:
+
+- Humans answer in seconds, minutes, hours, or days. A 10-minute
+  hard cap meant a request that took 12 minutes to read and consider
+  was effectively dropped.
+- Connection-pinned waits are fragile against HTTP idle timeouts,
+  proxy resets, and host-runner restarts.
+- The engine process held memory for the duration, doing nothing.
+- The conversation history, not the open connection, is the right
+  place to store "what the agent asked." Turn-based puts persistence
+  there.
+
+`permission_prompt` is the only attention kind that still uses
+synchronous block — not by design preference, but because Claude's
+`canUseTool` hook protocol defines no "deferred" branch. It's a
+vendor contract limitation. Post-MVP plan: bridge-mediated stdio
+transport so the engine can wait indefinitely without exposing the
+wait to the network.
 
 ## 6. Severity, not kind
 

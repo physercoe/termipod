@@ -213,7 +213,7 @@ func TestPostAgentInput_UnknownKindMessage(t *testing.T) {
 	}
 	// Contract: error body carries the normative kinds list so clients
 	// can surface a helpful message without hardcoding.
-	if !bytes.Contains(raw, []byte("text|approval|answer|cancel|attach")) {
+	if !bytes.Contains(raw, []byte("text|approval|answer|attention_reply|cancel|attach")) {
 		t.Errorf("error body missing kinds list: %s", raw)
 	}
 }

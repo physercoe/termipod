@@ -561,6 +561,23 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 			"content":     body,
 			"is_error":    false,
 		}}
+	case "attention_reply":
+		// Turn-based reply to request_approval / request_select /
+		// request_help. The agent's tool already returned (with
+		// awaiting_response); now the principal's decision arrives as
+		// a fresh user turn — NOT a tool_result, since the tool call
+		// is no longer pending. Format depends on attention kind:
+		//   approval_request → "Approved" / "Rejected: <reason>"
+		//   select           → "Selected: <option>"
+		//   help_request     → the principal's body verbatim (or
+		//                      "Dismissed: <reason>" on reject)
+		// We still include the request_id in a small prefix so the
+		// agent can correlate replies when multiple are in flight.
+		text := formatAttentionReplyText(payload)
+		if text == "" {
+			return nil, fmt.Errorf("stdio driver: attention_reply produced no text")
+		}
+		content = []map[string]any{{"type": "text", "text": text}}
 	case "cancel":
 		reason, _ := payload["reason"].(string)
 		if reason == "" {
@@ -591,4 +608,76 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 		return nil, err
 	}
 	return append(b, '\n'), nil
+}
+
+// formatAttentionReplyText renders the structured payload of an
+// attention_reply input event into the human-readable text that goes
+// into the engine's user turn. Per-kind format is chosen so the model
+// reads the reply naturally (no JSON-ish prefix to peel off) but still
+// includes a correlation hint so the agent knows which prior request
+// this answers when several are open at once.
+func formatAttentionReplyText(payload map[string]any) string {
+	kind, _ := payload["kind"].(string)
+	reqID, _ := payload["request_id"].(string)
+	decision, _ := payload["decision"].(string)
+	body, _ := payload["body"].(string)
+	option, _ := payload["option_id"].(string)
+	reason, _ := payload["reason"].(string)
+
+	prefix := ""
+	if reqID != "" {
+		// Short id slice (first 8 chars) keeps the prefix from
+		// dominating the reply on long uuids; full id is in the
+		// audit row.
+		short := reqID
+		if len(short) > 8 {
+			short = short[:8]
+		}
+		prefix = "[reply to " + kind + " " + short + "] "
+	}
+
+	switch kind {
+	case "approval_request":
+		switch decision {
+		case "approve":
+			if reason != "" {
+				return prefix + "Approved. Reason: " + reason
+			}
+			return prefix + "Approved."
+		case "reject":
+			if reason != "" {
+				return prefix + "Rejected. Reason: " + reason
+			}
+			return prefix + "Rejected."
+		}
+		return prefix + decision
+	case "select":
+		if decision == "reject" {
+			if reason != "" {
+				return prefix + "No option chosen. Reason: " + reason
+			}
+			return prefix + "No option chosen."
+		}
+		if option != "" {
+			return prefix + "Selected: " + option
+		}
+		return prefix + "Selected."
+	case "help_request":
+		if decision == "reject" {
+			if reason != "" {
+				return prefix + "Dismissed without reply. Reason: " + reason
+			}
+			return prefix + "Dismissed without reply."
+		}
+		if body != "" {
+			return prefix + body
+		}
+		return prefix + "(empty reply)"
+	}
+	// Unknown kind: best-effort plain dump so we never silently drop
+	// the reply. The agent can still parse what's there.
+	if body != "" {
+		return prefix + body
+	}
+	return prefix + decision
 }

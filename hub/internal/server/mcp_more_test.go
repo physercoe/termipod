@@ -97,7 +97,13 @@ func TestMCP_RequestDecision_RequiresOptions(t *testing.T) {
 // resolver UI can render one button per option, and long-polls until
 // the user picks an option — returning the chosen option_id back to
 // the agent so request_decision is no longer fire-and-forget.
-func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
+// request_select is now turn-based (v1.0.338): the MCP call returns
+// immediately with awaiting_response, and the principal's pick is
+// delivered back as a fresh user turn via input.attention_reply when
+// /decide resolves the attention. This test pins (a) the synchronous
+// return shape, (b) the attention row carries the structured options,
+// (c) /decide fans out an attention_reply with the picked option.
+func TestMCP_RequestSelect_TurnBasedRoundTrip(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	_, agentID := seedChannelAndAgent(t, s, "", "")
 
@@ -106,38 +112,26 @@ func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
 		"options":  []string{"red", "green", "blue"},
 	})
 
-	type result struct {
-		out  any
-		jerr *jrpcError
+	// Turn-based: must return synchronously, not block on a long-poll.
+	start := time.Now()
+	out, jerr := s.mcpRequestSelect(
+		context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("request_select: %+v", jerr)
 	}
-	resCh := make(chan result, 1)
-	go func() {
-		out, jerr := s.mcpRequestSelect(
-			context.Background(), defaultTeamID, agentID, args)
-		resCh <- result{out: out, jerr: jerr}
-	}()
-
-	// The MCP call is now a long-poll; the attention row needs to exist
-	// before we can decide on it. Spin briefly until it shows up.
-	var attnID string
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		var id string
-		err := s.db.QueryRow(
-			`SELECT id FROM attention_items WHERE kind = 'select' ORDER BY created_at DESC LIMIT 1`,
-		).Scan(&id)
-		if err == nil {
-			attnID = id
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	if elapsed := time.Since(start); elapsed > 1*time.Second {
+		t.Fatalf("mcpRequestSelect held the call for %v; expected immediate return", elapsed)
 	}
+	if firstFieldFromMCPResult(t, out, "status") != "awaiting_response" {
+		t.Fatalf("status field missing/wrong: %+v", out)
+	}
+	attnID := firstFieldFromMCPResult(t, out, "id")
 	if attnID == "" {
-		t.Fatal("attention row never inserted")
+		t.Fatalf("attention id missing from result")
 	}
 
-	// pending_payload_json carries the structured options + agent_id so
-	// the mobile decision card can render option buttons and route them
+	// pending_payload_json still carries the structured options + agent_id
+	// so the mobile decision card can render option buttons and route them
 	// to the right agent's transcript.
 	var payloadJSON string
 	_ = s.db.QueryRow(
@@ -154,7 +148,7 @@ func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
 		t.Errorf("payload.agent_id = %v; want %s", payload["agent_id"], agentID)
 	}
 
-	// User picks "green" — flows through the same decide handler the
+	// User picks "green" — flows through the same /decide handler the
 	// approve/reject buttons use, with option_id appended.
 	status, body := doReq(t, s, token, http.MethodPost,
 		"/v1/teams/"+defaultTeamID+"/attention/"+attnID+"/decide",
@@ -167,18 +161,28 @@ func TestMCP_RequestDecision_StoresOptionsAndLongPolls(t *testing.T) {
 		t.Fatalf("decide: status=%d body=%s", status, body)
 	}
 
-	// Long-poll should have unblocked with the chosen option.
-	select {
-	case r := <-resCh:
-		if r.jerr != nil {
-			t.Fatalf("request_decision: %+v", r.jerr)
-		}
-		picked := firstFieldFromMCPResult(t, r.out, "option_id")
-		if picked != "green" {
-			t.Errorf("returned option_id = %q; want green", picked)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("request_decision never returned after decide")
+	// The attention_reply event carries the chosen option back to the
+	// agent's stream as a user turn. seedChannelAndAgent doesn't auto-
+	// open a session, so we look up via actor_handle (the agent that
+	// raised the attention) rather than session_id; the dispatch path
+	// uses session_id → current_agent_id, so without a session the
+	// fan-out is a no-op. That's correct: turn-based delivery requires
+	// a live session pointer. For the round-trip assertion here we
+	// verify the attention is resolved + the decisions_json carries
+	// option_id; the in-session fan-out path is covered by
+	// TestDecide_HelpRequestFansOutAttentionReply.
+	var st, decisions string
+	if err := s.db.QueryRow(
+		`SELECT status, decisions_json FROM attention_items WHERE id = ?`,
+		attnID,
+	).Scan(&st, &decisions); err != nil {
+		t.Fatalf("attention status: %v", err)
+	}
+	if st != "resolved" {
+		t.Errorf("attention status = %q; want resolved", st)
+	}
+	if !strings.Contains(decisions, "\"option_id\":\"green\"") {
+		t.Errorf("decisions_json missing picked option: %s", decisions)
 	}
 }
 

@@ -3,20 +3,26 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 )
 
-// request_help is the third attention shape — open-ended free text.
-// Sister to request_approval (binary) and request_select (n-ary).
-// These tests pin the contract end-to-end: agent calls the tool,
-// principal decides via the existing /decide endpoint with a `body`
-// field, the long-poll returns that body to the agent verbatim.
+// Turn-based contract for request_help (and its siblings request_approval,
+// request_select). The MCP tool returns immediately with awaiting_response;
+// the principal's reply lands as a separate input.attention_reply event on
+// the originating agent's stream when /decide resolves the attention.
+//
+// These tests pin three properties:
+//
+//  1. The MCP call returns synchronously without holding a long-poll.
+//  2. /decide on a help_request resolves the attention AND fans out an
+//     input.attention_reply with the correct payload to the originating
+//     agent (looked up via session_id → current_agent_id).
+//  3. Approve-without-body still 400s; reject-as-dismissal still succeeds.
 
-func TestRequestHelp_CreatesAttentionWithExpectedShape(t *testing.T) {
+func TestRequestHelp_ReturnsAwaitingResponseImmediately(t *testing.T) {
 	c := newE2E(t)
 	srv := httptest.NewServer(c.s.router)
 	t.Cleanup(srv.Close)
@@ -34,109 +40,139 @@ func TestRequestHelp_CreatesAttentionWithExpectedShape(t *testing.T) {
 		t.Fatalf("DoSpawn: %v", err)
 	}
 
-	// Kick off the agent's request_help in a goroutine — it long-polls
-	// for a reply, so we resolve it from the test thread below.
 	args, _ := json.Marshal(map[string]any{
 		"question": "Should I refactor auth before or after the cache layer?",
-		"context":  "Both touch User; I see arguments either way.",
+		"context":  "Both touch the same module.",
 		"mode":     "clarify",
 	})
-	var (
-		mu        sync.Mutex
-		toolReply any
-		toolErr   error
-		done      = make(chan struct{})
-	)
+
+	// Turn-based: the call must return synchronously, not block on a
+	// long-poll. Bound it loosely (1s) so a regression that re-introduces
+	// the long-poll (10 min) makes this test fail fast rather than hang.
+	start := time.Now()
+	doneCh := make(chan any, 1)
 	go func() {
-		defer close(done)
-		res, jerr := c.s.mcpRequestHelp(
-			context.Background(), defaultTeamID, out.AgentID, args,
-		)
-		mu.Lock()
-		toolReply = res
-		if jerr != nil {
-			toolErr = &mcpToolError{msg: jerr.Message}
-		}
-		mu.Unlock()
+		res, _ := c.s.mcpRequestHelp(
+			context.Background(), defaultTeamID, out.AgentID, args)
+		doneCh <- res
 	}()
+	select {
+	case res := <-doneCh:
+		elapsed := time.Since(start)
+		if elapsed > 1*time.Second {
+			t.Fatalf("mcpRequestHelp held the call for %v; expected immediate return", elapsed)
+		}
+		gotStatus := mcpToolBodyField(res, "status")
+		if gotStatus != "awaiting_response" {
+			t.Fatalf("status = %q; want awaiting_response", gotStatus)
+		}
+		if mcpToolBodyField(res, "kind") != "help_request" {
+			t.Fatalf("kind != help_request: %+v", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("mcpRequestHelp blocked past 2s — long-poll regression")
+	}
+}
 
-	// Poll until the attention row is visible to the listing endpoint —
-	// the agent's INSERT happens before the long-poll starts.
-	deadline := time.Now().Add(2 * time.Second)
+func TestDecide_HelpRequestFansOutAttentionReply(t *testing.T) {
+	c := newE2E(t)
+	srv := httptest.NewServer(c.s.router)
+	t.Cleanup(srv.Close)
+
+	hostID := seedHostCaps(t, c.s, `{
+		"agents": {"claude-code": {"installed": true, "supports": ["M2"]}}
+	}`)
+	out, _, err := c.s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle:     "fanout-asker",
+		Kind:            "claude-code",
+		HostID:          hostID,
+		SpawnSpec:       "driving_mode: M2\n",
+		AutoOpenSession: true,
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+
+	// Agent calls request_help → attention with session_id stamped.
+	args, _ := json.Marshal(map[string]any{
+		"question": "Should I refactor X first?",
+		"mode":     "clarify",
+	})
+	if _, jerr := c.s.mcpRequestHelp(
+		context.Background(), defaultTeamID, out.AgentID, args,
+	); jerr != nil {
+		t.Fatalf("mcpRequestHelp: %s", jerr.Message)
+	}
+
+	// Look up the attention id (most recent help_request for this agent).
 	var attentionID string
-	for time.Now().Before(deadline) {
-		status, body := c.call("GET",
-			"/v1/teams/"+c.teamID+"/attention?status=open", nil)
-		if status != 200 {
-			t.Fatalf("list attention = %d", status)
-		}
-		raw, _ := body["json"].(string)
-		_ = raw
-		// e2eCtx.call decodes into map[string]any but the response is
-		// an array — fall back to a fresh request for the typed list.
-		atts := listOpenAttentionsTyped(t, c)
-		for _, a := range atts {
-			if a.Kind == "help_request" {
-				attentionID = a.ID
-				if a.Severity != "minor" {
-					t.Fatalf("clarify-mode help_request severity = %q; want minor", a.Severity)
-				}
-				if a.Summary == "" {
-					t.Fatalf("help_request summary empty")
-				}
-				var pending map[string]any
-				_ = json.Unmarshal(a.PendingPayload, &pending)
-				if pending["mode"] != "clarify" {
-					t.Fatalf("pending.mode = %v; want clarify", pending["mode"])
-				}
-				if pending["question"] == "" {
-					t.Fatalf("pending.question empty: %+v", pending)
-				}
-				if pending["agent_id"] != out.AgentID {
-					t.Fatalf("pending.agent_id = %v; want %s", pending["agent_id"], out.AgentID)
-				}
-				break
-			}
-		}
-		if attentionID != "" {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if attentionID == "" {
-		t.Fatalf("help_request attention never appeared")
+	if err := c.s.db.QueryRow(`
+		SELECT id FROM attention_items
+		 WHERE kind = 'help_request' AND actor_handle = ?
+		 ORDER BY created_at DESC LIMIT 1`, "fanout-asker",
+	).Scan(&attentionID); err != nil {
+		t.Fatalf("attention lookup: %v", err)
 	}
 
-	// Resolve via /decide with body=<reply>. This is the same endpoint
-	// the mobile composer hits.
+	// Snapshot the agent's seq before /decide so we can verify the
+	// attention_reply lands as the *next* event, not a pre-existing one.
+	var seqBefore int64
+	_ = c.s.db.QueryRow(`
+		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
+		out.AgentID,
+	).Scan(&seqBefore)
+
+	// /decide with body=<reply> resolves the attention and fans out the
+	// attention_reply to the originating agent.
 	status, _ := c.call("POST",
 		"/v1/teams/"+c.teamID+"/attention/"+attentionID+"/decide",
 		map[string]any{
 			"decision": "approve",
 			"by":       "@principal",
-			"body":     "Refactor auth first — cache changes will reuse the new User shape.",
+			"body":     "Refactor auth first; cache changes will reuse the new shape.",
 		})
 	if status != 200 {
 		t.Fatalf("decide = %d", status)
 	}
 
-	// Long-poll should return now with body verbatim.
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatalf("mcpRequestHelp never returned after decide")
+	// Verify the input.attention_reply event was posted to the agent.
+	rows, err := c.s.db.Query(`
+		SELECT kind, producer, payload_json
+		  FROM agent_events
+		 WHERE agent_id = ? AND seq > ?
+		 ORDER BY seq ASC`, out.AgentID, seqBefore)
+	if err != nil {
+		t.Fatalf("agent_events query: %v", err)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if toolErr != nil {
-		t.Fatalf("mcpRequestHelp errored: %v", toolErr)
+	defer rows.Close()
+	var matched bool
+	for rows.Next() {
+		var kind, producer, payload string
+		if err := rows.Scan(&kind, &producer, &payload); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if kind != "input.attention_reply" {
+			continue
+		}
+		if producer != "user" {
+			t.Errorf("attention_reply producer = %q; want user", producer)
+		}
+		var p map[string]any
+		_ = json.Unmarshal([]byte(payload), &p)
+		if p["request_id"] != attentionID {
+			t.Errorf("attention_reply.request_id = %v; want %s", p["request_id"], attentionID)
+		}
+		if p["kind"] != "help_request" {
+			t.Errorf("attention_reply.kind = %v; want help_request", p["kind"])
+		}
+		if !strings.Contains(p["body"].(string), "Refactor auth first") {
+			t.Errorf("attention_reply.body missing principal's text: %v", p["body"])
+		}
+		matched = true
+		break
 	}
-	got := mcpToolBodyField(toolReply, "body")
-	if got != "Refactor auth first — cache changes will reuse the new User shape." {
-		t.Fatalf("agent received body = %q; want the principal's reply verbatim", got)
-	}
-	if mcpToolBodyField(toolReply, "decision") != "approve" {
-		t.Fatalf("agent received decision != approve: %+v", toolReply)
+	if !matched {
+		t.Fatalf("no input.attention_reply event posted to agent after /decide")
 	}
 }
 
@@ -145,8 +181,6 @@ func TestDecide_HelpRequestRejectsApproveWithoutBody(t *testing.T) {
 	srv := httptest.NewServer(c.s.router)
 	t.Cleanup(srv.Close)
 
-	// Seed a help_request directly via INSERT so the test doesn't need a
-	// real spawn — we're exercising the decide endpoint, not the tool.
 	id := NewID()
 	now := NowUTC()
 	if _, err := c.s.db.Exec(`
@@ -202,27 +236,4 @@ func mcpToolBodyField(reply any, field string) string {
 	}
 	v, _ := inner[field].(string)
 	return v
-}
-
-type mcpToolError struct{ msg string }
-
-func (e *mcpToolError) Error() string { return e.msg }
-
-// listOpenAttentionsTyped does a typed list-open call so the test can
-// read the structured fields rather than navigating an unstructured map.
-func listOpenAttentionsTyped(t *testing.T, c *e2eCtx) []attentionOut {
-	t.Helper()
-	req, _ := http.NewRequest("GET",
-		c.srv.URL+"/v1/teams/"+c.teamID+"/attention?status=open", nil)
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	defer resp.Body.Close()
-	var out []attentionOut
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	return out
 }

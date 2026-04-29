@@ -23,6 +23,68 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.338-alpha — 2026-04-29
+
+### Changed
+- request_approval / request_select / request_help converted from
+  long-poll to turn-based delivery. The MCP call now returns
+  immediately with `{id, status: "awaiting_response"}`; the agent
+  ends its turn per the updated tool description. The principal's
+  reply lands as a fresh user turn (`input.attention_reply` agent
+  event, `producer="user"`) when /decide resolves the attention.
+  Removes the 10-minute timeout, the connection-pinned wait, and
+  the failure mode where a reply 12 minutes after the question was
+  silently dropped. Persistence moves from the open HTTP connection
+  to the conversation history — a 3-day-later reply still wakes
+  the agent. permission_prompt is unchanged: it stays sync because
+  Claude's canUseTool protocol has no "deferred" branch (vendor
+  contract limitation, not a design choice).
+- handleDecideAttention fans out the resolution to the originating
+  agent via a new `dispatchAttentionReply` helper. Target lookup is
+  attention.session_id → sessions.current_agent_id; if the session
+  was resumed since the request was raised, the new agent (which
+  inherits the conversation context) receives the reply. Best-
+  effort: a fan-out hiccup doesn't roll back the /decide.
+- StdioDriver gains a new input kind `attention_reply` that produces
+  a user-text turn (NOT a tool_result, since the original tool call
+  has already returned). Format per attention kind:
+    approval → "Approved" / "Rejected. Reason: <reason>"
+    select   → "Selected: <option>"
+    help     → "<body>" verbatim or "Dismissed without reply"
+  Short correlation prefix `[reply to <kind> <id-prefix>]` so the
+  agent can match replies to multiple in-flight requests.
+- `agent_input` HTTP handler accepts the new `attention_reply` kind
+  for completeness (so an operator can wake an agent from CLI in a
+  pinch); server-side fan-out from /decide is the primary producer.
+
+### Removed
+- `requestSelectTimeout` and `requestHelpTimeout` constants (10
+  minutes each). No replacement — turn-based delivery has no time
+  bound.
+- The long-poll branches and timeout-handling code in mcpRequestSelect
+  and mcpRequestHelp.
+
+### Tests
+- TestRequestHelp_ReturnsAwaitingResponseImmediately: pins the
+  synchronous return contract (1s upper bound, fail-fast on a long-
+  poll regression).
+- TestDecide_HelpRequestFansOutAttentionReply: end-to-end — agent
+  asks → user decides → input.attention_reply event posted to the
+  agent with the principal's body verbatim.
+- TestMCP_RequestSelect_TurnBasedRoundTrip: replaces the prior
+  `_StoresOptionsAndLongPolls` test; covers the new return shape +
+  decide behavior.
+- TestStdioDriver_InputFrames: 3 new subtests for attention_reply
+  formatting (help_request approve, select approve, approval_request
+  reject).
+
+### Docs
+- docs/reference/attention-kinds.md §5 rewritten as
+  "Resolution semantics — turn-based delivery" with a worked round-
+  trip diagram, per-kind /decide payloads, per-kind user-turn text
+  format, and a "Why turn-based, not long-poll" rationale section.
+  permission_prompt called out as the principled exception.
+
 ## v1.0.337-alpha — 2026-04-29
 
 ### Added

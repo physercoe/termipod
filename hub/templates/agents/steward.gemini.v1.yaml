@@ -1,0 +1,73 @@
+# Gemini steward template — ADR-013.
+#
+# Drives `gemini -p <text> --output-format stream-json [--resume <UUID>]
+# --yolo` via the exec-per-turn-with-resume driver. Slice 3 of the
+# gemini wedge (driver_exec_resume.go) handles the framing — one
+# subprocess per user turn, session UUID threaded through --resume —
+# this template is what makes that driver reachable to the steward UX.
+#
+# Built-in. Copied to team/templates/agents/ on first init; user
+# edits win — subsequent inits never overwrite.
+template: agents.steward.gemini
+version: 1
+extends: null
+
+# M2 (structured stdio) is the only mode that matches gemini's
+# stream-json output. M4 pane fallback exists for hosts that can't
+# expose the agent's stdio at all; it loses turn-based interaction
+# but keeps a live transcript.
+driving_mode: M2
+fallback_modes: [M4]
+
+backend:
+  kind: gemini-cli
+  default_workdir: ~/hub-work
+  # cmd shape:
+  #   gemini
+  #     — just the bin name. The exec-per-turn driver appends per-turn
+  #       flags itself (-p <text> --output-format stream-json
+  #       --resume <UUID> --yolo); embedding them here would be
+  #       ignored. exec.LookPath resolves the bin against PATH at
+  #       launch time, or you can specify an absolute path.
+  cmd: "gemini"
+  # No permission_modes map: gemini-cli has no in-stream
+  # per-tool-call approval gate (ADR-013 D4 — flag-time --yolo /
+  # --approval-mode only). The exec-per-turn driver always passes
+  # --yolo so tool calls run without prompting; risky decisions are
+  # routed through `request_approval` (turn-based, vendor-neutral)
+  # at the steward's discretion. The driver rejects
+  # `permission_prompt` attention replies as a defense-in-depth
+  # check, since the engine never raises one.
+
+default_role: team.coordinator
+display_label: "Steward (gemini)"
+
+# Same governance shape as the claude + codex stewards — gemini
+# stewards coordinate the same way once the per-turn process model
+# is hidden by the driver.
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.gemini.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a project goal into plan steps"
+    tags: [planning]
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
+default_channels:
+  hub-meta: full

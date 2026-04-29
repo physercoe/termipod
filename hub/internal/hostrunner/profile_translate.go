@@ -131,27 +131,77 @@ func applyRule(rule agentfamilies.Rule, inner, outer map[string]any) []EmittedEv
 }
 
 // matchesAll returns true when every key in `match` literal-equals
-// the corresponding top-level field of `frame`. Empty match matches
-// any frame. Type-mismatches (e.g. match expects "assistant" but
-// frame[type] is a number) return false rather than panicking.
+// the corresponding field of `frame`. Empty match matches any frame.
+// Type-mismatches (e.g. match expects "assistant" but frame[type] is
+// a number) return false rather than panicking.
 //
-// Only top-level fields are checked — nested matches aren't part of
-// the v1 grammar. Rules that need to dispatch on nested shape do so
-// via for_each + sub_rules.
+// Match keys default to top-level fields; a dotted key
+// (`params.item.type`) walks nested objects through the same path
+// semantics profile_eval uses for emit expressions. This supports
+// JSON-RPC envelopes where the method discriminator sits next to a
+// nested params payload (codex app-server: `method=item/started`
+// plus `params.item.type=agentMessage` to dispatch within one
+// notification family). Flat-key matchers (claude-code's `type:
+// assistant`) keep working unchanged — no dot, no nested walk.
 func matchesAll(match map[string]any, frame map[string]any) bool {
 	if len(match) == 0 {
 		return true
 	}
 	for k, want := range match {
-		got, present := frame[k]
-		if !present {
-			return false
+		var got any
+		if !containsDot(k) {
+			v, present := frame[k]
+			if !present {
+				return false
+			}
+			got = v
+		} else {
+			got = walkPathLiteral(frame, k)
+			if got == nil {
+				return false
+			}
 		}
 		if got != want {
 			return false
 		}
 	}
 	return true
+}
+
+// walkPathLiteral resolves a dotted key against frame as a sequence
+// of map lookups. Returns nil on missing keys, nil scopes, or type
+// mismatches (e.g. trying to descend into a non-map). No `$.` prefix
+// is needed — match keys are bare paths, not expressions, so we
+// don't share profile_eval.Eval here.
+func walkPathLiteral(frame map[string]any, path string) any {
+	cur := any(frame)
+	start := 0
+	for i := 0; i <= len(path); i++ {
+		if i != len(path) && path[i] != '.' {
+			continue
+		}
+		seg := path[start:i]
+		start = i + 1
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil
+		}
+		v, present := m[seg]
+		if !present {
+			return nil
+		}
+		cur = v
+	}
+	return cur
+}
+
+func containsDot(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			return true
+		}
+	}
+	return false
 }
 
 // buildEmit resolves a rule's emit declaration into a concrete

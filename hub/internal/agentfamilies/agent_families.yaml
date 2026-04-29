@@ -239,4 +239,280 @@ families:
   - family: codex
     bin: codex
     version_flag: --version
-    supports: [M1, M4]
+    supports: [M1, M2, M4]
+    # Codex uses the profile translator authoritatively — there is no
+    # legacy hardcoded driver for app-server JSON-RPC the way there is
+    # for claude-code's stream-json. ADR-012 D4: the dispatch field is
+    # `method` rather than `type`; nested matchers like
+    # `params.item.type` use the dotted-path extension to matchesAll.
+    frame_translator: profile
+    frame_profile:
+      description: |
+        codex app-server (JSON-RPC 2.0 notifications, line-delimited)
+        → typed agent_events. ADR-012 is the authoritative design;
+        protocol reference at developers.openai.com/codex/app-server.
+
+        Dispatch is on `method`. Nested matchers like
+        `params.item.type` walk dotted paths. Most-specific match
+        wins (largest match-keyset; declaration order on ties).
+        Unmatched frames fall through to ApplyProfile's
+        kind=raw fallback so new methods stay forward-compatible.
+
+        Item-shaped notifications (`item/started`, `item/completed`)
+        dispatch on `params.item.type` to map onto our existing
+        text/tool_call/tool_result vocabulary so the mobile renderer
+        works with no per-engine branches. Streaming deltas
+        (item/agentMessage/delta, outputDelta) are *not* emitted in
+        v1 — we emit on completion instead, which keeps the
+        transcript shape parallel with claude-code's. Streaming UI
+        is a later wedge once the basic flow is proven.
+      profile_version: 1
+      rules:
+        # ── thread/started  →  session.init ──────────────────────
+        # Mirror of claude's system.init lift. session_id from the
+        # thread payload is what we persist on the agents row to
+        # drive thread/resume on host-runner restart (ADR-012 D2).
+        # Most fields claude's profile carries (cwd, tools list,
+        # mcp_servers, slash_commands) come through other channels
+        # in app-server — we just publish what's in the notification
+        # and let the renderer treat absent fields as "this driver
+        # doesn't surface that signal".
+        - match: { method: thread/started }
+          emit:
+            kind: session.init
+            producer: agent
+            payload:
+              session_id: "$.params.thread.id"
+              preview:    "$.params.thread.preview"
+              ephemeral:  "$.params.thread.ephemeral"
+              model:      "$.params.thread.modelProvider"
+              created_at: "$.params.thread.createdAt"
+
+        # ── thread/status/changed  →  system ─────────────────────
+        # The mobile feed renders system events with a one-liner
+        # via _systemBody. status payloads are small enough to ship
+        # whole.
+        - match: { method: thread/status/changed }
+          emit:
+            kind: system
+            producer: agent
+            payload_expr: "$.params"
+
+        # ── turn/started  →  system marker ───────────────────────
+        # claude doesn't emit per-turn start events; codex does.
+        # We surface them as system markers so a transcript replay
+        # of a codex session shows the same turn boundaries the
+        # principal saw live, but we don't promote them to a typed
+        # kind because nothing in the renderer needs the boundary
+        # for layout (the agentMessage events themselves anchor
+        # turns visually).
+        - match: { method: turn/started }
+          emit:
+            kind: system
+            producer: agent
+            payload:
+              kind:    "\"turn_started\""
+              turn_id: "$.params.turn.id"
+
+        # ── turn/completed  →  turn.result ───────────────────────
+        # Maps onto the same canonical kind claude's profile emits.
+        # Field set is sparser than claude — codex doesn't ship
+        # cost_usd or duration_ms via this notification (token
+        # usage rides on thread/tokenUsage/updated separately) —
+        # absent fields land as nil and the renderer hides them.
+        - match: { method: turn/completed }
+          emit:
+            kind: turn.result
+            producer: agent
+            payload:
+              turn_id:        "$.params.turn.id"
+              status:         "$.params.turn.status"
+              terminal_reason: "$.params.turn.error.message"
+
+        # ── turn/diff/updated  →  system ─────────────────────────
+        # Unified diff snapshot after each FileChange. Renderer can
+        # surface this in a "changes this turn" pill; for v1 we just
+        # publish the payload so it's visible in raw transcripts.
+        - match: { method: turn/diff/updated }
+          emit:
+            kind: system
+            producer: agent
+            payload_expr: "$.params"
+
+        # ── turn/plan/updated  →  system ─────────────────────────
+        # Codex's planning surface; we echo it as system. A future
+        # wedge could promote this to its own kind once the mobile
+        # plan-renderer lands.
+        - match: { method: turn/plan/updated }
+          emit:
+            kind: system
+            producer: agent
+            payload_expr: "$.params"
+
+        # ── item/started  +  params.item.type=agentMessage  →  ──
+        # *Skipped*: agentMessage's content arrives via deltas we
+        # don't emit in v1 and is finalized in item/completed. No
+        # rule = falls to raw fallback; for this specific shape we
+        # don't even want raw rows polluting the transcript, so we
+        # emit a no-op-ish kind=system marker that the renderer can
+        # drop. Cleaner alternative would be a "skip" emit type;
+        # tracked as a grammar follow-up.
+        - match:
+            method: item/started
+            params.item.type: agentMessage
+          emit:
+            kind: system
+            producer: agent
+            payload:
+              kind:      "\"agent_message_started\""
+              item_id:   "$.params.item.id"
+
+        # ── item/started  +  commandExecution / fileChange / mcpToolCall  →  tool_call ──
+        # Three flavors of "the agent is starting work" map to the
+        # same typed kind, mirroring claude's tool_use. The payload
+        # carries the engine-specific shape so the renderer can
+        # show the right summary (command vs. patch vs. mcp tool).
+        - match:
+            method: item/started
+            params.item.type: commandExecution
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id:        "$.params.item.id"
+              name:      "\"commandExecution\""
+              input:     "$.params.item"
+        - match:
+            method: item/started
+            params.item.type: fileChange
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id:        "$.params.item.id"
+              name:      "\"fileChange\""
+              input:     "$.params.item"
+        - match:
+            method: item/started
+            params.item.type: mcpToolCall
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id:        "$.params.item.id"
+              name:      "$.params.item.tool"
+              server:    "$.params.item.server"
+              input:     "$.params.item.arguments"
+        - match:
+            method: item/started
+            params.item.type: webSearch
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id:        "$.params.item.id"
+              name:      "\"webSearch\""
+              input:     "$.params.item"
+
+        # ── item/completed  +  params.item.type=agentMessage  →  text ──
+        # Final assistant text — the equivalent of claude's
+        # assistant.message.content[type=text]. We don't currently
+        # have a message_id concept upstream of the renderer beyond
+        # threading, so we use item.id as the stable handle.
+        - match:
+            method: item/completed
+            params.item.type: agentMessage
+          emit:
+            kind: text
+            producer: agent
+            payload:
+              text:       "$.params.item.text"
+              message_id: "$.params.item.id"
+              phase:      "$.params.item.phase"
+
+        # ── item/completed  +  commandExecution / fileChange / mcpToolCall  →  tool_result ──
+        # Mirrors claude's user.message.content[type=tool_result].
+        # tool_use_id pairs with the tool_call we emitted at start.
+        - match:
+            method: item/completed
+            params.item.type: commandExecution
+          emit:
+            kind: tool_result
+            producer: agent
+            payload:
+              tool_use_id: "$.params.item.id"
+              content:     "$.params.item.aggregatedOutput"
+              exit_code:   "$.params.item.exitCode"
+              duration_ms: "$.params.item.durationMs"
+              status:      "$.params.item.status"
+        - match:
+            method: item/completed
+            params.item.type: fileChange
+          emit:
+            kind: tool_result
+            producer: agent
+            payload:
+              tool_use_id: "$.params.item.id"
+              changes:     "$.params.item.changes"
+              status:      "$.params.item.status"
+        - match:
+            method: item/completed
+            params.item.type: mcpToolCall
+          emit:
+            kind: tool_result
+            producer: agent
+            payload:
+              tool_use_id: "$.params.item.id"
+              content:     "$.params.item.result"
+              is_error:    "$.params.item.error"
+              status:      "$.params.item.status"
+
+        # ── thread/tokenUsage/updated  →  usage ──────────────────
+        # Token telemetry — same kind claude's profile emits, fed
+        # by a different upstream notification.
+        - match: { method: thread/tokenUsage/updated }
+          emit:
+            kind: usage
+            producer: agent
+            payload:
+              input_tokens:        "$.params.usage.input_tokens"
+              output_tokens:       "$.params.usage.output_tokens"
+              cached_input_tokens: "$.params.usage.cached_input_tokens"
+
+        # ── account/rateLimits/updated  →  rate_limit ───────────
+        # codex bundles primary + secondary windows; we surface
+        # primary (the one most likely to throttle) and let
+        # `payload.secondary` ride along for any UI that wants the
+        # weekly window too.
+        - match: { method: account/rateLimits/updated }
+          emit:
+            kind: rate_limit
+            producer: agent
+            payload:
+              window:    "$.params.rateLimits.primary.windowDurationMins"
+              status:    "$.params.rateLimits.rateLimitReachedType"
+              resets_at: "$.params.rateLimits.primary.resetsAt"
+              used_pct:  "$.params.rateLimits.primary.usedPercent"
+              secondary: "$.params.rateLimits.secondary"
+
+        # ── mcpServer/startupStatus/updated  →  system ──────────
+        # Visible in the transcript so a misconfigured mcp server
+        # surfaces (status=failed with error) instead of failing
+        # silently the way claude's session.init.mcp_servers list
+        # implicitly does.
+        - match: { method: mcpServer/startupStatus/updated }
+          emit:
+            kind: system
+            producer: agent
+            payload:
+              kind:   "\"mcp_server_startup\""
+              name:   "$.params.name"
+              status: "$.params.status"
+              error:  "$.params.error"
+
+        # No catch-all: unmatched methods (the per-item delta
+        # streams we don't emit, plus anything new the upstream
+        # ships) fall through to ApplyProfile's kind=raw fallback.
+        # That keeps the profile forward-compatible — a v1 hub
+        # talking to a v2 app-server still records the new
+        # notifications verbatim instead of erroring out.

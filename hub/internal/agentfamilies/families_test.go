@@ -330,12 +330,12 @@ func TestFrameProfile_EmbeddedClaudeCode(t *testing.T) {
 	}
 }
 
-// TestFrameProfile_OtherEnginesStillNil — codex / gemini-cli don't
-// ship profiles in v1 (Phase 3 of the migration plan); they fall
-// through to the legacy translator. Lock that contract so a future
-// PR doesn't accidentally enable a half-finished profile.
-func TestFrameProfile_OtherEnginesStillNil(t *testing.T) {
-	for _, name := range []string{"codex", "gemini-cli"} {
+// TestFrameProfile_GeminiStillNil — gemini-cli doesn't ship a profile
+// yet; it'll get one when the gemini exec-per-turn driver lands
+// (ADR-012 D6). Codex has shipped (slice 2 of the codex wedge), so
+// it's no longer in this list.
+func TestFrameProfile_GeminiStillNil(t *testing.T) {
+	for _, name := range []string{"gemini-cli"} {
 		f, ok := ByName(name)
 		if !ok {
 			t.Fatalf("%s missing from registry", name)
@@ -343,6 +343,46 @@ func TestFrameProfile_OtherEnginesStillNil(t *testing.T) {
 		if f.FrameProfile != nil {
 			t.Errorf("%s ships embedded with FrameProfile=%+v; should still be nil in v1",
 				name, f.FrameProfile)
+		}
+	}
+}
+
+// TestFrameProfile_EmbeddedCodex — codex ships its app-server
+// JSON-RPC profile (ADR-012). Smoke-checks the family entry, the
+// frame_translator override (must be `profile`, since there's no
+// legacy translator for app-server's shape), and a few canonical
+// rules so a malformed YAML edit fails this test before it lands
+// in the corpus parity test.
+func TestFrameProfile_EmbeddedCodex(t *testing.T) {
+	f, ok := ByName("codex")
+	if !ok {
+		t.Fatal("codex missing from registry")
+	}
+	if f.FrameTranslator != "profile" {
+		t.Errorf("frame_translator: want profile (no legacy path for app-server JSON-RPC), got %q", f.FrameTranslator)
+	}
+	fp := f.FrameProfile
+	if fp == nil {
+		t.Fatal("codex frame_profile is nil — slice 2 of the codex wedge should have shipped it")
+	}
+	if fp.ProfileVersion != 1 {
+		t.Errorf("profile_version: want 1, got %d", fp.ProfileVersion)
+	}
+	// Spot-check three rules whose presence is load-bearing for the
+	// driver's session lifecycle: thread/started for session.init,
+	// item/completed+agentMessage for the user-visible text, and
+	// turn/completed for turn.result. If any of these go missing the
+	// chat surface stops working.
+	wantMethods := []string{"thread/started", "item/completed", "turn/completed"}
+	seen := map[string]bool{}
+	for _, r := range fp.Rules {
+		if m, ok := r.Match["method"].(string); ok {
+			seen[m] = true
+		}
+	}
+	for _, m := range wantMethods {
+		if !seen[m] {
+			t.Errorf("codex profile missing rule for method=%s", m)
 		}
 	}
 }

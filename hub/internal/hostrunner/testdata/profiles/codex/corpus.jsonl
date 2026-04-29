@@ -1,0 +1,48 @@
+# codex app-server JSON-RPC notifications (line-delimited).
+# One frame per line. Lines starting with '#' or blank are ignored.
+# Schema reference: developers.openai.com/codex/app-server.
+#
+# This corpus seeds the profile parity test with representative
+# notifications across the surface ADR-012 D4's frame profile covers.
+# Append real captures from a `codex app-server --listen stdio://`
+# session as that surface stabilizes — see the codex parity test's
+# operator workflow comment for the recording recipe.
+
+# 1. Thread lifecycle
+{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"thr_abc","preview":"Working on the auth refactor","ephemeral":false,"modelProvider":"gpt-5.4","createdAt":"2026-04-29T10:00:00Z"}}}
+{"jsonrpc":"2.0","method":"thread/status/changed","params":{"threadId":"thr_abc","status":{"type":"active"}}}
+
+# 2. Turn lifecycle
+{"jsonrpc":"2.0","method":"turn/started","params":{"turn":{"id":"turn_001","status":"inProgress","items":[]}}}
+{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"id":"turn_001","status":"completed"}}}
+
+# 3. Item lifecycle — agentMessage (text reply)
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_msg_1","type":"agentMessage"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_msg_1","type":"agentMessage","text":"Refactoring the middleware now.","phase":"final_answer"}}}
+
+# 4. Item lifecycle — commandExecution
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_cmd_1","type":"commandExecution","command":["bash","-lc","ls -la"],"cwd":"/repo","status":"pending"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_cmd_1","type":"commandExecution","command":["bash","-lc","ls -la"],"status":"completed","aggregatedOutput":"total 0\ndrwx...\n","exitCode":0,"durationMs":42}}}
+
+# 5. Item lifecycle — fileChange
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_fc_1","type":"fileChange","status":"pending"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_fc_1","type":"fileChange","status":"completed","changes":[{"path":"/repo/src/auth.go","kind":"modified","diff":"@@ ..."}]}}}
+
+# 6. Item lifecycle — mcpToolCall
+{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_mcp_1","type":"mcpToolCall","server":"termipod","tool":"request_help","arguments":{"question":"Path A or B?"},"status":"pending"}}}
+{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_mcp_1","type":"mcpToolCall","server":"termipod","tool":"request_help","status":"completed","result":{"id":"att_42","status":"awaiting_response"}}}}
+
+# 7. Telemetry: token usage + rate limits
+{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thr_abc","usage":{"input_tokens":1234,"output_tokens":456,"cached_input_tokens":800}}}
+{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":60,"resetsAt":"2026-04-29T11:00:00Z"},"secondary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":"2026-05-06T10:00:00Z"},"rateLimitReachedType":null}}}
+
+# 8. MCP server startup
+{"jsonrpc":"2.0","method":"mcpServer/startupStatus/updated","params":{"name":"termipod","status":"ready","error":null}}
+{"jsonrpc":"2.0","method":"mcpServer/startupStatus/updated","params":{"name":"context7","status":"failed","error":"connection refused"}}
+
+# 9. Diff and plan updates
+{"jsonrpc":"2.0","method":"turn/diff/updated","params":{"threadId":"thr_abc","turnId":"turn_001","diff":"--- a/src/auth.go\n+++ b/src/auth.go\n@@ ..."}}
+{"jsonrpc":"2.0","method":"turn/plan/updated","params":{"turnId":"turn_001","plan":[{"step":"read auth.go","status":"completed"},{"step":"refactor middleware","status":"inProgress"}]}}
+
+# 10. Forward-compat: unprofiled method falls through to kind=raw
+{"jsonrpc":"2.0","method":"item/reasoning/textDelta","params":{"itemId":"item_msg_1","contentIndex":0,"delta":"Thinking about... "}}

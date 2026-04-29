@@ -1,0 +1,22 @@
+# gemini-cli stream-json frames captured from `gemini -p <text>
+# --output-format stream-json [--resume <UUID>]`. One frame per line.
+# Lines starting with '#' or blank are ignored.
+#
+# Schema reference: PR #10883 (stream-json output format),
+# PR #14504 (session_id surfacing). Spec mirror at
+# https://geminicli.com/docs/cli/headless/.
+#
+# Operator workflow: append captured notifications here when extending
+# the gemini frame profile. The expectation map in
+# profile_gemini_test.go drives the (type, role, delta) → kind contract.
+
+{"type":"init","timestamp":"2026-04-29T10:00:00Z","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","model":"gemini-2.5-pro"}
+{"type":"message","role":"user","content":"hello","delta":false,"timestamp":"2026-04-29T10:00:01Z"}
+{"type":"message","role":"assistant","content":"Hi","delta":true,"timestamp":"2026-04-29T10:00:02Z"}
+{"type":"message","role":"assistant","content":"Hi there!","delta":false,"timestamp":"2026-04-29T10:00:03Z"}
+{"type":"tool_use","tool_name":"read_file","tool_id":"call_001","parameters":{"path":"README.md"},"timestamp":"2026-04-29T10:00:04Z"}
+{"type":"tool_result","tool_id":"call_001","status":"success","output":"# termipod\n","timestamp":"2026-04-29T10:00:05Z"}
+{"type":"tool_use","tool_name":"shell","tool_id":"call_002","parameters":{"command":"ls"},"timestamp":"2026-04-29T10:00:06Z"}
+{"type":"tool_result","tool_id":"call_002","status":"error","output":"permission denied","timestamp":"2026-04-29T10:00:07Z"}
+{"type":"error","message":"transient network error","severity":"warning","timestamp":"2026-04-29T10:00:08Z"}
+{"type":"result","status":"success","stats":{"input_tokens":1234,"output_tokens":567,"duration_ms":4500},"timestamp":"2026-04-29T10:00:09Z"}

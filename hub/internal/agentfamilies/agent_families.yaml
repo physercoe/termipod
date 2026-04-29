@@ -235,7 +235,119 @@ families:
   - family: gemini-cli
     bin: gemini
     version_flag: --version
-    supports: [M1, M4]
+    supports: [M1, M2, M4]
+    # Gemini, like codex, uses the profile translator authoritatively:
+    # there is no legacy hardcoded path for the exec-per-turn-with-resume
+    # driver (ADR-013). Dispatch is on the top-level `type` field, the
+    # same shape claude-code's stream-json uses, so no evaluator
+    # extension is required for gemini.
+    frame_translator: profile
+    frame_profile:
+      description: |
+        gemini-cli stream-json (`gemini -p ... --output-format
+        stream-json`) → typed agent_events. ADR-013 is the
+        authoritative design.
+
+        Dispatch is on the top-level `type` field. Most-specific match
+        wins (largest match-keyset; declaration order on ties). Streaming
+        message deltas (role=assistant, delta=true) are *not* emitted in
+        v1 — we emit on completion (delta=false), keeping transcript
+        shape parallel with claude-code and codex. The unprofiled delta
+        frames fall through to ApplyProfile's kind=raw fallback so a
+        future renderer wedge can opt in to live-streaming UI without a
+        Go change.
+
+        permission_prompt is unsupported on gemini (ADR-013 D4): the CLI
+        offers only flag-time `--yolo` / `--approval-mode` and no
+        in-stream gate. Stewards route risky decisions through
+        request_approval (turn-based, vendor-neutral) instead.
+      profile_version: 1
+      rules:
+        # ── init  →  session.init ────────────────────────────────
+        # First frame of every turn. session_id is the resume cursor
+        # we persist on agents.thread_id_json (ADR-013 D2) and thread
+        # into the next spawn's `--resume <UUID>` argv.
+        - match: { type: init }
+          emit:
+            kind: session.init
+            producer: agent
+            payload:
+              session_id: "$.session_id"
+              model:      "$.model"
+              timestamp:  "$.timestamp"
+
+        # ── message  +  role=assistant  +  delta=false  →  text ──
+        # Final assistant text. Mirror of claude's
+        # assistant.message.content[type=text]. Streaming chunks
+        # (delta=true) and user echoes (role=user) intentionally fall
+        # through to the kind=raw fallback so they don't pollute the
+        # typed transcript.
+        - match: { type: message, role: assistant, delta: false }
+          emit:
+            kind: text
+            producer: agent
+            payload:
+              text:      "$.content"
+              timestamp: "$.timestamp"
+
+        # ── tool_use  →  tool_call ───────────────────────────────
+        # Mirror of claude's assistant.message.content[type=tool_use].
+        # tool_id pairs with tool_result on completion.
+        - match: { type: tool_use }
+          emit:
+            kind: tool_call
+            producer: agent
+            payload:
+              id:        "$.tool_id"
+              name:      "$.tool_name"
+              input:     "$.parameters"
+              timestamp: "$.timestamp"
+
+        # ── tool_result  →  tool_result ──────────────────────────
+        # Mirror of claude's user.message.content[type=tool_result].
+        # `is_error` is derived from `status != "success"` at the
+        # mobile renderer for now — gemini ships the literal `status`
+        # so we forward it unchanged and let the renderer decide.
+        - match: { type: tool_result }
+          emit:
+            kind: tool_result
+            producer: agent
+            payload:
+              tool_use_id: "$.tool_id"
+              content:     "$.output"
+              status:      "$.status"
+              timestamp:   "$.timestamp"
+
+        # ── result  →  turn.result ───────────────────────────────
+        # Final completion summary; the per-turn equivalent of
+        # claude's {type: result}. stats carries token counts +
+        # duration; we publish the whole `stats` object so future
+        # telemetry rules can lift fields without re-authoring.
+        - match: { type: result }
+          emit:
+            kind: turn.result
+            producer: agent
+            payload:
+              status:    "$.status"
+              stats:     "$.stats"
+              timestamp: "$.timestamp"
+
+        # ── error  →  error ──────────────────────────────────────
+        # Non-fatal warnings + system errors. Same payload-verbatim
+        # shape claude's profile uses — gemini's error structure is
+        # under-specified upstream so lifting fields would lose
+        # forward compatibility.
+        - match: { type: error }
+          emit:
+            kind: error
+            producer: agent
+            payload_expr: "$."
+
+        # No catch-all. Streaming message deltas
+        # ({type:message, delta:true}) and any future event types
+        # fall through to ApplyProfile's kind=raw fallback. ADR-013
+        # accepts the raw rows for v1; a future wedge may filter or
+        # promote them once the live-streaming UI lands.
   - family: codex
     bin: codex
     version_flag: --version

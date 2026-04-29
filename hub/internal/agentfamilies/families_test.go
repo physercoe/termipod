@@ -330,22 +330,13 @@ func TestFrameProfile_EmbeddedClaudeCode(t *testing.T) {
 	}
 }
 
-// TestFrameProfile_GeminiStillNil — gemini-cli doesn't ship a profile
-// yet; it'll get one when the gemini exec-per-turn driver lands
-// (ADR-012 D6). Codex has shipped (slice 2 of the codex wedge), so
-// it's no longer in this list.
-func TestFrameProfile_GeminiStillNil(t *testing.T) {
-	for _, name := range []string{"gemini-cli"} {
-		f, ok := ByName(name)
-		if !ok {
-			t.Fatalf("%s missing from registry", name)
-		}
-		if f.FrameProfile != nil {
-			t.Errorf("%s ships embedded with FrameProfile=%+v; should still be nil in v1",
-				name, f.FrameProfile)
-		}
-	}
-}
+// gemini-cli's frame profile is asserted by
+// TestProfile_Gemini_TranslatesStreamJSON +
+// TestFrameProfile_EmbeddedGemini in hostrunner/profile_gemini_test.go
+// (ADR-013, slice 2 of the gemini wedge). The historical
+// TestFrameProfile_GeminiStillNil guard was removed when the profile
+// shipped — it asserted "no profile yet for gemini," which is no
+// longer the case.
 
 // TestFrameProfile_EmbeddedCodex — codex ships its app-server
 // JSON-RPC profile (ADR-012). Smoke-checks the family entry, the

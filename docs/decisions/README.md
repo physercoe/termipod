@@ -27,6 +27,8 @@ next sequential number — don't reserve, don't skip.
 | [006](006-cache-first-cold-start.md) | Mobile renders cached snapshots before network | Accepted 2026-04-27 | — |
 | [007](007-mcp-vs-a2a-protocol-roles.md) | MCP for agent↔hub, A2A for agent↔agent | Accepted 2026-04-27 | — |
 | [008](008-orchestrator-worker-slice.md) | Adopt the SOTA orchestrator-worker pattern (6-item slice) | Accepted 2026-04-27 | — |
+| [009](009-agent-state-and-identity.md) | Agent identity and session lifecycle | Accepted 2026-04-28 | — |
+| [010](010-frame-profiles-as-data.md) | Frame profiles as data — vendor schemas leave Go for YAML | Accepted 2026-04-29 | — |
 
 ---
 

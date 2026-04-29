@@ -88,9 +88,12 @@ type M2LaunchConfig struct {
 
 // M2LaunchResult is what launchM2 hands back to runner.go so it can keep
 // its bookkeeping (pane id, driver handle) the same shape across modes.
+// Driver is the interface type so launchM2 can return either the
+// stream-json StdioDriver (claude-code, gemini-cli) or the JSON-RPC
+// AppServerDriver (codex, ADR-012) without runner.go caring.
 type M2LaunchResult struct {
 	PaneID  string
-	Driver  *StdioDriver
+	Driver  Driver
 	LogPath string
 }
 
@@ -193,29 +196,50 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 
 	// Pull the family's frame_translator policy + profile so the driver
 	// can dispatch via the data-driven path when configured. Unknown
-	// kinds (codex / gemini-cli before they ship profiles) leave both
-	// fields zero → translate() falls through to legacyTranslate. ADR-010
+	// kinds (gemini-cli before its profile lands) leave both fields
+	// zero → translate() falls through to legacyTranslate. ADR-010
 	// Phase 1.6: default is legacy until canary holds.
 	var frameTranslator string
 	var frameProfile *agentfamilies.FrameProfile
+	var familyName string
 	if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
 		frameTranslator = fam.FrameTranslator
 		frameProfile = fam.FrameProfile
+		familyName = fam.Family
 	}
 
-	drv := &StdioDriver{
-		AgentID:         cfg.Spawn.ChildID,
-		Poster:          cfg.Client,
-		Stdout:          teed,
-		Stdin:           stdin,
-		FrameTranslator: frameTranslator,
-		FrameProfile:    frameProfile,
-		Closer: func() {
-			kill()
-			_ = stdin.Close()
-			_ = stdout.Close()
-			_ = logFile.Close()
-		},
+	closer := func() {
+		kill()
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = logFile.Close()
+	}
+
+	// Per-family driver dispatch (ADR-012 D1). Codex's app-server
+	// speaks JSON-RPC, not stream-json — same line-delimited stdio,
+	// different framing — so it gets its own driver. Everything else
+	// uses StdioDriver with the frame-profile + legacy translators
+	// from ADR-010.
+	var drv Driver
+	if familyName == "codex" {
+		drv = &AppServerDriver{
+			AgentID:      cfg.Spawn.ChildID,
+			Poster:       cfg.Client,
+			Stdout:       teed,
+			Stdin:        stdin,
+			FrameProfile: frameProfile,
+			Closer:       closer,
+		}
+	} else {
+		drv = &StdioDriver{
+			AgentID:         cfg.Spawn.ChildID,
+			Poster:          cfg.Client,
+			Stdout:          teed,
+			Stdin:           stdin,
+			FrameTranslator: frameTranslator,
+			FrameProfile:    frameProfile,
+			Closer:          closer,
+		}
 	}
 	if err := drv.Start(ctx); err != nil {
 		_ = stdin.Close()

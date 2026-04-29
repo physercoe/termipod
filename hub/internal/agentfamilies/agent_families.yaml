@@ -102,18 +102,15 @@ families:
         # task_started / task_updated / task_notification all land
         # here and are folded by the mobile _systemBody renderer
         # into one-liners. Anything we don't model gets the full
-        # frame so the transcript stays complete.
+        # frame so the transcript stays complete. payload_expr passes
+        # the whole frame through verbatim (matches legacy semantics
+        # where PostAgentEvent(..., "system", ..., frame) shipped the
+        # entire JSON object).
         - match: { type: system }
           emit:
             kind: system
             producer: agent
-            payload:
-              subtype:      "$.subtype"
-              task_id:      "$.task_id"
-              agent:        "$.agent || $.name"
-              description:  "$.description || $.prompt"
-              patch:        "$.patch"
-              message:      "$.message || $.text || $.notification"
+            payload_expr: "$."
 
         # ── rate_limit_event (top-level)  →  rate_limit ──────────
         # Older SDK builds emit rate_limit_event as a bare top-level
@@ -216,27 +213,20 @@ families:
             kind: completion
             producer: agent
             # Deprecated alias kept for one release per ADR-010
-            # plan §4.2. Mobile's _completionBody reads subtype,
-            # duration_ms, and result from the payload root, so
-            # we surface those directly rather than wrapping the
-            # whole frame. Drop this rule once telemetry shows
-            # nothing reads kind=completion.
-            payload:
-              subtype:        "$.subtype"
-              duration_ms:    "$.duration_ms"
-              num_turns:      "$.num_turns"
-              total_cost_usd: "$.total_cost_usd"
-              result:         "$.result"
+            # plan §4.2. Legacy emits the whole frame as payload;
+            # payload_expr preserves that for parity. Drop this rule
+            # once telemetry shows nothing reads kind=completion.
+            payload_expr: "$."
 
         # ── error  →  error ──────────────────────────────────────
+        # Legacy ships the whole frame as payload — error structure
+        # varies enough that lifting specific fields would lose
+        # forward compatibility. payload_expr matches legacy.
         - match: { type: error }
           emit:
             kind: error
             producer: agent
-            payload:
-              error:   "$.error || $.message"
-              code:    "$.code"
-              details: "$.details"
+            payload_expr: "$."
 
         # No catch-all: unmatched frames fall through to ApplyProfile's
         # implicit kind=raw, payload=verbatim fallback (ADR-010 D5).

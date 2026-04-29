@@ -159,14 +159,33 @@ func matchesAll(match map[string]any, frame map[string]any) bool {
 // defaults to "agent" — the kind that an agent-output frame has been
 // historically attributed to. Profiles can override per rule (e.g.
 // system lifecycle frames mark themselves producer=system).
+//
+// Payload shape:
+//   - PayloadExpr present → the expression resolves to the entire
+//     payload (used for whole-frame passthrough rules where the
+//     legacy translator emits the raw frame: system fallback, error,
+//     completion). Non-map results yield `{}` defensively rather
+//     than panicking.
+//   - Otherwise → per-field expression map. Each value is evaluated
+//     and the result is the named field's value.
 func buildEmit(emit agentfamilies.Emit, inner, outer map[string]any) EmittedEvent {
 	producer := emit.Producer
 	if producer == "" {
 		producer = "agent"
 	}
-	payload := make(map[string]any, len(emit.Payload))
-	for k, expr := range emit.Payload {
-		payload[k] = profile_eval.Eval(expr, inner, outer)
+	var payload map[string]any
+	if emit.PayloadExpr != "" {
+		v := profile_eval.Eval(emit.PayloadExpr, inner, outer)
+		if m, ok := v.(map[string]any); ok {
+			payload = m
+		} else {
+			payload = map[string]any{}
+		}
+	} else {
+		payload = make(map[string]any, len(emit.Payload))
+		for k, expr := range emit.Payload {
+			payload[k] = profile_eval.Eval(expr, inner, outer)
+		}
 	}
 	return EmittedEvent{
 		Kind:     emit.Kind,

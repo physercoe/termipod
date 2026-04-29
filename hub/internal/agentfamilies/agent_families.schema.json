@@ -117,10 +117,20 @@
         },
         "payload": {
           "type": "object",
-          "description": "Map of output field → expression. Expressions are evaluated in the rule's scope (inner if inside for_each, outer via $$.) and resolved to the agent_event row's payload_json.",
+          "description": "Map of output field → expression. Expressions are evaluated in the rule's scope (inner if inside for_each, outer via $$.) and resolved to the agent_event row's payload_json. Mutually exclusive with payload_expr.",
           "additionalProperties": { "type": "string" }
+        },
+        "payload_expr": {
+          "type": "string",
+          "description": "Single expression yielding the *entire* payload (whole-payload passthrough). Used when the legacy translator passes the raw frame as payload — system fallback, error, deprecated completion alias. Must resolve to a map; non-map values yield an empty payload defensively. Mutually exclusive with payload (payload_expr wins if both are set).",
+          "pattern": "^\\$\\$?\\..*"
         }
-      }
+      },
+      "oneOf": [
+        { "not": { "required": ["payload", "payload_expr"] } },
+        { "required": ["payload"], "not": { "required": ["payload_expr"] } },
+        { "required": ["payload_expr"], "not": { "required": ["payload"] } }
+      ]
     }
   }
 }

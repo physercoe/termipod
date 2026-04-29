@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -100,12 +102,30 @@ const streamJSONBufferSize = 1 << 20
 
 func (d *StdioDriver) readLoop(ctx context.Context) {
 	defer d.wg.Done()
+	// Optional frame capture: when HUB_STREAM_DEBUG_DIR is set, every
+	// raw stream-json line gets appended to <dir>/<agent_id>.jsonl
+	// before translation. Used by ADR-010 Phase 1.5 to grow the
+	// frame-profile parity corpus from real claude-code traffic — the
+	// operator runs an agent, copies the resulting JSONL into the
+	// repo's testdata directory, and the parity test starts diffing
+	// against it. Best-effort: capture failures don't interrupt the
+	// real translation path.
+	captureFile := openCaptureFile(d.AgentID, d.Log)
+	if captureFile != nil {
+		defer captureFile.Close()
+	}
 	sc := bufio.NewScanner(d.Stdout)
 	sc.Buffer(make([]byte, 64*1024), streamJSONBufferSize)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
 			continue
+		}
+		if captureFile != nil {
+			if _, err := captureFile.Write(append(line, '\n')); err != nil {
+				d.Log.Debug("stream capture write failed",
+					"agent", d.AgentID, "err", err)
+			}
 		}
 		var frame map[string]any
 		if err := json.Unmarshal(line, &frame); err != nil {
@@ -120,6 +140,29 @@ func (d *StdioDriver) readLoop(ctx context.Context) {
 	if err := sc.Err(); err != nil && err != io.EOF {
 		d.Log.Debug("stdio read error", "agent", d.AgentID, "err", err)
 	}
+}
+
+// openCaptureFile returns an append-mode writer at
+// <HUB_STREAM_DEBUG_DIR>/<agent_id>.jsonl when the env var is set,
+// or nil when capture is disabled. Logs and returns nil on error so
+// translation continues unaffected.
+func openCaptureFile(agentID string, log *slog.Logger) *os.File {
+	dir := os.Getenv("HUB_STREAM_DEBUG_DIR")
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Debug("stream capture dir create failed", "dir", dir, "err", err)
+		return nil
+	}
+	path := filepath.Join(dir, agentID+".jsonl")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		log.Debug("stream capture file open failed", "path", path, "err", err)
+		return nil
+	}
+	log.Info("stream capture active", "agent", agentID, "path", path)
+	return f
 }
 
 // translate maps a single stream-json frame to zero or more agent_events.

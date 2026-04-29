@@ -23,6 +23,52 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.332-alpha — 2026-04-29
+
+### Added
+- ADR-010 Phase 1.5: parity-test harness + seed corpus.
+  `profile_parity_test.go` runs every frame in
+  `testdata/profiles/claude-code/corpus.jsonl` through both
+  translators (the legacy hardcoded `translate()` and the new
+  data-driven `ApplyProfile`) and diffs the resulting agent_events
+  by `(kind, producer, payload)`. Diff output is rule-level and
+  agent-readable: which frame, which event index, which payload
+  field, and what the legacy/profile values were. 13-frame seed
+  corpus exercises every translate() branch (system.init / 3
+  rate_limit shapes / task subtypes / assistant text+tool / user
+  tool_result / result / error / unknown raw fallback).
+- Grammar extension: `payload_expr: <expr>` for whole-payload
+  passthrough. Used when the legacy translator emits the raw frame
+  as payload (system fallback, error, deprecated completion alias)
+  — three rules in the claude-code profile now use it. Mutually
+  exclusive with `payload`; documented in
+  `docs/reference/frame-profiles.md` §4 and the JSON Schema sidecar.
+- `HUB_STREAM_DEBUG_DIR` env var: when set, the StdioDriver tees
+  every raw stream-json line to `<dir>/<agent_id>.jsonl`. Operators
+  use this to grow the corpus from real claude-code traffic — run
+  the agent, copy interesting frames into the testdata directory,
+  re-run the parity test.
+
+### Changed
+- Two known-gap fields documented as deliberate parity skips
+  rather than profile bugs:
+    - `by_model` — legacy normalizeTurnResult renames inner
+      camelCase keys (inputTokens → input, etc.); v1 grammar has
+      no map-iter construct.
+    - `overage_disabled` — legacy derives a bool from
+      `reason != nil`; v1 grammar has no bool-from-nullable
+      predicate. Mobile reads `reason` directly.
+  Adding to `parityIgnoreFields` is a deliberate policy decision;
+  reviewers should read the comment before extending.
+
+### Status
+- ADR-010 Phase 1 is feature-complete (1.1 schema, 1.2 evaluator,
+  1.3 translator, 1.4 profile + agent-readability artifacts, 1.5
+  parity harness). Phase 1.6 (frame_translator flag) and Phase 2
+  (canary → flip default) remain. Profile-driven translation is
+  still dark — the legacy translator owns production traffic until
+  the flag wires up.
+
 ## v1.0.331-alpha — 2026-04-29
 
 ### Removed

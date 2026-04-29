@@ -104,13 +104,27 @@ type Rule struct {
 }
 
 // Emit declares the agent_event row a rule produces. Kind and
-// Producer are literal strings; Payload values are expressions
-// evaluated against the rule's scope (inner if inside a for_each,
-// outer via `$$.…`).
+// Producer are literal strings.
+//
+// Payload shape (mutually exclusive):
+//
+//   - Payload map[string]string — per-field expression map. Each value
+//     is evaluated against the rule's scope and the result becomes
+//     the named field on the agent_event row's payload_json.
+//   - PayloadExpr string — single expression yielding the *entire*
+//     payload. Used when the legacy translator passes the raw frame
+//     as payload (system fallback, error, the deprecated completion
+//     alias). The expression must resolve to a map; non-map values
+//     produce an empty payload (defensive — drives a parity-test
+//     finding rather than a panic).
+//
+// PayloadExpr wins when both are set. Empty payload yields a
+// `payload_json` of `{}`.
 type Emit struct {
-	Kind     string            `yaml:"kind" json:"kind"`
-	Producer string            `yaml:"producer,omitempty" json:"producer,omitempty"`
-	Payload  map[string]string `yaml:"payload,omitempty" json:"payload,omitempty"`
+	Kind        string            `yaml:"kind" json:"kind"`
+	Producer    string            `yaml:"producer,omitempty" json:"producer,omitempty"`
+	Payload     map[string]string `yaml:"payload,omitempty" json:"payload,omitempty"`
+	PayloadExpr string            `yaml:"payload_expr,omitempty" json:"payload_expr,omitempty"`
 }
 
 // Source tags whether a returned Family came from the embedded default,

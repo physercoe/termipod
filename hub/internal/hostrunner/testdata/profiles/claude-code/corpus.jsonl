@@ -1,0 +1,13 @@
+{"type":"system","subtype":"init","session_id":"sess-abc","model":"claude-opus-4-7","cwd":"/tmp/wt","permissionMode":"acceptEdits","tools":["Read","Write","Bash"],"mcpServers":[{"name":"git"}],"slashCommands":["/help","/compact"],"agents":["@code","@docs"],"skills":[],"plugins":[],"claude_code_version":"1.5.0","outputStyle":"default"}
+{"type":"system","subtype":"rate_limit_event","rateLimitType":"5h","status":"allowed","resetsAt":"2026-04-29T08:00:00Z"}
+{"type":"system","subtype":"task_started","task_id":"brgb0gz57","agent":"researcher","description":"investigate stale sessions"}
+{"type":"system","subtype":"task_updated","task_id":"brgb0gz57","patch":{"is_backgrounded":true}}
+{"type":"system","subtype":"task_notification","task_id":"brgb0gz57","message":"agent paused for input"}
+{"type":"rate_limit_event","rateLimitType":"5h","status":"warn","resetsAt":"2026-04-29T13:00:00Z"}
+{"type":"rate_limit_event","rate_limit_info":{"rateLimitType":"five_hour","status":"allowed","resetsAt":1777443000,"overageDisabledReason":"org_level_disabled_until","isUsingOverage":false}}
+{"type":"assistant","message":{"id":"msg_text_only","model":"claude-opus-4-7","content":[{"type":"text","text":"Reading the file."}]}}
+{"type":"assistant","message":{"id":"msg_with_tool","model":"claude-opus-4-7","content":[{"type":"text","text":"I'll read it."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/hosts"}}],"usage":{"input_tokens":120,"output_tokens":40,"cache_read_input_tokens":9100,"cache_creation_input_tokens":80,"service_tier":"standard"}}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"127.0.0.1 localhost","is_error":false}]}}
+{"type":"result","subtype":"success","duration_ms":4500,"num_turns":3,"total_cost_usd":0.0123,"permission_denials":[]}
+{"type":"error","error":"connection refused","code":"ECONNREFUSED"}
+{"type":"telemetry_v2","data":"hypothetical future shape","session_id":"sess-x"}

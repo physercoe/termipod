@@ -122,13 +122,30 @@ That's the entire language. Concretely:
   emit:
     kind: <string>            # the agent_event kind column
     producer: <string>        # default "agent"
-    payload:
+    payload:                  # per-field expression map
       field_name: <expr>
       another:    <expr>
+    # OR (mutually exclusive with payload):
+    payload_expr: <expr>      # whole-payload passthrough; result must be a map
   sub_rules:                  # only meaningful with for_each
     - match: { ... }
       emit: { ... }
 ```
+
+**Choosing `payload` vs `payload_expr`:**
+
+- Use **`payload`** when you want to lift specific fields by name —
+  the common case (text, tool_call, rate_limit, usage, session.init,
+  turn.result). Each field gets its own expression.
+- Use **`payload_expr: "$."`** when the legacy translator passes the
+  *whole frame* as the payload — system fallback for unknown
+  subtypes, error frames, and the deprecated completion alias. The
+  expression must resolve to a map; non-map values yield `{}`
+  defensively (and surface as a parity-test finding rather than a
+  panic).
+
+The two are mutually exclusive in a single emit. If both are set,
+`payload_expr` wins.
 
 **Match semantics.** `match` is the dispatch key. Every key in the
 match map must literal-equal the corresponding top-level field of the

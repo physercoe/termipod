@@ -101,6 +101,9 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             ? (ctx?['agent_handle'] ?? '').toString()
             : actorHandle;
     final ctxEvents = (ctx?['events'] as List?)?.cast<dynamic>() ?? const [];
+    final status = (widget.attention['status'] ?? '').toString();
+    final resolvedAt = (widget.attention['resolved_at'] ?? '').toString();
+    final decisions = _decodeDecisions(widget.attention['decisions']);
 
     return Scaffold(
       appBar: AppBar(
@@ -162,15 +165,18 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
           const SizedBox(height: 20),
 
           // --- Inline actions: same widgets as the Me-page card. ---
-          _InlineActions(
-            id: attentionId,
-            kind: kind,
-            pendingPayload: pending,
-            onResolved: () {
-              if (mounted) Navigator.of(context).pop();
-            },
-          ),
-          const SizedBox(height: 24),
+          // Hidden once the attention is resolved — the decision history
+          // section below carries the audit trail instead.
+          if (status != 'resolved')
+            _InlineActions(
+              id: attentionId,
+              kind: kind,
+              pendingPayload: pending,
+              onResolved: () {
+                if (mounted) Navigator.of(context).pop();
+              },
+            ),
+          if (status != 'resolved') const SizedBox(height: 24),
 
           // --- Where: agent + session + project pointers. ---
           _Section(title: 'Origin', children: [
@@ -207,6 +213,30 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                 ),
               ),
           ]),
+
+          // --- Decision history: who decided what, when. ---
+          // Populated once any /decide call lands on this attention.
+          // For single-approver tiers (MVP default) the list will hold
+          // exactly one entry on resolved items and be empty on open
+          // ones; for multi-approver quorums each partial vote shows up
+          // alongside the final resolution.
+          if (decisions.isNotEmpty)
+            _Section(title: 'Decision history', children: [
+              for (final d in decisions)
+                _DecisionTile(decision: d, kind: kind),
+              if (status == 'resolved' && resolvedAt.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Resolved ${_formatTs(resolvedAt)}',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: muted,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+            ]),
 
           // --- Why: transcript leading up to the request. ---
           if (_loadingContext)
@@ -338,6 +368,27 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
       } catch (_) {}
     }
     return null;
+  }
+
+  static List<Map<String, dynamic>> _decodeDecisions(dynamic raw) {
+    if (raw is List) {
+      return [
+        for (final d in raw)
+          if (d is Map) d.cast<String, dynamic>(),
+      ];
+    }
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return [
+            for (final d in decoded)
+              if (d is Map) d.cast<String, dynamic>(),
+          ];
+        }
+      } catch (_) {}
+    }
+    return const [];
   }
 
   static String _kindLabel(String kind) {
@@ -643,6 +694,138 @@ class _TranscriptTile extends StatelessWidget {
       } catch (_) {}
     }
     return null;
+  }
+}
+
+/// One row of the decision-history audit trail. Per-kind formatting
+/// mirrors the user-turn text the agent sees on its own transcript
+/// (driver_stdio.formatAttentionReplyText) so the history reads the
+/// same way on both sides — what the principal sees here is what the
+/// agent saw.
+class _DecisionTile extends StatelessWidget {
+  final Map<String, dynamic> decision;
+  final String kind;
+  const _DecisionTile({required this.decision, required this.kind});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final at = (decision['at'] ?? '').toString();
+    final by = (decision['by'] ?? '').toString();
+    final verdict = (decision['decision'] ?? '').toString();
+    final reason = (decision['reason'] ?? '').toString();
+    final body = (decision['body'] ?? '').toString();
+    final optionID = (decision['option_id'] ?? '').toString();
+
+    final approve = verdict == 'approve';
+    final accent = approve ? DesignColors.success : DesignColors.error;
+    final headline = _headline(kind, verdict, optionID);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(6),
+        border: Border(
+          left: BorderSide(color: accent, width: 2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                approve
+                    ? Icons.check_circle_outline
+                    : Icons.cancel_outlined,
+                size: 14,
+                color: accent,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  headline,
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: accent,
+                  ),
+                ),
+              ),
+              if (at.isNotEmpty)
+                Text(
+                  _ApprovalDetailScreenState._formatTs(at),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    color: muted,
+                  ),
+                ),
+            ],
+          ),
+          if (by.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 20),
+              child: Text(
+                'by $by',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: muted,
+                ),
+              ),
+            ),
+          if (body.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: SelectableText(
+                body,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ],
+          if (reason.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: SelectableText(
+                'Reason: $reason',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: muted,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _headline(String kind, String verdict, String optionID) {
+    final approve = verdict == 'approve';
+    switch (kind) {
+      case 'select':
+        if (approve) {
+          return optionID.isNotEmpty
+              ? 'Selected: $optionID'
+              : 'Selected';
+        }
+        return 'No option chosen';
+      case 'help_request':
+        return approve ? 'Replied' : 'Dismissed';
+      case 'template_proposal':
+        return approve ? 'Approved template' : 'Rejected template';
+      case 'approval_request':
+      default:
+        return approve ? 'Approved' : 'Rejected';
+    }
   }
 }
 

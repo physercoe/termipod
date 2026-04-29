@@ -23,6 +23,7 @@ import '../projects/search_screen.dart';
 import '../projects/task_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
 import 'approval_detail_screen.dart';
+import 'decision_history_screen.dart';
 import 'inline_actions.dart';
 import 'note_editor_screen.dart';
 
@@ -122,6 +123,15 @@ class MeScreen extends ConsumerWidget {
                   onPressed: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const SessionsScreen(),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.history),
+                  tooltip: 'Decision history',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const DecisionHistoryScreen(),
                     ),
                   ),
                 ),

@@ -1316,11 +1316,18 @@ class SessionChatScreen extends ConsumerStatefulWidget {
   final String sessionId;
   final String agentId;
   final String title;
+  /// When set, the chat opens scrolled to (and briefly highlights) the
+  /// event whose seq matches. Used by "Open in chat" from the approval
+  /// detail screen so the principal lands at the agent's turn that
+  /// raised the request, not at the generic tail. Null = default
+  /// behavior (auto-scroll to tail on cold open).
+  final int? initialSeq;
   const SessionChatScreen({
     super.key,
     required this.sessionId,
     required this.agentId,
     required this.title,
+    this.initialSeq,
   });
 
   @override
@@ -1685,6 +1692,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
       body: AgentFeed(
         agentId: widget.agentId,
         sessionId: widget.sessionId,
+        initialSeq: widget.initialSeq,
         onSessionInit: (p) => setState(() => _sessionInit = p),
       ),
     );

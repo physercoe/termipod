@@ -26,6 +26,14 @@ type AgentCap struct {
 type Capabilities struct {
 	Agents   map[string]AgentCap `json:"agents"`
 	ProbedAt string              `json:"probed_at"`
+	// Host carries the static facts about the box host-runner is on
+	// (OS, arch, CPU count, total memory, kernel, hostname). Populated
+	// by ProbeHostInfo at runner startup; the reconcile loop re-attaches
+	// it to each capabilities sweep so the hub mobile detail screen
+	// always has it. Optional in JSON for back-compat — old runners
+	// (pre-v1.0.337) emit no host field and the renderer falls back
+	// to "unknown".
+	Host *HostInfo `json:"host,omitempty"`
 }
 
 // ProbeCapabilities probes against the embedded family registry. Kept for

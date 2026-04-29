@@ -1956,8 +1956,13 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
               return _kv('Runner', parts.join(' · '), mutedColor);
             }),
             _kv('Created', h['created_at']?.toString() ?? '', mutedColor),
-            _kv('Capabilities',
-                h['capabilities']?.toString() ?? '{}', mutedColor),
+            // System info is a sibling to "Capabilities" but distinct — it
+            // describes the box (OS, CPU, memory, kernel), not the agent
+            // tools available on it. Empty for hosts whose host-runner
+            // pre-dates v1.0.337 (no `host` field in capabilities_json);
+            // we just hide the rows in that case.
+            ..._systemInfoRows(h, mutedColor),
+            ..._capabilitiesRows(h, mutedColor),
             if (_parsedHint().isNotEmpty)
               _kv('SSH hint', _formatHint(_parsedHint()), mutedColor),
             Builder(builder: (_) {
@@ -2099,6 +2104,96 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
           ],
         ),
       );
+
+  /// Decodes capabilities_json (string or already-parsed map) once for
+  /// the rows below. The hub serializes it as a JSON string in some
+  /// payloads and as a parsed map in others depending on which endpoint
+  /// the row came from; both shapes are handled.
+  Map<String, dynamic> _parsedCapabilities(Map<String, dynamic> h) {
+    final raw = h['capabilities'];
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {
+        // Fall through — a malformed payload shouldn't crash the sheet.
+      }
+    }
+    return const {};
+  }
+
+  /// System info section: OS / arch / kernel / CPU / memory / hostname.
+  /// Sourced from capabilities.host (host-runner v1.0.337+); empty for
+  /// older runners that didn't probe these fields.
+  List<Widget> _systemInfoRows(Map<String, dynamic> h, Color mutedColor) {
+    final caps = _parsedCapabilities(h);
+    final hostInfo = caps['host'];
+    if (hostInfo is! Map) return const [];
+    final hi = hostInfo.cast<String, dynamic>();
+    final os = (hi['os'] ?? '').toString();
+    final arch = (hi['arch'] ?? '').toString();
+    final kernel = (hi['kernel'] ?? '').toString();
+    final cpuCount = hi['cpu_count'];
+    final memBytes = hi['mem_bytes'];
+    final hostname = (hi['hostname'] ?? '').toString();
+    final rows = <Widget>[];
+    final platform = [
+      if (os.isNotEmpty) os,
+      if (arch.isNotEmpty) arch,
+    ].join('/');
+    if (platform.isNotEmpty) rows.add(_kv('OS', platform, mutedColor));
+    if (kernel.isNotEmpty) rows.add(_kv('Kernel', kernel, mutedColor));
+    if (cpuCount is num && cpuCount > 0) {
+      rows.add(_kv('CPU',
+          '${cpuCount.toInt()} core${cpuCount == 1 ? '' : 's'}', mutedColor));
+    }
+    if (memBytes is num && memBytes > 0) {
+      rows.add(_kv('Memory', _humanBytes(memBytes.toInt()), mutedColor));
+    }
+    if (hostname.isNotEmpty) rows.add(_kv('Hostname', hostname, mutedColor));
+    return rows;
+  }
+
+  /// Capabilities section: per-family installed/version/supports.
+  /// Renders one row per known engine; missing families are hidden so
+  /// the sheet doesn't list every supported engine just to say "no".
+  /// The user only cares about what *is* available on this box.
+  List<Widget> _capabilitiesRows(Map<String, dynamic> h, Color mutedColor) {
+    final caps = _parsedCapabilities(h);
+    final agents = caps['agents'];
+    if (agents is! Map || agents.isEmpty) {
+      return [_kv('Engines', 'none', mutedColor)];
+    }
+    final installed = <String>[];
+    for (final entry in agents.entries) {
+      final v = entry.value;
+      if (v is! Map) continue;
+      if (v['installed'] != true) continue;
+      final name = entry.key.toString();
+      final version = (v['version'] ?? '').toString();
+      installed.add(version.isEmpty ? name : '$name $version');
+    }
+    if (installed.isEmpty) {
+      return [_kv('Engines', 'none installed', mutedColor)];
+    }
+    return [_kv('Engines', installed.join(' · '), mutedColor)];
+  }
+
+  /// Friendly bytes — the host's `mem_bytes` is always GiB-scale, so
+  /// we render `xx.x GiB` and skip the unit ladder. Keep the threshold
+  /// loose so a 0.5 GiB VM still renders sensibly.
+  String _humanBytes(int b) {
+    if (b <= 0) return '0';
+    const gib = 1 << 30;
+    if (b >= gib) {
+      final gb = b / gib;
+      return '${gb.toStringAsFixed(gb >= 10 ? 0 : 1)} GiB';
+    }
+    const mib = 1 << 20;
+    final mb = b / mib;
+    return '${mb.toStringAsFixed(0)} MiB';
+  }
 }
 
 /// Sentinel returned by _ConnectionPickerSheet to signal "user wants to

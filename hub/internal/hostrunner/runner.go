@@ -118,6 +118,13 @@ type Runner struct {
 	// data rather than code. Initialized in defaults() off the embedded
 	// TemplatesFS; overridable by tests.
 	templates *agentTemplates
+
+	// hostInfo is probed once at startup (OS / arch / cpu / mem /
+	// kernel / hostname). Attached to every capabilities push so the
+	// hub mobile detail screen always carries the static facts about
+	// the box. Cached because /proc/meminfo + uname don't change while
+	// we're up — re-probing each tick would be pure overhead.
+	hostInfo *HostInfo
 }
 
 func (a *Runner) defaults() {
@@ -207,6 +214,16 @@ func (a *Runner) ensureDefaultWorkdir() {
 func (a *Runner) Start(ctx context.Context) error {
 	a.defaults()
 	a.ensureDefaultWorkdir()
+
+	// Probe static host info once at startup. Memory/kernel/CPU don't
+	// change while we're up, and the periodic capabilities sweep is
+	// hot enough that re-reading these each tick would be wasted work.
+	hi := ProbeHostInfo(ctx)
+	a.hostInfo = &hi
+	a.Log.Info("host-info probed",
+		"os", hi.OS, "arch", hi.Arch,
+		"cpu", hi.CPUCount, "mem_gib", hi.MemBytes/(1<<30),
+		"kernel", hi.Kernel)
 
 	if a.HostID == "" && a.StateDir != "" {
 		if id, ok := loadStateEntry(a.StateDir, a.Client.BaseURL, a.Client.Team, a.HostName); ok {
@@ -603,6 +620,7 @@ func (a *Runner) probeLoop(ctx context.Context) {
 	var lastHash string
 	push := func() {
 		caps := ProbeWithFamilies(ctx, a.fetchFamilies(ctx))
+		caps.Host = a.hostInfo
 		h := caps.Hash()
 		if h == lastHash {
 			return

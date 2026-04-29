@@ -41,12 +41,21 @@ class AgentFeed extends ConsumerStatefulWidget {
   final String? sessionId;
   final EdgeInsetsGeometry padding;
   final void Function(Map<String, dynamic> payload)? onSessionInit;
+  /// When set, after the cold-open backfill resolves the feed scrolls
+  /// to and briefly highlights the event whose seq matches. Used by
+  /// "Open in chat" from the approval-detail screen so the principal
+  /// lands at the agent's turn that raised the request, not at the
+  /// generic tail. The seq must lie within the cold-open page
+  /// (_pageSize=200 newest); older events fall through to the
+  /// default tail-scroll. Null = default tail behavior.
+  final int? initialSeq;
   const AgentFeed({
     super.key,
     required this.agentId,
     this.sessionId,
     this.padding = const EdgeInsets.all(12),
     this.onSessionInit,
+    this.initialSeq,
   });
 
   @override
@@ -115,6 +124,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // from the tail. Powers the "N new ↓" pill so users know the feed is
   // alive without being yanked back to the bottom.
   int _newWhileAway = 0;
+  // Anchor for the "scroll to specific seq" feature (initialSeq).
+  // Attached to whichever AgentEventCard matches the target during
+  // build; ensureVisible needs a real BuildContext, hence the key.
+  final GlobalKey _initialSeqKey = GlobalKey();
+  // True for ~1.2s after a successful jump-to-seq so the matched event
+  // renders with a tinted border, telling the user where they landed.
+  // Cleared by a delayed setState; never re-fires within a session.
+  bool _initialSeqHighlight = false;
 
   @override
   void initState() {
@@ -302,8 +319,13 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         _staleSince = cached.staleSince;
       });
       _subscribe(client);
-      // Give the first-frame layout a tick, then pin to the tail.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTail());
+      // Give the first-frame layout a tick, then either jump to the
+      // requested seq (if the caller passed one and it's in the loaded
+      // page) or pin to the tail.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (widget.initialSeq != null && _trySeekInitialSeq()) return;
+        _scrollToTail();
+      });
       // session.init is a one-shot event from the agent process. A
       // freshly-opened session against an existing steward has none —
       // the init event lives in the prior closed session. Pull the
@@ -417,6 +439,38 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   void _scrollToTail() {
     if (!_scroll.hasClients) return;
     _scroll.jumpTo(_scroll.position.maxScrollExtent);
+  }
+
+  /// Tries to scroll the matched-seq event into view + highlight it.
+  /// Returns true if the target was reachable; false when the seq
+  /// isn't in the loaded page or the keyed widget hasn't built yet
+  /// (caller falls back to _scrollToTail). Uses Scrollable.ensureVisible
+  /// which handles non-uniform row heights without a positioned-list
+  /// dependency.
+  bool _trySeekInitialSeq() {
+    final target = widget.initialSeq;
+    if (target == null) return false;
+    final hit = _events.any((e) => (e['seq'] as num?)?.toInt() == target);
+    if (!hit) return false;
+    final ctx = _initialSeqKey.currentContext;
+    if (ctx == null) return false;
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.3,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+    // We landed on a specific row, so the user is anchored — disable
+    // tail-follow until they scroll back near the bottom themselves.
+    setState(() {
+      _followTail = false;
+      _initialSeqHighlight = true;
+    });
+    Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      setState(() => _initialSeqHighlight = false);
+    });
+    return true;
   }
 
   @override
@@ -623,14 +677,35 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
                 padding: widget.padding,
                 itemCount: visible.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (ctx, i) => AgentEventCard(
-                  event: visible[i],
-                  toolNames: toolNames,
-                  toolUpdates: toolUpdates,
-                  toolResults: toolResults,
-                  resolvedApprovals: resolvedApprovals,
-                  agentId: widget.agentId,
-                ),
+                itemBuilder: (ctx, i) {
+                  final ev = visible[i];
+                  final isTarget = widget.initialSeq != null &&
+                      (ev['seq'] as num?)?.toInt() == widget.initialSeq;
+                  final card = AgentEventCard(
+                    key: isTarget ? _initialSeqKey : null,
+                    event: ev,
+                    toolNames: toolNames,
+                    toolUpdates: toolUpdates,
+                    toolResults: toolResults,
+                    resolvedApprovals: resolvedApprovals,
+                    agentId: widget.agentId,
+                  );
+                  if (isTarget && _initialSeqHighlight) {
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: DesignColors.primary.withValues(alpha: 0.6),
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: card,
+                    );
+                  }
+                  return card;
+                },
               ),
               // Inline approval cards (W1.A): when the agent has called
               // permission_prompt for a tier ≥ significant tool, the hub

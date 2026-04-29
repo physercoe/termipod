@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
+import '../projects/project_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
 import 'inline_actions.dart';
 
@@ -171,24 +172,38 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
           ),
           const SizedBox(height: 24),
 
-          // --- Where: agent + session pointers. ---
+          // --- Where: agent + session + project pointers. ---
           _Section(title: 'Origin', children: [
             if (ctxAgentHandle.isNotEmpty)
               _Field(label: 'Agent', value: ctxAgentHandle),
             if (createdAt.isNotEmpty)
               _Field(label: 'Raised', value: _formatTs(createdAt)),
-            if (ctxSessionID.isNotEmpty)
+            if (ctxSessionID.isNotEmpty || _projectScope() != null)
               Padding(
                 padding: const EdgeInsets.only(top: 6),
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('Open in chat'),
-                  onPressed: () => _openSession(
-                    context,
-                    sessionID: ctxSessionID,
-                    agentID: ctxAgentID,
-                    handle: ctxAgentHandle,
-                  ),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    if (ctxSessionID.isNotEmpty)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.open_in_new, size: 16),
+                        label: const Text('Open in chat'),
+                        onPressed: () => _openSession(
+                          context,
+                          sessionID: ctxSessionID,
+                          agentID: ctxAgentID,
+                          handle: ctxAgentHandle,
+                          targetSeq: _firstEventSeq(ctxEvents),
+                        ),
+                      ),
+                    if (_projectScope() != null)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.folder_open, size: 16),
+                        label: const Text('Open project'),
+                        onPressed: () => _openProject(context),
+                      ),
+                  ],
                 ),
               ),
           ]),
@@ -244,21 +259,74 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
     required String sessionID,
     required String agentID,
     required String handle,
+    int? targetSeq,
   }) {
     // SessionChatScreen pulls the session's real title from its own
     // backfill (it queries the session row by id); we just need a
     // sensible placeholder until that lands. Fall back to the agent
     // handle which the caller already has — it's what the principal
     // would recognise anyway ("research-steward", not a session UUID).
+    //
+    // targetSeq lands the chat at (and briefly highlights) the event
+    // closest to where this attention was raised, so the user sees
+    // the agent's reasoning in place rather than the generic "tail".
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => SessionChatScreen(
           sessionId: sessionID,
           agentId: agentID,
           title: handle.isNotEmpty ? handle : 'Session',
+          initialSeq: targetSeq,
         ),
       ),
     );
+  }
+
+  /// Returns (project_id, project_row) for project-scoped attentions —
+  /// either the explicit `project_id` column or the scope_id when
+  /// scope_kind='project'. Looks the row up from the cached hub state
+  /// so we have a Project map to hand ProjectDetailScreen. Null when
+  /// there's no project pointer or the project isn't in cache.
+  ({String id, Map<String, dynamic> project})? _projectScope() {
+    final att = widget.attention;
+    String pid = (att['project_id'] ?? '').toString();
+    if (pid.isEmpty &&
+        (att['scope_kind'] ?? '').toString() == 'project') {
+      pid = (att['scope_id'] ?? '').toString();
+    }
+    if (pid.isEmpty) return null;
+    final hub = ref.read(hubProvider).value;
+    if (hub == null) return null;
+    for (final p in hub.projects) {
+      if ((p['id'] ?? '').toString() == pid) {
+        return (id: pid, project: p);
+      }
+    }
+    return null;
+  }
+
+  void _openProject(BuildContext context) {
+    final scope = _projectScope();
+    if (scope == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProjectDetailScreen(project: scope.project),
+      ),
+    );
+  }
+
+  /// First (newest) event's seq from the context payload. Used as the
+  /// jump target when "Open in chat" is tapped — the agent's most
+  /// recent turn before the request is the right anchor for what the
+  /// principal is reviewing.
+  static int? _firstEventSeq(List ctxEvents) {
+    if (ctxEvents.isEmpty) return null;
+    final first = ctxEvents.first;
+    if (first is Map) {
+      final raw = first['seq'];
+      if (raw is num) return raw.toInt();
+    }
+    return null;
   }
 
   static Map<String, dynamic>? _decodePayload(dynamic raw) {

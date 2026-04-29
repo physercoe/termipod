@@ -23,6 +23,50 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.337-alpha — 2026-04-29
+
+### Added
+- "Open project" button on the approval-detail Origin section, next to
+  "Open in chat". Visible when the attention has a project pointer
+  (project_id column or scope_kind='project' + scope_id). Routes to
+  ProjectDetailScreen using the cached project row from hub state.
+- Scroll-to-event-id on session chat: SessionChatScreen + AgentFeed
+  gain an `initialSeq` parameter. After the cold-open backfill, the
+  feed scrolls to and briefly highlights (2px primary-tinted border,
+  ~1.2s) the event whose seq matches. Used by approval-detail's
+  "Open in chat" button so the principal lands at the agent's turn
+  that raised the request, not at the generic tail.
+  Implementation: GlobalKey on the matched AgentEventCard +
+  Scrollable.ensureVisible — works with non-uniform row heights
+  without a positioned-list dependency. Falls back to tail scroll
+  when the seq isn't in the loaded page (older than 200 newest).
+  Auto tail-follow disables on a successful jump so subsequent SSE
+  events don't yank the user back to the bottom mid-read.
+- Host info on host detail: OS, arch, kernel, CPU count, total
+  memory, hostname now render as named rows on the host detail
+  sheet (Hosts tab → tap host). Sourced from a new
+  `capabilities.host` field on the host-runner capabilities sweep.
+  Host-runner probes once at startup (ProbeHostInfo) and re-attaches
+  the cached pointer to every push so a hub mobile session always
+  sees the static facts even if the runner restarted in the middle.
+  Linux reads /proc/meminfo MemTotal; Darwin reads `sysctl hw.memsize`;
+  kernel via `uname -r` on both. Memory rendered in GiB
+  (10 GiB → "10 GiB", 0.5 GiB → "512 MiB"). Replaces the previous
+  raw-JSON dump that wasn't readable in practice.
+- Capabilities row on host detail rewritten as "Engines" with
+  installed family + version joined by `·` (e.g.
+  "claude-code 1.0.27 · codex 0.5.1"). Missing engines hidden so
+  the sheet doesn't list every supported engine just to say "no".
+- Tests: TestProbeHostInfo_PopulatesStaticFields pins OS/arch/CPU
+  population and asserts memory is non-zero on Linux/Darwin where
+  the probe path is reachable.
+
+### Changed
+- HostInfo struct embedded in Capabilities is JSON-optional
+  (`omitempty`) for back-compat — old runners (pre-v1.0.337) emit no
+  host field and the renderer hides those rows rather than showing
+  unknowns.
+
 ## v1.0.336-alpha — 2026-04-29
 
 ### Added

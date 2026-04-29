@@ -39,16 +39,41 @@ import (
 	"github.com/termipod/hub/internal/agentfamilies"
 )
 
+// AttentionPoster is the host-runner-side hook into the hub's
+// /attention surface, used by the codex approval bridge (ADR-012 D3)
+// to raise a permission_prompt on each server-initiated approval
+// request and recover the attention id for /decide-driven response
+// routing. Production wires this to *Client; tests stub it.
+type AttentionPoster interface {
+	PostAttention(ctx context.Context, in AttentionIn) (AttentionOut, error)
+}
+
+// pendingApproval tracks one server-initiated approval request that
+// has been bridged to an attention_items row but not yet resolved.
+// jsonRPCID is the parked codex request id we'll respond on; method
+// drives the response shape (item/commandExecution and
+// item/fileChange use {decision}, item/permissions uses {permissions}).
+type pendingApproval struct {
+	jsonRPCID int64
+	method    string
+}
+
 // AppServerDriver speaks codex app-server's JSON-RPC protocol over
 // the child's stdio. Field set mirrors StdioDriver's where possible
 // so the launch path can construct either by family.
 type AppServerDriver struct {
 	AgentID string
+	Handle  string // agent handle; stamped on the attention's actor_handle
 	Poster  AgentEventPoster
-	Stdout  io.Reader
-	Stdin   io.Writer
-	Closer  func()
-	Log     *slog.Logger
+	// Attention is the optional hook for the codex approval bridge.
+	// When nil, server-initiated approval requests fall back to the
+	// auto-decline stub (slice 3 behavior). Production sets it to the
+	// host-runner Client; tests can stub it independently from Poster.
+	Attention AttentionPoster
+	Stdout    io.Reader
+	Stdin     io.Writer
+	Closer    func()
+	Log       *slog.Logger
 
 	// FrameProfile drives notification translation. JSON-RPC requests
 	// and responses bypass the profile (they're handled in the read
@@ -99,6 +124,17 @@ type AppServerDriver struct {
 	// shutdownCh is closed by Stop to fail in-flight calls fast
 	// instead of waiting on CallTimeout.
 	shutdownCh chan struct{}
+
+	// pendingApprovals maps attention_id → parked codex request id
+	// for the approval bridge (ADR-012 D3). Set on every
+	// server-initiated approval request, cleared on attention_reply
+	// or driver shutdown. In-memory only — if the driver process
+	// dies, pending approvals are lost on the codex side and the
+	// attention_items row remains for the principal to dismiss; the
+	// agent retries on its next user-input turn. Persisting across
+	// driver restarts is a follow-up wedge.
+	approvalMu       sync.Mutex
+	pendingApprovals map[string]pendingApproval
 }
 
 // jsonRPCRequest is the shape we serialize for outbound calls and
@@ -143,6 +179,7 @@ func (d *AppServerDriver) Start(parent context.Context) error {
 	}
 	d.started = true
 	d.pending = make(map[int64]chan jsonRPCResponse)
+	d.pendingApprovals = make(map[string]pendingApproval)
 	d.shutdownCh = make(chan struct{})
 	d.mu.Unlock()
 
@@ -298,6 +335,20 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		}
 		return d.startTurn(ctx, body)
 	case "attention_reply":
+		// Two paths depending on attention kind:
+		//  - kind=permission_prompt → we have a parked codex JSON-RPC
+		//    request id; the resolution becomes a JSON-RPC response on
+		//    the same stdio pipe (ADR-012 D3 — vendor-neutral
+		//    equivalent of permission_prompt with no sync constraint).
+		//  - other kinds (approval_request, select, help_request) →
+		//    fresh user-text turn via turn/start, same as
+		//    StdioDriver's attention_reply path. The agent's request_*
+		//    tool already returned awaiting_response and ended its
+		//    turn; this is what wakes it up.
+		kind, _ := payload["kind"].(string)
+		if kind == "permission_prompt" {
+			return d.resolvePendingApproval(payload)
+		}
 		body := formatAttentionReplyText(payload)
 		if body == "" {
 			return fmt.Errorf("appserver driver: attention_reply produced no text")
@@ -314,6 +365,82 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 	default:
 		return fmt.Errorf("appserver driver: unsupported input kind %q", kind)
 	}
+}
+
+// resolvePendingApproval looks up the parked JSON-RPC request id
+// for the resolved attention and writes a response on the codex
+// stdio pipe. The response shape depends on the original method:
+//
+//   - item/commandExecution/requestApproval → {decision: accept|decline}
+//   - item/fileChange/requestApproval        → {decision: accept|decline}
+//   - item/permissions/requestApproval       → {permissions: {...}, scope}
+//
+// Mapping from the principal's decision verb to codex's:
+//   - approve → accept
+//   - reject  → decline
+//
+// `cancel` and `acceptForSession` aren't currently exposed through
+// /decide — adding them to attentionDecideIn is a follow-up if
+// real traffic shows the principal wants those granular options.
+//
+// Missing-id case: the codex side either restarted or already
+// timed out. We log it as a system event so it surfaces in the
+// audit trail and return nil — the attention is still resolved
+// hub-side, and the agent will retry on its next user-input turn.
+func (d *AppServerDriver) resolvePendingApproval(payload map[string]any) error {
+	attID, _ := payload["request_id"].(string)
+	decision, _ := payload["decision"].(string)
+	d.approvalMu.Lock()
+	pa, ok := d.pendingApprovals[attID]
+	if ok {
+		delete(d.pendingApprovals, attID)
+	}
+	d.approvalMu.Unlock()
+	if !ok {
+		// Best-effort logging; attention's already resolved on the hub.
+		_ = d.Poster.PostAgentEvent(context.Background(), d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":         "appserver_approval_unmatched",
+				"attention_id": attID,
+				"reason":       "no parked jsonrpc id (driver may have restarted)",
+			})
+		return nil
+	}
+	codexDecision := "decline"
+	if decision == "approve" {
+		codexDecision = "accept"
+	}
+	var result any
+	switch pa.method {
+	case "item/permissions/requestApproval":
+		// permissions response shape: {scope, permissions} on accept,
+		// {scope: "session", permissions: {}} on decline. The fine-
+		// grained permission set isn't exposed through /decide today —
+		// approve grants the full requested set, decline grants none.
+		// A follow-up wedge can surface per-permission picks when the
+		// mobile UI grows them.
+		if codexDecision == "accept" {
+			result = map[string]any{
+				"scope": "turn",
+				// Empty map = grant whatever the request implied. Codex
+				// treats absent permissions as "use the default for this
+				// approval" rather than "deny" in this position.
+				"permissions": map[string]any{},
+			}
+		} else {
+			result = map[string]any{
+				"scope":       "turn",
+				"permissions": map[string]any{},
+			}
+		}
+	default:
+		// commandExecution + fileChange both take {decision}.
+		result = map[string]any{"decision": codexDecision}
+	}
+	if err := d.writeRawResponse(pa.jsonRPCID, result); err != nil {
+		return fmt.Errorf("appserver driver: write approval response: %w", err)
+	}
+	return nil
 }
 
 // startTurn calls turn/start with one text content item. Returns
@@ -488,41 +615,197 @@ func (d *AppServerDriver) dispatchResponse(resp jsonRPCResponse) {
 	}
 }
 
-// handleServerRequest is the slice-3 stub for server-initiated
-// JSON-RPC requests (codex's per-tool-call approval requests +
-// MCP elicitation). For visibility we emit a `system` event so the
-// transcript records that something happened; for correctness we
-// MUST send a response back, otherwise the server stalls.
+// handleServerRequest bridges codex's server-initiated JSON-RPC
+// requests to the hub's attention surface (ADR-012 D3). The codex
+// `app-server` protocol uses these for per-tool-call approvals
+// (`item/commandExecution/requestApproval`,
+// `item/fileChange/requestApproval`,
+// `item/permissions/requestApproval`) and for MCP elicitation
+// (`mcpServer/elicitation/request`).
 //
-// Slice 3 sends an immediate `decline` so the agent doesn't hang on
-// its own permission gate while the bridge is being built. Slice 4
-// will replace this with a proper /decide-mediated response that
-// holds the request id until the principal answers.
+// For approval-shaped requests the driver:
+//
+//  1. Posts an `attention_items` row with kind=permission_prompt and
+//     the codex method+context as pending_payload, capturing the
+//     resulting attention id.
+//  2. Stashes (attentionID → jsonRPCID, method) locally so a later
+//     `attention_reply` Input event can find the parked id.
+//  3. Leaves the JSON-RPC request open. The codex side blocks on
+//     it indefinitely — the protocol allows arbitrary response
+//     latency on the long-lived stdio pipe; that's the whole point
+//     of going through app-server (ADR-012 D3, ADR-011 D6 update).
+//
+// On any failure path (no Attention hook wired, hub call errors,
+// unknown method) we fall back to auto-declining so the codex
+// process doesn't stall. The system event surfaces *why* in the
+// transcript so the operator can see what got bypassed.
 func (d *AppServerDriver) handleServerRequest(
 	ctx context.Context, raw []byte, resp jsonRPCResponse,
 ) {
 	method := resp.Method
-	// Surface the request as a system event so the operator can see
-	// what's getting auto-declined while slice 4 is in flight.
+	id := *resp.ID
+
+	// Approval-shaped methods bridge to attention. Anything else
+	// (mcpServer/elicitation, item/tool/requestUserInput) we can't
+	// usefully bridge in this slice — log it and decline so codex
+	// proceeds. Adding those is a follow-up wedge once we know what
+	// shapes the principal-side UI wants for them.
+	if d.Attention == nil || !isApprovalMethod(method) {
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":   "appserver_request_auto_declined",
+				"method": method,
+				"reason": map[bool]string{true: "no attention bridge wired", false: "method not bridged"}[d.Attention == nil],
+				"raw":    string(raw),
+			})
+		_ = d.writeRawResponse(id, map[string]any{"decision": "decline"})
+		return
+	}
+
+	params := decodeParams(resp.Params)
+	att, err := d.Attention.PostAttention(ctx, AttentionIn{
+		ScopeKind:      "team",
+		Kind:           "permission_prompt",
+		Summary:        approvalSummary(method, params),
+		Severity:       approvalSeverity(method),
+		ActorHandle:    d.Handle,
+		PendingPayload: marshalPending(method, id, params),
+	})
+	if err != nil {
+		// Fall back to decline so codex can proceed. The system event
+		// trail tells the operator the bridge had a hub-side failure
+		// (vs. just being misconfigured).
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":   "appserver_attention_post_failed",
+				"method": method,
+				"err":    err.Error(),
+				"raw":    string(raw),
+			})
+		_ = d.writeRawResponse(id, map[string]any{"decision": "decline"})
+		return
+	}
+
+	d.approvalMu.Lock()
+	d.pendingApprovals[att.ID] = pendingApproval{jsonRPCID: id, method: method}
+	d.approvalMu.Unlock()
+
+	// One-line system marker so the transcript records that the gate
+	// fired and which attention is holding the answer. Useful in
+	// audit replays.
 	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
 		map[string]any{
-			"kind":             "appserver_request_pending_bridge",
-			"method":           method,
-			"raw":              string(raw),
+			"kind":         "appserver_approval_parked",
+			"method":       method,
+			"attention_id": att.ID,
 		})
-	// Auto-decline so the server can proceed. Per the codex protocol,
-	// item/*/requestApproval responses are `{decision: "decline"}`.
-	// Other server-initiated request methods (mcpServer/elicitation,
-	// item/tool/requestUserInput) have their own response shapes;
-	// declining via this generic shape may produce a protocol error
-	// the server logs, which is acceptable for slice 3 — the system
-	// event trail above tells us what method we mishandled, and
-	// slice 4 will route per-method to the right reply shape.
-	id := *resp.ID
-	if err := d.writeRawResponse(id, map[string]any{"decision": "decline"}); err != nil {
-		d.Log.Debug("appserver: write decline failed",
-			"agent", d.AgentID, "id", id, "err", err)
+}
+
+// isApprovalMethod identifies the codex JSON-RPC methods whose
+// responses we know how to build from a /decide outcome. Keep this
+// list in sync with codex's protocol surface — adding a method here
+// without a matching builder in resolvePendingApproval will produce
+// a protocol error on the codex side.
+func isApprovalMethod(method string) bool {
+	switch method {
+	case "item/commandExecution/requestApproval",
+		"item/fileChange/requestApproval",
+		"item/permissions/requestApproval":
+		return true
 	}
+	return false
+}
+
+// approvalSummary produces a human-readable one-liner for the
+// attention card. Mirrors what the principal would see in codex's
+// own TUI prompt — command, file path, or summary phrase — so the
+// gate reads consistently across surfaces.
+func approvalSummary(method string, params map[string]any) string {
+	switch method {
+	case "item/commandExecution/requestApproval":
+		if cmd := stringPath(params, "command"); cmd != "" {
+			return "Run: " + cmd
+		}
+		return "Run command (codex)"
+	case "item/fileChange/requestApproval":
+		return "Apply file change (codex)"
+	case "item/permissions/requestApproval":
+		return "Grant permissions (codex)"
+	}
+	return method
+}
+
+// approvalSeverity maps method → tier. commandExecution defaults to
+// `major` because shell commands are blast-radius decisions; the
+// others land at `minor` until we accumulate enough real traffic to
+// know whether they merit promotion.
+func approvalSeverity(method string) string {
+	if method == "item/commandExecution/requestApproval" {
+		return "major"
+	}
+	return "minor"
+}
+
+// marshalPending packages the codex-side context the audit trail
+// (and the slice-4 detail screen) needs to make sense of the
+// attention without round-tripping back to codex. The id is
+// recorded but the driver's own pendingApprovals map is what
+// closes the loop on /decide.
+func marshalPending(method string, jsonRPCID int64, params map[string]any) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{
+		"engine":  "codex",
+		"method":  method,
+		"jsonrpc_id": jsonRPCID,
+		"params":  params,
+	})
+	return b
+}
+
+// decodeParams unwraps the json.RawMessage into the loosely-typed
+// map ApplyProfile and the bridge helpers consume. Returns an empty
+// map (not nil) so callers can dot-walk safely.
+func decodeParams(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+// stringPath flattens a single dotted lookup against a decoded JSON
+// map. Used by the summary builder; keeping it local rather than
+// reaching for profile_eval.Eval which is overkill for one-key
+// lookups.
+func stringPath(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	if arr, ok := m[key].([]any); ok && len(arr) > 0 {
+		// commandExecution.command is `["bash","-lc","..."]` —
+		// flatten to a single readable string.
+		var parts []string
+		for _, p := range arr {
+			if s, ok := p.(string); ok {
+				parts = append(parts, s)
+			}
+		}
+		return joinSpaces(parts)
+	}
+	return ""
+}
+
+func joinSpaces(parts []string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += " "
+		}
+		out += p
+	}
+	return out
 }
 
 // writeRawResponse marshals and sends a JSON-RPC response. Distinct

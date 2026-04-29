@@ -281,12 +281,61 @@ func TestAppServerDriver_HandshakeAndTurn(t *testing.T) {
 	}
 }
 
-// TestAppServerDriver_ServerRequestAutoDeclines pins the slice-3
-// stub for server-initiated approval requests: the driver auto-
-// declines so the agent doesn't hang on its own permission gate
-// while slice 4 is in flight. Slice 4 will replace this with a
-// /decide-mediated answer.
-func TestAppServerDriver_ServerRequestAutoDeclines(t *testing.T) {
+// fakeAttentionPoster records every PostAttention call and returns
+// canned attention ids so the driver can stash them in its parked-id
+// map. The slice-4 bridge depends on this surface separately from
+// the agent_event poster.
+type fakeAttentionPoster struct {
+	mu       sync.Mutex
+	posted   []AttentionIn
+	nextID   int
+	idPrefix string
+}
+
+func (f *fakeAttentionPoster) PostAttention(_ context.Context, in AttentionIn) (AttentionOut, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.posted = append(f.posted, in)
+	f.nextID++
+	prefix := f.idPrefix
+	if prefix == "" {
+		prefix = "att_"
+	}
+	return AttentionOut{
+		ID:        prefix + fmtIntForTest(f.nextID),
+		CreatedAt: "2026-04-29T10:00:00Z",
+	}, nil
+}
+
+func (f *fakeAttentionPoster) snapshot() []AttentionIn {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]AttentionIn, len(f.posted))
+	copy(out, f.posted)
+	return out
+}
+
+func fmtIntForTest(n int) string { return fmtInt(n) }
+
+func fmtInt(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digits := []byte{}
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
+}
+
+// TestAppServerDriver_ApprovalBridge_RaisesAttention pins the slice-4
+// happy path for codex's per-tool-call approval requests: a server-
+// initiated `item/commandExecution/requestApproval` becomes an
+// attention_items row (kind=permission_prompt) and the JSON-RPC
+// request stays open, parked in the driver's local map keyed by
+// the new attention id. No auto-decline (the slice-3 stub is gone).
+func TestAppServerDriver_ApprovalBridge_RaisesAttention(t *testing.T) {
 	pipes := newPipePair()
 	t.Cleanup(pipes.closeFn)
 
@@ -300,9 +349,12 @@ func TestAppServerDriver_ServerRequestAutoDeclines(t *testing.T) {
 	go server.run()
 
 	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_"}
 	drv := &AppServerDriver{
 		AgentID:          "agent-x",
+		Handle:           "codex-steward",
 		Poster:           poster,
+		Attention:        att,
 		Stdout:           pipes.driverStdout,
 		Stdin:            pipes.driverStdin,
 		FrameProfile:     codexProfileForTest(t),
@@ -320,57 +372,271 @@ func TestAppServerDriver_ServerRequestAutoDeclines(t *testing.T) {
 	// Server fires a per-tool-call approval request.
 	server.serverRequest(99, "item/commandExecution/requestApproval", map[string]any{
 		"itemId":  "item_cmd_1",
-		"command": []string{"rm", "-rf", "/"},
-		"reason":  "destructive",
+		"command": []any{"rm", "-rf", "/repo/build"},
+		"reason":  "build cleanup",
 	})
 
-	// Driver should respond with a decline. The fake server records
-	// every frame it reads, including responses; look for an entry
-	// with id=99 and result.decision=decline.
+	// Driver should call PostAttention.
 	deadline := time.Now().Add(2 * time.Second)
-	var found map[string]any
+	var posted []AttentionIn
+	for time.Now().Before(deadline) {
+		posted = att.snapshot()
+		if len(posted) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(posted) != 1 {
+		t.Fatalf("PostAttention: want 1 call, got %d", len(posted))
+	}
+	in := posted[0]
+	if in.Kind != "permission_prompt" {
+		t.Errorf("attention.kind = %q; want permission_prompt", in.Kind)
+	}
+	if in.ActorHandle != "codex-steward" {
+		t.Errorf("attention.actor_handle = %q; want codex-steward", in.ActorHandle)
+	}
+	if in.Severity != "major" {
+		t.Errorf("commandExecution attention.severity = %q; want major", in.Severity)
+	}
+	// Pending payload carries the codex-side context and the parked
+	// jsonrpc id — used by audit trail and any debugging tooling.
+	var p map[string]any
+	if err := json.Unmarshal(in.PendingPayload, &p); err != nil {
+		t.Fatalf("decode pending_payload: %v", err)
+	}
+	if p["engine"] != "codex" {
+		t.Errorf("pending.engine = %v; want codex", p["engine"])
+	}
+	if p["method"] != "item/commandExecution/requestApproval" {
+		t.Errorf("pending.method = %v", p["method"])
+	}
+	if id, _ := p["jsonrpc_id"].(float64); int64(id) != 99 {
+		t.Errorf("pending.jsonrpc_id = %v; want 99", p["jsonrpc_id"])
+	}
+
+	// Codex side must still be waiting — no response written for id=99.
+	for _, f := range server.seen() {
+		if f["id"] != nil {
+			id, _ := f["id"].(float64)
+			if int64(id) == 99 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					t.Fatalf("driver responded to id=99; should still be parked")
+				}
+			}
+		}
+	}
+
+	// And a system marker should record that the gate parked.
+	events := poster.snapshot()
+	var sawParked bool
+	for _, e := range events {
+		if e.Kind == "system" && e.Payload["kind"] == "appserver_approval_parked" {
+			sawParked = true
+			break
+		}
+	}
+	if !sawParked {
+		t.Errorf("expected appserver_approval_parked system event, got %+v", events)
+	}
+}
+
+// TestAppServerDriver_ApprovalBridge_AttentionReplyAccepts drives the
+// /decide → attention_reply → JSON-RPC response path end-to-end on
+// the driver side. Builds on the previous test by then sending an
+// attention_reply Input event with decision=approve and asserts the
+// codex side now sees a {decision: accept} response on the parked id.
+func TestAppServerDriver_ApprovalBridge_AttentionReplyAccepts(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_"}
+	drv := &AppServerDriver{
+		AgentID:          "agent-y",
+		Handle:           "codex-steward",
+		Poster:           poster,
+		Attention:        att,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(7, "item/commandExecution/requestApproval", map[string]any{
+		"itemId": "x",
+	})
+	// Wait until the driver has parked.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(att.snapshot()) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(att.snapshot()) == 0 {
+		t.Fatal("driver did not park attention within 2s")
+	}
+	attID := "att_1"
+
+	// Simulate /decide approving the attention.
+	if err := drv.Input(ctx, "attention_reply", map[string]any{
+		"request_id": attID,
+		"kind":       "permission_prompt",
+		"decision":   "approve",
+	}); err != nil {
+		t.Fatalf("Input attention_reply: %v", err)
+	}
+
+	// Codex should now see a response for id=7 with decision=accept.
+	deadline = time.Now().Add(2 * time.Second)
+	var resp map[string]any
 	for time.Now().Before(deadline) {
 		for _, f := range server.seen() {
 			if f["id"] == nil {
 				continue
 			}
-			// id may decode as float64.
 			id, _ := f["id"].(float64)
-			if int64(id) != 99 {
+			if int64(id) != 7 {
 				continue
 			}
 			if _, hasMethod := f["method"]; hasMethod {
-				continue // request, not response
+				continue
 			}
-			found = f
+			resp = f
 			break
 		}
-		if found != nil {
+		if resp != nil {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if found == nil {
-		t.Fatal("driver did not respond to server-initiated request within 2s")
+	if resp == nil {
+		t.Fatal("no JSON-RPC response written for parked id within 2s")
 	}
-	result, _ := found["result"].(map[string]any)
-	if got, _ := result["decision"].(string); got != "decline" {
-		t.Errorf("server response decision = %q; want decline (slice-4 will replace this)",
-			got)
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["decision"].(string); got != "accept" {
+		t.Errorf("approve → result.decision = %q; want accept", got)
 	}
 
-	// Also: the system event surfacing the unhandled method should
-	// have been posted. This is what slice-4 will use to drive the
-	// attention bridge.
-	events := poster.snapshot()
-	var sawPending bool
-	for _, e := range events {
-		if e.Kind == "system" && e.Payload["kind"] == "appserver_request_pending_bridge" {
-			sawPending = true
+	// Reject path: park another, send reject, verify decline.
+	server.serverRequest(8, "item/commandExecution/requestApproval", map[string]any{
+		"itemId": "y",
+	})
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(att.snapshot()) < 2 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := drv.Input(ctx, "attention_reply", map[string]any{
+		"request_id": "att_2",
+		"kind":       "permission_prompt",
+		"decision":   "reject",
+	}); err != nil {
+		t.Fatalf("Input attention_reply (reject): %v", err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	var resp2 map[string]any
+	for time.Now().Before(deadline) {
+		for _, f := range server.seen() {
+			if f["id"] == nil {
+				continue
+			}
+			id, _ := f["id"].(float64)
+			if int64(id) != 8 {
+				continue
+			}
+			if _, hasMethod := f["method"]; hasMethod {
+				continue
+			}
+			resp2 = f
 			break
 		}
+		if resp2 != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if !sawPending {
-		t.Errorf("expected system event flagging unhandled server request, got %+v", events)
+	if resp2 == nil {
+		t.Fatal("no JSON-RPC response written for second parked id")
+	}
+	result2, _ := resp2["result"].(map[string]any)
+	if got, _ := result2["decision"].(string); got != "decline" {
+		t.Errorf("reject → result.decision = %q; want decline", got)
+	}
+}
+
+// TestAppServerDriver_ApprovalBridge_FallsBackWhenNoBridge keeps the
+// auto-decline path covered for spawns wired without an Attention
+// hook (tests, future driver-only modes). System event surfaces the
+// fallback reason.
+func TestAppServerDriver_ApprovalBridge_FallsBackWhenNoBridge(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-z",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+		// Attention deliberately nil.
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(11, "item/commandExecution/requestApproval", map[string]any{})
+	deadline := time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) {
+		for _, f := range server.seen() {
+			if f["id"] == nil {
+				continue
+			}
+			id, _ := f["id"].(float64)
+			if int64(id) == 11 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		if resp != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver should auto-decline when no bridge is wired")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["decision"].(string); got != "decline" {
+		t.Errorf("auto-decline → decision = %q; want decline", got)
 	}
 }

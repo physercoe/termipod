@@ -372,7 +372,7 @@ func (a *Runner) tickIdle(ctx context.Context) {
 		a.panes[ag.ID] = next
 		if raise {
 			tail := tailLines(text, 5)
-			_ = a.Client.PostAttention(ctx, AttentionIn{
+			_, _ = a.Client.PostAttention(ctx, AttentionIn{
 				ScopeKind: "team",
 				Kind:      "idle",
 				Summary:   "agent idle at prompt: " + firstLine(tail),

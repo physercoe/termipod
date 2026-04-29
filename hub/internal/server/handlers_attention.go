@@ -24,6 +24,25 @@ type attentionIn struct {
 	RefEventID  string   `json:"ref_event_id,omitempty"`
 	RefTaskID   string   `json:"ref_task_id,omitempty"`
 	Assignees   []string `json:"assignees,omitempty"`
+	// SessionID names the chat session the originating agent was in
+	// when the attention was raised. Drives the detail screen's
+	// "Open in chat" jump and the turn-based fan-out path
+	// (dispatchAttentionReply uses it as the agent lookup cursor).
+	// Optional — system-originated rows leave it empty.
+	SessionID string `json:"session_id,omitempty"`
+	// ActorHandle is the agent handle the attention is raised on
+	// behalf of when the caller is a host-runner (codex's app-server
+	// approval bridge — ADR-012 D3). The hub stamps it as
+	// actor_kind='agent' so the mobile UI shows the correct origin
+	// badge. Ignored when actor context is already in the request
+	// auth (the agent's own MCP calls).
+	ActorHandle string `json:"actor_handle,omitempty"`
+	// PendingPayload carries the structured ask the principal needs
+	// to act on. For codex permission_prompt rows it includes the
+	// JSON-RPC method, the item id, the summary, and the codex
+	// request id the driver parked locally — driver needs none of
+	// the latter back, but the audit trail benefits from having it.
+	PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
 }
 
 type attentionOut struct {
@@ -77,20 +96,36 @@ func (s *Server) handleCreateAttention(w http.ResponseWriter, r *http.Request) {
 	id := NewID()
 	now := NowUTC()
 	_, actorKind, actorHandle := actorFromContext(r.Context())
+	// When the caller is a host-runner raising an attention on behalf
+	// of an agent (codex permission_prompt bridge — ADR-012 D3), they
+	// pass actor_handle in the body and we stamp actor_kind=agent so
+	// the mobile UI shows the right origin chip. The agent's own MCP
+	// calls leave the body field empty and the auth context wins.
+	if in.ActorHandle != "" && actorHandle == "" {
+		actorKind = "agent"
+		actorHandle = in.ActorHandle
+	}
+	pending := string(in.PendingPayload)
+	if pending == "" || pending == "null" {
+		pending = ""
+	}
 	_, err := s.db.ExecContext(r.Context(), `
 		INSERT INTO attention_items (
 			id, project_id, scope_kind, scope_id, kind,
 			ref_event_id, ref_task_id, summary, severity,
 			current_assignees_json, status, created_at,
-			actor_kind, actor_handle
+			actor_kind, actor_handle, session_id,
+			pending_payload_json
 		) VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), ?,
 		          NULLIF(?, ''), NULLIF(?, ''), ?, ?,
 		          ?, 'open', ?,
-		          ?, ?)`,
+		          ?, ?, NULLIF(?, ''),
+		          NULLIF(?, ''))`,
 		id, in.ProjectID, in.ScopeKind, in.ScopeID, in.Kind,
 		in.RefEventID, in.RefTaskID, in.Summary, severity,
 		string(assignees), now,
-		actorKind, nullIfEmpty(actorHandle))
+		actorKind, nullIfEmpty(actorHandle), in.SessionID,
+		pending)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -335,11 +370,22 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// MCP tool returned immediately with awaiting_response and ended
 	// its turn; this is what wakes it up. Best-effort — the resolve
 	// itself is what counts; fan-out failures don't roll back the
-	// decide. permission_prompt + template_proposal are excluded:
-	// the first is sync-blocking by vendor contract (waitForAttentionDecision
-	// path, separate from this handler's response semantics) and
-	// the second has its own follow-up flow.
-	if resolved && (kind == "approval_request" || kind == "select" || kind == "help_request") {
+	// decide. template_proposal is excluded — it has its own
+	// follow-up flow.
+	//
+	// permission_prompt is included as of ADR-012 D3: codex's
+	// app-server JSON-RPC protocol exposes deferrable per-tool-call
+	// approval requests, so a permission_prompt raised by codex is
+	// turn-based on the wire (the JSON-RPC request stays open
+	// indefinitely on the long-lived stdio pipe). The driver-side
+	// AppServerDriver tracks the parked JSON-RPC request id by
+	// attention id and uses the attention_reply event to drive its
+	// JSON-RPC response. Claude's permission_prompt (sync canUseTool
+	// hook) won't reach this branch because Claude resolves via
+	// waitForAttentionDecision and never lands in /decide for a
+	// pending hook — see ADR-011 D6.
+	if resolved && (kind == "approval_request" || kind == "select" ||
+		kind == "help_request" || kind == "permission_prompt") {
 		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in)
 	}
 	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,

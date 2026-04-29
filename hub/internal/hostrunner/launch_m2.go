@@ -222,9 +222,21 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	// from ADR-010.
 	var drv Driver
 	if familyName == "codex" {
+		// AttentionPoster is the same Client object — only the codex
+		// driver uses the bridge today, but the dependency stays
+		// narrow (PostAttention only) so future drivers can opt in.
+		// AttentionPoster is non-nil only when cfg.Client itself is a
+		// real Client; tests pass nil and the driver's bridge path
+		// falls through to auto-decline.
+		var attention AttentionPoster
+		if c, ok := cfg.Client.(AttentionPoster); ok {
+			attention = c
+		}
 		drv = &AppServerDriver{
 			AgentID:      cfg.Spawn.ChildID,
+			Handle:       cfg.Spawn.Handle,
 			Poster:       cfg.Client,
+			Attention:    attention,
 			Stdout:       teed,
 			Stdin:        stdin,
 			FrameProfile: frameProfile,

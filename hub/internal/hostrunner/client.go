@@ -175,17 +175,31 @@ func (c *Client) ListHostAgents(ctx context.Context, hostID string) ([]Agent2, e
 }
 
 type AttentionIn struct {
-	ScopeKind string   `json:"scope_kind"`
-	ScopeID   string   `json:"scope_id,omitempty"`
-	Kind      string   `json:"kind"`
-	Summary   string   `json:"summary"`
-	Severity  string   `json:"severity,omitempty"`
-	Assignees []string `json:"assignees,omitempty"`
+	ScopeKind   string          `json:"scope_kind"`
+	ScopeID     string          `json:"scope_id,omitempty"`
+	Kind        string          `json:"kind"`
+	Summary     string          `json:"summary"`
+	Severity    string          `json:"severity,omitempty"`
+	Assignees   []string        `json:"assignees,omitempty"`
+	SessionID   string          `json:"session_id,omitempty"`
+	ActorHandle string          `json:"actor_handle,omitempty"`
+	PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
 }
 
-func (c *Client) PostAttention(ctx context.Context, in AttentionIn) error {
-	return c.do(ctx, http.MethodPost,
-		fmt.Sprintf("/v1/teams/%s/attention", c.Team), in, nil)
+// AttentionOut is what /attention returns on create — id + created_at.
+// The driver needs the id so it can match the codex JSON-RPC response
+// on /decide resolution (ADR-012 D3 — the codex app-server approval
+// bridge maps each parked JSON-RPC request id to the new attention id).
+type AttentionOut struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+}
+
+func (c *Client) PostAttention(ctx context.Context, in AttentionIn) (AttentionOut, error) {
+	var out AttentionOut
+	err := c.do(ctx, http.MethodPost,
+		fmt.Sprintf("/v1/teams/%s/attention", c.Team), in, &out)
+	return out, err
 }
 
 type AgentPatch struct {

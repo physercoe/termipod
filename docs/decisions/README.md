@@ -30,6 +30,7 @@ next sequential number — don't reserve, don't skip.
 | [009](009-agent-state-and-identity.md) | Agent identity and session lifecycle | Accepted 2026-04-28 | — |
 | [010](010-frame-profiles-as-data.md) | Frame profiles as data — vendor schemas leave Go for YAML | Accepted 2026-04-29 | — |
 | [011](011-turn-based-attention-delivery.md) | Turn-based delivery for async attention kinds | Accepted 2026-04-29 | — |
+| [012](012-codex-app-server-integration.md) | Codex integration via `codex app-server` JSON-RPC, not `codex exec` | Accepted 2026-04-29 | — |
 
 ---
 

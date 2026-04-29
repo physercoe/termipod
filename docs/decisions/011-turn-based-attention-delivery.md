@@ -135,7 +135,17 @@ docstring carries the short form.
 Claude's `canUseTool` hook protocol returns `{behavior: "allow" |
 "deny", ...}` synchronously. There is no "deferred" branch in the
 schema; returning early without an answer is undefined behavior.
-Codex and Gemini's equivalent hooks have the same shape.
+
+> **Update (2026-04-29, ADR-012 D7):** This applies to Claude only.
+> Codex's `app-server` JSON-RPC protocol exposes deferrable
+> per-tool-call approval requests
+> (`item/commandExecution/requestApproval` etc.) over a long-lived
+> stdio pipe with no timeout — the same shape this section
+> identifies as missing from `canUseTool`. So the bridge-mediated
+> stdio mitigation below is now Claude-only; Codex bridges
+> `permission_prompt` directly via app-server. Gemini's CLI has
+> only `--yolo` / `--approval-mode` and inherits the sync-or-bypass
+> trade-off Claude's `canUseTool` has.
 
 This is a constraint we can't fix from the hub. The mitigation
 (post-MVP) is **bridge-mediated stdio**: switch the spawn-time

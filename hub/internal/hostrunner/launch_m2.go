@@ -178,6 +178,45 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		return M2LaunchResult{}, fmt.Errorf("create log: %w", err)
 	}
 
+	// gemini-cli is exec-per-turn-with-resume (ADR-013): no
+	// long-running child process to spawn here, no stdout to tee,
+	// no pane to attach. The driver itself spawns
+	// `gemini -p <text> --output-format stream-json [--resume UUID]`
+	// per Input call. Branch out before the persistent-spawn machinery
+	// so we don't burn a placeholder process to satisfy a flow shape
+	// gemini doesn't fit.
+	if cfg.Spawn.Kind == "gemini-cli" {
+		_ = logFile.Close()
+		_ = os.Remove(logPath)
+		fam, ok := agentfamilies.ByName("gemini-cli")
+		if !ok {
+			return M2LaunchResult{}, fmt.Errorf("gemini-cli family missing from registry")
+		}
+		bin := strings.TrimSpace(spec.Backend.Cmd)
+		if bin == "" {
+			bin = fam.Bin
+		}
+		resolved, lookErr := exec.LookPath(bin)
+		if lookErr != nil {
+			return M2LaunchResult{}, fmt.Errorf("gemini bin %q: %w", bin, lookErr)
+		}
+		drv := &ExecResumeDriver{
+			AgentID:        cfg.Spawn.ChildID,
+			Handle:         cfg.Spawn.Handle,
+			Poster:         cfg.Client,
+			Bin:            resolved,
+			Workdir:        expandedWorkdir,
+			Env:            os.Environ(),
+			Yolo:           true, // ADR-013 D4 — see steward template
+			FrameProfile:   fam.FrameProfile,
+			CommandBuilder: ExecCommandBuilder(expandedWorkdir, os.Environ()),
+		}
+		if err := drv.Start(ctx); err != nil {
+			return M2LaunchResult{}, fmt.Errorf("exec-resume start: %w", err)
+		}
+		return M2LaunchResult{Driver: drv}, nil
+	}
+
 	stdout, stdin, kill, err := cfg.Spawner.Spawn(ctx, command)
 	if err != nil {
 		_ = logFile.Close()

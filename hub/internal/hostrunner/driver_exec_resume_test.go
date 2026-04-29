@@ -1,0 +1,424 @@
+package hostrunner
+
+import (
+	"context"
+	"errors"
+	"io"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/termipod/hub/internal/agentfamilies"
+)
+
+// fakeGeminiCmd plays a single subprocess invocation: produces canned
+// stdout, blocks Wait until either the producer goroutine finishes or
+// Kill is called. Tests construct one per expected turn.
+type fakeGeminiCmd struct {
+	args   []string
+	frames []string // JSONL lines this turn emits
+
+	stdoutR *io.PipeReader
+	stdoutW *io.PipeWriter
+
+	startedCh chan struct{} // closed on Start
+	doneCh    chan struct{} // closed when the producer goroutine exits
+
+	mu      sync.Mutex
+	killed  bool
+	started bool
+}
+
+func newFakeGeminiCmd(args []string, frames []string) *fakeGeminiCmd {
+	r, w := io.Pipe()
+	return &fakeGeminiCmd{
+		args:      args,
+		frames:    frames,
+		stdoutR:   r,
+		stdoutW:   w,
+		startedCh: make(chan struct{}),
+		doneCh:    make(chan struct{}),
+	}
+}
+
+func (c *fakeGeminiCmd) StdoutPipe() (io.ReadCloser, error) { return c.stdoutR, nil }
+func (c *fakeGeminiCmd) Args() []string                     { return c.args }
+
+func (c *fakeGeminiCmd) Start() error {
+	c.mu.Lock()
+	c.started = true
+	c.mu.Unlock()
+	close(c.startedCh)
+	go func() {
+		defer close(c.doneCh)
+		defer c.stdoutW.Close()
+		for _, f := range c.frames {
+			if _, err := c.stdoutW.Write([]byte(f + "\n")); err != nil {
+				return
+			}
+			// Tiny pause so the driver's reader picks up frames in
+			// order — pure cosmetic; not load-bearing.
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+	return nil
+}
+
+func (c *fakeGeminiCmd) Wait() error {
+	<-c.doneCh
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.killed {
+		return errors.New("killed")
+	}
+	return nil
+}
+
+func (c *fakeGeminiCmd) Kill() error {
+	c.mu.Lock()
+	if c.killed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.killed = true
+	c.mu.Unlock()
+	_ = c.stdoutW.CloseWithError(errors.New("killed"))
+	return nil
+}
+
+// TestExecResumeDriver_FirstTurnHasNoResume verifies the very first
+// Input call spawns gemini *without* --resume — there's no captured
+// session UUID yet — and that the init event latches the session_id
+// for next time.
+func TestExecResumeDriver_FirstTurnHasNoResume(t *testing.T) {
+	fam, ok := agentfamilies.ByName("gemini-cli")
+	if !ok || fam.FrameProfile == nil {
+		t.Fatal("gemini-cli frame profile not embedded — run slice 2 first")
+	}
+
+	frames := []string{
+		`{"type":"init","session_id":"sess-1","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"message","role":"assistant","content":"hi","delta":false,"timestamp":"t"}`,
+		`{"type":"result","status":"success","stats":{"input_tokens":10},"timestamp":"t"}`,
+	}
+
+	var capturedArgs []string
+	var argsMu sync.Mutex
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		argsMu.Lock()
+		capturedArgs = append([]string{name}, args...)
+		argsMu.Unlock()
+		return newFakeGeminiCmd(append([]string{name}, args...), frames)
+	}
+
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-1",
+		Handle:         "@steward",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		Yolo:           true,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text",
+		map[string]any{"body": "hello"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	argsMu.Lock()
+	args := append([]string{}, capturedArgs...)
+	argsMu.Unlock()
+	for _, a := range args {
+		if a == "--resume" {
+			t.Errorf("first turn argv contains --resume; should not (no captured session yet). args=%v", args)
+		}
+	}
+	if !containsArg(args, "--output-format", "stream-json") {
+		t.Errorf("argv missing --output-format stream-json: %v", args)
+	}
+	if !containsArg(args, "-p", "hello") {
+		t.Errorf("argv missing -p hello: %v", args)
+	}
+	if !containsFlag(args, "--yolo") {
+		t.Errorf("argv missing --yolo (Yolo=true should add it): %v", args)
+	}
+
+	if got := drv.SessionID(); got != "sess-1" {
+		t.Errorf("SessionID after first turn = %q; want sess-1", got)
+	}
+
+	// Verify the init event was published as session.init.
+	if !poster.has("session.init", "sess-1") {
+		t.Errorf("expected session.init with sess-1 published; got %+v", poster.events)
+	}
+}
+
+// TestExecResumeDriver_SecondTurnUsesResume drives two turns and
+// verifies the second turn's argv carries --resume <UUID>.
+func TestExecResumeDriver_SecondTurnUsesResume(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+
+	frames1 := []string{
+		`{"type":"init","session_id":"sess-2","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"message","role":"assistant","content":"first","delta":false,"timestamp":"t"}`,
+		`{"type":"result","status":"success","timestamp":"t"}`,
+	}
+	frames2 := []string{
+		// Resumed turn — gemini still emits a fresh init in stream-json,
+		// session_id stays the same.
+		`{"type":"init","session_id":"sess-2","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"message","role":"assistant","content":"second","delta":false,"timestamp":"t"}`,
+		`{"type":"result","status":"success","timestamp":"t"}`,
+	}
+
+	turnIdx := 0
+	var capturedArgs [][]string
+	var argsMu sync.Mutex
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		argsMu.Lock()
+		capturedArgs = append(capturedArgs, append([]string{name}, args...))
+		idx := turnIdx
+		turnIdx++
+		argsMu.Unlock()
+		var frames []string
+		if idx == 0 {
+			frames = frames1
+		} else {
+			frames = frames2
+		}
+		return newFakeGeminiCmd(append([]string{name}, args...), frames)
+	}
+
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-2",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		KillGrace:      500 * time.Millisecond,
+	}
+	_ = drv.Start(context.Background())
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "first"}); err != nil {
+		t.Fatalf("Input #1: %v", err)
+	}
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "second"}); err != nil {
+		t.Fatalf("Input #2: %v", err)
+	}
+
+	argsMu.Lock()
+	defer argsMu.Unlock()
+	if len(capturedArgs) != 2 {
+		t.Fatalf("expected 2 spawns, got %d", len(capturedArgs))
+	}
+
+	for _, a := range capturedArgs[0] {
+		if a == "--resume" {
+			t.Errorf("turn 1 argv has --resume; should not: %v", capturedArgs[0])
+		}
+	}
+
+	if !containsArg(capturedArgs[1], "--resume", "sess-2") {
+		t.Errorf("turn 2 argv missing --resume sess-2: %v", capturedArgs[1])
+	}
+	if !containsArg(capturedArgs[1], "-p", "second") {
+		t.Errorf("turn 2 argv missing -p second: %v", capturedArgs[1])
+	}
+}
+
+// TestExecResumeDriver_SetResumeSessionID covers the rehydration path:
+// the hub reads agents.thread_id_json on restart and seeds the driver.
+// The very next Input should already carry --resume.
+func TestExecResumeDriver_SetResumeSessionID(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+
+	frames := []string{
+		`{"type":"init","session_id":"sess-pre","model":"x","timestamp":"t"}`,
+		`{"type":"message","role":"assistant","content":"resumed","delta":false,"timestamp":"t"}`,
+		`{"type":"result","status":"success","timestamp":"t"}`,
+	}
+
+	var captured []string
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		captured = append([]string{name}, args...)
+		return newFakeGeminiCmd(captured, frames)
+	}
+
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-3",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+	}
+	_ = drv.Start(context.Background())
+	defer drv.Stop()
+
+	drv.SetResumeSessionID("sess-pre")
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	if !containsArg(captured, "--resume", "sess-pre") {
+		t.Errorf("argv missing --resume sess-pre after SetResumeSessionID: %v", captured)
+	}
+}
+
+// TestExecResumeDriver_StopKillsInFlight verifies Stop interrupts an
+// in-flight subprocess. Uses a fake whose producer never finishes
+// unless killed.
+func TestExecResumeDriver_StopKillsInFlight(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+
+	// Build a fake whose stdout pipe is open but no frames are written —
+	// Wait will block until Kill is called.
+	r, w := io.Pipe()
+	fc := &blockingFakeCmd{stdoutR: r, stdoutW: w, doneCh: make(chan struct{})}
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd { return fc }
+
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-4",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+	}
+	_ = drv.Start(context.Background())
+
+	inputDone := make(chan error, 1)
+	go func() {
+		inputDone <- drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	}()
+
+	// Wait for the spawn to start before we Stop.
+	select {
+	case <-fc.startCh():
+	case <-time.After(time.Second):
+		t.Fatal("fake gemini didn't start within 1s")
+	}
+
+	drv.Stop()
+
+	select {
+	case <-inputDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Input didn't return within 2s after Stop — Kill not propagating")
+	}
+}
+
+// TestExecResumeDriver_RejectsCommandBuilderNil pins the safety check —
+// missing CommandBuilder should be a Start error, not a panic at Input
+// time.
+func TestExecResumeDriver_RejectsCommandBuilderNil(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	drv := &ExecResumeDriver{
+		AgentID:      "agt-5",
+		Poster:       &recordingPoster{},
+		Bin:          "/usr/bin/gemini",
+		FrameProfile: fam.FrameProfile,
+	}
+	if err := drv.Start(context.Background()); err == nil {
+		t.Error("Start with nil CommandBuilder should error")
+	}
+}
+
+// blockingFakeCmd never produces output; Wait blocks until Kill is
+// called. Used to test Stop's interrupt path.
+type blockingFakeCmd struct {
+	stdoutR *io.PipeReader
+	stdoutW *io.PipeWriter
+	doneCh  chan struct{}
+	startCh_  chan struct{}
+	once    sync.Once
+	mu      sync.Mutex
+	killed  bool
+}
+
+func (c *blockingFakeCmd) startCh() chan struct{} {
+	c.once.Do(func() { c.startCh_ = make(chan struct{}) })
+	return c.startCh_
+}
+
+func (c *blockingFakeCmd) StdoutPipe() (io.ReadCloser, error) { return c.stdoutR, nil }
+func (c *blockingFakeCmd) Start() error                       { close(c.startCh()); return nil }
+func (c *blockingFakeCmd) Wait() error {
+	<-c.doneCh
+	return errors.New("killed")
+}
+func (c *blockingFakeCmd) Kill() error {
+	c.mu.Lock()
+	if c.killed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.killed = true
+	c.mu.Unlock()
+	_ = c.stdoutW.CloseWithError(errors.New("killed"))
+	close(c.doneCh)
+	return nil
+}
+func (c *blockingFakeCmd) Args() []string { return nil }
+
+// recordingPoster captures PostAgentEvent calls for assertion.
+type recordingPoster struct {
+	mu     sync.Mutex
+	events []recordedEvent
+}
+
+type recordedEvent struct {
+	Kind     string
+	Producer string
+	Payload  map[string]any
+}
+
+func (p *recordingPoster) PostAgentEvent(_ context.Context, _ string, kind, producer string, payload any) error {
+	pl, _ := payload.(map[string]any)
+	p.mu.Lock()
+	p.events = append(p.events, recordedEvent{Kind: kind, Producer: producer, Payload: pl})
+	p.mu.Unlock()
+	return nil
+}
+
+// has returns true if a session.init event with session_id=sid was posted.
+func (p *recordingPoster) has(kind, sessionID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, e := range p.events {
+		if e.Kind == kind {
+			if sid, _ := e.Payload["session_id"].(string); sid == sessionID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// containsArg returns true iff args contains `flag value` as adjacent tokens.
+func containsArg(args []string, flag, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+// containsFlag returns true iff args contains the standalone flag.
+func containsFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}

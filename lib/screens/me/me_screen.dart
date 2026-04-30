@@ -17,6 +17,7 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
+import '../../widgets/home/persistent_steward_card.dart';
 import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
 import '../projects/search_screen.dart';
@@ -150,6 +151,12 @@ class MeScreen extends ConsumerWidget {
                 ),
               ],
             ),
+            // Persistent general-steward (W4 / research-demo lifecycle).
+            // Sits above the active-sessions strip so the always-on
+            // concierge is the first actor visible — distinct from
+            // project-scoped domain stewards which live on each
+            // project page.
+            const SliverToBoxAdapter(child: PersistentStewardCard()),
             const SliverToBoxAdapter(child: _NotesSection()),
             if (activeSessions.isNotEmpty)
               SliverToBoxAdapter(

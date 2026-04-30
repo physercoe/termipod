@@ -1143,6 +1143,26 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  // ---- general steward (singleton, W4) ----
+
+  /// Ensures the team-scoped general steward (`steward.general.v1`,
+  /// handle `@steward`) is running, spawning it on first call. The
+  /// endpoint is idempotent: subsequent calls return the existing
+  /// agent's id. Returns the server envelope verbatim — `agent_id`,
+  /// `status`, `already_running`, plus `spawn_id` on first spawn.
+  ///
+  /// Surface: tap on the home-tab persistent steward card. The card
+  /// avoids manual spawn-sheet UX for the always-on concierge — there
+  /// is exactly one general steward per team, archived only by
+  /// explicit director action.
+  Future<Map<String, dynamic>> ensureGeneralSteward() async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/steward.general/ensure',
+      const <String, dynamic>{},
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
   // ---- agent lifecycle ----
 
   /// Terminates an agent by patching status=terminated. The host-runner

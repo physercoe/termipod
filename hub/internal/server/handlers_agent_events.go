@@ -118,6 +118,7 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.touchSession(r.Context(), sessionID)
+	s.captureEngineSessionID(r.Context(), sessionID, in.Kind, in.Producer, payload)
 
 	evt := map[string]any{
 		"id":         id,

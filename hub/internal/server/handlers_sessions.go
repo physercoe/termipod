@@ -484,11 +484,14 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		status, currentAgentID, worktreePath, spawnSpecYAML sql.NullString
+		engineSessionID                                     sql.NullString
 	)
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT status, current_agent_id, worktree_path, spawn_spec_yaml
+		SELECT status, current_agent_id, worktree_path, spawn_spec_yaml,
+		       engine_session_id
 		  FROM sessions WHERE team_id = ? AND id = ?`, team, id).Scan(
-		&status, &currentAgentID, &worktreePath, &spawnSpecYAML)
+		&status, &currentAgentID, &worktreePath, &spawnSpecYAML,
+		&engineSessionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "session not found")
 		return
@@ -532,12 +535,23 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ADR-014: thread the captured engine session id back into the
+	// spawn cmd so the freshly-launched claude resumes its prior
+	// conversation instead of cold-starting. The sessions row carries
+	// the same spawn_spec_yaml across resumes, so we re-splice fresh
+	// each time and never persist a stale --resume flag in `sessions`.
+	specYAML := spawnSpecYAML.String
+	if deadKind.String == "claude-code" && engineSessionID.Valid &&
+		engineSessionID.String != "" {
+		specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
+	}
+
 	in := spawnIn{
 		ParentID:     deadParentID.String,
 		ChildHandle:  deadHandle.String,
 		Kind:         deadKind.String,
 		HostID:       deadHostID.String,
-		SpawnSpec:    spawnSpecYAML.String,
+		SpawnSpec:    specYAML,
 		WorktreePath: worktreePath.String,
 	}
 	out, code, derr := s.DoSpawn(r.Context(), team, in)
@@ -598,6 +612,110 @@ func (s *Server) touchSession(ctx context.Context, sessionID string) {
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE sessions SET last_active_at = ? WHERE id = ?`,
 		NowUTC(), sessionID)
+}
+
+// captureEngineSessionID lifts the engine-side session id out of
+// session.init events and stores it on the live session so a future
+// resume can thread it back into the spawn cmd. ADR-014 — wedge for
+// claude-code's `--resume <id>` continuity, but the column is engine-
+// neutral: gemini-cli's stream-json uses the same `session_id` field
+// shape, and codex (whose threadId arrives via a different channel)
+// can land in this column from its own capture path later.
+//
+// Best-effort: an error here can't fail the event insert. The worst
+// case is a resume that starts a fresh engine session — exactly the
+// pre-ADR-014 behaviour, with no transcript loss on the hub side.
+func (s *Server) captureEngineSessionID(ctx context.Context, sessionID, kind, producer, payloadJSON string) {
+	if s.db == nil || sessionID == "" {
+		return
+	}
+	if kind != "session.init" || producer != "agent" {
+		return
+	}
+	var p struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(payloadJSON), &p); err != nil {
+		return
+	}
+	if p.SessionID == "" {
+		return
+	}
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE sessions SET engine_session_id = ? WHERE id = ?`,
+		p.SessionID, sessionID)
+}
+
+// maybeEmitContextMutationMarker inspects an input.text body for a
+// claude/gemini context-mutation slash command and, if matched,
+// inserts a typed `agent_event` row immediately after the input row
+// the caller already wrote. ADR-014 OQ-4 — lets the mobile transcript
+// surface engine-side context truncations the engines themselves
+// don't announce in stream-json.
+//
+// Pre-conditions: the caller has already inserted the input.text
+// event and bumped session activity, so the marker arrives one seq
+// behind the user's text and the transcript reads as
+// "[user] /compact" → "[system] context compacted".
+//
+// Best-effort: any error here can't fail the input write that the
+// caller already committed — the engine will still receive the
+// command and execute it; the user just loses the visual marker.
+// Silent failure is the correct policy because every request for an
+// unrelated agent kind would otherwise trip a no-op error path.
+func (s *Server) maybeEmitContextMutationMarker(
+	ctx context.Context, team, agentID, sessionID, body string,
+) {
+	if s.db == nil || agentID == "" {
+		return
+	}
+	var agentKind string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT kind FROM agents WHERE team_id = ? AND id = ?`,
+		team, agentID).Scan(&agentKind); err != nil {
+		return
+	}
+	mut, ok := detectContextMutation(agentKind, body)
+	if !ok {
+		return
+	}
+	payload := map[string]any{
+		"verb":       mut.Verb,
+		"agent_kind": agentKind,
+		"trigger":    "user_input",
+		// Note explains the divergence the marker is recording so a
+		// reader scrolling the raw events table doesn't have to
+		// re-derive ADR-014 OQ-4 from first principles.
+		"note": "engine-side context mutation; hub transcript " +
+			"continues but engine view diverges here",
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	id := NewID()
+	ts := NowUTC()
+	var seq int64
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, 'system', ?, NULLIF(?, '')
+		  FROM agent_events WHERE agent_id = ?
+		RETURNING seq`,
+		id, agentID, ts, mut.Kind, string(payloadBytes), sessionID, agentID,
+	).Scan(&seq)
+	if err != nil {
+		return
+	}
+	s.bus.Publish(agentBusKey(agentID), map[string]any{
+		"id":         id,
+		"agent_id":   agentID,
+		"seq":        seq,
+		"ts":         ts,
+		"kind":       mut.Kind,
+		"producer":   "system",
+		"payload":    json.RawMessage(payloadBytes),
+		"session_id": sessionID,
+	})
 }
 
 func coalesceTitle(provided, fallback string) string {

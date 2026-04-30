@@ -205,6 +205,21 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	}
 	s.bus.Publish(agentBusKey(agent), evt)
 
+	// ADR-014 OQ-4: when the user types a context-mutation slash
+	// command (claude `/compact` `/clear` `/rewind`, gemini
+	// `/compress`), the engine truncates / rewrites its view of the
+	// conversation but emits no frame back to us. Drop a typed
+	// marker into agent_events so the transcript reads as an
+	// operation log — same hub session, but the transcript shows
+	// "this is where the engine context diverged from what you can
+	// scroll through above." Best-effort: if the marker emit fails
+	// the input has already been recorded so the engine still
+	// receives the command; we just lose the visual marker.
+	if in.Kind == "text" {
+		s.maybeEmitContextMutationMarker(r.Context(), team, agent,
+			sessionID, in.Body)
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id": id, "seq": seq, "ts": ts,
 	})

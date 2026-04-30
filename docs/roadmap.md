@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-04-29)
+> **Status:** Current (2026-04-30)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.348
+> **Last verified vs code:** v1.0.349
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -119,6 +119,7 @@ working list — what's actually moving this week or next.
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
 | **Codex integration (ADR-012)** | Multi-engine is a foundational feature — single-engine = MuxPod's positioning. Slices 1-6 shipped v1.0.342–v1.0.347: app-server JSON-RPC driver, frame profile, approval bridge, MCP config, steward template. (`decisions/012-codex-app-server-integration.md`) | Done; verifying on device + integration smoke against a real codex binary next |
 | **Gemini integration (ADR-013)** | Third engine. exec-per-turn-with-resume — `gemini -p` per turn with `--resume <UUID>` threading the captured `init.session_id` (PR #14504). Slices 1-6 shipped v1.0.348: ADR, frame profile, driver, permission_prompt-unsupported guardrail, MCP config, steward template. (`decisions/013-gemini-exec-per-turn.md`) | Done; verifying on device + integration smoke against a real gemini binary next |
+| **Claude-code resume cursor (ADR-014)** | Pre-v1.0.349 every "Resume" tap spawned a fresh claude session; the hub never threaded `--resume <id>`. v1.0.349 adds `sessions.engine_session_id` capture from `session.init` events + a yaml-node splice on the resume handler so `agent_spawns.spawn_spec_yaml` carries the cursor. Codex `threadId` and gemini cross-restart cursor capture remain as ADR-014 OQ-1/OQ-2. (`decisions/014-claude-code-resume-cursor.md`) | Done; verifying on device next |
 | **Agent state & identity (ADR-009)** | Phase 1 + 2 shipped v1.0.320–322: rename close→archive, fork action, scope chip + grouping, approval detail, attention-scope entry. (`plans/agent-state-and-identity.md`) | Done; verifying on device next |
 | **MVP parity gaps — Phase 1.5** | Local notifications (1.5a, v1.0.323+325) + session search (1.5c, v1.0.324) shipped. ntfy killed-state push (1.5b) deferred post-MVP. (`plans/mvp-parity-gaps.md`) | Done; verifying on device next |
 

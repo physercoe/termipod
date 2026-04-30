@@ -31,6 +31,8 @@ next sequential number — don't reserve, don't skip.
 | [010](010-frame-profiles-as-data.md) | Frame profiles as data — vendor schemas leave Go for YAML | Accepted 2026-04-29 | — |
 | [011](011-turn-based-attention-delivery.md) | Turn-based delivery for async attention kinds | Accepted 2026-04-29 | — |
 | [012](012-codex-app-server-integration.md) | Codex integration via `codex app-server` JSON-RPC, not `codex exec` | Accepted 2026-04-29 | — |
+| [013](013-gemini-exec-per-turn.md) | Gemini integration is exec-per-turn-with-resume | Accepted 2026-04-29 | — |
+| [014](014-claude-code-resume-cursor.md) | Claude-code resume threads `--resume <session_id>` | Accepted 2026-04-30 | — |
 
 ---
 

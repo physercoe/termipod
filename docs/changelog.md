@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-04-29)
+> **Status:** Current (2026-04-30)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.348
+> **Last verified vs code:** v1.0.349
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,116 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.349-alpha — 2026-04-30
+
+### Fixed
+- **Claude-code resume actually resumes** ([ADR-014](decisions/014-claude-code-resume-cursor.md)).
+  Pre-v1.0.349, tapping Resume on a paused claude-code session
+  spawned a fresh engine session every time — same hub transcript
+  window, brand-new claude conversation cursor. The CLI flag exists
+  (`claude --resume <session_id>`); the hub just never threaded it.
+  Surfaced from device-test feedback on v1.0.348-alpha.
+
+  Three pieces, one wedge:
+  - **Migration `0033`** adds `sessions.engine_session_id TEXT`.
+    Engine-neutral column — claude calls it `session_id`, gemini
+    calls it `session_id`, codex calls it `threadId`; all three
+    can land their cursors here as their capture paths get wired.
+  - **Capture path** (`captureEngineSessionID` in
+    `handlers_sessions.go`). The `POST /agents/{id}/events`
+    handler watches for `kind=session.init && producer=agent`
+    frames, lifts `payload.session_id` from claude's stream-json
+    `system/init` (already extracted by `StdioDriver.legacyTranslate`
+    at `driver_stdio.go:295`), and `UPDATE`s the live session row.
+    Best-effort — capture failure can't fail the event insert; the
+    worst case is a cold-start resume, the pre-ADR-014 baseline.
+    `kind=text` events that happen to carry session_id are
+    explicitly ignored, as are `producer=user` echoes.
+  - **Splice path** (`spliceClaudeResume` in `resume_splice.go`).
+    `handleResumeSession` reads `engine_session_id` alongside
+    `spawn_spec_yaml`. When the dead agent's `kind=claude-code`
+    and a cursor exists, the helper walks the spec's yaml.v3 node
+    tree to `backend.cmd`, strips any prior `--resume <other>`
+    pair, and splices `--resume <id>` directly after the `claude`
+    binary token. The handler passes the rewritten spec to
+    `DoSpawn` but never `UPDATE`s `sessions.spawn_spec_yaml`, so
+    successive resumes always splice from a clean cmd.
+
+  Codex (`AppServerDriver.ResumeThreadID`) and gemini
+  (`ExecResumeDriver.SetResumeSessionID`) already have the
+  driver-side resume plumbing; both are still waiting on hub-side
+  capture paths to feed them. Tracked as ADR-014 OQ-1 / OQ-2.
+
+  11 resume-cursor tests: 7 splice unit tests (basic shape,
+  idempotence, prior-id replacement, non-claude passthrough, empty
+  inputs, malformed yaml, missing key, absolute path bin) + 3
+  capture + 2 end-to-end resume tests proving
+  `agent_spawns.spawn_spec_yaml` carries `--resume <id>` after a
+  warm resume and stays clean after a cold one + 1 fork guard
+  (`TestSessions_ForkDoesNotInheritEngineSessionID`) pinning the
+  fork-is-cold-start invariant so a future "helpfully" inheriting
+  change fails loudly at CI rather than mid-conversation.
+
+### Added (continued)
+- **Hub transcript is the operation log** ([ADR-014](decisions/014-claude-code-resume-cursor.md) OQ-4 input-side).
+  The three engines all ship interactive commands that mutate
+  engine-side context without emitting any frame back: claude's
+  `/compact` `/clear` `/rewind`, gemini's `/compress` `/clear`. The
+  engine's view of the conversation silently diverges from the
+  hub's `agent_events` log — same `engine_session_id`, smaller or
+  differently-shaped context. Without observability the operator
+  scrolls back through what *looks* like a continuous transcript
+  and gets surprising agent answers grounded in a context that no
+  longer matches what they're reading.
+
+  v1.0.349 ships the input-side observable. The hub's input route
+  watches `kind=text` bodies for a leading per-engine slash command
+  and, on match, emits a follow-up typed `agent_event` row with
+  `producer=system` and `kind ∈ {context.compacted, context.cleared,
+  context.rewound}`. Mobile renders these as inline operation chips
+  so the transcript reads "[user] /compact → [system] context
+  compacted" — same hub session, same `engine_session_id`, but the
+  marker pins where the engine view diverged.
+
+  Per-engine vocabulary in
+  `hub/internal/server/context_mutation.go`:
+  - claude-code: `/compact`, `/clear`, `/rewind`
+  - gemini-cli: `/compress`, `/clear`
+  - codex: TBD — slash vocabulary not yet audited; emission is a
+    no-op until ADR-014 OQ-4b lands
+
+  Engine-*emitted* mutations (e.g. claude's auto-compact when the
+  context window fills) still aren't observable — those need the
+  engine's stream to surface the event, which is option α deferred
+  in `discussions/fork-and-engine-context-mutations.md`.
+
+  10 new tests: 5 detector unit tests (per-engine vocab, leading-
+  slash discipline, case sensitivity, unknown-engine no-op) + 5
+  end-to-end input-route tests proving the marker lands at
+  `seq=N+1` after the input.text row, that plain text emits no
+  marker, that non-text input kinds (answer, etc.) skip the
+  detector even when their body looks slash-y, and that codex
+  agents stay silent until their vocabulary is audited.
+
+### Changed
+- **ADR-014 expanded** with the fork-is-cold-start section, the
+  hub-vs-engine session boundary (cursor inheritance forbidden),
+  and four open questions for follow-up wedges:
+  OQ-1 codex `threadId` capture, OQ-2 gemini cross-restart cursor
+  feeder, OQ-3 reconcile-driven respawn, **OQ-4 engine-side
+  context mutations** (claude `/compact` `/clear` `/rewind`,
+  gemini `/compress` — the hub today doesn't observe these and
+  the engine's view of the conversation drifts from the hub's
+  `agent_events` log without any marker frame), and OQ-5 fork
+  productisation. Cross-linked to a new
+  [`discussions/fork-and-engine-context-mutations.md`](discussions/fork-and-engine-context-mutations.md)
+  that maps the design space across both axes (fork carryover +
+  mutation observability) for the next wedge to start from.
+- **`docs/decisions/README.md`** index gains rows for ADR-013 and
+  ADR-014 — the prior wedge's index update was missed in v1.0.348.
 
 ---
 

@@ -1,0 +1,373 @@
+package server
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+// TestPostAgentEvent_CapturesEngineSessionID pins the slice-1
+// behaviour: when a claude-code agent emits its session.init frame,
+// the hub's event-insert path must lift `payload.session_id` into
+// `sessions.engine_session_id` so the next resume has a cursor to
+// thread. Without this, the resume handler has nothing to splice and
+// claude-code starts a fresh engine session every time — exactly the
+// bug ADR-014 is fixing.
+func TestPostAgentEvent_CapturesEngineSessionID(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	// Open a session pointing at the agent so lookupSessionForAgent
+	// resolves a non-empty sessionID inside handlePostAgentEvent.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "engine cursor test", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %d %s", status, body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Drive the same shape the StdioDriver emits on first init:
+	// kind=session.init, producer=agent, payload carries the engine
+	// session_id captured from claude's stream-json `system/init`
+	// frame (driver_stdio.go:295).
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload": map[string]any{
+				"session_id": "engine-uuid-aaa",
+				"model":      "claude-opus-4-7",
+				"cwd":        "/tmp/wt",
+			},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post init: %d %s", status, body)
+	}
+
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&got)
+	if got != "engine-uuid-aaa" {
+		t.Errorf("sessions.engine_session_id = %q; want %q",
+			got, "engine-uuid-aaa")
+	}
+}
+
+// TestPostAgentEvent_IgnoresNonInitForCapture — only session.init
+// (producer=agent) frames update the cursor. A `text` frame happens
+// to carry session_id under some translator shapes; we explicitly
+// don't want those to overwrite the captured cursor with whatever
+// transient identifier they hold.
+func TestPostAgentEvent_IgnoresNonInitForCapture(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "non-init test", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Seed a real cursor first.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "real-cursor"},
+		})
+
+	// Now post a different kind that happens to have session_id in
+	// its payload. The cursor must not change.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "text",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "junk-id", "text": "hi"},
+		})
+
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&got)
+	if got != "real-cursor" {
+		t.Errorf("cursor was overwritten by non-init event: got %q want %q",
+			got, "real-cursor")
+	}
+}
+
+// TestPostAgentEvent_IgnoresUserProducerInit — a `producer=user` init
+// (echo of our own input, hypothetically) shouldn't update the
+// cursor. Only frames produced by the engine carry an authoritative
+// session id.
+func TestPostAgentEvent_IgnoresUserProducerInit(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "user init test", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "user",
+			"payload":  map[string]any{"session_id": "user-supplied-id"},
+		})
+
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&got)
+	if got != "" {
+		t.Errorf("user-producer init updated cursor: got %q want empty", got)
+	}
+}
+
+// TestSessions_ResumeThreadsClaudeResume is the end-to-end pin for
+// ADR-014: open a claude-code session, post a session.init that
+// captures the cursor, crash the agent, resume, and check that the
+// new agent_spawns row's spawn_spec_yaml carries `--resume <id>`.
+// Without this the bug regresses silently — the audit row would still
+// look fine, only the running agent's behaviour would diverge.
+func TestSessions_ResumeThreadsClaudeResume(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-x")
+
+	specYAML := "kind: claude-code\n" +
+		"backend:\n" +
+		"  cmd: \"claude --model claude-opus-4-7 --print " +
+		"--output-format stream-json --input-format stream-json " +
+		"--verbose --dangerously-skip-permissions\"\n"
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "resume threads --resume",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/resume-thread",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Capture the engine cursor via the agent_events POST path.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "engine-cursor-xyz"},
+		})
+
+	// Crash → session auto-pauses (TestSessions_PauseOnAgentTerminal
+	// pins this side of the contract).
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+
+	// Resume.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+	if newAgentID == "" {
+		t.Fatalf("no new_agent_id: %s", body)
+	}
+
+	// agent_spawns for the new agent must carry the spliced cmd.
+	var newSpec string
+	_ = s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns
+		   WHERE child_agent_id = ?`, newAgentID).Scan(&newSpec)
+	if !strings.Contains(newSpec, "--resume engine-cursor-xyz") {
+		t.Errorf("new spawn_spec missing --resume engine-cursor-xyz:\n%s",
+			newSpec)
+	}
+	if !strings.Contains(newSpec, "claude --resume engine-cursor-xyz") {
+		t.Errorf("--resume not placed after `claude` token:\n%s", newSpec)
+	}
+
+	// Sessions row must NOT have been mutated — it carries the
+	// original cmd so a future resume re-splices fresh from a clean
+	// state. Without this invariant, repeated resumes would stack
+	// stale `--resume` flags.
+	var sesSpec string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(spawn_spec_yaml, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&sesSpec)
+	if strings.Contains(sesSpec, "--resume") {
+		t.Errorf("sessions.spawn_spec_yaml leaked --resume:\n%s", sesSpec)
+	}
+}
+
+// TestSessions_ForkDoesNotInheritEngineSessionID is the ADR-014
+// defensive guard: fork must mint a fresh engine cursor, never
+// inherit the source's. Engine session stores aren't multi-writer —
+// claude's `~/.claude/projects/<cwd>/<sid>.jsonl`, gemini's
+// `<projdir>/.gemini/sessions/<uuid>`, codex's CLI thread store all
+// assume a single live attacher. Two parallel sessions resuming the
+// same engine id would corrupt each other on the next turn and
+// silently break the archived source's "frozen" state. The
+// invariant is implicit today (handleForkSession writes a fresh
+// row with no carryover from `engine_session_id`); this test makes
+// it explicit so a future "helpfully" inheriting change fails loudly
+// at CI rather than mid-conversation in production.
+func TestSessions_ForkDoesNotInheritEngineSessionID(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "host-fork")
+
+	// Promote the seeded agent to a steward shape so the source
+	// session can be opened against it.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		agentID); err != nil {
+		t.Fatalf("promote agent: %v", err)
+	}
+
+	// Open a source session and capture an engine cursor on it via
+	// the standard session.init capture path. This is the realistic
+	// pre-archive state of a session that's done useful work.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "fork source",
+			"agent_id":   agentID,
+			"scope_kind": "project",
+			"scope_id":   "proj-fork-guard",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open source: %s", body)
+	}
+	var src sessionOut
+	_ = json.Unmarshal(body, &src)
+
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "source-engine-cursor"},
+		})
+
+	// Confirm the source actually has a cursor; without this the
+	// rest of the test is trivially passing for the wrong reason.
+	var srcCursor string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		src.ID).Scan(&srcCursor)
+	if srcCursor != "source-engine-cursor" {
+		t.Fatalf("source engine_session_id not captured: got %q", srcCursor)
+	}
+
+	// Archive the source so it's fork-eligible.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/archive", nil)
+
+	// Fork.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+src.ID+"/fork", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("fork: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	forkID, _ := resp["session_id"].(string)
+	if forkID == "" || forkID == src.ID {
+		t.Fatalf("fork returned bad session_id=%q (source=%q)", forkID, src.ID)
+	}
+
+	// The invariant: fork's engine_session_id must be NULL.
+	// Inheriting the source's cursor would let a spawn into the fork
+	// resume into the same engine session the archived source was
+	// frozen at — corrupting the archive on the next user turn.
+	var forkCursor sql.NullString
+	if err := s.db.QueryRow(
+		`SELECT engine_session_id FROM sessions WHERE id = ?`,
+		forkID).Scan(&forkCursor); err != nil {
+		t.Fatalf("read fork cursor: %v", err)
+	}
+	if forkCursor.Valid {
+		t.Errorf("fork inherited engine_session_id=%q; want NULL "+
+			"(see ADR-014 fork-is-cold-start invariant)",
+			forkCursor.String)
+	}
+
+	// Source's cursor must be untouched — fork is non-destructive.
+	var srcAfter string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		src.ID).Scan(&srcAfter)
+	if srcAfter != "source-engine-cursor" {
+		t.Errorf("fork mutated source engine_session_id: got %q want %q",
+			srcAfter, "source-engine-cursor")
+	}
+}
+
+// TestSessions_ResumeWithoutCursor_NoSplice — a session whose agent
+// died before emitting session.init has no captured cursor. Resume
+// must still succeed (cold-start), with no `--resume` in the new
+// spawn cmd. This is the pre-ADR-014 baseline behaviour preserved.
+func TestSessions_ResumeWithoutCursor_NoSplice(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, oldAgentID := seedChannelAndAgent(t, s, "", "host-y")
+
+	specYAML := "kind: claude-code\nbackend:\n  cmd: \"claude --model M\"\n"
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "no cursor",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/no-cursor",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+
+	var newSpec string
+	_ = s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns
+		   WHERE child_agent_id = ?`, newAgentID).Scan(&newSpec)
+	if strings.Contains(newSpec, "--resume") {
+		t.Errorf("cold resume spliced unexpectedly:\n%s", newSpec)
+	}
+}

@@ -1,0 +1,187 @@
+# Research-project lifecycle plan (W6 of the lifecycle wedge plan).
+#
+# This is the **seed plan template** the general steward customises
+# in phase 0 of every research project. It defines the canonical
+# 5-phase lifecycle (idea → lit-review → method → experiment →
+# paper) per ADR-001 D-amend-1 + research-demo-lifecycle.md §3.
+#
+# General steward usage:
+#   1. templates.plan.get(name="research-project.v1.yaml") — read
+#      this file
+#   2. Customise the per-phase `goal` and `worker_kinds` to fit the
+#      director's idea (e.g. for a non-ML idea, swap ml-worker for
+#      a simulation-worker).
+#   3. templates.plan.create(name="research-project.<id>.yaml",
+#      content=<customised>) — write the per-project version
+#   4. plan.instantiate(template_id="research-project.<id>",
+#      parameters_json={idea: "<director's text>"}) — produces
+#      the live plan instance, which kicks off phase 0
+#
+# Phase numbering: linear, 0–4. Each phase is exactly one of:
+#   - agent_driven  — a steward + workers do the work
+#   - human_gated   — the director approves to advance
+# In this lifecycle every agent_driven phase ends with a human_gated
+# step (encoded inline as the `gate` field on the agent_driven phase
+# rather than as a separate phase, to keep the plan-level view at
+# 5 phases as advertised in the discussion). Iteration within a
+# phase happens steward-side and is invisible at the plan level
+# (blueprint §6.2 — plans are shallow).
+
+template: plans.research-project
+version: 1
+display_name: Research project (5-phase lifecycle)
+description: |
+  End-to-end research project that takes a free-text idea from the
+  director and produces a paper-shaped artifact, gated phase by
+  phase. The reference structure for ADR-001 D-amend-1.
+
+# Parameters surface as the project's parameters_json on instantiate.
+# `idea` is the only required input — the general steward derives
+# everything else from it during phase 0.
+parameters:
+  - name: idea
+    type: string
+    required: true
+    description: |
+      The director's free-text research question. The general
+      steward reads this in phase 0 and uses it to draft the
+      domain-steward prompt and worker templates.
+
+# Phases. The director sees these on the plan viewer; each one's
+# `gate` produces an attention item the director acts on to advance.
+phases:
+
+  - idx: 0
+    name: Bootstrap
+    kind: agent_driven
+    goal: |
+      The general steward reads the director's idea and drafts the
+      project's plan + domain-steward template + worker templates.
+      Output: a plan-proposal document and a set of draft templates
+      ready for director review.
+    steward:
+      kind: steward.general.v1
+      driving_mode: M2
+    workers: []  # general steward authors templates; no workers
+    artifacts:
+      - kind: document
+        title: Plan proposal
+      - kind: templates  # set of overlay templates authored
+    gate:
+      prompt: |
+        The general steward has authored a 5-phase plan for your
+        idea + the domain steward and worker templates that will run
+        it. Review and approve to proceed.
+      choices: [approve, revise, abort]
+      on_approve: spawn_domain_steward  # general steward hands off
+      on_revise: rebootstrap             # general steward iterates
+
+  - idx: 1
+    name: Lit Review
+    kind: agent_driven
+    goal: |
+      Domain steward spawns lit-reviewer workers (one per sub-area),
+      gathers their findings via A2A, synthesises a single
+      lit-review report. Output: a lit-review document.
+    steward:
+      kind: steward.research.v1
+      driving_mode: M2
+    workers:
+      - kind: lit-reviewer.v1
+        count: "1-3"
+        per: sub_area
+    artifacts:
+      - kind: document
+        title: "Lit review: <project>"
+    gate:
+      prompt: |
+        The lit-review synthesis is ready. Approve to proceed to
+        method design, or request a revised pass.
+      choices: [approve, revise, abort]
+      on_approve: advance
+      on_revise: respawn_lit_reviewers
+
+  - idx: 2
+    name: Method & Code
+    kind: agent_driven
+    goal: |
+      Coder writes training/eval code in a worktree and freezes the
+      experiment matrix. Optional critic reviews code; coder
+      iterates up to 3×. Output: a method-spec document + worktree
+      commit SHA.
+    steward:
+      kind: steward.research.v1  # same domain steward continues
+      driving_mode: M2
+    workers:
+      - kind: coder.v1
+        count: 1
+      - kind: critic.v1
+        count: 0..1
+        when: optional
+    artifacts:
+      - kind: document
+        title: "Method: <project>"
+      - kind: code_commit
+    gate:
+      prompt: |
+        Method-spec + code commit are ready. Approve to begin the
+        experiment, or request revisions.
+      choices: [approve, revise, abort]
+      on_approve: advance
+      on_revise: rebuild_method
+
+  - idx: 3
+    name: Experiment
+    kind: agent_driven
+    goal: |
+      ml-worker × N runs the matrix on the GPU host. Steward
+      collects digests via trackio reader → hub digests. Output:
+      run digests + a result-summary document.
+    steward:
+      kind: steward.research.v1
+      driving_mode: M2
+    workers:
+      - kind: ml-worker.v1
+        count: matrix_cells   # one per cell of the frozen matrix
+    artifacts:
+      - kind: runs           # one runs row per worker
+      - kind: document
+        title: "Results: <project>"
+    gate:
+      prompt: |
+        Experiment runs complete. Review the result summary and
+        decide whether to proceed to paper-writing, iterate the
+        matrix, or abort.
+      choices: [approve, iterate, abort]
+      on_approve: advance
+      on_iterate: extend_matrix
+
+  - idx: 4
+    name: Paper
+    kind: agent_driven
+    goal: |
+      paper-writer reads phase 1–3 outputs and writes a 6-section
+      paper. Optional critic peer-review revise loop. Output: a
+      paper document.
+    steward:
+      kind: steward.research.v1
+      driving_mode: M2
+    workers:
+      - kind: paper-writer.v1
+        count: 1
+      - kind: critic.v1
+        count: 0..1
+        when: optional
+    artifacts:
+      - kind: document
+        title: "<paper title>"
+    gate:
+      prompt: |
+        Paper draft is ready. Approve to close the project, or
+        request revisions.
+      choices: [approve, revise, abort]
+      on_approve: close_project   # project status → closed
+      on_revise: rerun_paper
+
+# Reference: ADR-001 D-amend-1, research-demo-lifecycle.md §3,
+# run-lifecycle-demo.md (the acceptance contract for these phases).

@@ -337,10 +337,15 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
 	reset := fs.Bool("reset", false,
-		"delete the existing ablation-sweep-demo project (and its runs, "+
-			"metrics, docs, reviews, attention) before re-inserting. Use "+
-			"when the seed content has evolved (new plot families, etc.) "+
-			"and you want to refresh a previously-seeded hub.")
+		"delete the existing demo project for the chosen shape "+
+			"(and its dependent rows) before re-inserting. Use when "+
+			"the seed content has evolved and you want to refresh a "+
+			"previously-seeded hub.")
+	shape := fs.String("shape", "ablation",
+		"which demo to seed: 'ablation' = original Candidate A "+
+			"single-phase nanoGPT sweep (run-the-demo.md); 'lifecycle' "+
+			"= 5-phase research lifecycle (run-lifecycle-demo.md), "+
+			"with phase 1 done, phase 2 in_progress, gate pending.")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -357,8 +362,22 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	defer db.Close()
 
 	ctx := context.Background()
+
+	switch *shape {
+	case "ablation":
+		runSeedAblation(ctx, db, *dataRoot, *reset, log)
+	case "lifecycle":
+		runSeedLifecycle(ctx, db, *reset, log)
+	default:
+		log.Error("unknown shape", "shape", *shape)
+		fmt.Fprintf(os.Stderr, "seed-demo: unknown shape %q (valid: ablation, lifecycle)\n", *shape)
+		os.Exit(2)
+	}
+}
+
+func runSeedAblation(ctx context.Context, db *sql.DB, dataRoot string, reset bool, log *slog.Logger) {
 	var wasReset bool
-	if *reset {
+	if reset {
 		deleted, err := server.ResetDemo(ctx, db)
 		if err != nil {
 			log.Error("seed-demo reset failed", "err", err)
@@ -366,13 +385,12 @@ func runSeedDemo(args []string, log *slog.Logger) {
 		}
 		wasReset = deleted
 		if deleted {
-			fmt.Println("seed-demo: reset — deleted prior demo rows.")
+			fmt.Println("seed-demo: reset — deleted prior ablation-demo rows.")
 		} else {
-			fmt.Println("seed-demo: reset — no prior demo rows to delete.")
+			fmt.Println("seed-demo: reset — no prior ablation-demo rows to delete.")
 		}
 	}
-
-	res, err := server.SeedDemo(ctx, db, *dataRoot)
+	res, err := server.SeedDemo(ctx, db, dataRoot)
 	if err != nil {
 		log.Error("seed-demo failed", "err", err)
 		os.Exit(1)
@@ -387,8 +405,43 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	if wasReset {
 		action = "reset + re-inserted"
 	}
-	fmt.Printf("seed-demo: %s demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n  artifacts:  %d (checkpoint + eval_curve per run)\n",
+	fmt.Printf("seed-demo: %s ablation-demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n  artifacts:  %d (checkpoint + eval_curve per run)\n",
 		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount, res.ArtifactCount)
+}
+
+func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Logger) {
+	var wasReset bool
+	if reset {
+		deleted, err := server.ResetLifecycleDemo(ctx, db)
+		if err != nil {
+			log.Error("seed-demo reset (lifecycle) failed", "err", err)
+			os.Exit(1)
+		}
+		wasReset = deleted
+		if deleted {
+			fmt.Println("seed-demo: reset — deleted prior lifecycle-demo rows.")
+		} else {
+			fmt.Println("seed-demo: reset — no prior lifecycle-demo rows to delete.")
+		}
+	}
+	res, err := server.SeedLifecycleDemo(ctx, db)
+	if err != nil {
+		log.Error("seed-demo (lifecycle) failed", "err", err)
+		os.Exit(1)
+	}
+	if res.Skipped {
+		fmt.Printf("seed-demo: lifecycle project already exists (id=%s) — nothing written. "+
+			"Pass -reset to refresh.\n", res.ProjectID)
+		return
+	}
+	res.Reset = wasReset
+	action := "inserted"
+	if wasReset {
+		action = "reset + re-inserted"
+	}
+	fmt.Printf("seed-demo: %s lifecycle-demo state.\n  project:        %s\n  plan:           %s (5 phases: 0+1 done, 2 in_progress, 3+4 pending)\n  steward agent:  %s (running)\n  coder agent:    %s (running, phase 2)\n  lit-review doc: %s\n  method draft:   %s\n  attention:      %s (phase 2 → 3 gate)\n",
+		action, res.ProjectID, res.PlanID, res.StewardAgentID, res.CoderAgentID,
+		res.LitReviewDocID, res.MethodDocID, res.AttentionID)
 }
 
 // ---- helpers ----

@@ -1,7 +1,7 @@
 # Research-demo lifecycle — wedge plan
 
 > **Type:** plan
-> **Status:** In flight (2026-04-30) — W1–W6, no wedge started yet
+> **Status:** In flight (2026-04-30) — **hub-side complete (W1, W2, W4, W5, W6 shipped); W3 (mobile) remaining**
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.349
 
@@ -26,7 +26,10 @@ steps, and order.
 
 ---
 
-## W1 — Operation-scope role middleware
+## W1 — Operation-scope role middleware ✅ shipped
+
+**Shipped:** commits `8475723` (role gate) + `1d1f92f` (A2A target restriction). All checkpoints (X.5 worker → `agents.spawn` denied; X.6 worker → non-parent A2A denied) backed by tests; all `go test ./...` clean.
+
 
 **Goal:** [ADR-016](../decisions/016-subagent-scope-manifest.md) D6
 becomes load-bearing: every `hub://*` MCP call is gated by role before
@@ -72,7 +75,10 @@ informational).
 
 ---
 
-## W2 — Template-authoring MCP tools + team overlay loader
+## W2 — Template-authoring MCP tools + team overlay loader ✅ shipped
+
+**Shipped:** commit `eebb119`. 15 MCP tools (`templates.{agent,prompt,plan}.{create,update,delete,list,get}`) + self-modification guard (ADR-016 D7) + `?category=` filter on the existing list endpoint. Hub overlay loader was already in place via the existing /templates REST surface; the wedge wrapped it in MCP.
+
 
 **Goal:** Stewards (and director-via-MCP-bridge, eventually) can
 create/update/delete team-scoped templates via MCP. Templates live
@@ -120,7 +126,10 @@ already understands.
 
 ---
 
-## W3 — Mobile template editor + phase-0 review surface + persistent-steward entry
+## W3 — Mobile template editor + phase-0 review surface + persistent-steward entry ⏳ remaining
+
+**Status:** Not started — Flutter wedge requires CI-side verification (Flutter SDK is not installed locally per the [no-Flutter-locally rule](https://memory)). All hub endpoints W3 depends on are shipped: `POST /v1/teams/{team}/steward.general/ensure` (W4), `templates.*` MCP (W2), plan promote / plan steps (existing). The mobile-side work is purely Flutter.
+
 
 **Goal:** Director can review/edit overlay templates from phone, and
 the phase-0 approval surface bundles plan + templates in one
@@ -167,7 +176,10 @@ against bundled seed.
 
 ---
 
-## W4 — `steward.general.v1` template + bootstrap-and-concierge prompt
+## W4 — `steward.general.v1` template + bootstrap-and-concierge prompt ✅ shipped
+
+**Shipped:** commit `e687b0a`. Bundled frozen template + ~150-line bootstrap+concierge prompt + idempotent singleton ensure-spawn endpoint at `POST /v1/teams/{team}/steward.general/ensure`. Race-coalesces on concurrent first-call. 4 tests cover: first-call spawns, idempotent repeat, archive→respawn (X.1), no-host clear-error (424).
+
 
 **Goal:** The frozen general-steward exists, behaves as designed
 (bootstrap-then-concierge), and runs cleanly on claude-code engine.
@@ -217,7 +229,10 @@ Go pieces for singleton spawn).
 
 ---
 
-## W5 — Domain steward seed (`steward.research.v1`) + worker seeds + safety guardrails
+## W5 — Domain steward seed (`steward.research.v1`) + worker seeds + safety guardrails ✅ shipped
+
+**Shipped:** commit `dd45aaf`. Five new bundled agent kinds (rewritten `steward.research.v1` lifecycle orchestrator + four workers: `lit-reviewer.v1`, `coder.v1`, `paper-writer.v1`, `critic.v1`). Each worker prompt encodes safety guardrails (authoritative sources only for lit-review; PyPI signed/well-known maintainers for coder; cite-only-from-lit-review for paper-writer with explicit "DO NOT make claims of novelty" rule). Three test groups verify YAML parses, role-manifest mapping, and guardrail-prose presence.
+
 
 **Goal:** Seed templates the general-steward can copy + customize.
 Each worker prompt encodes the safety guardrails from
@@ -272,7 +287,12 @@ Each worker prompt encodes the safety guardrails from
 
 ---
 
-## W6 — `research-project.v1` plan template + `seed-demo --shape lifecycle`
+## W6 — `research-project.v1` plan template + `seed-demo --shape lifecycle` ✅ shipped
+
+**Shipped:** commit `f1b8340`. Bundled plan template + `SeedLifecycleDemo` + `seed-demo --shape lifecycle` CLI flag. Reset path scoped per shape. JSON encoder uses `SetEscapeHTML(false)` for plan spec_json so "Method & Code" lands as-is. 4 tests cover: insert shape (project/plan/agents/documents/attention), idempotency, reset round-trip, embed bundling.
+
+A reviewer can now run `hub-server seed-demo --shape lifecycle` to stage every checkpoint of `run-lifecycle-demo.md` and tap through each phase's state from a connected mobile app.
+
 
 **Goal:** The plan that ties phases 0–4 together exists; the no-GPU
 harness can stage a multi-phase project for reviewers.

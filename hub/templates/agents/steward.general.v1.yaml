@@ -1,0 +1,134 @@
+# General steward — frozen, persistent, team-scoped concierge.
+#
+# The general steward is the only steward kind that lives only in the
+# bundled embed.FS — it's never copied to the team overlay, and the
+# self-modification guard (ADR-016 D7) blocks any attempt by a
+# general-steward instance to edit this template.
+#
+# Lifetime: one per team, persistent, always-on. Bootstraps new
+# projects (authors domain-steward + worker templates + plan in
+# phase 0), then remains available as the director's concierge for
+# cross-project debugging, free discussion, template/schedule edits,
+# and future-project bootstraps. Archived only by manual director
+# action.
+#
+# Operation scope (ADR-016): full steward-tier — agents.spawn,
+# templates.{agent,prompt,plan}.{create,update,delete}, schedules.*,
+# projects.update, plus the worker surface. Not gated separately;
+# the role-gate middleware reads role=steward from scope_json and
+# allows everything.
+#
+# Manager/IC invariant (blueprint §3.3): general steward authors
+# *infrastructure* (templates, plans, schedules) and *advises*
+# (reads, summarises, explains). It does NOT do project IC work
+# (writing code, running experiments, drafting papers). IC is
+# delegated to workers spawned by domain stewards. Soft-enforced by
+# prompt; the prompt is the policy here.
+#
+# This template intentionally does not list `projects.create` as a
+# bootstrap path — projects are created via the existing project
+# template flow; the general steward authors the project's plan +
+# domain-steward template, and the *director* (or domain steward
+# during phase 0 transition) calls projects.create.
+
+template: agents.steward.general
+version: 1
+extends: null
+
+driving_mode: M2
+fallback_modes: [M4]
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/general
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+
+default_role: team.concierge
+display_label: "Steward"
+
+# Documentation-only — actual MCP gating is now in roles.yaml
+# (ADR-016 operation-scope manifest). Listed here so a reader of the
+# template sees the intended surface without having to grep the
+# roles file.
+default_capabilities:
+  # Bootstrap surface (W2 — author the team's overlay templates).
+  - templates.agent.create
+  - templates.agent.update
+  - templates.agent.delete
+  - templates.agent.list
+  - templates.agent.get
+  - templates.prompt.create
+  - templates.prompt.update
+  - templates.prompt.delete
+  - templates.prompt.list
+  - templates.prompt.get
+  - templates.plan.create
+  - templates.plan.update
+  - templates.plan.delete
+  - templates.plan.list
+  - templates.plan.get
+  # Plan + project orchestration.
+  - plan.instantiate
+  - plan.advance
+  - plans.steps.create
+  - plans.steps.update
+  - projects.update
+  # Schedules (concierge mode — director may ask "set up a weekly
+  # report" etc.).
+  - schedules.create
+  - schedules.update
+  - schedules.delete
+  - schedules.run
+  # Spawn (bootstrap → spawn the domain steward at end of phase 0).
+  - agents.spawn
+  - agents.archive
+  # Reads — concierge mode answers cross-project questions.
+  - projects.list
+  - projects.get
+  - plans.list
+  - plans.get
+  - runs.list
+  - documents.list
+  - documents.read
+  - reviews.list
+  - audit.read
+  - channels.list
+  - get_attention
+  # Communication.
+  - channels.post_event
+  - post_message
+  - delegate
+  - request_approval
+  - request_select
+  - request_help
+  - decision.vote: significant
+  # Self.
+  - journal_append
+  - journal_read
+
+prompt: steward.general.v1.md
+
+skills:
+  - id: bootstrap-project
+    name: bootstrap-project
+    description: "Take a free-text idea from the director and produce a 5-phase plan + domain-steward template + worker templates"
+    tags: [bootstrap, planning, templates]
+  - id: advise
+    name: advise
+    description: "Open-ended discussion with the director about projects, work, or system state — no IC"
+    tags: [chat, advisory]
+  - id: review-state
+    name: review-state
+    description: "Read project state (runs, attention, transcripts) and explain what's happening; debug stalled work"
+    tags: [debug, summary]
+  - id: edit-templates
+    name: edit-templates
+    description: "Modify team-scope templates and schedules at the director's request"
+    tags: [templates, schedules]
+
+default_channels:
+  hub-meta: full

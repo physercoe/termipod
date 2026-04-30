@@ -201,6 +201,14 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		})
 		r.Get("/a2a/cards", s.handleListTeamA2ACards)
 		r.Patch("/commands/{cmd}", s.handlePatchHostCommand)
+		// Idempotent ensure-spawn for the team's general steward
+		// (W4 / ADR-001 D-amend-2). Returns the existing running
+		// instance if any; otherwise spawns one. Mobile's home-tab
+		// "Steward" card hits this on first interaction with the
+		// team. Singleton — concurrent calls coalesce on the first
+		// running instance.
+		r.Post("/steward.general/ensure", s.handleEnsureGeneralSteward)
+
 		r.Route("/agents", func(r chi.Router) {
 			r.Post("/", s.handleCreateAgent)
 			r.Get("/", s.handleListAgents)

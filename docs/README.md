@@ -32,8 +32,17 @@ first — it defines what every doc must declare and where it lives.
 3. [`spine/agent-lifecycle.md`](spine/agent-lifecycle.md) for how
    agents are born / live / die
 4. [`spine/sessions.md`](spine/sessions.md) for the session ontology
-5. [`reference/vocabulary.md`](reference/vocabulary.md) when a term
-   is unfamiliar
+5. [`reference/glossary.md`](reference/glossary.md) when a term
+   feels overloaded — the canonical defs for every project-specific
+   word that has more than one possible meaning (*session*, *resume*,
+   *fork*, *kind*, *transcript*, …)
+6. [`reference/vocabulary.md`](reference/vocabulary.md) for the
+   *swappable* design vocab axes (post-MVP theme packs — different
+   artifact)
+
+**I'm a tester or end-user filing a bug.**
+- [`how-to/report-an-issue.md`](how-to/report-an-issue.md) — UI
+  vocabulary tour with annotated diagrams + a bug-report template.
 
 **I'm wondering "why did we do X?"**
 - [`decisions/`](decisions/) — append-only ADRs. Browse the index

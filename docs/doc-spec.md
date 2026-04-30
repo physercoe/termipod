@@ -233,7 +233,73 @@ to navigate into a primitive.
 
 ---
 
-## 7. The contract for new docs
+## 7. Term consistency — the glossary contract
+
+`docs/reference/glossary.md` is the canonical definition for every
+project-specific term that has more than one possible meaning, or
+whose meaning isn't obvious cold. It exists because at ~200K LOC of
+docs+code the project has accumulated enough term collisions
+(*session*, *resume*, *fork*, *kind*, *transcript*, *agent*, …) that
+without a fixed reference, both human and AI contributors hallucinate
+plausible-but-wrong meanings and ship bugs grounded in the wrong
+mental model. The 2026-04-30 claude-code resume bug was a direct
+artifact of this — *session* meant two different things in two
+adjacent layers, and nothing pinned the boundary.
+
+### The contract
+
+Three rules. CI enforces #1 and #2; #3 is review-discipline.
+
+1. **First-use linking.** When a doc uses a load-bearing
+   project-specific term, the **first occurrence** in that doc must
+   either (a) link to the glossary entry — `[hub session](reference/glossary.md#hub-session)` (path adjusts per source-doc location)
+   — or (b) define the term inline in a sentence. Casual reuses
+   downstream don't need to repeat the link.
+2. **No new term without a glossary entry.** Any commit that
+   introduces a new project-specific term in code or docs must add
+   the term to `glossary.md` in the **same commit**, with at minimum
+   a one-line def, a *Distinguish from* line if the term has known
+   collisions, and a canonical link.
+3. **Disambiguate when ambiguous.** If a sentence reads ambiguously
+   without a qualifier, add the qualifier. *Session* almost always
+   needs to be *hub session* or *engine session*; *kind* almost
+   always needs to be *agent kind*, *event kind*, *input kind*, or
+   *attention kind*. The glossary's §12 index is the canonical list
+   of pairs that need disambiguation.
+
+### What counts as "load-bearing"
+
+A term is load-bearing in a doc when:
+- The doc's correctness depends on the reader resolving the term to
+  the right meaning. ("This event lands in the **transcript**" is
+  load-bearing — the reader has to know whether you mean
+  `agent_events` or the engine record.)
+- The term has a glossary entry that explicitly calls out a
+  collision (any entry with a *Distinguish from* line).
+- The term names a schema column, table, type, or protocol field
+  ("`engine_session_id`" needs the linked def the first time it
+  appears in a discussion doc).
+
+A term is **not** load-bearing when it's used colloquially in prose
+where the surrounding sentence resolves the ambiguity ("the user's
+session timed out") or in a context where the project-specific
+meaning is obviously not in play.
+
+### Adding a new term
+
+1. Pick the canonical spelling. Lowercase-hyphenated for multi-word
+   identifiers (`hub-session-id`); natural English for prose terms
+   (*hub session*, *engine record*).
+2. Place it in the right §1–§11 section of the glossary. If none
+   fits, propose a new section in the same commit.
+3. Write one line of def. Don't repeat the canonical doc — link to
+   it. The glossary is for fast lookup, not depth.
+4. Add a *Distinguish from* line if the term collides with anything
+   in the glossary's §12 index, and extend §12 with the new pair.
+5. The CI lint (§9 below) will reject the PR if a new bolded term
+   appears in a doc with no matching glossary entry.
+
+## 8. The contract for new docs
 
 When you add a doc, walk this checklist:
 
@@ -246,12 +312,18 @@ When you add a doc, walk this checklist:
 - [ ] If it supersedes another doc, the supersedee's status is updated
   to Superseded and links forward.
 - [ ] Cross-references use relative paths from the file's location.
+- [ ] Load-bearing project terms link to glossary on first use (§7).
+- [ ] Any new project-specific term added to the glossary in the
+      same commit (§7).
 
 When you find an existing doc that violates this, fix it in a separate
 PR with `docs:` prefix. Don't bundle doc reorgs into feature commits.
 
-CI runs `scripts/lint-docs.sh` on every push, which enforces three
-rules from this spec:
+## 9. CI lints
+
+Two scripts run on every push, both fast (pure bash + grep + awk):
+
+**`scripts/lint-docs.sh`** — structural rules from §3, §5, §6:
 
 1. The 5-line status block is present at the top of every doc
    (excluding `archive/`, `screens/`, `logo/`).
@@ -263,13 +335,26 @@ rules from this spec:
    resolves to an existing file relative to the source doc's
    location.
 
+**`scripts/lint-glossary.sh`** — term-consistency rules from §7:
+
+1. Every glossary entry has a one-line def line right after its `###`
+   heading (no orphan headings).
+2. Every term in `glossary.md`'s §12 *Index of "easy to confuse with"
+   pairs* points to a real entry above (no dangling cross-refs).
+3. Spelling-variant detection: for each entry term, scan all docs
+   for known-bad alternate spellings (CamelCase / hyphenated /
+   underscored / pluralised) and flag them. Drift catches itself
+   here.
+4. New-term gate: if a PR adds a bolded term in a doc that has no
+   matching glossary entry, lint fails with a pointer to §7.
+
 Layer-2 anti-drift signals (stale-doc reports, touched-area reports
-on PRs, ADR backlinks from spine/reference) are follow-ups; the
-linter is the load-bearing piece.
+on PRs, ADR backlinks from spine/reference) are follow-ups; the two
+linters are the load-bearing piece.
 
 ---
 
-## 8. Open questions about this spec
+## 10. Open questions about this spec
 
 Carrying these forward — answer when they come up:
 
@@ -290,7 +375,7 @@ Carrying these forward — answer when they come up:
 
 ---
 
-## 9. References
+## 11. References
 
 - Diátaxis framework: https://diataxis.fr/
 - ADR pattern (Michael Nygard, 2011): https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions

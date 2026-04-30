@@ -23,6 +23,60 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.349-alpha+1 — 2026-04-30 (docs/tooling, no app rebuild)
+
+### Added
+- **Glossary** ([`docs/reference/glossary.md`](reference/glossary.md))
+  — canonical defs for every project-specific term that has more
+  than one possible meaning. ~50 entries across 11 domains
+  (Sessions, Agents, Engines, Hosts, Events, Attention, UI,
+  Protocols, Storage, Process). Each entry has a one-line def, an
+  optional *Distinguish from:* line, and a link to its canonical
+  concept doc. §12 indexes the "easy to confuse with" pairs for
+  fast disambiguation. Trigger: 200K LOC of accumulated drift +
+  the 2026-04-30 claude-code resume bug, which surfaced because
+  *session* meant two different things in two adjacent layers and
+  nothing pinned the boundary.
+- **doc-spec §7 — term-consistency contract.** Codifies the rules:
+  first-use linking to glossary, no new term without an entry in
+  the same commit, qualifier required when ambiguous. CI lint
+  enforces #1 and #2; #3 is review discipline.
+- **CI lint** (`scripts/lint-glossary.sh`). Four checks: glossary
+  structure (no orphan headings), §12 index integrity, spelling-
+  variant drift detection across all docs (with code-context
+  filtering so `hub/internal/hostrunner` package paths don't
+  false-flag), and a warning-level new-term gate. Wired into
+  `.github/workflows/ci.yml` alongside the existing
+  `lint-docs.sh`.
+- **PR template** gains a "Term consistency" section pointing at
+  the glossary contract and the local lint command.
+- **Tester / end-user UI guide**
+  ([`docs/how-to/report-an-issue.md`](how-to/report-an-issue.md))
+  — bug-report template + annotated ASCII layouts of every major
+  screen + UI vocabulary (AppBar, BottomNav, BottomSheet, Card,
+  Chip, ListTile, FAB, TabBar, …) + verb glossary (tap vs
+  long-press vs swipe) + common confusion points (Resume vs Fork,
+  agent vs engine, status chip colours). Parallel artifact to the
+  engineering glossary, audience: testers and normal users.
+
+### Changed
+- **doc-spec.md** restructured: §7 is the new term-consistency
+  contract; §8 (was §7) is the contract for new docs; §9 (was §8)
+  lists CI lints; §10/§11 (open questions / references)
+  renumbered.
+- **Two real prose drift fixes** caught by the new lint:
+  `host runner` → `host-runner` in
+  `discussions/transcript-ux-comparison.md` and
+  `plans/agent-state-and-identity.md`.
+- **`discussions/transcript-source-of-truth.md`** status block
+  forwarded to ADR-014 (the operation-log framing this discussion
+  rests on); broken auto-memory cross-link replaced with a memory
+  reference (not a doc link).
+- **`docs/README.md`** index gains pointers to glossary +
+  report-an-issue.
+
+---
+
 ## v1.0.349-alpha — 2026-04-30
 
 ### Fixed

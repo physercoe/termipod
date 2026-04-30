@@ -75,7 +75,7 @@ contents mutable).
 Replaces `open / interrupted / closed / deleted`. The mapping is
 1:1; only the names change. `archived` is reachable from `active`
 via explicit user action with mandatory distillation choice (see D5).
-`paused` is reached automatically when the host runner detaches and
+`paused` is reached automatically when the host-runner detaches and
 reattached automatically on reconnect — same semantics as today's
 `interrupted`, just with a less alarming name.
 

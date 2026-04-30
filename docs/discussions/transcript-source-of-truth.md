@@ -1,15 +1,16 @@
 # Transcript source of truth: hub-mediated vs direct engine-record
 
 > **Type:** discussion
-> **Status:** Resolved (2026-04-30) — hub-mediated is the locked
-> design; direct-read forensic view kept as a post-MVP follow-up.
-> No ADR — the choice is implicit in the multi-engine positioning
-> (ADR-010, ADR-012, ADR-013) and the operation-log framing pinned
-> in ADR-014. This doc exists so the comparison and its tradeoffs
-> are grep-able when someone re-litigates "why don't we just read
-> the JSONL?"
+> **Status:** Resolved (2026-04-30) → [`decisions/014-claude-code-resume-cursor.md`](../decisions/014-claude-code-resume-cursor.md)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.349
+
+The choice — hub-mediated `agent_events` as transcript source of
+truth, with the engine record never read directly for transcript
+display — is what makes ADR-014's operation-log framing coherent.
+This doc collects the comparison and its tradeoffs so the design is
+grep-able when someone re-litigates "why don't we just read the
+JSONL?" The post-MVP forensic-view escape hatch is queued as PMV-4.
 
 **TL;DR.** There are two coherent designs for "what is a session
 transcript?" — (A) hub-mediated, where `agent_events` is the source
@@ -113,7 +114,7 @@ bearing and can't be skipped.
 The deciding factor isn't "which is simpler at small scale." It's
 that **multi-engine + multi-host + per-team auth + operation-log
 semantics** are termipod's positioning differentiators
-([memory: project_positioning_vs_competitors](../../project_positioning_vs_competitors.md)).
+(memory: `project_positioning_vs_competitors`).
 The moment those are required, (B) fragments into N renderers
 and M host shippers; (A) converges into one schema.
 
@@ -208,4 +209,5 @@ If no, the answer is unchanged.
 - `discussions/fork-and-engine-context-mutations.md` — adjacent;
   same hub/engine boundary, different axis.
 - Memory: `project_positioning_vs_competitors` — the
-  positioning differentiators this doc rests on.
+  positioning differentiators this doc rests on (auto-memory,
+  not a project doc).

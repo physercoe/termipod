@@ -23,7 +23,7 @@ steps. For backend, the test commands. -->
 
 ## Doc / spec updates
 
-<!-- Per docs/doc-spec.md §7, a code change that touches CLI flags,
+<!-- Per docs/doc-spec.md §8, a code change that touches CLI flags,
 endpoints, schema, or contracts should update the related doc in the
 same PR. Per memory feedback_update_docs_with_api_changes, this is
 the rule. -->
@@ -33,6 +33,19 @@ the rule. -->
 - [ ] Created/updated an ADR in `docs/decisions/` (architectural
       decisions only)
 - [ ] Added an entry to `docs/changelog.md` (user-visible change)
+
+## Term consistency (doc-spec §7)
+
+<!-- Glossary at docs/reference/glossary.md is canonical for every
+project-specific term that has more than one possible meaning. New
+terms must be added in the same commit; first-use occurrences in
+prose link to the glossary entry. CI lint enforces this — run
+scripts/lint-glossary.sh locally to pre-check. -->
+
+- [ ] No new project-specific term
+- [ ] Added new term(s) to `docs/reference/glossary.md` (with
+      `Distinguish from:` line if collisions exist + entry in §12)
+- [ ] First-use linked in any new doc prose
 
 ## Memory / context
 

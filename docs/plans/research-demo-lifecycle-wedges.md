@@ -126,9 +126,14 @@ already understands.
 
 ---
 
-## W3 — Mobile template editor + phase-0 review surface + persistent-steward entry ⏳ remaining
+## W3 — Mobile template editor + phase-0 review surface + persistent-steward entry 🟡 partial
 
-**Status:** Not started — Flutter wedge requires CI-side verification (Flutter SDK is not installed locally per the [no-Flutter-locally rule](https://memory)). All hub endpoints W3 depends on are shipped: `POST /v1/teams/{team}/steward.general/ensure` (W4), `templates.*` MCP (W2), plan promote / plan steps (existing). The mobile-side work is purely Flutter.
+**Status:** Persistent-steward home-tab card shipped (commit `8caff8a`, 2026-04-30). The card mounts on the Me tab above the active-sessions strip; tapping it lazily ensures the singleton via `POST /v1/teams/{team}/steward.general/ensure` and lands the director in the chat. Mobile-side `ensureGeneralSteward()` + `@steward` handle helpers ship alongside.
+
+**Remaining sub-slices:**
+
+- **Template editor** — partly covered by the pre-existing `lib/screens/team/templates_screen.dart` (list + raw monospace editor for agents/prompts/policies). The "last-edited-by (steward vs director)" indicator and overlay diff view are still gaps.
+- **Phase-0 review surface** — partly covered by `lib/screens/me/approval_detail_screen.dart` (handles `request_approval` + `template_proposal` kinds with payload + context + tap-into-chat). A purpose-built tabbed view that bundles plan + draft templates + artifacts in one director-friendly review remains a gap; the existing approval flow handles the bootstrap attention item but spreads the templates across separate taps.
 
 
 **Goal:** Director can review/edit overlay templates from phone, and

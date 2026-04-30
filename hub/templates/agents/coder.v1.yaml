@@ -1,0 +1,67 @@
+# Coder worker template (W5 of the lifecycle wedge plan).
+#
+# Spawned by a research steward in phase 2. Reads the lit-review
+# memo as input context, writes training/evaluation code in a
+# worktree, freezes an experiment matrix, produces a method-spec
+# document, and reports back via A2A.
+#
+# Operation scope: worker tier per ADR-016. Engine-native tool
+# surface includes Bash/Edit/Read/Write — strong filesystem and
+# shell access within the worktree. Safety guardrails (PyPI signed
+# packages, official repos only, no `curl <random> | bash`) are
+# encoded in the prompt; the hub doesn't gate engine-native tools.
+
+template: agents.coder
+version: 1
+extends: null
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/coder
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+
+default_role: worker.coder
+display_label: "Coder"
+
+default_capabilities:
+  - documents.create
+  - documents.read
+  - documents.list
+  - reviews.create        # invite critic review
+  - reviews.list
+  - runs.register         # placeholder runs while developing the matrix
+  - channels.post_event
+  - attention.create      # request_help when blocked
+  - a2a.invoke            # parent-steward target only (D4)
+  - tasks.create
+  - tasks.update
+  - journal_append
+  - journal_read
+  - get_attention
+  - get_event
+  - search
+  - decision.vote: minor
+  - spawn.descendants: 0  # workers don't multiply
+
+prompt: coder.v1.md
+
+skills:
+  - id: implement
+    name: implement
+    description: "Write training / evaluation code from a method spec"
+    tags: [coding, ml]
+  - id: design-matrix
+    name: design-matrix
+    description: "Freeze a sweep matrix from a lit review's open questions"
+    tags: [planning, ml]
+  - id: smoke-test
+    name: smoke-test
+    description: "Run a 1-step training cycle to verify the pipeline before committing"
+    tags: [testing, ml]
+
+default_channels:
+  hub-meta: read

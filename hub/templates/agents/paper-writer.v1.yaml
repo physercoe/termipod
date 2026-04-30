@@ -1,0 +1,72 @@
+# Paper-writer worker template (W5 of the lifecycle wedge plan).
+#
+# Spawned by a research steward in phase 4. Reads the lit-review +
+# method spec + run digests + result-summary documents from prior
+# phases and produces a 6-section paper-shaped document. Reports
+# back via A2A.
+#
+# Operation scope: worker tier per ADR-016, but with a
+# deliberately narrow surface — read-side only on hub state, write
+# only via documents.create. No code execution, no shell, no
+# package installs (those happen in phase 2's coder worker).
+#
+# Safety stance: explicitly NO novelty claims. The paper-writer
+# cites only what the lit-review found; it doesn't invent
+# "to our knowledge, no prior work exists" framing. The MVP demo's
+# lit review is bounded; pretending the paper has a comprehensive
+# related-work survey would mislead the reviewer.
+
+template: agents.paper-writer
+version: 1
+extends: null
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/paper-writer
+  permission_modes:
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}} --print --output-format stream-json --input-format stream-json --verbose {{permission_flag}}"
+
+default_role: worker.paper-writer
+display_label: "Paper Writer"
+
+default_capabilities:
+  - documents.create        # the paper itself
+  - documents.read          # all prior-phase docs
+  - documents.list
+  - runs.list
+  - run.metrics.read        # results section pulls digests
+  - reviews.list            # if there are critic reviews of method
+  - channels.post_event
+  - attention.create        # request_help when blocked
+  - a2a.invoke              # parent-steward target only (D4)
+  - tasks.create
+  - tasks.update
+  - journal_append
+  - journal_read
+  - get_attention
+  - get_event
+  - search
+  - decision.vote: minor
+  - spawn.descendants: 0    # no multiplication
+
+prompt: paper-writer.v1.md
+
+skills:
+  - id: structure
+    name: structure
+    description: "Lay out a 6-section paper from research artifacts"
+    tags: [writing, research]
+  - id: cite-faithfully
+    name: cite-faithfully
+    description: "Cite only sources from the lit-review; no invention"
+    tags: [writing, integrity]
+  - id: figure-callout
+    name: figure-callout
+    description: "Reference run digests inline; flag where charts would go"
+    tags: [writing]
+
+default_channels:
+  hub-meta: read

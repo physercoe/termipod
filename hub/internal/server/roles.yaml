@@ -61,8 +61,10 @@ roles:
       - "request_decision"   # legacy alias for request_select
       - "request_help"
 
-      # --- A2A (parent-steward target restriction enforced separately,
-      #     see ADR-016 D4 — not yet implemented in this manifest) ---
+      # --- A2A (parent-steward target restriction enforced in
+      #     mcp_authority_roles.go::authorizeA2ATarget — workers may
+      #     only invoke a2a.invoke against their parent steward,
+      #     ADR-016 D4) ---
       - "a2a.invoke"
 
       # --- Self-management ---

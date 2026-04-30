@@ -314,6 +314,19 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	if jerr := s.authorizeMCPCall(ctx, agentID, scope.Role, call.Name); jerr != nil {
 		return nil, jerr
 	}
+	// A2A target restriction (ADR-016 D4). Workers may invoke
+	// a2a.invoke only against their parent steward. Stewards are
+	// unrestricted. Skipped for principal tokens (agentID == "").
+	if call.Name == "a2a.invoke" && agentID != "" {
+		var args map[string]any
+		if len(call.Arguments) > 0 {
+			_ = json.Unmarshal(call.Arguments, &args)
+		}
+		role := s.resolveAgentRole(agentID, scope.Role)
+		if jerr := s.authorizeA2ATarget(agentID, role, scope.Team, args); jerr != nil {
+			return nil, jerr
+		}
+	}
 	switch call.Name {
 	case "post_message":
 		return s.mcpPostMessage(ctx, agentID, call.Arguments)

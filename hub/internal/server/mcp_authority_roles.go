@@ -17,6 +17,7 @@
 package server
 
 import (
+	"database/sql"
 	_ "embed"
 	"fmt"
 	"os"
@@ -257,6 +258,66 @@ func (s *Server) authorizeMCPCall(ctx interface{}, agentID, scopeRole, tool stri
 		return nil
 	}
 	return &jrpcError{Code: -32601, Message: "tool not permitted for role: " + role}
+}
+
+// authorizeA2ATarget enforces ADR-016 D4: workers may invoke
+// a2a.invoke only against their parent steward. Stewards are
+// unrestricted (return nil immediately). Caller threads the parsed
+// `args` map from the tools/call params; we extract `handle` and
+// resolve target_agent_id + caller's parent_agent_id from the DB.
+//
+// Returns nil on allow; jrpcError with message "a2a target not
+// permitted: workers may only invoke parent steward" on deny.
+//
+// Edge cases:
+//   - args missing or handle empty → defer to the tool implementation
+//     (it surfaces a clearer "handle is required" error).
+//   - target handle resolves to multiple agents (shouldn't happen with
+//     UNIQUE(team_id, handle) on active rows, migration 0023) — we
+//     pick the first match.
+//   - caller has no parent_agent_id (top-level worker, unusual) →
+//     deny conservatively. Workers should always have a parent.
+func (s *Server) authorizeA2ATarget(agentID, scopeRole, team string, args map[string]any) *jrpcError {
+	if scopeRole == "steward" {
+		return nil
+	}
+	// Extract target handle. Skip the check if the tool will reject
+	// the call anyway for missing args — let the implementation's
+	// error surface speak for itself.
+	handle, _ := args["handle"].(string)
+	if handle == "" {
+		return nil
+	}
+
+	// Resolve target agent_id by handle within the team.
+	var targetID string
+	_ = s.db.QueryRow(
+		`SELECT id FROM agents WHERE team_id = ? AND handle = ? LIMIT 1`,
+		team, handle).Scan(&targetID)
+	if targetID == "" {
+		// Target doesn't exist in this team's agent table; the tool
+		// implementation will surface a "no A2A agent found" error
+		// from the directory lookup. Don't double-error here.
+		return nil
+	}
+
+	// Resolve caller's parent_agent_id (most recent spawn record;
+	// handle re-spawn by ordering on spawned_at).
+	var parentID sql.NullString
+	_ = s.db.QueryRow(
+		`SELECT parent_agent_id FROM agent_spawns
+		 WHERE child_agent_id = ?
+		 ORDER BY spawned_at DESC
+		 LIMIT 1`,
+		agentID).Scan(&parentID)
+
+	if !parentID.Valid || parentID.String == "" || parentID.String != targetID {
+		return &jrpcError{
+			Code:    -32601,
+			Message: "a2a target not permitted: workers may only invoke parent steward",
+		}
+	}
+	return nil
 }
 
 // resolveAgentRole prefers the role stamped on scope_json at spawn

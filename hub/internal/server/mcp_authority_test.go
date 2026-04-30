@@ -166,7 +166,7 @@ func TestRoles_ManifestMatching(t *testing.T) {
 		"runs.register", "runs.complete", "run.metrics.read",
 		"channels.post_event", "post_message",
 		"attention.create", "request_help", "request_select",
-		"a2a.invoke", // restricted target via D4 — not enforced in this manifest
+		"a2a.invoke", // role gate passes; target is enforced separately by authorizeA2ATarget (D4)
 		"tasks.create", "tasks.update",
 		"agents.list",  // *.list pattern
 		"agents.get",   // *.get pattern
@@ -284,6 +284,144 @@ func TestMCPAuthority_WorkerDeniedStewardTool(t *testing.T) {
 	resp2.Body.Close()
 	if bytes.Contains(raw2, []byte("not permitted for role")) {
 		t.Errorf("worker should be allowed search; got role denial: %s", raw2)
+	}
+}
+
+// TestMCPAuthority_A2ATargetRestriction verifies ADR-016 D4: workers
+// may invoke a2a.invoke only against their parent steward. Builds a
+// minimal three-agent fixture (parent steward + child worker +
+// unrelated steward) and exercises both allow and deny paths.
+//
+// We don't expect the underlying A2A handler to succeed (no cards are
+// published in the test fixture), so we discriminate allow vs deny by
+// inspecting the error message: the role/target gate emits a specific
+// "a2a target not permitted" string; downstream errors don't.
+func TestMCPAuthority_A2ATargetRestriction(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/hub.db"
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.router)
+	t.Cleanup(srv.Close)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Parent steward, child worker, unrelated steward.
+	parentID := "test-parent-steward"
+	workerID := "test-child-worker"
+	otherID := "test-other-steward"
+	for _, a := range []struct{ id, handle, kind string }{
+		{parentID, "@parent", "steward.research.v1"},
+		{workerID, "@worker", "lit-reviewer.v1"},
+		{otherID, "@other", "steward.infra.v1"},
+	} {
+		if _, err := s.db.Exec(`INSERT INTO agents
+			(id, team_id, handle, kind, capabilities_json,
+			 status, pause_state, created_at)
+			VALUES (?, ?, ?, ?, '[]', 'running', 'running', ?)`,
+			a.id, defaultTeamID, a.handle, a.kind, now); err != nil {
+			t.Fatalf("insert agent %s: %v", a.id, err)
+		}
+	}
+
+	// Spawn record linking worker to parent.
+	if _, err := s.db.Exec(`INSERT INTO agent_spawns
+		(id, parent_agent_id, child_agent_id, spawn_spec_yaml,
+		 spawn_authority_json, task_json, spawned_at)
+		VALUES (?, ?, ?, '', '{}', '{}', ?)`,
+		NewID(), parentID, workerID, now); err != nil {
+		t.Fatalf("insert spawn: %v", err)
+	}
+
+	// Worker's MCP token (role=worker).
+	tok := auth.NewToken()
+	scopeJSON, _ := json.Marshal(map[string]any{
+		"team":     defaultTeamID,
+		"role":     "worker",
+		"agent_id": workerID,
+	})
+	if _, err := s.db.Exec(`INSERT INTO auth_tokens
+		(id, kind, token_hash, scope_json, created_at)
+		VALUES (?, 'agent', ?, ?, ?)`,
+		NewID(), auth.HashToken(tok), string(scopeJSON), now); err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	call := func(handle string) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{
+				"name":      "a2a.invoke",
+				"arguments": map[string]any{"handle": handle, "text": "hi"},
+			},
+		})
+		req, _ := http.NewRequestWithContext(context.Background(), "POST",
+			srv.URL+"/mcp/"+tok, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("http: %v", err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return raw
+	}
+
+	// Worker → unrelated steward: gate denies.
+	if got := call("@other"); !bytes.Contains(got, []byte("a2a target not permitted")) {
+		t.Errorf("worker → @other should be denied; got: %s", got)
+	}
+
+	// Worker → parent: gate allows. Tool implementation will likely
+	// fail because no A2A card is published in this fixture, but the
+	// failure must not be the gate's deny message.
+	if got := call("@parent"); bytes.Contains(got, []byte("a2a target not permitted")) {
+		t.Errorf("worker → parent should pass gate; got gate denial: %s", got)
+	}
+
+	// Worker → self: also denied (self is not parent).
+	if got := call("@worker"); !bytes.Contains(got, []byte("a2a target not permitted")) {
+		t.Errorf("worker → @worker should be denied; got: %s", got)
+	}
+
+	// Steward token bypasses target restriction entirely. Mint one
+	// for the parent and verify any handle gets through the gate.
+	stewardTok := auth.NewToken()
+	stewardScope, _ := json.Marshal(map[string]any{
+		"team":     defaultTeamID,
+		"role":     "steward",
+		"agent_id": parentID,
+	})
+	if _, err := s.db.Exec(`INSERT INTO auth_tokens
+		(id, kind, token_hash, scope_json, created_at)
+		VALUES (?, 'agent', ?, ?, ?)`,
+		NewID(), auth.HashToken(stewardTok), string(stewardScope), now); err != nil {
+		t.Fatalf("insert steward token: %v", err)
+	}
+	bodyS, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{
+			"name":      "a2a.invoke",
+			"arguments": map[string]any{"handle": "@other", "text": "hi"},
+		},
+	})
+	reqS, _ := http.NewRequestWithContext(context.Background(), "POST",
+		srv.URL+"/mcp/"+stewardTok, bytes.NewReader(bodyS))
+	reqS.Header.Set("Content-Type", "application/json")
+	respS, err := http.DefaultClient.Do(reqS)
+	if err != nil {
+		t.Fatalf("steward http: %v", err)
+	}
+	rawS, _ := io.ReadAll(respS.Body)
+	respS.Body.Close()
+	if bytes.Contains(rawS, []byte("a2a target not permitted")) {
+		t.Errorf("steward → any should bypass target restriction; got: %s", rawS)
 	}
 }
 

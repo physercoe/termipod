@@ -90,6 +90,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   String _templateName = 'steward.v1.yaml';
   List<String> _stewardTemplates = const ['steward.v1.yaml'];
   bool _templatesLoading = true;
+  // Engine kind parsed from the selected template's `backend.kind`.
+  // Drives both the BackendRadio display and the `kind` field on the
+  // spawn request. Defaults to claude-code for the legacy template;
+  // refreshed whenever _templateName changes (or on initial load).
+  String _currentKind = 'claude-code';
+  bool _kindLoading = false;
   // Live steward handles (running/pending/paused) on this team —
   // populated from hubProvider in initState. Used to (a) pre-validate
   // the handle field against collision, (b) pick a sensible default
@@ -149,6 +155,11 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         final name = (row['name'] ?? '').toString();
         if (cat != 'agents') continue;
         if (!name.startsWith('steward')) continue;
+        // Exclude the team's frozen general-steward — it's a
+        // singleton (`@steward`, ensure-spawn endpoint) and must not
+        // appear next to user-named domain stewards on this sheet.
+        // Tap the home-tab "General Steward" card instead.
+        if (name.startsWith('steward.general')) continue;
         picks.add(name);
       }
       picks.sort();
@@ -159,8 +170,60 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
           _templateName = _stewardTemplates.first;
         }
       });
+      // After picking the default template, fetch its YAML to learn the
+      // engine kind. Without this the BackendRadio shows whatever
+      // _currentKind defaulted to (claude-code), even when the user
+      // selected steward.codex.v1 / steward.gemini.v1.
+      await _refreshKindFor(_templateName);
     } catch (_) {
       if (mounted) setState(() => _templatesLoading = false);
+    }
+  }
+
+  /// Parse `backend.kind: <value>` out of a steward template body.
+  /// We only need this single field, so a tiny regex is enough — adding
+  /// the `yaml` package just for one read would be overkill.
+  /// Returns null when the field can't be located (e.g. malformed YAML
+  /// or template that doesn't follow the convention).
+  String? _parseBackendKind(String yaml) {
+    final lines = yaml.split('\n');
+    var inBackend = false;
+    for (final line in lines) {
+      final trimmed = line.trimRight();
+      if (trimmed == 'backend:') {
+        inBackend = true;
+        continue;
+      }
+      // A new top-level key resets the backend block.
+      if (inBackend && trimmed.isNotEmpty && !trimmed.startsWith(' ')) {
+        inBackend = false;
+      }
+      if (inBackend) {
+        final m = RegExp(r'^\s+kind:\s*([A-Za-z0-9_.-]+)\s*$').firstMatch(line);
+        if (m != null) return m.group(1);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _refreshKindFor(String templateName) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    if (mounted) setState(() => _kindLoading = true);
+    try {
+      final yaml = await client.getTemplate(
+        'agents',
+        templateName,
+        merged: true,
+      );
+      final kind = _parseBackendKind(yaml) ?? 'claude-code';
+      if (!mounted) return;
+      setState(() {
+        _currentKind = kind;
+        _kindLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _kindLoading = false);
     }
   }
 
@@ -214,9 +277,14 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         _templateName,
         merged: true,
       );
+      // Fall back to parsing the just-fetched YAML if _currentKind hasn't
+      // been refreshed yet (e.g. user races the dropdown). Belt-and-braces:
+      // _refreshKindFor runs on selection, but it's async, so ensure the
+      // request payload reflects the actual template the operator picked.
+      final kindForSpawn = _parseBackendKind(yaml) ?? _currentKind;
       final res = await client.spawnAgent(
         childHandle: handle,
-        kind: 'claude-code',
+        kind: kindForSpawn,
         spawnSpecYaml: yaml,
         hostId: _hostId,
         personaSeed: _personaCtrl.text,
@@ -375,6 +443,10 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                         .toList(),
                     onChanged: (v) {
                       if (v == null) return;
+                      // Fire the YAML refetch outside setState so the UI
+                      // reflects the new template name immediately while
+                      // _currentKind catches up asynchronously.
+                      _refreshKindFor(v);
                       setState(() {
                         _templateName = v;
                         // Auto-suggest a matching name (bare, no
@@ -448,10 +520,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                   onChanged: (v) => setState(() => _hostId = v),
                 ),
                 const SizedBox(height: 12),
-                // Backend selector — single option in v1, but the radio
-                // makes the future expansion (Codex) obvious without
-                // requiring another sheet rev when it lands.
-                _BackendRadio(),
+                // Backend display — derived from the selected template's
+                // `backend.kind`. Stewards can pick claude-code, codex, or
+                // gemini-cli today (steward.{codex,gemini}.v1.yaml ship
+                // bundled). The widget shows whichever one this template
+                // wires up; the spawn submits the same kind on the wire.
+                _BackendInfo(kind: _currentKind, loading: _kindLoading),
                 const SizedBox(height: 12),
                 _PermissionModeSelector(
                   value: _permissionMode,
@@ -627,13 +701,19 @@ class _PermissionModeSelector extends StatelessWidget {
   }
 }
 
-/// Single-option radio for the agent backend. v1 ships claude-code only;
-/// the radio is here so adding codex (or other backends) later is a
-/// one-line list extension rather than a sheet redesign.
-class _BackendRadio extends StatelessWidget {
+/// Static info row showing the backend that the selected steward
+/// template wires up. The kind comes from the template's `backend.kind`;
+/// the operator changes it by picking a different template, not a
+/// separate radio. Engines we ship today: claude-code, codex, gemini-cli.
+class _BackendInfo extends StatelessWidget {
+  final String kind;
+  final bool loading;
+  const _BackendInfo({required this.kind, required this.loading});
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final info = _engineInfoFor(kind);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -642,21 +722,33 @@ class _BackendRadio extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.radio_button_checked, size: 18, color: scheme.primary),
+          Icon(info.icon, size: 18, color: scheme.primary),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Claude Code',
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      info.label,
+                      style: GoogleFonts.spaceGrotesk(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (loading) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 10,
+                        height: 10,
+                        child: CircularProgressIndicator(strokeWidth: 1.5),
+                      ),
+                    ],
+                  ],
                 ),
                 Text(
-                  'opus-4-7 · stream-json · MCP permission gate',
+                  info.detail,
                   style: GoogleFonts.jetBrainsMono(
                     fontSize: 10,
                     color: DesignColors.textMuted,
@@ -669,4 +761,46 @@ class _BackendRadio extends StatelessWidget {
       ),
     );
   }
+
+  /// Per-engine display values. `kind` matches the value the hub stamps
+  /// on `agents.kind` and what the spawn endpoint expects on the wire.
+  static _EngineInfo _engineInfoFor(String kind) {
+    switch (kind) {
+      case 'codex':
+        return const _EngineInfo(
+          label: 'Codex',
+          detail: 'app-server JSON-RPC · per-tool approval bridge',
+          icon: Icons.smart_toy_outlined,
+        );
+      case 'gemini-cli':
+        return const _EngineInfo(
+          label: 'Gemini CLI',
+          detail: 'exec-per-turn with --resume · MCP via settings.json',
+          icon: Icons.auto_awesome_motion_outlined,
+        );
+      case 'claude-code':
+        return const _EngineInfo(
+          label: 'Claude Code',
+          detail: 'opus-4-7 · stream-json · MCP permission gate',
+          icon: Icons.radio_button_checked,
+        );
+      default:
+        return _EngineInfo(
+          label: kind.isEmpty ? 'Unknown engine' : kind,
+          detail: 'kind=$kind (custom template)',
+          icon: Icons.help_outline,
+        );
+    }
+  }
+}
+
+class _EngineInfo {
+  final String label;
+  final String detail;
+  final IconData icon;
+  const _EngineInfo({
+    required this.label,
+    required this.detail,
+    required this.icon,
+  });
 }

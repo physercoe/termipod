@@ -1049,7 +1049,10 @@ class _SnippetPickerSheetState extends ConsumerState<SnippetPickerSheet> {
                     }
                     final resolved = snippet.resolve(values);
                     Navigator.pop(dialogContext);
-                    Navigator.pop(context);
+                    // widget.onInsert / onSendImmediately already pop the
+                    // sheet via the wrapper in [SnippetPickerSheet.show];
+                    // popping here a second time would unwind one more
+                    // route (e.g. the terminal screen → back to Hosts).
                     if (snippet.sendImmediately) {
                       widget.onSendImmediately(resolved);
                     } else {

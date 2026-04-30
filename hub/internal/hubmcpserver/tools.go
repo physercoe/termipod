@@ -47,7 +47,7 @@ func schema(s string) json.RawMessage { return json.RawMessage(s) }
 // the call-closures hermetic — callers always see a client injected via `c`
 // rather than a captured package-level global.
 func buildTools() []toolDef {
-	return []toolDef{
+	tools := []toolDef{
 		{
 			Name:        "projects.list",
 			Description: "List projects in the configured team. Optional `kind` filters to 'goal' or 'standing'.",
@@ -807,6 +807,11 @@ func buildTools() []toolDef {
 			},
 		},
 	}
+	// W2 (ADR-016): template-authoring MCP tools per category
+	// (agents/prompts/plans) — five ops each (create, update,
+	// delete, list, get). Defined in tools_templates.go.
+	tools = append(tools, templateToolDefs()...)
+	return tools
 }
 
 // findTool does a linear scan of buildTools(). The table is ~14 entries

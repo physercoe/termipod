@@ -77,6 +77,10 @@ roles:
       - "journal_append"
 
       # --- Reads (broad — observation is generally fine) ---
+      # The *.list / *.get patterns cover templates.{agent,prompt,plan}.{list,get}
+      # so workers may inspect overlay templates; only steward can mutate
+      # them (templates.*.{create,update,delete} aren't matched by any
+      # worker pattern, so the role gate denies them).
       - "*.list"
       - "*.get"
       - "*.read"

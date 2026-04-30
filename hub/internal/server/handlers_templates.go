@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	hub "github.com/termipod/hub"
+	"github.com/termipod/hub/internal/auth"
 	"gopkg.in/yaml.v3"
 )
 
@@ -39,6 +40,20 @@ type templateOut struct {
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	base := filepath.Join(s.cfg.DataRoot, "team", "templates")
 	cats := discoverTemplateCategories(base)
+	// Optional ?category= filter — the MCP tool wrappers
+	// (templates.agent.list, templates.prompt.list, …) use this to
+	// scope their response. Unknown / empty category falls through
+	// to the full union.
+	if want := r.URL.Query().Get("category"); want != "" {
+		filtered := cats[:0:0]
+		for _, c := range cats {
+			if c == want {
+				filtered = append(filtered, c)
+				break
+			}
+		}
+		cats = filtered
+	}
 	out := []templateOut{}
 	for _, cat := range cats {
 		dir := filepath.Join(base, cat)
@@ -246,6 +261,10 @@ func (s *Server) handlePutTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid category or name")
 		return
 	}
+	if denied := s.checkTemplateSelfModification(r, cat, name); denied != "" {
+		writeErr(w, http.StatusForbidden, denied)
+		return
+	}
 	path, ok := resolveTemplatePath(s.cfg.DataRoot, cat, name)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "invalid path")
@@ -299,6 +318,10 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 	if !validCategory(cat) || !safeTemplateName(name) {
 		writeErr(w, http.StatusBadRequest, "invalid category or name")
+		return
+	}
+	if denied := s.checkTemplateSelfModification(r, cat, name); denied != "" {
+		writeErr(w, http.StatusForbidden, denied)
 		return
 	}
 	path, ok := resolveTemplatePath(s.cfg.DataRoot, cat, name)
@@ -438,4 +461,44 @@ func mimeForTemplate(name string) string {
 	default:
 		return "text/plain; charset=utf-8"
 	}
+}
+
+// checkTemplateSelfModification enforces ADR-016 D7: an agent cannot
+// edit a template whose kind matches its own kind. Returns "" to
+// allow; a non-empty error message to deny (caller writes 403).
+//
+// Only relevant for `agents` and `prompts` categories — those are the
+// per-kind templates. `plans` and `projects` aren't keyed on agent
+// kind, so the guard is a no-op there.
+//
+// Non-agent callers (principal, host token) bypass: the director can
+// always edit any template via the mobile editor.
+func (s *Server) checkTemplateSelfModification(r *http.Request, cat, name string) string {
+	if cat != "agents" && cat != "prompts" {
+		return ""
+	}
+	tok, ok := auth.FromContext(r.Context())
+	if !ok || tok == nil || tok.Kind != "agent" {
+		return ""
+	}
+	var scope struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.Unmarshal([]byte(tok.ScopeJSON), &scope); err != nil || scope.AgentID == "" {
+		return ""
+	}
+	var kind string
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT kind FROM agents WHERE id = ?`, scope.AgentID).Scan(&kind); err != nil || kind == "" {
+		return ""
+	}
+	// Strip extension (.yaml / .md / .yml / .json).
+	base := name
+	if i := strings.LastIndex(base, "."); i > 0 {
+		base = base[:i]
+	}
+	if base == kind {
+		return "self-modification guard (ADR-016 D7): agent kind=" + kind + " cannot edit its own template " + cat + "/" + name
+	}
+	return ""
 }

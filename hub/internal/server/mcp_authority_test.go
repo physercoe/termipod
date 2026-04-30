@@ -488,3 +488,165 @@ func TestMCPAuthority_LegacyAgentRoleFallback(t *testing.T) {
 		t.Errorf("legacy steward token should pass role gate via kind fallback; got: %s", raw)
 	}
 }
+
+// TestTemplateAuthoring_W2 covers the W2 deliverables: steward
+// creates / lists / gets / updates / deletes a template via MCP;
+// worker is denied write attempts via the role gate; steward attempts
+// to edit its own kind's template and is denied by the self-
+// modification guard (ADR-016 D7).
+func TestTemplateAuthoring_W2(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/hub.db"
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.router)
+	t.Cleanup(srv.Close)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Mint a steward token (role=steward) for steward.research.v1.
+	stewardID := "test-steward"
+	if _, err := s.db.Exec(`INSERT INTO agents
+		(id, team_id, handle, kind, capabilities_json,
+		 status, pause_state, created_at)
+		VALUES (?, ?, ?, ?, '[]', 'running', 'running', ?)`,
+		stewardID, defaultTeamID, "@steward", "steward.research.v1", now); err != nil {
+		t.Fatalf("insert steward: %v", err)
+	}
+	stewardTok := auth.NewToken()
+	stewardScope, _ := json.Marshal(map[string]any{
+		"team": defaultTeamID, "role": "steward", "agent_id": stewardID,
+	})
+	if _, err := s.db.Exec(`INSERT INTO auth_tokens
+		(id, kind, token_hash, scope_json, created_at)
+		VALUES (?, 'agent', ?, ?, ?)`,
+		NewID(), auth.HashToken(stewardTok), string(stewardScope), now); err != nil {
+		t.Fatalf("insert steward token: %v", err)
+	}
+
+	// Mint a worker token.
+	workerID := "test-worker"
+	if _, err := s.db.Exec(`INSERT INTO agents
+		(id, team_id, handle, kind, capabilities_json,
+		 status, pause_state, created_at)
+		VALUES (?, ?, ?, ?, '[]', 'running', 'running', ?)`,
+		workerID, defaultTeamID, "@w", "lit-reviewer.v1", now); err != nil {
+		t.Fatalf("insert worker: %v", err)
+	}
+	workerTok := auth.NewToken()
+	workerScope, _ := json.Marshal(map[string]any{
+		"team": defaultTeamID, "role": "worker", "agent_id": workerID,
+	})
+	if _, err := s.db.Exec(`INSERT INTO auth_tokens
+		(id, kind, token_hash, scope_json, created_at)
+		VALUES (?, 'agent', ?, ?, ?)`,
+		NewID(), auth.HashToken(workerTok), string(workerScope), now); err != nil {
+		t.Fatalf("insert worker token: %v", err)
+	}
+
+	mcpCall := func(tok, name string, args map[string]any) []byte {
+		body, _ := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+			"params": map[string]any{"name": name, "arguments": args},
+		})
+		req, _ := http.NewRequestWithContext(context.Background(), "POST",
+			srv.URL+"/mcp/"+tok, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("http: %v", err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return raw
+	}
+
+	// 1. Steward creates a worker template.
+	yaml := "family: test-worker\nbin: echo\nsupports: [M4]\n"
+	got := mcpCall(stewardTok, "templates.agent.create", map[string]any{
+		"name": "test-worker.v1.yaml", "content": yaml,
+	})
+	if bytes.Contains(got, []byte("\"error\"")) {
+		t.Fatalf("steward create failed: %s", got)
+	}
+
+	// 2. Steward lists agent templates — should include the new one.
+	got = mcpCall(stewardTok, "templates.agent.list", map[string]any{})
+	if !bytes.Contains(got, []byte("test-worker.v1.yaml")) {
+		t.Errorf("list missing new template: %s", got)
+	}
+
+	// 3. Steward gets back the content.
+	got = mcpCall(stewardTok, "templates.agent.get", map[string]any{
+		"name": "test-worker.v1.yaml",
+	})
+	if !bytes.Contains(got, []byte("test-worker")) {
+		t.Errorf("get missing content: %s", got)
+	}
+
+	// 4. Steward updates content.
+	yaml2 := yaml + "frame_translator: legacy\n"
+	got = mcpCall(stewardTok, "templates.agent.update", map[string]any{
+		"name": "test-worker.v1.yaml", "content": yaml2,
+	})
+	if bytes.Contains(got, []byte("\"error\"")) {
+		t.Fatalf("steward update failed: %s", got)
+	}
+
+	// 5. Worker calling create — denied by role gate.
+	got = mcpCall(workerTok, "templates.agent.create", map[string]any{
+		"name": "evil.v1.yaml", "content": "x",
+	})
+	if !bytes.Contains(got, []byte("not permitted for role")) {
+		t.Errorf("worker create should be denied; got: %s", got)
+	}
+	got = mcpCall(workerTok, "templates.agent.delete", map[string]any{
+		"name": "test-worker.v1.yaml",
+	})
+	if !bytes.Contains(got, []byte("not permitted for role")) {
+		t.Errorf("worker delete should be denied; got: %s", got)
+	}
+
+	// 6. Worker reads — allowed (via *.list / *.get).
+	got = mcpCall(workerTok, "templates.agent.list", map[string]any{})
+	if bytes.Contains(got, []byte("not permitted for role")) {
+		t.Errorf("worker list should be allowed; got role denial: %s", got)
+	}
+	got = mcpCall(workerTok, "templates.agent.get", map[string]any{
+		"name": "test-worker.v1.yaml",
+	})
+	if bytes.Contains(got, []byte("not permitted for role")) {
+		t.Errorf("worker get should be allowed; got role denial: %s", got)
+	}
+
+	// 7. Self-modification guard: steward.research.v1 trying to edit
+	//    its own kind's template — denied.
+	got = mcpCall(stewardTok, "templates.agent.update", map[string]any{
+		"name":    "steward.research.v1.yaml",
+		"content": "subverted: true\n",
+	})
+	if !bytes.Contains(got, []byte("self-modification guard")) {
+		t.Errorf("self-mod guard should fire on agents/steward.research.v1.yaml; got: %s", got)
+	}
+	got = mcpCall(stewardTok, "templates.prompt.update", map[string]any{
+		"name":    "steward.research.v1.md",
+		"content": "subverted",
+	})
+	if !bytes.Contains(got, []byte("self-modification guard")) {
+		t.Errorf("self-mod guard should fire on prompts/steward.research.v1.md; got: %s", got)
+	}
+
+	// 8. Steward deletes the template.
+	got = mcpCall(stewardTok, "templates.agent.delete", map[string]any{
+		"name": "test-worker.v1.yaml",
+	})
+	if bytes.Contains(got, []byte("\"error\"")) {
+		t.Errorf("steward delete failed: %s", got)
+	}
+}

@@ -96,6 +96,57 @@ func (c *hubClient) teamPath(suffix string) string {
 	return "/v1/teams/" + url.PathEscape(c.team) + suffix
 }
 
+// doRaw is `do`'s raw-bytes sibling — used by template tools that
+// transport a YAML/Markdown body verbatim and want the response bytes
+// back unparsed (the templates GET handler returns the file content
+// with its actual MIME type, not a JSON envelope).
+func (c *hubClient) doRaw(method, path string, query url.Values) ([]byte, error) {
+	return c.doRawWithBody(method, path, query, nil, "")
+}
+
+// doRawPutBody PUTs raw bytes (e.g. a YAML template) without JSON
+// marshalling. Returns the response bytes for the caller to
+// unmarshal or pass through. Content-Type is left to the server's
+// content sniff because templates accept multiple MIME types
+// interchangeably.
+func (c *hubClient) doRawPutBody(method, path string, body []byte) ([]byte, error) {
+	return c.doRawWithBody(method, path, nil, body, "application/octet-stream")
+}
+
+func (c *hubClient) doRawWithBody(method, path string, query url.Values, body []byte, contentType string) ([]byte, error) {
+	u := c.baseURL + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, u, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if reqBody != nil && contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("hub %s %s: %d %s", method, path, resp.StatusCode, bytes.TrimSpace(raw))
+	}
+	return raw, nil
+}
+
 // doAbsolute issues a request to an arbitrary URL (not rooted at c.baseURL)
 // and decodes the JSON body into `out` (if non-nil). Used by a2a.invoke to
 // POST to the hub's unauthed /a2a/relay/... endpoint via the URL published

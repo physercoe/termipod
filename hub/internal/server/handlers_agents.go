@@ -637,9 +637,19 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// rows if e.g. agent_spawns INSERT fails).
 	mcpTokenPlaintext := auth.NewToken()
 	mcpTokenID := NewID()
+	// Stamp role per ADR-016 — derive from agent_kind via the active
+	// operation-scope manifest. Two roles in MVP: steward / worker.
+	// The middleware in dispatchTool reads scope.Role first; legacy
+	// tokens (role="agent") still work via the resolveAgentRole
+	// fallback that re-derives from the agents row, but new tokens
+	// land with the explicit role here.
+	role := "worker"
+	if r := activeRoles(); r != nil {
+		role = r.RoleFor(in.Kind)
+	}
 	mcpScopeJSON, _ := json.Marshal(map[string]any{
 		"team":     team,
-		"role":     "agent",
+		"role":     role,
 		"agent_id": agentID,
 		"handle":   in.ChildHandle,
 	})

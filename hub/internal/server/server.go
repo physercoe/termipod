@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -72,6 +73,14 @@ func New(cfg Config) (*Server, error) {
 		cfg.Logger.Warn("seed builtin templates", "err", err)
 	}
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
+	// Operation-scope manifest (ADR-016) — load embedded + overlay so
+	// dispatchTool's role-gating middleware has a manifest to consult.
+	// Failure to parse is a hard error: without the manifest, every
+	// agent MCP call would fail-closed, which is worse than refusing
+	// to start.
+	if err := initRoles(cfg.DataRoot); err != nil {
+		return nil, fmt.Errorf("init roles manifest: %w", err)
+	}
 	s.policy = newPolicyStore(cfg.DataRoot)
 	s.agentFamilies = agentfamilies.New(agentFamiliesOverlayDir(cfg.DataRoot))
 	// Register as the package default so spawn_mode.go's call to

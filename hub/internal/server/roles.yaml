@@ -1,0 +1,111 @@
+# Subagent operation-scope manifest — ADR-016
+#
+# The single MVP governance line: which `hub://*` MCP tools each role
+# may call. Termipod's only enforced boundary at the hub MCP edge.
+#
+# Role is set at spawn time (see handlers_agents.go) by mapping
+# agent_kind to a role here. Two roles, fixed:
+#
+#   steward  — superset; allow all tools.
+#   worker   — bounded surface; allow-list below.
+#
+# Engine-internal subagents (claude-code Task, codex app-server
+# children, gemini-cli subagent invocations) inherit the parent's
+# role by construction and are NOT separately gated. See ADR-016 D5.
+#
+# Hot-reload: edit <DataRoot>/roles.yaml to override the bundled
+# defaults; the loader picks up changes via Invalidate().
+#
+# Pattern syntax (worker.allow):
+#   "documents.create"  — exact match
+#   "documents.*"       — prefix match (anything starting with "documents.")
+#   "*.list"            — suffix match (anything ending with ".list")
+#   "*"                 — match anything (don't use; just set allow_all: true)
+
+# kind_to_role determines an agent's role from its agent_kind at
+# spawn time. Exact entries override the prefix rule. Anything not
+# matched falls to `default`.
+kind_to_role:
+  default: worker
+  prefix_steward: "steward."   # any kind starting with "steward." → steward
+  exact:
+    # Reserved exact mappings (mostly for legacy / non-prefixed kinds).
+    # Domain-steward kinds match prefix_steward automatically; they
+    # don't need to be listed here unless naming deviates from
+    # convention.
+
+roles:
+  steward:
+    allow_all: true
+
+  worker:
+    allow:
+      # --- Documents / reviews / runs / artifacts (worker IC surface) ---
+      - "documents.*"
+      - "reviews.create"
+      - "reviews.list"
+      - "runs.*"
+      - "run.metrics.read"
+      - "artifacts.attach"
+      - "artifacts.list"
+      - "artifacts.get"
+
+      # --- Channels / attention (reporting up + asking director) ---
+      - "channels.post_event"
+      - "post_message"
+      - "post_excerpt"
+      - "attention.create"
+      - "attention.reply"
+      - "request_approval"
+      - "request_select"
+      - "request_decision"   # legacy alias for request_select
+      - "request_help"
+
+      # --- A2A (parent-steward target restriction enforced separately,
+      #     see ADR-016 D4 — not yet implemented in this manifest) ---
+      - "a2a.invoke"
+
+      # --- Self-management ---
+      - "tasks.create"
+      - "tasks.update"
+      - "tasks.list"
+      - "update_own_task_status"
+      - "pause_self"
+      - "shutdown_self"
+      - "journal_append"
+
+      # --- Reads (broad — observation is generally fine) ---
+      - "*.list"
+      - "*.get"
+      - "*.read"
+      - "get_feed"
+      - "get_attention"
+      - "get_event"
+      - "get_task"
+      - "get_parent_thread"
+      - "get_audit"
+      - "get_project_doc"
+      - "list_channels"
+      - "list_agents"
+      - "search"
+      - "journal_read"
+
+      # --- Orchestrator-worker primitives (workers can post reports,
+      #     gather their fanout siblings; cannot fanout themselves) ---
+      - "reports.post"
+      - "agents.gather"
+
+      # --- Permission-prompt gate (workers may surface their own
+      #     tool-call approvals via permission_prompt) ---
+      - "permission_prompt"
+
+      # --- Misc ---
+      - "attach"
+
+  # Future role: auditor (read-only). Stub here for the manifest's
+  # extension contract; not yet wired in dispatchTool.
+  # auditor:
+  #   allow:
+  #     - "*.list"
+  #     - "*.get"
+  #     - "*.read"

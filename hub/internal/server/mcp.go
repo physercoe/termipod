@@ -307,6 +307,13 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	if err := json.Unmarshal(params, &call); err != nil {
 		return nil, &jrpcError{Code: -32602, Message: "invalid params"}
 	}
+	// Operation-scope role gate (ADR-016). Returns nil for principal
+	// tokens (agentID == ""); denies tools not in the role's allow set.
+	// Engine-internal subagents share their parent's MCP client, hence
+	// inherit this gate by construction (ADR-016 D5).
+	if jerr := s.authorizeMCPCall(ctx, agentID, scope.Role, call.Name); jerr != nil {
+		return nil, jerr
+	}
 	switch call.Name {
 	case "post_message":
 		return s.mcpPostMessage(ctx, agentID, call.Arguments)

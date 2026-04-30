@@ -202,16 +202,70 @@ within `(team_id, status='live')`. `steward`, `worker-1`, etc.
 
 ### steward
 An agent role — the principal-facing operator that drives every
-surface. Always lives inside an active hub session. Today, every
-team has one steward; per-member is post-MVP.
+surface. Always lives inside an active hub session. The role has
+two tiers (see *general steward*, *domain steward* below).
 - *Distinguish from:* **worker** (steward-spawned subordinate),
-  **principal** (the human).
-- *Canonical:* ADR-005, memory `feedback_steward_executive_role`.
+  **principal** (the human), **general-purpose steward**
+  (blueprint §3.4 anti-pattern — manager + IC collapsed; **not**
+  the same as *general steward*).
+- *Canonical:* ADR-005, blueprint §3.3, memory
+  `feedback_steward_executive_role`.
+
+### general steward
+The frozen, team-scoped, persistent steward kind
+(`steward.general.v1`). Bundled in the hub binary; one instance per
+team, always-on; archived only by manual director action. Bootstraps
+new projects (authors domain-steward + worker templates + plan in
+phase 0), then remains available as the director's concierge for
+cross-project debugging, free discussion, template/schedule edits,
+and future-project bootstraps.
+- *Distinguish from:* **domain steward** (overlay, project-scoped),
+  **general-purpose steward** (blueprint §3.4 anti-pattern — manager
+  + IC collapsed; the *general* steward is general in the sense of
+  *team-scoped and project-agnostic*, **not** in the sense of
+  *manager + IC collapsed*).
+- *Canonical:* blueprint §3.3, ADR-001 D-amend-2,
+  `discussions/research-demo-lifecycle.md` §4.
+
+### domain steward
+A steward kind authored as overlay by the general steward, scoped to
+one project's lifecycle. Examples: `steward.research.v1`,
+`steward.infra.v1`, `steward.briefing.v1`. Editable by the director;
+archived at project completion.
+- *Distinguish from:* **general steward** (frozen, persistent,
+  team-scoped).
+- *Canonical:* ADR-001 D-amend-2.
 
 ### worker
 An agent role — a steward-spawned subordinate that does bounded
-work on a host. Reports back via A2A and channel messages.
+work on a host. Reports back via A2A (to its parent steward only —
+see operation scope) and channel messages.
 - *Distinguish from:* **steward** (the boss).
+- *Canonical:* ADR-016 D3.
+
+### general-purpose steward
+**Anti-pattern.** A single agent that answers questions, edits files,
+runs tests, AND arbitrates approvals — collapsing manager and IC into
+one role. Single-engine clients (Happy, CCUI) collapse the two by
+necessity (one role per app); termipod's positioning depends on
+keeping them separate.
+- *Distinguish from:* **general steward** (a *steward kind* in this
+  design — frozen, persistent, team-scoped — that does **not** do IC).
+  Different despite the close lexical neighbour.
+- *Canonical:* blueprint §3.4.
+
+### operation scope
+The set of `hub://*` MCP tools an agent may invoke, gated by role
+(steward vs worker) at the hub MCP boundary. Defined in
+`hub/config/roles.yaml`, enforced in `mcp_authority.go`. Termipod's
+**only** governance line in MVP — `budget_cents` is deferred,
+per-tool approval gates are deferred. Engine-internal subagents
+inherit the parent's operation scope by construction and are not
+separately monitored.
+- *Distinguish from:* **driving mode** (how host-runner wires the
+  agent's stdio, not what it can call), **permission mode** (the
+  engine-side allow/deny for engine-native tools).
+- *Canonical:* ADR-016.
 
 ### principal
 The human user. Authority root for all spawn/decision actions.
@@ -550,6 +604,14 @@ A flat list of the high-traffic confusion points, for grep:
 - **status** (agent) vs **status** (session) vs **pause_state**.
 - **worktree** vs **workdir**.
 - **steward** vs **worker** vs **agent** vs **principal**.
+- **general steward** vs **domain steward** — frozen-persistent vs
+  overlay-project-scoped, both *steward* role.
+- **general steward** vs **general-purpose steward** — the kind
+  (this design) vs blueprint §3.4 anti-pattern (manager + IC
+  collapsed). Different despite the close lexical neighbour.
+- **operation scope** vs **driving mode** vs **permission mode** —
+  hub-MCP tool gating vs how host-runner wires stdio vs engine-side
+  tool allow/deny.
 - **screen** vs **sheet** vs **dialog**.
 - **AppBar** vs **action bar** — top vs bottom.
 - **snapshot cache** vs **secure storage** vs **SharedPreferences**.

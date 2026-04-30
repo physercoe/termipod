@@ -1,9 +1,9 @@
 # termipod blueprint
 
 > **Type:** axiom
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-04-30)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.314
+> **Last verified vs code:** v1.0.349
 
 **TL;DR.** Authoritative reference for termipod's design philosophy,
 component ontology, protocol layering, and primitive schema. Future
@@ -112,12 +112,53 @@ is canonical):
 
 Both are agents (rows in `agents`); the role is what separates them.
 The split is load-bearing because it determines: which tools the agent
-gets in its allowlist, what its conversation looks like in the mobile
+gets via the operation-scope manifest (`decisions/016-subagent-scope-manifest.md`),
+what its conversation looks like in the mobile
 UI (steward = decision surface, worker = code surface), what it
 distills on session close (steward → decisions/briefs/plans;
 worker → code change + task summary), and what model class it
 defaults to (steward = high-capability for stakes; worker =
 cost-efficient where the task allows).
+
+**Steward tiers.** The steward role itself has two tiers, distinguished
+by template provenance and lifetime:
+
+- **General steward** (`steward.general.v1`) — bundled in the hub
+  binary, **frozen template**, **persistent (one per team, always-on)**.
+  Bootstraps new projects (authors domain-steward + worker templates +
+  plan in phase 0), then remains available as the director's concierge
+  for cross-project debugging, free discussion, template/schedule
+  edits, and future-project bootstraps. Archived only by manual
+  director action. See `decisions/001-locked-candidate-a.md` D-amend-2.
+- **Domain steward** (`steward.research.v1`, `steward.infra.v1`,
+  `steward.briefing.v1`, …) — **overlay-authored** by the general
+  steward, editable by the director. **Project-scoped** lifetime;
+  archived at project completion.
+
+The general steward is the operationalisation of the single-agent
+bootstrap window (`agent-lifecycle.md` §6.2), extended to remain alive
+after the window closes — it does not perform IC work outside that
+window either; it delegates project orchestration to the domain
+steward and acts as concierge for everything else. The
+manager/IC invariant holds across both tiers. The general steward is
+**not** §3.4's "general-purpose steward" anti-pattern — it is general
+in the sense of *team-scoped and project-agnostic*, not in the sense
+of *manager + IC collapsed* (see `reference/glossary.md` §3 for the
+distinction).
+
+**Engine-internal subagents are not termipod agents.** When a
+termipod-managed agent invokes its engine's internal subagent
+mechanism (claude-code's `Task` tool, codex app-server child sessions,
+gemini-cli subagent invocations, or analogous mechanisms in other
+engines), those subagents are **not** rows in `agents`. They share
+the parent's process, MCP client, tmux pane, and host-runner
+supervision. They inherit the parent's operation scope by
+construction, and termipod does not enumerate, restrict, or monitor
+them beyond what the parent's frame profile surfaces in the
+transcript. The *agent* primitive in this document refers to a
+termipod-managed process; engine-internal subagents are an engine
+concern. See `decisions/016-subagent-scope-manifest.md` D5 for the
+formal exemption.
 
 ### 3.4 Why the three-layer separation is load-bearing
 

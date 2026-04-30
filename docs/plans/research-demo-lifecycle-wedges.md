@@ -14,6 +14,12 @@ primitives. No new ADRs after [ADR-016](../decisions/016-subagent-scope-manifest
 Architecturally zero risk; demo risk is in prompt quality (W4, W5) and
 mobile template editor UX (W3).
 
+The end-to-end walkthrough + checkpoint test plan lives in
+[`how-to/run-lifecycle-demo.md`](../how-to/run-lifecycle-demo.md) — it
+is the **acceptance contract** for these wedges. Each wedge below
+names which checkpoints it unblocks; the wedge→checkpoint matrix in
+that doc's §Wedge mapping is the inverse view for debugging.
+
 This plan is the implementation arm of the discussion + ADRs. It does
 not re-litigate decisions; it tracks deliverables, files, verification
 steps, and order.

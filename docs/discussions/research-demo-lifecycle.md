@@ -333,6 +333,7 @@ Each wedge ships independently; the demo is fully end-to-end after W6.
 - [ADR-016](../decisions/016-subagent-scope-manifest.md) — subagent operation-scope manifest
 - [Blueprint §3.3 (amended)](../spine/blueprint.md) — general/domain steward layering + engine-internal subagent exemption
 - [Plan: research-demo-lifecycle wedges](../plans/research-demo-lifecycle-wedges.md)
+- [How-to: run-lifecycle-demo](../how-to/run-lifecycle-demo.md) — end-to-end walkthrough + checkpoint test plan, the acceptance contract for the wedges
 - [Discussion: integrating open-source agents](integrating-open-source-agents.md) — this work uses claude-code/codex/gemini for the worker engines; OpenClaude is a candidate seventh engine in Group A there
 - [Agent lifecycle §6.2 — bootstrap window](../spine/agent-lifecycle.md)
 - External (snapshot 2026-04-30):

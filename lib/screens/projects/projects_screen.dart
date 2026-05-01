@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -11,10 +10,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
-import '../../services/hub/open_steward_session.dart';
 import '../../services/steward_handle.dart';
-import '../../services/steward_liveness.dart';
-import '../sessions/sessions_screen.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -120,7 +116,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
           ),
         ),
         actions: [
-          const _StewardChip(),
           const TeamSwitcher(),
           IconButton(
             tooltip: 'Library (templates & engines)',
@@ -171,198 +166,6 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
       ),
     );
   }
-}
-
-/// Tiny pill in the AppBar that opens the team-scope `#hub-meta` channel
-/// (the principal↔steward room). Lazily looks up the channel id on tap —
-/// no state plumbing needed because the channel list is small and the
-/// hub auto-seeds hub-meta.
-///
-/// The chip's color encodes liveness from `(status, last_event_at)` —
-/// see `services/steward_liveness.dart`. A wedged claude keeps
-/// `status='running'` but stops emitting events, so the binary
-/// present/absent signal could show green forever on a dead steward.
-/// Now: green = healthy, amber = idle, red = stuck, grey = starting /
-/// none. Tap on present states opens hub-meta; tap on `none` opens the
-/// spawn sheet.
-class _StewardChip extends ConsumerStatefulWidget {
-  const _StewardChip();
-
-  @override
-  ConsumerState<_StewardChip> createState() => _StewardChipState();
-}
-
-class _StewardChipState extends ConsumerState<_StewardChip> {
-  // The liveness classifier compares last_event_at against wall-clock,
-  // so the chip needs to re-render on a wall-clock cadence even when
-  // hub state hasn't changed. 30s is well below the 2-min healthy
-  // window and the 10-min stuck window, so transitions surface within
-  // one tick of crossing a threshold.
-  Timer? _ticker;
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hub = ref.watch(hubProvider).value;
-    if (hub == null || !hub.configured) return const SizedBox.shrink();
-    final scheme = Theme.of(context).colorScheme;
-    final liveness = stewardLiveness(hub.agents);
-
-    late final Color bg;
-    late final Color fg;
-    late final IconData icon;
-    late final String label;
-    late final String tooltip;
-    switch (liveness) {
-      case StewardLiveness.healthy:
-        bg = scheme.primaryContainer;
-        fg = scheme.onPrimaryContainer;
-        icon = Icons.auto_awesome;
-        label = 'Steward';
-        tooltip = 'Steward · healthy';
-        break;
-      case StewardLiveness.idle:
-        bg = const Color(0xFFFFE0A8); // soft amber
-        fg = const Color(0xFF7A4A00);
-        icon = Icons.auto_awesome;
-        label = 'Steward · idle';
-        tooltip = 'No events for 2+ min — might be slow or wedged';
-        break;
-      case StewardLiveness.stuck:
-        bg = DesignColors.error.withValues(alpha: 0.18);
-        fg = DesignColors.error;
-        icon = Icons.error_outline;
-        label = 'Steward · stuck';
-        tooltip = 'No events for 10+ min — recreate from chip';
-        break;
-      case StewardLiveness.starting:
-        bg = scheme.surfaceContainerHighest;
-        fg = scheme.onSurfaceVariant;
-        icon = Icons.hourglass_empty;
-        label = 'Steward · starting';
-        tooltip = 'Spawning — waiting for host-runner';
-        break;
-      case StewardLiveness.none:
-        bg = scheme.surfaceContainerHighest;
-        fg = scheme.onSurfaceVariant;
-        icon = Icons.auto_awesome_outlined;
-        label = 'No steward';
-        tooltip = 'No steward — tap to spawn';
-        break;
-    }
-
-    final isAbsent = liveness == StewardLiveness.none;
-    final stewardId = isAbsent ? null : _findStewardId(hub.agents);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Tooltip(
-          // Long-press hint baked into the tooltip so users discover
-          // recreate without us needing extra chrome on the chip.
-          message: '$tooltip${isAbsent ? '' : '\nLong-press: recreate'}',
-          child: Material(
-            color: bg,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                // Post-W2-S3: tap routes to the steward's *session*,
-                // not the team-wide hub-meta channel. openStewardSession
-                // handles the full state-machine: active → chat,
-                // interrupted → SessionsScreen with Resume, absent →
-                // spawn sheet. Recreate stays on long-press.
-                openStewardSession(context, ref);
-              },
-              // Long-press: single-steward = recreate the only one;
-              // multi-steward = jump to the merged Sessions page where
-              // the user picks which steward via the per-steward kebab.
-              // Avoids ambiguity ("which one are you replacing?") on
-              // installs with more than one live steward.
-              onLongPress: stewardId == null
-                  ? null
-                  : () {
-                      var liveCount = 0;
-                      final hub = ref.read(hubProvider).value;
-                      if (hub != null) {
-                        for (final a in hub.agents) {
-                          if (!isStewardHandle(
-                              (a['handle'] ?? '').toString())) continue;
-                          final s = (a['status'] ?? '').toString();
-                          if (s == 'running' ||
-                              s == 'pending' ||
-                              s == 'paused') {
-                            liveCount++;
-                          }
-                        }
-                      }
-                      if (liveCount > 1) {
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const SessionsScreen(),
-                        ));
-                      } else {
-                        confirmAndRecreateSteward(context, ref, stewardId);
-                      }
-                    },
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 16, color: fg),
-                    const SizedBox(width: 6),
-                    Text(
-                      label,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: fg,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Finds the agent id of the team's *live* steward (handle ==
-/// 'steward', status in {running, pending, paused}). Returns null if
-/// no such agent exists. Used by the recreate flow.
-///
-/// Filtering by live status is load-bearing: if the list contains an
-/// older terminated steward followed by the live one, returning the
-/// terminated id makes the recreate path's PATCH a no-op, then the
-/// fresh spawn collides with the *real* live steward on the
-/// (team_id, handle) unique-handle index → 409 SQLITE_CONSTRAINT_UNIQUE.
-String? _findStewardId(List<Map<String, dynamic>> agents) {
-  for (final a in agents) {
-    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
-    final status = (a['status'] ?? '').toString();
-    if (status != 'running' && status != 'pending' && status != 'paused') {
-      continue;
-    }
-    final id = (a['id'] ?? '').toString();
-    if (id.isNotEmpty) return id;
-  }
-  return null;
 }
 
 /// "Replace steward" — replaces the underlying agent process while

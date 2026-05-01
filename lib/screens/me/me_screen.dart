@@ -79,7 +79,7 @@ class MeScreen extends ConsumerWidget {
       floatingActionButton: hubState.configured
           ? FloatingActionButton.extended(
               onPressed: () => openStewardSession(context, ref),
-              icon: const Icon(Icons.smart_toy_outlined),
+              icon: const Icon(Icons.auto_awesome),
               label: const Text('Steward'),
             )
           : null,

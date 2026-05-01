@@ -22,7 +22,7 @@ next sequential number — don't reserve, don't skip.
 | [001](001-locked-candidate-a.md) | Locked Candidate-A as MVP demo | Accepted 2026-04-23 | — |
 | [002](002-mcp-consolidation.md) | Consolidate to a single MCP service in spawn `.mcp.json` | Accepted 2026-04-27 | — |
 | [003](003-a2a-relay-required.md) | A2A relay is required (GPU hosts are NAT'd) | Accepted 2026-04-23 | — |
-| [004](004-single-steward-mvp.md) | One steward per team for MVP; per-member deferred | Accepted 2026-04-23 | — |
+| [004](004-single-steward-mvp.md) | One steward per team for MVP; per-member deferred | Superseded 2026-04-30 by [017](017-layered-stewards.md) | — |
 | [005](005-owner-authority-model.md) | User is owner/director; steward operates the system | Accepted 2026-04-23 | — |
 | [006](006-cache-first-cold-start.md) | Mobile renders cached snapshots before network | Accepted 2026-04-27 | — |
 | [007](007-mcp-vs-a2a-protocol-roles.md) | MCP for agent↔hub, A2A for agent↔agent | Accepted 2026-04-27 | — |
@@ -33,6 +33,9 @@ next sequential number — don't reserve, don't skip.
 | [012](012-codex-app-server-integration.md) | Codex integration via `codex app-server` JSON-RPC, not `codex exec` | Accepted 2026-04-29 | — |
 | [013](013-gemini-exec-per-turn.md) | Gemini integration is exec-per-turn-with-resume | Accepted 2026-04-29 | — |
 | [014](014-claude-code-resume-cursor.md) | Claude-code resume threads `--resume <session_id>` | Accepted 2026-04-30 | — |
+| [015](015-fork-detach-and-rebrand.md) | Fork detach + rebrand: mux-pod → termipod | Accepted 2026-04-14 | — |
+| [016](016-subagent-scope-manifest.md) | Subagent operation-scope manifest (roles.yaml) | Accepted 2026-04-30 | — |
+| [017](017-layered-stewards.md) | Layered stewards (general frozen + domain overlay) | Accepted 2026-04-30 | [004](004-single-steward-mvp.md) |
 
 ---
 

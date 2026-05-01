@@ -1,9 +1,10 @@
 # 004. One steward per team for MVP; per-member deferred
 
 > **Type:** decision
-> **Status:** Accepted (2026-04-23)
+> **Status:** Superseded (2026-04-30) by [ADR-017](017-layered-stewards.md)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.316
+> **Note:** "One steward per team" is no longer literally true. The team has **one general steward** (frozen, persistent, `@steward`) plus **N domain stewards** (overlay-authored, project-scoped). Per-member stewards remain deferred — that part of this ADR is unchanged. Read [ADR-017](017-layered-stewards.md) for the current model.
 
 **TL;DR.** MVP ships with one steward agent per team. Per-member
 stewards (a "deputy" for each principal) are documented as F-1 in

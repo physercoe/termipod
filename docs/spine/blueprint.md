@@ -162,18 +162,22 @@ formal exemption.
 
 ### 3.4 Why the three-layer separation is load-bearing
 
-Each boundary resists a specific failure mode.
+The repeated question: *why three layers? Why not collapse host-runner into hub (one less moving piece) or agent into host-runner (one less process)?* The answer comes from three distinct concerns each layer addresses; collapsing any pair re-introduces a failure mode the split was designed to prevent.
 
-- Collapse hub into host-runner: no central authority, per-machine policy
-  drift.
-- Collapse host-runner into hub: loss of partition tolerance, loss of
-  local resource ownership.
-- Collapse host-runner into agent: no supervisor, zombies accumulate, the
-  bounded policy-enforcer is now the thing being bounded.
-- Collapse agent into host-runner: deterministic/stochastic audit boundary
-  is lost.
+The three concerns:
 
-No collapse is safe. Each element is irreducible.
+1. **Authority** (hub). The single coherent view: identities, policies, audit. The principal's mental model lives here. There is exactly one. Authority must be central — distributed authority is *no* authority because reconciliation across copies is a research problem, not a feature.
+2. **Locality of compute** (host-runner). Bytes (model weights, datasets, intermediate artifacts) live where compute is. The host-runner is the *deterministic deputy* on each host: it owns the local processes, the panes, the SSH lifetime, the local resource budgets. It must be local because moving the bytes for every operation is impossible (axiom A2). It must be deterministic because anything stochastic (LLMs) cannot be the policy-enforcer for itself.
+3. **Stochastic execution** (agent). The agent is the LLM-driven actor. It is necessarily stochastic; it produces text + tool calls + opinions. It has to be a separate identity — *not* code in the host-runner — because the deterministic/stochastic boundary is also the *audit* boundary: every claim about "what the agent did" is anchored on the boundary between the deputy that recorded the input and the LLM that produced the output.
+
+The three concerns map to three layers. Each boundary is irreducible because collapsing it merges concerns that have to stay separate:
+
+- **Collapse hub into host-runner** ("just put authority on each host"). Authority becomes per-machine. Two hosts disagree about policy; reconciling needs a coordination layer that *is* the hub. The collapse re-creates the hub at the storage layer with worse semantics.
+- **Collapse host-runner into hub** ("just have agents talk to the hub directly"). Bytes have to flow through the hub (axiom A2 violation: a 5GB model weight cannot transit a $5 VPS). And: the hub becomes the supervisor for every host's processes, which means the hub has to know each host's filesystem layout, available memory, GPU topology — concerns local to a host. The collapse loses partition tolerance: a network blip between hub and host kills the agent's pane.
+- **Collapse host-runner into agent** ("the agent supervises itself"). The agent is stochastic; it cannot reliably enforce its own policies. Bounded policy-enforcer becoming the bounded thing is a contradiction. Practically: zombie processes accumulate, runaway agents have no kill switch.
+- **Collapse agent into host-runner** ("just embed the LLM in the deputy"). The audit boundary is gone. Every claim about "what the agent did" now goes through the same code path as "what the deputy enforced," and there's no reliable way to separate the two for review. Termipod's principal-direction model depends on the audit boundary holding.
+
+So the layers are forced by the concerns, not chosen for elegance. New contributors who see the three layers and ask "why not fewer" should walk this list before proposing a collapse.
 
 The **steward / worker layer split** within the agent layer (§3.3) is
 similarly irreducible. Collapsing them — letting one agent be both
@@ -755,6 +759,22 @@ amendment of this document first.
 11. **Schedules spawning agents directly.** Schedules must instantiate
     a plan from a template. Direct `agent_schedule → spawn` bypasses
     the reviewable plan scaffold and loses routine-execution history.
+
+    *Why this rule exists:* a schedule is a recurring promise to run
+    *something*; the question is what. Letting cron call `agents.spawn`
+    treats every recurrence as a fresh atomic action with no prior
+    structure — no plan to review, no record of "this is the third
+    weekly briefing run," no way for the principal to ratify the
+    *category* of work versus a one-off. Instantiating a plan from a
+    template gives every recurrence a structured scaffold (phases,
+    `human_gated` boundaries, audit lineage), keeps the principal's
+    review surface uniform across one-shots and recurrences, and lets
+    the user see "this Monday's run" alongside "last Monday's run" as
+    sibling plan executions instead of unrelated agent rows. The audit
+    feed (`reference/audit-events.md`) records `schedule.run` →
+    `plan.create` rather than `schedule.run` → `agent.spawn` for the
+    same reason: the plan is the unit the principal cares about, not
+    the agent that happens to execute it.
 12. **One-shot LLM calls modeled as agents (`M3` as a "mode").** An
     invocation without a persistent session is a `llm_call` plan step,
     not an agent. Forcing it into `agents` pollutes lifecycle queries

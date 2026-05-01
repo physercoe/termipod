@@ -1,7 +1,7 @@
 # Doc backfill — load-bearing rationale
 
 > **Type:** plan
-> **Status:** In flight (2026-05-01)
+> **Status:** Done (2026-05-01) — Tier 1, Tier 2, Tier 3 shipped same day; audit matrix has zero `gap` cells. Nice-to-have items remain (audit §4) but those land opportunistically.
 > **Audience:** contributors (humans + AI agents)
 > **Last verified vs code:** v1.0.350-alpha
 > **Resolves:** [discussions/post-rebrand-doc-audit.md](../discussions/post-rebrand-doc-audit.md) Tier 1+2+3

@@ -168,6 +168,31 @@ is deferred. See [discussion: fork & engine-side context
 mutations](../discussions/fork-and-engine-context-mutations.md)
 for the open shape.
 
+**For future-fork authors — the multi-writer invariant is structural,
+not a polish gap.** If you're considering "make fork resumable" or
+"share the engine cursor across forks," walk this list first:
+
+1. The engine vendor's session store is on disk (Claude:
+   `~/.claude/projects/.../<id>.jsonl`; Gemini:
+   `<projdir>/.gemini/sessions/<uuid>`; Codex: CLI thread store). The
+   format is append-only but assumes a single appender.
+2. Two processes appending to the same session file at the same time
+   produce interleaved frames. The vendor SDK doesn't repair this —
+   the next replay sees a corrupted log and behavior is undefined.
+3. The archive contract — "this conversation is done" — depends on
+   the source's engine session being a frozen reference. A second
+   writer breaks the contract.
+4. None of the engines we support today expose a "duplicate-session"
+   primitive that would safely fan out one cursor into N independent
+   ones. If a vendor adds one (Claude has discussed `--branch-from
+   <id>` informally), this ADR's calculus changes.
+
+So fork-resumable is not "we just haven't built it yet" — it's an
+*engine-vendor-side* feature we don't have. The cold-start fork
+shipped today is the safe MVP shape; any productization needs the
+vendor primitive first or termipod-side distillation that produces
+a *new* engine session from the source's text, not a shared cursor.
+
 ## Files
 
 - `hub/migrations/0033_sessions_engine_session_id.up.sql` — column add

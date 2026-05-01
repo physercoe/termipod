@@ -290,8 +290,18 @@ tabs show. Governance lives exactly one tap away from anywhere.
 
 ### 6.1 Me (default)
 
-Tier-0. Three sections, scrollable:
+Tier-0. Three sections (post-2026-04-30 amendment for the persistent
+steward card; see below), scrollable:
 
+- **Persistent steward card** — `@steward` (the team's general steward;
+  [ADR-017](../decisions/017-layered-stewards.md)) surfaced as a
+  one-tap concierge entry. The card shows live status (running /
+  pending) with a "Start" / "Open" affordance backed by the idempotent
+  ensure-spawn endpoint (`POST /v1/teams/{team}/steward.general/ensure`).
+  Tap → land in the steward's chat. Above attention because the
+  director's most common Me-tab interaction is "ask the steward
+  something"; promoting it cuts the path from Me-open to chat from 3
+  taps to 1.
 - **Attention** — open `attention_items` assigned to or relevant to me,
   in priority order. Empty state is celebrated, not hidden.
 - **My work** — projects I own or recently touched, with a condensed run
@@ -303,6 +313,26 @@ Plus: top-bar search (capability), command palette (capability).
 
 Not in Me: any team-wide feed (that's Activity), any settings, any SSH
 bookmarks, any templates.
+
+**Why the steward card sits on Me, not as its own tab.** The director's
+relationship with the general steward is conversational and free-form
+("what's blocking project X?", "draft a schedule for Y", "what should I
+look at first?"). It is *not* a project-scoped or task-scoped surface;
+the team-scope concierge framing belongs alongside the director's
+personal queue. A separate "Steward" tab would over-elevate it
+(competing visually with Projects, Activity, Hosts) and mis-frame it
+(suggesting it owns content, when it owns conversation). Embedding it
+on Me preserves the IA's role-driven structure (Me = director's own
+state; Activity = team firehose; Projects = team work) while still
+giving the steward one-tap reach. The card was added v1.0.350-alpha
+(commit `8caff8a`).
+
+**Manager/IC framing.** The card surfaces only the *general* steward
+([ADR-017](../decisions/017-layered-stewards.md) D1) — not project-scoped
+domain stewards. Domain stewards are reachable from their projects.
+The general steward is the always-on team concierge; mixing it with
+domain stewards on the same surface would muddy the manager/IC
+invariant in the user's mental model.
 
 ### 6.2 Projects
 

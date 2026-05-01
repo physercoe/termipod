@@ -1,7 +1,7 @@
 # Post-rebrand documentation audit
 
 > **Type:** discussion
-> **Status:** Open (2026-05-01) — resolves to a backfill plan once gaps are triaged.
+> **Status:** Resolved (2026-05-01) — Tier 1+2+3 backfill shipped this same day; see [plans/doc-backfill-load-bearing.md](../plans/doc-backfill-load-bearing.md). All 19 load-bearing gaps in §3 are now closed; matrix updated below.
 > **Audience:** reviewers · contributors (humans + AI agents)
 > **Last verified vs code:** v1.0.350-alpha
 > **Scope:** post-rebrand only (commits and conversations from 2026-04-14 forward, plus the immediate pre-rebrand week that captures *why* we forked and pivoted).
@@ -35,47 +35,47 @@ Cells: `✓` = adequate · `~` = partial · `—` = gap. "Memory only" means rat
 
 | Topic cluster | Spine | ADR | Plan | Discussion | Reference | How-to | Memory | Verdict |
 |---|---|---|---|---|---|---|---|---|
-| Fork & rebrand pivot | — | — | — | — | — | — | ✓ (one entry) | **gap** |
-| Personal-tool positioning | — | — | — | ~ | — | — | ✓ | **gap** |
-| Hub topology / tailnet assumption | ~ | — | — | — | — | ~ | — | **gap** |
+| Fork & rebrand pivot | — | ✓ (015) | — | — | — | — | ✓ | **closed** |
+| Personal-tool positioning | — | — | — | ✓ (positioning §1.5) | — | — | ✓ | **closed** |
+| Hub topology / tailnet assumption | ~ | ✓ (018) | — | — | — | ~ | — | **closed** |
 | MCP consolidation | — | ✓ (002) | — | ~ | — | — | ✓ | adequate |
 | A2A relay | — | ✓ (003) | — | ~ | — | — | ✓ | adequate |
-| Channels as event log | ~ | — | — | — | — | — | — | **gap** |
-| Schedules instantiate plans (forbidden #11) | ~ | — | — | — | — | — | — | **gap** |
-| Three-layer host-runner separation | ~ | — | — | — | — | ✓ | — | partial |
+| Channels as event log | ~ | ✓ (019) | — | — | — | — | — | **closed** |
+| Schedules instantiate plans (forbidden #11) | ✓ (expanded) | — | — | — | — | — | — | **closed** |
+| Three-layer host-runner separation | ✓ (§3.4 expanded) | — | — | — | — | ✓ | — | **closed** |
 | Hub-tui language choice | — | — | — | — | — | — | — | nice-to-have |
-| Stewards: single MVP | — | ✓ (004) | ✓ | — | — | — | ✓ | needs-amend (status) |
-| Stewards: layered (general + domain) | — | ~ (001 D-amend-2) | ✓ | — | — | — | ✓ | **gap (own ADR + reference)** |
-| `@steward` handle + ensure-spawn endpoint | — | — | — | — | — | — | ✓ | **gap** |
-| Manager/IC invariant for general steward | — | ~ (016) | — | — | — | — | ✓ | **gap** |
+| Stewards: single MVP | — | ✓ (004 → superseded) | ✓ | — | — | — | ✓ | **closed** |
+| Stewards: layered (general + domain) | — | ✓ (017) | ✓ | — | ✓ (steward-templates) | — | ✓ | **closed** |
+| `@steward` handle + ensure-spawn endpoint | — | ✓ (017 D2/D3) | — | — | ✓ | — | ✓ | **closed** |
+| Manager/IC invariant for general steward | ✓ (governance-roles) | ✓ (017 D4) | — | — | — | — | ✓ | **closed** |
 | Engines — frame profiles | — | ✓ (010) | ✓ | ~ | ✓ | — | ✓ | adequate |
 | Engines — codex | — | ✓ (012) | — | — | — | — | ✓ | adequate |
 | Engines — gemini | — | ✓ (013) | — | — | — | — | ✓ | adequate |
 | Engines — claude resume | — | ✓ (014) | — | — | — | — | ✓ | adequate |
-| Permission model — auto-allow design | — | ~ (005, 011) | — | — | — | — | ✓ | **gap** |
-| Permission model — vendor contract asymmetry | — | ~ (011) | — | — | — | — | — | **gap** |
-| Governance roles ontology (principal/steward/worker) | — | ✓ (005) | — | — | — | — | ✓ | needs-axiom |
+| Permission model — auto-allow design | — | ~ (005, 011) | — | — | ✓ (permission-model) | — | ✓ | **closed** |
+| Permission model — vendor contract asymmetry | — | ~ (011) | — | — | ✓ (permission-model) | — | — | **closed** |
+| Governance roles ontology (principal/steward/worker) | ✓ (governance-roles) | ✓ (005) | — | — | — | — | ✓ | **closed** |
 | Subagent scope manifest | — | ✓ (016) | — | — | — | — | ✓ | adequate |
 | Sessions — close→archive + fork + scope | ~ | ✓ (009) | ✓ | ✓ | — | — | ✓ | adequate |
-| Multi-writer fork invariant | — | ~ (014) | — | — | — | — | ✓ | **gap** |
-| Attention → notification surface mapping | — | ~ (011) | — | ~ | ~ | — | ✓ | **gap** |
-| Rate-limit / token-bucket model | — | — | — | — | — | — | ~ | **gap** |
+| Multi-writer fork invariant | — | ✓ (014 expanded) | — | — | — | — | ✓ | **closed** |
+| Attention → notification surface mapping | — | ~ (011) | — | ~ | ✓ (attention-delivery-surfaces) | — | ✓ | **closed** |
+| Rate-limit / token-bucket model | — | — | — | — | ✓ (rate-limiting) | — | ~ | **closed** |
 | Demo — Candidate A locked | — | ✓ (001) | ✓ | ✓ | — | ✓ | ✓ | adequate |
-| Demo — lifecycle amendment rationale (2026-04-30) | — | ~ (001 D-amend-1) | ✓ | ~ | — | — | ✓ | **gap** |
-| 2026 competitive landscape research | — | — | — | ~ | — | — | ✓ | **gap** |
+| Demo — lifecycle amendment rationale (2026-04-30) | — | ~ (001 D-amend-1) | ✓ | ✓ (lifecycle-amendment-2026-04) | — | — | ✓ | **closed** |
+| 2026 competitive landscape research | — | — | — | ~ | ✓ (competitive-landscape-2026) | — | ✓ | **closed** |
 | Egress proxy (post-MVP) | — | — | — | — | — | — | ✓ | nice-to-have |
 | Domain-pack Phase 1 (post-MVP) | — | — | — | ✓ | — | — | ✓ | nice-to-have |
-| Artifacts primitive (4-axis outputs) | ✓ (§6.6) | — | — | — | — | — | ✓ | partial |
-| Activity feed (audit_events schema) | ~ | — | — | — | — | — | ✓ | **gap** |
-| Offline snapshot cache | — | ✓ (006) | — | — | — | — | ✓ | partial |
+| Artifacts primitive (4-axis outputs) | ✓ (§6.6) | — | — | — | — | — | ✓ | partial (nice-to-have) |
+| Activity feed (audit_events schema) | ~ | — | — | — | ✓ (audit-events) | — | ✓ | **closed** |
+| Offline snapshot cache | — | ✓ (006) | — | — | — | — | ✓ | partial (nice-to-have) |
 | Transcript source of truth | — | ~ (014) | — | ✓ | — | — | ✓ | adequate |
-| Snippet / action-bar system | ~ (IA §6.4) | — | — | — | — | — | ✓ | **gap** |
-| Persistent steward Me-tab card | ~ (IA §6.7) | — | — | — | — | — | ✓ | **gap** |
-| Local notifications | — | — | — | — | — | — | ~ | nice-to-have |
+| Snippet / action-bar system | ~ (IA §6.4) | — | — | — | ✓ (action-bar-system) | — | ✓ | **closed** |
+| Persistent steward Me-tab card | ✓ (IA §6.1 expanded) | — | — | — | — | — | ✓ | **closed** |
+| Local notifications | — | — | — | — | ✓ (attention-delivery-surfaces §) | — | ~ | partial (nice-to-have) |
 | Data export / import format | — | — | — | — | — | — | ✓ | nice-to-have |
 | Compose drafts | — | — | — | — | — | — | ✓ | adequate |
 | IA wedges 1–7 | ✓ (§11) | — | — | — | — | — | ✓ | adequate |
-| ADR-015 (numbering gap) | — | — | — | — | — | — | — | meta-gap |
+| ADR-015 (numbering gap) | — | ✓ (015 claims it) | — | — | — | — | — | **closed** |
 
 ---
 

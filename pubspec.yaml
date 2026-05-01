@@ -64,7 +64,7 @@ dependencies:
   # Keep screen on
   wakelock_plus: 1.4.0
   # Network connectivity monitoring
-  connectivity_plus: 6.1.5
+  connectivity_plus: 7.1.1
   # File download (temp dir + share intent)
   path_provider: ^2.1.0
   share_plus: ^10.0.0

@@ -2,30 +2,33 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/hub/blob_bytes_cache.dart';
 import '../services/hub/hub_client.dart';
+import '../services/hub/hub_profiles.dart';
 import '../services/hub/hub_read_through.dart';
 import '../services/hub/hub_snapshot_cache.dart';
 import '../services/notifications/local_notifications.dart';
 import 'settings_provider.dart';
 
-/// SharedPreferences keys for the hub configuration. The token is *not*
-/// stored here — it lives in flutter_secure_storage under [_kHubTokenKey].
-const _kHubBaseUrlKey = 'hub_base_url';
-const _kHubTeamIdKey = 'hub_team_id';
-const _kHubTokenKey = 'hub_token';
-
-/// Sticky in-memory state for the hub tab. We persist baseUrl/teamId/token
-/// on save and rehydrate on first access so the app survives cold starts
-/// without a second bootstrap.
+/// Sticky in-memory state for the hub tab. We persist the user's saved
+/// connection profiles + which one is active and rehydrate on first
+/// access so the app survives cold starts without a second bootstrap.
 class HubState {
   final HubConfig? config;
   final bool loading;
   final String? error;
+
+  /// All saved hub connection profiles. Empty on first install.
+  /// Mirrors what [HubProfileStore.load] returned at the most recent
+  /// reload — kept in state so the team-switcher menu can render
+  /// without re-reading prefs on every rebuild.
+  final List<HubProfile> profiles;
+
+  /// Id of the active profile, or null when no profile is active.
+  /// Always matches `config` when both are non-null.
+  final String? activeProfileId;
 
   final List<Map<String, dynamic>> attention;
   final List<Map<String, dynamic>> hosts;
@@ -47,6 +50,8 @@ class HubState {
     this.config,
     this.loading = false,
     this.error,
+    this.profiles = const [],
+    this.activeProfileId,
     this.attention = const [],
     this.hosts = const [],
     this.agents = const [],
@@ -63,6 +68,8 @@ class HubState {
     HubConfig? config,
     bool? loading,
     String? error,
+    List<HubProfile>? profiles,
+    String? activeProfileId,
     List<Map<String, dynamic>>? attention,
     List<Map<String, dynamic>>? hosts,
     List<Map<String, dynamic>>? agents,
@@ -74,11 +81,15 @@ class HubState {
     bool clearConfig = false,
     bool clearError = false,
     bool clearStale = false,
+    bool clearActive = false,
   }) =>
       HubState(
         config: clearConfig ? null : (config ?? this.config),
         loading: loading ?? this.loading,
         error: clearError ? null : (error ?? this.error),
+        profiles: profiles ?? this.profiles,
+        activeProfileId:
+            clearActive ? null : (activeProfileId ?? this.activeProfileId),
         attention: attention ?? this.attention,
         hosts: hosts ?? this.hosts,
         agents: agents ?? this.agents,
@@ -98,6 +109,7 @@ class _DashResult {
 }
 
 class HubNotifier extends AsyncNotifier<HubState> {
+  final HubProfileStore _profiles = HubProfileStore();
   HubClient? _client;
 
   /// On-disk last-known-good snapshots of hub list/get responses. Kept
@@ -180,15 +192,26 @@ class HubNotifier extends AsyncNotifier<HubState> {
   void clearTemplateBodyCache() => _templateBodyCache.clear();
 
   Future<HubState> _loadConfig() async {
-    final prefs = await SharedPreferences.getInstance();
-    final baseUrl = prefs.getString(_kHubBaseUrlKey) ?? '';
-    final teamId = prefs.getString(_kHubTeamIdKey) ?? '';
-    const secure = FlutterSecureStorage();
-    final token = await secure.read(key: _kHubTokenKey) ?? '';
-    if (baseUrl.isEmpty || teamId.isEmpty || token.isEmpty) {
-      return const HubState();
+    final snap = await _profiles.load();
+    final active = snap.active;
+    if (active == null) {
+      return HubState(
+        profiles: snap.profiles,
+        activeProfileId: snap.activeId,
+      );
     }
-    final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
+    final token = await _profiles.readToken(active.id) ?? '';
+    if (token.isEmpty) {
+      return HubState(
+        profiles: snap.profiles,
+        activeProfileId: snap.activeId,
+      );
+    }
+    final cfg = HubConfig(
+      baseUrl: active.baseUrl,
+      token: token,
+      teamId: active.teamId,
+    );
     _client = HubClient(cfg);
     _cache = await _openCache();
     _blobCache = await _openBlobCache();
@@ -200,7 +223,11 @@ class HubNotifier extends AsyncNotifier<HubState> {
     // refreshAll in build() then overwrites with fresh data — and the
     // refresh path's `clearStale` logic resets staleSince once each
     // endpoint succeeds.
-    return _hydrateFromCache(cfg);
+    final hydrated = await _hydrateFromCache(cfg);
+    return hydrated.copyWith(
+      profiles: snap.profiles,
+      activeProfileId: snap.activeId,
+    );
   }
 
   /// Read the six dashboard list snapshots from the on-disk cache and
@@ -275,49 +302,224 @@ class HubNotifier extends AsyncNotifier<HubState> {
     return BlobBytesCache(rootDir: '${dir.path}/hub_blobs');
   }
 
-  /// Persist the config and refresh every list. Called from the bootstrap
-  /// wizard after a successful probe.
+  /// Update the *active* profile's connection details (baseUrl, team,
+  /// token) in place and refresh the dashboards. Called from the
+  /// bootstrap screen when the user re-opens the wizard for the active
+  /// profile.
+  ///
+  /// If no profile is active yet (first run on a fresh install), this
+  /// behaves like [addProfile] — creates a profile, activates it,
+  /// connects.
+  ///
+  /// Cache partitions are *not* wiped on URL/team change. Each
+  /// (baseUrl, teamId) tuple has its own partition under
+  /// [hubCacheKey]; if the user pivots the active profile to a new
+  /// destination, the old partition is now orphan but kept around so
+  /// switching back is instant. Use [deleteProfile] to evict.
   Future<void> saveConfig({
     required String baseUrl,
     required String token,
     required String teamId,
+    String? name,
   }) async {
-    final prevCfg = state.value?.config;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kHubBaseUrlKey, baseUrl);
-    await prefs.setString(_kHubTeamIdKey, teamId);
-    const secure = FlutterSecureStorage();
-    await secure.write(key: _kHubTokenKey, value: token);
+    final cur = state.value ?? const HubState();
+    final activeId = cur.activeProfileId;
+    if (activeId == null || activeId.isEmpty) {
+      await addProfile(
+        baseUrl: baseUrl,
+        token: token,
+        teamId: teamId,
+        name: name,
+      );
+      return;
+    }
+    final updated = <HubProfile>[];
+    for (final p in cur.profiles) {
+      if (p.id == activeId) {
+        updated.add(p.copyWith(
+          name: name ?? p.name,
+          baseUrl: baseUrl,
+          teamId: teamId,
+        ));
+      } else {
+        updated.add(p);
+      }
+    }
+    await _profiles.saveProfiles(updated);
+    await _profiles.writeToken(activeId, token);
 
     _client?.close();
     final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
     _client = HubClient(cfg);
     _cache ??= await _openCache();
     _blobCache ??= await _openBlobCache();
-    // Switching hub or team leaves the previous partition orphaned — wipe
-    // it so snapshots can't leak across identities and don't eat disk
-    // until LRU eventually reclaims the rows. Blob bytes are content-
-    // addressed (sha) so they're safe to share across hubs; no wipe.
-    if (prevCfg != null &&
-        (prevCfg.baseUrl != baseUrl || prevCfg.teamId != teamId)) {
-      await _cache!.wipeHub(
-        hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
-      );
-    }
     _client!.snapshotCache = _cache;
     _client!.blobCache = _blobCache;
 
-    state = AsyncData(HubState(config: cfg));
+    final hydrated = await _hydrateFromCache(cfg);
+    state = AsyncData(hydrated.copyWith(
+      profiles: updated,
+      activeProfileId: activeId,
+    ));
     await refreshAll();
   }
 
+  /// Add a new profile, activate it, and refresh. The bootstrap screen's
+  /// "Add profile" entry calls this.
+  Future<void> addProfile({
+    required String baseUrl,
+    required String token,
+    required String teamId,
+    String? name,
+  }) async {
+    final cur = state.value ?? const HubState();
+    final id = _profiles.newId();
+    final profile = HubProfile(
+      id: id,
+      name: (name == null || name.trim().isEmpty)
+          ? HubProfile.defaultName(baseUrl: baseUrl, teamId: teamId)
+          : name.trim(),
+      baseUrl: baseUrl,
+      teamId: teamId,
+    );
+    final updated = [...cur.profiles, profile];
+    await _profiles.saveProfiles(updated);
+    await _profiles.writeToken(id, token);
+    await _profiles.setActive(id);
+
+    _client?.close();
+    final cfg = HubConfig(baseUrl: baseUrl, token: token, teamId: teamId);
+    _client = HubClient(cfg);
+    _cache ??= await _openCache();
+    _blobCache ??= await _openBlobCache();
+    _client!.snapshotCache = _cache;
+    _client!.blobCache = _blobCache;
+
+    // Hydrate from cache so a freshly-added profile that points at a
+    // hub we've talked to before (re-add after delete) shows
+    // last-known-good without an empty-state blink before refreshAll
+    // runs.
+    final hydrated = await _hydrateFromCache(cfg);
+    state = AsyncData(hydrated.copyWith(
+      profiles: updated,
+      activeProfileId: id,
+    ));
+    await refreshAll();
+  }
+
+  /// Switch the active profile to one already saved. Cache partition for
+  /// the new profile is hydrated synchronously from disk so the UI
+  /// renders last-known-good before [refreshAll] hits the network.
+  Future<void> activateProfile(String id) async {
+    final cur = state.value ?? const HubState();
+    HubProfile? profile;
+    for (final p in cur.profiles) {
+      if (p.id == id) {
+        profile = p;
+        break;
+      }
+    }
+    if (profile == null) return;
+    if (cur.activeProfileId == id && cur.config != null) return;
+    final token = await _profiles.readToken(id) ?? '';
+    if (token.isEmpty) return;
+    await _profiles.setActive(id);
+
+    _client?.close();
+    final cfg = HubConfig(
+      baseUrl: profile.baseUrl,
+      token: token,
+      teamId: profile.teamId,
+    );
+    _client = HubClient(cfg);
+    _cache ??= await _openCache();
+    _blobCache ??= await _openBlobCache();
+    _client!.snapshotCache = _cache;
+    _client!.blobCache = _blobCache;
+    _templateBodyCache.clear();
+    // Re-arm attention notifications so the new profile's first
+    // refresh doesn't ping the user about every open item it sees.
+    _attentionNotifyArmed = false;
+    _notifiedAttentionIds.clear();
+
+    final hydrated = await _hydrateFromCache(cfg);
+    state = AsyncData(hydrated.copyWith(
+      profiles: cur.profiles,
+      activeProfileId: id,
+    ));
+    await refreshAll();
+  }
+
+  /// Update a profile's display name only (no connection or token
+  /// change). Safe to call on the active profile or any other.
+  Future<void> renameProfile(String id, String name) async {
+    final cur = state.value ?? const HubState();
+    final updated = <HubProfile>[];
+    for (final p in cur.profiles) {
+      updated.add(p.id == id ? p.copyWith(name: name.trim()) : p);
+    }
+    await _profiles.saveProfiles(updated);
+    state = AsyncData(cur.copyWith(profiles: updated));
+  }
+
+  /// Remove a profile from the saved list, drop its token, and wipe its
+  /// snapshot cache partition. If it was the active profile, the next
+  /// remaining profile (if any) is activated; otherwise the app drops
+  /// to the "no config" state and the bootstrap screen takes over.
+  Future<void> deleteProfile(String id) async {
+    final cur = state.value ?? const HubState();
+    HubProfile? removed;
+    final remaining = <HubProfile>[];
+    for (final p in cur.profiles) {
+      if (p.id == id) {
+        removed = p;
+      } else {
+        remaining.add(p);
+      }
+    }
+    if (removed == null) return;
+    await _profiles.saveProfiles(remaining);
+    await _profiles.deleteToken(id);
+    if (_cache != null) {
+      await _cache!.wipeHub(
+        hubCacheKey(baseUrl: removed.baseUrl, teamId: removed.teamId),
+      );
+    }
+    if (cur.activeProfileId != id) {
+      state = AsyncData(cur.copyWith(profiles: remaining));
+      return;
+    }
+    // The active one was removed — pick a successor if available.
+    if (remaining.isEmpty) {
+      await _profiles.setActive(null);
+      _client?.close();
+      _client = null;
+      _templateBodyCache.clear();
+      _attentionNotifyArmed = false;
+      _notifiedAttentionIds.clear();
+      state = AsyncData(HubState(profiles: remaining));
+      return;
+    }
+    final next = remaining.first;
+    // Drop the stale config (its token was just deleted) before
+    // activating the successor — otherwise UI rebuilds during the
+    // await below would briefly see a config whose token no longer
+    // resolves.
+    state = AsyncData(cur.copyWith(
+      profiles: remaining,
+      clearConfig: true,
+      clearActive: true,
+    ));
+    await activateProfile(next.id);
+  }
+
+  /// Wipe every saved profile + every per-profile token, drop the
+  /// active client, and clear the snapshot/blob caches. Coarse "forget
+  /// all hubs" path — there is no in-app caller today (the per-profile
+  /// delete covers most cases) but exposed for a future "Reset app"
+  /// menu.
   Future<void> clearConfig() async {
-    final prevCfg = state.value?.config;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kHubBaseUrlKey);
-    await prefs.remove(_kHubTeamIdKey);
-    const secure = FlutterSecureStorage();
-    await secure.delete(key: _kHubTokenKey);
+    await _profiles.wipeAll();
     _client?.close();
     _client = null;
     _templateBodyCache.clear();
@@ -325,14 +527,10 @@ class HubNotifier extends AsyncNotifier<HubState> {
     // skips the backlog (Phase 1.5a — initial refresh is silent).
     _attentionNotifyArmed = false;
     _notifiedAttentionIds.clear();
-    if (_cache != null && prevCfg != null) {
-      await _cache!.wipeHub(
-        hubCacheKey(baseUrl: prevCfg.baseUrl, teamId: prevCfg.teamId),
-      );
+    // No more identities to scope cache partitions to — drop everything.
+    if (_cache != null) {
+      await _cache!.wipeAll();
     }
-    // Logout is coarse: blob bytes were fetched under the departing
-    // identity, so wipe the whole directory even though sha keys are
-    // content-addressed — don't keep bytes we no longer have a token for.
     if (_blobCache != null) {
       await _blobCache!.wipeAll();
     }

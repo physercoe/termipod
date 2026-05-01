@@ -645,7 +645,7 @@
   "activityDigestKinds": "kinds",
   "activityDigestEmpty": "No activity in the last 24 hours.",
   "meDigestSection": "Since you were last here",
-  "teamSwitcherTooltip": "Open Team Settings",
+  "teamSwitcherTooltip": "Profiles, templates, team",
   "councilsTitle": "Councils",
   "councilsComingSoon": "Councils — multi-reviewer panels with quorum and rotation — are coming soon.",
   "stewardConfigTitle": "Steward Config",

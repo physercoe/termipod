@@ -594,7 +594,7 @@
   "activityDigestKinds": "类型",
   "activityDigestEmpty": "最近 24 小时没有活动。",
   "meDigestSection": "自上次到访以来",
-  "teamSwitcherTooltip": "打开团队设置",
+  "teamSwitcherTooltip": "配置 · 模板 · 团队",
   "councilsTitle": "评审会",
   "councilsComingSoon": "评审会（多评审员面板、法定人数和轮换）即将推出。",
   "stewardConfigTitle": "管家配置",

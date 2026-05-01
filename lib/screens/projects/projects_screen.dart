@@ -22,15 +22,13 @@ import '../hub/hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
 import '../team/spawn_steward_sheet.dart';
-import '../team/templates_screen.dart';
 
-/// "Projects" tab — project inventory. Agents live inside Project detail;
-/// templates have a single home (TemplatesScreen) reached via the AppBar
-/// icon. Hosts have their own top-level bottom tab.
+/// "Projects" tab — project inventory. Agents live inside Project detail.
+/// Hosts have their own top-level bottom tab.
 ///
 /// Attention/Feed/Tasks live in Me / Project detail respectively. Header
-/// carries a Steward chip (shortcut to #hub-meta team channel) and a Team
-/// switcher (members/policies/channels/settings).
+/// carries a Team switcher (profiles + members/policies/channels/templates)
+/// and a Refresh button.
 ///
 /// If the hub server isn't configured yet, the empty state pushes
 /// [HubBootstrapScreen]; once that pops true, the provider rebuilds and
@@ -118,31 +116,11 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
         actions: [
           const TeamSwitcher(),
           IconButton(
-            tooltip: 'Library (templates & engines)',
-            icon: const Icon(Icons.description_outlined),
-            onPressed: async.value?.configured == true
-                ? () {
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => const TemplatesScreen(),
-                    ));
-                  }
-                : null,
-          ),
-          IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: async.value?.configured == true
                 ? () => ref.read(hubProvider.notifier).refreshAll()
                 : null,
-          ),
-          IconButton(
-            tooltip: 'Hub settings',
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const HubBootstrapScreen(),
-              ));
-            },
           ),
         ],
       ),

@@ -84,7 +84,7 @@ outset button:
 | 1     | Activity  | Team-wide audit/event feed. Steward filter chip in the app bar isolates rows where `actor_kind='agent'` AND `actor_handle='steward'`. |
 | 2     | Me        | Default landing tab. Attention items + "My Work" strip + "Since you were last here" digest. StewardBadge lights up on steward-stamped rows (v1.0.183+). |
 | 3     | Hosts     | Unified inventory: SSH connections ∪ hub-registered hosts, joined on `hostBindingsProvider`. |
-| 4     | Settings  | Scrollable settings list. Team Settings is reached via the TeamSwitcher pill (top-left of every tab), not from here. |
+| 4     | Settings  | Scrollable settings list. Team Settings, Templates, and hub profile management are reached via the TeamSwitcher pill (top-left of every tab) → popup menu, not from here. |
 
 **Steps**
 
@@ -95,6 +95,9 @@ outset button:
 3. Kill the app and re-open. **Expected:** lands on Me again (not the
    last-selected tab — center tab is the default).
 4. Tap the **TeamSwitcher pill** (top-left of any tab). **Expected:**
+   popup menu opens with the saved hub profiles list (active marked
+   with check), then "Add profile…" / "Manage profiles…" / "Templates
+   & engines" / "Team settings". Tap **Team settings**. **Expected:**
    opens Team Settings with Councils · Steward · Schedules · Usage ·
    Members · Policies · Channels tiles.
 
@@ -210,20 +213,34 @@ flattened into top-level **Projects** and **Hosts** tabs; Agents moved
 into project detail; Templates live under Projects as a one-home row._
 
 Top-level app bar (any hub-backed tab) actions: **TeamSwitcher pill**
-(top-left — opens Team Settings), **StewardBadge** where applicable,
-**Refresh**, **search**.
+(top-left — opens a popup menu with profiles, templates, and team
+settings), **Refresh**, **search**.
 
-### 5.1 TeamSwitcher pill + Steward
+### 5.1 TeamSwitcher pill (profiles / templates / team)
 
 1. Locate the TeamSwitcher pill at the top-left of the app bar.
-   **Expected:** readable contrast in both light/dark themes. Long-press
-   tooltip shows the current team handle.
-2. Tap it. **Expected:** opens Team Settings with tiles for
-   **Councils · Steward · Schedules · Usage · Members · Policies ·
-   Channels**.
-3. Tap **Steward**. **Expected:** Steward Config form with principal
-   handle, tone, constraints (SharedPreferences-local today — server
-   round-trip is an open follow-up).
+   **Expected:** readable contrast in both light/dark themes. Pill
+   label shows the active hub profile's display name.
+2. Tap it. **Expected:** popup menu opens with sections —
+   **Profiles** (one row per saved profile, active marked with a
+   check), **Add profile…**, **Manage profiles…**, **Templates &
+   engines**, **Team settings**.
+3. Tap a non-active profile in the list. **Expected:** active switches;
+   dashboards re-hydrate from that profile's offline cache while a
+   network refresh runs in the background. Pill label updates.
+4. Re-open the menu and tap **Team settings**. **Expected:** opens
+   Team Settings with tiles for **Councils · Steward · Schedules ·
+   Usage · Members · Policies · Channels**. Tap **Steward** →
+   Steward Config form with principal handle, tone, constraints
+   (SharedPreferences-local today — server round-trip is an open
+   follow-up).
+5. Re-open the menu and tap **Add profile…**. **Expected:** Add hub
+   profile screen with blank form. Cancel out — no new profile
+   created.
+6. Re-open the menu and tap **Manage profiles…**. **Expected:** list
+   view of saved profiles with rename / edit / delete affordances on
+   each row's overflow menu. Active profile marked with a filled
+   check.
 
 ### 5.2 Projects tab
 
@@ -333,8 +350,8 @@ verify one row lands in the Audit Log under the right filter:
 | `agent.spawn`         | Projects → project → Agents → Spawn FAB | Spawn      |
 | `agent.terminate`     | Tap agent → Terminate (or PATCH status) | Terminate  |
 | `attention.decide`    | Me → Approve/Reject an attention row    | Decide     |
-| `schedule.create`     | TeamSwitcher pill → Schedules → **+**   | Schedule   |
-| `schedule.delete`     | TeamSwitcher pill → Schedules → trash   | Schedule   |
+| `schedule.create`     | TeamSwitcher pill → Team settings → Schedules → **+**   | Schedule   |
+| `schedule.delete`     | TeamSwitcher pill → Team settings → Schedules → trash   | Schedule   |
 | `host.delete`         | Hosts → tap row → Delete host           | Host       |
 
 Direct REST probe of the endpoint:
@@ -457,8 +474,9 @@ Not feature areas but things easy to break:
    **Expected:** UI renders the last known state; error banners are
    non-blocking; Me tab shows a "Failed to refresh" strip, not a full
    crash screen.
-3. **Token rotation.** Swap the saved token for an invalid one in
-   Hub settings. **Expected:** all REST calls 401; the app surfaces
+3. **Token rotation.** Swap the saved token for an invalid one via
+   the TeamSwitcher pill → Manage profiles… → row overflow → Edit
+   connection. **Expected:** all REST calls 401; the app surfaces
    this as a banner, not silently.
 4. **Long-running SSE.** Leave a project channel open for 10 min on
    Wi-Fi with the screen on. **Expected:** no disconnect (nginx

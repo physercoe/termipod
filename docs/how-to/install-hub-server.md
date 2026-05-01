@@ -298,17 +298,24 @@ Plaintext is printed once. Only SHA-256 hashes land in `auth_tokens`.
 
 ## 4. Configure the mobile app
 
-1. Launch TermiPod → **Settings** (bottom-right).
-2. Scroll to **Termipod Hub** → **Open Hub Dashboard**.
-3. First run is empty with a *Configure Hub* button — tap it.
-4. Fill in:
+1. Launch TermiPod → bottom tab **Projects**.
+2. First run is empty with a *Configure Hub* button — tap it.
+3. Fill in:
+   - **Display name** *(optional)*: any label. Defaults to
+     `team @ host`. Useful when you save more than one profile.
    - **Base URL**: `https://hub.example.com` (Track B) or
      `http://<lan-ip>:8443` (Track A). Not `localhost`.
    - **Team ID**: `default` (the value `init` writes; change if you
      created other teams).
    - **Bearer Token**: paste the token.
-5. Tap **Probe URL** → green banner with hub version = reachable.
-6. Tap **Save & Connect** → back to the dashboard.
+4. Tap **Probe URL** → green banner with hub version = reachable.
+5. Tap **Save & Connect** → back to the dashboard.
+
+Subsequent profiles (different hub, or same hub + different team)
+are added via the **TeamSwitcher pill → Add profile…**. The pill's
+popup menu also lets you switch between saved profiles, rename or
+delete them via **Manage profiles…**, and reach **Templates &
+engines** + **Team settings**.
 
 Token → device keychain (`flutter_secure_storage`). URL + team id →
 SharedPreferences.
@@ -377,9 +384,9 @@ copied to `<dataRoot>/team/templates/agents/steward.v1.yaml` — **user
 edits win**, subsequent init calls never overwrite. To change the model,
 default workdir, or A2A skills before your first spawn, edit the on-disk
 copy, then tap Spawn Steward. Anything beyond that (prompt, tone,
-autonomy level) is exposed in **TeamSwitcher pill → Team Settings →
-Steward Config**, though some values are still SharedPreferences-local
-pending the server round-trip endpoint.
+autonomy level) is exposed in **TeamSwitcher pill → menu → Team
+settings → Steward Config**, though some values are still
+SharedPreferences-local pending the server round-trip endpoint.
 
 ### 5.4 What's covered by automated tests
 
@@ -397,8 +404,10 @@ first. The underlying agent-spawn pipeline is documented in
 
 The IA redesign (v1.0.175–v1.0.182) rebuilt the workspace around five
 top-level tabs — **Me · Projects · Activity · Hosts · Settings** —
-center-anchored on Me. Team-level configuration lives under the
-**TeamSwitcher pill** (top-left of every tab) which opens Team Settings.
+center-anchored on Me. Team-level configuration, hub-profile
+switching, and the templates/engines library all live behind the
+**TeamSwitcher pill** (top-left of every tab) which opens a popup
+menu.
 
 - **Me** — your attention items + "My Work" strip. Director-first view:
   what's waiting on a human decision, what the steward raised
@@ -410,8 +419,9 @@ center-anchored on Me. Team-level configuration lives under the
   the app bar isolates agent-originated rows.
 - **Hosts** — unified host inventory (SSH connections ∪ hub-registered
   hosts joined on `hostBindingsProvider`).
-- **Settings** — app + account settings; Team Settings is reached via
-  the TeamSwitcher pill (Steward Config, Councils stub, Schedules, etc.).
+- **Settings** — app + account settings; Team Settings, the
+  Templates library, and hub-profile management are reached via the
+  TeamSwitcher pill (Steward Config, Councils stub, Schedules, etc.).
 
 Pull-to-refresh works on every list view. SSE keeps Me and project
 channels live.
@@ -425,9 +435,11 @@ channels live.
 | **Projects → project detail → Agents pill** | Project-scoped agent list. Bottom-right **Spawn Agent** FAB opens a YAML sheet pre-filled with `project_id:` for this project; preset chips mint pre-filled YAML (long-press a chip to delete). "Save preset" stores the current YAML device-locally. Handle `steward` is reserved — use the AppBar steward chip instead. Tap an agent row to open its detail sheet (pause / resume / terminate / pane preview / journal / respawn). |
 | **Hosts** | Hosts running `host-runner` with a host-kind token show up here with `last_seen_at`, alongside any SSH-only connections. |
 | **Projects → Templates row** | Lists YAML agent templates under `<dataRoot>/default/templates/<category>/`. Tap to preview YAML. |
-| **TeamSwitcher pill → Team Settings → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |
-| **TeamSwitcher pill → Team Settings → Usage** | Per-project and per-agent budget rollup with progress bars (`spent_cents` / `budget_cents`). |
-| **TeamSwitcher pill → Team Settings → Steward Config** | Form to edit the team steward's principal handle, tone, constraints (SharedPreferences-local today — server round-trip is an open follow-up). |
+| **TeamSwitcher pill → Team settings → Schedules** | Cron-triggered spawn schedules. Create / enable / disable / delete. |
+| **TeamSwitcher pill → Team settings → Usage** | Per-project and per-agent budget rollup with progress bars (`spent_cents` / `budget_cents`). |
+| **TeamSwitcher pill → Team settings → Steward Config** | Form to edit the team steward's principal handle, tone, constraints (SharedPreferences-local today — server round-trip is an open follow-up). |
+| **TeamSwitcher pill → Templates & engines** | The bundled YAML/MD template library, grouped by category. Tap a row to preview the body. Same surface as the old AppBar Library icon. |
+| **TeamSwitcher pill → Manage profiles…** | Add / rename / re-edit / delete saved hub profiles. The active profile is marked with a check; tap a row to switch active. |
 | **Activity → Steward filter chip** | Restricts the feed to rows where `actor_kind='agent'` AND `actor_handle='steward'`. |
 
 ### Round-trip smoke test

@@ -322,7 +322,7 @@ spawn on approval (Significant tier per `tiers.go`).
 
 `hub-server` supports cron-style schedules that spawn agents
 unattended. Manage them from mobile at **TeamSwitcher pill (top-left)
-→ Schedules**, or via REST:
+→ Team settings → Schedules**, or via REST:
 
 - `POST /v1/teams/{team}/schedules` — create
 - `GET  /v1/teams/{team}/schedules` — list

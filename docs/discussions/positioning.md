@@ -1,9 +1,9 @@
 # Positioning & business analysis
 
 > **Type:** discussion
-> **Status:** Open (draft for review, 2026-04-24)
-> **Audience:** principal, reviewers
-> **Last verified vs code:** v1.0.312
+> **Status:** Open (extended 2026-05-01 — added §1.5 strategic frame)
+> **Audience:** principal, reviewers, partners
+> **Last verified vs code:** v1.0.350-alpha
 
 **TL;DR.** Business-side framing. Answers seven positioning
 questions (what is termipod / buyer / differentiator / competitive
@@ -39,6 +39,81 @@ Three layers, each resisting a specific failure mode (blueprint §3.4):
 Plus an **A2A protocol** so a steward on a VPS can delegate a train run to a worker on a NAT'd GPU box via a reverse-tunnel relay.
 
 The mobile app is the **director's cockpit** over this stack. SSH/tmux exists but is a "maintenance hatch reachable from inside" (IA axiom A6) — the breakglass, not the product.
+
+---
+
+## 1.5 The strategic frame: personal tool, not multi-tenant SaaS
+
+This section is load-bearing and added 2026-05-01 to capture a framing that
+shaped every product decision through April 2026 but had been implicit
+across blueprint + ADRs + memory.
+
+On 2026-04-19, before committing to the hub-mvp build, the principal asked
+for objective competitive research to validate the plan was worth building.
+The conclusion of that survey (covering Sakana AI Scientist v2, Google
+PaperOrchestra, IKP/01.me, AIDE, MLE-Bench, STORM, claudecode-remote,
+Happy, Codex web) was followed by an explicit framing decision:
+
+> *"i want to build it as personal tool."* — principal, 2026-04-19
+
+That single sentence is the strategic frame. Read it precisely:
+
+- **Personal**, not multi-tenant. One director, one phone, one team-scope.
+  The data model has team_id everywhere because the architecture was
+  designed for shared use, but the MVP target is *one* director per team.
+- **Tool**, not platform. Termipod helps a director run their own work.
+  It is not a SaaS to onboard customers, sell seats, or manage tenants.
+- **Build**, not productize. Investment goes into the architecture, not
+  into the things a SaaS needs (auth, billing, customer-facing copy,
+  legal, support). Those come later, only if and when there are paying
+  customers.
+
+This frame is *why* a long list of features that look like obvious gaps
+are not gaps:
+
+| Looks like a gap | Why it isn't, given the personal-tool frame |
+|---|---|
+| No enterprise SSO | One director per team; auth_token is sufficient |
+| No per-user billing | Director self-hosts; cost is their hub + hosts |
+| No customer support tier | OSS — issues + PRs |
+| No multi-tenant isolation guarantees | The team-scope is the tenant; one director |
+| No SOC2 or GDPR posture | Personal tool; principal owns their data on their hosts |
+| No marketplace for templates | Director-authored or general-steward-authored is enough |
+| No public agent registry | Discovery is per-team, not cross-team |
+| No multi-region | Director-chosen VPS is the region |
+
+Each row is the personal-tool frame applied. Reverse the frame (build a
+multi-tenant SaaS) and every row becomes a real gap and the build effort
+multiplies several-fold without a clear demo benefit.
+
+**What this frame *does* require us to invest in.** The differentiation
+axes have to land *for the personal user* — the multi-host coordination,
+the multi-engine support, the offline cache, the audit log, the steward
+orchestration. These are the things that make "personal tool" mean
+something distinct from "single-engine remote-control app." A solo
+director with a VPS and a GPU box should feel the architecture working
+for them, not for some imagined enterprise.
+
+**Implications for ADRs and roadmap.**
+
+- ADR-005 (owner authority) has *one* owner — the principal/director.
+  Multi-member teams are F-1 in IA §11 (deferred until a second user shows up).
+- ADR-004 (single steward) was originally written under this frame —
+  one steward per team because there's one director. ADR-017 layered
+  it (general + domain) without changing the personal-tool calculus.
+- ADR-016 (subagent scope) chose scope over budget for governance because
+  budget enforcement infrastructure is multi-tenant ops, not personal-tool
+  needs.
+- The lifecycle amendment (ADR-001 D-amend-1, [discussions/lifecycle-amendment-2026-04.md](lifecycle-amendment-2026-04.md))
+  raised the demo bar to "agent-authored end-to-end research." That is
+  exactly the personal-tool ICP — a researcher with their own hardware,
+  not a SaaS account.
+
+If the strategic frame ever changes — if the project pivots from personal
+tool to multi-tenant platform — every line in the table above becomes a
+gap to fill, and most ADRs need re-scoping. That pivot is not the current
+direction; if it becomes the direction, this section gets superseded by
+a new ADR documenting the change.
 
 ---
 

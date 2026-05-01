@@ -128,5 +128,4 @@ These are defaults. The template `backend.permission_mode` field overrides per-t
 - [ADR-013](../decisions/013-gemini-exec-per-turn.md) — gemini's lack of in-stream gate; D4.
 - [ADR-016](../decisions/016-subagent-scope-manifest.md) — `hub://*` tool gate that's orthogonal to (and stronger than) any engine permission mode.
 - [Reference: steward-templates](steward-templates.md) — `backend.permission_mode` field in template YAML.
-- [Memory: feedback_permission_scope](../../.claude/projects/-home-ubuntu-mux-pod/memory/feedback_permission_scope.md) — original UX framing.
 - Code: `hub/internal/hostrunner/driver_stdio.go` (claude), `driver_codex.go`, `driver_gemini.go`.

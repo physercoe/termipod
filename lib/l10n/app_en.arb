@@ -671,7 +671,7 @@
   "newWorkspace": "New workspace",
   "sectionProjects": "Projects",
   "sectionWorkspaces": "Workspaces",
-  "projectsEmpty": "No projects or workspaces yet — use the + button or ask the steward to create one via #hub-meta",
+  "projectsEmpty": "No projects or workspaces yet — use the + button or ask the steward to create one via the Steward FAB on Me",
   "projectDetailEditTooltip": "Edit project",
   "workspaceDetailEditTooltip": "Edit workspace",
   "projectEditTitle": "Edit project",

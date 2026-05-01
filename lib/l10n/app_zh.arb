@@ -620,7 +620,7 @@
   "newWorkspace": "新建工作区",
   "sectionProjects": "项目",
   "sectionWorkspaces": "工作区",
-  "projectsEmpty": "还没有项目或工作区——点击 + 按钮，或在 #hub-meta 让管家创建一个",
+  "projectsEmpty": "还没有项目或工作区——点击 + 按钮，或在「我」页面通过管家 FAB 让管家创建一个",
   "projectDetailEditTooltip": "编辑项目",
   "workspaceDetailEditTooltip": "编辑工作区",
   "projectEditTitle": "编辑项目",

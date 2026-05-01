@@ -301,10 +301,12 @@ sub-tabs.
 ### 6.3 Channels
 
 1. **Expected:** team-scope channels (rows where `project_id` is
-   NULL). `#hub-meta` is always present — that's the channel the
-   Steward pill opens.
-2. Tap a row → events stream live via SSE; excerpt parts render with
-   a monospace line-number gutter.
+   NULL). `#hub-meta` is always present — that's the team-wide
+   announcement channel, pinned to the top. It is *not* the steward
+   chat (which lives behind the Me FAB).
+2. Tap any row, including `#hub-meta` → events stream live via SSE;
+   excerpt parts render with a monospace line-number gutter; bottom
+   composer posts new `message` events.
 
 ### 6.4 Settings — Schedules, Usage, **Audit Log**
 

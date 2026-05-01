@@ -325,9 +325,12 @@ SharedPreferences.
 ## 5. Bootstrap: your first steward
 
 The previous sections stand up the hub and point the app at it, but the
-Me / Activity tabs are still empty. For the app to be useful someone has
-to sit at the other end of `#hub-meta` — that's the **steward**. This
-section walks the zero-agents → steward-running transition end to end.
+Me / Activity tabs are still empty. For the app to be useful you need
+someone on the other end of the **Steward** FAB on Me — that's the
+**steward** agent. This section walks the zero-agents → steward-running
+transition end to end. (`#hub-meta` is a separate primitive: a normal
+team-wide channel for cross-project announcements, reachable under
+Team → Channels. It is *not* the director ↔ steward 1:1 chat.)
 
 A steward is just an agent (a backend CLI running in a tmux pane) with
 the `handle='steward'` reserved name. The hub doesn't auto-spawn one;
@@ -348,15 +351,15 @@ on. Register one now if you haven't:
 The host just needs `tmux` and one backend CLI on PATH for its login
 user (the default template uses `claude`, see §5.3 to change).
 
-### 5.2 Tap the steward chip
+### 5.2 Tap the Steward FAB on Me
 
-1. **Projects** bottom tab. The AppBar carries a steward chip. With no
-   steward yet it reads `🤖 No steward` (muted colour) — tap it.
-2. The **Spawn the team steward** sheet opens. The handle (`steward`,
-   reserved), the kind (`claude-code`), and the spec YAML (from
-   `agents/steward.v1`) are fixed — the only choice is the host
-   dropdown, which pre-selects the first `status='online'` host. Tap
-   **Spawn Steward**. The app:
+1. **Me** bottom tab. The bottom-right FAB reads **Steward** with a
+   sparkle icon. With no steward yet, tapping it opens the **Spawn the
+   team steward** sheet.
+2. The handle (`steward`, reserved), the kind (`claude-code`), and the
+   spec YAML (from `agents/steward.v1`) are fixed — the only choice is
+   the host dropdown, which pre-selects the first `status='online'`
+   host. Tap **Spawn Steward**. The app:
    - fetches the bundled template YAML via
      `GET /v1/teams/default/templates/agents/steward.v1.yaml`,
    - POSTs `/v1/teams/default/agents/spawn` with
@@ -365,11 +368,11 @@ user (the default template uses `claude`, see §5.3 to change).
 3. Within ~3s the host-runner's poll tick picks up the pending spawn,
    opens a tmux window, launches `claude --model opus-4-7`, and PATCHes
    the agent row to `status='running'`.
-4. The AppBar chip flips to `🤖 Steward ready` (live colour). Tapping
-   it now opens `#hub-meta` directly.
-5. In `#hub-meta`, type a message; the steward backend reads it through
-   its MCP token and replies. You now have a working director ↔
-   steward loop.
+4. Tapping the **Steward** FAB now routes to the live steward's
+   active session (chat-style transcript over `agent_events`).
+5. Type a message in the steward session; the backend receives it via
+   `POST /agents/{id}/input`, claude reads it, and replies. You now
+   have a working director ↔ steward loop.
 
 If the spawn is policy-gated instead (tiers `significant` or `critical`
 in `policies/default.v1.yaml`), step 2 returns `202 pending_approval` +

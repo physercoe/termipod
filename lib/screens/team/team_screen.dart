@@ -508,9 +508,11 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
     });
     try {
       final rows = await client.listTeamChannels();
-      // #hub-meta is the principal ↔ steward room — always the primary
-      // surface, so pin it to the top. Everything else sorts
-      // alphabetically so the order is stable across reloads.
+      // #hub-meta is the team-wide cross-project announcement channel
+      // (broadcast room, not the director↔steward 1:1) — pin it to the
+      // top because it's the most-used channel on most teams.
+      // Everything else sorts alphabetically so the order is stable
+      // across reloads.
       rows.sort((a, b) {
         final an = (a['name'] ?? '').toString();
         final bn = (b['name'] ?? '').toString();

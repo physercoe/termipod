@@ -12,9 +12,9 @@ import '../steward_handle.dart';
 ///
 /// Behavior:
 ///   - **Active session (status=active)** → push the chat directly.
-///     Same UX as the old `openHubMetaChannel` for healthy stewards,
-///     but scoped to the steward's session, not the team-wide
-///     hub-meta channel.
+///     Scoped to the steward's session, not the team-wide hub-meta
+///     channel — the latter is a normal team channel and lives under
+///     Team → Channels.
 ///   - **Session is paused** → push SessionsScreen so the user sees
 ///     the warning chip + Resume button. We could auto-resume here,
 ///     but resume costs a respawn — better to surface the choice
@@ -28,11 +28,10 @@ import '../steward_handle.dart';
 ///     bug or a manual-DB-edit gets here) fall back to the
 ///     SessionsScreen empty state, which explains the situation.
 ///
-/// Replaces direct calls to `openHubMetaChannel` from the Me FAB and
-/// the project-page steward chip per `docs/steward-sessions.md`
-/// §8.5 ("director↔steward sessions are not the team channel").
-/// `hub-meta` stays reachable via the team switcher for legitimate
-/// team-wide broadcast.
+/// Sole entry point for "talk to the steward" — the Me FAB calls this
+/// directly. `#hub-meta` is a normal team channel reachable via Team
+/// → Channels and is *not* a steward chat surface; the legacy code
+/// that conflated the two is gone.
 ///
 /// Per ADR-009 D7, `scopeKind` + `scopeId` route to a session
 /// matching that scope when one exists. Today the Me FAB calls

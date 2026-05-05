@@ -299,6 +299,25 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Route("/steward", func(r chi.Router) {
 					r.Get("/state", s.handleGetStewardState)
 				})
+				// W5b — Deliverables + components (A3 §4 + §5). Templates
+				// hydrate these on phase entry; the runtime here ships the
+				// CRUD + ratify + composed-overview surface.
+				r.Route("/deliverables", func(r chi.Router) {
+					r.Get("/", s.handleListDeliverables)
+					r.Post("/", s.handleCreateDeliverable)
+					r.Route("/{deliverable}", func(r chi.Router) {
+						r.Get("/", s.handleGetDeliverable)
+						r.Patch("/", s.handlePatchDeliverable)
+						r.Post("/ratify", s.handleRatifyDeliverable)
+						r.Post("/unratify", s.handleUnratifyDeliverable)
+						r.Route("/components", func(r chi.Router) {
+							r.Post("/", s.handleAddDeliverableComponent)
+							r.Delete("/{component}", s.handleRemoveDeliverableComponent)
+						})
+					})
+				})
+				r.Get("/criteria", s.handleListProjectCriteria)
+				r.Get("/overview", s.handleGetProjectOverview)
 				r.Get("/sweep-summary", s.handleGetProjectSweepSummary)
 			})
 		})

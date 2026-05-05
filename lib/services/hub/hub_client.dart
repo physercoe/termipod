@@ -1966,6 +1966,111 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  // ---- W5b: deliverables + components + project overview --------------
+  // A3 §4 + §5 + §9. Mobile uses these to render the Structured
+  // Deliverable Viewer (A5) and to power the phase-summary navigation
+  // off the phase ribbon.
+
+  Future<List<Map<String, dynamic>>> listDeliverables({
+    required String projectId,
+    String? phase,
+    String? state,
+    bool includeComponents = false,
+  }) async {
+    final q = <String, String>{};
+    if (phase != null && phase.isNotEmpty) q['phase'] = phase;
+    if (state != null && state.isNotEmpty) q['state'] = state;
+    if (includeComponents) q['include'] = 'components';
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables',
+      query: q.isEmpty ? null : q,
+    );
+    final m = (out as Map).cast<String, dynamic>();
+    final items = (m['items'] as List? ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+    return items;
+  }
+
+  Future<Map<String, dynamic>> getDeliverable({
+    required String projectId,
+    required String deliverableId,
+  }) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> ratifyDeliverable({
+    required String projectId,
+    required String deliverableId,
+    String? rationale,
+  }) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId/ratify',
+      {if (rationale != null && rationale.isNotEmpty) 'rationale': rationale},
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> unratifyDeliverable({
+    required String projectId,
+    required String deliverableId,
+    String? reason,
+  }) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId/unratify',
+      {if (reason != null && reason.isNotEmpty) 'rationale': reason},
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> getProjectOverview(String projectId) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<CachedResponse<Map<String, dynamic>>> getProjectOverviewCached(
+    String projectId,
+  ) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint:
+            '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+        fetch: () => getProjectOverview(projectId),
+        decode: _decodeMap,
+      );
+
+  Future<List<Map<String, dynamic>>> listProjectCriteria({
+    required String projectId,
+    String? phase,
+    String? deliverableId,
+  }) async {
+    final q = <String, String>{};
+    if (phase != null && phase.isNotEmpty) q['phase'] = phase;
+    if (deliverableId != null && deliverableId.isNotEmpty) {
+      q['deliverable_id'] = deliverableId;
+    }
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/criteria',
+      query: q.isEmpty ? null : q,
+    );
+    final m = (out as Map).cast<String, dynamic>();
+    return (m['items'] as List? ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+  }
+
   Future<List<Map<String, dynamic>>> listDocumentVersions(String docId) =>
       _listJson('/v1/teams/${cfg.teamId}/documents/$docId/versions');
 

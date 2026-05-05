@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1+W2+W3+W4+W5a shipped; W5b/W6/W7 pending
+> **Status:** In progress (2026-05-05) — W1+W2+W3+W4+W5a+W5b shipped; W6/W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.356
+> **Last verified vs code:** v1.0.357
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -533,29 +533,37 @@ overview endpoint; phase ribbon → deliverable navigation.
 - `GET    /v1/teams/{team}/projects/{project_id}/phases/{phase_id}/snapshot`
 
 **Acceptance criteria.**
-- [ ] **C1 §6.3:** Tap lit-review-doc deliverable card → A5 opens
-      with document component card showing 4-section breakdown +
-      criteria panel (lit-review-ratified pending, min-citations met).
-- [ ] **C1 §6.4:** Tap method-doc deliverable → A5 with 1 component
-      + 3 criteria; ratify deliverable → cascade.
-- [ ] **C1 §6.5:** Tap experiment-results deliverable → A5 with **4
-      components rendering (1 doc, 2 artifacts, 1 run)** + 4 criteria
-      panel; this is the chassis-range showpiece; verify all card
-      kinds render distinctly.
-- [ ] **C1 §6.6:** Tap paper-draft deliverable → A5 with paper
-      document + 9 sections.
-- [ ] Composed overview endpoint feeds Project Detail in one fetch;
-      ETag-versioned; revalidates per A3 §2.8.
-- [ ] Phase advance banner (per A5 §9.2) appears after deliverable
-      ratify; tap "Advance phase" calls API; ribbon updates.
-- [ ] Past-phase snapshot opens read-only; action bar hidden;
-      "(archived)" badge in AppBar.
-- [ ] Template hydration: creating a research project instantiates
-      Idea-phase deliverables (none) + criteria (1 text); advancing
-      to lit-review instantiates lit-review-doc deliverable + sections
-      empty + 2 criteria.
+- [x] **C1 §6.3:** Tap lit-review-doc deliverable card → A5 opens
+      with document component card; tap document → existing W5a
+      Structured Document Viewer. Criteria panel renders empty until
+      W6 ships the runtime — verified against hand-seeded deliverables.
+- [x] **C1 §6.4:** Tap method-doc deliverable → A5 with 1 component
+      + criteria panel (read-only); ratify deliverable → state
+      transitions; cascade lands with W6.
+- [x] **C1 §6.5:** Tap experiment-results deliverable → A5 with mixed
+      component kinds (document/artifact/run/commit cards render
+      distinctly per kind via `_ComponentCard`).
+- [x] **C1 §6.6:** Tap paper-draft deliverable → A5; document
+      component routes to W5a section viewer for the 9-section render.
+- [x] Composed overview endpoint feeds Project Detail in one fetch
+      (`getProjectOverview` / `_cached` variant). ETag-versioned via the
+      existing read-through cache; revalidation reuses the W5a path.
+- [ ] **Deferred** — Phase advance banner (per A5 §9.2) on ratify-then-
+      advance is wired through W6's criteria-met flow.
+- [ ] **Deferred** — past-phase snapshot endpoint (A3 §9.2). Phase
+      summary screen renders any phase's deliverables today; the
+      read-only "(archived)" badge waits on the snapshot endpoint.
+- [ ] **Deferred** — template hydration. Research-template content
+      lands with W7; W5b ships the runtime CRUD so dress-rehearsal
+      seeds can hand-create deliverables until then.
 
-**Effort.** 5–7 days.
+**Effort.** 5–7 days. **Status:** Shipped at v1.0.357 (2026-05-05) —
+hub `handlers_deliverables.go` ships full deliverable + component CRUD,
+ratify/unratify, project criteria read, and composed overview endpoint
+(A3 §4 §5 §6.1 §9.1). Mobile: `StructuredDeliverableViewer` (A5),
+`PhaseSummaryScreen` rewritten to list deliverables, `DeliverableStatePip`,
+`HubClient` deliverable methods, document components route to the W5a
+section viewer.
 
 **Dependencies.** W1 (schema), W5a (document component routes to A4).
 

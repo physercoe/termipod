@@ -291,17 +291,15 @@ class _Chip extends StatelessWidget {
   final String label;
   final Color color;
   final IconData? icon;
-  final VoidCallback? onTap;
   const _Chip({
     required this.label,
     required this.color,
     this.icon,
-    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final body = Container(
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
@@ -325,12 +323,6 @@ class _Chip extends StatelessWidget {
           ),
         ],
       ),
-    );
-    if (onTap == null) return body;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: body,
     );
   }
 }

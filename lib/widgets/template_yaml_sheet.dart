@@ -106,13 +106,13 @@ class _TemplateYamlSheetState extends ConsumerState<TemplateYamlSheet> {
                       icon: const Icon(Icons.copy, size: 18),
                       tooltip: 'Copy YAML',
                       onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         await Clipboard.setData(
                             ClipboardData(text: _yaml!));
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('YAML copied')),
-                          );
-                        }
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('YAML copied')),
+                        );
                       },
                     ),
                 ],

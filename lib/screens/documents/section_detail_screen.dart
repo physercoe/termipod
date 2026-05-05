@@ -74,7 +74,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
     } on HubApiError catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
-      if (e.statusCode == 412) {
+      if (e.status == 412) {
         messenger.showSnackBar(
           const SnackBar(
             content: Text(
@@ -112,7 +112,7 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
       if (!mounted) return;
       setState(() => _busy = false);
       messenger.showSnackBar(
-        SnackBar(content: Text('Status change failed: ${e.body}')),
+        SnackBar(content: Text('Status change failed: ${e.message}')),
       );
     } catch (e) {
       if (!mounted) return;

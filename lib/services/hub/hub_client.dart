@@ -1922,7 +1922,7 @@ class HubClient {
   /// W5a — Structured Document Viewer (A4). Edits a single section's
   /// body. Pass [expectedLastAuthoredAt] (from the loaded section's
   /// `last_authored_at`) for optimistic concurrency; server returns 412
-  /// ([HubApiError] with statusCode=412) if the row's value disagrees,
+  /// ([HubApiError] with status=412) if the row's value disagrees,
   /// with a `server_section` payload the UI can use to show diff.
   Future<Map<String, dynamic>> patchDocumentSection({
     required String documentId,
@@ -1939,21 +1939,14 @@ class HubClient {
         lastAuthoredBySessionId.isNotEmpty) {
       payload['last_authored_by_session_id'] = lastAuthoredBySessionId;
     }
-    final req = await _open(
-      'PATCH',
+    final out = await _patch(
       '/v1/teams/${cfg.teamId}/documents/$documentId/sections/$slug',
+      payload,
     );
-    req.headers.contentType = ContentType.json;
-    req.add(utf8.encode(jsonEncode(payload)));
-    final res = await req.close();
-    final raw = await res.transform(utf8.decoder).join();
-    if (res.statusCode != 200) {
-      throw HubApiError(res.statusCode, raw);
-    }
     await _invalidate(
       '/v1/teams/${cfg.teamId}/documents/$documentId',
     );
-    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+    return (out as Map).cast<String, dynamic>();
   }
 
   /// W5a — POST /sections/{slug}/status. [status] is one of `empty`,

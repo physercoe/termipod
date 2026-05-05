@@ -4,7 +4,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
 import '../../../theme/design_colors.dart';
-import '../../../widgets/criterion_state_pip.dart';
 import '../../../widgets/deliverable_state_pip.dart';
 import '../../deliverables/structured_deliverable_viewer.dart';
 import 'registry.dart';

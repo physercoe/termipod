@@ -172,6 +172,18 @@ free-form "general" scope is allowed but discouraged.
                                               └────────────────────────────┘
 ```
 
+```mermaid
+stateDiagram-v2
+  [*] --> open : user picks scope
+  open --> active : system prompt assembled
+  active --> active : conversation turn
+  active --> distilling : user invokes close-with-distill
+  active --> closed : user picks "Nothing (audit only)"
+  distilling --> closed : artifact written + audit emitted
+  closed --> [*]
+  active --> active : process crash + reattach (replace-keeps-session, v1.0.281+)
+```
+
 Each transition is a hub event. The closed session's transcript
 remains in the audit log (so we can reconstruct what was said) but
 becomes inactive — no future session reads it as context.

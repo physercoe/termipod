@@ -263,6 +263,32 @@ The bottom nav is the single most visible IA artifact. Five tabs, ordered
 left-to-right as the director's attention naturally flows. **Me** is
 centered as the default landing.
 
+```mermaid
+flowchart TD
+  Bottom["Bottom nav<br/>(persistent)"]
+  Bottom --> Projects["Projects<br/>(Tier 1)"]
+  Bottom --> Activity["Activity<br/>(Tier 1)"]
+  Bottom --> Me["Me — default<br/>(Tier 0)"]
+  Bottom --> Hosts["Hosts<br/>(Tier 1 infra)"]
+  Bottom --> Settings["Settings<br/>(Tier 3 device)"]
+
+  Projects --> ProjList["Project list"]
+  ProjList --> ProjDetail["Project detail<br/>(Overview · Agents · Channel)"]
+  ProjDetail --> ProjOverview["Overview tiles<br/>(experiments / docs / schedule / plan)"]
+  ProjDetail --> ProjAgents["Project agents"]
+  ProjDetail --> ProjChannel["Project channels"]
+
+  Me --> Attention["Attention queue"]
+  Me --> MyWork["My Work strip"]
+  Me --> Steward["Steward FAB →<br/>session screen"]
+
+  Activity --> AuditFeed["Team audit feed"]
+  Hosts --> HostList["Host list (registered + SSH)"]
+  HostList --> HostDetail["Host detail / pane attach"]
+
+  TS["TeamSwitcher pill<br/>(persistent on every tab)"] --> TeamSettings["Team Settings<br/>(governance, templates, profiles)"]
+```
+
 | # | Tab | Tier | Primary intent |
 |---|---|---|---|
 | 1 | Projects | 1 | The workspace I steer |

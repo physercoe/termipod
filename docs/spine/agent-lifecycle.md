@@ -470,6 +470,22 @@ Five states, all today-implicit-target-explicit:
 | `paused` | Manually paused by user | `pause_state='paused'` | same |
 | `archived` | Retired; context preserved | `status='archived'` | same |
 
+```mermaid
+stateDiagram-v2
+  [*] --> running : spawned
+  running --> idle : loop awaits input
+  idle --> running : input arrives
+  running --> waiting_attention : blocking attention_item created
+  waiting_attention --> running : attention resolved
+  running --> paused : user pause
+  idle --> paused : user pause
+  paused --> running : user resume
+  running --> archived : retire / budget exhausted / model swap
+  idle --> archived : retire
+  paused --> archived : retire
+  archived --> [*]
+```
+
 ### 5.3 Suspension & respawn
 
 Three triggers for suspension:

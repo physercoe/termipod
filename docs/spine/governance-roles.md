@@ -11,6 +11,32 @@
 
 ## The five roles
 
+```mermaid
+flowchart TD
+  Principal["Principal<br/>(human, team owner)"]
+  Director["Director<br/>(principal-as-actor)"]
+  Steward_G["Steward — general<br/>(team-scoped, persistent)"]
+  Steward_D["Steward — domain<br/>(project-scoped)"]
+  Worker["Worker<br/>(IC, project- or task-scoped)"]
+  Operator["Operator<br/>(role label, not a managed identity)"]
+
+  Principal -.same human.- Director
+  Principal -.may also be.- Operator
+  Director -->|directs| Steward_G
+  Steward_G -->|spawns + overlays| Steward_D
+  Steward_D -->|spawns| Worker
+  Steward_G -->|spawns| Worker
+
+  classDef gated fill:#e8f0fe,stroke:#1a73e8,stroke-width:1px;
+  classDef ungated fill:#f6e7d7,stroke:#a05a2c,stroke-width:1px;
+  class Principal,Director,Steward_G,Steward_D,Worker gated;
+  class Operator ungated;
+```
+
+Solid arrows = "authors / spawns" relationships. The dashed lines
+between *Principal* / *Director* / *Operator* show the same human
+appearing in different framings, not separate identities.
+
 | Role | Identity | Authority | Lifecycle |
 |---|---|---|---|
 | **Principal** | A human. The owner of the team and its data. There is exactly one principal per team in MVP. | Ultimate. The principal can override any policy, archive any agent, edit any template that's not frozen. | Permanent (the team is theirs). |

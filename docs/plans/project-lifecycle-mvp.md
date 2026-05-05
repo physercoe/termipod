@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1+W2+W3 shipped; W4–W7 pending
+> **Status:** In progress (2026-05-05) — W1+W2+W3+W4 shipped; W5a–W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.354
+> **Last verified vs code:** v1.0.355
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -383,16 +383,21 @@ templates declare which tiles per phase.
   YAML); no further hub work.
 
 **Acceptance criteria.**
-- [ ] Initiation phase shows [References, Documents] tiles (research
+- [x] Initiation phase shows [References, Documents] tiles (research
       template's lit-review + method phases).
-- [ ] Experiment phase shows [Outputs, Documents, Experiments].
-- [ ] Paper phase shows [Outputs, Documents].
-- [ ] Reviews tile is gone (banner serves it; gap #4 closed).
-- [ ] Schedules / Plans / Assets tiles can be re-declared if the
+- [x] Experiment phase shows [Outputs, Documents, Experiments].
+- [x] Paper phase shows [Outputs, Documents].
+- [x] Reviews tile is gone (banner serves it; gap #4 closed).
+- [x] Schedules / Plans / Assets tiles can be re-declared if the
       template wants them; they're not in the default research set
       per A6.
 
-**Effort.** 1–2 days.
+**Effort.** 1–2 days. **Status:** Shipped at v1.0.355 (2026-05-05) —
+`lib/widgets/shortcut_tile_strip.dart` ships the closed `TileSlug`
+enum + the W7-shaped `phaseTilesYaml` override hook. The hardcoded
+research-template phase→tiles map mirrors
+`research-template-spec.md` exactly; W7 will swap the in-memory map
+for hub-served YAML without touching the strip's call site.
 
 **Dependencies.** W1 (current phase known); W7 (research template
 declares tile sets — but W4 can ship with a hardcoded research-template

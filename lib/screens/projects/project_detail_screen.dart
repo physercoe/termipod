@@ -11,26 +11,21 @@ import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_snippet.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/phase_ribbon.dart';
+import '../../widgets/shortcut_tile_strip.dart';
 import '../../widgets/team_switcher.dart';
 import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
 import 'archived_agents_screen.dart';
-import 'artifacts_screen.dart';
-import 'blobs_section.dart';
 import 'docs_section.dart';
-import 'documents_screen.dart';
 import 'projects_screen.dart' show openAgentDetail;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart';
-import 'plans_screen.dart';
 import 'project_channels_list_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
 import 'reviews_screen.dart';
-import 'runs_screen.dart';
-import 'schedules_screen.dart';
 import 'spawn_agent_sheet.dart';
 import 'task_detail_screen.dart';
 
@@ -1190,66 +1185,15 @@ class _OverviewView extends ConsumerWidget {
             onViewAll: onOpenActivity,
           ),
           const SizedBox(height: 12),
-          _ShortcutTile(
-            icon: Icons.science_outlined,
-            label: 'Experiments',
-            sub: 'ML training/eval runs (blueprint §6.5)',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => RunsScreen(projectId: projectId),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.rate_review_outlined,
-            label: 'Reviews',
-            sub: kind == 'standing'
-                ? 'Pending human decisions on this workspace'
-                : 'Pending human decisions on this project',
-            trailing: openAttention > 0
-                ? _AttentionBadgeSmall(count: openAttention)
-                : null,
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ReviewsScreen(projectId: projectId),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.output_outlined,
-            label: 'Outputs',
-            sub: 'Outputs runs produce · checkpoints, curves, reports',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => ArtifactsScreen(projectId: projectId),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.article_outlined,
-            label: 'Documents',
-            sub: 'Authored writeups · memos, drafts, reports',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => DocumentsScreen(projectId: projectId),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.schedule_outlined,
-            label: 'Schedules',
-            sub: 'Recurring firings across the team',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const SchedulesScreen(),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.playlist_play_outlined,
-            label: 'Plans',
-            sub: 'Plan templates the steward executes',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const PlansScreen(),
-            )),
-          ),
-          _ShortcutTile(
-            icon: Icons.perm_media_outlined,
-            label: 'Assets',
-            sub: 'Browse media from channels · standalone uploads',
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const _BlobsScreen(),
-            )),
+          // W4 (IA §6.2 / template-yaml-schema §11): replace the prior
+          // 7-hard-coded-tile strip with the template-declared,
+          // phase-filtered set. Reviews removed — orange attention
+          // banner above already serves it (acceptance gap #4).
+          ShortcutTileStrip(
+            projectId: projectId,
+            projectName: (project['name'] ?? '').toString(),
+            templateId: (project['template_id'] ?? '').toString(),
+            phase: (project['phase'] ?? '').toString(),
           ),
           const SizedBox(height: 16),
           const Divider(height: 1),
@@ -1334,56 +1278,6 @@ class _OverviewView extends ConsumerWidget {
   }
 }
 
-/// Compact navigation tile surfaced at the top of the Info tab. Routes
-/// to a screen scoped to this project via its `projectId` param.
-class _ShortcutTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String sub;
-  final Widget? trailing;
-  final VoidCallback onTap;
-  const _ShortcutTile({
-    required this.icon,
-    required this.label,
-    required this.sub,
-    required this.onTap,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: DesignColors.primary),
-      title: Text(
-        label,
-        style: GoogleFonts.spaceGrotesk(
-          fontSize: 14,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-      subtitle: Text(
-        sub,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 11,
-          color: DesignColors.textMuted,
-        ),
-      ),
-      trailing: trailing != null
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                trailing!,
-                const SizedBox(width: 4),
-                const Icon(Icons.chevron_right, size: 20),
-              ],
-            )
-          : const Icon(Icons.chevron_right, size: 20),
-      onTap: onTap,
-    );
-  }
-}
-
 /// Wide banner rendered at the top of Overview when there is pending
 /// attention on this project. Taps through to the Reviews queue (the
 /// usual source of attention items per blueprint §6.8). A separate small
@@ -1426,31 +1320,6 @@ class _AttentionBanner extends StatelessWidget {
             const Icon(Icons.chevron_right,
                 size: 18, color: DesignColors.warning),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AttentionBadgeSmall extends StatelessWidget {
-  final int count;
-  const _AttentionBadgeSmall({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: DesignColors.warning.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: DesignColors.warning.withValues(alpha: 0.6)),
-      ),
-      child: Text(
-        '$count',
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: DesignColors.warning,
         ),
       ),
     );
@@ -1594,30 +1463,6 @@ class _Placeholder extends StatelessWidget {
                   : DesignColors.textMutedLight,
             )),
       ),
-    );
-  }
-}
-
-/// Scaffold wrapper for the device-local blob cache, surfaced from the
-/// Overview tab's Blobs shortcut. The underlying [BlobsSection] is a
-/// body-only widget so we wrap it here to give it an AppBar when opened
-/// standalone.
-class _BlobsScreen extends StatelessWidget {
-  const _BlobsScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Assets',
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      body: const BlobsSection(),
     );
   }
 }

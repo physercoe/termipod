@@ -921,7 +921,7 @@ func (s *Server) mcpGetAudit(ctx context.Context, team string, raw json.RawMessa
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.listAuditEvents(ctx, team, a.Action, a.Since, limit)
+	rows, err := s.listAuditEvents(ctx, team, a.Action, a.Since, "", limit)
 	if err != nil {
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}

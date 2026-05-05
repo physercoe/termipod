@@ -8,6 +8,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
+import '../../widgets/activity_snippet.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/phase_ribbon.dart';
 import '../../widgets/team_switcher.dart';
@@ -23,8 +24,7 @@ import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart';
 import 'plans_screen.dart';
-import 'project_channel_create_sheet.dart';
-import 'project_channel_screen.dart';
+import 'project_channels_list_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
@@ -93,13 +93,17 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     );
   }
 
+  // Pill order locked by IA §6.2 (W2 — Channel demoted to AppBar). Index
+  // 1 is the canonical "Activity" feed; the project Activity-snippet on
+  // Overview deep-links here via `_jump(_activityIndex)`.
   static const _labels = [
     'Overview',
+    'Activity',
     'Agents',
-    'Channel',
     'Tasks',
     'Files',
   ];
+  static const int _activityIndex = 1;
 
   @override
   void initState() {
@@ -182,6 +186,21 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         ),
         actions: [
           const TeamSwitcher(),
+          // W2 (D10): Channel demoted out of the pill bar; the chat icon
+          // here pushes the channel list as a peer route, keeping the
+          // existing per-channel composer untouched.
+          IconButton(
+            icon: const Icon(Icons.chat_outlined),
+            tooltip: 'Discussion',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ProjectChannelsListScreen(
+                  projectId: projectId,
+                  projectName: name,
+                ),
+              ),
+            ),
+          ),
           if (((_project['template_id'] ?? '').toString()).isNotEmpty)
             IconButton(
               icon: const Icon(Icons.info_outline),
@@ -253,9 +272,12 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               controller: _pager,
               onPageChanged: (i) => setState(() => _index = i),
               children: [
-                _OverviewView(project: _project),
+                _OverviewView(
+                  project: _project,
+                  onOpenActivity: () => _jump(_activityIndex),
+                ),
+                _ActivityView(projectId: projectId),
                 _AgentsView(projectId: projectId),
-                _ChannelsView(projectId: projectId),
                 _TasksView(projectId: projectId),
                 DocsSection(projectId: projectId),
               ],
@@ -350,12 +372,13 @@ class _Pill extends StatelessWidget {
   }
 }
 
-// Activity retired from project detail tabs per IA §6.2 — the top-level
-// Activity tab covers the team feed and filters by project. The helper
-// view below is parked behind an ignore so future demos can reinstate
-// it in Overview as a digest card without resurrecting the queries.
-
-// ignore: unused_element
+// W2 (IA §6.2): Activity is a first-class pill again, this time wired
+// to `audit_events` instead of channel feeds. The hub's `project_id`
+// query filter pulls both target_kind='project' rows (W1's phase audit
+// kinds, project.create/update/archive) and any meta_json carrying this
+// project_id (agent.spawn / run.create / document.create / review.* /
+// attention.decide / artifact.create / session.*). Channel posts are
+// reachable via the AppBar Discussion icon.
 class _ActivityView extends ConsumerStatefulWidget {
   final String projectId;
   const _ActivityView({required this.projectId});
@@ -368,184 +391,6 @@ class _ActivityViewState extends ConsumerState<_ActivityView> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _events = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final client = ref.read(hubProvider.notifier).client;
-    if (client == null) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      final channels = await client.listChannels(widget.projectId);
-      final all = <Map<String, dynamic>>[];
-      for (final c in channels) {
-        final id = (c['id'] ?? '').toString();
-        if (id.isEmpty) continue;
-        final evts = await client.listProjectChannelEvents(
-          widget.projectId,
-          id,
-          limit: 20,
-        );
-        for (final e in evts) {
-          e['channel_name'] = c['name'];
-          all.add(e);
-        }
-      }
-      all.sort((a, b) {
-        final at = (a['received_ts'] ?? a['ts'] ?? '').toString();
-        final bt = (b['received_ts'] ?? b['ts'] ?? '').toString();
-        return bt.compareTo(at);
-      });
-      if (!mounted) return;
-      setState(() {
-        _events = all;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = '$e';
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(_error!,
-              style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11, color: DesignColors.error)),
-        ),
-      );
-    }
-    if (_events.isEmpty) {
-      return const _Placeholder(text: 'No activity yet');
-    }
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        itemCount: _events.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, i) => _ActivityRow(evt: _events[i]),
-      ),
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  final Map<String, dynamic> evt;
-  const _ActivityRow({required this.evt});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final channel = (evt['channel_name'] ?? '').toString();
-    final from = (evt['from_id'] ?? '').toString();
-    final ts = (evt['ts'] ?? evt['received_ts'] ?? '').toString();
-    final preview = _preview((evt['parts'] as List?) ?? const []);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color:
-            isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isDark
-              ? DesignColors.borderDark
-              : DesignColors.borderLight,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (channel.isNotEmpty)
-                Text('#$channel',
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: DesignColors.primary,
-                    )),
-              if (from.isNotEmpty) ...[
-                const SizedBox(width: 6),
-                Text(from,
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight,
-                    )),
-              ],
-              const Spacer(),
-              Text(_shortTs(ts),
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 9,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(preview,
-              style:
-                  GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.3)),
-        ],
-      ),
-    );
-  }
-
-  String _preview(List<dynamic> parts) {
-    for (final raw in parts) {
-      if (raw is! Map) continue;
-      if (raw['kind'] == 'text' && raw['text'] is String) {
-        final t = (raw['text'] as String).trim();
-        if (t.isNotEmpty) return t;
-      }
-    }
-    return '(no text)';
-  }
-
-  String _shortTs(String raw) {
-    if (raw.isEmpty) return '';
-    final t = DateTime.tryParse(raw);
-    if (t == null) return raw;
-    final diff = DateTime.now().difference(t);
-    if (diff.inMinutes < 1) return 'now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    if (diff.inDays < 7) return '${diff.inDays}d';
-    return '${(diff.inDays / 7).floor()}w';
-  }
-}
-
-// ---- Channels ----
-
-class _ChannelsView extends ConsumerStatefulWidget {
-  final String projectId;
-  const _ChannelsView({required this.projectId});
-
-  @override
-  ConsumerState<_ChannelsView> createState() => _ChannelsViewState();
-}
-
-class _ChannelsViewState extends ConsumerState<_ChannelsView> {
-  bool _loading = true;
-  String? _error;
-  List<Map<String, dynamic>> _channels = const [];
   DateTime? _staleSince;
 
   @override
@@ -562,10 +407,13 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
       _error = null;
     });
     try {
-      final cached = await client.listChannelsCached(widget.projectId);
+      final cached = await client.listAuditEventsCached(
+        projectId: widget.projectId,
+        limit: 100,
+      );
       if (!mounted) return;
       setState(() {
-        _channels = cached.body;
+        _events = cached.body;
         _staleSince = cached.staleSince;
         _loading = false;
       });
@@ -576,32 +424,6 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
         _error = '$e';
       });
     }
-  }
-
-  Future<void> _create() async {
-    final created = await showModalBottomSheet<Map<String, dynamic>>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) =>
-          ProjectChannelCreateSheet(projectId: widget.projectId),
-    );
-    if (created == null || !mounted) return;
-    setState(() => _channels = [..._channels, created]);
-  }
-
-  void _open(Map<String, dynamic> row) {
-    final id = (row['id'] ?? '').toString();
-    final name = (row['name'] ?? id).toString();
-    if (id.isEmpty) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProjectChannelScreen(
-          projectId: widget.projectId,
-          channelId: id,
-          channelName: name,
-        ),
-      ),
-    );
   }
 
   @override
@@ -617,105 +439,105 @@ class _ChannelsViewState extends ConsumerState<_ChannelsView> {
         ),
       );
     }
-    final list = _channels.isEmpty
-        ? const _Placeholder(text: 'No channels yet — tap + to create')
-        : RefreshIndicator(
-            onRefresh: _load,
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-              itemCount: _channels.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) => _ChannelRow(
-                row: _channels[i],
-                onTap: () => _open(_channels[i]),
-              ),
-            ),
-          );
-    final body = Column(
+    return Column(
       children: [
         HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
-        Expanded(child: list),
-      ],
-    );
-    return Stack(
-      children: [
-        body,
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: FloatingActionButton.extended(
-            heroTag: 'project-channel-fab-${widget.projectId}',
-            onPressed: _create,
-            icon: const Icon(Icons.add),
-            label: const Text('Channel'),
-          ),
+        Expanded(
+          child: _events.isEmpty
+              ? const _Placeholder(text: 'No activity yet')
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                    itemCount: _events.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, i) => _ActivityRow(evt: _events[i]),
+                  ),
+                ),
         ),
       ],
     );
   }
 }
 
-class _ChannelRow extends StatelessWidget {
-  final Map<String, dynamic> row;
-  final VoidCallback onTap;
-  const _ChannelRow({required this.row, required this.onTap});
+class _ActivityRow extends StatelessWidget {
+  final Map<String, dynamic> evt;
+  const _ActivityRow({required this.evt});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final name = (row['name'] ?? '').toString();
-    final id = (row['id'] ?? '').toString();
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
+    final action = (evt['action'] ?? '').toString();
+    final summary = (evt['summary'] ?? '').toString();
+    final ts = (evt['ts'] ?? '').toString();
+    final actorHandle = (evt['actor_handle'] ?? '').toString();
+    final actorKind = (evt['actor_kind'] ?? '').toString();
+    final actor = actorHandle.isNotEmpty
+        ? '@$actorHandle'
+        : (actorKind.isNotEmpty ? actorKind : 'system');
+    final icon = activityIconForAction(action);
+    final color = activityColorForAction(action);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color:
+            isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
           color: isDark
-              ? DesignColors.surfaceDark
-              : DesignColors.surfaceLight,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isDark
-                ? DesignColors.borderDark
-                : DesignColors.borderLight,
+              ? DesignColors.borderDark
+              : DesignColors.borderLight,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 16, color: color),
           ),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.tag, size: 18, color: DesignColors.primary),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name.isEmpty ? '(unnamed)' : name,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  summary.isEmpty ? action : summary,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 13,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
                   ),
-                  if (id.isNotEmpty)
-                    Text(
-                      id,
-                      style: GoogleFonts.jetBrainsMono(
-                        fontSize: 10,
-                        color: isDark
-                            ? DesignColors.textMuted
-                            : DesignColors.textMutedLight,
-                      ),
-                    ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$actor · ${activityActionLabel(action)}',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    color: isDark
+                        ? DesignColors.textMuted
+                        : DesignColors.textMutedLight,
+                  ),
+                ),
+              ],
             ),
-            const Icon(Icons.chevron_right, size: 18),
-          ],
-        ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            shortRelativeTs(ts),
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              color: isDark
+                  ? DesignColors.textMuted
+                  : DesignColors.textMutedLight,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
 
 // ---- Tasks ----
 
@@ -1294,7 +1116,11 @@ class _AgentsView extends ConsumerWidget {
 
 class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
-  const _OverviewView({required this.project});
+  final VoidCallback onOpenActivity;
+  const _OverviewView({
+    required this.project,
+    required this.onOpenActivity,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1355,6 +1181,15 @@ class _OverviewView extends ConsumerWidget {
             buildWorkspaceOverview(OverviewContext(project: project)),
             const SizedBox(height: 12),
           ],
+          // W2 (IA §6.2): recent-activity digest sits between the hero
+          // region and the shortcut tiles. "View all" deep-links into
+          // the Activity pill, which the parent screen exposes via
+          // onOpenActivity.
+          ActivitySnippet(
+            projectId: projectId,
+            onViewAll: onOpenActivity,
+          ),
+          const SizedBox(height: 12),
           _ShortcutTile(
             icon: Icons.science_outlined,
             label: 'Experiments',

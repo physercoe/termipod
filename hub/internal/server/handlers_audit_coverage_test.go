@@ -212,6 +212,54 @@ func TestMCPGetAudit_ReturnsTeamScopedRows(t *testing.T) {
 	}
 }
 
+// TestListAudit_FiltersByProjectID covers W2's project-scoped Activity
+// feed. The project_id query filter must include both rows whose target
+// is the project itself (target_kind='project') AND rows whose meta_json
+// carries that project_id (covers agent.spawn / run.create / etc.).
+// Rows from other projects must be excluded.
+func TestListAudit_FiltersByProjectID(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	ctx := context.Background()
+	mustExec := func(action, targetKind, targetID, meta string) {
+		t.Helper()
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO audit_events (
+				id, team_id, ts, actor_kind, action,
+				target_kind, target_id, summary, meta_json
+			) VALUES (?, ?, ?, 'system', ?, ?, ?, 's', ?)`,
+			NewID(), defaultTeamID, NowUTC(), action,
+			nullIfEmpty(targetKind), nullIfEmpty(targetID), meta); err != nil {
+			t.Fatalf("seed audit: %v", err)
+		}
+	}
+	mustExec("project.phase_advanced", "project", "p1", "{}")
+	mustExec("project.phase_advanced", "project", "p2", "{}")
+	mustExec("agent.spawn", "agent", "a1", `{"project_id":"p1","kind":"steward"}`)
+	mustExec("run.create", "run", "r1", `{"project_id":"p2"}`)
+	mustExec("document.create", "document", "d1", `{"project_id":"p1"}`)
+	// Row with neither target=project nor project_id meta — must NOT match.
+	mustExec("template.created", "template", "t1", "{}")
+
+	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "p1", 100)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows for p1, got %d: %+v", len(rows), rows)
+	}
+	actions := map[string]bool{}
+	for _, r := range rows {
+		actions[r.Action] = true
+		// p2 rows must not appear.
+		if r.TargetID == "p2" || r.TargetID == "r1" {
+			t.Errorf("unexpected row from p2: %+v", r)
+		}
+	}
+	if !actions["project.phase_advanced"] || !actions["agent.spawn"] || !actions["document.create"] {
+		t.Errorf("missing expected action; got %+v", actions)
+	}
+}
+
 // mcpResultJSONText pulls the text content out of an mcpResultJSON wrapper.
 func mcpResultJSONText(t *testing.T, res any) string {
 	t.Helper()

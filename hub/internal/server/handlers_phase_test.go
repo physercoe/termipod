@@ -131,7 +131,7 @@ func TestPhase_AdvanceWalksTemplateOrder(t *testing.T) {
 	}
 
 	// Verify audit row.
-	rows, err := s.listAuditEvents(req.Context(), team, "project.phase_advanced", "", 10)
+	rows, err := s.listAuditEvents(req.Context(), team, "project.phase_advanced", "", "", 10)
 	if err != nil {
 		t.Fatalf("listAuditEvents: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestPhase_SetWritesPhaseAndAuditsRevert(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("revert: %d %s", rr.Code, rr.Body.String())
 	}
-	rows, err := s.listAuditEvents(req.Context(), team, "project.phase_reverted", "", 10)
+	rows, err := s.listAuditEvents(req.Context(), team, "project.phase_reverted", "", "", 10)
 	if err != nil {
 		t.Fatalf("listAuditEvents: %v", err)
 	}

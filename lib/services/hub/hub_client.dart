@@ -2395,15 +2395,21 @@ class HubClient {
   ///
   /// [action] filters to an exact action string (e.g. `agent.spawn`).
   /// [since] is an ISO-8601 UTC timestamp lower bound. [limit] is clamped
-  /// to 500 by the server.
+  /// to 500 by the server. [projectId] scopes to one project (W2 Activity
+  /// feed): includes rows whose target is the project plus rows whose
+  /// meta carries a matching `project_id`.
   Future<List<Map<String, dynamic>>> listAuditEvents({
     String? action,
     String? since,
+    String? projectId,
     int? limit,
   }) {
     final query = <String, String>{};
     if (action != null && action.isNotEmpty) query['action'] = action;
     if (since != null && since.isNotEmpty) query['since'] = since;
+    if (projectId != null && projectId.isNotEmpty) {
+      query['project_id'] = projectId;
+    }
     if (limit != null) query['limit'] = '$limit';
     return _listJson(
       '/v1/teams/${cfg.teamId}/audit',
@@ -2416,11 +2422,15 @@ class HubClient {
   Future<CachedResponse<List<Map<String, dynamic>>>> listAuditEventsCached({
     String? action,
     String? since,
+    String? projectId,
     int? limit,
   }) {
     final query = <String, String>{};
     if (action != null && action.isNotEmpty) query['action'] = action;
     if (since != null && since.isNotEmpty) query['since'] = since;
+    if (projectId != null && projectId.isNotEmpty) {
+      query['project_id'] = projectId;
+    }
     if (limit != null) query['limit'] = '$limit';
     return readThrough<List<Map<String, dynamic>>>(
       cache: snapshotCache,
@@ -2429,7 +2439,12 @@ class HubClient {
         '/v1/teams/${cfg.teamId}/audit',
         query.isEmpty ? null : query,
       ),
-      fetch: () => listAuditEvents(action: action, since: since, limit: limit),
+      fetch: () => listAuditEvents(
+        action: action,
+        since: since,
+        projectId: projectId,
+        limit: limit,
+      ),
       decode: _decodeListMaps,
     );
   }

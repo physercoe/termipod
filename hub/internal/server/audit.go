@@ -80,12 +80,18 @@ func actorFromContext(ctx context.Context) (tokenID, kind, handle string) {
 	return tok.ID, tok.Kind, handle
 }
 
-// listAuditEvents reads rows filtered by team/action/since with pagination.
-// Callers are expected to pass a reasonable limit — there's no hard cap
-// here but the handler clamps to 500.
+// listAuditEvents reads rows filtered by team/action/since/projectID with
+// pagination. Callers are expected to pass a reasonable limit — there's
+// no hard cap here but the handler clamps to 500.
+//
+// projectID, when non-empty, scopes the feed to a single project: rows
+// whose target is the project itself (target_kind='project'), plus rows
+// whose meta_json carries a `project_id` matching it (covers agent.spawn,
+// run.create, document.create, review.request, artifact.create, etc.).
+// Project-scoped W2 Activity feed depends on this.
 func (s *Server) listAuditEvents(
 	ctx context.Context,
-	teamID, action, since string,
+	teamID, action, since, projectID string,
 	limit int,
 ) ([]AuditRow, error) {
 	if limit <= 0 {
@@ -104,6 +110,11 @@ func (s *Server) listAuditEvents(
 	if since != "" {
 		q += ` AND ts >= ?`
 		args = append(args, since)
+	}
+	if projectID != "" {
+		q += ` AND ((target_kind = 'project' AND target_id = ?)
+		         OR json_extract(meta_json, '$.project_id') = ?)`
+		args = append(args, projectID, projectID)
 	}
 	q += ` ORDER BY ts DESC LIMIT ?`
 	args = append(args, limit)

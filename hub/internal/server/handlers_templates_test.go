@@ -72,7 +72,7 @@ func TestTemplates_PutCreatesAndAudits(t *testing.T) {
 	}
 
 	// Audit should have one created + one updated row for this target.
-	rows, err := c.s.listAuditEvents(context.Background(), c.teamID, "", "", 100)
+	rows, err := c.s.listAuditEvents(context.Background(), c.teamID, "", "", "", 100)
 	if err != nil {
 		t.Fatalf("listAudit: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestTemplates_DeleteRemovesAndAudits(t *testing.T) {
 		t.Errorf("re-DELETE = %d, want 404", status)
 	}
 
-	rows, _ := c.s.listAuditEvents(context.Background(), c.teamID, "template.deleted", "", 10)
+	rows, _ := c.s.listAuditEvents(context.Background(), c.teamID, "template.deleted", "", "", 10)
 	found := false
 	for _, r := range rows {
 		if r.TargetID == "agents/doomed.v1.yaml" {

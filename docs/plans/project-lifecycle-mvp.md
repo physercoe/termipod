@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1+W3 shipped; W2/W4–W7 pending
+> **Status:** In progress (2026-05-05) — W1+W2+W3 shipped; W4–W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.353
+> **Last verified vs code:** v1.0.354
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -286,17 +286,21 @@ snippet to Overview.
   the new kinds added in W1 (and to be added in W5b/W6).
 
 **Acceptance criteria.**
-- [ ] **C1 §6.7:** Activity tab shows the project's audit events in
+- [x] **C1 §6.7:** Activity tab shows the project's audit events in
       chronological order; new lifecycle kinds (phase advance,
       deliverable ratify) render with sensible labels.
-- [ ] Discussion icon in AppBar opens project channel; the existing
+- [x] Discussion icon in AppBar opens project channel; the existing
       channel content unchanged.
-- [ ] Activity-snippet on Overview shows last 5 events; "View all"
+- [x] Activity-snippet on Overview shows last 5 events; "View all"
       navigates to Activity tab.
-- [ ] Pill bar after change: Overview · **Activity** · Agents · Tasks
+- [x] Pill bar after change: Overview · **Activity** · Agents · Tasks
       · Library *(or current "Files" name; rename optional)*.
 
-**Effort.** 1–2 days.
+**Effort.** 1–2 days. **Status:** Shipped at v1.0.354 (2026-05-05) —
+hub-side `project_id` filter on `/v1/teams/{team}/audit`; mobile pill
+bar wired to audit feed; AppBar Discussion icon → standalone channels
+list screen; Activity-snippet on Overview deep-links to the Activity
+pill.
 
 **Dependencies.** W1 (so the new audit kinds appear in the feed).
 

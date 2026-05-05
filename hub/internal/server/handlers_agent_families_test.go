@@ -237,7 +237,7 @@ func TestAgentFamilies_HotReload_PutThenSpawnSeesIt(t *testing.T) {
 	}
 
 	// Audit row should reflect the create.
-	rows, err := c.s.listAuditEvents(context.Background(), c.teamID, "", "", 50)
+	rows, err := c.s.listAuditEvents(context.Background(), c.teamID, "", "", "", 50)
 	if err != nil {
 		t.Fatalf("listAudit: %v", err)
 	}

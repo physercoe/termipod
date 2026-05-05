@@ -1,7 +1,7 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-05) — not yet started
+> **Status:** Draft (2026-05-05) — paused; gated on at least P0+P1 of [`doc-uplift.md`](doc-uplift.md) shipping first
 > **Audience:** contributors (hub backend, mobile, demo operators)
 > **Last verified vs code:** v1.0.351
 
@@ -34,6 +34,15 @@ checks are.
 [`research-demo-gaps.md`](research-demo-gaps.md) (the older P4
 tracker). Where the older doc is still authoritative for non-lifecycle
 items (host bootstrap, A2A relay, etc.), it stays.
+
+> **Prerequisite — paused 2026-05-05.** A doc audit on 2026-05-05
+> identified industry-standard structural gaps (no diagrams, no
+> consolidated DB / API / architecture-overview docs, blueprint
+> carrying 7 concerns). Because the demo audience includes reviewers
+> + their AI agents inspecting the codebase, the docs are part of
+> the demo deliverable. This plan is paused until at least P0+P1 of
+> [`doc-uplift.md`](doc-uplift.md) ships. Lifecycle engineering
+> resumes after that gate.
 
 ---
 

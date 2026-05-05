@@ -114,6 +114,13 @@ type projectTemplateDoc struct {
 	// header on Project Detail → Overview (A+B chassis, IA §6.2).
 	// Empty / unknown → defaults to overviewWidgetDefault at resolve time.
 	OverviewWidget string `yaml:"overview_widget"`
+	// Phases is the ordered phase set declared by the template (D1).
+	// Empty (the existing case for every shipped template) keeps the
+	// project lifecycle-disabled — projects.phase stays NULL and the
+	// mobile UI falls back to the pre-lifecycle Overview. The full
+	// per-phase deliverable / criterion / section spec lands in W7;
+	// W1 only consumes the phase list.
+	Phases []string `yaml:"phases"`
 }
 
 // overviewWidgetDefault is returned when a template doesn't specify one

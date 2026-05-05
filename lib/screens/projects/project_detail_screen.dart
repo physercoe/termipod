@@ -9,7 +9,9 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
+import '../../widgets/phase_ribbon.dart';
 import '../../widgets/team_switcher.dart';
+import 'phase_summary_screen.dart';
 import 'archived_agents_screen.dart';
 import 'artifacts_screen.dart';
 import 'blobs_section.dart';
@@ -67,6 +69,28 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   final _pager = PageController();
   int _index = 0;
   late Map<String, dynamic> _project;
+
+  /// Lifecycle phase fields (W1). Pulled out as locals so the build
+  /// method can stay readable; kept in sync from `_project` whenever the
+  /// underlying map changes.
+  String get _phase => (_project['phase'] ?? '').toString();
+  List<String> get _phases => (_project['phases'] as List?)
+          ?.map((e) => e.toString())
+          .toList() ??
+      const [];
+
+  void _openPhaseSummary(String phase) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhaseSummaryScreen(
+          projectId: (_project['id'] ?? '').toString(),
+          projectName: (_project['name'] ?? '').toString(),
+          phase: phase,
+          isCurrent: phase == _phase,
+        ),
+      ),
+    );
+  }
 
   static const _labels = [
     'Overview',
@@ -203,6 +227,12 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         children: [
           if (parentId.isNotEmpty)
             _ParentBreadcrumb(parentProjectId: parentId),
+          if (_phases.isNotEmpty)
+            PhaseRibbon(
+              phases: _phases,
+              currentPhase: _phase,
+              onTap: (p) => _openPhaseSummary(p),
+            ),
           _PillBar(
             labels: _labels,
             selected: _index,

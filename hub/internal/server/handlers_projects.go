@@ -55,6 +55,13 @@ type projectOut struct {
 	// Detail → Overview (A+B chassis, IA §6.2). Always populated on
 	// the wire: unknown / missing template → overviewWidgetDefault.
 	OverviewWidget string `json:"overview_widget"`
+
+	// Phase + Phases + PhaseHistory carry lifecycle state (D1).
+	// Phase is empty for legacy / lifecycle-disabled projects; mobile
+	// renders the pre-lifecycle Overview when Phase is empty.
+	Phase        string            `json:"phase,omitempty"`
+	Phases       []string          `json:"phases,omitempty"`
+	PhaseHistory []phaseTransition `json:"phase_history,omitempty"`
 }
 
 // resolveOverviewWidget returns the hero widget kind to surface on the
@@ -171,21 +178,45 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	if in.IsTemplate {
 		isTpl = 1
 	}
+
+	// Hydrate the initial phase from the template's phase set (D1).
+	// Concrete projects (is_template=0) created from a phase-declaring
+	// template land on phases[0]; everything else stays NULL so the UI
+	// renders the legacy Overview. Per reference/project-phase-schema.md
+	// §7.2 we also persist the first transition into phase_history and
+	// emit a project.phase_set audit row.
+	var initPhase string
+	var initPhaseHistory sql.NullString
+	if !in.IsTemplate {
+		if phases := s.templatePhases(in.TemplateID); len(phases) > 0 {
+			initPhase = phases[0]
+			doc := phaseHistoryDoc{Transitions: []phaseTransition{{
+				From: "", To: initPhase, At: now, ByActor: "system",
+			}}}
+			if b, err := json.Marshal(doc); err == nil {
+				initPhaseHistory = sql.NullString{String: string(b), Valid: true}
+			}
+		}
+	}
+
 	_, err := s.db.ExecContext(r.Context(), `
 		INSERT INTO projects (
 			id, team_id, name, config_yaml, docs_root, created_at,
 			goal, kind, parent_project_id, template_id, parameters_json,
 			is_template, budget_cents, policy_overrides_json,
-			steward_agent_id, on_create_template_id
+			steward_agent_id, on_create_template_id,
+			phase, phase_history
 		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?,
 			?, ?, ?, ?, ?,
 			?, ?, ?,
+			?, ?,
 			?, ?)`,
 		id, team, in.Name, in.ConfigYML, in.DocsRoot, now,
 		nullStringIfEmpty(in.Goal), kind, nullStringIfEmpty(in.ParentProjectID),
 		nullStringIfEmpty(in.TemplateID), nullRawJSON(in.ParametersJSON),
 		isTpl, nullInt64(in.BudgetCents), nullRawJSON(in.PolicyOverridesJSON),
 		nullStringIfEmpty(in.StewardAgentID), nullStringIfEmpty(in.OnCreateTemplateID),
+		nullStringIfEmpty(initPhase), initPhaseHistory,
 	)
 	if err != nil {
 		writeErr(w, http.StatusConflict, err.Error())
@@ -194,6 +225,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	s.recordAudit(r.Context(), team, "project.create", "project", id,
 		"create project "+in.Name,
 		map[string]any{"kind": kind, "is_template": in.IsTemplate})
+	if initPhase != "" {
+		s.recordAudit(r.Context(), team, "project.phase_set", "project", id,
+			"set initial phase "+initPhase,
+			map[string]any{"phase": initPhase, "by_template": in.TemplateID})
+	}
 	out := projectOut{
 		ID: id, TeamID: team, Name: in.Name, Status: "active",
 		DocsRoot: in.DocsRoot, ConfigYAML: in.ConfigYML, CreatedAt: now,
@@ -203,6 +239,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
 		OverviewWidget: s.resolveOverviewWidget(in.TemplateID),
+		Phase:          initPhase,
+		Phases:         s.templatePhases(in.TemplateID),
+	}
+	if initPhase != "" {
+		out.PhaseHistory = []phaseTransition{{
+			From: "", To: initPhase, At: now, ByActor: "system",
+		}}
 	}
 	writeJSON(w, http.StatusCreated, out)
 }
@@ -214,6 +257,7 @@ func scanProjectRow(sc interface {
 }, p *projectOut) error {
 	var archived, goal, parentID, tplID, paramsJSON sql.NullString
 	var policyJSON, stewardID, onCreateTplID, kind sql.NullString
+	var phase, phaseHistory sql.NullString
 	var budget sql.NullInt64
 	var isTpl int64
 	if err := sc.Scan(
@@ -221,6 +265,7 @@ func scanProjectRow(sc interface {
 		&p.DocsRoot, &p.ConfigYAML, &p.CreatedAt, &archived,
 		&goal, &kind, &parentID, &tplID, &paramsJSON,
 		&isTpl, &budget, &policyJSON, &stewardID, &onCreateTplID,
+		&phase, &phaseHistory,
 	); err != nil {
 		return err
 	}
@@ -248,6 +293,15 @@ func scanProjectRow(sc interface {
 	}
 	p.StewardAgentID = stewardID.String
 	p.OnCreateTemplateID = onCreateTplID.String
+	if phase.Valid {
+		p.Phase = phase.String
+	}
+	if phaseHistory.Valid && phaseHistory.String != "" {
+		var doc phaseHistoryDoc
+		if err := json.Unmarshal([]byte(phaseHistory.String), &doc); err == nil {
+			p.PhaseHistory = doc.Transitions
+		}
+	}
 	return nil
 }
 
@@ -257,7 +311,8 @@ const projectSelectCols = `
 	created_at, archived_at,
 	goal, kind, parent_project_id, template_id, parameters_json,
 	is_template, budget_cents, policy_overrides_json,
-	steward_agent_id, on_create_template_id`
+	steward_agent_id, on_create_template_id,
+	phase, phase_history`
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
@@ -293,6 +348,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
+		p.Phases = s.templatePhases(p.TemplateID)
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -314,6 +370,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
+	p.Phases = s.templatePhases(p.TemplateID)
 	writeJSON(w, http.StatusOK, p)
 }
 

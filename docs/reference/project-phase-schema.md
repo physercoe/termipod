@@ -1,9 +1,9 @@
 # Project lifecycle schema reference
 
 > **Type:** reference
-> **Status:** Draft (2026-05-05) — schema not yet shipped; pending plan + ADR
+> **Status:** Current (2026-05-05) — W1 shipped at v1.0.352 (migration 0034)
 > **Audience:** contributors (hub backend, mobile)
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.352
 
 **TL;DR.** Schema specification for the project-lifecycle work
 discussed in
@@ -206,25 +206,33 @@ Notes:
 
 ### 3.2 `documents`
 
-Add typed-document fields (D7). Existing `body TEXT` continues to hold
-plain markdown for non-typed docs; for typed docs, `body` holds JSON
-matching the section shape in §3.4.
+Add a typed-document marker (D7). Existing `body TEXT` continues to
+hold plain markdown for non-typed docs; for typed docs, `body` holds
+JSON matching the section shape in §3.4.
 
 ```sql
-ALTER TABLE documents ADD COLUMN kind        TEXT;       -- nullable, freeform
+-- documents.kind already exists (migration 0007) as freeform NOT NULL —
+-- carries 'memo' / 'draft' / 'report' / 'review' today and gains the new
+-- typed-doc senses ('proposal', 'method', 'paper', …) without DDL change.
 ALTER TABLE documents ADD COLUMN schema_id   TEXT;       -- nullable, references
                                                          --  template's section schema slug
 ```
 
 Notes:
-- `kind` is freeform (proposal, method, paper, ...). NULL = plain
-  markdown doc (existing behavior).
+- `kind` is the existing freeform NOT NULL column. The MVP does not
+  add a second column; the same field carries both the original
+  values (memo / draft / report / review, set on doc creation) and the
+  new typed-doc senses (proposal / method / paper / experiment-report …,
+  set when a template hydrates a typed doc).
+- `schema_id` is the typed-document indicator: presence of a non-NULL
+  schema_id means "structured document; render via the section-aware
+  viewer." NULL means "plain markdown" — preserves the legacy path.
 - `schema_id` references a template-declared section schema (not a
   hub-side row). Hub does not validate against template content; the
   rendering layer does.
 - `body` column type is unchanged (`TEXT`). Plain docs keep TEXT
   markdown. Typed docs put JSON in TEXT — clients parse based on
-  `kind`/`schema_id`. This avoids a column-type migration.
+  `schema_id`. This avoids a column-type migration.
 - A typed doc may exist standalone (free-floating) OR be referenced as
   a `deliverable_components.ref_id` with `kind='document'`. The same
   document can be a deliverable component for at most one

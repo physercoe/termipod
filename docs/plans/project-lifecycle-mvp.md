@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-05) — paused; gated on [`doc-uplift.md`](doc-uplift.md) P0+P1 + [`contributor-readiness.md`](contributor-readiness.md) shipping first
+> **Status:** In progress (2026-05-05) — W1 shipped; W2–W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.352
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -35,20 +35,14 @@ checks are.
 tracker). Where the older doc is still authoritative for non-lifecycle
 items (host bootstrap, A2A relay, etc.), it stays.
 
-> **Prerequisite — paused 2026-05-05.** Two doc audits on 2026-05-05
-> identified gaps that the demo audience (reviewers + their AI
-> agents inspecting the codebase) will see. Because the docs are
-> part of the demo deliverable, this plan is paused until both
-> sibling plans ship:
+> **Gates closed 2026-05-05.** Both sibling plans shipped before
+> lifecycle work began:
 >
-> - [`doc-uplift.md`](doc-uplift.md) **P0+P1** — system-design doc
->   axis (architecture / schema / API / flows / cross-cutting)
-> - [`contributor-readiness.md`](contributor-readiness.md) **all 6
->   items** — contributor-experience axis (CONTRIBUTING /
->   CODE_OF_CONDUCT / SECURITY / issue templates / local dev env /
->   test running)
+> - [`doc-uplift.md`](doc-uplift.md) — P0+P1+P2 (10/10) shipped
+> - [`contributor-readiness.md`](contributor-readiness.md) — 5/6
+>   shipped (G2 CODE_OF_CONDUCT permanently deferred)
 >
-> Lifecycle engineering resumes after both gates close.
+> Lifecycle engineering is in progress.
 
 ---
 
@@ -243,18 +237,21 @@ advance, no behavior change for legacy non-phased projects.
   (admin / hydration)
 
 **Acceptance criteria (tied to C1).**
-- [ ] **C1 §6.2 beat 1:** New research project shows phase ribbon
-      with 5 phases; Idea highlighted as current. No console errors,
-      no analyze warnings.
-- [ ] **C1 §6.2 beat 2:** Tap Idea phase → phase summary screen
-      opens (stub for W5b, but routes correctly).
-- [ ] **C1 §6.2 beat 3:** Phase advance via API succeeds when
+- [x] **C1 §6.2 beat 1:** New phase-declaring project shows phase
+      ribbon; first phase highlighted as current. (Research template
+      content lands in W7 — W1 verified against a synthetic
+      `phased-test-template`.)
+- [x] **C1 §6.2 beat 2:** Tap a phase chip → phase summary screen
+      opens (stub `PhaseSummaryScreen`, routes correctly; surface
+      filled in by W5b).
+- [x] **C1 §6.2 beat 3:** Phase advance via API succeeds when
       criteria met; emits `project.phase_advanced` audit event.
-      Ribbon updates to show Lit-rev as current.
-- [ ] Legacy projects (`phase=NULL`) render exactly as before — no
+      Ribbon updates on next read.
+- [x] Legacy projects (`phase=NULL`) render exactly as before — no
       ribbon, no Overview restructure.
-- [ ] `POST /phase/advance` returns 409 with problem-detail when
-      required criteria are pending.
+- [x] `POST /phase/advance` returns 409 problem-detail when required
+      criteria are pending; `phase-criteria-pending` code +
+      `pending_count` extension.
 
 **Open prep items resolved here.**
 - C1 §11.3 (phase advance banner copy) — pinned to "✨ Phase ready

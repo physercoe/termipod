@@ -914,6 +914,54 @@ class HubClient {
     await _invalidate('/v1/teams/${cfg.teamId}/projects');
   }
 
+  /// Reads the current phase + template phase order + transition log
+  /// for a project (lifecycle W1). Returns a payload of the shape
+  /// `{project_id, phase, phases:[...], history:[...]}` — fields are
+  /// empty for lifecycle-disabled projects.
+  Future<Map<String, dynamic>> getProjectPhase(String projectId) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/phase',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Walks the project to the next phase in its template's phase order
+  /// (lifecycle W1). Throws [HubApiError] with code 409 +
+  /// `application/problem+json` body when required acceptance criteria
+  /// for the current phase haven't been met. The returned payload has
+  /// the same shape as [getProjectPhase].
+  Future<Map<String, dynamic>> advanceProjectPhase(
+    String projectId, {
+    String? toPhase,
+    String? reason,
+  }) async {
+    final body = <String, dynamic>{};
+    if (toPhase != null && toPhase.isNotEmpty) body['to_phase'] = toPhase;
+    if (reason != null && reason.isNotEmpty) body['reason'] = reason;
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/phase/advance',
+      body,
+    );
+    await _invalidate('/v1/teams/${cfg.teamId}/projects');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Admin-only direct phase set (lifecycle W1, hydration / repair). Skips
+  /// criteria gating; the audit row is `project.phase_set` (or
+  /// `project.phase_reverted` when moving backwards in the template's
+  /// order).
+  Future<Map<String, dynamic>> setProjectPhase(
+    String projectId,
+    String phase,
+  ) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/phase',
+      {'phase': phase},
+    );
+    await _invalidate('/v1/teams/${cfg.teamId}/projects');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   Future<Map<String, dynamic>> createTask(
     String projectId, {
     required String title,

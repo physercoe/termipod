@@ -2071,6 +2071,83 @@ class HubClient {
         .toList();
   }
 
+  Future<Map<String, dynamic>> createCriterion({
+    required String projectId,
+    required String phase,
+    required String kind,
+    Map<String, dynamic>? body,
+    String? deliverableId,
+    bool? required,
+    int? ord,
+  }) async {
+    final payload = <String, dynamic>{
+      'phase': phase,
+      'kind': kind,
+      if (body != null) 'body': body,
+      if (deliverableId != null && deliverableId.isNotEmpty)
+        'deliverable_id': deliverableId,
+      if (required != null) 'required': required,
+      if (ord != null) 'ord': ord,
+    };
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/criteria',
+      payload,
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  Future<Map<String, dynamic>> markCriterionMet({
+    required String projectId,
+    required String criterionId,
+    String? evidenceRef,
+    String? rationale,
+  }) =>
+      _markCriterion(projectId, criterionId, 'mark-met', evidenceRef, rationale);
+
+  Future<Map<String, dynamic>> markCriterionFailed({
+    required String projectId,
+    required String criterionId,
+    String? reason,
+  }) =>
+      _markCriterion(projectId, criterionId, 'mark-failed', null, reason);
+
+  Future<Map<String, dynamic>> waiveCriterion({
+    required String projectId,
+    required String criterionId,
+    String? reason,
+  }) =>
+      _markCriterion(projectId, criterionId, 'waive', null, reason);
+
+  Future<Map<String, dynamic>> _markCriterion(
+    String projectId,
+    String criterionId,
+    String action,
+    String? evidenceRef,
+    String? note,
+  ) async {
+    final payload = <String, dynamic>{};
+    if (evidenceRef != null && evidenceRef.isNotEmpty) {
+      payload['evidence_ref'] = evidenceRef;
+    }
+    if (note != null && note.isNotEmpty) {
+      // mark-met treats it as rationale; mark-failed/waive treat it as
+      // reason. The hub accepts both; sending both keeps shapes simple.
+      payload['rationale'] = note;
+      payload['reason'] = note;
+    }
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/criteria/$criterionId/$action',
+      payload,
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
   Future<List<Map<String, dynamic>>> listDocumentVersions(String docId) =>
       _listJson('/v1/teams/${cfg.teamId}/documents/$docId/versions');
 

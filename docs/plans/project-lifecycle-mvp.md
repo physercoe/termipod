@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1+W2+W3+W4+W5a+W5b shipped; W6/W7 pending
+> **Status:** In progress (2026-05-05) — W1+W2+W3+W4+W5a+W5b+W6 shipped; W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.357
+> **Last verified vs code:** v1.0.358
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -608,21 +608,36 @@ firing; gate library implementations.
 - `POST  /v1/teams/{team}/projects/{project_id}/criteria/{crit_id}/waive`
 
 **Acceptance criteria.**
-- [ ] **C1 §6.5:** When ablation-sweep run completes with
-      perplexity ≥ threshold, hub auto-marks the metric criterion
-      as `met` and posts a ratify-prompt attention item with
-      deeplink to deliverable viewer.
-- [ ] Director taps the attention item → lands on the experiment-
-      results deliverable with action bar's Ratify button highlighted.
-- [ ] Text criteria can be marked-met by director with `evidence_ref`.
-- [ ] Gate criteria auto-fire on cascading events:
+- [ ] **Deferred** — C1 §6.5 metric watcher (perplexity ≥ threshold
+      auto-mark + ratify-prompt attention item). Lands as a W6
+      follow-up alongside the run integration; the manual mark-met
+      path is shipped.
+- [ ] **Deferred** — ratify-prompt attention items with deeplink to
+      Me screen; W6 follow-up paired with the metric watcher.
+- [x] Text criteria can be marked-met by director with `evidence_ref`.
+- [x] Gate criteria auto-fire on cascading events:
       `deliverable.ratified` event → criterion.met for any criterion
-      using `deliverable.ratified` gate referencing that deliverable.
-- [ ] Criteria render correctly per kind on the criteria panel
-      (per A5 §8.2).
-- [ ] Metric criterion shows current value vs threshold when pending.
+      using `deliverable.ratified` gate referencing that deliverable
+      (verified by `TestCriterion_DeliverableRatifyCascadesGate` and
+      `TestCriterion_GateScopedByParamsDoesNotFireForOtherDeliverable`).
+- [x] Criteria render correctly per kind on the criteria panel
+      (per A5 §8.2): text shows body.text, metric shows
+      `metric op threshold`, gate shows the gate handle.
+- [ ] **Deferred** — metric criterion shows current value vs threshold
+      when pending. Pairs with the metric watcher; today the row only
+      surfaces the threshold spec.
 
-**Effort.** 3–4 days.
+**Effort.** 3–4 days. **Status:** Shipped at v1.0.358 (2026-05-05) —
+hub `handlers_criteria.go` ships create / patch / mark-met / mark-failed
+/ waive endpoints + the `deliverable.ratified` gate cascade. Mobile
+ships `CriterionStatePip` + an interactive criterion row on the
+deliverable viewer (long-press menu for mark-met / mark-failed / waive
+on text + metric criteria; gate criteria are display-only since the
+chassis fires them). Other gate library kinds + metric watcher
+(`all-sections-ratified`, `runs.completed-without-error`,
+`phase.has-no-open-attention`, perplexity-style auto-fire) remain W6
+follow-ups; the demo-critical `deliverable.ratified` gate is the path
+exercised by the C1 walkthrough.
 
 **Dependencies.** W5b (criteria are panel-rendered inside A5);
 W7 (template-declared gate references resolved via template).

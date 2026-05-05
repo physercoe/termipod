@@ -316,7 +316,18 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 						})
 					})
 				})
-				r.Get("/criteria", s.handleListProjectCriteria)
+				// W5b lists criteria; W6 ships the mutation surface.
+				r.Route("/criteria", func(r chi.Router) {
+					r.Get("/", s.handleListProjectCriteria)
+					r.Post("/", s.handleCreateCriterion)
+					r.Route("/{criterion}", func(r chi.Router) {
+						r.Get("/", s.handleGetCriterion)
+						r.Patch("/", s.handlePatchCriterion)
+						r.Post("/mark-met", s.handleMarkCriterion("mark-met"))
+						r.Post("/mark-failed", s.handleMarkCriterion("mark-failed"))
+						r.Post("/waive", s.handleMarkCriterion("waive"))
+					})
+				})
 				r.Get("/overview", s.handleGetProjectOverview)
 				r.Get("/sweep-summary", s.handleGetProjectSweepSummary)
 			})

@@ -517,12 +517,20 @@ func (s *Server) handleRatifyDeliverable(w http.ResponseWriter, r *http.Request)
 			"rationale":      in.Rationale,
 		})
 
+	// W6 — gate cascade. Auto-fire any pending gate criteria whose body
+	// references this deliverable (or scope this phase). Errors here are
+	// logged but do not fail the ratification — audit row is already in.
 	row := s.db.QueryRowContext(r.Context(), `SELECT `+deliverableSelectCols+`
 		FROM deliverables WHERE id = ?`, id)
 	d, err := s.scanDeliverableRow(row)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if _, cerr := s.cascadeDeliverableRatified(
+		r.Context(), team, project, id, d.Phase); cerr != nil {
+		s.log.Warn("criterion gate cascade", "err", cerr,
+			"deliverable_id", id, "project_id", project)
 	}
 	comps, err := s.loadDeliverableComponents(r, id)
 	if err != nil {

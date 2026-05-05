@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/deliverable_state_pip.dart';
 import '../projects/documents_screen.dart' show DocumentDetailScreen;
 
@@ -211,11 +212,16 @@ class _StructuredDeliverableViewerState
                       _EmptyCard(
                         title: 'No criteria declared',
                         body:
-                            'Templates declare criteria per phase; the '
-                            'criteria runtime lands with W6.',
+                            'Templates declare criteria per phase. Tap the '
+                            'criterion to mark it met / failed / waived.',
                       )
                     else
-                      for (final c in _criteria) _CriterionRow(criterion: c),
+                      for (final c in _criteria)
+                        _CriterionRow(
+                          criterion: c,
+                          projectId: widget.projectId,
+                          onChanged: _load,
+                        ),
                   ],
                 ),
                 Positioned(
@@ -466,70 +472,219 @@ class _ComponentCard extends StatelessWidget {
   }
 }
 
-class _CriterionRow extends StatelessWidget {
+class _CriterionRow extends ConsumerStatefulWidget {
   final Map<String, dynamic> criterion;
-  const _CriterionRow({required this.criterion});
+  final String projectId;
+  final VoidCallback onChanged;
+  const _CriterionRow({
+    required this.criterion,
+    required this.projectId,
+    required this.onChanged,
+  });
+
+  @override
+  ConsumerState<_CriterionRow> createState() => _CriterionRowState();
+}
+
+class _CriterionRowState extends ConsumerState<_CriterionRow> {
+  bool _busy = false;
+
+  String get _kind => (widget.criterion['kind'] ?? '').toString();
+  String get _state => (widget.criterion['state'] ?? 'pending').toString();
+  String get _id => (widget.criterion['id'] ?? '').toString();
+
+  Map<String, dynamic> get _body => (widget.criterion['body'] is Map)
+      ? (widget.criterion['body'] as Map).cast<String, dynamic>()
+      : <String, dynamic>{};
+
+  Future<void> _act(String action) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    String? note;
+    if (action == 'mark-met' && _kind == 'text') {
+      note = await _promptForNote(context, 'Evidence',
+          'Optional reference (e.g. document://doc-1#method)');
+    } else if (action == 'mark-failed' || action == 'waive') {
+      note = await _promptForNote(context, 'Reason',
+          'Optional explanation, recorded in the audit log');
+    }
+    setState(() => _busy = true);
+    try {
+      switch (action) {
+        case 'mark-met':
+          await client.markCriterionMet(
+            projectId: widget.projectId,
+            criterionId: _id,
+            evidenceRef: note,
+          );
+          break;
+        case 'mark-failed':
+          await client.markCriterionFailed(
+            projectId: widget.projectId,
+            criterionId: _id,
+            reason: note,
+          );
+          break;
+        case 'waive':
+          await client.waiveCriterion(
+            projectId: widget.projectId,
+            criterionId: _id,
+            reason: note,
+          );
+          break;
+      }
+      if (!mounted) return;
+      widget.onChanged();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Failed: $e')));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final kind = (criterion['kind'] ?? '').toString();
-    final state = (criterion['state'] ?? 'pending').toString();
-    final body = (criterion['body'] is Map)
-        ? (criterion['body'] as Map).cast<String, dynamic>()
-        : <String, dynamic>{};
-    final summary = _criterionSummary(kind, body);
-    final color = _stateColor(state);
+    final summary = _criterionSummary(_kind, _body);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isGate = _kind == 'gate';
+    final pipState = parseCriterionState(_state);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+      child: Material(
+        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isDark
-                ? DesignColors.borderDark
-                : DesignColors.borderLight,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: state == 'met' ? color : null,
-                border: state == 'met'
-                    ? null
-                    : Border.all(color: color, width: 1.5),
+          onTap: _busy || isGate ? null : () => _showActions(context),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isDark
+                    ? DesignColors.borderDark
+                    : DesignColors.borderLight,
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    summary,
-                    style: GoogleFonts.spaceGrotesk(fontSize: 13),
+            child: Row(
+              children: [
+                CriterionStatePip(state: pipState, showLabel: false, size: 10),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        summary,
+                        style: GoogleFonts.spaceGrotesk(fontSize: 13),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            '$_kind · $_state',
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 10,
+                              color: DesignColors.textMuted,
+                            ),
+                          ),
+                          if (isGate) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              '· auto',
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: DesignColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$kind · $state',
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: DesignColors.textMuted,
-                    ),
-                  ),
-                ],
+                ),
+                if (_busy)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else if (!isGate)
+                  const Icon(Icons.more_vert, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_state != 'met')
+              ListTile(
+                leading: const Icon(Icons.check_circle,
+                    color: DesignColors.terminalGreen),
+                title: const Text('Mark met'),
+                onTap: () => Navigator.pop(ctx, 'mark-met'),
               ),
+            if (_state != 'failed')
+              ListTile(
+                leading: const Icon(Icons.cancel, color: DesignColors.error),
+                title: const Text('Mark failed'),
+                onTap: () => Navigator.pop(ctx, 'mark-failed'),
+              ),
+            if (_state != 'waived')
+              ListTile(
+                leading: const Icon(Icons.do_not_disturb,
+                    color: DesignColors.textMuted),
+                title: const Text('Waive'),
+                onTap: () => Navigator.pop(ctx, 'waive'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.close),
+              title: const Text('Cancel'),
+              onTap: () => Navigator.pop(ctx),
             ),
           ],
         ),
       ),
     );
+    if (action != null) await _act(action);
+  }
+
+  static Future<String?> _promptForNote(
+      BuildContext context, String title, String hint) async {
+    final ctrl = TextEditingController();
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(hintText: hint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, null),
+            child: const Text('Skip'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+    return result;
   }
 
   static String _criterionSummary(String kind, Map<String, dynamic> body) {
@@ -545,19 +700,6 @@ class _CriterionRow extends StatelessWidget {
         return (body['gate'] ?? '—').toString();
       default:
         return '—';
-    }
-  }
-
-  static Color _stateColor(String state) {
-    switch (state) {
-      case 'met':
-        return DesignColors.terminalGreen;
-      case 'failed':
-        return DesignColors.error;
-      case 'waived':
-        return DesignColors.textMuted;
-      default:
-        return DesignColors.warning;
     }
   }
 }

@@ -1,15 +1,28 @@
 # termipod blueprint
 
 > **Type:** axiom
-> **Status:** Current (2026-04-30)
+> **Status:** Current (2026-05-05)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.351
 
 **TL;DR.** Authoritative reference for termipod's design philosophy,
-component ontology, protocol layering, and primitive schema. Future
-PRs should trace their design choices back to this document;
-proposals that contradict the axioms or the data-ownership law
-require an explicit amendment here, not a silent deviation.
+component ontology, and the data-ownership law. Future PRs should
+trace their design choices back to this document; proposals that
+contradict the axioms or the data-ownership law require an explicit
+amendment here, not a silent deviation.
+
+**Refactor note (2026-05-05).** The original blueprint covered
+protocols (§5), primitives (§6), and forbidden patterns (§7) inline.
+Per the doc-uplift plan
+([`../plans/doc-uplift.md` P1.6](../plans/doc-uplift.md)) those
+moved to focused sibling docs:
+- §5 → [`protocols.md`](protocols.md)
+- §6 → [`../reference/data-model.md`](../reference/data-model.md)
+- §7 → [`forbidden-patterns.md`](forbidden-patterns.md)
+
+This file kept its numbering (§5/§6/§7 stubs forward to the new
+homes) so existing cross-references like "blueprint.md §5.3" still
+land here and find a pointer.
 
 ---
 
@@ -230,611 +243,53 @@ split into a small metadata row + an artifact URI pointing at the host.
 
 ## 5. Protocol layering
 
-Every inter-component edge is characterized by its relationship type. The
-protocol is forced by the type, not chosen by fashion.
+> **Moved.** Protocol layering — the relationship-type taxonomy, the
+> seven-edge matrix, ACP scope and driving modes (M1/M2/M4), the
+> agent-→-hub relay principle, A2A topology, AG-UI as the broker's
+> output wire — now lives in
+> [`protocols.md`](protocols.md). This stub stays so older
+> cross-references like "blueprint.md §5.3.1" resolve to a forward
+> pointer.
 
-Relationship types:
-- **C (control):** neither side is agent-shaped; imperative commands + status.
-- **S (supervision):** one side owns the other's process lifetime; structured
-  observation and steering of a subprocess.
-- **R (RPC-with-capability):** callee exposes typed named capabilities;
-  caller invokes them. Callee is a tool, not a reasoner.
-- **P (peer):** both sides are autonomous reasoners coordinating via tasks
-  and artifacts.
-- **O (observation):** one side streams semantic events, the other renders.
-
-### 5.1 Edge matrix
-
-| Edge | Type | Protocol | Transport |
-|---|---|---|---|
-| Human ↔ Hub | C | termipod REST + SSE | HTTPS |
-| Human ↔ Agent (live view) | O | **AG-UI** (hub-brokered) | SSE over HTTPS |
-| Hub ↔ Host-runner | C | termipod REST + SSE | HTTPS, host-initiated |
-| Host-runner ↔ Agent (local) | S | **ACP (Zed's Agent Client Protocol)** | JSON-RPC over stdio |
-| Agent ↔ Hub (authority caps) | R | **MCP**, relayed via host-runner | UDS / localhost to host-runner, then relayed |
-| Agent ↔ Host-runner (local caps) | R | **MCP** | UDS / localhost |
-| Agent ↔ Agent (any host) | P | **A2A** | HTTPS direct, or hub reverse-tunnel relay |
-
-### 5.2 The relay principle for agent → hub
-
-Agents never open direct network connections to the hub. The host-runner
-runs a local MCP gateway exposing `hub://` capabilities; agent calls traverse:
-
-```
-agent (MCP client) → host-runner MCP gateway → hub REST
-```
-
-Host-runner stamps the agent's identity, enforces local budget and rate
-limits, reuses its single persistent hub token.
-
-Consequences:
-- One hub token per host, not per agent.
-- Agent credentials never exist; nothing to leak or rotate per spawn.
-- Air-gapped compute nodes (only host-runner allowed egress) work by
-  construction.
-- Short hub outages degrade gracefully (host-runner buffers writes, serves
-  cached reads).
-- Audit stays per-agent — host-runner preserves identity in the forwarded call.
-
-### 5.3 ACP scope
-
-ACP operates only on the host-runner ↔ agent edge on the same machine. It
-does not cross the network. It runs in parallel with tmux: ACP is the
-*control* channel (structured events: lifecycle, text, tool-call, diff,
-progress, pause-for-approval, cancel); tmux is the *display* channel
-(human-readable TTY output).
-
-For agents that don't speak ACP, host-runner falls back to pane scraping
-and synthesizes minimal events (lifecycle markers + periodic text-message
-events from pane captures). AG-UI fidelity is lower but the system still
-works.
-
-**Billing caveat for Claude Code via ACP.** Zed's ACP adapter for Claude
-Code (`@agentclientprotocol/claude-agent-acp`) wraps the Claude *Agent
-SDK*, not the Claude Code CLI. The Agent SDK officially supports only
-`ANTHROPIC_API_KEY` billing; Pro/Max subscription billing is an open
-upstream issue (anthropics/claude-agent-sdk-python#559). A community
-workaround — `claude setup-token` then `CLAUDE_CODE_OAUTH_TOKEN=…` — has
-worked intermittently and is not officially supported. Host-runner
-therefore offers three driving modes plus a one-shot plan-step path
-(§5.3.1, §6.2); ACP is not the only structured way to drive Claude Code.
-
-### 5.3.1 Agent driving modes
-
-A **driving mode** describes how host-runner wires the stdio of a
-*persistent* agent — i.e. one that has its own identity, lifecycle, and
-authority. Governance (MCP gateway, audit, budget) is identical across
-modes; only the control channel differs.
-
-There are three modes:
-
-| # | Mode | Control channel | AG-UI fidelity | Claude Code subscription-compatible | Notes |
-|---|---|---|---|---|---|
-| M1 | **ACP** | JSON-RPC over stdio via ACP adapter | High (native) | No (API key only via Agent SDK) | Preferred for agents with native ACP (Gemini CLI, Codex, OpenCode, Cline, …). |
-| M2 | **Structured stdio** | Agent-native JSON-line protocol (e.g. `claude --input-format stream-json --output-format stream-json`) | High (agent-equivalent to ACP) | Yes (drives the CLI binary directly) | Per-agent shim. Recommended default for Claude Code under Pro/Max. |
-| M4 | **Manual / pane-only** | None — host-runner only observes tmux | Low (pane scrape → lifecycle + text events) | Yes | Explicit escape hatch: user types directly into the pane from the mobile app's terminal view. |
-
-(M3 "headless one-shot" is not a mode; it's a `llm_call` step inside a
-deterministic plan phase — see §6.2. A one-shot invocation lacks a
-persistent session, so it doesn't meet the agent-shape threshold.)
-
-**Mode M4 is a first-class mode, not just a fallback.** Derivation from
-axioms:
-
-- A1 (attention scarcity) is not violated — the user only enters the
-  pane when the structured UI has failed them or when they want direct
-  control. For the rest of the fleet, structured modes still hold.
-- A2 (work bound to compute) is satisfied — the pane is the compute's
-  native interface; typing into it is the most direct form of "spatial"
-  work.
-- A3 (authority) still holds — the agent's outbound calls still go
-  through host-runner's MCP gateway, so policy and audit are unaffected.
-  Host-runner captures pane output to the audit log whether the human or
-  a structured adapter is driving input.
-
-Use cases for M4: debugging an agent that has gone sideways in M1/M2,
-real-time pairing, agents that lack any structured output mode, operator
-preference.
-
-**Hooks as a side channel (orthogonal to all modes).** Claude Code and
-several other agents expose hooks (`pre_tool_use`, `post_tool_use`,
-`session_start`, etc.) that shell out to user scripts. Host-runner
-installs hooks that POST structured events to its local MCP gateway.
-This yields high-fidelity tool-call and approval events even in M4, and
-augments M1/M2 with events the structured protocol doesn't carry.
-Hooks are an additive event source, not a mode.
-
-### 5.3.2 Mode resolution and host capability discovery
-
-**Mode declaration.** Every project template declares one `driving_mode`
-(single value, M1|M2|M4) and an optional ordered `fallback_modes` list
-(e.g. `[M4]` to degrade to pane-only on structured-protocol failure).
-A spawn request may override both.
-
-**Billing declaration.** The user declares the billing context per agent
-family per host (e.g. "Claude Code uses subscription on host X, API key
-on host Y"). Host-runner does **not** infer or probe billing. If a
-declared mode is known to conflict with the declared billing (e.g.
-Claude Code M1 under subscription, blocked by Agent SDK), spawn fails
-fast with a clear error.
-
-**Host capability discovery.** Host-runner probes *binary presence and
-version only* and reports on heartbeat:
-
-```json
-{
-  "agents": {
-    "claude-code": { "installed": true, "version": "…",
-                     "supports": ["M1","M2","M4"] },
-    "gemini-cli":  { "installed": true, "supports": ["M1","M4"] },
-    "codex":       { "installed": false }
-  },
-  "probed_at": "…"
-}
-```
-
-Hub caches this per-host as `hosts.capabilities_json` with a staleness
-TTL (default 5 minutes). Mode resolution at spawn time is:
-
-```
-resolve(template.mode, spawn_override, host.capabilities, user.billing_decl)
-  → concrete_mode | fail_fast(reason)
-```
-
-### 5.3.3 Enter-pane and SSH binding
-
-Every agent detail sheet exposes an **"Enter pane"** action that drops
-the user into a full-screen tmux view of that agent's pane. In M1/M2
-the pane is read-mostly (display channel); in M4 it is the control
-channel. A mode badge on the agent card identifies which.
-
-The plumbing bridges three facts:
-
-1. Hub knows `agent.host_id` + pane coords (session, window, pane).
-2. Hub's `hosts` table carries a non-secret `ssh_hint_json` (hostname,
-   port, username, optional jump-host hint) — set during host
-   registration. Secrets never live in the hub (data-ownership law).
-3. The phone keeps a local `hub_host_bindings(hub_host_id → connection_id)`
-   mapping to its own SSH Connection entries (which hold the actual
-   credentials in flutter_secure_storage).
-
-Enter-pane flow:
-- Binding present → phone opens SSH to the bound Connection and issues
-  `tmux attach -t <s> \; select-window -t <w> \; select-pane -t <p>`.
-- Binding missing but `ssh_hint_json` present → phone opens the
-  Connection form pre-filled from the hint; user supplies credentials;
-  binding saved.
-- Neither present → action disabled with an explanation.
-
-Constraint: **host-runner runs as the SSH user.** This guarantees the
-tmux socket host-runner wrote to is the same socket the human's SSH
-session attaches to. Split-user deployments (host-runner as a service
-account, humans as different users) are out of MVP scope; they require
-a documented shared-socket path with group perms and more involved UX.
-
-Multi-user teams (each member bringing their own SSH credentials) are
-deferred; MVP assumes solo / same user.
-
-### 5.4 A2A topology
-
-The host-runner is the A2A terminus. Each host-runner exposes one A2A
-endpoint per live agent, with an agent-card at
-`/a2a/<agent-id>/.well-known/agent.json`. Host-runner publishes agent-cards
-to the hub's A2A directory.
-
-Transport rules:
-- Direct host-runner ↔ host-runner when mutual reachability allows.
-- Hub reverse-tunnel relay when NAT blocks direct (hub already holds a
-  persistent connection from each host-runner).
-
-A2A payloads are small (task JSON, artifact URIs). Bulk artifact bytes are
-fetched by URI from host or cloud, never through A2A task bodies. The
-data-ownership law holds.
-
-A2A supports bilateral multi-turn discussion scoped to a task — the writer
-and critic agents can exchange 4 clarifying turns inside a single "review"
-task, with provenance preserved. Multilateral group chat is not A2A's
-concern; use hub channels via MCP post.
-
-**A2A observability.** A2A is agent-to-agent wire, but humans still need to
-watch it. When an agent invokes or responds over A2A, the host-runner emits
-the call and result as events into the **calling agent's AG-UI stream** —
-event kinds `a2a.invoke` (outbound task with target agent-card, capability,
-task summary) and `a2a.response` (inbound result / error / turn). The
-events join the same SSE feed the phone already renders for that agent, so
-A2A activity appears inline in the agent's channel card alongside thoughts
-and tool calls. No parallel observability channel, no extra subscription.
-Bilateral multi-turn A2A discussions surface as a sequence of `a2a.invoke` /
-`a2a.response` pairs on both agents' streams, keyed by the shared task id so
-a future UI can collapse them into a threaded view.
-
-### 5.5 AG-UI is the broker's output wire
-
-The hub is the sole translator from internal protocols (ACP, A2A task
-status, hub events) to AG-UI. The app only knows AG-UI. This keeps
-client complexity bounded and lets us evolve internal wire formats without
-breaking the phone.
-
-AG-UI pause-for-approval is the wire format of termipod's existing
-attention/approval system. The attention UI and AG-UI approval event
-are the same thing — one internal model, one external standard.
+Read [`protocols.md`](protocols.md) directly when designing or
+reviewing anything that touches an inter-component edge.
 
 ---
 
 ## 6. Core primitives
 
-### 6.1 Projects (subsume "directives")
+> **Moved.** The conceptual data model — Projects, Plans, Schedules,
+> Agents, Runs, Artifacts, Documents, Reviews, Channels, Briefings,
+> Attention, the primitives-by-axis index — now lives in
+> [`../reference/data-model.md`](../reference/data-model.md). The
+> *physical* schema (tables, columns, indexes) lives in
+> [`../reference/database-schema.md`](../reference/database-schema.md).
 
-A **project** is the unit of bounded work. Every running agent, run, task,
-document, and artifact belongs to a project. Projects nest. Projects can be
-templates (parameterized, reusable) or instances (bound, active).
-
-Fields:
-- `id, team_id, name, goal`
-- `kind` ∈ {`goal`, `standing`} (default `goal`; see below)
-- `parent_project_id` (nullable, enables nesting)
-- `template_id` (nullable, references a parent template)
-- `parameters_json` (bound values when instantiating a template)
-- `is_template` (boolean)
-- `budget_cents` (compute + API spend cap, inherited by children)
-- `policy_overrides_json` (tier adjustments scoped to this project)
-- `steward_agent_id` (the steward-of-record that decomposes the goal)
-- `on_create_template_id` (nullable — a plan template auto-instantiated
-  when the project is created; lets standing projects bootstrap channels,
-  docs, and routine schedules on day one)
-- `archived_at`
-
-Templates emerge as a lab's methodology ("reproduce a paper", "ablation
-sweep", "red-team an MLE model"). Instances inherit the decomposition plan
-from their template, bind parameters, and start running.
-
-**Project kinds.** Two kinds, distinguished at create time:
-
-- `goal` — bounded, has a completion condition, closes. The default.
-  Example: "reproduce the X paper," "ship feature Y." UI shows progress
-  and a closable state.
-- `standing` — ongoing container for routine work; never closes.
-  Example: "Infra operations," "Daily briefings," "Lab triage." UI shows
-  recent runs of its schedules rather than progress.
-
-Kind affects UI presentation and default lifecycle, not the underlying
-schema.
-
-The previously proposed `directives` primitive is retired; it is subsumed
-by `project.goal` + `project.template_id` + `project.parameters_json`.
-
-### 6.2 Plans
-
-A **plan** is an ordered, reviewable scaffold of phases that execute the
-project's goal. Plans are how humans preview what a steward or the
-system is about to do before it happens — A1 (attention) demands this.
-
-A plan is **shallow by construction**: a linear list of named phases.
-No loops, no conditionals, no DAGs at the plan level. Dynamic behavior
-lives *inside* `agent_driven` phases, where a steward interprets the
-phase goal with flexibility bounded by budget and policy. This keeps
-plans reviewable (a human can read them) and keeps stochasticity
-confined to the layer designed for it.
-
-Fields:
-- `id, project_id, template_id` (nullable), `version`
-- `spec_json` — ordered phases (see below)
-- `status` ∈ {`draft`, `ready`, `running`, `completed`, `failed`, `cancelled`}
-- `created_at, started_at, completed_at`
-
-Phase schema (inside `spec_json`):
-- `name, goal, budget_cents`
-- `kind` ∈ {`deterministic`, `agent_driven`, `human_gated`}
-- For `deterministic`: ordered `steps` list (step kinds below).
-- For `agent_driven`: a `steward` block — template ref for the steward
-  agent to spawn, plus its driving mode and budget envelope.
-- For `human_gated`: a `prompt` + optional `choices`; blocks until a
-  human acts.
-
-**Step kinds (deterministic-phase steps only):**
-
-| Kind | Purpose |
-|---|---|
-| `agent_spawn` | Spawn an M1/M2/M4 agent, wait for termination, capture artifacts. |
-| `llm_call` | One-shot inference (e.g. `claude -p … --output-format stream-json`). No persistent agent. Captures text/artifact output. |
-| `shell` | Run a shell command on the host (with policy gate). |
-| `mcp_call` | Invoke one named MCP tool and capture the result. |
-| `human_decision` | Block for an explicit user approval/choice (equivalent to a one-step `human_gated` phase). |
-
-Plan executor table `plan_steps`:
-- `id, plan_id, phase_idx, step_idx, kind, spec_json`
-- `status, started_at, completed_at`
-- `input_refs_json, output_refs_json` (artifact URIs, document IDs, etc.)
-- `agent_id` (nullable — set for `agent_spawn` steps)
-
-`deterministic` phases are executed by host-runner's plan-step executor;
-`agent_driven` phases are executed by the spawned steward (host-runner
-spawns it, waits, reaps). `human_gated` phases are mediated by the hub.
-
-The in-app term for a reusable plan template is **workflow**; it's a UI
-label, not a schema primitive. A "workflow" is shorthand for
-`template_id → plan_spec + schedule + execution history`.
-
-### 6.3 Schedules
-
-A **schedule** triggers a plan from a template. It generalizes and
-replaces the earlier `agent_schedules` table, which spawned agents
-directly — a now-forbidden shortcut (§7).
-
-Fields:
-- `id, project_id, template_id`
-- `trigger_kind` ∈ {`cron`, `manual`, `on_create`}
-- `cron_expr` (for `cron`)
-- `parameters_json` (bound values passed to the template at instantiation)
-- `enabled, next_run_at, last_run_at, last_plan_id, created_at`
-
-MVP trigger kinds:
-- `cron` — time-based (the 80% case: nightly benchmarks, daily briefings).
-- `manual` — the user taps "Run now"; same code path as cron.
-- `on_create` — fires once when the owning project is created; lets a
-  template bootstrap a standing project.
-
-Deferred (explicitly named but not built): event-triggered schedules
-(on artifact produced, on agent completed across projects) and
-conditional schedules (run only if precondition met). These require a
-cross-plan event bus that MVP doesn't need.
-
-Briefings reduce to a scheduled plan whose template is a
-briefing-template (steward agent → digest document → push); no
-dedicated briefings table post-migration (§6.10 historical note).
-
-### 6.4 Agents
-
-LLM processes with identity, lifecycle (spawned → running → paused →
-terminated → archived), host assignment, project membership, spawn
-authority with budget caps.
-
-Existing schema. No change required except adding `project_id` foreign key
-if not present, and ensuring `archived_at` aligns with project archival.
-A new nullable `plan_step_id` links agent-spawn steps back to their
-owning plan-step (populated for agents spawned via a plan).
-
-### 6.5 Runs
-
-Unit of single execution with reproducibility contract. Frozen config at
-start; metrics time-series stored on the host via trackio and referenced
-by URI on the hub.
-
-Fields:
-- `id, project_id, agent_id, config_json, seed, status`
-- `started_at, finished_at`
-- `trackio_host_id, trackio_run_uri` (reference, not content)
-- `parent_run_id` (for sweeps)
-
-Metrics never live on the hub. The phone fetches them from the host's
-trackio via a hub-signed URL.
-
-### 6.6 Artifacts
-
-References to produced content. Hub stores metadata; bytes stay on host
-or in cloud.
-
-Fields:
-- `id, project_id, run_id` (nullable)
-- `sha256, size, uri` (host://, s3://, hf://, ...)
-- `mime, producer_agent_id, created_at`
-- `lineage_json` (which run/agent produced it, from which inputs)
-
-### 6.7 Documents
-
-Structured writeups: memos, drafts, reports, reviews. Versioned per project.
-Small text stored inline; large documents stored as artifacts with a
-metadata row.
-
-Fields:
-- `id, project_id, kind (memo|draft|report|review), title`
-- `version, prev_version_id, content_inline` (if small)
-- `artifact_id` (if large)
-- `author_agent_id, created_at`
-
-### 6.8 Reviews
-
-Human-review queue. A review attaches to a document or artifact and has
-states: pending → approved | request-changes | rejected. Visible to the
-requesting agent so it can proceed or iterate.
-
-Fields:
-- `id, project_id, target_kind (document|artifact), target_id`
-- `requester_agent_id, state, decided_by_user_id, decided_at, comment`
-
-### 6.9 Channels (existing)
-
-Ambient message streams at team or project scope. Agents post via MCP for
-broadcast, group coordination, and ambient state updates that don't fit
-A2A's bilateral task shape.
-
-### 6.10 Briefings (specialization, not a primitive)
-
-A briefing is a scheduled plan whose template's single `agent_driven`
-phase spawns a briefing steward that reads recent activity and emits a
-digest document + push. No dedicated `briefings` table is needed once
-plans and schedules exist; a briefing is fully described by
-`schedules.template_id` + the resulting plan + its output document.
-
-### 6.11 Attention / approvals (existing)
-
-Retained. AG-UI's pause-for-approval event type is the wire format for
-these. No separate primitive needed.
-
-### 6.12 Primitives by axis (mental-model index)
-
-The §6 primitives factor onto orthogonal axes. Placing them on one table
-removes the "is X like Y?" confusion that arises when the list reads as a
-flat enumeration:
-
-| Axis | Primitives | What the axis models |
-|---|---|---|
-| **Trigger** | Schedule | When work starts |
-| **Procedure** | Plan, Plan step, Phase (JSON-embedded) | What will run, in what order — the reviewable recipe |
-| **Execution** | Agent, Run | Living actor · ML experiment record |
-| **Output** | Artifact, Document | Bytes produced · authored text |
-| **Gate** | Review, Attention item | Human decisions blocking progress |
-| **Work-tracking** | Task, Milestone | Kanban for work that isn't plan-driven |
-| **Context** | Project, Channel, Event, Host | Container · conversation · message · machine |
-
-**Two-lane model for human work.** Plan-driven human gates use
-`plan_step(kind=human_decision)` → `attention_item` (plan pauses, director
-acts on Me tab, plan resumes). Director-authored work (refactor a
-trainer, triage a paper) uses `task` — independent of plans, kanban
-lifecycle. Both are legitimate; they address different intents.
-`task.plan_step_id` is deliberately absent — tasks are not plan outputs.
-
-**Phase is not a primitive.** Phases exist only as JSON objects inside
-`plans.spec_json` — they're typed containers (`deterministic` /
-`agent_driven` / `human_gated`) that group steps and carry a budget
-envelope, but have no independent state. A phase's status is derived
-from its steps' statuses. `plan_steps.phase_idx` is the only place a
-phase is materialised, and only for deterministic phases (the other two
-kinds have no per-step rows — they produce one agent or one human
-decision each).
-
-**"Run" is a domain primitive, not a workflow-execution primitive.** It
-models a single ML training/eval with frozen config + seed + trackio
-metrics. The word clashes with "workflow run" in other systems, where a
-Plan's execution would be called a "run". To avoid this ambiguity the
-UI labels `runs` as **Experiments**; the DB name stays `runs` for
-migration continuity.
-
-### 6.13 Deferred: reusable step registry (action templates)
-
-Plan steps today are specified inline in `plans.spec_json`. Reuse
-happens at plan-template granularity (whole plan) but not at step
-granularity. GitHub Actions / Airflow Operators / Temporal Activities
-solve this with a step-level registry of named, parameterised
-operations.
-
-Termipod intentionally defers this. It adds real expressiveness
-(marketplace-style sharing of `llm_call summarise-paper`, `shell
-run-pytest`, etc.) but also real governance load (who publishes them,
-how they're audited, how breaking changes roll forward). Plan templates
-cover the demo and near-term goals.
-
-When added, the shape is:
-
-- `action_templates` table (`id, kind, spec_json, owner, version`).
-- Plan step spec can reference `action_template_id` + `parameters_json`
-  instead of inline `spec_json`.
-- Action templates are team-scoped primitives like plan templates.
-
-No schema break required — `plan_steps.spec_json` can continue to carry
-inline specs for one-offs. Marked F-TBD in the roadmap.
+This stub stays so older cross-references like "blueprint.md §6.5"
+resolve to a forward pointer.
 
 ---
 
 ## 7. Forbidden patterns
 
-Corollaries of the axioms and the data-ownership law. Violating any of
-these signals a design regression; a PR that does so requires explicit
-amendment of this document first.
+> **Moved.** The 15 corollary rules that follow from the axioms +
+> data-ownership law are in
+> [`forbidden-patterns.md`](forbidden-patterns.md). Mobile-IA-specific
+> forbidden patterns remain in
+> [`information-architecture.md §8`](information-architecture.md).
 
-1. **Hub stores bulk bytes.** Violates A2 + data-ownership law.
-2. **Host-runner runs an LLM loop or makes stochastic decisions.** Violates
-   A3 (erases the deterministic boundary).
-3. **Agents open direct network connections to the hub.** Violates
-   containment; breaks air-gapped operation; multiplies token surface.
-4. **Policy lives on hosts and drifts from hub.** Violates A3.
-5. **Agents coordinate via shared files or undocumented channels outside
-   A2A + hub channels.** Destroys provenance. *Exception under design
-   (`../discussions/agent-fleet.md` §5):* a squad's shared scratchpad lives in
-   the existing `documents` table with audit semantics, so it stays on
-   the audit trail. The forbidden case is the *unaudited* shared file,
-   not "shared state per se." When squads land, this rule reads "no
-   shared state outside A2A, hub channels, OR squad-scoped documents."
-6. **App parses ANSI from the pane as the primary agent view.** Fights
-   AG-UI; the default surface must be typed events, not raw bytes.
-7. **New REST endpoint on hub that agents will call directly.** Hub
-   capabilities consumed by agents must be MCP tools, accessed via
-   host-runner relay.
-8. **`directives` reintroduced as a separate primitive.** Already unified
-   under projects; forking will fragment queries and audit.
-9. **Metrics written to hub.** Metrics live on host via trackio; hub
-   holds only the run's trackio URI.
-10. **A2A bypassed for cross-host agent delegation.** Invents a worse
-    agent-card and task model.
-11. **Schedules spawning agents directly.** Schedules must instantiate
-    a plan from a template. Direct `agent_schedule → spawn` bypasses
-    the reviewable plan scaffold and loses routine-execution history.
-
-    *Why this rule exists:* a schedule is a recurring promise to run
-    *something*; the question is what. Letting cron call `agents.spawn`
-    treats every recurrence as a fresh atomic action with no prior
-    structure — no plan to review, no record of "this is the third
-    weekly briefing run," no way for the principal to ratify the
-    *category* of work versus a one-off. Instantiating a plan from a
-    template gives every recurrence a structured scaffold (phases,
-    `human_gated` boundaries, audit lineage), keeps the principal's
-    review surface uniform across one-shots and recurrences, and lets
-    the user see "this Monday's run" alongside "last Monday's run" as
-    sibling plan executions instead of unrelated agent rows. The audit
-    feed (`reference/audit-events.md`) records `schedule.run` →
-    `plan.create` rather than `schedule.run` → `agent.spawn` for the
-    same reason: the plan is the unit the principal cares about, not
-    the agent that happens to execute it.
-12. **One-shot LLM calls modeled as agents (`M3` as a "mode").** An
-    invocation without a persistent session is a `llm_call` plan step,
-    not an agent. Forcing it into `agents` pollutes lifecycle queries
-    and audit.
-13. **Plans containing loops, conditionals, or DAGs at the plan level.**
-    Dynamic behavior belongs inside `agent_driven` phases where a
-    steward decides, bounded by budget and policy. Plans stay shallow
-    and reviewable.
-14. **Host-runner inferring or probing billing context.** The user
-    declares billing per agent-family per host. Host-runner probes
-    binary presence and version only. Mixing the two reintroduces
-    provider-specific logic into the deputy layer.
-15. **Hub storing SSH credentials to help with Enter-pane.** Only
-    non-secret `ssh_hint_json` (hostname, port, username) may live in
-    the hub. Secrets stay in the phone's secure storage.
+This stub stays so older cross-references like "blueprint.md §7"
+resolve to a forward pointer.
 
 ---
 
 ## 8. Reference architecture
 
-```
-  ┌────────────────────┐
-  │     Mobile App     │
-  └─────┬──────────▲───┘
-        │          │
-        │          │ AG-UI (SSE, JSON events)
-        │ REST+SSE │ hub brokers from ACP/A2A
-        ▼          │
-  ┌────────────────────┐                ┌────────────────────┐
-  │        Hub          │◀── MCP ──────│  (any MCP agent,   │
-  │                    │  via host-    │   incl. external)  │
-  │  name service      │  runner relay └────────────────────┘
-  │  policy engine     │
-  │  event log         │
-  │  A2A directory     │
-  │  AG-UI broker      │
-  │  artifact refs     │
-  └─────┬──────────▲───┘
-        │          │ (heartbeat, event post, long-poll)
-        │ REST+SSE │
-        ▼          │
-  ┌────────────────────┐                    A2A
-  │    Host-runner     │◀──── direct or ────▶ (peer host-
-  │                    │      hub-relayed      runners)
-  │  ACP per agent     │
-  │  MCP gateway       │
-  │    hub://  host:// │
-  │  A2A server        │
-  │  trackio server    │
-  │  pane/worktree mgr │
-  └─────┬──────────────┘
-        │
-        │ ACP (stdio) + MCP (UDS) + tmux (TTY)
-        ▼
-  ┌────────────────────┐
-  │       Agent        │
-  │  (Claude Code /    │
-  │   Codex / custom)  │
-  └────────────────────┘
-```
+The full C4 view (Level 1 system context + Level 2 containers + per-
+container summary + tech stack + deployment topology) lives in
+[`../reference/architecture-overview.md`](../reference/architecture-overview.md).
+That doc is the cold-start onboarding read; this section forwards to
+it so older cross-references still resolve.
 
 ---
 
@@ -868,7 +323,7 @@ Per-bullet status below; current Now/Next/Later view is in
 
 ### Phase 1 — structured wire (protocols) ✅ shipped
 
-- P1.1 ✅ Host-runner multi-mode agent driver (see §5.3.1): **M1 ACP shim**,
+- P1.1 ✅ Host-runner multi-mode agent driver (see [`protocols.md` §5](protocols.md)): **M1 ACP shim**,
   **M2 structured-stdio shim** (per-agent, starting with Claude Code
   `stream-json`), **M4 manual/pane-only**. Unified `agent_events` queue
   regardless of mode. Hooks side-channel optional.

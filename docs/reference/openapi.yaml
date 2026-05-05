@@ -1,0 +1,3306 @@
+openapi: 3.1.0
+info:
+  title: termipod hub HTTP API
+  description: |
+    Authoritative OpenAPI specification for the termipod hub HTTP
+    surface. Every `/v1/...` endpoint is listed by tag (resource
+    group) with request / response shapes and the auth scheme.
+
+    **Version model.** This spec covers `v1`. Additive changes
+    (new endpoints, new optional fields) ship under `v1`; breaking
+    changes would bump to `/v2/`. The hub reports its build at
+    `GET /v1/_info` and the mobile client checks
+    `supported_api_versions` at startup.
+
+    **Cross-references.**
+    - [`api-overview.md`](api-overview.md) — endpoint index +
+      cross-cutting conventions (this spec is the machine-readable
+      form).
+    - [`database-schema.md`](database-schema.md) — physical schema
+      that backs the response shapes.
+    - [`audit-events.md`](audit-events.md) — the canonical taxonomy
+      of `audit_events` rows referenced from response payloads.
+
+    Status: draft. Hand-written; first issuance 2026-05-05 from
+    `hub/internal/server/server.go` route table at v1.0.351.
+  version: "1.0.351-alpha"
+  license:
+    name: Apache-2.0
+    url: https://github.com/physercoe/termipod/blob/main/LICENSE
+  contact:
+    name: termipod issue tracker
+    url: https://github.com/physercoe/termipod/issues
+
+servers:
+  - url: "https://hub.example.com"
+    description: Production hub (replace with operator's hub URL)
+  - url: "http://127.0.0.1:8443"
+    description: Local development (cleartext on loopback only)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Meta
+    description: Server info, search, MCP entry point
+  - name: Hosts
+    description: Host registration, heartbeat, A2A directory
+  - name: Agents
+    description: Agent CRUD + spawn + lifecycle + AG-UI events
+  - name: Sessions
+    description: Per-agent conversational sessions
+  - name: Projects
+    description: Projects + lifecycle (phases, deliverables, criteria)
+  - name: Plans
+    description: Plans, plan steps, schedules
+  - name: Runs
+    description: Experiments + metrics
+  - name: Documents
+    description: Documents, reviews, artifacts, blobs
+  - name: Channels
+    description: Channels + events
+  - name: Tasks
+    description: Project tasks
+  - name: Attention
+    description: Attention queue + resolution
+  - name: Admin
+    description: Audit, policy, tokens, principals
+  - name: Templates
+    description: Project + agent + step templates
+  - name: MCP
+    description: Single MCP service entry point
+
+paths:
+
+  # ======================================================================
+  # Meta + system
+  # ======================================================================
+
+  /v1/_info:
+    get:
+      tags: [Meta]
+      operationId: getInfo
+      summary: Server build metadata
+      security: []
+      responses:
+        "200":
+          description: Server info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerInfo"
+              example:
+                server_version: "1.0.351-alpha"
+                supported_api_versions: ["v1"]
+                schema_versions_supported: [1]
+                commit: "0426abe..."
+                build_time: "2026-04-25T15:00:00Z"
+                modified: false
+
+  /v1/search:
+    get:
+      tags: [Meta]
+      operationId: search
+      summary: Full-text search across events + agent_events
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Search hits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+
+  # ======================================================================
+  # Hosts + A2A
+  # ======================================================================
+
+  /v1/teams/{team}/hosts:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Hosts]
+      operationId: registerHost
+      summary: Register a host (host-runner first boot)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HostRegisterRequest"
+      responses:
+        "201":
+          description: Host registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Host"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [Hosts]
+      operationId: listHosts
+      summary: List hosts in team
+      parameters:
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Hosts page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HostsPage"
+
+  /v1/teams/{team}/hosts/{host}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    get:
+      tags: [Hosts]
+      operationId: getHost
+      summary: Get one host
+      responses:
+        "200":
+          description: Host
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Hosts]
+      operationId: deleteHost
+      summary: Delete a host (admin)
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/teams/{team}/hosts/{host}/heartbeat:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    post:
+      tags: [Hosts]
+      operationId: hostHeartbeat
+      summary: Heartbeat with build metadata + capabilities
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HostHeartbeat" }
+      responses:
+        "200":
+          description: Heartbeat acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+
+  /v1/teams/{team}/hosts/{host}/commands:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    get:
+      tags: [Hosts]
+      operationId: listHostCommands
+      summary: Pull queued out-of-band commands
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, done, failed] }
+      responses:
+        "200":
+          description: Commands page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HostCommandsPage" }
+
+  /v1/teams/{team}/hosts/{host}/ssh_hint:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    patch:
+      tags: [Hosts]
+      operationId: updateHostSSHHint
+      summary: Update non-secret SSH hint (no credentials)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SSHHint" }
+      responses:
+        "200": { description: Updated }
+
+  /v1/teams/{team}/hosts/{host}/capabilities:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    put:
+      tags: [Hosts]
+      operationId: updateHostCapabilities
+      summary: Replace binary-presence map
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HostCapabilities" }
+      responses:
+        "200": { description: Updated }
+
+  /v1/teams/{team}/hosts/{host}/a2a/cards:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    put:
+      tags: [Hosts]
+      operationId: putHostA2ACards
+      summary: Publish per-host A2A agent cards
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              items: { $ref: "#/components/schemas/A2ACard" }
+      responses:
+        "200": { description: Published }
+
+  /v1/teams/{team}/hosts/{host}/a2a/tunnel/next:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    get:
+      tags: [Hosts]
+      operationId: tunnelNext
+      summary: Long-poll next A2A tunnel request
+      responses:
+        "200":
+          description: Tunnel request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelRequest" }
+
+  /v1/teams/{team}/hosts/{host}/a2a/tunnel/responses:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Host"
+    post:
+      tags: [Hosts]
+      operationId: tunnelResponse
+      summary: Post A2A tunnel response back to relay
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TunnelResponse" }
+      responses:
+        "204": { description: Accepted }
+
+  /v1/teams/{team}/a2a/cards:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Hosts]
+      operationId: listTeamA2ACards
+      summary: Team-wide A2A agent-card directory
+      responses:
+        "200":
+          description: Cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/A2ACard" }
+
+  /v1/teams/{team}/commands/{cmd}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: cmd
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Hosts]
+      operationId: patchHostCommand
+      summary: Update host-command status
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [done, failed] }
+                error: { type: string }
+      responses:
+        "200": { description: Updated }
+
+  # ======================================================================
+  # Agents
+  # ======================================================================
+
+  /v1/teams/{team}/steward.general/ensure:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Agents]
+      operationId: ensureGeneralSteward
+      summary: Idempotently ensure the team's general steward exists
+      responses:
+        "200":
+          description: Steward (existing or new)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+
+  /v1/teams/{team}/agents:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Agents]
+      operationId: createAgent
+      summary: Create an agent row (without spawning)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+    get:
+      tags: [Agents]
+      operationId: listAgents
+      summary: List agents
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Agents page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentsPage" }
+
+  /v1/teams/{team}/agents/spawn:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Agents]
+      operationId: spawnAgent
+      summary: Spawn an agent from a spec YAML
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentSpawnRequest" }
+      responses:
+        "201":
+          description: Spawn accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentSpawn" }
+        "202":
+          description: Spawn pending policy approval
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attention_id: { type: string }
+                  status: { type: string, enum: [pending_approval] }
+
+  /v1/teams/{team}/agents/spawns:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Agents]
+      operationId: listSpawns
+      summary: List spawn requests (host-runner uses this to poll)
+      parameters:
+        - in: query
+          name: host_id
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        "200":
+          description: Spawns
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AgentSpawn" }
+
+  /v1/teams/{team}/agents/{agent}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    get:
+      tags: [Agents]
+      operationId: getAgent
+      summary: Get agent
+      responses:
+        "200":
+          description: Agent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+    patch:
+      tags: [Agents]
+      operationId: patchAgent
+      summary: Update agent (status, pane_id, etc.)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentPatch" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+    delete:
+      tags: [Agents]
+      operationId: archiveAgent
+      summary: Archive (preserves journal + audit; not a hard delete)
+      responses:
+        "204": { description: Archived }
+
+  /v1/teams/{team}/agents/{agent}/journal:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    get:
+      tags: [Agents]
+      operationId: readAgentJournal
+      summary: Read the agent's journal (markdown, append-only)
+      responses:
+        "200":
+          description: Journal text
+          content:
+            text/markdown: {}
+    post:
+      tags: [Agents]
+      operationId: appendAgentJournal
+      summary: Append to journal
+      requestBody:
+        content:
+          text/markdown: {}
+      responses:
+        "201": { description: Appended }
+
+  /v1/teams/{team}/agents/{agent}/pause:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    post:
+      tags: [Agents]
+      operationId: pauseAgent
+      summary: Pause loop (state pause_state='paused')
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+
+  /v1/teams/{team}/agents/{agent}/resume:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    post:
+      tags: [Agents]
+      operationId: resumeAgent
+      summary: Resume loop
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Agent" }
+
+  /v1/teams/{team}/agents/{agent}/pane:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    get:
+      tags: [Agents]
+      operationId: getAgentPane
+      summary: Snapshot pane buffer
+      responses:
+        "200":
+          description: Pane snapshot
+          content:
+            text/plain: {}
+
+  /v1/teams/{team}/agents/{agent}/events:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    post:
+      tags: [Agents]
+      operationId: postAgentEvent
+      summary: Append AG-UI event (host-runner side)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentEvent" }
+      responses:
+        "201":
+          description: Event recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentEvent" }
+    get:
+      tags: [Agents]
+      operationId: listAgentEvents
+      summary: List agent events (paged)
+      parameters:
+        - in: query
+          name: before
+          schema: { type: integer }
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AgentEvent" }
+
+  /v1/teams/{team}/agents/{agent}/stream:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    get:
+      tags: [Agents]
+      operationId: streamAgentEvents
+      summary: SSE — live AG-UI event stream
+      parameters:
+        - in: header
+          name: Last-Event-ID
+          schema: { type: string }
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  /v1/teams/{team}/agents/{agent}/input:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    post:
+      tags: [Agents]
+      operationId: postAgentInput
+      summary: Structured input (approve / reject / redirect / cancel / message)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentInput" }
+      responses:
+        "200": { description: Accepted }
+
+  /v1/teams/{team}/agent-families:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Agents]
+      operationId: listAgentFamilies
+      summary: List agent-family templates
+      responses:
+        "200":
+          description: Families
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AgentFamily" }
+
+  /v1/teams/{team}/agent-families/{family}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: family
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Agents]
+      operationId: getAgentFamily
+      summary: Get one agent family
+      responses:
+        "200":
+          description: Family
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AgentFamily" }
+    put:
+      tags: [Agents]
+      operationId: putAgentFamily
+      summary: Create or replace agent family
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AgentFamily" }
+      responses:
+        "200": { description: Saved }
+    delete:
+      tags: [Agents]
+      operationId: deleteAgentFamily
+      summary: Delete agent family
+      responses:
+        "204": { description: Deleted }
+
+  # ======================================================================
+  # Sessions
+  # ======================================================================
+
+  /v1/teams/{team}/agents/{agent}/sessions:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    post:
+      tags: [Sessions]
+      operationId: openSession
+      summary: Open a session
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionOpenRequest" }
+      responses:
+        "201":
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+    get:
+      tags: [Sessions]
+      operationId: listSessions
+      summary: List sessions for agent
+      parameters:
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Sessions page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionsPage" }
+
+  /v1/teams/{team}/agents/{agent}/sessions/search:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+    get:
+      tags: [Sessions]
+      operationId: sessionSearch
+      summary: FTS5 over session events
+      parameters:
+        - $ref: "#/components/parameters/SearchQuery"
+      responses:
+        "200":
+          description: Hits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResults" }
+
+  /v1/teams/{team}/agents/{agent}/sessions/{session}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+      - $ref: "#/components/parameters/Session"
+    get:
+      tags: [Sessions]
+      operationId: getSession
+      summary: Get session
+      responses:
+        "200":
+          description: Session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+    patch:
+      tags: [Sessions]
+      operationId: patchSession
+      summary: Patch session (rename, update metadata)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+    delete:
+      tags: [Sessions]
+      operationId: deleteSession
+      summary: Hard-delete session
+      responses:
+        "204": { description: Deleted }
+
+  /v1/teams/{team}/agents/{agent}/sessions/{session}/archive:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+      - $ref: "#/components/parameters/Session"
+    post:
+      tags: [Sessions]
+      operationId: archiveSession
+      summary: Archive session (retains transcript)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionDistillRequest" }
+      responses:
+        "200":
+          description: Archived
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+
+  /v1/teams/{team}/agents/{agent}/sessions/{session}/close:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+      - $ref: "#/components/parameters/Session"
+    post:
+      tags: [Sessions]
+      operationId: closeSession
+      summary: Alias for archive
+      responses:
+        "200":
+          description: Closed
+
+  /v1/teams/{team}/agents/{agent}/sessions/{session}/fork:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+      - $ref: "#/components/parameters/Session"
+    post:
+      tags: [Sessions]
+      operationId: forkSession
+      summary: Fork from a cursor
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_event_id: { type: string }
+      responses:
+        "201":
+          description: New session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+
+  /v1/teams/{team}/agents/{agent}/sessions/{session}/resume:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Agent"
+      - $ref: "#/components/parameters/Session"
+    post:
+      tags: [Sessions]
+      operationId: resumeSession
+      summary: Resume with engine-specific cursor (e.g. claude --resume)
+      responses:
+        "200":
+          description: Resumed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+
+  # ======================================================================
+  # Templates
+  # ======================================================================
+
+  /v1/teams/{team}/templates:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Templates]
+      operationId: listTemplates
+      summary: List bundled + user templates
+      responses:
+        "200":
+          description: Templates page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemplatesPage" }
+
+  /v1/teams/{team}/templates/{category}/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: category
+        required: true
+        schema: { type: string }
+      - in: path
+        name: name
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Templates]
+      operationId: getTemplate
+      summary: Get template body (YAML)
+      responses:
+        "200":
+          description: Template
+          content:
+            application/yaml: {}
+    put:
+      tags: [Templates]
+      operationId: putTemplate
+      summary: Replace template body
+      requestBody:
+        required: true
+        content:
+          application/yaml: {}
+      responses:
+        "200": { description: Saved }
+    delete:
+      tags: [Templates]
+      operationId: deleteTemplate
+      summary: Delete template
+      responses:
+        "204": { description: Deleted }
+    patch:
+      tags: [Templates]
+      operationId: renameTemplate
+      summary: Rename template
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_name]
+              properties:
+                new_name: { type: string }
+      responses:
+        "200": { description: Renamed }
+
+  # ======================================================================
+  # Projects
+  # ======================================================================
+
+  /v1/teams/{team}/projects:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create project
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectsPage" }
+
+  /v1/teams/{team}/projects/{project}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update project
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectPatch" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+    delete:
+      tags: [Projects]
+      operationId: archiveProject
+      summary: Archive project
+      responses:
+        "204": { description: Archived }
+
+  /v1/teams/{team}/projects/{project}/sweep-summary:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Projects]
+      operationId: getSweepSummary
+      summary: Computed multi-run summary (project overview)
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SweepSummary" }
+
+  # ----- Lifecycle (phase / deliverables / criteria) — see hub-api-deliverables.md
+  /v1/teams/{team}/projects/{project}/phase:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Projects]
+      operationId: getProjectPhase
+      summary: Get current phase + history
+      responses:
+        "200":
+          description: Phase state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhaseState" }
+
+  /v1/teams/{team}/projects/{project}/phase/advance:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Projects]
+      operationId: advanceProjectPhase
+      summary: Advance phase if criteria met
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_phase]
+              properties:
+                target_phase: { type: string }
+      responses:
+        "200":
+          description: Advanced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  phase: { type: string }
+                  audit_event_ids:
+                    type: array
+                    items: { type: string }
+        "409":
+          description: Criteria unmet
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  /v1/teams/{team}/projects/{project}/deliverables:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Projects]
+      operationId: listDeliverables
+      summary: List deliverables for project
+      responses:
+        "200":
+          description: Deliverables
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Deliverable" }
+
+  /v1/teams/{team}/projects/{project}/deliverables/{deliverable}/ratify:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: deliverable
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Projects]
+      operationId: ratifyDeliverable
+      summary: Ratify a deliverable (director only)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Ratified
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Deliverable" }
+
+  /v1/teams/{team}/projects/{project}/criteria/{criterion}/met:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: criterion
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Projects]
+      operationId: markCriterionMet
+      summary: Mark criterion met (auto by steward, manual by director)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                evidence: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AcceptanceCriterion" }
+
+  /v1/teams/{team}/projects/{project}/overview:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Projects]
+      operationId: getProjectOverview
+      summary: Composed overview (phase + deliverables + criteria)
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProjectOverview" }
+
+  # ======================================================================
+  # Channels + events
+  # ======================================================================
+
+  /v1/teams/{team}/projects/{project}/channels:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Channels]
+      operationId: createChannel
+      summary: Create project channel
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+    get:
+      tags: [Channels]
+      operationId: listChannels
+      summary: List project channels
+      responses:
+        "200":
+          description: Channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Channel" }
+
+  /v1/teams/{team}/projects/{project}/channels/{channel}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Channel"
+    get:
+      tags: [Channels]
+      operationId: getChannel
+      summary: Get channel metadata
+      responses:
+        "200":
+          description: Channel
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+
+  /v1/teams/{team}/projects/{project}/channels/{channel}/events:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Channel"
+    post:
+      tags: [Channels]
+      operationId: postChannelEvent
+      summary: Append event to channel
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChannelEventCreate" }
+      responses:
+        "201":
+          description: Appended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChannelEvent" }
+    get:
+      tags: [Channels]
+      operationId: listChannelEvents
+      summary: List events
+      parameters:
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ChannelEvent" }
+
+  /v1/teams/{team}/projects/{project}/channels/{channel}/stream:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - $ref: "#/components/parameters/Channel"
+    get:
+      tags: [Channels]
+      operationId: streamChannelEvents
+      summary: SSE — live channel events
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  /v1/teams/{team}/channels:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Channels]
+      operationId: createTeamChannel
+      summary: Create team-scope channel
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+    get:
+      tags: [Channels]
+      operationId: listTeamChannels
+      summary: List team channels
+      responses:
+        "200":
+          description: Channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Channel" }
+
+  /v1/teams/{team}/channels/{channel}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Channel"
+    get:
+      tags: [Channels]
+      operationId: getTeamChannel
+      summary: Get one team channel
+      responses:
+        "200":
+          description: Channel
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+
+  /v1/teams/{team}/channels/{channel}/events:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Channel"
+    post:
+      tags: [Channels]
+      operationId: postTeamChannelEvent
+      summary: Append event to team channel
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChannelEventCreate" }
+      responses:
+        "201":
+          description: Appended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChannelEvent" }
+    get:
+      tags: [Channels]
+      operationId: listTeamChannelEvents
+      summary: List events
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ChannelEvent" }
+
+  /v1/teams/{team}/channels/{channel}/stream:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Channel"
+    get:
+      tags: [Channels]
+      operationId: streamTeamChannelEvents
+      summary: SSE — live team-channel events
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream: {}
+
+  # ======================================================================
+  # Tasks
+  # ======================================================================
+
+  /v1/teams/{team}/projects/{project}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create task
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks
+      responses:
+        "200":
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Task" }
+
+  /v1/teams/{team}/projects/{project}/tasks/{task}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: task
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Get task
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+    patch:
+      tags: [Tasks]
+      operationId: patchTask
+      summary: Patch task
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskPatch" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+
+  # ======================================================================
+  # Documents + reviews + artifacts
+  # ======================================================================
+
+  /v1/teams/{team}/projects/{project}/docs:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    get:
+      tags: [Documents]
+      operationId: listProjectDocs
+      summary: List project doc tree
+      responses:
+        "200":
+          description: Doc index
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectDocEntry" }
+
+  "/v1/teams/{team}/projects/{project}/docs/{path}":
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: path
+        required: true
+        schema: { type: string }
+        description: doc path (slash-separated; mapped to `*` in router)
+    get:
+      tags: [Documents]
+      operationId: getProjectDoc
+      summary: Read project doc body
+      responses:
+        "200":
+          description: Doc
+          content:
+            text/markdown: {}
+
+  /v1/teams/{team}/projects/{project}/documents:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Documents]
+      operationId: createDocument
+      summary: Create document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DocumentCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+    get:
+      tags: [Documents]
+      operationId: listDocuments
+      summary: List documents
+      responses:
+        "200":
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Document" }
+
+  /v1/teams/{team}/projects/{project}/documents/{document}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: document
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Documents]
+      operationId: getDocument
+      summary: Get document
+      responses:
+        "200":
+          description: Document
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Document" }
+
+  /v1/teams/{team}/projects/{project}/documents/{document}/versions:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: document
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Documents]
+      operationId: listDocumentVersions
+      summary: Version history
+      responses:
+        "200":
+          description: Versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Document" }
+
+  /v1/teams/{team}/projects/{project}/reviews:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Documents]
+      operationId: createReview
+      summary: Request review
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReviewCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Review" }
+    get:
+      tags: [Documents]
+      operationId: listReviews
+      summary: List reviews
+      responses:
+        "200":
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Review" }
+
+  /v1/teams/{team}/projects/{project}/reviews/{review}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: review
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Documents]
+      operationId: getReview
+      summary: Get review
+      responses:
+        "200":
+          description: Review
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Review" }
+
+  /v1/teams/{team}/projects/{project}/reviews/{review}/decide:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: review
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Documents]
+      operationId: decideReview
+      summary: Approve / request-changes / reject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state:
+                  type: string
+                  enum: [approved, request-changes, rejected]
+                comment: { type: string }
+      responses:
+        "200":
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Review" }
+
+  /v1/teams/{team}/projects/{project}/artifacts:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Documents]
+      operationId: createArtifact
+      summary: Register artifact (URI + metadata)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ArtifactCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+    get:
+      tags: [Documents]
+      operationId: listArtifacts
+      summary: List artifacts
+      responses:
+        "200":
+          description: Artifacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Artifact" }
+
+  /v1/teams/{team}/projects/{project}/artifacts/{artifact}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: artifact
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Documents]
+      operationId: getArtifact
+      summary: Get one artifact
+      responses:
+        "200":
+          description: Artifact
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+
+  /v1/teams/{team}/blobs:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Documents]
+      operationId: uploadBlob
+      summary: Upload small blob (≤ 25 MiB)
+      requestBody:
+        content:
+          application/octet-stream: {}
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sha256: { type: string }
+                  size: { type: integer }
+
+  /v1/teams/{team}/blobs/{sha}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: sha
+        required: true
+        schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+    get:
+      tags: [Documents]
+      operationId: getBlob
+      summary: Download blob bytes by sha256
+      responses:
+        "200":
+          description: Bytes
+          content:
+            application/octet-stream: {}
+
+  # ======================================================================
+  # Plans + steps + schedules
+  # ======================================================================
+
+  /v1/teams/{team}/projects/{project}/plans:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+    post:
+      tags: [Plans]
+      operationId: createPlan
+      summary: Create plan
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+    get:
+      tags: [Plans]
+      operationId: listPlans
+      summary: List plans
+      responses:
+        "200":
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Plan" }
+
+  /v1/teams/{team}/projects/{project}/plans/{plan}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: plan
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Plans]
+      operationId: getPlan
+      summary: Get plan
+      responses:
+        "200":
+          description: Plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+    patch:
+      tags: [Plans]
+      operationId: updatePlan
+      summary: Patch plan (status, etc.)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+
+  /v1/teams/{team}/projects/{project}/plans/{plan}/steps:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: plan
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Plans]
+      operationId: createPlanStep
+      summary: Create plan step
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanStepCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanStep" }
+    get:
+      tags: [Plans]
+      operationId: listPlanSteps
+      summary: List plan steps
+      responses:
+        "200":
+          description: Steps
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PlanStep" }
+
+  /v1/teams/{team}/projects/{project}/plans/{plan}/steps/{step}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Project"
+      - in: path
+        name: plan
+        required: true
+        schema: { type: string }
+      - in: path
+        name: step
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Plans]
+      operationId: updatePlanStep
+      summary: Update plan step (status, output_refs)
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanStepPatch" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanStep" }
+
+  /v1/teams/{team}/schedules:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Plans]
+      operationId: createSchedule
+      summary: Create schedule
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+    get:
+      tags: [Plans]
+      operationId: listSchedules
+      summary: List schedules
+      responses:
+        "200":
+          description: Schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Schedule" }
+
+  /v1/teams/{team}/schedules/{schedule}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: schedule
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Plans]
+      operationId: patchSchedule
+      summary: Patch schedule
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200": { description: Updated }
+    delete:
+      tags: [Plans]
+      operationId: deleteSchedule
+      summary: Delete schedule
+      responses:
+        "204": { description: Deleted }
+
+  /v1/teams/{team}/schedules/{schedule}/run:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: schedule
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Plans]
+      operationId: runSchedule
+      summary: Manual fire — instantiate plan now
+      responses:
+        "200":
+          description: Plan instantiated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+
+  # ======================================================================
+  # Runs + metrics
+  # ======================================================================
+
+  /v1/teams/{team}/runs:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Runs]
+      operationId: createRun
+      summary: Reserve a run (before agents start writing metrics)
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+    get:
+      tags: [Runs]
+      operationId: listRuns
+      summary: List runs
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+
+  /v1/teams/{team}/runs/{run}:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    get:
+      tags: [Runs]
+      operationId: getRun
+      summary: Get run
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+
+  /v1/teams/{team}/runs/{run}/complete:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    post:
+      tags: [Runs]
+      operationId: completeRun
+      summary: Mark run completed / failed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [completed, failed, cancelled] }
+                final_metrics_json: { type: object }
+      responses:
+        "200": { description: Updated }
+
+  /v1/teams/{team}/runs/{run}/metric_uri:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    post:
+      tags: [Runs]
+      operationId: attachMetricURI
+      summary: Attach trackio / wandb / tfevents URI to a run
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trackio_run_uri]
+              properties:
+                trackio_run_uri: { type: string }
+                trackio_host_id: { type: string }
+      responses:
+        "200": { description: Updated }
+
+  /v1/teams/{team}/runs/{run}/metrics:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    put:
+      tags: [Runs]
+      operationId: putRunMetrics
+      summary: Push downsampled metric series
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunMetricsBatch" }
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunMetrics
+      summary: List run metric series
+      responses:
+        "200":
+          description: Metrics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunMetricsBatch" }
+
+  /v1/teams/{team}/runs/{run}/images:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    post:
+      tags: [Runs]
+      operationId: postRunImages
+      summary: Add image-series checkpoint
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunImagesBatch" }
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunImages
+      summary: List image-series checkpoints
+      responses:
+        "200":
+          description: Images
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunImagesBatch" }
+
+  /v1/teams/{team}/runs/{run}/histograms:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - $ref: "#/components/parameters/Run"
+    put:
+      tags: [Runs]
+      operationId: putRunHistograms
+      summary: Replace histogram-series
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunHistogramsBatch" }
+      responses:
+        "200": { description: Stored }
+    get:
+      tags: [Runs]
+      operationId: getRunHistograms
+      summary: List histogram-series
+      responses:
+        "200":
+          description: Histograms
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunHistogramsBatch" }
+
+  # ======================================================================
+  # Attention
+  # ======================================================================
+
+  /v1/teams/{team}/attention:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    post:
+      tags: [Attention]
+      operationId: createAttention
+      summary: Create attention item
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttentionCreateRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionItem" }
+    get:
+      tags: [Attention]
+      operationId: listAttention
+      summary: List attention items
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [open, resolved] }
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Attention page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionPage" }
+
+  /v1/teams/{team}/attention/{id}/context:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Attention]
+      operationId: getAttentionContext
+      summary: Surrounding events for triage
+      responses:
+        "200":
+          description: Context
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionContext" }
+
+  /v1/teams/{team}/attention/{id}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Attention]
+      operationId: resolveAttention
+      summary: Resolve without choice (info / digest items)
+      responses:
+        "200":
+          description: Resolved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionItem" }
+
+  /v1/teams/{team}/attention/{id}/decide:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Attention]
+      operationId: decideAttention
+      summary: Resolve with explicit choice
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttentionDecideRequest" }
+      responses:
+        "200":
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttentionItem" }
+
+  # ======================================================================
+  # Admin (audit, policy, tokens, principals)
+  # ======================================================================
+
+  /v1/teams/{team}/audit:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Admin]
+      operationId: listAudit
+      summary: List audit_events (filtered, paginated)
+      parameters:
+        - in: query
+          name: actor_kind
+          schema: { type: string }
+        - in: query
+          name: action
+          schema: { type: string }
+        - in: query
+          name: target_kind
+          schema: { type: string }
+        - $ref: "#/components/parameters/PageCursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Audit events page
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditEventsPage" }
+
+  /v1/teams/{team}/policy:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Admin]
+      operationId: getPolicy
+      summary: Get team policy
+      responses:
+        "200":
+          description: Policy
+          content:
+            application/yaml: {}
+    put:
+      tags: [Admin]
+      operationId: putPolicy
+      summary: Replace team policy
+      requestBody:
+        content:
+          application/yaml: {}
+      responses:
+        "200": { description: Saved }
+
+  /v1/teams/{team}/auth-tokens:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Admin]
+      operationId: listTokens
+      summary: List tokens (no plaintext; metadata only)
+      responses:
+        "200":
+          description: Tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuthToken" }
+    post:
+      tags: [Admin]
+      operationId: issueToken
+      summary: Mint a new token (returns plaintext once)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IssueTokenRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssuedToken" }
+
+  /v1/teams/{team}/auth-tokens/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      tags: [Admin]
+      operationId: revokeToken
+      summary: Revoke token
+      responses:
+        "204": { description: Revoked }
+
+  /v1/teams/{team}/principals:
+    parameters:
+      - $ref: "#/components/parameters/Team"
+    get:
+      tags: [Admin]
+      operationId: listPrincipals
+      summary: List active principals (humans + agents)
+      responses:
+        "200":
+          description: Principals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Principal" }
+
+  # ======================================================================
+  # MCP gateway
+  # ======================================================================
+
+  /mcp/{token}:
+    parameters:
+      - in: path
+        name: token
+        required: true
+        schema: { type: string }
+        description: per-spawn MCP token
+    post:
+      tags: [MCP]
+      operationId: mcpRPC
+      summary: JSON-RPC entry for MCP — host-runner relays agent calls here
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: JSON-RPC response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: |
+        SHA-256 hashed in `auth_tokens.token_hash`. Plaintext is
+        printed only once at issuance. Token kinds: owner / user /
+        agent / host. See `permission-model.md`.
+
+  parameters:
+    Team:
+      in: path
+      name: team
+      required: true
+      schema: { type: string }
+      description: Team identifier (default `default` in MVP)
+    Host:
+      in: path
+      name: host
+      required: true
+      schema: { type: string }
+    Agent:
+      in: path
+      name: agent
+      required: true
+      schema: { type: string }
+    Project:
+      in: path
+      name: project
+      required: true
+      schema: { type: string }
+    Channel:
+      in: path
+      name: channel
+      required: true
+      schema: { type: string }
+    Session:
+      in: path
+      name: session
+      required: true
+      schema: { type: string }
+    Run:
+      in: path
+      name: run
+      required: true
+      schema: { type: string }
+    PageCursor:
+      in: query
+      name: cursor
+      schema: { type: string }
+      description: Opaque server-defined cursor
+    PageLimit:
+      in: query
+      name: limit
+      schema: { type: integer, default: 50, maximum: 200, minimum: 1 }
+    SearchQuery:
+      in: query
+      name: q
+      required: true
+      schema: { type: string }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      schema: { type: string, format: uuid }
+      description: |
+        Optional client-generated UUID. Two requests with the same
+        key + body return the same response without re-executing.
+        Hub stores keys for 24 h.
+
+  responses:
+    BadRequest:
+      description: Malformed request (validation)
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Forbidden:
+      description: Token valid; role insufficient
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    Conflict:
+      description: State conflict
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+    RateLimited:
+      description: Rate limited; see Retry-After
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/ProblemDetail" }
+
+  schemas:
+    ProblemDetail:
+      type: object
+      description: RFC 7807 problem-detail
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        audit_event_id: { type: string }
+        context:
+          type: object
+          additionalProperties: true
+
+    ServerInfo:
+      type: object
+      required: [server_version, supported_api_versions]
+      properties:
+        server_version: { type: string }
+        supported_api_versions:
+          type: array
+          items: { type: string }
+        schema_versions_supported:
+          type: array
+          items: { type: integer }
+        commit: { type: string }
+        build_time: { type: string, format: date-time }
+        modified: { type: boolean }
+
+    Page:
+      type: object
+      properties:
+        next_cursor: { type: string, nullable: true }
+        total_estimate: { type: integer }
+
+    SearchResults:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        next_cursor: { type: string, nullable: true }
+
+    Host:
+      type: object
+      required: [id, team_id, name, status]
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        name: { type: string }
+        status:
+          type: string
+          enum: [online, offline, disconnected]
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        capabilities_json:
+          type: object
+          additionalProperties: true
+        ssh_hint_json:
+          $ref: "#/components/schemas/SSHHint"
+        runner_commit: { type: string }
+        runner_build_time: { type: string }
+        runner_modified: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    HostsPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Host" }
+
+    HostRegisterRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        capabilities_json: { type: object }
+        ssh_hint_json: { $ref: "#/components/schemas/SSHHint" }
+
+    HostHeartbeat:
+      type: object
+      properties:
+        runner_commit: { type: string }
+        runner_build_time: { type: string }
+        runner_modified: { type: boolean }
+        capabilities_json: { type: object }
+
+    SSHHint:
+      type: object
+      description: Non-secret SSH hint — never includes credentials
+      properties:
+        hostname: { type: string }
+        port: { type: integer }
+        username: { type: string }
+        jump_host: { type: string }
+
+    HostCapabilities:
+      type: object
+      properties:
+        agents:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              installed: { type: boolean }
+              version: { type: string }
+              supports:
+                type: array
+                items: { type: string, enum: [M1, M2, M4] }
+        probed_at: { type: string, format: date-time }
+
+    HostCommandsPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    A2ACard:
+      type: object
+      properties:
+        agent_id: { type: string }
+        url: { type: string, format: uri }
+        capabilities:
+          type: array
+          items: { type: string }
+        manifest:
+          type: object
+          additionalProperties: true
+
+    TunnelRequest:
+      type: object
+      additionalProperties: true
+
+    TunnelResponse:
+      type: object
+      additionalProperties: true
+
+    Agent:
+      type: object
+      required: [id, team_id, handle, kind, status]
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        handle: { type: string }
+        kind:
+          type: string
+          enum: [claude-code, codex, gemini, custom]
+        status:
+          type: string
+          enum: [pending, running, idle, waiting_attention, paused, terminated, archived]
+        host_id: { type: string, nullable: true }
+        pane_id: { type: string, nullable: true }
+        parent_agent_id: { type: string, nullable: true }
+        backend_json: { type: object }
+        capabilities_json:
+          type: array
+          items: { type: string }
+        worktree_path: { type: string, nullable: true }
+        journal_path: { type: string, nullable: true }
+        budget_cents: { type: integer, nullable: true }
+        spent_cents: { type: integer }
+        idle_since: { type: string, format: date-time, nullable: true }
+        pause_state: { type: string, enum: [running, paused] }
+        driving_mode: { type: string, enum: [M1, M2, M4], nullable: true }
+        created_at: { type: string, format: date-time }
+        terminated_at: { type: string, format: date-time, nullable: true }
+
+    AgentsPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Agent" }
+
+    AgentCreateRequest:
+      type: object
+      required: [handle, kind]
+      properties:
+        handle: { type: string }
+        kind: { type: string }
+        backend_json: { type: object }
+        capabilities_json:
+          type: array
+          items: { type: string }
+        parent_agent_id: { type: string }
+
+    AgentSpawnRequest:
+      type: object
+      required: [child_handle, kind, host_id, spawn_spec_yaml]
+      properties:
+        child_handle: { type: string }
+        kind: { type: string }
+        host_id: { type: string }
+        spawn_spec_yaml: { type: string, format: yaml }
+        parent_agent_id: { type: string }
+        task_json: { type: object }
+
+    AgentSpawn:
+      type: object
+      required: [id, child_agent_id, spawn_spec_yaml, spawned_at]
+      properties:
+        id: { type: string }
+        parent_agent_id: { type: string, nullable: true }
+        child_agent_id: { type: string }
+        spawn_spec_yaml: { type: string }
+        spawn_authority_json: { type: object }
+        task_json: { type: object }
+        spawned_at: { type: string, format: date-time }
+        terminated_at: { type: string, format: date-time, nullable: true }
+        terminated_reason: { type: string, nullable: true }
+        worktree_path: { type: string, nullable: true }
+        mcp_token: { type: string }
+
+    AgentPatch:
+      type: object
+      additionalProperties: true
+
+    AgentEvent:
+      type: object
+      required: [id, agent_id, kind, ts]
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        kind: { type: string, description: "AG-UI event kind" }
+        ts: { type: string, format: date-time }
+        payload_json: { type: object }
+        producer:
+          type: string
+          enum: [engine, host-runner, hub, a2a]
+
+    AgentInput:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [message, approve, reject, redirect, cancel]
+        text: { type: string }
+        attention_id: { type: string }
+        choice: { type: string }
+        comment: { type: string }
+
+    AgentFamily:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        spec_yaml: { type: string }
+
+    Session:
+      type: object
+      required: [id, agent_id, status, created_at]
+      properties:
+        id: { type: string }
+        agent_id: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          enum: [open, active, closed, archived]
+        engine_session_id: { type: string, nullable: true }
+        correlation_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        closed_at: { type: string, format: date-time, nullable: true }
+
+    SessionsPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Session" }
+
+    SessionOpenRequest:
+      type: object
+      properties:
+        title: { type: string }
+        scope: { type: string }
+        system_prompt_args: { type: object }
+
+    SessionDistillRequest:
+      type: object
+      properties:
+        distill_kind:
+          type: string
+          enum: [decision, brief, plan, template, none]
+        artifact_title: { type: string }
+
+    Project:
+      type: object
+      required: [id, team_id, name, kind, status]
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        name: { type: string }
+        goal: { type: string }
+        kind: { type: string, enum: [goal, standing] }
+        parent_project_id: { type: string, nullable: true }
+        template_id: { type: string, nullable: true }
+        parameters_json: { type: object }
+        is_template: { type: boolean }
+        budget_cents: { type: integer, nullable: true }
+        policy_overrides_json: { type: object }
+        steward_agent_id: { type: string, nullable: true }
+        on_create_template_id: { type: string, nullable: true }
+        phase: { type: string }
+        phase_history_json:
+          type: array
+          items: { type: object, additionalProperties: true }
+        status:
+          type: string
+          enum: [active, archived]
+        created_at: { type: string, format: date-time }
+        archived_at: { type: string, format: date-time, nullable: true }
+
+    ProjectsPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Project" }
+
+    ProjectCreateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        goal: { type: string }
+        kind: { type: string, enum: [goal, standing] }
+        parent_project_id: { type: string }
+        template_id: { type: string }
+        parameters_json: { type: object }
+        budget_cents: { type: integer }
+        on_create_template_id: { type: string }
+
+    ProjectPatch:
+      type: object
+      additionalProperties: true
+
+    PhaseState:
+      type: object
+      required: [phase, history]
+      properties:
+        phase: { type: string }
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              phase: { type: string }
+              entered_at: { type: string, format: date-time }
+              advanced_by: { type: string }
+
+    Deliverable:
+      type: object
+      required: [id, project_id, phase]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        phase: { type: string }
+        kind: { type: string }
+        ratified_at: { type: string, format: date-time, nullable: true }
+        components:
+          type: array
+          items: { $ref: "#/components/schemas/DeliverableComponent" }
+
+    DeliverableComponent:
+      type: object
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [document, artifact, run, commit]
+        ref: { type: string }
+
+    AcceptanceCriterion:
+      type: object
+      required: [id, project_id, phase, status]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        phase: { type: string }
+        body: { type: string }
+        kind: { type: string }
+        status:
+          type: string
+          enum: [pending, met, failed, waived]
+        evidence: { type: string }
+        evaluated_at: { type: string, format: date-time, nullable: true }
+
+    ProjectOverview:
+      type: object
+      properties:
+        project: { $ref: "#/components/schemas/Project" }
+        phase: { $ref: "#/components/schemas/PhaseState" }
+        deliverables:
+          type: array
+          items: { $ref: "#/components/schemas/Deliverable" }
+        criteria:
+          type: array
+          items: { $ref: "#/components/schemas/AcceptanceCriterion" }
+        widgets:
+          type: object
+          additionalProperties: true
+
+    SweepSummary:
+      type: object
+      additionalProperties: true
+
+    Channel:
+      type: object
+      required: [id, name, scope_kind]
+      properties:
+        id: { type: string }
+        project_id: { type: string, nullable: true }
+        scope_kind: { type: string, enum: [team, project] }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+
+    ChannelEvent:
+      type: object
+      required: [id, channel_id, type, ts]
+      properties:
+        id: { type: string }
+        channel_id: { type: string }
+        ts: { type: string, format: date-time }
+        received_ts: { type: string, format: date-time }
+        type: { type: string }
+        from_id: { type: string, nullable: true }
+        to_ids_json:
+          type: array
+          items: { type: string }
+        parts_json:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        task_id: { type: string, nullable: true }
+        correlation_id: { type: string, nullable: true }
+        usage_tokens_json: { type: object }
+        metadata_json: { type: object }
+
+    ChannelEventCreate:
+      type: object
+      required: [type, parts]
+      properties:
+        type: { type: string }
+        from_id: { type: string }
+        parts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        task_id: { type: string }
+        correlation_id: { type: string }
+
+    Task:
+      type: object
+      required: [id, project_id, title, status]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        parent_task_id: { type: string, nullable: true }
+        title: { type: string }
+        body_md: { type: string }
+        status:
+          type: string
+          enum: [todo, in_progress, blocked, done, cancelled]
+        priority: { type: string, nullable: true }
+        assignee_id: { type: string, nullable: true }
+        created_by_id: { type: string, nullable: true }
+        milestone_id: { type: string, nullable: true }
+        plan_step_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TaskCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        body_md: { type: string }
+        parent_task_id: { type: string }
+        milestone_id: { type: string }
+        priority: { type: string }
+        assignee_id: { type: string }
+
+    TaskPatch:
+      type: object
+      additionalProperties: true
+
+    Document:
+      type: object
+      required: [id, project_id, kind, title, version]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        kind: { type: string, enum: [memo, draft, report, review] }
+        title: { type: string }
+        version: { type: integer }
+        prev_version_id: { type: string, nullable: true }
+        content_inline: { type: string, nullable: true }
+        artifact_id: { type: string, nullable: true }
+        author_agent_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        kind_meta_json: { type: object }
+        schema_id: { type: string, nullable: true }
+        body:
+          type: object
+          additionalProperties: true
+
+    DocumentCreateRequest:
+      type: object
+      required: [kind, title]
+      properties:
+        kind: { type: string }
+        title: { type: string }
+        content_inline: { type: string }
+        artifact_id: { type: string }
+        prev_version_id: { type: string }
+        body: { type: object }
+        schema_id: { type: string }
+
+    ProjectDocEntry:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+        title: { type: string }
+        kind: { type: string }
+
+    Review:
+      type: object
+      required: [id, project_id, target_kind, target_id, state]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        target_kind: { type: string, enum: [document, artifact] }
+        target_id: { type: string }
+        requester_agent_id: { type: string, nullable: true }
+        state:
+          type: string
+          enum: [pending, approved, request-changes, rejected]
+        decided_by_user_id: { type: string, nullable: true }
+        decided_at: { type: string, format: date-time, nullable: true }
+        comment: { type: string, nullable: true }
+
+    ReviewCreateRequest:
+      type: object
+      required: [target_kind, target_id]
+      properties:
+        target_kind: { type: string }
+        target_id: { type: string }
+
+    Artifact:
+      type: object
+      required: [id, project_id, sha256, size, uri, mime]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        run_id: { type: string, nullable: true }
+        sha256: { type: string }
+        size: { type: integer }
+        uri: { type: string }
+        mime: { type: string }
+        producer_agent_id: { type: string, nullable: true }
+        lineage_json: { type: object }
+        created_at: { type: string, format: date-time }
+
+    ArtifactCreateRequest:
+      type: object
+      required: [sha256, size, uri, mime]
+      properties:
+        sha256: { type: string }
+        size: { type: integer }
+        uri: { type: string }
+        mime: { type: string }
+        run_id: { type: string }
+        lineage_json: { type: object }
+
+    Plan:
+      type: object
+      required: [id, project_id, status]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        template_id: { type: string, nullable: true }
+        version: { type: integer }
+        spec_json: { type: object }
+        status:
+          type: string
+          enum: [draft, ready, running, completed, failed, cancelled]
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    PlanCreateRequest:
+      type: object
+      required: [spec_json]
+      properties:
+        template_id: { type: string }
+        spec_json: { type: object }
+
+    PlanStep:
+      type: object
+      required: [id, plan_id, kind, status]
+      properties:
+        id: { type: string }
+        plan_id: { type: string }
+        phase_idx: { type: integer }
+        step_idx: { type: integer }
+        kind:
+          type: string
+          enum: [agent_spawn, llm_call, shell, mcp_call, human_decision]
+        spec_json: { type: object }
+        status: { type: string }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        input_refs_json: { type: object }
+        output_refs_json: { type: object }
+        agent_id: { type: string, nullable: true }
+
+    PlanStepCreateRequest:
+      type: object
+      required: [kind, spec_json]
+      properties:
+        kind: { type: string }
+        phase_idx: { type: integer }
+        step_idx: { type: integer }
+        spec_json: { type: object }
+
+    PlanStepPatch:
+      type: object
+      additionalProperties: true
+
+    Schedule:
+      type: object
+      required: [id, team_id, template_id, trigger_kind, enabled]
+      properties:
+        id: { type: string }
+        team_id: { type: string }
+        project_id: { type: string, nullable: true }
+        template_id: { type: string }
+        trigger_kind:
+          type: string
+          enum: [cron, manual, on_create]
+        cron_expr: { type: string, nullable: true }
+        parameters_json: { type: object }
+        enabled: { type: boolean }
+        next_run_at: { type: string, format: date-time, nullable: true }
+        last_run_at: { type: string, format: date-time, nullable: true }
+        last_plan_id: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    ScheduleCreateRequest:
+      type: object
+      required: [template_id, trigger_kind]
+      properties:
+        project_id: { type: string }
+        template_id: { type: string }
+        trigger_kind: { type: string, enum: [cron, manual, on_create] }
+        cron_expr: { type: string }
+        parameters_json: { type: object }
+        enabled: { type: boolean }
+
+    Run:
+      type: object
+      required: [id, project_id, status]
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        agent_id: { type: string, nullable: true }
+        config_json: { type: object }
+        seed: { type: integer }
+        status: { type: string, enum: [pending, running, completed, failed, cancelled] }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+        trackio_host_id: { type: string, nullable: true }
+        trackio_run_uri: { type: string, nullable: true }
+        parent_run_id: { type: string, nullable: true }
+        final_metrics_json: { type: object }
+
+    RunCreateRequest:
+      type: object
+      required: [project_id]
+      properties:
+        project_id: { type: string }
+        config_json: { type: object }
+        seed: { type: integer }
+        trackio_host_id: { type: string }
+        trackio_run_uri: { type: string }
+        parent_run_id: { type: string }
+
+    RunMetricsBatch:
+      type: object
+      properties:
+        metrics:
+          type: array
+          items:
+            type: object
+            required: [name, points]
+            properties:
+              name: { type: string }
+              points:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    step: { type: integer }
+                    value: { type: number }
+
+    RunImagesBatch:
+      type: object
+      properties:
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              checkpoints:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    step: { type: integer }
+                    blob_sha256: { type: string }
+
+    RunHistogramsBatch:
+      type: object
+      properties:
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              checkpoints:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    step: { type: integer }
+                    bins:
+                      type: array
+                      items: { type: number }
+                    counts:
+                      type: array
+                      items: { type: integer }
+
+    AttentionItem:
+      type: object
+      required: [id, scope_kind, kind, severity, status, summary]
+      properties:
+        id: { type: string }
+        project_id: { type: string, nullable: true }
+        scope_kind:
+          type: string
+          enum: [team, project, channel]
+        scope_id: { type: string, nullable: true }
+        kind: { type: string }
+        ref_event_id: { type: string, nullable: true }
+        ref_task_id: { type: string, nullable: true }
+        summary: { type: string }
+        severity:
+          type: string
+          enum: [info, minor, major, critical]
+        current_assignees_json:
+          type: array
+          items: { type: string }
+        decisions_json:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        escalation_history_json:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        status: { type: string, enum: [open, resolved] }
+        actor_kind: { type: string, nullable: true }
+        actor_handle: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, nullable: true }
+
+    AttentionPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AttentionItem" }
+
+    AttentionCreateRequest:
+      type: object
+      required: [kind, scope_kind, summary]
+      properties:
+        kind: { type: string }
+        scope_kind: { type: string }
+        scope_id: { type: string }
+        summary: { type: string }
+        severity: { type: string }
+        ref_event_id: { type: string }
+        ref_task_id: { type: string }
+
+    AttentionDecideRequest:
+      type: object
+      required: [choice]
+      properties:
+        choice: { type: string }
+        comment: { type: string }
+
+    AttentionContext:
+      type: object
+      properties:
+        attention: { $ref: "#/components/schemas/AttentionItem" }
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    AuditEvent:
+      type: object
+      required: [id, ts, actor_kind, action]
+      properties:
+        id: { type: string }
+        ts: { type: string, format: date-time }
+        actor_kind: { type: string }
+        actor_handle: { type: string, nullable: true }
+        actor_id: { type: string, nullable: true }
+        action: { type: string }
+        target_kind: { type: string }
+        target_id: { type: string }
+        meta_json: { type: object }
+
+    AuditEventsPage:
+      allOf:
+        - $ref: "#/components/schemas/Page"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEvent" }
+
+    AuthToken:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [owner, user, agent, host] }
+        scope_json: { type: object }
+        expires_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        rotated_from: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    IssueTokenRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [owner, user, agent, host] }
+        role: { type: string }
+        agent_id: { type: string }
+        handle: { type: string }
+        team: { type: string }
+        scope_json: { type: object }
+
+    IssuedToken:
+      allOf:
+        - $ref: "#/components/schemas/AuthToken"
+        - type: object
+          required: [plaintext]
+          properties:
+            plaintext:
+              type: string
+              description: Shown once at issuance — never persisted
+
+    Principal:
+      type: object
+      properties:
+        kind: { type: string, enum: [user, agent] }
+        handle: { type: string }
+        agent_id: { type: string, nullable: true }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+
+    Template:
+      type: object
+      properties:
+        category: { type: string }
+        name: { type: string }
+        body: { type: string }
+        source: { type: string, enum: [bundled, user] }
+
+    TemplatesPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Template" }

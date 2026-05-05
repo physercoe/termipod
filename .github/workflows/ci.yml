@@ -36,6 +36,11 @@ jobs:
         # `hub/internal/hostrunner` don't false-flag.
         run: scripts/lint-glossary.sh
 
+      - name: Validate OpenAPI spec
+        # Enforces docs/reference/openapi.yaml validates against the
+        # OpenAPI 3.x schema. Per docs/plans/doc-uplift.md P2.8 §5.8.
+        run: scripts/lint-openapi.sh
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:

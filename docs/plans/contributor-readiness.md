@@ -11,13 +11,13 @@
 how-tos that an external reviewer or contributor needs to clone, set
 up, and submit a PR. Spot-check on 2026-05-05 confirmed: `LICENSE`
 (Apache 2.0) ✅, root `README.md` ✅, `.github/pull_request_template.md`
-✅ — but no `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`,
-issue templates, local-dev-environment guide, or test-running guide.
-This plan ships **6 must-have items** (per the 2026-05-05 "must-have
-only" decision) — 4 governance files + 2 contributor how-tos. Runs in
-parallel with doc-uplift; both gate the lifecycle plan's W1.
-Estimated effort: ~5–7 working days solo. License confirmed Apache
-2.0; single-repo (mobile + hub co-located in `mux-pod`).
+✅ — but no `CONTRIBUTING.md`, `SECURITY.md`, issue templates,
+local-dev-environment guide, or test-running guide. This plan ships
+**5 must-have items** — 3 governance files + 2 contributor how-tos
+(G2 `CODE_OF_CONDUCT.md` was deferred 2026-05-05). Runs in parallel
+with doc-uplift; both gate the lifecycle plan's W1. Estimated effort:
+~4–6 working days solo. License confirmed Apache 2.0; single-repo
+(mobile + hub co-located in `mux-pod`).
 
 ---
 
@@ -94,12 +94,12 @@ docs in this plan inherit that bar.
 
 ## 3. Scope — 6 must-have items
 
-### 3.1 P0 — Governance files (4)
+### 3.1 P0 — Governance files (3)
 
 GitHub-conventional, repo-root (not under `docs/`):
 
 - **G1** `CONTRIBUTING.md` — PR process, conventions, testing, doc requirements
-- **G2** `CODE_OF_CONDUCT.md` — Contributor Covenant 2.1 (standard template, project-specific contact)
+- **G2** ~~`CODE_OF_CONDUCT.md`~~ — **deferred** (2026-05-05); skipped from this plan, may revisit
 - **G3** `SECURITY.md` — vulnerability disclosure policy
 - **G4** `.github/ISSUE_TEMPLATE/bug_report.md` + `feature_request.md`
 
@@ -133,8 +133,6 @@ These can land later; they don't block external review/contribution.
 ```
 G1 CONTRIBUTING ──────┐                  (anchors process)
                        │
-G2 CODE_OF_CONDUCT ────┤                  (independent)
-                       │
 G3 SECURITY ───────────┤                  (independent)
                        │
 G4 ISSUE_TEMPLATE ─────┤                  (independent; parallels G1)
@@ -155,13 +153,13 @@ G4 ISSUE_TEMPLATE ─────┤                  (independent; parallels G1
 **Critical path:** none strictly enforced; G1 references H1 + H2 so
 those should land first or in same PR if ideal.
 
-**Parallelism:** all 6 items can be authored in any order. G2/G3/G4
-are independent. G1/H1/H2 cross-link; ship as a package.
+**Parallelism:** all 5 items can be authored in any order. G3/G4 are
+independent. G1/H1/H2 cross-link; ship as a package.
 
-**Solo path:** H1 → H2 → G1 → G4 → G3 → G2 (~5–7 days).
+**Solo path:** H1 → H2 → G1 → G4 → G3 (~4–6 days).
 
 **Two-contributor path:** A on H1+H2 (the substantial how-tos);
-B on G1+G2+G3+G4 (the governance set). Joins at end. ~3 days.
+B on G1+G3+G4 (the governance set). Joins at end. ~2.5 days.
 
 ---
 
@@ -217,29 +215,11 @@ make their first contribution land cleanly.
 **Dependencies.** H1 + H2 should exist (or land in same PR) so
 references aren't dangling.
 
-### 5.2 G2 — `CODE_OF_CONDUCT.md`
+### 5.2 G2 — `CODE_OF_CONDUCT.md` *(deferred 2026-05-05)*
 
-**Goal.** Standard community-standards file. Adopt Contributor
-Covenant 2.1 (industry default); customize contact.
-
-**File added.** `/CODE_OF_CONDUCT.md` (repo root)
-
-**Content.** Verbatim Contributor Covenant 2.1 text from
-https://www.contributor-covenant.org/version/2/1/code_of_conduct/
-with these substitutions:
-
-- **Enforcement contact:** GitHub Issues (private security advisory
-  for sensitive reports; otherwise issue tracker for community-level
-  concerns) — phrase per project preference
-- **Project name:** termipod
-
-**Acceptance.**
-- [ ] Contributor Covenant 2.1 verbatim with named substitutions
-- [ ] Linked from `CONTRIBUTING.md` §1
-
-**Effort.** 0.5 day.
-
-**Dependencies.** None.
+Deferred from this plan; may revisit later. Sub-items, references,
+and acceptance retained below for the eventual revisit but not in
+scope for the current shipping wave.
 
 ### 5.3 G3 — `SECURITY.md`
 
@@ -434,12 +414,12 @@ scripts the contributor needs to satisfy CI.
 
 ## 6. Acceptance for the plan as a whole
 
-When all 6 items ship:
+When all 5 items ship:
 
 - [ ] An external reviewer landing on the repo from a search engine
       can answer "is this project contributor-ready?" with
       yes from `LICENSE` + `README.md` + `CONTRIBUTING.md` +
-      `CODE_OF_CONDUCT.md` + `SECURITY.md` in <5 minutes
+      `SECURITY.md` in <5 minutes
 - [ ] An AI agent inspecting the repo finds expected files at
       conventional locations on first walk
 - [ ] A contributor following `local-dev-environment.md` reaches a
@@ -458,7 +438,7 @@ When all 6 items ship:
 ### 7.1 Lint
 
 `bash scripts/lint-docs.sh` runs on the 2 docs/how-to/ docs (H1, H2).
-Repo-root governance docs (G1, G2, G3, G4) are not under `docs/`; the
+Repo-root governance docs (G1, G3, G4) are not under `docs/`; the
 lint doesn't apply. Ensure GitHub renders them correctly via preview.
 
 ### 7.2 Live walkthrough (H1)

@@ -138,6 +138,16 @@ var validOverviewWidgets = map[string]bool{
 	"recent_artifacts":    true,
 	"children_status":     true,
 	"recent_firings_list": true,
+	// W7 — research-template heroes (A6 §2 + §3-§7).
+	// `portfolio_header` is the project-level default; the four phase-
+	// scoped heroes will be swap-targets once template hydration on
+	// phase entry lands (W7 follow-up). Registering them here keeps
+	// the YAML clean of warnings even before per-phase swap-in.
+	"portfolio_header":    true,
+	"idea_conversation":   true,
+	"deliverable_focus":   true,
+	"experiment_dash":     true,
+	"paper_acceptance":    true,
 }
 
 // normalizeOverviewWidget returns the widget name to expose on the wire.

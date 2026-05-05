@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../theme/design_colors.dart';
 import 'children_status.dart';
 import 'recent_artifacts.dart';
+import 'research_phase_heroes.dart';
 import 'sweep_compare.dart';
 import 'task_milestone_list.dart';
 import 'workspace_overview.dart';
@@ -37,6 +38,12 @@ const Set<String> kKnownOverviewWidgets = {
   'recent_artifacts',
   'children_status',
   'recent_firings_list',
+  // W7 — research-template heroes (A6 §2 + §3-§7).
+  'portfolio_header',
+  'idea_conversation',
+  'deliverable_focus',
+  'experiment_dash',
+  'paper_acceptance',
 };
 
 /// Default hero when the project has no template or the template did not
@@ -70,6 +77,16 @@ Widget buildOverviewWidget(String? kind, OverviewContext ctx) {
       // for goal projects too, though Workspace Overview is its primary
       // surface.
       return RecentFiringsList(ctx: ctx);
+    case 'portfolio_header':
+      return PortfolioHeaderHero(ctx: ctx);
+    case 'idea_conversation':
+      return IdeaConversationHero(ctx: ctx);
+    case 'deliverable_focus':
+      return DeliverableFocusHero(ctx: ctx);
+    case 'experiment_dash':
+      return ExperimentDashHero(ctx: ctx);
+    case 'paper_acceptance':
+      return PaperAcceptanceHero(ctx: ctx);
     default:
       return _UnknownOverviewHero(kind: kind ?? '');
   }

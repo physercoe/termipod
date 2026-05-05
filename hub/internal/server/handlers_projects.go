@@ -229,6 +229,15 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		s.recordAudit(r.Context(), team, "project.phase_set", "project", id,
 			"set initial phase "+initPhase,
 			map[string]any{"phase": initPhase, "by_template": in.TemplateID})
+		// W7 — minimal first-phase hydration. Walks the template's
+		// phase_specs[<initPhase>].criteria and creates rows in
+		// acceptance_criteria. Only `criteria:` is hydrated today;
+		// `deliverables:` (and per-phase-advance hydration) land as a
+		// W7 follow-up. The chassis is happy with no rows hydrated —
+		// this just gives projects created from research-style
+		// templates a working `scope-ratified` text criterion out of
+		// the gate.
+		s.hydratePhaseCriteria(r.Context(), team, id, in.TemplateID, initPhase)
 	}
 	out := projectOut{
 		ID: id, TeamID: team, Name: in.Name, Status: "active",

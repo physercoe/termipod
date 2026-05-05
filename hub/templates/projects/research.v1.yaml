@@ -1,0 +1,283 @@
+name: research
+kind: goal
+goal: |-
+  Research project — direct an AI-for-science lifecycle from idea to paper.
+  The director directs; the project steward orchestrates a worker fleet
+  across the five phases (idea, lit-review, method, experiment, paper).
+  The research topic itself goes in this project's `goal` text; this
+  template is topic-agnostic. See docs/reference/research-template-spec.md
+  (A6) for the canonical content of every phase.
+parameters:
+  topic: ""
+  budget_gpu_hours: 24
+  metric_path: experiment.eval_accuracy
+  metric_threshold: 0.85
+on_create_template_id: agents.steward
+overview_widget: portfolio_header
+phases:
+  - idea
+  - lit-review
+  - method
+  - experiment
+  - paper
+
+# A6 content: per-phase deliverables, section schemas, criteria,
+# transitions, worker hints, prompt overlays. The chassis itself only
+# consumes `phases:` today (W1) — the rest is data the project steward
+# reads via /v1/teams/{team}/project-templates/{id} so it can decide
+# what to spawn, what sections to author, and which criteria to expect.
+# Template hydration on phase entry (auto-create deliverables + criteria
+# from this YAML) is the W7 follow-up; W7-core ships this content + the
+# minimal idea-phase hydration (1 text criterion). See plan §6.8.
+
+phase_specs:
+  idea:
+    display_name: "Idea"
+    abbrev: "Idea"
+    overview_widget: idea_conversation
+    tiles: []
+    steward_spawn: eager
+    deliverables: []
+    criteria:
+      - id: scope-ratified
+        kind: text
+        body:
+          text: "Director ratifies overall scope and direction."
+        required: true
+        ord: 0
+
+  lit-review:
+    display_name: "Literature review"
+    abbrev: "Lit-rev"
+    overview_widget: deliverable_focus
+    tiles: [References, Documents]
+    steward_spawn: eager
+    deliverables:
+      - id: lit-review-doc
+        kind: lit-review
+        display_name: "Literature review"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: lit-review-sections
+            required: true
+    criteria:
+      - id: lit-review-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: { deliverable_id: lit-review-doc }
+        deliverable_ref: lit-review-doc
+        required: true
+        ord: 0
+      - id: min-citations
+        kind: metric
+        body:
+          metric: lit_review.citation_count
+          operator: ">="
+          threshold: 5
+          evaluation: auto
+        deliverable_ref: lit-review-doc
+        required: false
+        ord: 1
+
+  method:
+    display_name: "Method"
+    abbrev: "Method"
+    overview_widget: deliverable_focus
+    tiles: [References, Documents, Plans]
+    steward_spawn: eager
+    deliverables:
+      - id: method-doc
+        kind: method
+        display_name: "Method"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: method-sections
+            required: true
+    criteria:
+      - id: method-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: { deliverable_id: method-doc }
+        deliverable_ref: method-doc
+        required: true
+        ord: 0
+      - id: budget-within-cap
+        kind: text
+        body:
+          text: "Budget cap declared; total estimated cost under budget."
+        deliverable_ref: method-doc
+        required: true
+        ord: 1
+
+  experiment:
+    display_name: "Experiment"
+    abbrev: "Exp"
+    overview_widget: experiment_dash
+    tiles: [Outputs, Documents, Experiments]
+    steward_spawn: eager
+    deliverables:
+      - id: experiment-results
+        kind: experiment-results
+        display_name: "Experiment results"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: experiment-report-sections
+            required: true
+            ord: 0
+          - kind: artifact
+            ref: best-checkpoint
+            required: true
+            ord: 1
+          - kind: artifact
+            ref: eval-results-json
+            required: true
+            ord: 2
+          - kind: run
+            ref: ablation-sweep-run
+            required: true
+            ord: 3
+    criteria:
+      - id: best-metric-threshold
+        kind: metric
+        body:
+          metric: experiment.eval_accuracy
+          operator: ">="
+          threshold: 0.85
+          evaluation: auto
+        deliverable_ref: experiment-results
+        required: true
+        ord: 0
+      - id: report-results-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: { deliverable_id: experiment-results }
+        deliverable_ref: experiment-results
+        required: true
+        ord: 1
+      - id: director-reviews
+        kind: text
+        body:
+          text: "Director reviews experimental outputs and signs off."
+        deliverable_ref: experiment-results
+        required: true
+        ord: 2
+
+  paper:
+    display_name: "Paper"
+    abbrev: "Paper"
+    overview_widget: paper_acceptance
+    tiles: [Outputs, Documents]
+    steward_spawn: eager
+    deliverables:
+      - id: paper-draft
+        kind: paper-draft
+        display_name: "Paper draft"
+        ratification_authority: director
+        required: true
+        components:
+          - kind: document
+            ref: paper-draft-sections
+            required: true
+    criteria:
+      - id: paper-draft-ratified
+        kind: gate
+        body:
+          gate: deliverable.ratified
+          params: { deliverable_id: paper-draft }
+        deliverable_ref: paper-draft
+        required: true
+        ord: 0
+
+# Document section schemas — typed bodies the W5a viewer renders.
+# Documents are created at `documents.schema_id = "<schema_id>"` and the
+# initial content_inline JSON ships an empty section list keyed by these
+# slugs. See A6 §9 for guidance text per section.
+section_schemas:
+  lit-review-sections:
+    schema_id: research-lit-review-v1
+    sections:
+      - { slug: domain-overview, title: "Domain overview",     required: true }
+      - { slug: prior-work,      title: "Key prior work",      required: true }
+      - { slug: gaps,            title: "Research gaps",       required: true }
+      - { slug: positioning,     title: "Project positioning", required: true }
+
+  method-sections:
+    schema_id: research-method-v1
+    sections:
+      - { slug: research-question,  title: "Research question",  required: true }
+      - { slug: hypothesis,         title: "Hypothesis",         required: true }
+      - { slug: approach,           title: "Approach",           required: true }
+      - { slug: experimental-setup, title: "Experimental setup", required: true }
+      - { slug: evaluation-plan,    title: "Evaluation plan",    required: true }
+      - { slug: risks,              title: "Risks",              required: false }
+      - { slug: budget,             title: "Budget",             required: true }
+
+  experiment-report-sections:
+    schema_id: research-experiment-report-v1
+    sections:
+      - { slug: setup-recap, title: "Setup recap", required: true }
+      - { slug: results,     title: "Results",     required: true }
+      - { slug: ablations,   title: "Ablations",   required: false }
+      - { slug: analysis,    title: "Analysis",    required: true }
+      - { slug: limitations, title: "Limitations", required: false }
+
+  paper-draft-sections:
+    schema_id: research-paper-draft-v1
+    sections:
+      - { slug: abstract,     title: "Abstract",     required: true }
+      - { slug: introduction, title: "Introduction", required: true }
+      - { slug: related-work, title: "Related work", required: true }
+      - { slug: method,       title: "Method",       required: true }
+      - { slug: experiments,  title: "Experiments",  required: true }
+      - { slug: results,      title: "Results",      required: true }
+      - { slug: discussion,   title: "Discussion",   required: true }
+      - { slug: conclusion,   title: "Conclusion",   required: true }
+      - { slug: references,   title: "References",   required: true }
+
+# Phase transitions per A6 §10. Forward path is explicit; admin reverts
+# require admin scope and aren't surfaced in the mobile UI today.
+transitions:
+  - { from: idea,       to: lit-review, mode: explicit }
+  - { from: idea,       to: method,     mode: explicit }
+  - { from: lit-review, to: method,     mode: explicit }
+  - { from: method,     to: experiment, mode: explicit }
+  - { from: experiment, to: paper,      mode: explicit }
+  - { from: lit-review, to: idea,       mode: explicit, admin_only: true }
+  - { from: method,     to: lit-review, mode: explicit, admin_only: true }
+  - { from: experiment, to: method,     mode: explicit, admin_only: true }
+  - { from: paper,      to: experiment, mode: explicit, admin_only: true }
+
+# Steward prompt overlays — appended to the base steward prompt at
+# session open per A2 §13. Files at hub/templates/projects/prompts/.
+steward_prompt_overlays:
+  idea:        prompts/research.idea.md
+  lit-review:  prompts/research.lit-review.md
+  method:      prompts/research.method.md
+  experiment:  prompts/research.experiment.md
+  paper:       prompts/research.paper.md
+
+# Worker template hints — the steward consults these but the chassis
+# does not enforce them. Worker templates live under
+# hub/templates/agents/<id>.yaml; cf. docs/reference/steward-templates.md.
+worker_hints:
+  idea: []
+  lit-review:
+    - lit-reviewer.v1
+  method:
+    - critic.v1
+  experiment:
+    - ml-worker.v1
+    - coder.v1
+    - critic.v1
+  paper:
+    - paper-writer.v1
+    - critic.v1

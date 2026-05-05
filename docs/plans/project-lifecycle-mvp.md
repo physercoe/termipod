@@ -1,7 +1,7 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-05) — paused; gated on at least P0+P1 of [`doc-uplift.md`](doc-uplift.md) shipping first
+> **Status:** Draft (2026-05-05) — paused; gated on [`doc-uplift.md`](doc-uplift.md) P0+P1 + [`contributor-readiness.md`](contributor-readiness.md) shipping first
 > **Audience:** contributors (hub backend, mobile, demo operators)
 > **Last verified vs code:** v1.0.351
 
@@ -35,14 +35,20 @@ checks are.
 tracker). Where the older doc is still authoritative for non-lifecycle
 items (host bootstrap, A2A relay, etc.), it stays.
 
-> **Prerequisite — paused 2026-05-05.** A doc audit on 2026-05-05
-> identified industry-standard structural gaps (no diagrams, no
-> consolidated DB / API / architecture-overview docs, blueprint
-> carrying 7 concerns). Because the demo audience includes reviewers
-> + their AI agents inspecting the codebase, the docs are part of
-> the demo deliverable. This plan is paused until at least P0+P1 of
-> [`doc-uplift.md`](doc-uplift.md) ships. Lifecycle engineering
-> resumes after that gate.
+> **Prerequisite — paused 2026-05-05.** Two doc audits on 2026-05-05
+> identified gaps that the demo audience (reviewers + their AI
+> agents inspecting the codebase) will see. Because the docs are
+> part of the demo deliverable, this plan is paused until both
+> sibling plans ship:
+>
+> - [`doc-uplift.md`](doc-uplift.md) **P0+P1** — system-design doc
+>   axis (architecture / schema / API / flows / cross-cutting)
+> - [`contributor-readiness.md`](contributor-readiness.md) **all 6
+>   items** — contributor-experience axis (CONTRIBUTING /
+>   CODE_OF_CONDUCT / SECURITY / issue templates / local dev env /
+>   test running)
+>
+> Lifecycle engineering resumes after both gates close.
 
 ---
 

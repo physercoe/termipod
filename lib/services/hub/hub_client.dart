@@ -1893,11 +1893,14 @@ class HubClient {
       );
 
   /// Either [contentInline] or [artifactId] must be non-null (server enforces
-  /// a XOR CHECK constraint).
+  /// a XOR CHECK constraint). Set [schemaId] for typed (W5a) documents —
+  /// the hub then carries content_inline as a JSON sections blob and the
+  /// kind allowlist is bypassed in favor of template-declared kinds.
   Future<Map<String, dynamic>> createDocument({
     required String projectId,
-    required String kind, // e.g. 'report', 'design', 'note'
+    required String kind, // e.g. 'report', 'design', 'note', 'proposal'
     required String title,
+    String? schemaId,
     String? contentInline,
     String? artifactId,
     String? authorAgentId,
@@ -1907,11 +1910,66 @@ class HubClient {
       'kind': kind,
       'title': title,
     };
+    if (schemaId != null && schemaId.isNotEmpty) body['schema_id'] = schemaId;
     if (contentInline != null) body['content_inline'] = contentInline;
     if (artifactId != null) body['artifact_id'] = artifactId;
     if (authorAgentId != null) body['author_agent_id'] = authorAgentId;
     final out = await _post('/v1/teams/${cfg.teamId}/documents', body);
     await _invalidate('/v1/teams/${cfg.teamId}/documents');
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// W5a — Structured Document Viewer (A4). Edits a single section's
+  /// body. Pass [expectedLastAuthoredAt] (from the loaded section's
+  /// `last_authored_at`) for optimistic concurrency; server returns 412
+  /// ([HubApiError] with statusCode=412) if the row's value disagrees,
+  /// with a `server_section` payload the UI can use to show diff.
+  Future<Map<String, dynamic>> patchDocumentSection({
+    required String documentId,
+    required String slug,
+    required String body,
+    String? expectedLastAuthoredAt,
+    String? lastAuthoredBySessionId,
+  }) async {
+    final payload = <String, dynamic>{'body': body};
+    if (expectedLastAuthoredAt != null && expectedLastAuthoredAt.isNotEmpty) {
+      payload['expected_last_authored_at'] = expectedLastAuthoredAt;
+    }
+    if (lastAuthoredBySessionId != null &&
+        lastAuthoredBySessionId.isNotEmpty) {
+      payload['last_authored_by_session_id'] = lastAuthoredBySessionId;
+    }
+    final req = await _open(
+      'PATCH',
+      '/v1/teams/${cfg.teamId}/documents/$documentId/sections/$slug',
+    );
+    req.headers.contentType = ContentType.json;
+    req.add(utf8.encode(jsonEncode(payload)));
+    final res = await req.close();
+    final raw = await res.transform(utf8.decoder).join();
+    if (res.statusCode != 200) {
+      throw HubApiError(res.statusCode, raw);
+    }
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/documents/$documentId',
+    );
+    return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  }
+
+  /// W5a — POST /sections/{slug}/status. [status] is one of `empty`,
+  /// `draft`, `ratified`. Returns the updated section payload.
+  Future<Map<String, dynamic>> setDocumentSectionStatus({
+    required String documentId,
+    required String slug,
+    required String status,
+  }) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/documents/$documentId/sections/$slug/status',
+      {'status': status},
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/documents/$documentId',
+    );
     return (out as Map).cast<String, dynamic>();
   }
 

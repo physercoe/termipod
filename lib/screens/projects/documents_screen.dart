@@ -7,6 +7,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/hub_offline_banner.dart';
+import '../documents/structured_document_viewer.dart';
 import 'document_create_sheet.dart';
 
 /// Team-wide documents browser (blueprint §6.7).
@@ -564,6 +565,7 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
     }
     final content = (d['content_inline'] ?? '').toString();
     final artifactId = (d['artifact_id'] ?? '').toString();
+    final schemaId = (d['schema_id'] ?? '').toString();
     final version = (d['version'] ?? 1).toString();
     final projectId = (d['project_id'] ?? '').toString();
     final authorId = (d['author_agent_id'] ?? '').toString();
@@ -575,6 +577,16 @@ class _DocumentDetailScreenState extends ConsumerState<DocumentDetailScreen> {
         ? ''
         : agentHandleFor(authorId, hub?.agents ?? const []);
     final created = (d['created_at'] ?? '').toString();
+
+    // W5a (A4) — typed documents (schema_id != null) render through the
+    // section-aware viewer; plain markdown keeps the existing
+    // metadata + content-body layout below.
+    if (schemaId.isNotEmpty) {
+      return StructuredDocumentBody(
+        document: d,
+        onChanged: _load,
+      );
+    }
 
     return RefreshIndicator(
       onRefresh: _load,

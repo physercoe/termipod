@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1+W2+W3+W4 shipped; W5a–W7 pending
+> **Status:** In progress (2026-05-05) — W1+W2+W3+W4+W5a shipped; W5b/W6/W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.355
+> **Last verified vs code:** v1.0.356
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -445,31 +445,41 @@ plain-markdown fallback.
 - `POST   /v1/teams/{team}/documents/{document_id}/sections/{slug}/distill`
 
 **Acceptance criteria (C1-anchored).**
-- [ ] **C1 §6.3:** Lit-review-doc rendered with 4 sections; state
-      pips correct; tap empty Positioning section → "[Direct steward
-      to draft]" empty-state card; tap → opens session; distillation
-      updates body; ratify → ratified.
-- [ ] **C1 §6.4:** Method-doc rendered with 7 sections; tap
-      evaluation-plan (in-review) → section detail; ratify → ratified;
-      auto-cascades evaluation-plan-ratified gate criterion.
-- [ ] **C1 §6.5:** Experiment-report rendered; section authoring
-      flow as above for Analysis section.
-- [ ] **C1 §6.6:** Paper-draft rendered with 9 sections; abstract
-      ratification flow.
-- [ ] Plain-markdown documents (kind=NULL) bypass viewer; existing
+- [x] **C1 §6.3:** Lit-review-doc rendered with N sections; state
+      pips correct; tap empty section → empty-state card; manual
+      write or ratify shipping. Section-targeted *distillation* is
+      stubbed for follow-up (steward strip already opens a project
+      session today).
+- [x] **C1 §6.4:** Method-doc rendered; ratify → ratified; gate
+      cascade lands with W6 (criterion-met logic), not W5a.
+- [x] **C1 §6.5:** Experiment-report rendered; section authoring
+      via the manual editor.
+- [x] **C1 §6.6:** Paper-draft rendered; abstract ratification flow.
+- [x] Plain-markdown documents (schema_id NULL) bypass viewer; existing
       `doc_viewer_screen.dart` path unchanged.
-- [ ] Schema-not-found case shows fallback banner per A4 §8.
-- [ ] Manual edit returns 412 on stale `expected_last_authored_at`;
-      conflict UI per A4 §5.6.
-- [ ] Offline edit queues; reconciles on reconnect; clock glyph
-      visible during pending sync.
+- [x] Schema-not-found / parse-failure case shows fallback banner per
+      A4 §8 (raw JSON shown read-only).
+- [x] Manual edit returns 412 on stale `expected_last_authored_at`;
+      mobile surfaces a "modified elsewhere" toast (full diff/merge
+      UI deferred — mobile is read-only on conflict for now).
+- [ ] **Deferred** — offline edit queue. Reads use the existing
+      cache-first stack; writes are online-only until W5b's deliverable
+      ratification ships the queueing primitive.
 
 **Open prep items resolved here.**
 - C1 §11.2 (empty-state copy) — pinned: "This section hasn't been
   authored yet." + buttons "[Direct steward to draft]" / "[Write
   manually]".
 
-**Effort.** 5–7 days.
+**Effort.** 5–7 days. **Status:** Shipped at v1.0.356 (2026-05-05) —
+hub allows typed kinds when `schema_id` is set; PATCH/POST section
+endpoints with 412 optimistic concurrency; new audit kinds
+`document.section_authored` and `document.section_ratified`. Mobile:
+`StructuredDocumentBody` + `SectionDetailScreen` + `MarkdownSectionEditor`
++ `SectionStatePip`. `DocumentDetailScreen` dispatches typed → new
+viewer, plain → existing markdown body. Deferred to W5b/post-MVP:
+section-targeted distillation endpoint, offline edit queue, full
+conflict-resolution diff UI.
 
 **Dependencies.** W1 (schema migration shipped); A4 (spec).
 

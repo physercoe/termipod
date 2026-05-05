@@ -329,6 +329,13 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 			r.Route("/{doc}", func(r chi.Router) {
 				r.Get("/", s.handleGetDocument)
 				r.Get("/versions", s.handleListDocumentVersions)
+				// W5a — Structured Document Viewer (A4). Sections are
+				// stored inline in content_inline as JSON; PATCH and
+				// status edit the typed body, not plain markdown.
+				r.Route("/sections/{slug}", func(r chi.Router) {
+					r.Patch("/", s.handlePatchDocumentSection)
+					r.Post("/status", s.handleSetDocumentSectionStatus)
+				})
 			})
 		})
 		r.Route("/reviews", func(r chi.Router) {

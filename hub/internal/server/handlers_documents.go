@@ -17,6 +17,7 @@ const maxInlineDocBytes = 256 * 1024
 type documentIn struct {
 	ProjectID     string `json:"project_id"`
 	Kind          string `json:"kind"`
+	SchemaID      string `json:"schema_id,omitempty"`
 	Title         string `json:"title"`
 	PrevVersionID string `json:"prev_version_id,omitempty"`
 	ContentInline string `json:"content_inline,omitempty"`
@@ -28,6 +29,7 @@ type documentOut struct {
 	ID            string  `json:"id"`
 	ProjectID     string  `json:"project_id"`
 	Kind          string  `json:"kind"`
+	SchemaID      string  `json:"schema_id,omitempty"`
 	Title         string  `json:"title"`
 	Version       int     `json:"version"`
 	PrevVersionID string  `json:"prev_version_id,omitempty"`
@@ -37,6 +39,11 @@ type documentOut struct {
 	CreatedAt     string  `json:"created_at"`
 }
 
+// isValidDocKind enforces the legacy plain-markdown kind allowlist.
+// W5a (A4): typed documents declare a schema_id, in which case the
+// kind is template-defined (e.g., proposal, method, paper) and we no
+// longer cap it to the legacy values. The handler short-circuits the
+// allowlist when schema_id is present.
 func isValidDocKind(k string) bool {
 	switch k {
 	case "memo", "draft", "report", "review", "sample":
@@ -56,8 +63,11 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "project_id, kind, title required")
 		return
 	}
-	if !isValidDocKind(in.Kind) {
-		writeErr(w, http.StatusBadRequest, "kind must be one of: memo, draft, report, review, sample")
+	// Legacy plain-markdown docs are still capped to the original
+	// allowlist; typed docs (schema_id != "") use template-declared
+	// kinds and skip the check.
+	if in.SchemaID == "" && !isValidDocKind(in.Kind) {
+		writeErr(w, http.StatusBadRequest, "kind must be one of: memo, draft, report, review, sample (or set schema_id for typed kinds)")
 		return
 	}
 	// Exactly one of content_inline or artifact_id.
@@ -120,10 +130,10 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 	now := NowUTC()
 	_, err := s.db.ExecContext(r.Context(), `
 		INSERT INTO documents (
-			id, project_id, kind, title, version, prev_version_id,
+			id, project_id, kind, schema_id, title, version, prev_version_id,
 			content_inline, artifact_id, author_agent_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`,
-		id, in.ProjectID, in.Kind, in.Title, version, prevID,
+		) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?)`,
+		id, in.ProjectID, in.Kind, in.SchemaID, in.Title, version, prevID,
 		in.ContentInline, in.ArtifactID, in.AuthorAgentID, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -132,10 +142,11 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAudit(r.Context(), team, "document.create", "document", id,
 		in.Kind+" "+in.Title,
-		map[string]any{"project_id": in.ProjectID, "kind": in.Kind, "version": version})
+		map[string]any{"project_id": in.ProjectID, "kind": in.Kind, "version": version, "schema_id": in.SchemaID})
 
 	out := documentOut{
-		ID: id, ProjectID: in.ProjectID, Kind: in.Kind, Title: in.Title,
+		ID: id, ProjectID: in.ProjectID, Kind: in.Kind, SchemaID: in.SchemaID,
+		Title: in.Title,
 		Version: version, PrevVersionID: in.PrevVersionID,
 		ArtifactID: in.ArtifactID, AuthorAgentID: in.AuthorAgentID,
 		CreatedAt: now,
@@ -154,7 +165,7 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	kind := r.URL.Query().Get("kind")
 
-	q := `SELECT id, project_id, kind, title, version, prev_version_id,
+	q := `SELECT id, project_id, kind, schema_id, title, version, prev_version_id,
 	             artifact_id, author_agent_id, created_at
 	      FROM documents WHERE 1=1`
 	args := []any{}
@@ -163,10 +174,9 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 		args = append(args, project)
 	}
 	if kind != "" {
-		if !isValidDocKind(kind) {
-			writeErr(w, http.StatusBadRequest, "invalid kind filter")
-			return
-		}
+		// Allow typed (schema-driven) kinds through unconditionally — the
+		// filter passes through to SQL even if the legacy allowlist
+		// rejects it. This keeps ?kind=proposal working for typed docs.
 		q += ` AND kind = ?`
 		args = append(args, kind)
 	}
@@ -181,11 +191,14 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 	out := []documentOut{}
 	for rows.Next() {
 		var d documentOut
-		var prev, artifact, author sql.NullString
-		if err := rows.Scan(&d.ID, &d.ProjectID, &d.Kind, &d.Title, &d.Version,
+		var prev, schemaID, artifact, author sql.NullString
+		if err := rows.Scan(&d.ID, &d.ProjectID, &d.Kind, &schemaID, &d.Title, &d.Version,
 			&prev, &artifact, &author, &d.CreatedAt); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if schemaID.Valid {
+			d.SchemaID = schemaID.String
 		}
 		if prev.Valid {
 			d.PrevVersionID = prev.String
@@ -204,12 +217,12 @@ func (s *Server) handleListDocuments(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	doc := chi.URLParam(r, "doc")
 	var d documentOut
-	var prev, artifact, author, inline sql.NullString
+	var prev, schemaID, artifact, author, inline sql.NullString
 	err := s.db.QueryRowContext(r.Context(), `
-		SELECT id, project_id, kind, title, version, prev_version_id,
+		SELECT id, project_id, kind, schema_id, title, version, prev_version_id,
 		       content_inline, artifact_id, author_agent_id, created_at
 		FROM documents WHERE id = ?`, doc).Scan(
-		&d.ID, &d.ProjectID, &d.Kind, &d.Title, &d.Version,
+		&d.ID, &d.ProjectID, &d.Kind, &schemaID, &d.Title, &d.Version,
 		&prev, &inline, &artifact, &author, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "document not found")
@@ -218,6 +231,9 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if schemaID.Valid {
+		d.SchemaID = schemaID.String
 	}
 	if prev.Valid {
 		d.PrevVersionID = prev.String
@@ -245,12 +261,12 @@ func (s *Server) handleListDocumentVersions(w http.ResponseWriter, r *http.Reque
 	// aren't expected to exceed a few hundred per chain.
 	for i := 0; i < 1000 && cursor != ""; i++ {
 		var d documentOut
-		var prev, artifact, author sql.NullString
+		var prev, schemaID, artifact, author sql.NullString
 		err := s.db.QueryRowContext(r.Context(), `
-			SELECT id, project_id, kind, title, version, prev_version_id,
+			SELECT id, project_id, kind, schema_id, title, version, prev_version_id,
 			       artifact_id, author_agent_id, created_at
 			FROM documents WHERE id = ?`, cursor).Scan(
-			&d.ID, &d.ProjectID, &d.Kind, &d.Title, &d.Version,
+			&d.ID, &d.ProjectID, &d.Kind, &schemaID, &d.Title, &d.Version,
 			&prev, &artifact, &author, &d.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			if i == 0 {
@@ -262,6 +278,9 @@ func (s *Server) handleListDocumentVersions(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if schemaID.Valid {
+			d.SchemaID = schemaID.String
 		}
 		if prev.Valid {
 			d.PrevVersionID = prev.String

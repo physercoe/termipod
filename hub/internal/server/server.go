@@ -296,6 +296,9 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 					r.Post("/", s.handleSetProjectPhase)
 					r.Post("/advance", s.handleAdvanceProjectPhase)
 				})
+				r.Route("/steward", func(r chi.Router) {
+					r.Get("/state", s.handleGetStewardState)
+				})
 				r.Get("/sweep-summary", s.handleGetProjectSweepSummary)
 			})
 		})

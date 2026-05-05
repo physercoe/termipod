@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../providers/hub_provider.dart';
-import '../../../services/hub/open_steward_session.dart';
 import '../../../theme/design_colors.dart';
 import '../../../theme/task_priority_style.dart';
+import '../../../widgets/steward_strip.dart';
 import '../reviews_screen.dart';
 import 'registry.dart';
 
@@ -27,6 +27,7 @@ class PortfolioHeader extends ConsumerStatefulWidget {
 
 class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
   bool _goalExpanded = false;
+  bool _detailsExpanded = false;
   int _total = 0;
   int _closed = 0;
   final Map<TaskPriority, int> _byPriority = {
@@ -110,24 +111,32 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Goal de-burial (W3): promoted from a 1-line clipped row
+          // to a 2-line block; tap toggles full text. Lifecycle
+          // discussion §6.5 — the director's North Star is the goal,
+          // not the metadata stack that used to surround it.
           if (goal.isNotEmpty) ...[
             InkWell(
               onTap: () => setState(() => _goalExpanded = !_goalExpanded),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.flag_outlined,
-                      size: 14, color: DesignColors.primary),
-                  const SizedBox(width: 6),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.flag_outlined,
+                        size: 16, color: DesignColors.primary),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       goal,
-                      maxLines: _goalExpanded ? null : 1,
+                      maxLines: _goalExpanded ? null : 2,
                       overflow:
                           _goalExpanded ? null : TextOverflow.ellipsis,
                       style: GoogleFonts.spaceGrotesk(
-                        fontSize: 13,
+                        fontSize: 14,
                         height: 1.35,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -142,40 +151,84 @@ class _PortfolioHeaderState extends ConsumerState<PortfolioHeader> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
           ],
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              _StatusChip(label: status.isEmpty ? 'active' : status),
-              _StewardChip(
-                stewardAgentId: stewardAgentId,
-                projectId: widget.ctx.projectId,
+          // Steward strip (W3): replaces the legacy single-line chip
+          // with the 7-state pill + handoff indicator. Always present
+          // on goal-kind projects so the director can see what their
+          // operator is doing without scrolling.
+          if (widget.ctx.projectId.isNotEmpty)
+            StewardStrip(
+              projectId: widget.ctx.projectId,
+              stewardAgentId: stewardAgentId,
+            ),
+          if (openAttention > 0) ...[
+            const SizedBox(height: 8),
+            _AttentionPill(
+              count: openAttention,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ReviewsScreen(projectId: widget.ctx.projectId),
+                ),
               ),
-              if (budgetCents is int)
-                _BudgetChip(usedCents: 0, capCents: budgetCents),
-              if (openAttention > 0)
-                _AttentionPill(
-                  count: openAttention,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          ReviewsScreen(projectId: widget.ctx.projectId),
+            ),
+          ],
+          // Metadata expander (W3): collapses status / budget / task
+          // progress / priority breakdown behind "Show details" so the
+          // hero column is no longer dominated by chrome. Director can
+          // still drill in on demand.
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () =>
+                setState(() => _detailsExpanded = !_detailsExpanded),
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    _detailsExpanded
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 14,
+                    color: DesignColors.textMuted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _detailsExpanded ? 'Hide details' : 'Show details',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 11,
+                      color: DesignColors.textMuted,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-            ],
-          ),
-          if (_loaded && _total > 0) ...[
-            const SizedBox(height: 10),
-            _TaskProgressRow(
-              total: _total,
-              closed: _closed,
-              isDark: isDark,
+                ],
+              ),
             ),
+          ),
+          if (_detailsExpanded) ...[
             const SizedBox(height: 6),
-            _PriorityBreakdown(byPriority: _byPriority),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _StatusChip(label: status.isEmpty ? 'active' : status),
+                if (budgetCents is int)
+                  _BudgetChip(usedCents: 0, capCents: budgetCents),
+              ],
+            ),
+            if (_loaded && _total > 0) ...[
+              const SizedBox(height: 10),
+              _TaskProgressRow(
+                total: _total,
+                closed: _closed,
+                isDark: isDark,
+              ),
+              const SizedBox(height: 6),
+              _PriorityBreakdown(byPriority: _byPriority),
+            ],
           ],
         ],
       ),
@@ -195,42 +248,6 @@ class _StatusChip extends StatelessWidget {
       _ => DesignColors.primary,
     };
     return _Chip(label: label, color: color);
-  }
-}
-
-class _StewardChip extends ConsumerWidget {
-  final String stewardAgentId;
-  final String projectId;
-  const _StewardChip({
-    required this.stewardAgentId,
-    required this.projectId,
-  });
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // With no live steward status feed on the project payload yet, we
-    // surface a coarse "configured" vs "not configured" tri-state. Full
-    // running/idle/error states land when the steward config API ships
-    // (see docs/ux-steward-audit.md).
-    final configured = stewardAgentId.isNotEmpty;
-    return _Chip(
-      label: configured ? 'steward: configured' : 'steward: not-configured',
-      color: configured ? DesignColors.terminalCyan : DesignColors.textMuted,
-      icon: Icons.smart_toy_outlined,
-      // Per ADR-009 D7: tapping the project's steward chip opens a
-      // session scoped to this project. If a project-scoped session
-      // already exists, openStewardSession routes there; otherwise it
-      // falls back to the steward's default session for now (Phase 2
-      // adds creation of new project-scoped sessions).
-      onTap: configured && projectId.isNotEmpty
-          ? () => openStewardSession(
-                context,
-                ref,
-                scopeKind: 'project',
-                scopeId: projectId,
-              )
-          : null,
-    );
   }
 }
 

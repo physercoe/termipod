@@ -11,6 +11,7 @@ import '../../theme/task_priority_style.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/phase_ribbon.dart';
 import '../../widgets/team_switcher.dart';
+import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
 import 'archived_agents_screen.dart';
 import 'artifacts_screen.dart';
@@ -181,6 +182,15 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         ),
         actions: [
           const TeamSwitcher(),
+          if (((_project['template_id'] ?? '').toString()).isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.info_outline),
+              tooltip: 'View template YAML',
+              onPressed: () => TemplateYamlSheet.show(
+                context,
+                (_project['template_id'] ?? '').toString(),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             tooltip: isWorkspace

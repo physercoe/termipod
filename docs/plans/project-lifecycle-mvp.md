@@ -1,9 +1,9 @@
 # Project lifecycle MVP — implementation plan
 
 > **Type:** plan
-> **Status:** In progress (2026-05-05) — W1 shipped; W2–W7 pending
+> **Status:** In progress (2026-05-05) — W1+W3 shipped; W2/W4–W7 pending
 > **Audience:** contributors (hub backend, mobile, demo operators)
-> **Last verified vs code:** v1.0.352
+> **Last verified vs code:** v1.0.353
 
 **TL;DR.** Implementation plan for the project-lifecycle work — the
 demo-MVP scope decided 2026-05-05: **all wedges in (no cut)**, demo
@@ -330,18 +330,26 @@ C1 §11.1 prep gap).
 - `GET /v1/teams/{team}/projects/{project_id}/steward/state`
 
 **Acceptance criteria.**
-- [ ] **C1 §6.2 / §6.4 / §6.5:** YAML reveal sheets open and show
-      research template + section schema + criterion specs at the
-      three checkpoint moments. Sheets are dismissible; do not
-      interrupt the demo flow.
-- [ ] Steward strip shows `idle` / `working` / `awaiting-director`
-      etc. states correctly during demo flow.
-- [ ] Handoff indicator surfaces during a steward-to-steward A2A
-      handoff (mocked test).
-- [ ] Goal text visible without scroll; not duplicated in metadata
-      rows.
-- [ ] Metadata rows (8 rows from current Overview) collapsed behind
-      "Show details" expander; expandable.
+- [x] **C1 §6.2 / §6.4 / §6.5:** YAML reveal sheet opens from the
+      AppBar info icon and renders the project's template YAML via
+      `GET /v1/teams/{team}/templates/projects/{name}.yaml`. Sheet is
+      dismissible (drag-to-resize sheet, copy-to-clipboard); does
+      not interrupt the demo flow. Section schema + criterion specs
+      will fold in once W7 adds them to the research template — the
+      sheet shows whatever YAML exists today.
+- [x] Steward strip shows the seven canonical states (`not-spawned`,
+      `idle`, `active-session`, `working`, `worker-dispatched`,
+      `awaiting-director`, `error`) per discussion §6.6. Polls every
+      5s while mounted.
+- [x] Handoff indicator (§B.6) surfaces a "asking general steward
+      · {purpose}" line under the strip when the hub reports
+      `state="handoff_in_progress"`. Hub-side covered by
+      `TestStewardState_HandoffWhenA2AInvokedRecently`.
+- [x] Goal text promoted to a 2-line block (was 1-line clip);
+      duplicate metadata moved behind a "Show details" expander.
+- [x] Metadata rows (status / budget / task progress / priority
+      breakdown) collapsed behind "Show details"; default state is
+      hidden.
 
 **Open prep items resolved here.**
 - C1 §11.1 (YAML reveal affordance) — implemented as AppBar info

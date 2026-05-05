@@ -962,6 +962,35 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Reads the project steward's live state (lifecycle W3 — A3 §10.1).
+  /// Cache-Control on the response is `private, no-cache`, so this
+  /// always hits the network rather than the snapshot cache.
+  /// Returns the JSON map verbatim — `{scope, agent_id, state,
+  /// current_action?, handoff?}`.
+  Future<Map<String, dynamic>> getStewardState(String projectId) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/steward/state',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Fetches the raw YAML body of a project template by name (W3 YAML
+  /// reveal sheet). The hub serves this as `text/yaml` rather than
+  /// JSON — caller receives the file contents as a UTF-8 string.
+  /// Routes around _readJson because the response body is not JSON.
+  Future<String> getProjectTemplateYaml(String name) async {
+    final req = await _open(
+      'GET',
+      '/v1/teams/${cfg.teamId}/templates/projects/$name.yaml',
+    );
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
   Future<Map<String, dynamic>> createTask(
     String projectId, {
     required String title,

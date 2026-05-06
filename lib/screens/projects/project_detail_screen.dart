@@ -8,6 +8,12 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
+import '../../widgets/activity_snippet.dart'
+    show
+        activityIconForAction,
+        activityColorForAction,
+        activityActionLabel,
+        shortRelativeTs;
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/phase_ribbon.dart';
 import '../../widgets/shortcut_tile_strip.dart';
@@ -1165,9 +1171,6 @@ class _OverviewView extends ConsumerWidget {
             buildWorkspaceOverview(OverviewContext(project: project)),
             const SizedBox(height: 12),
           ],
-          // (Was: ActivitySnippet digest here — removed 2026-05-06.
-          // The dedicated Activity pill on this same project detail
-          // screen carries the same feed; rendering both was redundant.)
           // W4 (IA §6.2 / template-yaml-schema §11): replace the prior
           // 7-hard-coded-tile strip with the template-declared,
           // phase-filtered set. Reviews removed — orange attention

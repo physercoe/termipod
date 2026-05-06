@@ -60,7 +60,7 @@ The following are intentionally not part of this plan and shouldn't grow into it
 **Verification:**
 
 1. Run `go test ./hub/...` — all annotation handler tests pass.
-2. `flutter analyze` clean (CI; not local — see [feedback no-flutter-local](../../../.claude/projects/-home-ubuntu-mux-pod/memory/feedback_no_flutter_local.md)).
+2. `flutter analyze` clean (CI runs it; the SDK isn't installed on the maintainer's dev machine, so analyze validation is CI-only).
 3. Re-seed lifecycle demo (`hub-server seed-demo --shape lifecycle`); open the lit-review project on mobile; confirm the seeded annotations render with the right glyphs.
 4. Add a comment via long-press; refresh viewer; confirm it persists and renders.
 5. Resolve an annotation; confirm it disappears from the default `status=open` view; toggle filter to "all" and confirm it shows collapsed.
@@ -105,7 +105,7 @@ The following are intentionally not part of this plan and shouldn't grow into it
 **Verification:**
 
 1. `go test ./hub/...` — new send-back tests pass; existing deliverable tests still pass.
-2. `flutter analyze` clean (CI).
+2. `flutter analyze` clean (CI; SDK not local).
 3. Re-seed lifecycle demo; open the seeded `revision_requested` attention item on Me tab; confirm it renders with the note + linked annotations; confirm tap → deliverable viewer.
 4. From the lit-review deliverable, tap "Send back with notes," type a one-line note, select two open annotations, submit. Confirm:
    - Deliverable pip transitions to in-review.

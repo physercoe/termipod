@@ -30,7 +30,7 @@ This ADR reads the gap, enumerates the seven canonical director-on-doc moves, an
 Three pressures forced the question:
 
 1. **Lifecycle demo dress-rehearsal (2026-05-06).** Walking the seeded 5-phase portfolio reveals that ratify/unratify is too blunt: the realistic director response to a flawed lit-review section is *"fix this paragraph,"* not *"unratify the whole deliverable."*
-2. **MVP parity gap.** Single-engine remote-control apps (claudecode-remote, Happy) all expose comment-on-message. We're behind on a primitive every reviewer expects. See [feedback no-short-board](../../../.claude/projects/-home-ubuntu-mux-pod/memory/feedback_no_short_board.md) — bookkeeping note, not load-bearing.
+2. **MVP parity gap.** Single-engine remote-control apps (claudecode-remote, Happy) all expose comment-on-message. We're behind on a primitive every reviewer expects, and the project's "no short-board" rule (MVP parity with single-engine clients on every axis they cover) makes this a must-fix before broader review.
 3. **IA axiom IA-A3.** "The steward does the work; the director ratifies." Ratification without a return-to-sender path collapses into either rubber-stamp or director-does-the-work, both of which violate IA-A3. The handoff is the missing link.
 
 ---

@@ -1,11 +1,13 @@
 # 017. Layered stewards: general (frozen, persistent) + domain (overlay, project-scoped)
 
 > **Type:** decision
-> **Status:** Accepted (2026-04-30)
+> **Status:** Accepted (2026-04-30) — Amendment 1 proposed (2026-05-06): peer steward tier
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.350-alpha
+> **Last verified vs code:** v1.0.370-alpha
 
 **TL;DR.** Termipod runs **two tiers of steward** instead of one. The **general steward** (`steward.general.v1`, handle `@steward`) is **frozen** in the hub binary, **persistent** (one per team, archived only by manual director action), and serves as the director's concierge — bootstraps projects, authors templates, manages schedules, debugs, free-discusses. **Domain stewards** (`steward.research.v1`, `steward.infra.v1`, …) are **overlay-authored** by the general steward, **project-scoped**, archived at project completion, and orchestrate one project's lifecycle. The general steward never does IC work (manager/IC invariant). The contract surfaces as a singleton `POST /v1/teams/{team}/steward.general/ensure` endpoint and a `@steward` handle convention distinct from the legacy plain `steward` and the domain `*-steward` suffix. This ADR consolidates the rationale that ADR-001 D-amend-2 introduced and gives it a load-bearing home.
+
+> **Amendment 1 (proposed, 2026-05-06)** introduces a **third tier**: **peer stewards** — overlay-authored, persistent, team-scoped (not project-scoped), multi-instance (one per kind per team). Closes the "vice-steward / board member" gap between the singleton general concierge and the per-project domain orchestrator. See [§ Amendment 1](#amendment-1--peer-steward-tier-2026-05-06) at the bottom of this ADR. Implementation tracker: [`plans/team-peer-stewards.md`](../plans/team-peer-stewards.md).
 
 ---
 
@@ -129,3 +131,109 @@ This ADR consolidates a design that already shipped (W1/W2/W4/W5/W6 of `plans/re
 - [Plan: research-demo-lifecycle-wedges](../plans/research-demo-lifecycle-wedges.md) — W1–W6 implementation tracker.
 - Code: `hub/internal/server/handlers_general_steward.go` (D3 endpoint), `lib/services/steward_handle.dart` (D2 predicates), `lib/widgets/home/persistent_steward_card.dart` (W3 home-tab entry), `hub/templates/agents/steward.general.v1.yaml` (D7 frozen template).
 - Memory: `project_layered_stewards.md` (shipping summary).
+
+---
+
+## Amendment 1 — Peer steward tier (2026-05-06)
+
+**Status:** Proposed. Tracker: [`plans/team-peer-stewards.md`](../plans/team-peer-stewards.md).
+
+### Why
+
+The two-tier model (general singleton + project-domain) leaves a **team-scoped specialist** unrepresented. Three pieces of director feedback converged:
+
+1. The general steward is the *concierge*. As a frozen template it is intentionally generalist; it can't be the "code-review specialist" or the "ops/infra specialist" for the team without overloading its prompt and eroding the manager/IC invariant (D4).
+2. Project-scoped domain stewards are the right shape for *one* project's lifecycle. They're the wrong shape for *cross-project* concerns ("how is the codebase doing across all five research projects?" or "what's our hosts' status?") because their scope is bounded to a single project.
+3. Director's chairman/board metaphor: a real organisation has a chairman (general) plus VPs/department heads (peers) plus per-team-or-project leads (domain). The current ladder collapses chairman + VPs into one role.
+
+### Decision
+
+**D-amend-1.1. Add a third tier: peer steward.**
+
+| Tier | Kind | Authoring | Lifetime | Multiplicity | Role |
+|---|---|---|---|---|---|
+| **General** | `steward.general.v1` | Frozen (bundled in hub) | Persistent — one per team | 1 per team | Team concierge (unchanged) |
+| **Peer (new)** | `steward.peer.<domain>.v1`, e.g. `steward.peer.code.v1`, `steward.peer.ops.v1` | Overlay (`<DataRoot>/teams/<team>/templates/agents/`), seeded from bundled defaults; editable by director and by general steward (subject to ADR-016 D7 self-mod guard) | Persistent — archived only by manual director action | **One per (team, kind)**; many distinct peers per team | Team-level specialist. Cross-project advisory, code review, ops triage, hiring/family management, etc. |
+| **Domain** | `steward.research.v1`, `steward.infra.v1`, … | Overlay (unchanged) | Project-scoped (unchanged) | 1 per project (D6, unchanged) | Project orchestrator (unchanged) |
+
+The peer tier sits at *team scope* like the general, but is *specialised* like a domain steward. It is **not** a project-scoped agent and never owns a `project_id`.
+
+**D-amend-1.2. Handle convention extension.**
+
+| Handle pattern | Tier | Examples |
+|---|---|---|
+| `@steward` | General (singleton) | `@steward` |
+| `@steward.<domain>` | **Peer (new)** | `@steward.code`, `@steward.ops`, `@steward.security` |
+| `*-steward` | Domain (project) | `research-steward`, `infra-east-steward` |
+| `steward` | Legacy plain | `steward` |
+
+The `@` prefix stays the lexical mark of "team-level" — peers share it with the general so a single `isTeamLevelStewardHandle()` predicate covers both. The trailing `.<domain>` distinguishes a peer from the singleton general. Predicates in `lib/services/steward_handle.dart`:
+
+```dart
+bool isGeneralStewardHandle(String h)    => h == '@steward';
+bool isPeerStewardHandle(String h)       => h.startsWith('@steward.');
+bool isTeamLevelStewardHandle(String h)  =>
+    isGeneralStewardHandle(h) || isPeerStewardHandle(h);
+bool isStewardHandle(String h)           => /* unchanged: matches all 4 */;
+```
+
+**D-amend-1.3. Ensure-spawn endpoint, parameterised by kind.**
+
+```
+POST /v1/teams/{team}/steward.peer/ensure
+Body: { "kind": "steward.peer.code.v1" }
+```
+
+Same idempotency contract as the general (D3): read-fast for an existing running instance keyed by `(team_id, kind)`; spawn-and-coalesce on race; respawn after archive. Distinct from `steward.general/ensure` because the kind is parameterised — one endpoint, many kinds. Implementation reuses the `findRunningGeneralSteward` query shape with the kind filter generalised.
+
+The bundled hub binary ships a small set of seed peer templates (`steward.peer.code.v1.yaml`, `steward.peer.ops.v1.yaml`); the director can spawn additional ones by authoring overlay YAML directly or asking the general steward to author one.
+
+**D-amend-1.4. Routing precedence (informational; UX details in plan).**
+
+When a request can in principle be served by more than one tier, prefer the most-specific scope:
+
+```
+project context  → project domain steward    (most specific)
+team context     → matching peer steward     (specialist)
+no specialist    → general steward           (concierge fallback)
+```
+
+Concretely: a director asking from inside a Project page → domain steward; from the Me / home tab with a `@steward.code` mention → peer; from the Me tab with bare `@steward` → general. The amendment locks the precedence ordering; the picker UX (3-way picker, fallback choice, etc.) is in the wedge plan.
+
+**D-amend-1.5. Frozen invariant scope.**
+
+D7's frozen-template invariant applies **only** to `steward.general.v1`. Peer stewards are overlay-authored — the director and the general steward may edit them. ADR-016 D7's "no agent edits its own kind" rule still applies to peers: a peer steward cannot edit its own template (e.g. `steward.peer.code.v1` cannot edit `steward.peer.code.v1.yaml`), but it can edit a *different* peer's template if its scope grants it (subject to roles.yaml). General can edit any peer template.
+
+**D-amend-1.6. Role manifest (cross-link to ADR-016).**
+
+`roles.yaml` gains a `peer-steward` role bucket with permissions between `steward` (general's, broadest) and the project domain stewards (narrowest). The exact tool list is decided in the wedge plan; the principle is: peers can read across all projects (`projects.list`, `runs.list`, `documents.list`) but only write within their declared specialty (e.g. `steward.peer.code.v1` can call `templates.edit` but not `runs.start`).
+
+### What stays the same
+
+- D1, D2, D3, D4, D5, D6, D7 of the original ADR.
+- Project-scoped domain stewards: still 1 per project, still overlay, still archived at project close.
+- General steward: still 1 per team, still frozen, still archived only by manual director action.
+- Spawn-time uniqueness on `(team_id, handle)` is still the structural guarantee that no two stewards share a handle.
+
+### What becomes forbidden
+
+- Peer stewards within a project. Peers are team-scoped; a project-bound steward must use the domain tier (D6's project-internal singleton applies).
+- A peer steward editing its own kind (mirrors ADR-016 D7).
+- More than one running peer steward of the same kind per team — the per-kind singleton (D-amend-1.3) is enforced via the same unique-handle constraint.
+
+### Migration
+
+Strictly additive — no existing data or endpoints change. New code paths:
+
+1. New endpoint `POST /v1/teams/{team}/steward.peer/ensure?kind=...`.
+2. New seed templates in `hub/templates/agents/`: `steward.peer.code.v1.yaml`, `steward.peer.ops.v1.yaml` (and any other initial kinds).
+3. New role bucket in `hub/internal/server/roles.yaml`.
+4. New mobile predicates + Stewards-overview section grouping.
+
+Existing single-team-with-only-general installs see no behaviour change until the director explicitly spawns a peer.
+
+### Open questions (answered in the wedge plan, not here)
+
+- Default seed peer kinds shipped with the hub: just code + ops, or a wider set?
+- Mobile UX for the 3-way picker when both peer and project-domain are reachable.
+- A2A: can a project domain steward delegate up to a peer? (Today A2A allows worker→non-parent only via blueprint forbidden-pattern audit; peer delegation needs an explicit allowance.)

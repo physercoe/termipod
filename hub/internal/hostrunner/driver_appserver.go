@@ -355,10 +355,19 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		}
 		return d.startTurn(ctx, body)
 	case "cancel":
-		// turn/interrupt has no required params; the server interrupts
-		// whichever turn is active. Best-effort — a non-active state
-		// returns an error we surface but don't retry.
-		_, err := d.Call(ctx, "turn/interrupt", map[string]any{})
+		// codex requires `threadId` on turn/interrupt — without it the
+		// server replies -32600 "Invalid request: missing field
+		// `threadId`". Best-effort: if the handshake never captured a
+		// thread id (very early cancel) there's nothing to interrupt
+		// anyway, so report a clean error instead of dispatching a
+		// malformed call.
+		tid := d.ThreadID()
+		if tid == "" {
+			return fmt.Errorf("appserver driver: cannot cancel — no active thread")
+		}
+		_, err := d.Call(ctx, "turn/interrupt", map[string]any{
+			"threadId": tid,
+		})
 		return err
 	case "approval", "answer":
 		return fmt.Errorf("appserver driver: %q input shape not used by codex (use attention_reply / slice-4 approval bridge)", kind)

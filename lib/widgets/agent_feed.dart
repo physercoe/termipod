@@ -848,6 +848,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (producer == 'user') continue; // user inputs don't move the state
       final kind = (e['kind'] ?? '').toString();
       if (kind == 'turn.result' || kind == 'completion') return false;
+      // session.init is a one-shot handshake event — it lands once
+      // per resume/start and means "ready, waiting for input." If
+      // it's the most recent agent event (no turn-active signal
+      // after it), the agent is idle, not busy.
+      if (kind == 'session.init') return false;
       if (kind == 'lifecycle') {
         final p = e['payload'];
         final phase = p is Map ? (p['phase'] ?? '').toString() : '';
@@ -856,6 +861,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // scanning so a recent text/tool_call wins the decision.
         continue;
       }
+      // 'system' covers a grab-bag of telemetry frames (status
+      // updates, server-startup pings) that don't, on their own,
+      // mean a turn is in progress. Skip and keep scanning so a
+      // real text/tool_call signal can win.
+      if (kind == 'system') continue;
       // Any other agent-produced kind — text streaming, thought,
       // tool_call mid-flight, plan, raw, etc. — means the turn is
       // still in motion.

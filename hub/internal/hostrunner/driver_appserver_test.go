@@ -281,6 +281,61 @@ func TestAppServerDriver_HandshakeAndTurn(t *testing.T) {
 	}
 }
 
+// TestAppServerDriver_Cancel_IncludesThreadID pins the cancel→
+// turn/interrupt translation: codex's app-server returns
+// -32600 "Invalid request: missing field `threadId`" when threadId
+// is absent, which surfaced as a user-visible JSON-RPC error string
+// in the mobile cancel flow. The driver must always include the
+// active thread id.
+func TestAppServerDriver_Cancel_IncludesThreadID(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any {
+		return map[string]any{"protocolVersion": "1.0"}
+	})
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{
+			"thread": map[string]any{"id": "thr_cancel"},
+		}
+	})
+	server.onCall("turn/interrupt", func(_ map[string]any) any {
+		return map[string]any{}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-cancel",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	if err := drv.Input(ctx, "cancel", map[string]any{
+		"reason": "user requested cancel",
+	}); err != nil {
+		t.Fatalf("Input(cancel): %v", err)
+	}
+	frame := server.waitForMethod("turn/interrupt", time.Second)
+	params, _ := frame["params"].(map[string]any)
+	if got, _ := params["threadId"].(string); got != "thr_cancel" {
+		t.Errorf("turn/interrupt.params.threadId = %q; want thr_cancel", got)
+	}
+}
+
 // fakeAttentionPoster records every PostAttention call and returns
 // canned attention ids so the driver can stash them in its parked-id
 // map. The slice-4 bridge depends on this surface separately from

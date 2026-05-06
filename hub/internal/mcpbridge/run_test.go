@@ -1,8 +1,10 @@
 package mcpbridge
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -96,3 +98,45 @@ func TestMakeTransportError(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+// TestRunLoop_NormalizesTrailingNewline pins the framing contract that
+// codex's rmcp transport requires: each stdout line must be a single
+// complete JSON value followed by exactly one "\n", with no empty
+// trailing line. The hub already terminates its body with "\n", so the
+// previous "Write(body); WriteByte('\n')" path produced "...}}\n\n" and
+// rmcp aborted the transport with "EOF while parsing a value at line 1
+// column 0".
+func TestRunLoop_NormalizesTrailingNewline(t *testing.T) {
+	stdin := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}` + "\n")
+	var stdout bytes.Buffer
+	logger := log.New(io.Discard, "", 0)
+
+	fwd := func(_ []byte) ([]byte, error) {
+		// Mimic the hub: response body already ends with "\n".
+		return []byte(`{"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n"), nil
+	}
+
+	rc := runLoop(stdin, &stdout, fwd, logger)
+	if rc != 0 {
+		t.Fatalf("runLoop rc = %d, want 0", rc)
+	}
+
+	out := stdout.Bytes()
+	if !bytes.HasSuffix(out, []byte("\n")) {
+		t.Fatalf("output must end with \\n: %q", out)
+	}
+	if bytes.HasSuffix(out, []byte("\n\n")) {
+		t.Fatalf("output must not end with empty line: %q", out)
+	}
+	// Every line must be valid JSON — empty lines are fatal to rmcp.
+	for i, line := range bytes.Split(bytes.TrimRight(out, "\n"), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			t.Errorf("line %d is empty (rmcp would abort)", i)
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(line, &v); err != nil {
+			t.Errorf("line %d not valid json: %v (%q)", i, err, line)
+		}
+	}
+}

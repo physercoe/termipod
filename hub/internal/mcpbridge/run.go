@@ -49,19 +49,38 @@ func Run(args []string) int {
 	logger := log.New(os.Stderr, "mcp-bridge ", log.LstdFlags|log.Lmsgprefix)
 
 	client := &http.Client{Timeout: *timeout}
-	br := bufio.NewReader(os.Stdin)
-	bw := bufio.NewWriter(os.Stdout)
+	fwd := func(line []byte) ([]byte, error) {
+		return forward(client, endpoint, line)
+	}
+	return runLoop(os.Stdin, os.Stdout, fwd, logger)
+}
+
+// runLoop pumps newline-delimited JSON-RPC from stdin → fwd → stdout.
+// Extracted from Run so the framing is testable without spinning up
+// real stdin/stdout. See TestRunLoop_NormalizesTrailingNewline for the
+// codex/rmcp regression that motivated normalizing the output frame.
+func runLoop(stdin io.Reader, stdout io.Writer, fwd func([]byte) ([]byte, error), logger *log.Logger) int {
+	br := bufio.NewReader(stdin)
+	bw := bufio.NewWriter(stdout)
 	defer bw.Flush()
 
 	for {
 		line, err := br.ReadBytes('\n')
 		if len(line) > 0 {
-			if out, perr := forward(client, endpoint, line); perr != nil {
+			if out, perr := fwd(line); perr != nil {
 				errFrame := makeTransportError(line, perr)
 				_, _ = bw.Write(errFrame)
 				_ = bw.Flush()
 				logger.Printf("forward error: %v", perr)
 			} else if out != nil {
+				// Strict MCP clients (codex's rmcp) parse every stdout
+				// line with serde_json and treat an empty line as a
+				// fatal "EOF while parsing a value at line 1 column 0",
+				// which closes the transport. The hub already terminates
+				// its body with "\n", so writing body+"\n" produced an
+				// empty trailing line. Normalize to exactly one trailing
+				// newline.
+				out = bytes.TrimRight(out, "\r\n")
 				if _, werr := bw.Write(out); werr != nil {
 					logger.Printf("stdout write: %v", werr)
 					return 0

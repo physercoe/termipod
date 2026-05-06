@@ -604,6 +604,30 @@ class _MeCard extends ConsumerWidget {
                   ),
                 ),
               ),
+            ] else if (item.attention != null) ...[
+              // Non-approval attention items (revision_requested, idle,
+              // agent_error, generic messages) still have a useful detail
+              // view. Surface a Details affordance so the card's tap
+              // target isn't invisible.
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ApprovalDetailScreen(
+                        attention: item.attention!,
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.info_outline, size: 14),
+                  label: const Text('Details'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: GoogleFonts.jetBrainsMono(fontSize: 11),
+                  ),
+                ),
+              ),
             ],
           ],
         ),
@@ -612,10 +636,11 @@ class _MeCard extends ConsumerWidget {
   }
 
   void _primaryAction(BuildContext context, WidgetRef ref) {
-    // For approval items, route to the detail screen so the user can
-    // see the requester chain + payload before deciding (the inline
-    // Approve/Deny buttons remain for the quick path). Per ADR-009.
-    if (item.filter == _Filter.approvals && item.attention != null) {
+    // Any attention item with a row available routes to the detail
+    // screen — the director-note + linked-annotations block (ADR-020)
+    // and origin/transcript sections give every kind something useful
+    // to land on, even those without inline actions.
+    if (item.attention != null) {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ApprovalDetailScreen(attention: item.attention!),

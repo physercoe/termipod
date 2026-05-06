@@ -243,11 +243,12 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
         ],
       );
     }
-    return Markdown(
+    // MarkdownBody (not Markdown) — Markdown wraps its output in a
+    // ListView, which collapses to zero height when nested inside the
+    // outer ListView the body is rendered into.
+    return MarkdownBody(
       data: _body,
       selectable: true,
-      shrinkWrap: false,
-      padding: EdgeInsets.zero,
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
         p: GoogleFonts.spaceGrotesk(fontSize: 14, height: 1.5),
         code: GoogleFonts.jetBrainsMono(fontSize: 12),

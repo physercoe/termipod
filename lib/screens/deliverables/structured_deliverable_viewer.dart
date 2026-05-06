@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -525,8 +527,17 @@ class _ComponentCard extends ConsumerWidget {
       }
       return;
     }
-    // Commit (and any future component kind) doesn't yet have a
-    // dedicated viewer; surface the ref so the user can locate it.
+    if (kind == 'commit') {
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => _CommitDetailSheet(ref: refId),
+      );
+      return;
+    }
+    // Any future component kind we don't yet render — surface the ref
+    // so the user can at least locate it.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${_labelFor(kind)} component → $refId'),
@@ -1105,6 +1116,190 @@ class _SendBackSheetState extends State<_SendBackSheet> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for `commit` components. The ref_id is opaque from the
+/// hub's perspective (no commits table backs it yet), but lifecycle
+/// seeds use git-host URLs of the form
+/// `https://<host>/<owner>/<repo>/commit/<sha>` so this sheet pulls out
+/// the host/repo/short-sha for display and offers open-in-browser +
+/// copy-ref buttons. Non-URL refs fall through to a raw view.
+class _CommitDetailSheet extends StatelessWidget {
+  final String ref;
+  const _CommitDetailSheet({required this.ref});
+
+  ({String host, String repo, String sha})? _parse() {
+    final uri = Uri.tryParse(ref);
+    if (uri == null || !uri.hasScheme) return null;
+    final segs = uri.pathSegments
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    // Expected shape: <owner>/<repo>/commit/<sha>
+    int idx = segs.indexOf('commit');
+    if (idx < 0 || idx >= segs.length - 1 || idx < 2) return null;
+    final repo = '${segs[idx - 2]}/${segs[idx - 1]}';
+    final sha = segs[idx + 1];
+    return (host: uri.host, repo: repo, sha: sha);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final parsed = _parse();
+    final shortSha = parsed == null
+        ? ''
+        : (parsed.sha.length > 7 ? parsed.sha.substring(0, 7) : parsed.sha);
+    return DraggableScrollableSheet(
+      initialChildSize: 0.45,
+      minChildSize: 0.3,
+      maxChildSize: 0.85,
+      expand: false,
+      builder: (_, scroll) => Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        child: ListView(
+          controller: scroll,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: DesignColors.textMuted.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                const Icon(Icons.commit_outlined,
+                    size: 20, color: DesignColors.warning),
+                const SizedBox(width: 8),
+                Text(
+                  'Commit',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (shortSha.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: DesignColors.warning.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      shortSha,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        color: DesignColors.warning,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (parsed != null) ...[
+              _CommitField(label: 'host', value: parsed.host),
+              _CommitField(label: 'repo', value: parsed.repo),
+              _CommitField(label: 'sha', value: parsed.sha),
+            ],
+            _CommitField(label: 'ref', value: ref),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                if (parsed != null)
+                  Expanded(
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: const Text('Open commit'),
+                      onPressed: () async {
+                        final uri = Uri.tryParse(ref);
+                        if (uri == null) return;
+                        await launchUrl(uri,
+                            mode: LaunchMode.externalApplication);
+                      },
+                    ),
+                  ),
+                if (parsed != null) const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.copy, size: 16),
+                    label: const Text('Copy ref'),
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: ref));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Copied')),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Commit components pin a deliverable to a specific revision of the project repo so reviewers can rebuild the same artifacts/runs from source.',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                color: DesignColors.textMuted,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommitField extends StatelessWidget {
+  final String label;
+  final String value;
+  const _CommitField({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 60,
+            child: Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

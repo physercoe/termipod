@@ -242,6 +242,43 @@ func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 			len(annIDs))
 	}
 
+	// run_metrics rows exist for every lifecycle run — without these,
+	// the runs screen renders empty even though a run is recorded.
+	var metricCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM run_metrics
+		WHERE run_id IN (
+			SELECT id FROM runs WHERE project_id IN (?,?,?,?,?)
+		)`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID,
+	).Scan(&metricCount); err != nil {
+		t.Fatalf("run_metrics count: %v", err)
+	}
+	if metricCount == 0 {
+		t.Error("expected run_metrics rows for lifecycle runs, got 0")
+	}
+
+	// commit components: the method-phase + experiment-phase
+	// deliverables anchor a code revision so reviewers can rebuild
+	// from source. Both methods and experiments seed at least one
+	// `commit` component.
+	var commitCount int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM deliverable_components
+		WHERE kind = 'commit'
+		  AND deliverable_id IN (
+		    SELECT id FROM deliverables WHERE project_id IN (?,?,?,?,?)
+		  )`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID,
+	).Scan(&commitCount); err != nil {
+		t.Fatalf("commit components count: %v", err)
+	}
+	if commitCount == 0 {
+		t.Error("expected commit components on method/experiment deliverables, got 0")
+	}
+
 	// Audit rows include criterion.created entries and at least one
 	// deliverable.ratified entry.
 	var critCreated, delivRatified int

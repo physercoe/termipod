@@ -33,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 )
 
 // SeedLifecycleResult summarises the lifecycle seed insert. Keys carry
@@ -540,11 +541,19 @@ func lifecycleSpecs() []lifecycleSpec {
 						components: []componentSpec{{kind: "document", refID: litDoc.id}},
 					},
 					{
-						logID:      "method-doc",
-						phase:      "method",
-						kind:       "method",
-						state:      "ratified",
-						components: []componentSpec{{kind: "document", refID: methDoc.id}},
+						logID: "method-doc",
+						phase: "method",
+						kind:  "method",
+						state: "ratified",
+						components: []componentSpec{
+							{kind: "document", refID: methDoc.id, ord: 0},
+							// Method deliverables include the commit
+							// that locks the protocol code (training
+							// loop + eval harness) so reviewers can
+							// trace the run back to a known revision.
+							{kind: "commit", ord: 1,
+								refID: "https://github.com/example-org/optimizer-research/commit/9a2bf1c0d3e4f0a7b2c5d8e9f1a3b4c5d6e7f8a9"},
+						},
 					},
 				})
 			},
@@ -647,8 +656,12 @@ func lifecycleSpecs() []lifecycleSpec {
 						state:      "ratified",
 						components: []componentSpec{{kind: "document", refID: litDoc.id}}},
 					{logID: "method-doc", phase: "method", kind: "method",
-						state:      "ratified",
-						components: []componentSpec{{kind: "document", refID: methDoc.id}}},
+						state: "ratified",
+						components: []componentSpec{
+							{kind: "document", refID: methDoc.id, ord: 0},
+							{kind: "commit", ord: 1,
+								refID: "https://github.com/example-org/optimizer-research/commit/9a2bf1c0d3e4f0a7b2c5d8e9f1a3b4c5d6e7f8a9"},
+						}},
 					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
 						state: "draft",
 						components: []componentSpec{
@@ -656,6 +669,11 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "run", refID: run.id, ord: 3},
+							// The exact training revision that produced
+							// this run — paired with the run config so
+							// reviewers can rebuild the experiment.
+							{kind: "commit", ord: 4,
+								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 				})
 			},
@@ -760,8 +778,12 @@ func lifecycleSpecs() []lifecycleSpec {
 						state:      "ratified",
 						components: []componentSpec{{kind: "document", refID: litDoc.id}}},
 					{logID: "method-doc", phase: "method", kind: "method",
-						state:      "ratified",
-						components: []componentSpec{{kind: "document", refID: methDoc.id}}},
+						state: "ratified",
+						components: []componentSpec{
+							{kind: "document", refID: methDoc.id, ord: 0},
+							{kind: "commit", ord: 1,
+								refID: "https://github.com/example-org/optimizer-research/commit/9a2bf1c0d3e4f0a7b2c5d8e9f1a3b4c5d6e7f8a9"},
+						}},
 					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
 						state: "ratified",
 						components: []componentSpec{
@@ -769,6 +791,8 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "run", refID: run.id, ord: 3},
+							{kind: "commit", ord: 4,
+								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
 						state:      "in-review",
@@ -1259,7 +1283,73 @@ func seedRun(
 		return seededRun{}, fmt.Errorf("insert run: %w", err)
 	}
 	c.runsSeeded++
+
+	// Emit metric curves so the run-detail screen renders sparklines +
+	// charts the same way the ablation-sweep demo does. Without these
+	// rows the runs tab is empty even though the run itself is recorded.
+	// Non-completed runs (running/queued) skip metrics — there's nothing
+	// meaningful to backfill yet.
+	if status == "completed" {
+		size := intFromConfig(configBlob, "n_embd", 384)
+		opt := stringFromConfig(configBlob, "optimizer", "lion")
+		iters := intFromConfig(configBlob, "iters", 1000)
+		// Deterministic seed per run id: the project should look the same
+		// every time the demo is re-seeded.
+		rng := rand.New(rand.NewSource(deterministicSeed(id)))
+		curves := synthRunCurves(rng, size, opt, iters, 100)
+		for _, m := range curves {
+			pointsJSON, _ := json.Marshal(m.points)
+			if _, err := c.tx.ExecContext(c.ctx, `
+				INSERT INTO run_metrics (
+					id, run_id, metric_name, points_json, sample_count,
+					last_step, last_value, updated_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				NewID(), id, m.name, string(pointsJSON),
+				len(m.points), m.lastStep, m.lastValue, c.now,
+			); err != nil {
+				return seededRun{}, fmt.Errorf(
+					"insert run_metrics %s: %w", m.name, err)
+			}
+		}
+	}
 	return seededRun{id: id}, nil
+}
+
+func intFromConfig(m map[string]any, key string, def int) int {
+	v, ok := m[key]
+	if !ok {
+		return def
+	}
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	}
+	return def
+}
+
+func stringFromConfig(m map[string]any, key, def string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return def
+}
+
+// deterministicSeed turns an id (UUID-ish hex string) into a stable
+// int64 so metric noise is reproducible per run across reseeds.
+func deterministicSeed(id string) int64 {
+	var h int64 = 1469598103934665603
+	for i := 0; i < len(id); i++ {
+		h ^= int64(id[i])
+		h *= 1099511628211
+	}
+	if h < 0 {
+		h = -h
+	}
+	return h
 }
 
 // ---------------------------------------------------------------------

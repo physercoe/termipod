@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
-import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 
 /// ADR-020 W1 — director annotations on a typed-document section.

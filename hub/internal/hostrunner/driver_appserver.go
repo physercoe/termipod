@@ -26,12 +26,14 @@ package hostrunner
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -135,6 +137,37 @@ type AppServerDriver struct {
 	// driver restarts is a follow-up wedge.
 	approvalMu       sync.Mutex
 	pendingApprovals map[string]pendingApproval
+
+	// Streaming buffer for item/agentMessage/delta. Codex emits one
+	// notification per ~1-5 chars while a turn is generating; posting
+	// each as its own agent_event creates ~200 transcript rows for a
+	// typical reply. Instead, the driver buffers per item id and
+	// throttle-flushes a single `kind=text, partial: true` event
+	// every StreamFlushInterval. The mobile renderer collapses the
+	// chain by message_id so the user sees one row that grows in
+	// place — chatbot-style streaming UX without DB-row spam.
+	streamMu      sync.Mutex
+	streamBuffers map[string]*streamBuffer
+	// StreamFlushInterval throttles the flush cadence. Zero falls
+	// back to the default (200 ms — fast enough to feel live without
+	// generating a row per word). A negative value disables streaming
+	// entirely (deltas dropped silently); useful for tests or for
+	// hosts on slow links where DB write rate matters more than
+	// streaming smoothness.
+	StreamFlushInterval time.Duration
+	// streamCtx is captured from Start's parent context so timer-
+	// driven flushes have a long-lived context to post under. Cleared
+	// in Stop.
+	streamCtx context.Context
+}
+
+// streamBuffer holds in-flight delta accumulation for one streaming
+// item. timer is non-nil when a flush is scheduled; flushStream
+// resets it to nil after firing so the next delta can schedule again
+// (throttle, not debounce — debounce would starve a continuous stream).
+type streamBuffer struct {
+	text  string
+	timer *time.Timer
 }
 
 // jsonRPCRequest is the shape we serialize for outbound calls and
@@ -180,6 +213,8 @@ func (d *AppServerDriver) Start(parent context.Context) error {
 	d.started = true
 	d.pending = make(map[int64]chan jsonRPCResponse)
 	d.pendingApprovals = make(map[string]pendingApproval)
+	d.streamBuffers = make(map[string]*streamBuffer)
+	d.streamCtx = parent
 	d.shutdownCh = make(chan struct{})
 	d.mu.Unlock()
 
@@ -191,6 +226,9 @@ func (d *AppServerDriver) Start(parent context.Context) error {
 	}
 	if d.HandshakeTimeout == 0 {
 		d.HandshakeTimeout = 60 * time.Second
+	}
+	if d.StreamFlushInterval == 0 {
+		d.StreamFlushInterval = 200 * time.Millisecond
 	}
 
 	_ = d.Poster.PostAgentEvent(parent, d.AgentID, "lifecycle", "system",
@@ -291,6 +329,17 @@ func (d *AppServerDriver) Stop() {
 	}
 	d.pendingMu.Unlock()
 
+	// Cancel any in-flight stream-flush timers so a late callback
+	// doesn't post a partial event after the lifecycle.stopped one.
+	d.streamMu.Lock()
+	for id, buf := range d.streamBuffers {
+		if buf.timer != nil {
+			buf.timer.Stop()
+		}
+		delete(d.streamBuffers, id)
+	}
+	d.streamMu.Unlock()
+
 	shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = d.Poster.PostAgentEvent(shutCtx, d.AgentID, "lifecycle", "system",
@@ -335,11 +384,15 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		}
 		return d.startTurn(ctx, body)
 	case "attention_reply":
-		// Two paths depending on attention kind:
+		// Three paths depending on attention kind:
 		//  - kind=permission_prompt → we have a parked codex JSON-RPC
 		//    request id; the resolution becomes a JSON-RPC response on
 		//    the same stdio pipe (ADR-012 D3 — vendor-neutral
 		//    equivalent of permission_prompt with no sync constraint).
+		//  - kind=elicit → also a parked JSON-RPC id, but the response
+		//    shape is `{action, content?}` instead of `{decision}`.
+		//    The principal's free-text reply becomes the elicitation
+		//    content the MCP server originally asked for.
 		//  - other kinds (approval_request, select, help_request) →
 		//    fresh user-text turn via turn/start, same as
 		//    StdioDriver's attention_reply path. The agent's request_*
@@ -348,6 +401,9 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		kind, _ := payload["kind"].(string)
 		if kind == "permission_prompt" {
 			return d.resolvePendingApproval(payload)
+		}
+		if kind == "elicit" {
+			return d.resolvePendingElicitation(payload)
 		}
 		body := formatAttentionReplyText(payload)
 		if body == "" {
@@ -450,6 +506,82 @@ func (d *AppServerDriver) resolvePendingApproval(payload map[string]any) error {
 		return fmt.Errorf("appserver driver: write approval response: %w", err)
 	}
 	return nil
+}
+
+// resolvePendingElicitation closes a parked
+// `mcpServer/elicitation/request` by writing the rmcp-shaped response
+// rmcp's `McpServerElicitationRequestResponse` requires. Shape:
+//
+//	{action: "accept" | "decline" | "cancel", content?: object}
+//
+// Mapping:
+//   - decision=approve → action=accept; content is the principal's
+//     reply parsed as JSON if possible, else wrapped as {value: <body>}
+//     so the MCP server gets a single-string field by default.
+//     Schema-driven wrapping is a follow-up wedge once the mobile UI
+//     can render typed inputs from `requestedSchema`.
+//   - decision=reject  → action=decline; no content.
+//   - missing parked id → no-op + system event (driver may have
+//     restarted between bridge and reply).
+func (d *AppServerDriver) resolvePendingElicitation(payload map[string]any) error {
+	attID, _ := payload["request_id"].(string)
+	decision, _ := payload["decision"].(string)
+	body, _ := payload["body"].(string)
+	d.approvalMu.Lock()
+	pa, ok := d.pendingApprovals[attID]
+	if ok {
+		delete(d.pendingApprovals, attID)
+	}
+	d.approvalMu.Unlock()
+	if !ok {
+		_ = d.Poster.PostAgentEvent(context.Background(), d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":         "appserver_elicitation_unmatched",
+				"attention_id": attID,
+				"reason":       "no parked jsonrpc id (driver may have restarted)",
+			})
+		return nil
+	}
+	var result map[string]any
+	if decision == "approve" {
+		result = map[string]any{
+			"action":  "accept",
+			"content": elicitationContentFromBody(body),
+		}
+	} else {
+		result = map[string]any{"action": "decline"}
+	}
+	if err := d.writeRawResponse(pa.jsonRPCID, result); err != nil {
+		return fmt.Errorf("appserver driver: write elicitation response: %w", err)
+	}
+	return nil
+}
+
+// elicitationContentFromBody best-effort-parses the principal's
+// reply into the `content` map an MCP server expects back. The
+// elicitation's requestedSchema describes what the server wants,
+// but the mobile UI doesn't render schema-typed inputs yet — the
+// principal types free text. Two fallback shapes:
+//
+//   - If body parses as a JSON object, use it verbatim. Power users
+//     can hand-type structured replies.
+//   - Otherwise wrap as {value: <body>}. Single-string-field
+//     elicitations (the common case) get a sensible default;
+//     servers that asked for richer shapes will fail validation
+//     and the agent surfaces the error — which at least makes the
+//     mismatch visible instead of silently degrading.
+func elicitationContentFromBody(body string) map[string]any {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return map[string]any{}
+	}
+	if body[0] == '{' {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(body), &parsed); err == nil && parsed != nil {
+			return parsed
+		}
+	}
+	return map[string]any{"value": body}
 }
 
 // startTurn calls turn/start with one text content item. Returns
@@ -577,9 +709,25 @@ func (d *AppServerDriver) readLoop(ctx context.Context) {
 		if captureFile != nil {
 			_, _ = captureFile.Write(append(line, '\n'))
 		}
+		// codex's stderr is merged into stdout (RealProcSpawner sets
+		// cmd.Stderr = cmd.Stdout) so log lines like
+		// `2026-05-06T12:58:17.190362Z ERROR codex_app_server::...`
+		// land in the same scanner. Drop anything that doesn't look
+		// like a JSON-RPC frame — keep the capture-file copy above
+		// for forensics, but don't post it as an agent_event where
+		// it shows up as garbled "random characters" in the
+		// transcript. A real malformed JSON-RPC frame (starts with
+		// `{` but won't unmarshal) still posts as kind=raw below so
+		// protocol issues stay visible.
+		trimmed := bytes.TrimLeft(line, " \t")
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			d.Log.Debug("appserver: dropping non-JSON line",
+				"agent", d.AgentID, "text", string(line))
+			continue
+		}
 		var resp jsonRPCResponse
 		if err := json.Unmarshal(line, &resp); err != nil {
-			// Malformed line — emit raw so debugging is possible
+			// Malformed JSON — emit raw so debugging is possible
 			// instead of silently swallowing bytes.
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent",
 				map[string]any{"text": string(line)})
@@ -654,12 +802,18 @@ func (d *AppServerDriver) handleServerRequest(
 	method := resp.Method
 	id := *resp.ID
 
-	// Approval-shaped methods bridge to attention. Anything else
-	// (mcpServer/elicitation, item/tool/requestUserInput) we can't
-	// usefully bridge in this slice — log it and decline so codex
-	// proceeds. Adding those is a follow-up wedge once we know what
-	// shapes the principal-side UI wants for them.
-	if d.Attention == nil || !isApprovalMethod(method) {
+	// Three classes of server-initiated request bridge to attention:
+	//   - Approval-shaped (item/*/requestApproval) → kind=permission_prompt,
+	//     responds with {decision} once the principal decides.
+	//   - Elicitation (mcpServer/elicitation/request) → kind=elicit,
+	//     responds with {action, content?} carrying the principal's
+	//     filled-in form.
+	// Anything else we can't usefully bridge in this slice — log it
+	// and auto-decline (with the right per-method shape) so codex
+	// doesn't stall. Adding more methods is a question of building
+	// the response-shape factory, not the bridge plumbing.
+	bridged := d.Attention != nil && (isApprovalMethod(method) || isElicitationMethod(method))
+	if !bridged {
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
 			map[string]any{
 				"kind":   "appserver_request_auto_declined",
@@ -667,16 +821,20 @@ func (d *AppServerDriver) handleServerRequest(
 				"reason": map[bool]string{true: "no attention bridge wired", false: "method not bridged"}[d.Attention == nil],
 				"raw":    string(raw),
 			})
-		_ = d.writeRawResponse(id, map[string]any{"decision": "decline"})
+		_ = d.writeRawResponse(id, autoDeclineResultFor(method))
 		return
 	}
 
 	params := decodeParams(resp.Params)
+	attentionKind := "permission_prompt"
+	if isElicitationMethod(method) {
+		attentionKind = "elicit"
+	}
 	att, err := d.Attention.PostAttention(ctx, AttentionIn{
 		ScopeKind:      "team",
-		Kind:           "permission_prompt",
-		Summary:        approvalSummary(method, params),
-		Severity:       approvalSeverity(method),
+		Kind:           attentionKind,
+		Summary:        attentionSummary(method, params),
+		Severity:       attentionSeverity(method),
 		ActorHandle:    d.Handle,
 		PendingPayload: marshalPending(method, id, params),
 	})
@@ -691,7 +849,7 @@ func (d *AppServerDriver) handleServerRequest(
 				"err":    err.Error(),
 				"raw":    string(raw),
 			})
-		_ = d.writeRawResponse(id, map[string]any{"decision": "decline"})
+		_ = d.writeRawResponse(id, autoDeclineResultFor(method))
 		return
 	}
 
@@ -704,8 +862,9 @@ func (d *AppServerDriver) handleServerRequest(
 	// audit replays.
 	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
 		map[string]any{
-			"kind":         "appserver_approval_parked",
+			"kind":         "appserver_request_parked",
 			"method":       method,
+			"attention":    attentionKind,
 			"attention_id": att.ID,
 		})
 }
@@ -725,11 +884,45 @@ func isApprovalMethod(method string) bool {
 	return false
 }
 
-// approvalSummary produces a human-readable one-liner for the
+// isElicitationMethod flags the MCP elicitation request — codex
+// forwards an MCP server's elicitation/create call to its client
+// (host-runner) under this method name. Distinct from approvals
+// because the response shape (`action`+`content`) and the principal-
+// side UX (free-text reply rather than yes/no) both differ.
+func isElicitationMethod(method string) bool {
+	return method == "mcpServer/elicitation/request"
+}
+
+// autoDeclineResultFor builds the per-method decline-shape for any
+// server-initiated request the driver can't bridge. Each codex
+// method has its own deserializer in rmcp — sending the wrong shape
+// trips a `missing field` error on the codex side that propagates
+// back to the agent's MCP tool call as a flat rejection.
+//
+//   - mcpServer/elicitation/request → {action: decline}
+//     (rmcp's McpServerElicitationRequestResponse requires `action`.)
+//   - approval-shaped methods       → {decision: decline}
+//     (matches the slice-3 shape resolvePendingApproval sends.)
+//   - anything else                 → empty object; codex will treat
+//     it as best-effort and the system event in the transcript
+//     records what got bypassed.
+func autoDeclineResultFor(method string) map[string]any {
+	switch method {
+	case "mcpServer/elicitation/request":
+		return map[string]any{"action": "decline"}
+	case "item/commandExecution/requestApproval",
+		"item/fileChange/requestApproval",
+		"item/permissions/requestApproval":
+		return map[string]any{"decision": "decline"}
+	}
+	return map[string]any{}
+}
+
+// attentionSummary produces a human-readable one-liner for the
 // attention card. Mirrors what the principal would see in codex's
 // own TUI prompt — command, file path, or summary phrase — so the
 // gate reads consistently across surfaces.
-func approvalSummary(method string, params map[string]any) string {
+func attentionSummary(method string, params map[string]any) string {
 	switch method {
 	case "item/commandExecution/requestApproval":
 		if cmd := stringPath(params, "command"); cmd != "" {
@@ -740,19 +933,50 @@ func approvalSummary(method string, params map[string]any) string {
 		return "Apply file change (codex)"
 	case "item/permissions/requestApproval":
 		return "Grant permissions (codex)"
+	case "mcpServer/elicitation/request":
+		// Elicitation params: rmcp wraps the MCP server's request as
+		// `{server, params: {message, requestedSchema}}`. Surface the
+		// MCP-server message verbatim — that's the human-readable ask
+		// the server author wrote.
+		if msg := elicitationMessage(params); msg != "" {
+			return msg
+		}
+		if srv := stringPath(params, "server"); srv != "" {
+			return "Input requested by " + srv
+		}
+		return "Input requested (codex)"
 	}
 	return method
 }
 
-// approvalSeverity maps method → tier. commandExecution defaults to
+// attentionSeverity maps method → tier. commandExecution defaults to
 // `major` because shell commands are blast-radius decisions; the
 // others land at `minor` until we accumulate enough real traffic to
-// know whether they merit promotion.
-func approvalSeverity(method string) string {
+// know whether they merit promotion. Elicitation is `minor` — it's
+// a form fill, not a permission grant.
+func attentionSeverity(method string) string {
 	if method == "item/commandExecution/requestApproval" {
 		return "major"
 	}
 	return "minor"
+}
+
+// elicitationMessage extracts the MCP-server-supplied prompt text
+// from a `mcpServer/elicitation/request` params map. The path varies
+// across rmcp builds — some put `message` at the top level of params,
+// some nest it under `params.params.message` (the inner `params`
+// being the MCP elicitation/create parameters). Try both before
+// falling back to the empty string.
+func elicitationMessage(params map[string]any) string {
+	if s := stringPath(params, "message"); s != "" {
+		return s
+	}
+	if inner, ok := params["params"].(map[string]any); ok {
+		if s := stringPath(inner, "message"); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // marshalPending packages the codex-side context the audit trail
@@ -840,6 +1064,32 @@ func (d *AppServerDriver) writeRawResponse(id int64, result any) error {
 	return err
 }
 
+// isDeltaNotification flags codex notifications that stream partial
+// output for an in-progress item. Each delta carries a few characters
+// of an agentMessage / reasoning / agentReasoningRawContent block; in
+// aggregate they reproduce what arrives complete on item/completed.
+// Posting them as agent_events would multiply transcript-row volume
+// 50–200× per turn for content the renderer doesn't show outside
+// debug mode anyway. The driver collapses them upstream; a future
+// streaming-UI wedge can opt back in by routing deltas through a
+// separate channel.
+func isDeltaNotification(method string) bool {
+	if method == "" {
+		return false
+	}
+	if strings.HasSuffix(method, "/delta") {
+		return true
+	}
+	// camelCase variants observed in real codex traffic:
+	//   item/reasoning/textDelta
+	//   item/agentReasoningRawContentDelta
+	//   item/agentReasoningRawContent/Delta
+	if strings.HasSuffix(method, "Delta") {
+		return true
+	}
+	return false
+}
+
 // translateNotification runs a notification frame through the frame
 // profile and posts the resulting agent_events. Falls back to raw
 // passthrough on a missing profile so the operator sees something
@@ -848,6 +1098,35 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	var frame map[string]any
 	if err := json.Unmarshal(raw, &frame); err != nil {
 		return
+	}
+	method, _ := frame["method"].(string)
+	// Streaming deltas don't traverse the profile — they're routed
+	// through the per-item buffer + throttle so the mobile renderer
+	// sees a single row that grows in place. Other delta methods
+	// (reasoning textDelta, etc.) are dropped: their content is
+	// internal-monologue debug data the agent_event vocabulary
+	// doesn't surface.
+	if isDeltaNotification(method) {
+		if method == "item/agentMessage/delta" {
+			d.handleAgentMessageDelta(frame)
+		}
+		return
+	}
+	// item/completed for an agentMessage finalizes any in-flight
+	// stream chain — cancel the timer + free the buffer so the
+	// final text event the profile is about to post becomes the
+	// authoritative row. Mobile-side coalescing replaces the last
+	// partial with this final.
+	if method == "item/completed" {
+		if params, ok := frame["params"].(map[string]any); ok {
+			if item, ok := params["item"].(map[string]any); ok {
+				if t, _ := item["type"].(string); t == "agentMessage" {
+					if itemID, _ := item["id"].(string); itemID != "" {
+						d.finalizeStream(itemID)
+					}
+				}
+			}
+		}
 	}
 	// Capture thread/started.params.thread.id eagerly — under unusual
 	// timing the notification can arrive before the thread/start
@@ -869,4 +1148,99 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 	for _, e := range evts {
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
 	}
+}
+
+// handleAgentMessageDelta accumulates one streaming chunk and ensures
+// a flush is scheduled. Throttle (not debounce) — the timer fires
+// after StreamFlushInterval regardless of arrival cadence; once it
+// fires, the next delta starts a fresh window. Steady-state for a
+// 1000-token reply: ~5 flushes/sec, ~5 DB rows total instead of
+// hundreds, with the user seeing the message grow live on each.
+func (d *AppServerDriver) handleAgentMessageDelta(frame map[string]any) {
+	if d.StreamFlushInterval < 0 {
+		return // streaming explicitly disabled
+	}
+	params, _ := frame["params"].(map[string]any)
+	if params == nil {
+		return
+	}
+	itemID, _ := params["itemId"].(string)
+	delta, _ := params["delta"].(string)
+	if itemID == "" || delta == "" {
+		return
+	}
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.streamBuffers == nil {
+		// Driver stopped — buffer was nilled in Stop(). Drop silently.
+		return
+	}
+	buf, ok := d.streamBuffers[itemID]
+	if !ok {
+		buf = &streamBuffer{}
+		d.streamBuffers[itemID] = buf
+	}
+	buf.text += delta
+	if buf.timer == nil {
+		// Capture itemID by value so the closure flushes the right
+		// buffer even after the map mutates.
+		id := itemID
+		buf.timer = time.AfterFunc(d.StreamFlushInterval, func() {
+			d.flushStream(id)
+		})
+	}
+}
+
+// flushStream posts the accumulated buffer as a single partial text
+// event and clears the timer slot so the next delta can schedule a
+// fresh flush. Called from time.AfterFunc on a separate goroutine —
+// holds streamMu for the read+reset, then drops the lock before the
+// PostAgentEvent call (which can block on network).
+func (d *AppServerDriver) flushStream(itemID string) {
+	d.streamMu.Lock()
+	if d.streamBuffers == nil {
+		d.streamMu.Unlock()
+		return
+	}
+	buf, ok := d.streamBuffers[itemID]
+	if !ok {
+		d.streamMu.Unlock()
+		return
+	}
+	text := buf.text
+	buf.timer = nil // free the slot for the next delta to re-schedule
+	ctx := d.streamCtx
+	d.streamMu.Unlock()
+	if text == "" {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "text", "agent", map[string]any{
+		"text":       text,
+		"message_id": itemID,
+		"partial":    true,
+	})
+}
+
+// finalizeStream cancels any pending flush and removes the buffer for
+// the given item id. Called from translateNotification when
+// item/completed for an agentMessage arrives — the profile-emitted
+// final text event will follow this call and supersede whatever the
+// mobile collapse currently shows for the message_id.
+func (d *AppServerDriver) finalizeStream(itemID string) {
+	d.streamMu.Lock()
+	defer d.streamMu.Unlock()
+	if d.streamBuffers == nil {
+		return
+	}
+	buf, ok := d.streamBuffers[itemID]
+	if !ok {
+		return
+	}
+	if buf.timer != nil {
+		buf.timer.Stop()
+	}
+	delete(d.streamBuffers, itemID)
 }

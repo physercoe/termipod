@@ -142,15 +142,18 @@ class InlineApprovalActions extends ConsumerWidget {
   }
 }
 
-/// Free-text composer for `kind='help_request'` attentions. The agent
-/// asked an open-ended question; the principal types a reply (Send) or
-/// dismisses (Skip). Send routes through the same `/decide` endpoint as
+/// Free-text composer for attentions whose resolution is a typed
+/// reply rather than a yes/no decision — currently `help_request` and
+/// `elicit`. Send routes through the same `/decide` endpoint as
 /// approve/select, with the body field carrying the answer back to the
-/// agent's request_help long-poll. The mode chip ("clarify" / "handoff")
-/// surfaces the agent's framing so the principal sees at a glance whether
-/// this is a routine question or a hand-back.
+/// requesting party (the agent's `request_help` long-poll for help
+/// requests, or codex's parked `mcpServer/elicitation/request` for
+/// elicit). The mode chip ("clarify" / "handoff" / "fill") surfaces
+/// the framing so the principal sees at a glance whether this is a
+/// routine question, a hand-back, or an MCP-server form.
 class InlineHelpRequestActions extends ConsumerStatefulWidget {
   final String id;
+  final String kind;
   final Map<String, dynamic>? pendingPayload;
 
   /// Optional callback invoked after a successful Send (approve+body)
@@ -162,6 +165,7 @@ class InlineHelpRequestActions extends ConsumerStatefulWidget {
   const InlineHelpRequestActions({
     super.key,
     required this.id,
+    this.kind = 'help_request',
     this.pendingPayload,
     this.onResolved,
   });
@@ -183,11 +187,34 @@ class InlineHelpRequestActionsState
   }
 
   String get _mode {
+    if (widget.kind == 'elicit') return 'fill';
     final m = widget.pendingPayload?['mode'];
     return m is String ? m : 'clarify';
   }
 
   String? get _agentContext {
+    if (widget.kind == 'elicit') {
+      // For elicit, surface the message + the schema (if any) as
+      // context so the principal knows what shape of reply is wanted.
+      // The schema lift comes through pending_payload.params (the
+      // codex JSON-RPC call's params), per driver_appserver's
+      // marshalPending — we walk a couple of common path variants.
+      final p = widget.pendingPayload;
+      if (p == null) return null;
+      final params = p['params'];
+      if (params is Map) {
+        // rmcp wraps the MCP elicitation/create payload under a
+        // nested `params` key; surface its requestedSchema if there.
+        final inner = params['params'];
+        if (inner is Map && inner['requestedSchema'] != null) {
+          return 'Reply with JSON matching: ${inner['requestedSchema']}';
+        }
+        if (params['requestedSchema'] != null) {
+          return 'Reply with JSON matching: ${params['requestedSchema']}';
+        }
+      }
+      return null;
+    }
     final c = widget.pendingPayload?['context'];
     return (c is String && c.isNotEmpty) ? c : null;
   }
@@ -198,6 +225,12 @@ class InlineHelpRequestActionsState
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
     final isHandoff = _mode == 'handoff';
+    final isFill = _mode == 'fill';
+    final chipColor = isHandoff
+        ? Colors.orange
+        : (isFill ? DesignColors.terminalCyan : DesignColors.primary);
+    final chipLabel =
+        isHandoff ? 'hand-back' : (isFill ? 'fill' : 'clarify');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -206,16 +239,15 @@ class InlineHelpRequestActionsState
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: (isHandoff ? Colors.orange : DesignColors.primary)
-                    .withValues(alpha: 0.15),
+                color: chipColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                isHandoff ? 'hand-back' : 'clarify',
+                chipLabel,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
-                  color: isHandoff ? Colors.orange : DesignColors.primary,
+                  color: chipColor,
                 ),
               ),
             ),
@@ -235,9 +267,11 @@ class InlineHelpRequestActionsState
           minLines: 2,
           maxLines: 6,
           decoration: InputDecoration(
-            hintText: isHandoff
-                ? 'Tell the steward how to proceed (or take it from here yourself)'
-                : 'Reply to the steward…',
+            hintText: isFill
+                ? 'Reply (free text or JSON object)…'
+                : isHandoff
+                    ? 'Tell the steward how to proceed (or take it from here yourself)'
+                    : 'Reply to the steward…',
             isDense: true,
             border: const OutlineInputBorder(),
             contentPadding:

@@ -207,6 +207,49 @@ func TestProfile_Codex_PayloadFields(t *testing.T) {
 	if got[0].Payload["content"] != "ok\n" {
 		t.Errorf("tool_result.content = %v; want ok\\n", got[0].Payload["content"])
 	}
+
+	// thread/tokenUsage/updated lifts the cumulative session counts off
+	// params.tokenUsage.total.* (not the obsolete params.usage.* shape
+	// the first draft of the profile assumed). The mobile telemetry
+	// strip keys off `total_tokens` to recognize the codex shape, so
+	// that field's lift must survive any future profile edit.
+	tokenUsage := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "thread/tokenUsage/updated",
+		"params": map[string]any{
+			"threadId": "thr_xyz",
+			"tokenUsage": map[string]any{
+				"total": map[string]any{
+					"totalTokens":          float64(79354),
+					"inputTokens":          float64(79173),
+					"cachedInputTokens":    float64(54784),
+					"outputTokens":         float64(181),
+					"reasoningOutputTokens": float64(44),
+				},
+				"modelContextWindow": float64(258400),
+			},
+		},
+	}
+	got = ApplyProfile(tokenUsage, profile)
+	if len(got) != 1 || got[0].Kind != "usage" {
+		t.Fatalf("thread/tokenUsage/updated: want one usage, got %+v", got)
+	}
+	checks := map[string]any{
+		"cumulative":          "true",  // string literal, not bool — evaluator grammar
+		"engine":              "codex",
+		"input_tokens":        float64(79173),
+		"output_tokens":       float64(181),
+		"cached_input_tokens": float64(54784),
+		"total_tokens":        float64(79354),
+		"reasoning_tokens":    float64(44),
+		"context_window":      float64(258400),
+		"thread_id":           "thr_xyz",
+	}
+	for k, want := range checks {
+		if got[0].Payload[k] != want {
+			t.Errorf("usage.%s = %v; want %v", k, got[0].Payload[k], want)
+		}
+	}
 }
 
 // TestProfile_Codex_NestedMatcher exercises the dotted-path

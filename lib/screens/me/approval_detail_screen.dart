@@ -161,6 +161,8 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
                       ? Colors.orange
                       : DesignColors.primary,
                 ),
+              if (kind == 'elicit')
+                _Chip(label: 'fill', color: DesignColors.terminalCyan),
             ],
           ),
           const SizedBox(height: 20),
@@ -452,9 +454,10 @@ class _InlineActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (id.isEmpty) return const SizedBox.shrink();
-    if (kind == 'help_request') {
+    if (kind == 'help_request' || kind == 'elicit') {
       return InlineHelpRequestActions(
         id: id,
+        kind: kind,
         pendingPayload: pendingPayload,
         onResolved: onResolved,
       );
@@ -832,6 +835,7 @@ class _DecisionTile extends StatelessWidget {
         }
         return 'No option chosen';
       case 'help_request':
+      case 'elicit':
         return approve ? 'Replied' : 'Dismissed';
       case 'template_proposal':
         return approve ? 'Approved template' : 'Rejected template';

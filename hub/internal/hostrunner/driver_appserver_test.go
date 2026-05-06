@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -486,13 +487,13 @@ func TestAppServerDriver_ApprovalBridge_RaisesAttention(t *testing.T) {
 	events := poster.snapshot()
 	var sawParked bool
 	for _, e := range events {
-		if e.Kind == "system" && e.Payload["kind"] == "appserver_approval_parked" {
+		if e.Kind == "system" && e.Payload["kind"] == "appserver_request_parked" {
 			sawParked = true
 			break
 		}
 	}
 	if !sawParked {
-		t.Errorf("expected appserver_approval_parked system event, got %+v", events)
+		t.Errorf("expected appserver_request_parked system event, got %+v", events)
 	}
 }
 
@@ -693,5 +694,563 @@ func TestAppServerDriver_ApprovalBridge_FallsBackWhenNoBridge(t *testing.T) {
 	result, _ := resp["result"].(map[string]any)
 	if got, _ := result["decision"].(string); got != "decline" {
 		t.Errorf("auto-decline → decision = %q; want decline", got)
+	}
+}
+
+// TestAppServerDriver_DropsStderrShapedLines pins the read-loop's
+// non-JSON drop. RealProcSpawner merges stderr into stdout for
+// captured-pane logging, which means timestamped log lines like
+//
+//	2026-05-06T12:58:17.190362Z ERROR codex_app_server::... missing field `action`
+//
+// land on the same scanner the JSON-RPC reader walks. Earlier the
+// driver posted those as kind=raw, surfacing them in the transcript
+// as garbled "random characters." The fix routes anything that
+// doesn't start with `{` to the slog debug channel and skips the
+// agent_event entirely.
+func TestAppServerDriver_DropsStderrShapedLines(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_x"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-stderr",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// Inject a representative stderr line — the exact format codex
+	// emits via tracing-subscriber. Followed by a real notification
+	// to prove the loop didn't get stuck.
+	_, _ = pipes.serverWrite.Write([]byte(
+		"2026-05-06T12:58:17.190362Z ERROR codex_app_server::bespoke_event_handling: failed to deserialize McpServerElicitationRequestResponse: missing field `action`\n"))
+	server.notify("turn/started", map[string]any{
+		"turn": map[string]any{"id": "turn_001", "status": "inProgress"},
+	})
+
+	// Drain — give the read loop a beat to process both lines, then
+	// assert the stderr line did not produce a kind=raw event.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		seen := poster.snapshot()
+		hasSystem := false
+		for _, e := range seen {
+			if e.Kind == "system" {
+				hasSystem = true
+			}
+			if e.Kind == "raw" {
+				if text, _ := e.Payload["text"].(string); text != "" {
+					t.Fatalf("stderr line surfaced as kind=raw: %q", text)
+				}
+			}
+		}
+		if hasSystem {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, e := range poster.snapshot() {
+		if e.Kind == "raw" {
+			t.Errorf("kind=raw should not be emitted for stderr lines; got payload=%v",
+				e.Payload)
+		}
+	}
+}
+
+// TestAppServerDriver_DeltasNeverLeakAsRaw guards the floor
+// behavior: codex's per-token streaming frames never surface as
+// `kind=raw` agent_events. agentMessage deltas now route through
+// the throttled streaming buffer and produce `kind=text, partial:
+// true` rows (see TestAppServerDriver_StreamsAgentMessageDeltas);
+// other delta methods (item/reasoning/textDelta etc.) are dropped
+// outright since their content is internal-monologue debug data
+// the typed event vocabulary doesn't surface.
+func TestAppServerDriver_DeltasNeverLeakAsRaw(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_d"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-delta",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// Spam delta-shaped notifications, then send a real text/completed
+	// frame to flush the read loop. Only the latter should produce an
+	// agent_event.
+	for i := 0; i < 5; i++ {
+		server.notify("item/agentMessage/delta", map[string]any{
+			"itemId": "item_msg_1", "delta": "tok",
+		})
+	}
+	server.notify("item/reasoning/textDelta", map[string]any{
+		"itemId": "item_msg_1", "delta": "thinking",
+	})
+	server.notify("item/completed", map[string]any{
+		"item": map[string]any{
+			"id":    "item_msg_1",
+			"type":  "agentMessage",
+			"text":  "Hi.",
+			"phase": "final_answer",
+		},
+	})
+
+	// Wait for the text event then check no delta-shaped raw rows
+	// snuck through. lifecycle (1) + text (1) is the floor.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		seen := poster.snapshot()
+		hasText := false
+		for _, e := range seen {
+			if e.Kind == "text" {
+				hasText = true
+			}
+		}
+		if hasText {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, e := range poster.snapshot() {
+		if e.Kind == "raw" {
+			method, _ := e.Payload["method"].(string)
+			if strings.HasSuffix(method, "/delta") || strings.HasSuffix(method, "Delta") {
+				t.Errorf("delta notification surfaced as kind=raw: method=%q", method)
+			}
+		}
+	}
+}
+
+// TestAppServerDriver_ElicitationAutoDeclineShape pins the
+// elicitation-response shape codex's rmcp deserializer requires
+// when no Attention bridge is wired. The response must use
+// `{"action": "decline"}`, not the approval-shape `{"decision":
+// "decline"}`. Without the right field name codex logs
+//
+//	failed to deserialize McpServerElicitationRequestResponse: missing field `action`
+//
+// and the originating MCP tool call dies with
+//
+//	Termipod MCP selection request was rejected by the client/tool layer.
+//
+// When Attention IS wired, see
+// TestAppServerDriver_ElicitationBridge_RaisesAttention below.
+func TestAppServerDriver_ElicitationAutoDeclineShape(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_e"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-elicit",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(42, "mcpServer/elicitation/request", map[string]any{
+		"server":  "termipod",
+		"message": "pick one",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) && resp == nil {
+		for _, f := range server.seen() {
+			if id, ok := f["id"].(float64); ok && int64(id) == 42 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver did not respond to mcpServer/elicitation/request")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if _, hasAction := result["action"]; !hasAction {
+		t.Errorf("elicitation response missing required `action` field; result=%v", result)
+	}
+	if got, _ := result["action"].(string); got != "decline" {
+		t.Errorf("elicitation action = %q; want decline", got)
+	}
+	if _, hasDecision := result["decision"]; hasDecision {
+		t.Errorf("elicitation response should not carry approval-shape `decision` field; result=%v", result)
+	}
+}
+
+// TestAppServerDriver_ElicitationBridge_RaisesAttention pins the
+// follow-up: when Attention is wired, an mcpServer/elicitation/request
+// posts an attention_items row with kind=elicit (not
+// permission_prompt — the principal-side UX is a free-text reply,
+// not yes/no), with the MCP server's message used as the summary.
+// The JSON-RPC request stays open until the principal replies.
+func TestAppServerDriver_ElicitationBridge_RaisesAttention(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_eb"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_e"}
+	drv := &AppServerDriver{
+		AgentID:          "agent-eb",
+		Handle:           "@coder",
+		Poster:           poster,
+		Attention:        att,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(77, "mcpServer/elicitation/request", map[string]any{
+		"server":  "termipod",
+		"message": "Pick one of: A, B, C",
+	})
+
+	// Attention should land with kind=elicit and the server's message
+	// as the summary.
+	deadline := time.Now().Add(2 * time.Second)
+	var posted []AttentionIn
+	for time.Now().Before(deadline) {
+		posted = att.snapshot()
+		if len(posted) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(posted) != 1 {
+		t.Fatalf("expected one attention; got %d", len(posted))
+	}
+	if posted[0].Kind != "elicit" {
+		t.Errorf("attention.kind = %q; want elicit", posted[0].Kind)
+	}
+	if posted[0].Summary != "Pick one of: A, B, C" {
+		t.Errorf("attention.summary = %q; want server message", posted[0].Summary)
+	}
+	// JSON-RPC request must NOT be auto-resolved — the driver parks it
+	// awaiting attention_reply.
+	for _, f := range server.seen() {
+		if id, ok := f["id"].(float64); ok && int64(id) == 77 {
+			if _, hasMethod := f["method"]; !hasMethod {
+				t.Errorf("driver responded to elicitation id=77 prematurely; should be parked")
+			}
+		}
+	}
+}
+
+// TestAppServerDriver_ElicitationBridge_ReplyAccepts drives the full
+// happy path: server sends elicitation/request → driver bridges to
+// attention → principal replies via attention_reply (decision=approve,
+// body="hello") → driver writes the parked JSON-RPC response with
+// shape `{action: accept, content: {value: "hello"}}`. A schema-driven
+// content wrap is a follow-up wedge once the mobile UI surfaces typed
+// inputs — for now the body wraps as `{value: <text>}`.
+func TestAppServerDriver_ElicitationBridge_ReplyAccepts(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_er"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_r"}
+	drv := &AppServerDriver{
+		AgentID:          "agent-er",
+		Handle:           "@coder",
+		Poster:           poster,
+		Attention:        att,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(88, "mcpServer/elicitation/request", map[string]any{
+		"server":  "termipod",
+		"message": "What's your favorite color?",
+	})
+
+	// Wait for the bridge to post the attention.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(att.snapshot()) > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	posted := att.snapshot()
+	if len(posted) != 1 {
+		t.Fatalf("expected one attention; got %d", len(posted))
+	}
+
+	// Simulate /decide → attention_reply Input event.
+	if err := drv.Input(ctx, "attention_reply", map[string]any{
+		"kind":       "elicit",
+		"request_id": "att_r1",
+		"decision":   "approve",
+		"body":       "blue",
+	}); err != nil {
+		t.Fatalf("attention_reply: %v", err)
+	}
+
+	// Server should now see a JSON-RPC response on id=88 with the
+	// elicitation shape.
+	deadline = time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) && resp == nil {
+		for _, f := range server.seen() {
+			if id, ok := f["id"].(float64); ok && int64(id) == 88 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver did not respond to parked elicitation after attention_reply")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["action"].(string); got != "accept" {
+		t.Errorf("elicitation response action = %q; want accept", got)
+	}
+	content, _ := result["content"].(map[string]any)
+	if got, _ := content["value"].(string); got != "blue" {
+		t.Errorf("elicitation content.value = %q; want blue", got)
+	}
+}
+
+// TestAppServerDriver_StreamsAgentMessageDeltas pins the
+// chatbot-style streaming UX. A burst of item/agentMessage/delta
+// notifications produces one or more `kind=text, partial: true`
+// events whose `text` field grows monotonically — *not* one event
+// per delta, *not* zero events. The trailing item/completed
+// finalizes the chain by canceling the timer; the profile-emitted
+// final text event (kind=text, no partial flag) supersedes
+// whatever partial the mobile renderer last collapsed.
+//
+// We use a short StreamFlushInterval (10ms) so the throttle fires
+// within the test's deadline; production runs at 200ms which is
+// fine for live UX but too slow for a hermetic test.
+func TestAppServerDriver_StreamsAgentMessageDeltas(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_s"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:             "agent-stream",
+		Poster:              poster,
+		Stdout:              pipes.driverStdout,
+		Stdin:               pipes.driverStdin,
+		FrameProfile:        codexProfileForTest(t),
+		HandshakeTimeout:    2 * time.Second,
+		CallTimeout:         2 * time.Second,
+		StreamFlushInterval: 10 * time.Millisecond,
+		Closer:              pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// Burst 5 deltas, sleep past the throttle so each batch flushes,
+	// repeat. Then send the final completion frame.
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 5; j++ {
+			server.notify("item/agentMessage/delta", map[string]any{
+				"itemId": "item_msg_s",
+				"delta":  "ab",
+			})
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	server.notify("item/completed", map[string]any{
+		"item": map[string]any{
+			"id":    "item_msg_s",
+			"type":  "agentMessage",
+			"text":  "ababababababababababababababab",
+			"phase": "final_answer",
+		},
+	})
+
+	// Wait until the final text (non-partial) shows up.
+	deadline := time.Now().Add(2 * time.Second)
+	var partials []postedEvent
+	var finalText *postedEvent
+	for time.Now().Before(deadline) && finalText == nil {
+		partials = nil
+		for _, e := range poster.snapshot() {
+			if e.Kind != "text" {
+				continue
+			}
+			mid, _ := e.Payload["message_id"].(string)
+			if mid != "item_msg_s" {
+				continue
+			}
+			if e.Payload["partial"] == true {
+				partials = append(partials, e)
+			} else {
+				ev := e
+				finalText = &ev
+			}
+		}
+		if finalText != nil {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if finalText == nil {
+		t.Fatal("never saw final text event for streamed message")
+	}
+	if len(partials) == 0 {
+		t.Fatal("expected one or more partial text events, got 0 — streaming didn't fire")
+	}
+	if len(partials) >= 15 {
+		// Floor sanity: 15 is the total delta count; we should see far
+		// fewer flushes than deltas.
+		t.Errorf("partial count %d ≈ delta count: throttle didn't coalesce", len(partials))
+	}
+	// Each partial's text must be a prefix of (or equal to) the final
+	// text — the throttled flushes accumulate; they don't reset.
+	want := "ababababababababababababababab"
+	if got, _ := finalText.Payload["text"].(string); got != want {
+		t.Errorf("final text = %q; want %q", got, want)
+	}
+	for i, p := range partials {
+		got, _ := p.Payload["text"].(string)
+		if got == "" {
+			t.Errorf("partial[%d] empty text", i)
+		}
+		if len(got) > len(want) || want[:len(got)] != got {
+			t.Errorf("partial[%d] text %q is not a prefix of final %q", i, got, want)
+		}
+		if i > 0 {
+			prev, _ := partials[i-1].Payload["text"].(string)
+			if len(got) < len(prev) {
+				t.Errorf("partial[%d] text %q shorter than partial[%d] %q — chain went backwards",
+					i, got, i-1, prev)
+			}
+		}
+	}
+}
+
+// TestElicitationContentFromBody covers the three wrap behaviors:
+// JSON object verbatim, free text → {value}, empty → {}. Single-
+// purpose unit test so the wrap stays predictable as we extend the
+// schema-driven content shape later.
+func TestElicitationContentFromBody(t *testing.T) {
+	cases := []struct {
+		body string
+		want map[string]any
+	}{
+		{"", map[string]any{}},
+		{"   ", map[string]any{}},
+		{"hello", map[string]any{"value": "hello"}},
+		{`{"name":"x"}`, map[string]any{"name": "x"}},
+		{`{"broken json`, map[string]any{"value": `{"broken json`}}, // falls back to wrap
+	}
+	for _, tc := range cases {
+		got := elicitationContentFromBody(tc.body)
+		if len(got) != len(tc.want) {
+			t.Errorf("body=%q: got %v; want %v", tc.body, got, tc.want)
+			continue
+		}
+		for k, v := range tc.want {
+			if got[k] != v {
+				t.Errorf("body=%q: got[%q]=%v; want %v", tc.body, k, got[k], v)
+			}
+		}
 	}
 }

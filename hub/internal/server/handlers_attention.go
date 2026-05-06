@@ -18,7 +18,7 @@ type attentionIn struct {
 	ScopeKind   string   `json:"scope_kind"`            // 'team' | 'project' | 'channel'
 	ScopeID     string   `json:"scope_id,omitempty"`
 	ProjectID   string   `json:"project_id,omitempty"`
-	Kind        string   `json:"kind"`                  // 'select' | 'approval_request' | 'permission_prompt' | 'template_proposal' | 'idle' | ...
+	Kind        string   `json:"kind"`                  // 'select' | 'approval_request' | 'permission_prompt' | 'elicit' | 'template_proposal' | 'idle' | ...
 	Summary     string   `json:"summary"`
 	Severity    string   `json:"severity,omitempty"`
 	RefEventID  string   `json:"ref_event_id,omitempty"`
@@ -385,7 +385,8 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// waitForAttentionDecision and never lands in /decide for a
 	// pending hook — see ADR-011 D6.
 	if resolved && (kind == "approval_request" || kind == "select" ||
-		kind == "help_request" || kind == "permission_prompt") {
+		kind == "help_request" || kind == "permission_prompt" ||
+		kind == "elicit") {
 		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in)
 	}
 	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,

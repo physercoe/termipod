@@ -262,6 +262,7 @@ class _HistoryRow extends StatelessWidget {
         }
         return 'No option chosen';
       case 'help_request':
+      case 'elicit':
         return approve ? 'Replied' : 'Dismissed';
       case 'template_proposal':
         return approve ? 'Approved template' : 'Rejected template';

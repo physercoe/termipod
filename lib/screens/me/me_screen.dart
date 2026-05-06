@@ -343,6 +343,7 @@ class _MeItem {
       case 'approval_request':
       case 'select':
       case 'help_request':
+      case 'elicit':
       case 'template_proposal':
         return _Filter.approvals;
       case 'idle':
@@ -572,9 +573,10 @@ class _MeCard extends ConsumerWidget {
             ],
             if (item.filter == _Filter.approvals) ...[
               const SizedBox(height: 10),
-              if (item.kind == 'help_request')
+              if (item.kind == 'help_request' || item.kind == 'elicit')
                 InlineHelpRequestActions(
                   id: item.id,
+                  kind: item.kind,
                   pendingPayload: _pendingPayload(item.attention),
                 )
               else

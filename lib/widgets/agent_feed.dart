@@ -647,6 +647,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     final modelTotals = <String, _ModelTokens>{};
     Map<String, dynamic>? latestRateLimit;
     int turnCount = 0;
+    // Codex publishes cumulative session totals on each
+    // thread/tokenUsage/updated notification (kind=usage in the
+    // typed vocabulary), tagged with `cumulative: true|"true"` and
+    // `engine: <name>` by the frame profile. Claude's per-message
+    // usage events lack the marker; they're ignored here and the
+    // authoritative claude source is turn.result.by_model. The
+    // latest cumulative event replaces — it's not a delta — so we
+    // track it separately and fold it in once below.
+    _ModelTokens? cumulativeUsage;
+    String cumulativeBucketKey = 'agent';
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -667,7 +677,31 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         }
       } else if (kind == 'rate_limit') {
         latestRateLimit = p.cast<String, dynamic>();
+      } else if (kind == 'usage' && _isCumulativeUsage(p)) {
+        // Cumulative session totals (codex shape). The latest
+        // notification supersedes; we don't sum. Claude's per-
+        // message usage events lack the `cumulative` marker and
+        // are ignored here — the authoritative claude source is
+        // turn.result.by_model handled above.
+        final t = _ModelTokens.empty();
+        t.input = (p['input_tokens'] as num?)?.toInt() ?? 0;
+        t.output = (p['output_tokens'] as num?)?.toInt() ?? 0;
+        t.cacheRead = (p['cached_input_tokens'] as num?)?.toInt() ?? 0;
+        cumulativeUsage = t;
+        // Use the engine tag the profile sets on cumulative events
+        // so the bucket key in the telemetry tooltip reads as a real
+        // engine name rather than an empty string. Default falls back
+        // to 'agent' if the upstream profile didn't tag.
+        final engineTag = (p['engine'] as String?) ?? 'agent';
+        cumulativeBucketKey = engineTag;
       }
+    }
+    // If no by_model rows arrived (codex's turn/completed doesn't
+    // ship them), surface the cumulative usage as a single bucket.
+    // The bucket key is shown in the tile's tooltip so we tag it
+    // with the engine name rather than leaving it blank.
+    if (modelTotals.isEmpty && cumulativeUsage != null) {
+      modelTotals[cumulativeBucketKey] = cumulativeUsage;
     }
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
@@ -679,10 +713,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     //                      so a one-off tool_result isn't silently swallowed.
     //   session.init     — surfaced in the sticky header above.
     //   debug-only kinds — gated by _verbose toggle (W1.B).
-    final visible = <Map<String, dynamic>>[
+    // After filtering, collapse codex's streaming partials by
+    // message_id — a single chatbot-style row that grows in place
+    // instead of N stacked rows.
+    final filtered = <Map<String, dynamic>>[
       for (final e in _events)
         if (!_isHiddenInFeed(e, toolNames)) e,
     ];
+    final visible = _collapseStreamingPartials(filtered);
     // Count the verbose-gated events so the toggle can advertise its
     // value — "Show debug (12)" carries more signal than a bare button.
     int hiddenForVerbose = 0;
@@ -991,6 +1029,76 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (sub.isNotEmpty && sub != 'init') return false;
     }
     return true;
+  }
+
+  // True when a `usage` payload carries cumulative session totals
+  // (codex's thread/tokenUsage/updated). Accepts either a real bool or
+  // the string "true" — the frame-profile evaluator only emits strings,
+  // so the wire format is `"true"`, but a future evaluator extension
+  // (or a different engine's profile) could emit a JSON bool. Either
+  // way means "the latest event replaces, don't sum."
+  bool _isCumulativeUsage(Map p) {
+    final v = p['cumulative'];
+    if (v is bool) return v;
+    if (v is String) return v.toLowerCase() == 'true';
+    return false;
+  }
+
+  // Codex emits item/agentMessage/delta as a stream of small chunks
+  // while a turn is generating. The driver throttles + buffers them
+  // into `kind=text, partial: true` events that share a message_id;
+  // each carries the full accumulated text so far (not a delta). The
+  // final item/completed produces a normal `kind=text` event with the
+  // same message_id and no partial flag.
+  //
+  // Mobile collapse: walk events in order. The first partial for a
+  // message_id opens a chain — its index in the rendered list is
+  // remembered. Subsequent text events (partial OR final) for the
+  // same message_id replace the chain entry instead of appending. A
+  // text event with no partial flag and no preceding partial chain
+  // (claude's case) appends normally — we only redirect events whose
+  // message_id is already a known chain root, so claude's per-block
+  // text events with the same message_id keep stacking the way they
+  // do today.
+  static List<Map<String, dynamic>> _collapseStreamingPartials(
+      List<Map<String, dynamic>> events) {
+    final out = <Map<String, dynamic>>[];
+    final chainIdx = <String, int>{};
+    for (final e in events) {
+      final kind = (e['kind'] ?? '').toString();
+      if (kind != 'text') {
+        out.add(e);
+        continue;
+      }
+      final p = e['payload'];
+      String? mid;
+      bool isPartial = false;
+      if (p is Map) {
+        final m = (p['message_id'] ?? '').toString();
+        if (m.isNotEmpty) mid = m;
+        final pv = p['partial'];
+        isPartial = (pv == true || pv == 'true');
+      }
+      if (mid == null) {
+        out.add(e);
+        continue;
+      }
+      final existing = chainIdx[mid];
+      if (existing != null) {
+        // We're in a streaming chain for this message_id — every
+        // subsequent text event (partial or final) replaces the entry.
+        out[existing] = e;
+      } else if (isPartial) {
+        // First partial for this message_id opens a chain.
+        chainIdx[mid] = out.length;
+        out.add(e);
+      } else {
+        // Regular text event with no preceding partial — claude's
+        // shape; append without opening a chain.
+        out.add(e);
+      }
+    }
+    return out;
   }
 }
 
@@ -3956,7 +4064,11 @@ class _TelemetryStrip extends StatelessWidget {
         ? DesignColors.textPrimary
         : DesignColors.textPrimaryLight;
     final tiles = <Widget>[];
-    if (turnCount > 0) {
+    // Cost tile is hidden when totalCostUsd is exactly zero — codex's
+    // turn/completed notification doesn't carry cost, so a codex
+    // session would otherwise render `$0.0000 · N turns`, which reads
+    // as "we ran for free" rather than "we don't know what it cost."
+    if (turnCount > 0 && totalCostUsd > 0) {
       tiles.add(_TelemetryTile(
         icon: Icons.payments_outlined,
         label: '\$${totalCostUsd.toStringAsFixed(4)}',

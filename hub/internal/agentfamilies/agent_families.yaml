@@ -580,16 +580,36 @@ families:
               status:      "$.params.item.status"
 
         # ── thread/tokenUsage/updated  →  usage ──────────────────
-        # Token telemetry — same kind claude's profile emits, fed
-        # by a different upstream notification.
+        # Token telemetry. The real codex frame nests counts as
+        # `params.tokenUsage.total.{inputTokens,outputTokens,
+        # cachedInputTokens,totalTokens,reasoningOutputTokens}` plus
+        # `params.tokenUsage.modelContextWindow`. The earlier draft
+        # of this rule lifted `params.usage.input_tokens` (snake_case
+        # under a non-existent `usage` key) — those expressions
+        # resolved to nil so the strip silently rendered nothing.
+        #
+        # Each notification carries *cumulative* totals (not per-turn
+        # deltas). The `cumulative: "true"` marker tells the mobile
+        # aggregator the latest event replaces; without it, the
+        # aggregator would have to sniff payload shape (claude's
+        # usage events are per-message deltas and have no marker).
+        # The profile evaluator's grammar has no boolean literal, so
+        # we emit the string `"true"` and the mobile side accepts
+        # either bool true or string "true".
         - match: { method: thread/tokenUsage/updated }
           emit:
             kind: usage
             producer: agent
             payload:
-              input_tokens:        "$.params.usage.input_tokens"
-              output_tokens:       "$.params.usage.output_tokens"
-              cached_input_tokens: "$.params.usage.cached_input_tokens"
+              cumulative:          "\"true\""
+              engine:              "\"codex\""
+              input_tokens:        "$.params.tokenUsage.total.inputTokens"
+              output_tokens:       "$.params.tokenUsage.total.outputTokens"
+              cached_input_tokens: "$.params.tokenUsage.total.cachedInputTokens"
+              total_tokens:        "$.params.tokenUsage.total.totalTokens"
+              reasoning_tokens:    "$.params.tokenUsage.total.reasoningOutputTokens"
+              context_window:      "$.params.tokenUsage.modelContextWindow"
+              thread_id:           "$.params.threadId"
 
         # ── account/rateLimits/updated  →  rate_limit ───────────
         # codex bundles primary + secondary windows; we surface

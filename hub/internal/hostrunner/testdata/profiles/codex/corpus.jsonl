@@ -32,8 +32,11 @@
 {"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_mcp_1","type":"mcpToolCall","server":"termipod","tool":"request_help","arguments":{"question":"Path A or B?"},"status":"pending"}}}
 {"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_abc","turnId":"turn_001","item":{"id":"item_mcp_1","type":"mcpToolCall","server":"termipod","tool":"request_help","status":"completed","result":{"id":"att_42","status":"awaiting_response"}}}}
 
-# 7. Telemetry: token usage + rate limits
-{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thr_abc","usage":{"input_tokens":1234,"output_tokens":456,"cached_input_tokens":800}}}
+# 7. Telemetry: token usage + rate limits.
+# Real codex shape: cumulative totals nested under tokenUsage.total, plus
+# the per-turn `last` snapshot and modelContextWindow. The aggregator
+# treats `total` as authoritative for the session.
+{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"thr_abc","turnId":"turn_001","tokenUsage":{"total":{"totalTokens":79354,"inputTokens":79173,"cachedInputTokens":54784,"outputTokens":181,"reasoningOutputTokens":44},"last":{"totalTokens":19986,"inputTokens":19924,"cachedInputTokens":19328,"outputTokens":62,"reasoningOutputTokens":0},"modelContextWindow":258400}}}
 {"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":60,"resetsAt":"2026-04-29T11:00:00Z"},"secondary":{"usedPercent":12,"windowDurationMins":10080,"resetsAt":"2026-05-06T10:00:00Z"},"rateLimitReachedType":null}}}
 
 # 8. MCP server startup

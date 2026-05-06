@@ -37,6 +37,9 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
   List<Map<String, dynamic>> _items = const [];
   // Non-null when annotations were served from the offline cache.
   DateTime? _staleSince;
+  // Local override of widget.showResolved so the user can flip Open ↔ All
+  // without the parent rebuilding.
+  late bool _showResolved = widget.showResolved;
 
   @override
   void initState() {
@@ -48,8 +51,11 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
   void didUpdateWidget(covariant AnnotationOverlay old) {
     super.didUpdateWidget(old);
     if (old.documentId != widget.documentId ||
-        old.sectionSlug != widget.sectionSlug ||
-        old.showResolved != widget.showResolved) {
+        old.sectionSlug != widget.sectionSlug) {
+      _load();
+    }
+    if (old.showResolved != widget.showResolved) {
+      _showResolved = widget.showResolved;
       _load();
     }
   }
@@ -65,7 +71,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
       final out = await client.listAnnotationsCached(
         documentId: widget.documentId,
         section: widget.sectionSlug,
-        status: widget.showResolved ? 'all' : 'open',
+        status: _showResolved ? 'all' : 'open',
       );
       if (!mounted) return;
       setState(() {
@@ -144,7 +150,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
                     size: 14, color: DesignColors.textMuted),
                 const SizedBox(width: 6),
                 Text(
-                  widget.showResolved ? 'Annotations' : 'Open annotations',
+                  _showResolved ? 'Annotations' : 'Open annotations',
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -163,6 +169,28 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
                           size: 14, color: DesignColors.warning),
                     ),
                   ),
+                Tooltip(
+                  message: _showResolved
+                      ? 'Showing all · tap to show only open'
+                      : 'Showing open · tap to include resolved',
+                  child: IconButton(
+                    icon: Icon(
+                      _showResolved
+                          ? Icons.history
+                          : Icons.history_toggle_off,
+                      size: 16,
+                      color: DesignColors.textMuted,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                        minWidth: 28, minHeight: 28),
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      setState(() => _showResolved = !_showResolved);
+                      _load();
+                    },
+                  ),
+                ),
                 TextButton.icon(
                   icon: const Icon(Icons.add, size: 14),
                   label: Text(
@@ -200,7 +228,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
               padding: const EdgeInsets.all(16),
               child: Center(
                 child: Text(
-                  widget.showResolved
+                  _showResolved
                       ? 'No annotations yet'
                       : 'No open annotations',
                   style: GoogleFonts.spaceGrotesk(
@@ -215,7 +243,9 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
               if (i > 0) const Divider(height: 1, indent: 12, endIndent: 12),
               _AnnotationRow(
                 annotation: _items[i],
-                onToggleResolved: () => _toggleResolved(_items[i]),
+                onToggleResolved: _staleSince != null
+                    ? null
+                    : () => _toggleResolved(_items[i]),
               ),
             ],
         ],
@@ -232,7 +262,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
 
 class _AnnotationRow extends StatelessWidget {
   final Map<String, dynamic> annotation;
-  final VoidCallback onToggleResolved;
+  final VoidCallback? onToggleResolved;
   const _AnnotationRow({
     required this.annotation,
     required this.onToggleResolved,
@@ -252,66 +282,70 @@ class _AnnotationRow extends StatelessWidget {
     final isResolved = status == 'resolved';
     final glyph = _annotationIcon(kind);
     final color = _annotationColor(kind);
-    return InkWell(
-      onTap: onToggleResolved,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Icon(glyph, size: 16, color: color),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    body,
-                    maxLines: 4,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 13,
-                      height: 1.35,
-                      fontWeight: FontWeight.w500,
-                      decoration: kind == 'redline'
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: isResolved
-                          ? DesignColors.textMuted
-                          : (isDark ? null : Colors.black87),
-                    ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(glyph, size: 16, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  body,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 13,
+                    height: 1.35,
+                    fontWeight: FontWeight.w500,
+                    decoration: kind == 'redline'
+                        ? TextDecoration.lineThrough
+                        : null,
+                    color: isResolved
+                        ? DesignColors.textMuted
+                        : (isDark ? null : Colors.black87),
                   ),
-                  const SizedBox(height: 3),
-                  Row(
-                    children: [
-                      Text(
-                        '$actorLabel · ${_kindLabel(kind)}',
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10,
-                          color: isDark
-                              ? DesignColors.textMuted
-                              : DesignColors.textMutedLight,
-                        ),
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    Text(
+                      '$actorLabel · ${_kindLabel(kind)}',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10,
+                        color: isDark
+                            ? DesignColors.textMuted
+                            : DesignColors.textMutedLight,
                       ),
-                      const SizedBox(width: 8),
-                      if (isResolved)
-                        _StatusChip(label: 'resolved', color: color),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(width: 8),
+                    if (isResolved)
+                      _StatusChip(label: 'resolved', color: color),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Tooltip(
+            message: isResolved ? 'Reopen' : 'Mark resolved',
+            child: IconButton(
+              icon: Icon(
+                isResolved ? Icons.refresh : Icons.check_circle_outline,
+                size: 18,
               ),
-            ),
-            const SizedBox(width: 6),
-            Icon(
-              isResolved ? Icons.refresh : Icons.check_circle_outline,
-              size: 16,
               color: DesignColors.textMuted,
+              visualDensity: VisualDensity.compact,
+              constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
+              padding: EdgeInsets.zero,
+              onPressed: onToggleResolved,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

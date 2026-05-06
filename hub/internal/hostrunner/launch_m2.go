@@ -487,6 +487,16 @@ func writeGeminiMCPConfig(workdir, hubURL, token string) error {
 // from $CODEX_HOME (default ~/.codex) — the spawn template overrides
 // CODEX_HOME at launch time so the engine reads our project-scoped
 // file without touching the user's global codex config.
+//
+// Auth caveat: codex stores its login/API-key credentials in
+// $CODEX_HOME/auth.json (written by `codex login`). When we redirect
+// CODEX_HOME at spawn we lose visibility of that file, and codex
+// falls back to "no auth" → 401 Unauthorized on the OpenAI websocket.
+// To keep "works in terminal → works under host-runner" parity, copy
+// the user's auth.json into the spawn-scoped CODEX_HOME alongside the
+// MCP config. Best-effort: a missing/unreadable source is logged but
+// does not fail the spawn, so a fully-headless deployment with auth
+// in env vars still works.
 func writeCodexMCPConfig(workdir, hubURL, token string) error {
 	dir := filepath.Join(workdir, ".codex")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -494,7 +504,48 @@ func writeCodexMCPConfig(workdir, hubURL, token string) error {
 	}
 	body := codexConfigTOML(hub.MCPServerName, hubURL, token)
 	target := filepath.Join(dir, "config.toml")
-	return os.WriteFile(target, []byte(body), 0o600)
+	if err := os.WriteFile(target, []byte(body), 0o600); err != nil {
+		return err
+	}
+	copyCodexAuthInto(dir)
+	return nil
+}
+
+// copyCodexAuthInto best-effort-copies the user's codex auth.json into
+// the spawn-scoped CODEX_HOME. Returns silently on any error: callers
+// must not depend on auth.json being present (some users deploy with
+// $OPENAI_API_KEY in env, which codex resolves without auth.json).
+//
+// Source resolution mirrors codex's own:
+//  1. $CODEX_HOME (the *outer* host-runner process env, before we
+//     redirect it for the child)
+//  2. $HOME/.codex
+//
+// Mode is forced to 0o600 — auth.json holds bearer tokens.
+func copyCodexAuthInto(dstDir string) {
+	src := userCodexAuthPath()
+	if src == "" {
+		return
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(dstDir, "auth.json"), data, 0o600)
+}
+
+// userCodexAuthPath resolves the user's codex auth.json location at
+// the time host-runner is running, before we override CODEX_HOME for
+// any child. Returns "" when neither $CODEX_HOME nor $HOME is set.
+func userCodexAuthPath() string {
+	if home := os.Getenv("CODEX_HOME"); home != "" {
+		return filepath.Join(home, "auth.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".codex", "auth.json")
 }
 
 // codexConfigTOML produces the literal config.toml bytes. Factored

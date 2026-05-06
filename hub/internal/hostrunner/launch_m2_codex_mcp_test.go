@@ -92,6 +92,66 @@ func TestWriteCodexMCPConfig_WritesConfig(t *testing.T) {
 	}
 }
 
+// TestWriteCodexMCPConfig_CopiesAuthJSON pins the auth-bridging
+// behaviour: when the user's $CODEX_HOME (or $HOME/.codex) contains
+// auth.json, writeCodexMCPConfig copies it into the spawn-scoped
+// CODEX_HOME so codex can authenticate the same way it does in a
+// terminal. Without this, redirecting CODEX_HOME loses access to the
+// user's API-key / login credentials and codex fails with
+// "401 Unauthorized" on its OpenAI websocket.
+func TestWriteCodexMCPConfig_CopiesAuthJSON(t *testing.T) {
+	// Stage a fake "user" CODEX_HOME with an auth.json.
+	userHome := t.TempDir()
+	userCodex := filepath.Join(userHome, ".codex")
+	if err := os.MkdirAll(userCodex, 0o700); err != nil {
+		t.Fatalf("mkdir user codex: %v", err)
+	}
+	authBody := []byte(`{"OPENAI_API_KEY":"sk-test-redacted"}`)
+	if err := os.WriteFile(filepath.Join(userCodex, "auth.json"), authBody, 0o600); err != nil {
+		t.Fatalf("write user auth.json: %v", err)
+	}
+	t.Setenv("CODEX_HOME", userCodex)
+
+	dir := t.TempDir()
+	if err := writeCodexMCPConfig(dir, "https://hub.example/mcp/", "tok-1"); err != nil {
+		t.Fatalf("writeCodexMCPConfig: %v", err)
+	}
+
+	target := filepath.Join(dir, ".codex", "auth.json")
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("auth.json not copied into spawn CODEX_HOME: %v", err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("auth.json perms = %o; want 0600 (token is sensitive)", mode)
+	}
+	got, _ := os.ReadFile(target)
+	if string(got) != string(authBody) {
+		t.Errorf("auth.json content not preserved\n got: %s\nwant: %s", got, authBody)
+	}
+}
+
+// TestWriteCodexMCPConfig_NoAuthIsBestEffort pins the fallback: if
+// the user has no auth.json (e.g. headless deploy with $OPENAI_API_KEY
+// in env), the spawn still writes config.toml and reports success —
+// auth.json is purely additive.
+func TestWriteCodexMCPConfig_NoAuthIsBestEffort(t *testing.T) {
+	// Point at a CODEX_HOME with no auth.json present.
+	emptyHome := t.TempDir()
+	t.Setenv("CODEX_HOME", emptyHome)
+
+	dir := t.TempDir()
+	if err := writeCodexMCPConfig(dir, "https://hub.example/mcp/", "tok-1"); err != nil {
+		t.Fatalf("writeCodexMCPConfig must not fail when auth.json is absent: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".codex", "config.toml")); err != nil {
+		t.Errorf("config.toml still expected: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".codex", "auth.json")); !os.IsNotExist(err) {
+		t.Errorf("auth.json should NOT exist when source is missing; err = %v", err)
+	}
+}
+
 // TestWriteMCPConfigForFamily_DispatchesByKind pins the per-family
 // dispatch: family=codex picks the TOML path, anything else falls
 // back to .mcp.json. This is the contract launch_m2.go relies on to

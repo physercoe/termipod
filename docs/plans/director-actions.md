@@ -1,9 +1,9 @@
 # Director-actions wedge plan — annotation primitive + send-back-with-notes
 
 > **Type:** plan
-> **Status:** In flight (2026-05-06) — **W1 shipped (v1.0.362-alpha)**; W2 next
+> **Status:** Done (2026-05-06) — **W1 shipped v1.0.362-alpha · W2 shipped v1.0.363-alpha**
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.362-alpha
+> **Last verified vs code:** v1.0.363-alpha
 
 **TL;DR.** Two wedges to ship the MVP slice of [ADR-020](../decisions/020-director-action-surface.md). W1 lands the `document_annotations` primitive end-to-end (schema + REST + section-overlay UI + structured-deliverable-viewer overlay). W2 adds the `revision_requested` attention kind plus the "Send back with notes" button on the deliverable viewer. Roughly 3–4 days of work. One schema migration (`0035_document_annotations`). No new ADRs after ADR-020.
 

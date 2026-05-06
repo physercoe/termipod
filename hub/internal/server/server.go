@@ -310,6 +310,12 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 						r.Patch("/", s.handlePatchDeliverable)
 						r.Post("/ratify", s.handleRatifyDeliverable)
 						r.Post("/unratify", s.handleUnratifyDeliverable)
+						// ADR-020 W2 — director returns a draft/in-review
+						// deliverable to the steward with a structured note
+						// + selected annotation IDs. Transitions state to
+						// in-review; raises a `revision_requested` attention
+						// item that the steward picks up via the normal loop.
+						r.Post("/send-back", s.handleSendBackDeliverable)
 						r.Route("/components", func(r chi.Router) {
 							r.Post("/", s.handleAddDeliverableComponent)
 							r.Delete("/{component}", s.handleRemoveDeliverableComponent)

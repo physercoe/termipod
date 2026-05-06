@@ -272,8 +272,18 @@ type lifecycleSpec struct {
 	// the doc/artifact/run counters.
 	deliverables func(*seedProjectCtx) ([]seededDeliverable, error)
 	criteria     func(*seedProjectCtx, []seededDeliverable) ([]seededCriterion, error)
-	attention    func(*seedProjectCtx) (string, string) // (kind, summary)
+	attention    func(*seedProjectCtx) lifecycleAttention
 	planSteps    []lifecyclePlanStep
+}
+
+// lifecycleAttention is the per-spec payload for the seeded attention
+// item. Payload is non-nil only when the kind needs structured data
+// (ADR-020 W2: revision_requested carries deliverable_id +
+// annotation_ids in pending_payload_json).
+type lifecycleAttention struct {
+	kind    string
+	summary string
+	payload map[string]any
 }
 
 type lifecyclePlanStep struct {
@@ -296,6 +306,16 @@ type seedProjectCtx struct {
 	artifactsSeeded   int
 	runsSeeded        int
 	annotationsSeeded int
+
+	// IDs of every annotation seeded against this project's docs, in
+	// insertion order. The `attention` closure can read this when the
+	// payload references annotation IDs (ADR-020 W2: revision_requested).
+	annotationIDs []string
+
+	// Deliverables seeded for this project, exposed by logID so the
+	// attention closure can reference them by name without re-walking
+	// the slice.
+	deliverableByLogID map[string]string
 }
 
 type seededDeliverable struct {
@@ -346,9 +366,9 @@ func lifecycleSpecs() []lifecycleSpec {
 					},
 				})
 			},
-			attention: func(c *seedProjectCtx) (string, string) {
-				return "select",
-					"Director: ratify scope and direction so the steward can spawn a literature reviewer."
+			attention: func(c *seedProjectCtx) lifecycleAttention {
+				return lifecycleAttention{kind: "select",
+					summary: "Director: ratify scope and direction so the steward can spawn a literature reviewer."}
 			},
 		},
 
@@ -441,9 +461,21 @@ func lifecycleSpecs() []lifecycleSpec {
 					},
 				})
 			},
-			attention: func(c *seedProjectCtx) (string, string) {
-				return "select",
-					"Director: lit-review draft is in review. Ratify when ready to advance to method."
+			attention: func(c *seedProjectCtx) lifecycleAttention {
+				// ADR-020 W2 — director sent the lit-review draft back
+				// with notes (3 annotations seeded in this spec). The
+				// steward's prompt overlay teaches it to read the note,
+				// walk the linked annotations, and address each before
+				// flipping the deliverable to ratified.
+				return lifecycleAttention{
+					kind:    "revision_requested",
+					summary: "Revision requested · Tighten the gaps section; address the prior-work redline before ratifying.",
+					payload: map[string]any{
+						"deliverable_id": c.deliverableByLogID["lit-review-doc"],
+						"note":           "Tighten the gaps section — the second paragraph duplicates domain-overview. Drop the citations stub and replace with a concrete pointer to Lin et al. 2025.",
+						"annotation_ids": append([]string{}, c.annotationIDs...),
+					},
+				}
 			},
 		},
 
@@ -558,9 +590,9 @@ func lifecycleSpecs() []lifecycleSpec {
 					},
 				})
 			},
-			attention: func(c *seedProjectCtx) (string, string) {
-				return "select",
-					"Method ratified. Steward will spawn ml-worker + coder when you advance to experiment."
+			attention: func(c *seedProjectCtx) lifecycleAttention {
+				return lifecycleAttention{kind: "select",
+					summary: "Method ratified. Steward will spawn ml-worker + coder when you advance to experiment."}
 			},
 		},
 
@@ -666,9 +698,9 @@ func lifecycleSpecs() []lifecycleSpec {
 						required:      true},
 				})
 			},
-			attention: func(c *seedProjectCtx) (string, string) {
-				return "select",
-					"Experiment results draft is ready. Inspect the report + checkpoint, then ratify or request revisions."
+			attention: func(c *seedProjectCtx) lifecycleAttention {
+				return lifecycleAttention{kind: "select",
+					summary: "Experiment results draft is ready. Inspect the report + checkpoint, then ratify or request revisions."}
 			},
 		},
 
@@ -780,9 +812,9 @@ func lifecycleSpecs() []lifecycleSpec {
 					},
 				})
 			},
-			attention: func(c *seedProjectCtx) (string, string) {
-				return "select",
-					"Paper draft submitted to internal review. Ratify after reviewer feedback returns."
+			attention: func(c *seedProjectCtx) lifecycleAttention {
+				return lifecycleAttention{kind: "select",
+					summary: "Paper draft submitted to internal review. Ratify after reviewer feedback returns."}
 			},
 		},
 	}
@@ -901,6 +933,10 @@ func seedLifecycleProject(
 		return res, err
 	}
 	res.deliverables = len(dls)
+	c.deliverableByLogID = map[string]string{}
+	for _, d := range dls {
+		c.deliverableByLogID[d.logID] = d.id
+	}
 
 	crits, err := spec.criteria(c, dls)
 	if err != nil {
@@ -913,21 +949,26 @@ func seedLifecycleProject(
 
 	// 5. Attention item + audit rows.
 	if spec.attention != nil {
-		kind, summary := spec.attention(c)
+		att := spec.attention(c)
 		assignees, _ := json.Marshal([]string{"@principal"})
 		attID := NewID()
+		var payloadArg any
+		if att.payload != nil {
+			b, _ := json.Marshal(att.payload)
+			payloadArg = string(b)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO attention_items
 				(id, project_id, scope_kind, scope_id, kind,
 				 summary, severity, current_assignees_json,
 				 status, created_at,
-				 actor_kind, actor_handle)
+				 actor_kind, actor_handle, pending_payload_json)
 			VALUES (?, ?, 'project', ?, ?,
 			        ?, 'major', ?,
 			        'open', ?,
-			        'agent', 'steward.lifecycle')`,
-			attID, res.projectID, res.projectID, kind,
-			summary, string(assignees), now); err != nil {
+			        'agent', 'steward.lifecycle', ?)`,
+			attID, res.projectID, res.projectID, att.kind,
+			att.summary, string(assignees), now, payloadArg); err != nil {
 			return res, fmt.Errorf("insert attention: %w", err)
 		}
 		res.attentionItems = 1
@@ -1057,6 +1098,7 @@ func seedAnnotation(c *seedProjectCtx, a annotationSeed) error {
 		resolvedAt = c.now
 		resolvedBy = "user:director"
 	}
+	annID := NewID()
 	if _, err := c.tx.ExecContext(c.ctx, `
 		INSERT INTO document_annotations (
 			id, document_id, section_slug, char_start, char_end,
@@ -1064,13 +1106,14 @@ func seedAnnotation(c *seedProjectCtx, a annotationSeed) error {
 			created_at, resolved_at, resolved_by_actor
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'principal', 'director',
 		          ?, ?, ?)`,
-		NewID(), a.docID, a.section, charStartArg, charEndArg,
+		annID, a.docID, a.section, charStartArg, charEndArg,
 		a.kind, a.body, a.status, c.now, resolvedAt, resolvedBy,
 	); err != nil {
 		return fmt.Errorf("insert annotation on %s/%s: %w",
 			a.docID, a.section, err)
 	}
 	c.annotationsSeeded++
+	c.annotationIDs = append(c.annotationIDs, annID)
 	return nil
 }
 

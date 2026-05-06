@@ -110,6 +110,64 @@ class _StructuredDeliverableViewerState
     }
   }
 
+  Future<void> _sendBack() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    // Gather open annotations from each document component so the sheet
+    // can offer them as checkboxes. Best-effort; failures fall through
+    // to a notes-only send-back.
+    final docs = ((_deliverable?['components'] as List?) ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .where((c) => (c['kind'] ?? '') == 'document')
+        .toList();
+    final List<Map<String, dynamic>> openAnnotations = [];
+    for (final d in docs) {
+      final docId = (d['ref_id'] ?? '').toString();
+      if (docId.isEmpty) continue;
+      try {
+        final out =
+            await client.listAnnotations(documentId: docId, status: 'open');
+        for (final a in out) {
+          openAnnotations.add({...a, '_doc_id': docId});
+        }
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    final result = await showModalBottomSheet<_SendBackResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _SendBackSheet(annotations: openAnnotations),
+    );
+    if (!mounted || result == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _busy = true);
+    try {
+      final out = await client.sendBackDeliverable(
+        projectId: widget.projectId,
+        deliverableId: widget.deliverableId,
+        note: result.note,
+        annotationIds: result.annotationIds,
+      );
+      if (!mounted) return;
+      // The hub returns {deliverable, attention_item_id}; pull the
+      // deliverable out to refresh the viewer state.
+      final d = (out['deliverable'] as Map?)?.cast<String, dynamic>();
+      setState(() {
+        if (d != null) _deliverable = d;
+        _busy = false;
+      });
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Sent back · steward will revise')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Send back failed: $e')),
+      );
+    }
+  }
+
   Future<void> _unratify() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -180,6 +238,25 @@ class _StructuredDeliverableViewerState
             DeliverableStatePip(state: _state),
           ],
         ),
+        actions: [
+          if (_state != DeliverableState.ratified)
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              onSelected: (v) {
+                if (v == 'send_back' && !_busy) _sendBack();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'send_back',
+                  child: ListTile(
+                    leading: Icon(Icons.assignment_return_outlined),
+                    title: Text('Send back with notes'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+        ],
       ),
       body: _error != null
           ? _ErrorView(error: _error!, onRetry: _load)
@@ -868,6 +945,166 @@ class _DeliverableActionBar extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SendBackResult {
+  final String note;
+  final List<String> annotationIds;
+  const _SendBackResult({required this.note, required this.annotationIds});
+}
+
+class _SendBackSheet extends StatefulWidget {
+  final List<Map<String, dynamic>> annotations;
+  const _SendBackSheet({required this.annotations});
+
+  @override
+  State<_SendBackSheet> createState() => _SendBackSheetState();
+}
+
+class _SendBackSheetState extends State<_SendBackSheet> {
+  final _ctl = TextEditingController();
+  final Set<String> _selected = <String>{};
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final hasAnnotations = widget.annotations.isNotEmpty;
+    return Padding(
+      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: media.size.height * 0.8),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Send back with notes',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Steward gets a revision_requested attention item; the deliverable moves to in-review.',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    color: DesignColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _ctl,
+                  autofocus: true,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    hintText:
+                        'What needs to change before this can be ratified?',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (hasAnnotations) ...[
+                  Text(
+                    'Attach open annotations (${widget.annotations.length})',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: DesignColors.textMuted,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: widget.annotations.length,
+                      itemBuilder: (_, i) {
+                        final a = widget.annotations[i];
+                        final id = (a['id'] ?? '').toString();
+                        final kind = (a['kind'] ?? 'comment').toString();
+                        final section = (a['section_slug'] ?? '').toString();
+                        final body = (a['body'] ?? '').toString();
+                        return CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: _selected.contains(id),
+                          onChanged: (on) {
+                            setState(() {
+                              if (on == true) {
+                                _selected.add(id);
+                              } else {
+                                _selected.remove(id);
+                              }
+                            });
+                          },
+                          title: Text(
+                            body,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.spaceGrotesk(fontSize: 12),
+                          ),
+                          subtitle: Text(
+                            '$kind · $section',
+                            style: GoogleFonts.jetBrainsMono(
+                              fontSize: 9,
+                              color: DesignColors.textMuted,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.assignment_return_outlined,
+                          size: 16),
+                      label: const Text('Send back'),
+                      onPressed: () {
+                        final note = _ctl.text.trim();
+                        if (note.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('Note required')),
+                          );
+                          return;
+                        }
+                        Navigator.of(context).pop(_SendBackResult(
+                          note: note,
+                          annotationIds: _selected.toList(),
+                        ));
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

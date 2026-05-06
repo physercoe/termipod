@@ -298,3 +298,199 @@ func TestDeliverable_ProjectScopedAuditFiltersDeliverableEvents(t *testing.T) {
 		t.Errorf("no deliverable.created in audit feed; events=%v", rows)
 	}
 }
+
+// ADR-020 W2 — send-back-with-notes tests.
+
+// createDeliverableForSendBack returns (deliverableID, docID, [annotationIDs])
+// for a typed lit-review document component. Helper keeps the test bodies
+// focused on the transitions/validations rather than the wire-up.
+func createDeliverableForSendBack(
+	t *testing.T, s *Server, tok, team, project string,
+) (string, string, []string) {
+	t.Helper()
+	docID := createTypedDocument(t, s, tok, project, "lit-review", "research-lit-review-v1",
+		[]map[string]any{
+			{"slug": "gaps", "title": "Gaps", "body": "draft", "status": "draft"},
+			{"slug": "prior-work", "title": "Prior work", "body": "ok", "status": "ratified"},
+		})
+
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables",
+		map[string]any{
+			"phase": "lit-review", "kind": "lit-review-doc",
+			"components": []map[string]any{{"kind": "document", "ref_id": docID}},
+		})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create deliverable: %d %s", rr.Code, rr.Body.String())
+	}
+	var d deliverableOut
+	_ = json.Unmarshal(rr.Body.Bytes(), &d)
+
+	a1 := mustCreateAnnotation(t, s, tok, docID, "gaps", "comment", "tighten this")
+	a2 := mustCreateAnnotation(t, s, tok, docID, "prior-work", "redline", "drop §2")
+	return d.ID, docID, []string{a1, a2}
+}
+
+func mustCreateAnnotation(
+	t *testing.T, s *Server, tok, docID, section, kind, body string,
+) string {
+	t.Helper()
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+defaultTeamID+"/documents/"+docID+"/annotations",
+		map[string]any{"section_slug": section, "kind": kind, "body": body})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("seed annotation: %d %s", rr.Code, rr.Body.String())
+	}
+	var a Annotation
+	_ = json.Unmarshal(rr.Body.Bytes(), &a)
+	return a.ID
+}
+
+func TestDeliverable_SendBackFromDraftRaisesAttention(t *testing.T) {
+	phases := []string{"idea", "lit-review"}
+	s, tok, team, project := phaseTestSetup(t, phases)
+	d, _, ids := createDeliverableForSendBack(t, s, tok, team, project)
+
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d+"/send-back",
+		map[string]any{
+			"note":           "Tighten the gaps section; the prior-work redline is non-negotiable.",
+			"annotation_ids": ids,
+		})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("send-back: %d %s", rr.Code, rr.Body.String())
+	}
+	var out sendBackDeliverableOut
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Deliverable.RatificationState != "in-review" {
+		t.Errorf("state after send-back: got %q want in-review",
+			out.Deliverable.RatificationState)
+	}
+	if out.AttentionItemID == "" {
+		t.Errorf("attention_item_id empty")
+	}
+
+	// Confirm the attention row landed with the right kind + payload.
+	listRR := authedJSON(t, s, http.MethodGet, tok,
+		"/v1/teams/"+team+"/attention?status=open", nil)
+	if listRR.Code != http.StatusOK {
+		t.Fatalf("attention list: %d %s", listRR.Code, listRR.Body.String())
+	}
+	var items []struct {
+		ID             string          `json:"id"`
+		Kind           string          `json:"kind"`
+		ProjectID      string          `json:"project_id"`
+		Summary        string          `json:"summary"`
+		PendingPayload json.RawMessage `json:"pending_payload,omitempty"`
+	}
+	if err := json.Unmarshal(listRR.Body.Bytes(), &items); err != nil {
+		t.Fatalf("decode attention list: %v body=%s", err, listRR.Body.String())
+	}
+	var found bool
+	for _, it := range items {
+		if it.ID != out.AttentionItemID {
+			continue
+		}
+		found = true
+		if it.Kind != "revision_requested" {
+			t.Errorf("kind=%q want=revision_requested", it.Kind)
+		}
+		if it.ProjectID != project {
+			t.Errorf("project_id=%q want=%q", it.ProjectID, project)
+		}
+		var p map[string]any
+		if err := json.Unmarshal(it.PendingPayload, &p); err != nil {
+			t.Errorf("payload not json: %v body=%s", err, it.PendingPayload)
+		}
+		if p["deliverable_id"] != d {
+			t.Errorf("payload.deliverable_id=%v want=%s", p["deliverable_id"], d)
+		}
+		annIDs, _ := p["annotation_ids"].([]any)
+		if len(annIDs) != 2 {
+			t.Errorf("payload.annotation_ids len=%d want=2", len(annIDs))
+		}
+	}
+	if !found {
+		t.Errorf("attention item %s not in feed", out.AttentionItemID)
+	}
+}
+
+func TestDeliverable_SendBackFromInReviewIsIdempotent(t *testing.T) {
+	phases := []string{"idea", "lit-review"}
+	s, tok, team, project := phaseTestSetup(t, phases)
+	d, _, _ := createDeliverableForSendBack(t, s, tok, team, project)
+
+	// Manually transition to in-review first.
+	rr1 := authedJSON(t, s, http.MethodPatch, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d,
+		map[string]any{"ratification_state": "in-review"})
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("patch to in-review: %d %s", rr1.Code, rr1.Body.String())
+	}
+
+	rr2 := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d+"/send-back",
+		map[string]any{"note": "still off"})
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("send-back from in-review: %d %s", rr2.Code, rr2.Body.String())
+	}
+	var out sendBackDeliverableOut
+	_ = json.Unmarshal(rr2.Body.Bytes(), &out)
+	if out.Deliverable.RatificationState != "in-review" {
+		t.Errorf("expected stays in-review; got %q", out.Deliverable.RatificationState)
+	}
+}
+
+func TestDeliverable_SendBackFromRatifiedReturns409(t *testing.T) {
+	phases := []string{"idea", "lit-review"}
+	s, tok, team, project := phaseTestSetup(t, phases)
+	d, _, _ := createDeliverableForSendBack(t, s, tok, team, project)
+
+	if r := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d+"/ratify",
+		nil); r.Code != http.StatusOK {
+		t.Fatalf("ratify: %d %s", r.Code, r.Body.String())
+	}
+
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d+"/send-back",
+		map[string]any{"note": "actually no"})
+	if rr.Code != http.StatusConflict {
+		t.Errorf("send-back from ratified: %d want 409", rr.Code)
+	}
+}
+
+func TestDeliverable_SendBackForeignAnnotationReturns422(t *testing.T) {
+	phases := []string{"idea", "lit-review"}
+	s, tok, team, project := phaseTestSetup(t, phases)
+
+	// Two deliverables on different docs; pass d2's annotation to d1's
+	// send-back. Should reject 422.
+	d1, _, _ := createDeliverableForSendBack(t, s, tok, team, project)
+	_, _, foreignIDs := createDeliverableForSendBack(t, s, tok, team, project)
+
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d1+"/send-back",
+		map[string]any{
+			"note":           "with foreign annotations",
+			"annotation_ids": foreignIDs,
+		})
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("foreign annotations: %d want 422", rr.Code)
+	}
+}
+
+func TestDeliverable_SendBackRequiresNote(t *testing.T) {
+	phases := []string{"idea", "lit-review"}
+	s, tok, team, project := phaseTestSetup(t, phases)
+	d, _, _ := createDeliverableForSendBack(t, s, tok, team, project)
+
+	rr := authedJSON(t, s, http.MethodPost, tok,
+		"/v1/teams/"+team+"/projects/"+project+"/deliverables/"+d+"/send-back",
+		map[string]any{"note": "   "})
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("empty note: %d want 400", rr.Code)
+	}
+}

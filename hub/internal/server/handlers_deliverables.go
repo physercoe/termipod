@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -892,4 +893,184 @@ func (s *Server) handleGetProjectOverview(w http.ResponseWriter, r *http.Request
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// ADR-020 W2 — Send back with notes. Director returns a draft or
+// in-review deliverable to the steward with a structured payload
+// (free-text note + selected annotation IDs the steward should address).
+// Transitions ratification_state to in-review (D5) and raises a
+// `revision_requested` attention item scoped to the project.
+
+const attentionKindRevisionRequested = "revision_requested"
+
+type sendBackDeliverableIn struct {
+	Note          string   `json:"note"`
+	AnnotationIDs []string `json:"annotation_ids,omitempty"`
+}
+
+type sendBackDeliverableOut struct {
+	Deliverable     deliverableOut `json:"deliverable"`
+	AttentionItemID string         `json:"attention_item_id"`
+}
+
+func (s *Server) handleSendBackDeliverable(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	project := chi.URLParam(r, "project")
+	id := chi.URLParam(r, "deliverable")
+	if err := s.projectInTeam(r, team, project); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var in sendBackDeliverableIn
+	if r.ContentLength > 0 {
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+	}
+	note := strings.TrimSpace(in.Note)
+	if note == "" {
+		writeErr(w, http.StatusBadRequest, "note required")
+		return
+	}
+
+	var curState string
+	err := s.db.QueryRowContext(r.Context(),
+		`SELECT ratification_state FROM deliverables WHERE id = ? AND project_id = ?`,
+		id, project).Scan(&curState)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "deliverable not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if curState == deliverableStateRatified {
+		// Per ADR-020 D5 — ratified deliverables must be unratified
+		// first, deliberately, before being sent back.
+		writeErr(w, http.StatusConflict,
+			"deliverable is ratified; unratify before sending back")
+		return
+	}
+
+	// Annotation cross-reference guard (per the wedge plan): every
+	// supplied annotation id must point to a section of a document that
+	// is one of the deliverable's components. Prevents directors from
+	// accidentally attaching notes from another deliverable to this
+	// revision request.
+	if len(in.AnnotationIDs) > 0 {
+		valid, vErr := s.annotationsBelongToDeliverable(r, id, in.AnnotationIDs)
+		if vErr != nil {
+			writeErr(w, http.StatusInternalServerError, vErr.Error())
+			return
+		}
+		if !valid {
+			writeErr(w, http.StatusUnprocessableEntity,
+				"annotation_ids must reference sections of this deliverable's documents")
+			return
+		}
+	}
+
+	now := NowUTC()
+	if curState != deliverableStateInReview {
+		if _, err := s.db.ExecContext(r.Context(), `
+			UPDATE deliverables
+			SET ratification_state = 'in-review', updated_at = ?
+			WHERE id = ? AND project_id = ?`,
+			now, id, project); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Raise the attention item. scope_kind = 'project' / scope_id =
+	// projectID per the existing schema; the deliverable_id and
+	// annotation_ids ride in pending_payload_json so the mobile attention
+	// renderer can deep-link without a schema change.
+	payload, _ := json.Marshal(map[string]any{
+		"deliverable_id": id,
+		"note":           note,
+		"annotation_ids": in.AnnotationIDs,
+	})
+	_, actorKind, actorHandle := actorFromContext(r.Context())
+	attID := NewID()
+	summary := fmt.Sprintf("Revision requested · %s",
+		truncateForAudit(note, 80))
+	if _, err := s.db.ExecContext(r.Context(), `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind, summary, severity,
+			current_assignees_json, status, created_at,
+			actor_kind, actor_handle, pending_payload_json
+		) VALUES (?, ?, 'project', ?, ?, ?, 'major',
+		          '[]', 'open', ?, ?, ?, ?)`,
+		attID, project, project, attentionKindRevisionRequested,
+		summary, now, actorKind, nullIfEmpty(actorHandle),
+		string(payload),
+	); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	s.recordAudit(r.Context(), team, "deliverable.send_back",
+		"deliverable", id, summary,
+		map[string]any{
+			"project_id":         project,
+			"deliverable_id":     id,
+			"attention_item_id":  attID,
+			"annotation_count":   len(in.AnnotationIDs),
+		})
+
+	row := s.db.QueryRowContext(r.Context(),
+		`SELECT `+deliverableSelectCols+` FROM deliverables WHERE id = ?`, id)
+	d, err := s.scanDeliverableRow(row)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	comps, err := s.loadDeliverableComponents(r, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	d.Components = comps
+	writeJSON(w, http.StatusOK, sendBackDeliverableOut{
+		Deliverable: d, AttentionItemID: attID,
+	})
+}
+
+// annotationsBelongToDeliverable returns true when every id in [ids]
+// points to a section of a document that's a component of [deliverableID].
+// Returns false when any id is missing or anchored to a foreign document.
+func (s *Server) annotationsBelongToDeliverable(
+	r *http.Request, deliverableID string, ids []string,
+) (bool, error) {
+	if len(ids) == 0 {
+		return true, nil
+	}
+	// Build the IN clause + check count by joining annotations →
+	// documents → deliverable_components(kind='document').
+	args := make([]any, 0, len(ids)+1)
+	placeholders := make([]string, 0, len(ids))
+	for _, id := range ids {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	args = append(args, deliverableID)
+	q := `
+		SELECT COUNT(DISTINCT da.id)
+		  FROM document_annotations da
+		  JOIN deliverable_components dc
+		    ON dc.kind = 'document' AND dc.ref_id = da.document_id
+		 WHERE da.id IN (` + strings.Join(placeholders, ",") + `)
+		   AND dc.deliverable_id = ?`
+	var matched int
+	if err := s.db.QueryRowContext(r.Context(), q, args...).Scan(&matched); err != nil {
+		return false, err
+	}
+	return matched == len(ids), nil
 }

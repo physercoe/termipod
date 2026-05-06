@@ -2116,6 +2116,30 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// ADR-020 W2 — POST /deliverables/{id}/send-back. Returns the
+  /// updated deliverable wrapped with the new attention_item_id so the
+  /// caller can show "Note sent — attention item created" with a
+  /// deep-link if it wants. 409 when state is `ratified`; 422 when an
+  /// annotation_id doesn't belong to one of this deliverable's docs.
+  Future<Map<String, dynamic>> sendBackDeliverable({
+    required String projectId,
+    required String deliverableId,
+    required String note,
+    List<String> annotationIds = const [],
+  }) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId/send-back',
+      {
+        'note': note,
+        if (annotationIds.isNotEmpty) 'annotation_ids': annotationIds,
+      },
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
   Future<Map<String, dynamic>> getProjectOverview(String projectId) async {
     final out = await _get(
       '/v1/teams/${cfg.teamId}/projects/$projectId/overview',

@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../theme/design_colors.dart';
+import '../projects/documents_screen.dart' show DocumentDetailScreen;
 import '../projects/project_detail_screen.dart';
 import '../sessions/sessions_screen.dart';
 import 'inline_actions.dart';
@@ -163,6 +164,18 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             ],
           ),
           const SizedBox(height: 20),
+
+          // ADR-020 W2 — director sent the deliverable back with notes.
+          // Render the note + linked annotations so the steward can
+          // address each one. Inline actions still apply (resolving the
+          // attention item itself), but the dominant UI here is reading
+          // the director's feedback.
+          if (kind == 'revision_requested' && pending != null)
+            _RevisionRequestedBlock(
+              projectId: _projectScope()?.id ?? '',
+              payload: pending,
+            ),
+          if (kind == 'revision_requested') const SizedBox(height: 16),
 
           // --- Inline actions: same widgets as the Me-page card. ---
           // Hidden once the attention is resolved — the decision history
@@ -852,5 +865,281 @@ class _PayloadBlock extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// ADR-020 W2 — renders the structured payload of a `revision_requested`
+/// attention item: the director's note plus a clickable list of the
+/// annotations they referenced. Each row pushes the deliverable's
+/// document so the steward can see the annotation in the section
+/// overlay (deep-linking straight to a section is W7+).
+class _RevisionRequestedBlock extends ConsumerStatefulWidget {
+  final String projectId;
+  final Map<String, dynamic> payload;
+  const _RevisionRequestedBlock({
+    required this.projectId,
+    required this.payload,
+  });
+
+  @override
+  ConsumerState<_RevisionRequestedBlock> createState() =>
+      _RevisionRequestedBlockState();
+}
+
+class _RevisionRequestedBlockState
+    extends ConsumerState<_RevisionRequestedBlock> {
+  bool _loading = true;
+  String? _deliverableLabel;
+  String? _firstDocumentId;
+  // annotation id -> {section_slug, kind, body, document_id}
+  Map<String, Map<String, dynamic>> _annotationsByID = const {};
+
+  String get _deliverableId =>
+      (widget.payload['deliverable_id'] ?? '').toString();
+
+  String get _note => (widget.payload['note'] ?? '').toString();
+
+  List<String> get _annotationIDs {
+    final raw = widget.payload['annotation_ids'];
+    if (raw is List) return raw.map((e) => e.toString()).toList();
+    return const [];
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  Future<void> _resolve() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null || widget.projectId.isEmpty || _deliverableId.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final d = await client.getDeliverable(
+        projectId: widget.projectId,
+        deliverableId: _deliverableId,
+      );
+      _deliverableLabel = (d['kind'] ?? 'Deliverable').toString();
+      final comps = ((d['components'] as List?) ?? const [])
+          .map((e) => (e as Map).cast<String, dynamic>())
+          .where((c) => (c['kind'] ?? '') == 'document')
+          .toList();
+      final wantIDs = _annotationIDs.toSet();
+      final byID = <String, Map<String, dynamic>>{};
+      for (final c in comps) {
+        final docID = (c['ref_id'] ?? '').toString();
+        if (docID.isEmpty) continue;
+        _firstDocumentId ??= docID;
+        try {
+          final list =
+              await client.listAnnotations(documentId: docID, status: 'all');
+          for (final a in list) {
+            final id = (a['id'] ?? '').toString();
+            if (wantIDs.contains(id)) {
+              byID[id] = {...a, '_doc_id': docID};
+            }
+          }
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() {
+        _annotationsByID = byID;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.assignment_return_outlined,
+                  size: 16, color: DesignColors.warning),
+              const SizedBox(width: 6),
+              Text(
+                'Director note',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _note.isEmpty ? '(no note)' : _note,
+            style: GoogleFonts.spaceGrotesk(fontSize: 14, height: 1.4),
+          ),
+          if (widget.projectId.isNotEmpty && _deliverableId.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.layers_outlined, size: 16),
+              label: Text(_deliverableLabel == null
+                  ? 'Open deliverable'
+                  : 'Open deliverable · $_deliverableLabel'),
+              onPressed: _firstDocumentId == null
+                  ? null
+                  : () => _openDocument(context, _firstDocumentId!),
+            ),
+          ],
+          if (_annotationIDs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Linked annotations (${_annotationIDs.length})',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+                color: DesignColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(8),
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              )
+            else
+              for (final id in _annotationIDs)
+                _LinkedAnnotationRow(
+                  id: id,
+                  resolved: _annotationsByID[id],
+                  onTap: () {
+                    final docID =
+                        (_annotationsByID[id]?['_doc_id'] ?? '').toString();
+                    if (docID.isNotEmpty) _openDocument(context, docID);
+                  },
+                ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _openDocument(BuildContext context, String docID) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DocumentDetailScreen(documentId: docID),
+      ),
+    );
+  }
+}
+
+class _LinkedAnnotationRow extends StatelessWidget {
+  final String id;
+  final Map<String, dynamic>? resolved;
+  final VoidCallback onTap;
+  const _LinkedAnnotationRow({
+    required this.id,
+    required this.resolved,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = resolved;
+    final missing = r == null;
+    final kind = (r?['kind'] ?? 'comment').toString();
+    final section = (r?['section_slug'] ?? '').toString();
+    final body = (r?['body'] ?? '').toString();
+    final status = (r?['status'] ?? 'open').toString();
+    return InkWell(
+      onTap: missing ? null : onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(
+                _glyphFor(kind),
+                size: 14,
+                color: missing
+                    ? DesignColors.textMuted
+                    : (status == 'resolved'
+                        ? DesignColors.textMuted
+                        : DesignColors.primary),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    missing
+                        ? '(annotation $id no longer available)'
+                        : body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      height: 1.35,
+                      color: missing
+                          ? DesignColors.textMuted
+                          : null,
+                      fontStyle: missing ? FontStyle.italic : null,
+                    ),
+                  ),
+                  if (!missing) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '$kind · $section${status == 'resolved' ? ' · resolved' : ''}',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 9,
+                        color: DesignColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (!missing)
+              const Icon(Icons.chevron_right,
+                  size: 16, color: DesignColors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _glyphFor(String kind) {
+    switch (kind) {
+      case 'redline':
+        return Icons.format_strikethrough;
+      case 'suggestion':
+        return Icons.swap_horiz;
+      case 'question':
+        return Icons.help_outline;
+      default:
+        return Icons.chat_bubble_outline;
+    }
   }
 }

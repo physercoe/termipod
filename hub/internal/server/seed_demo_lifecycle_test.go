@@ -215,6 +215,33 @@ func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 		t.Errorf("AttentionItemCount = %d; want 5", got)
 	}
 
+	// ADR-020 W2: the lit-review demo emits a `revision_requested`
+	// attention item carrying deliverable_id + annotation_ids in the
+	// pending_payload_json so the steward can address each note.
+	var revisionPayload string
+	if err := db.QueryRowContext(ctx, `
+		SELECT COALESCE(pending_payload_json, '')
+		  FROM attention_items
+		 WHERE project_id = ? AND kind = 'revision_requested'`,
+		res.LitReviewProjectID).Scan(&revisionPayload); err != nil {
+		t.Fatalf("revision_requested lookup: %v", err)
+	}
+	if revisionPayload == "" {
+		t.Fatal("revision_requested attention has no payload")
+	}
+	var rev map[string]any
+	if err := json.Unmarshal([]byte(revisionPayload), &rev); err != nil {
+		t.Fatalf("decode revision payload: %v", err)
+	}
+	if rev["deliverable_id"] == nil || rev["deliverable_id"] == "" {
+		t.Errorf("revision payload missing deliverable_id: %v", rev)
+	}
+	annIDs, _ := rev["annotation_ids"].([]any)
+	if len(annIDs) != 3 {
+		t.Errorf("revision payload annotation_ids len=%d; want 3 (lit-review seed)",
+			len(annIDs))
+	}
+
 	// Audit rows include criterion.created entries and at least one
 	// deliverable.ratified entry.
 	var critCreated, delivRatified int

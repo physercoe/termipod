@@ -31,6 +31,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          flutter-version: '3.41.9'
           cache: true
 
       - name: Cache pub dependencies
@@ -66,6 +67,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
+          set -euo pipefail
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
           IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NUM%%-*}"
@@ -75,12 +77,30 @@ jobs:
           # a ~90 MB fat APK that bundles native libs for all three.
           # --obfuscate + --split-debug-info strips Dart symbols for a
           # few more MB; the mapping lives under build/symbols/.
-          flutter build apk --release --split-per-abi \
-            --obfuscate --split-debug-info=build/symbols \
-            --build-name="$VERSION_NUM" \
-            --build-number="$BUILD_NUMBER" \
-            --dart-define=APP_VERSION="$VERSION" \
-            --dart-define=GIT_REF="$GIT_REF"
+          #
+          # Retry loop: Gradle plugin-marker resolution
+          # (org.gradle.kotlin.kotlin-dsl, the Flutter Android Gradle
+          # plugin) is one network hop away from us and has flaked at
+          # least once in production (v1.0.370-alpha, 2026-05-06). The
+          # failure mode is "Plugin … was not found in any of the
+          # following sources" which is fatal but transient. Retry up
+          # to 3 times with backoff before failing the build for real.
+          for attempt in 1 2 3; do
+            if flutter build apk --release --split-per-abi \
+                --obfuscate --split-debug-info=build/symbols \
+                --build-name="$VERSION_NUM" \
+                --build-number="$BUILD_NUMBER" \
+                --dart-define=APP_VERSION="$VERSION" \
+                --dart-define=GIT_REF="$GIT_REF"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::APK build failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::APK build attempt $attempt failed; retrying after backoff"
+            sleep $((attempt * 30))
+          done
 
       - name: Rename APKs
         run: |

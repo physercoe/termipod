@@ -153,10 +153,29 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 		// neither on disk nor in the embedded FS.
 		body, err = fs.ReadFile(hub.TemplatesFS, "templates/"+cat+"/"+name)
 		if err != nil {
-			writeErr(w, http.StatusNotFound, "template not found")
-			return
+			// Project templates support a `name:` field that is the
+			// logical identifier (template_id), distinct from the file's
+			// basename which can carry an informational version suffix
+			// (e.g. `research.v1.yaml` carries `name: research`). When
+			// the request URL uses the logical id without the suffix,
+			// fall back to a directory scan that matches by `name:`.
+			// Mirrors `template_hydration.readProjectTemplateYAML`.
+			if cat == "projects" && strings.HasSuffix(name, ".yaml") {
+				alt := s.readProjectTemplateYAML(
+					strings.TrimSuffix(name, ".yaml"))
+				if alt == "" {
+					writeErr(w, http.StatusNotFound, "template not found")
+					return
+				}
+				body = []byte(alt)
+				diskMissing = true
+			} else {
+				writeErr(w, http.StatusNotFound, "template not found")
+				return
+			}
+		} else {
+			diskMissing = true
 		}
-		diskMissing = true
 	}
 	// merge=1 overlays the disk file onto the embedded built-in so a
 	// stale on-disk template (e.g. seeded by an older hub before

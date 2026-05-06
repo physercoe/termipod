@@ -1,9 +1,9 @@
 # Research-demo lifecycle — wedge plan
 
 > **Type:** plan
-> **Status:** In flight (2026-04-30) — **hub-side complete (W1, W2, W4, W5, W6 shipped); W3 (mobile) remaining**
+> **Status:** In flight (2026-05-06) — **hub-side complete (W1, W2, W4, W5, W6 shipped, W6 seed expanded); W3 (mobile) remaining**
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.359
 
 **TL;DR.** Six wedges to ship the amended demo
 ([ADR-001 amendment](../decisions/001-locked-candidate-a.md), design in
@@ -297,6 +297,8 @@ Each worker prompt encodes the safety guardrails from
 **Shipped:** commit `f1b8340`. Bundled plan template + `SeedLifecycleDemo` + `seed-demo --shape lifecycle` CLI flag. Reset path scoped per shape. JSON encoder uses `SetEscapeHTML(false)` for plan spec_json so "Method & Code" lands as-is. 4 tests cover: insert shape (project/plan/agents/documents/attention), idempotency, reset round-trip, embed bundling.
 
 A reviewer can now run `hub-server seed-demo --shape lifecycle` to stage every checkpoint of `run-lifecycle-demo.md` and tap through each phase's state from a connected mobile app.
+
+**Update 2026-05-06 — seed expanded to a five-project portfolio.** With the lifecycle-mvp wedges (W1–W7) shipped, the original single-project seed (one project parked at phase 2 in_progress) only exercised one slice of the new mobile UI vocabulary. The `seed-demo --shape lifecycle` harness now stages five research-template projects, one parked at each phase, with the right deliverable / criterion / section mix per phase to exercise all 5 W7 heroes, all 4 acceptance-criteria states (pending/met/failed/waived), all 3 deliverable ratification states, and all 3 section states. `template_id` corrected from the stale `research-project.v1` to the embedded `research` template's actual name; the chassis now also honors `phase_specs[<phase>].overview_widget` so the per-phase hero swap renders correctly in the five seeded projects. See `run-lifecycle-demo.md` §"Lifecycle UI dress-rehearsal" for the row-by-row inventory.
 
 
 **Goal:** The plan that ties phases 0–4 together exists; the no-GPU

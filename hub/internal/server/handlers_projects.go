@@ -65,17 +65,24 @@ type projectOut struct {
 }
 
 // resolveOverviewWidget returns the hero widget kind to surface on the
-// project read payload. Projects with no template_id get the default;
-// projects with a template_id look up the YAML-declared overview_widget
-// and fall back to the default if the template isn't found or doesn't
-// declare one. Unknown values are normalized away by loadProjectTemplates.
+// project read payload. Resolution order:
+//  1. phase_specs[<phase>].overview_widget — phase-scoped swap-in (W7)
+//  2. project-level overview_widget on the template doc
+//  3. overviewWidgetDefault.
+// Projects with no template_id always get the default. Unknown values
+// are normalized away by loadProjectTemplates / phaseOverviewWidget.
 //
 // Reads the template set off disk on each call. Cardinality is small
 // (< 20 docs in practice) and the bulk handlers (list/get) are low-QPS
 // compared to run metrics — caching is not worth the staleness risk.
-func (s *Server) resolveOverviewWidget(templateID string) string {
+func (s *Server) resolveOverviewWidget(templateID, phase string) string {
 	if templateID == "" {
 		return overviewWidgetDefault
+	}
+	if phase != "" {
+		if w := s.phaseOverviewWidget(templateID, phase); w != "" {
+			return w
+		}
 	}
 	docs, err := loadProjectTemplates(s.cfg.DataRoot)
 	if err != nil {
@@ -247,7 +254,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
-		OverviewWidget: s.resolveOverviewWidget(in.TemplateID),
+		OverviewWidget: s.resolveOverviewWidget(in.TemplateID, initPhase),
 		Phase:          initPhase,
 		Phases:         s.templatePhases(in.TemplateID),
 	}
@@ -356,7 +363,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
+		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
 		p.Phases = s.templatePhases(p.TemplateID)
 		out = append(out, p)
 	}
@@ -378,7 +385,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID)
+	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
 	p.Phases = s.templatePhases(p.TemplateID)
 	writeJSON(w, http.StatusOK, p)
 }

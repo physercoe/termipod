@@ -8,7 +8,6 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
-import '../../widgets/activity_snippet.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/phase_ribbon.dart';
 import '../../widgets/shortcut_tile_strip.dart';
@@ -88,9 +87,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     );
   }
 
-  // Pill order locked by IA §6.2 (W2 — Channel demoted to AppBar). Index
-  // 1 is the canonical "Activity" feed; the project Activity-snippet on
-  // Overview deep-links here via `_jump(_activityIndex)`.
+  // Pill order locked by IA §6.2 (W2 — Channel demoted to AppBar).
   static const _labels = [
     'Overview',
     'Activity',
@@ -98,7 +95,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
     'Tasks',
     'Files',
   ];
-  static const int _activityIndex = 1;
 
   @override
   void initState() {
@@ -267,10 +263,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               controller: _pager,
               onPageChanged: (i) => setState(() => _index = i),
               children: [
-                _OverviewView(
-                  project: _project,
-                  onOpenActivity: () => _jump(_activityIndex),
-                ),
+                _OverviewView(project: _project),
                 _ActivityView(projectId: projectId),
                 _AgentsView(projectId: projectId),
                 _TasksView(projectId: projectId),
@@ -1111,11 +1104,7 @@ class _AgentsView extends ConsumerWidget {
 
 class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
-  final VoidCallback onOpenActivity;
-  const _OverviewView({
-    required this.project,
-    required this.onOpenActivity,
-  });
+  const _OverviewView({required this.project});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1176,15 +1165,9 @@ class _OverviewView extends ConsumerWidget {
             buildWorkspaceOverview(OverviewContext(project: project)),
             const SizedBox(height: 12),
           ],
-          // W2 (IA §6.2): recent-activity digest sits between the hero
-          // region and the shortcut tiles. "View all" deep-links into
-          // the Activity pill, which the parent screen exposes via
-          // onOpenActivity.
-          ActivitySnippet(
-            projectId: projectId,
-            onViewAll: onOpenActivity,
-          ),
-          const SizedBox(height: 12),
+          // (Was: ActivitySnippet digest here — removed 2026-05-06.
+          // The dedicated Activity pill on this same project detail
+          // screen carries the same feed; rendering both was redundant.)
           // W4 (IA §6.2 / template-yaml-schema §11): replace the prior
           // 7-hard-coded-tile strip with the template-declared,
           // phase-filtered set. Reviews removed — orange attention

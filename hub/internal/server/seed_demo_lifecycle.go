@@ -1,129 +1,203 @@
 // seed_demo_lifecycle.go — `--shape lifecycle` extension to the
-// existing seed-demo harness (W6 of the lifecycle wedge plan).
+// existing seed-demo harness. Stages a portfolio of five research-
+// template projects, each parked at a different phase, so a reviewer
+// (or mobile-UI integration test) can tap through the lifecycle UI
+// without running phases live.
 //
-// Stages a multi-phase research project so a reviewer can tap into
-// any phase and see realistic state without running the lifecycle
-// live. Distinct from `--shape ablation` (the original Candidate A
-// single-phase demo, which still works for phase-3 isolation
-// testing — see run-the-demo.md).
+// Why five projects: every phase declares a distinct overview_widget
+// (idea_conversation, deliverable_focus, deliverable_focus,
+// experiment_dash, paper_acceptance) and a distinct deliverable +
+// criterion mix. A single project parked at one phase only exercises
+// one slice of the UI vocabulary; five projects exercise:
+//   - all five W7 phase heroes (after the resolveOverviewWidget
+//     phase-scoped lookup lands)
+//   - three deliverable ratification states (draft, in-review, ratified)
+//   - all four acceptance-criteria states (pending, met, failed, waived)
+//   - all three section states (empty, draft, ratified) on typed docs
+//   - all three criterion kinds (text, metric, gate)
+//   - phase ribbon at every position (current=highlighted, completed=ok,
+//     pending=muted)
 //
-// What gets inserted:
+// Distinct from `--shape ablation` (the original Candidate A single-
+// phase sweep demo, which still works for phase-3 isolation testing).
 //
-//   - 1 project (kind=goal, name=research-lifecycle-demo)
-//   - 1 plan with a 5-phase spec_json mirroring research-project.v1
-//   - 5 plan_steps: phase 0 + 1 completed, phase 2 in_progress,
-//     phases 3 + 4 pending
-//   - 2 agents: a domain steward (running, owns phases 1-4) and a
-//     coder worker (running, working on phase 2)
-//   - 2 documents: lit-review report (phase 1 output), partial
-//     method draft (phase 2 in progress)
-//   - 1 attention_item: pending phase-2 approval gate (the
-//     director's next action)
-//
-// Idempotent — re-running with the same name reports the existing
-// project. Use `--reset` to wipe and refresh.
+// Idempotent — re-running with the same project names reports the
+// existing rows without touching anything. Use `--reset` to wipe the
+// whole portfolio and re-insert.
 
 package server
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
-// SeedLifecycleResult summarises the lifecycle seed insert.
+// SeedLifecycleResult summarises the lifecycle seed insert. Keys carry
+// what a CLI run prints + what tests assert on.
 type SeedLifecycleResult struct {
-	ProjectID        string
-	PlanID           string
-	StewardAgentID   string
-	CoderAgentID     string
-	LitReviewDocID   string
-	MethodDocID      string
-	AttentionID      string
-	Skipped          bool
-	Reset            bool
+	// Project IDs for each of the five phase-staged demos. Empty when
+	// the corresponding row already existed (Skipped=true).
+	IdeaProjectID       string
+	LitReviewProjectID  string
+	MethodProjectID     string
+	ExperimentProjectID string
+	PaperProjectID      string
+
+	ProjectIDs []string // convenience: all five, in canonical phase order
+
+	StewardAgentIDs    []string // one steward per project
+	DeliverableCount   int      // total deliverables inserted
+	CriterionCount     int      // total acceptance_criteria inserted
+	CriteriaByState    map[string]int
+	DocumentCount      int // typed (W5a) + plain documents
+	ArtifactCount      int
+	RunCount           int
+	AttentionItemCount int
+	AuditCount         int
+
+	Skipped bool // true when first-project lookup already exists
+	Reset   bool // mirrored from the CLI flag for the summary line
 }
 
-const lifecycleDemoProjectName = "research-lifecycle-demo"
+// Canonical names of the seeded research portfolio. ResetLifecycleDemo
+// looks up by these explicit names rather than a LIKE prefix so a stray
+// real project named `research-foo` can coexist on the same hub.
+const (
+	lifecycleProjectIdea       = "research-idea-demo"
+	lifecycleProjectLitReview  = "research-litreview-demo"
+	lifecycleProjectMethod     = "research-method-demo"
+	lifecycleProjectExperiment = "research-experiment-demo"
+	lifecycleProjectPaper      = "research-paper-demo"
 
-// ResetLifecycleDemo deletes the prior lifecycle demo project and
-// dependent rows. Mirrors ResetDemo's transactional shape; safe to
-// call when no demo exists.
+	lifecycleTemplateID = "research"
+)
+
+// lifecycleDemoNames lists the five seeded project names in canonical
+// phase order. Used by Reset + tests; the seed pass derives the names
+// from a more structured table below.
+var lifecycleDemoNames = []string{
+	lifecycleProjectIdea,
+	lifecycleProjectLitReview,
+	lifecycleProjectMethod,
+	lifecycleProjectExperiment,
+	lifecycleProjectPaper,
+}
+
+// ResetLifecycleDemo deletes every research-*-demo project + its
+// dependent rows (deliverables, components, criteria, plans, agents,
+// attention, audit). Safe to call when no demo exists; returns
+// deleted=true iff at least one project was wiped.
 func ResetLifecycleDemo(ctx context.Context, db *sql.DB) (deleted bool, err error) {
 	if db == nil {
 		return false, fmt.Errorf("ResetLifecycleDemo: nil db")
 	}
-	var projectID string
-	err = db.QueryRowContext(ctx,
-		`SELECT id FROM projects WHERE team_id = ? AND name = ?`,
-		defaultTeamID, lifecycleDemoProjectName).Scan(&projectID)
-	if errors.Is(err, sql.ErrNoRows) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id FROM projects WHERE team_id = ? AND name IN (?,?,?,?,?)`,
+		defaultTeamID,
+		lifecycleProjectIdea, lifecycleProjectLitReview,
+		lifecycleProjectMethod, lifecycleProjectExperiment,
+		lifecycleProjectPaper)
+	if err != nil {
+		return false, fmt.Errorf("lookup lifecycle demos: %w", err)
+	}
+	var projectIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return false, err
+		}
+		projectIDs = append(projectIDs, id)
+	}
+	rows.Close()
+	if len(projectIDs) == 0 {
 		return false, nil
 	}
-	if err != nil {
-		return false, fmt.Errorf("lookup lifecycle demo: %w", err)
-	}
+
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Order matters — child rows first, then the project. ON DELETE
-	// CASCADE on projects covers most of these (plans, attention_items),
-	// but agents reference team_id rather than project_id and need
-	// explicit cleanup.
-	statements := []struct{ sql string }{
-		{`DELETE FROM attention_items WHERE project_id = ?`},
-		{`DELETE FROM documents WHERE project_id = ?`},
-		{`DELETE FROM plan_steps WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?)`},
-		{`DELETE FROM plans WHERE project_id = ?`},
-		// agents have no project_id column; clean by handle convention
-		// — the seed handles are namespaced under @lifecycle-* so
-		// they're easy to find without false positives.
-		{`DELETE FROM agents WHERE team_id = ? AND handle LIKE '@lifecycle-%'`},
-		{`DELETE FROM projects WHERE id = ?`},
+	// Per-project child rows. acceptance_criteria, deliverable_components,
+	// deliverables CASCADE off projects (migration 0034); plans, attention,
+	// documents, artifacts, runs do not. Walk explicitly so the seed +
+	// reset paths are symmetric.
+	perProject := []string{
+		`DELETE FROM acceptance_criteria WHERE project_id = ?`,
+		`DELETE FROM deliverable_components
+		 WHERE deliverable_id IN (SELECT id FROM deliverables WHERE project_id = ?)`,
+		`DELETE FROM deliverables WHERE project_id = ?`,
+		`DELETE FROM attention_items WHERE project_id = ?`,
+		`DELETE FROM documents WHERE project_id = ?`,
+		`DELETE FROM artifacts WHERE project_id = ?`,
+		`DELETE FROM runs WHERE project_id = ?`,
+		`DELETE FROM plan_steps
+		 WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?)`,
+		`DELETE FROM plans WHERE project_id = ?`,
+		`DELETE FROM projects WHERE id = ?`,
 	}
-	for i, st := range statements {
-		var arg any = projectID
-		if i == 4 {
-			arg = defaultTeamID
-		}
-		var execErr error
-		if i == 4 {
-			_, execErr = tx.ExecContext(ctx, st.sql, defaultTeamID)
-		} else {
-			_, execErr = tx.ExecContext(ctx, st.sql, arg)
-		}
-		if execErr != nil {
-			return false, fmt.Errorf("reset step %d: %w", i, execErr)
+	for _, pid := range projectIDs {
+		for _, q := range perProject {
+			if _, err := tx.ExecContext(ctx, q, pid); err != nil {
+				return false, fmt.Errorf("reset (%s): %w", pid, err)
+			}
 		}
 	}
+
+	// Demo-scoped agents (handle prefix '@lifecycle-') aren't keyed off
+	// project_id; clean by handle convention. Same prefix used by every
+	// research-*-demo seed, so this is one statement, not five.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM agents WHERE team_id = ? AND handle LIKE '@lifecycle-%'`,
+		defaultTeamID); err != nil {
+		return false, fmt.Errorf("reset lifecycle agents: %w", err)
+	}
+
+	// Audit rows the seed authored land with actor_handle='steward.lifecycle'
+	// so they're identifiable independent of project_id (which the per-
+	// project DELETE above already swept their target rows for).
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM audit_events
+		 WHERE team_id = ? AND actor_handle = 'steward.lifecycle'`,
+		defaultTeamID); err != nil {
+		return false, fmt.Errorf("reset lifecycle audit_events: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("commit reset: %w", err)
 	}
 	return true, nil
 }
 
-// SeedLifecycleDemo inserts a 5-phase research project with mixed
-// per-phase state so the mobile UI can render every checkpoint of
-// run-lifecycle-demo.md without the lifecycle running live.
+// SeedLifecycleDemo inserts the five-project research portfolio. If
+// the first-phase project (research-idea-demo) already exists, the
+// whole seed is treated as already-done and Skipped=true is returned;
+// the caller is expected to pass `--reset` for a refresh.
 func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("SeedLifecycleDemo: nil db")
 	}
+
+	// Idempotency check — keyed off the idea-phase project. If the
+	// portfolio is half-seeded for some reason, the caller should reset
+	// rather than partial-insert; the alternative (per-row IGNORE) hides
+	// drift between the seed code and the on-disk state.
 	var existingID string
 	err := db.QueryRowContext(ctx,
 		`SELECT id FROM projects WHERE team_id = ? AND name = ?`,
-		defaultTeamID, lifecycleDemoProjectName).Scan(&existingID)
+		defaultTeamID, lifecycleProjectIdea).Scan(&existingID)
 	if err == nil {
-		return &SeedLifecycleResult{ProjectID: existingID, Skipped: true}, nil
+		return &SeedLifecycleResult{
+			IdeaProjectID: existingID,
+			Skipped:       true,
+		}, nil
 	}
-	if err != sql.ErrNoRows {
+	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("check existing lifecycle demo: %w", err)
 	}
 	if err := ensureTeam(ctx, db, defaultTeamID, "default"); err != nil {
@@ -136,289 +210,1164 @@ func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, e
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	res := &SeedLifecycleResult{}
+	res := &SeedLifecycleResult{
+		CriteriaByState: map[string]int{},
+	}
 	now := NowUTC()
 
-	// 1. The project. parameters_json carries the director's idea
-	//    just as a real lifecycle project would.
-	res.ProjectID = NewID()
-	params, _ := json.Marshal(map[string]any{
-		"idea": "Compare Lion vs AdamW on tiny GPT pretraining; does Lion's advantage hold across model sizes?",
-	})
+	for _, spec := range lifecycleSpecs() {
+		ctxRes, err := seedLifecycleProject(ctx, tx, spec, now)
+		if err != nil {
+			return nil, fmt.Errorf("seed %s: %w", spec.name, err)
+		}
+		switch spec.phase {
+		case "idea":
+			res.IdeaProjectID = ctxRes.projectID
+		case "lit-review":
+			res.LitReviewProjectID = ctxRes.projectID
+		case "method":
+			res.MethodProjectID = ctxRes.projectID
+		case "experiment":
+			res.ExperimentProjectID = ctxRes.projectID
+		case "paper":
+			res.PaperProjectID = ctxRes.projectID
+		}
+		res.ProjectIDs = append(res.ProjectIDs, ctxRes.projectID)
+		res.StewardAgentIDs = append(res.StewardAgentIDs, ctxRes.stewardID)
+		res.DeliverableCount += ctxRes.deliverables
+		res.CriterionCount += ctxRes.criteria
+		for k, v := range ctxRes.byState {
+			res.CriteriaByState[k] += v
+		}
+		res.DocumentCount += ctxRes.documents
+		res.ArtifactCount += ctxRes.artifacts
+		res.RunCount += ctxRes.runs
+		res.AttentionItemCount += ctxRes.attentionItems
+		res.AuditCount += ctxRes.audits
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit lifecycle seed: %w", err)
+	}
+	return res, nil
+}
+
+// lifecycleSpec describes one of the five seeded projects: which phase
+// it lives in, which deliverables/criteria/components belong on it, and
+// what role-specific copy the UI surfaces should display.
+type lifecycleSpec struct {
+	name        string
+	phase       string
+	idea        string // project goal / parameters_json idea
+	pastPhases  []string
+	stewardKind string
+	workerKinds []string
+
+	// Builders for per-phase content. Each function appends to the
+	// transaction and returns counters for the result summary. The
+	// builders all carry the project + steward IDs (via the ctx
+	// pointer) so they can attach rows to the right parent and bump
+	// the doc/artifact/run counters.
+	deliverables func(*seedProjectCtx) ([]seededDeliverable, error)
+	criteria     func(*seedProjectCtx, []seededDeliverable) ([]seededCriterion, error)
+	attention    func(*seedProjectCtx) (string, string) // (kind, summary)
+	planSteps    []lifecyclePlanStep
+}
+
+type lifecyclePlanStep struct {
+	phase  string
+	status string // pending | in_progress | completed
+}
+
+type seedProjectCtx struct {
+	tx        *sql.Tx
+	ctx       context.Context
+	projectID string
+	stewardID string
+	now       string
+	phase     string
+
+	// Side-effect counters: bumped by the typed-document / artifact /
+	// run helpers so the per-project pass can roll them up into the
+	// SeedLifecycleResult without threading return values.
+	documentsSeeded int
+	artifactsSeeded int
+	runsSeeded      int
+}
+
+type seededDeliverable struct {
+	id    string
+	logID string // matches the YAML logical id (e.g. "lit-review-doc")
+	phase string
+	kind  string
+	state string
+}
+
+type seededCriterion struct {
+	id    string
+	state string
+	kind  string
+}
+
+// lifecycleSpecs builds the per-project specs. Defined as a function
+// (not a const) so tests can call it without importing private state
+// and so the closures inside have a clear lexical scope.
+func lifecycleSpecs() []lifecycleSpec {
+	return []lifecycleSpec{
+		{
+			name:        lifecycleProjectIdea,
+			phase:       "idea",
+			idea:        "Compare Lion vs AdamW on tiny GPT pretraining; does Lion's advantage hold across model sizes?",
+			pastPhases:  nil,
+			stewardKind: "steward.research.v1",
+			workerKinds: nil,
+			planSteps: []lifecyclePlanStep{
+				{"idea", "in_progress"},
+				{"lit-review", "pending"},
+				{"method", "pending"},
+				{"experiment", "pending"},
+				{"paper", "pending"},
+			},
+			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
+				return nil, nil // idea phase declares no deliverables
+			},
+			criteria: func(c *seedProjectCtx, _ []seededDeliverable) ([]seededCriterion, error) {
+				return seedCriteria(c, []criterionSpec{
+					{
+						logID:    "scope-ratified",
+						phase:    "idea",
+						kind:     "text",
+						body:     map[string]any{"text": "Director ratifies overall scope and direction."},
+						state:    "pending",
+						required: true,
+					},
+				})
+			},
+			attention: func(c *seedProjectCtx) (string, string) {
+				return "select",
+					"Director: ratify scope and direction so the steward can spawn a literature reviewer."
+			},
+		},
+
+		{
+			name:        lifecycleProjectLitReview,
+			phase:       "lit-review",
+			idea:        "Survey of mixture-of-depth transformer routing strategies for small models.",
+			pastPhases:  []string{"idea"},
+			stewardKind: "steward.research.v1",
+			workerKinds: []string{"lit-reviewer.v1"},
+			planSteps: []lifecyclePlanStep{
+				{"idea", "completed"},
+				{"lit-review", "in_progress"},
+				{"method", "pending"},
+				{"experiment", "pending"},
+				{"paper", "pending"},
+			},
+			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
+				doc, err := seedTypedDocument(c,
+					"Literature review",
+					"research-lit-review-v1",
+					[]sectionSeed{
+						{slug: "domain-overview", title: "Domain overview", status: "ratified",
+							body: domainOverviewBody()},
+						{slug: "prior-work", title: "Key prior work", status: "ratified",
+							body: priorWorkBody()},
+						{slug: "gaps", title: "Research gaps", status: "draft",
+							body: gapsDraftBody()},
+						{slug: "positioning", title: "Project positioning", status: "empty"},
+					})
+				if err != nil {
+					return nil, err
+				}
+				return seedDeliverables(c, []deliverableSpec{
+					{
+						logID:      "lit-review-doc",
+						phase:      "lit-review",
+						kind:       "lit-review",
+						state:      "in-review",
+						components: []componentSpec{{kind: "document", refID: doc.id}},
+					},
+				})
+			},
+			criteria: func(c *seedProjectCtx, dls []seededDeliverable) ([]seededCriterion, error) {
+				deliv := findDeliverableByLogID(dls, "lit-review-doc")
+				return seedCriteria(c, []criterionSpec{
+					{
+						logID:        "lit-review-ratified",
+						phase:        "lit-review",
+						kind:         "gate",
+						deliverableID: deliv,
+						body: map[string]any{
+							"gate":   "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": deliv},
+						},
+						state:    "pending",
+						required: true,
+					},
+					{
+						logID:        "min-citations",
+						phase:        "lit-review",
+						kind:         "metric",
+						deliverableID: deliv,
+						body: map[string]any{
+							"metric":     "lit_review.citation_count",
+							"operator":   ">=",
+							"threshold":  5,
+							"evaluation": "auto",
+							"observed":   8,
+						},
+						state:        "met",
+						evidenceRef:  "metric:lit_review.citation_count=8",
+						required:     false,
+					},
+				})
+			},
+			attention: func(c *seedProjectCtx) (string, string) {
+				return "select",
+					"Director: lit-review draft is in review. Ratify when ready to advance to method."
+			},
+		},
+
+		{
+			name:        lifecycleProjectMethod,
+			phase:       "method",
+			idea:        "Replicate paper X with adjusted hyperparameters; falsify or confirm the headline finding.",
+			pastPhases:  []string{"idea", "lit-review"},
+			stewardKind: "steward.research.v1",
+			workerKinds: []string{"critic.v1"},
+			planSteps: []lifecyclePlanStep{
+				{"idea", "completed"},
+				{"lit-review", "completed"},
+				{"method", "in_progress"},
+				{"experiment", "pending"},
+				{"paper", "pending"},
+			},
+			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
+				// Carry-over: a ratified lit-review doc from the prior phase.
+				litDoc, err := seedTypedDocument(c,
+					"Literature review",
+					"research-lit-review-v1",
+					[]sectionSeed{
+						{slug: "domain-overview", title: "Domain overview", status: "ratified",
+							body: domainOverviewBody()},
+						{slug: "prior-work", title: "Key prior work", status: "ratified",
+							body: priorWorkBody()},
+						{slug: "gaps", title: "Research gaps", status: "ratified",
+							body: gapsRatifiedBody()},
+						{slug: "positioning", title: "Project positioning", status: "ratified",
+							body: positioningBody()},
+					})
+				if err != nil {
+					return nil, err
+				}
+				methDoc, err := seedTypedDocument(c,
+					"Method",
+					"research-method-v1",
+					methodSectionSeeds())
+				if err != nil {
+					return nil, err
+				}
+				return seedDeliverables(c, []deliverableSpec{
+					{
+						logID:      "lit-review-doc",
+						phase:      "lit-review",
+						kind:       "lit-review",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: litDoc.id}},
+					},
+					{
+						logID:      "method-doc",
+						phase:      "method",
+						kind:       "method",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: methDoc.id}},
+					},
+				})
+			},
+			criteria: func(c *seedProjectCtx, dls []seededDeliverable) ([]seededCriterion, error) {
+				lit := findDeliverableByLogID(dls, "lit-review-doc")
+				meth := findDeliverableByLogID(dls, "method-doc")
+				return seedCriteria(c, []criterionSpec{
+					{
+						logID: "lit-review-ratified", phase: "lit-review", kind: "gate",
+						deliverableID: lit,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": lit}},
+						state:        "met",
+						evidenceRef:  "deliverable.ratified:" + lit,
+						required:     true,
+					},
+					{
+						logID: "min-citations", phase: "lit-review", kind: "metric",
+						deliverableID: lit,
+						body: map[string]any{"metric": "lit_review.citation_count",
+							"operator": ">=", "threshold": 5, "evaluation": "auto", "observed": 11},
+						state:        "met",
+						evidenceRef:  "metric:lit_review.citation_count=11",
+						required:     false,
+					},
+					{
+						logID: "method-ratified", phase: "method", kind: "gate",
+						deliverableID: meth,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": meth}},
+						state:        "met",
+						evidenceRef:  "deliverable.ratified:" + meth,
+						required:     true,
+					},
+					{
+						logID: "budget-within-cap", phase: "method", kind: "text",
+						deliverableID: meth,
+						body: map[string]any{
+							"text": "Budget cap declared; total estimated cost under budget."},
+						state:        "met",
+						evidenceRef:  "approved:director",
+						required:     true,
+					},
+				})
+			},
+			attention: func(c *seedProjectCtx) (string, string) {
+				return "select",
+					"Method ratified. Steward will spawn ml-worker + coder when you advance to experiment."
+			},
+		},
+
+		{
+			name:        lifecycleProjectExperiment,
+			phase:       "experiment",
+			idea:        "Sweep nanoGPT optimizers across three sizes; confirm the best-metric threshold.",
+			pastPhases:  []string{"idea", "lit-review", "method"},
+			stewardKind: "steward.research.v1",
+			workerKinds: []string{"ml-worker.v1", "coder.v1", "critic.v1"},
+			planSteps: []lifecyclePlanStep{
+				{"idea", "completed"},
+				{"lit-review", "completed"},
+				{"method", "completed"},
+				{"experiment", "in_progress"},
+				{"paper", "pending"},
+			},
+			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
+				litDoc, err := seedTypedDocument(c, "Literature review",
+					"research-lit-review-v1", litReviewSectionSeedsRatified())
+				if err != nil {
+					return nil, err
+				}
+				methDoc, err := seedTypedDocument(c, "Method",
+					"research-method-v1", methodSectionSeedsRatified())
+				if err != nil {
+					return nil, err
+				}
+				expDoc, err := seedTypedDocument(c, "Experiment report (draft)",
+					"research-experiment-report-v1", experimentReportDraftSeeds())
+				if err != nil {
+					return nil, err
+				}
+				ckptArt, err := seedArtifact(c, "checkpoint",
+					"best-checkpoint-step1000.pt", "application/octet-stream",
+					int64(384*4*1024*1024))
+				if err != nil {
+					return nil, err
+				}
+				evalArt, err := seedArtifact(c, "eval_curve",
+					"eval-results.json", "application/json", int64(8*1024))
+				if err != nil {
+					return nil, err
+				}
+				run, err := seedRun(c, "completed",
+					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
+				if err != nil {
+					return nil, err
+				}
+				return seedDeliverables(c, []deliverableSpec{
+					{logID: "lit-review-doc", phase: "lit-review", kind: "lit-review",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: litDoc.id}}},
+					{logID: "method-doc", phase: "method", kind: "method",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: methDoc.id}}},
+					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
+						state: "draft",
+						components: []componentSpec{
+							{kind: "document", refID: expDoc.id, ord: 0},
+							{kind: "artifact", refID: ckptArt.id, ord: 1},
+							{kind: "artifact", refID: evalArt.id, ord: 2},
+							{kind: "run", refID: run.id, ord: 3},
+						}},
+				})
+			},
+			criteria: func(c *seedProjectCtx, dls []seededDeliverable) ([]seededCriterion, error) {
+				lit := findDeliverableByLogID(dls, "lit-review-doc")
+				meth := findDeliverableByLogID(dls, "method-doc")
+				exp := findDeliverableByLogID(dls, "experiment-results")
+				return seedCriteria(c, []criterionSpec{
+					{logID: "lit-review-ratified", phase: "lit-review", kind: "gate",
+						deliverableID: lit,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": lit}},
+						state: "met", evidenceRef: "deliverable.ratified:" + lit, required: true},
+					{logID: "method-ratified", phase: "method", kind: "gate",
+						deliverableID: meth,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": meth}},
+						state: "met", evidenceRef: "deliverable.ratified:" + meth, required: true},
+					{logID: "budget-within-cap", phase: "method", kind: "text",
+						deliverableID: meth,
+						body:          map[string]any{"text": "Budget cap declared; total estimated cost under budget."},
+						state: "met", evidenceRef: "approved:director", required: true},
+					{logID: "best-metric-threshold", phase: "experiment", kind: "metric",
+						deliverableID: exp,
+						body: map[string]any{
+							"metric": "experiment.eval_accuracy", "operator": ">=",
+							"threshold": 0.85, "evaluation": "auto", "observed": 0.892},
+						state: "met", evidenceRef: "metric:experiment.eval_accuracy=0.892",
+						required: true},
+					{logID: "report-results-ratified", phase: "experiment", kind: "gate",
+						deliverableID: exp,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": exp}},
+						state: "pending", required: true},
+					{logID: "director-reviews", phase: "experiment", kind: "text",
+						deliverableID: exp,
+						body:          map[string]any{"text": "Director reviews experimental outputs and signs off."},
+						state:         "failed",
+						evidenceRef:   "director: needs another sweep — request revisions",
+						required:      true},
+				})
+			},
+			attention: func(c *seedProjectCtx) (string, string) {
+				return "select",
+					"Experiment results draft is ready. Inspect the report + checkpoint, then ratify or request revisions."
+			},
+		},
+
+		{
+			name:        lifecycleProjectPaper,
+			phase:       "paper",
+			idea:        "Write the paper draft for the optimizer-comparison results.",
+			pastPhases:  []string{"idea", "lit-review", "method", "experiment"},
+			stewardKind: "steward.research.v1",
+			workerKinds: []string{"paper-writer.v1", "critic.v1"},
+			planSteps: []lifecyclePlanStep{
+				{"idea", "completed"},
+				{"lit-review", "completed"},
+				{"method", "completed"},
+				{"experiment", "completed"},
+				{"paper", "in_progress"},
+			},
+			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
+				litDoc, err := seedTypedDocument(c, "Literature review",
+					"research-lit-review-v1", litReviewSectionSeedsRatified())
+				if err != nil {
+					return nil, err
+				}
+				methDoc, err := seedTypedDocument(c, "Method",
+					"research-method-v1", methodSectionSeedsRatified())
+				if err != nil {
+					return nil, err
+				}
+				expDoc, err := seedTypedDocument(c, "Experiment report",
+					"research-experiment-report-v1", experimentReportRatifiedSeeds())
+				if err != nil {
+					return nil, err
+				}
+				paperDoc, err := seedTypedDocument(c, "Paper draft",
+					"research-paper-draft-v1", paperDraftSeeds())
+				if err != nil {
+					return nil, err
+				}
+				ckptArt, err := seedArtifact(c, "checkpoint",
+					"best-checkpoint-step1000.pt", "application/octet-stream",
+					int64(384*4*1024*1024))
+				if err != nil {
+					return nil, err
+				}
+				evalArt, err := seedArtifact(c, "eval_curve",
+					"eval-results.json", "application/json", int64(8*1024))
+				if err != nil {
+					return nil, err
+				}
+				run, err := seedRun(c, "completed",
+					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
+				if err != nil {
+					return nil, err
+				}
+				return seedDeliverables(c, []deliverableSpec{
+					{logID: "lit-review-doc", phase: "lit-review", kind: "lit-review",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: litDoc.id}}},
+					{logID: "method-doc", phase: "method", kind: "method",
+						state:      "ratified",
+						components: []componentSpec{{kind: "document", refID: methDoc.id}}},
+					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
+						state: "ratified",
+						components: []componentSpec{
+							{kind: "document", refID: expDoc.id, ord: 0},
+							{kind: "artifact", refID: ckptArt.id, ord: 1},
+							{kind: "artifact", refID: evalArt.id, ord: 2},
+							{kind: "run", refID: run.id, ord: 3},
+						}},
+					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
+						state:      "in-review",
+						components: []componentSpec{{kind: "document", refID: paperDoc.id}}},
+				})
+			},
+			criteria: func(c *seedProjectCtx, dls []seededDeliverable) ([]seededCriterion, error) {
+				lit := findDeliverableByLogID(dls, "lit-review-doc")
+				meth := findDeliverableByLogID(dls, "method-doc")
+				exp := findDeliverableByLogID(dls, "experiment-results")
+				paper := findDeliverableByLogID(dls, "paper-draft")
+				return seedCriteria(c, []criterionSpec{
+					{logID: "lit-review-ratified", phase: "lit-review", kind: "gate",
+						deliverableID: lit,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": lit}},
+						state: "met", evidenceRef: "deliverable.ratified:" + lit, required: true},
+					{logID: "method-ratified", phase: "method", kind: "gate",
+						deliverableID: meth,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": meth}},
+						state: "met", evidenceRef: "deliverable.ratified:" + meth, required: true},
+					{logID: "best-metric-threshold", phase: "experiment", kind: "metric",
+						deliverableID: exp,
+						body: map[string]any{
+							"metric": "experiment.eval_accuracy", "operator": ">=",
+							"threshold": 0.85, "evaluation": "auto", "observed": 0.892},
+						state: "met", required: true},
+					{logID: "report-results-ratified", phase: "experiment", kind: "gate",
+						deliverableID: exp,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": exp}},
+						state: "met", required: true},
+					{logID: "paper-draft-ratified", phase: "paper", kind: "gate",
+						deliverableID: paper,
+						body: map[string]any{"gate": "deliverable.ratified",
+							"params": map[string]any{"deliverable_id": paper}},
+						state:        "waived",
+						evidenceRef:  "director: ratify deferred until reviewer feedback returns",
+						required:     true,
+					},
+				})
+			},
+			attention: func(c *seedProjectCtx) (string, string) {
+				return "select",
+					"Paper draft submitted to internal review. Ratify after reviewer feedback returns."
+			},
+		},
+	}
+}
+
+// ---------------------------------------------------------------------
+// Per-project seed pass.
+// ---------------------------------------------------------------------
+
+type lifecycleProjectResult struct {
+	projectID      string
+	stewardID      string
+	deliverables   int
+	criteria       int
+	byState        map[string]int
+	documents      int
+	artifacts      int
+	runs           int
+	attentionItems int
+	audits         int
+}
+
+func seedLifecycleProject(
+	ctx context.Context, tx *sql.Tx, spec lifecycleSpec, now string,
+) (lifecycleProjectResult, error) {
+	res := lifecycleProjectResult{byState: map[string]int{}}
+
+	// 1. The project row. parameters_json carries the director's idea
+	// just as a real lifecycle project would. Phase column reflects the
+	// current phase; phase_history accumulates the from→to transitions
+	// that brought the project here so the ribbon can render the trail.
+	res.projectID = NewID()
+	params, _ := json.Marshal(map[string]any{"idea": spec.idea})
+	history := buildPhaseHistory(spec.pastPhases, spec.phase, now)
+	historyJSON, _ := json.Marshal(history)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO projects
 			(id, team_id, name, status, config_yaml, created_at,
-			 goal, kind, is_template, template_id, parameters_json)
-		VALUES (?, ?, ?, 'active', '', ?, ?, 'goal', 0,
-		        'research-project.v1', ?)`,
-		res.ProjectID, defaultTeamID, lifecycleDemoProjectName, now,
-		"Lifecycle demo: idea → lit-review → method → experiment → paper",
-		string(params),
-	); err != nil {
-		return nil, fmt.Errorf("insert project: %w", err)
+			 goal, kind, is_template, template_id, parameters_json,
+			 phase, phase_history)
+		VALUES (?, ?, ?, 'active', '', ?, ?, 'goal', 0, ?, ?, ?, ?)`,
+		res.projectID, defaultTeamID, spec.name, now,
+		"Research lifecycle demo — phase: "+spec.phase,
+		lifecycleTemplateID, string(params),
+		spec.phase, string(historyJSON)); err != nil {
+		return res, fmt.Errorf("insert project: %w", err)
 	}
 
-	// 2. Plan with spec_json mirroring research-project.v1's 5
-	//    phases. The director's plan viewer reads spec_json.
-	res.PlanID = NewID()
-	planSpec := lifecyclePlanSpecJSON()
+	// 2. Plan + plan_steps.
+	planID := NewID()
+	planSpecJSON, _ := json.Marshal(map[string]any{
+		"template": lifecycleTemplateID,
+		"phases": []map[string]any{
+			{"idx": 0, "name": "Idea"},
+			{"idx": 1, "name": "Lit review"},
+			{"idx": 2, "name": "Method"},
+			{"idx": 3, "name": "Experiment"},
+			{"idx": 4, "name": "Paper"},
+		},
+	})
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO plans
 			(id, project_id, template_id, version, spec_json, status,
 			 created_at, started_at)
-		VALUES (?, ?, 'research-project.v1', 1, ?, 'running', ?, ?)`,
-		res.PlanID, res.ProjectID, planSpec, now, now,
-	); err != nil {
-		return nil, fmt.Errorf("insert plan: %w", err)
+		VALUES (?, ?, ?, 1, ?, 'running', ?, ?)`,
+		planID, res.projectID, lifecycleTemplateID,
+		string(planSpecJSON), now, now); err != nil {
+		return res, fmt.Errorf("insert plan: %w", err)
 	}
-
-	// 3. Five plan_steps, one per phase. Statuses:
-	//    0 completed, 1 completed, 2 in_progress, 3+4 pending.
-	phaseStates := []struct {
-		idx    int
-		kind   string
-		status string
-		spec   string
-	}{
-		{0, "agent_driven", "completed", `{"phase":"bootstrap","steward":"steward.general.v1"}`},
-		{1, "agent_driven", "completed", `{"phase":"lit_review","workers":["lit-reviewer.v1"]}`},
-		{2, "agent_driven", "in_progress", `{"phase":"method_and_code","workers":["coder.v1"]}`},
-		{3, "agent_driven", "pending", `{"phase":"experiment","workers":["ml-worker.v1"]}`},
-		{4, "agent_driven", "pending", `{"phase":"paper","workers":["paper-writer.v1"]}`},
-	}
-	for _, st := range phaseStates {
+	for i, st := range spec.planSteps {
+		stepSpec, _ := json.Marshal(map[string]any{"phase": st.phase})
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO plan_steps
 				(id, plan_id, phase_idx, step_idx, kind, spec_json, status)
-			VALUES (?, ?, ?, 0, ?, ?, ?)`,
-			NewID(), res.PlanID, st.idx, st.kind, st.spec, st.status,
-		); err != nil {
-			return nil, fmt.Errorf("insert plan step %d: %w", st.idx, err)
+			VALUES (?, ?, ?, 0, 'agent_driven', ?, ?)`,
+			NewID(), planID, i, string(stepSpec), st.status); err != nil {
+			return res, fmt.Errorf("insert plan_step %d: %w", i, err)
 		}
 	}
 
-	// 4. Agents: domain steward (running, owns the project) +
-	//    coder (running, working on phase 2). General steward is
-	//    deliberately NOT seeded as a project-scoped agent — it's
-	//    team-scoped and persistent; the seed reflects the post-
-	//    bootstrap state where it has handed off.
-	res.StewardAgentID = NewID()
+	// 3. Steward + worker agents. Domain steward drives the project; one
+	// worker per declared kind so the Children Status hero shows real fan-
+	// out for projects past the idea phase.
+	res.stewardID = NewID()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agents
 			(id, team_id, handle, kind, capabilities_json,
 			 status, pause_state, created_at)
 		VALUES (?, ?, ?, ?, '[]', 'running', 'running', ?)`,
-		res.StewardAgentID, defaultTeamID, "@lifecycle-steward",
-		"steward.research.v1", now,
-	); err != nil {
-		return nil, fmt.Errorf("insert steward: %w", err)
+		res.stewardID, defaultTeamID,
+		"@lifecycle-"+spec.phase+"-steward", spec.stewardKind, now); err != nil {
+		return res, fmt.Errorf("insert steward: %w", err)
 	}
-	res.CoderAgentID = NewID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO agents
-			(id, team_id, handle, kind, capabilities_json,
-			 parent_agent_id, status, pause_state, created_at)
-		VALUES (?, ?, ?, ?, '[]', ?, 'running', 'running', ?)`,
-		res.CoderAgentID, defaultTeamID, "@lifecycle-coder",
-		"coder.v1", res.StewardAgentID, now,
-	); err != nil {
-		return nil, fmt.Errorf("insert coder: %w", err)
-	}
-
-	// 5. Phase artifacts. Lit-review (phase 1 done) is a complete
-	//    document; method draft (phase 2 in progress) is partial.
-	res.LitReviewDocID = NewID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO documents
-			(id, project_id, kind, title, version,
-			 content_inline, author_agent_id, created_at)
-		VALUES (?, ?, 'report', ?, 1, ?, ?, ?)`,
-		res.LitReviewDocID, res.ProjectID,
-		"Lit review: Lion vs AdamW on tiny GPT",
-		litReviewBody(), res.StewardAgentID, now,
-	); err != nil {
-		return nil, fmt.Errorf("insert lit-review doc: %w", err)
-	}
-	res.MethodDocID = NewID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO documents
-			(id, project_id, kind, title, version,
-			 content_inline, author_agent_id, created_at)
-		VALUES (?, ?, 'memo', ?, 1, ?, ?, ?)`,
-		res.MethodDocID, res.ProjectID,
-		"Method (draft): nanoGPT-Shakespeare optimizer × size sweep",
-		methodDraftBody(), res.CoderAgentID, now,
-	); err != nil {
-		return nil, fmt.Errorf("insert method draft doc: %w", err)
+	for i, wk := range spec.workerKinds {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO agents
+				(id, team_id, handle, kind, capabilities_json,
+				 parent_agent_id, status, pause_state, created_at)
+			VALUES (?, ?, ?, ?, '[]', ?, 'running', 'running', ?)`,
+			NewID(), defaultTeamID,
+			fmt.Sprintf("@lifecycle-%s-worker-%d", spec.phase, i),
+			wk, res.stewardID, now); err != nil {
+			return res, fmt.Errorf("insert worker %s: %w", wk, err)
+		}
 	}
 
-	// 6. Attention item: pending phase-2 approval gate. The director
-	//    will see this on the Me tab as the next action — "method
-	//    & code ready, approve to start the experiment".
-	res.AttentionID = NewID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO attention_items
-			(id, project_id, scope_kind, scope_id, kind,
-			 summary, severity, current_assignees_json,
-			 status, created_at)
-		VALUES (?, ?, 'project', ?, 'select',
-		        ?, 'major', '["@principal"]',
-		        'open', ?)`,
-		res.AttentionID, res.ProjectID, res.ProjectID,
-		"Method + code ready for phase 2 approval. Approve to begin the experiment, request revisions, or abort.",
-		now,
-	); err != nil {
-		return nil, fmt.Errorf("insert attention item: %w", err)
+	// 4. Phase content (deliverables → components → criteria).
+	c := &seedProjectCtx{
+		tx: tx, ctx: ctx, projectID: res.projectID,
+		stewardID: res.stewardID, now: now, phase: spec.phase,
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
+	dls, err := spec.deliverables(c)
+	if err != nil {
+		return res, err
 	}
+	res.deliverables = len(dls)
+
+	crits, err := spec.criteria(c, dls)
+	if err != nil {
+		return res, err
+	}
+	res.criteria = len(crits)
+	for _, cr := range crits {
+		res.byState[cr.state]++
+	}
+
+	// 5. Attention item + audit rows.
+	if spec.attention != nil {
+		kind, summary := spec.attention(c)
+		assignees, _ := json.Marshal([]string{"@principal"})
+		attID := NewID()
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO attention_items
+				(id, project_id, scope_kind, scope_id, kind,
+				 summary, severity, current_assignees_json,
+				 status, created_at,
+				 actor_kind, actor_handle)
+			VALUES (?, ?, 'project', ?, ?,
+			        ?, 'major', ?,
+			        'open', ?,
+			        'agent', 'steward.lifecycle')`,
+			attID, res.projectID, res.projectID, kind,
+			summary, string(assignees), now); err != nil {
+			return res, fmt.Errorf("insert attention: %w", err)
+		}
+		res.attentionItems = 1
+	}
+
+	res.audits += emitAudit(ctx, tx, "project.create", "project",
+		res.projectID, "Created research-lifecycle demo: "+spec.name,
+		map[string]any{"project_id": res.projectID, "phase": spec.phase,
+			"template_id": lifecycleTemplateID}, now)
+	res.audits += emitAudit(ctx, tx, "project.phase_set", "project",
+		res.projectID, "Set initial phase "+spec.phase,
+		map[string]any{"project_id": res.projectID, "phase": spec.phase,
+			"by_template": lifecycleTemplateID}, now)
+	for _, d := range dls {
+		res.audits += emitAudit(ctx, tx, "deliverable.created", "deliverable",
+			d.id, fmt.Sprintf("Created %s deliverable in phase %s", d.kind, d.phase),
+			map[string]any{"project_id": res.projectID, "phase": d.phase,
+				"kind": d.kind, "state": d.state}, now)
+		if d.state == "ratified" {
+			res.audits += emitAudit(ctx, tx, "deliverable.ratified",
+				"deliverable", d.id, "Director ratified "+d.kind,
+				map[string]any{"project_id": res.projectID, "phase": d.phase,
+					"kind": d.kind}, now)
+		}
+	}
+	for _, cr := range crits {
+		res.audits += emitAudit(ctx, tx, "criterion.created", "criterion",
+			cr.id, fmt.Sprintf("Hydrated %s criterion", cr.kind),
+			map[string]any{"project_id": res.projectID,
+				"kind": cr.kind, "hydrated_from": lifecycleTemplateID}, now)
+		switch cr.state {
+		case "met":
+			res.audits += emitAudit(ctx, tx, "criterion.met", "criterion",
+				cr.id, "Marked criterion met",
+				map[string]any{"project_id": res.projectID, "kind": cr.kind}, now)
+		case "failed":
+			res.audits += emitAudit(ctx, tx, "criterion.failed", "criterion",
+				cr.id, "Marked criterion failed",
+				map[string]any{"project_id": res.projectID, "kind": cr.kind}, now)
+		case "waived":
+			res.audits += emitAudit(ctx, tx, "criterion.waived", "criterion",
+				cr.id, "Waived criterion",
+				map[string]any{"project_id": res.projectID, "kind": cr.kind}, now)
+		}
+	}
+
+	// Report side-effect doc/artifact/run counts. The builder closures
+	// recorded these on the seedProjectCtx via the helper functions.
+	res.documents = c.documentsSeeded
+	res.artifacts = c.artifactsSeeded
+	res.runs = c.runsSeeded
+
 	return res, nil
 }
 
-// lifecyclePlanSpecJSON returns the spec_json blob for the seeded
-// plan. Mirrors the structure in research-project.v1.yaml's
-// `phases` array, abbreviated to what the plan viewer needs to
-// render the 5-phase outline.
-//
-// Uses an explicit json.Encoder with SetEscapeHTML(false) — the
-// default Marshal HTML-escapes `&` (and `<`, `>`) which would turn
-// "Method & Code" into "Method & Code", an unnecessary
-// surprise for the plan viewer's display.
-func lifecyclePlanSpecJSON() string {
-	spec := map[string]any{
-		"template": "research-project.v1",
-		"phases": []map[string]any{
-			{"idx": 0, "name": "Bootstrap", "kind": "agent_driven", "goal": "General steward authors templates + plan", "steward": "steward.general.v1"},
-			{"idx": 1, "name": "Lit Review", "kind": "agent_driven", "goal": "Survey relevant work", "steward": "steward.research.v1", "workers": []string{"lit-reviewer.v1"}},
-			{"idx": 2, "name": "Method & Code", "kind": "agent_driven", "goal": "Implement experiment + freeze matrix", "steward": "steward.research.v1", "workers": []string{"coder.v1"}},
-			{"idx": 3, "name": "Experiment", "kind": "agent_driven", "goal": "Run matrix on GPU host", "steward": "steward.research.v1", "workers": []string{"ml-worker.v1"}},
-			{"idx": 4, "name": "Paper", "kind": "agent_driven", "goal": "Write 6-section paper", "steward": "steward.research.v1", "workers": []string{"paper-writer.v1"}},
-		},
+// ---------------------------------------------------------------------
+// Builders for typed documents, deliverables, criteria, artifacts, runs.
+// ---------------------------------------------------------------------
+
+type sectionSeed struct {
+	slug, title, body, status string
+}
+
+type seededDocument struct {
+	id    string
+	title string
+}
+
+type deliverableSpec struct {
+	logID      string // matches the YAML logical id
+	phase      string
+	kind       string
+	state      string
+	components []componentSpec
+}
+
+type componentSpec struct {
+	kind  string // document | artifact | run | commit
+	refID string
+	ord   int
+}
+
+type criterionSpec struct {
+	logID         string
+	phase         string
+	kind          string // text | metric | gate
+	deliverableID string
+	body          map[string]any
+	state         string
+	evidenceRef   string
+	required      bool
+}
+
+func seedTypedDocument(
+	c *seedProjectCtx, title, schemaID string, sections []sectionSeed,
+) (seededDocument, error) {
+	docID := NewID()
+	contentInline := buildStructuredBody(schemaID, sections, c.now, "agent:steward.lifecycle")
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO documents
+			(id, project_id, kind, title, version, content_inline,
+			 schema_id, author_agent_id, created_at)
+		VALUES (?, ?, 'typed', ?, 1, ?, ?, ?, ?)`,
+		docID, c.projectID, title, contentInline, schemaID,
+		c.stewardID, c.now); err != nil {
+		return seededDocument{}, fmt.Errorf("insert typed document %s: %w", schemaID, err)
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(spec)
-	// json.Encoder.Encode appends a trailing newline; trim it.
-	return strings.TrimRight(buf.String(), "\n")
+	c.documentsSeeded++
+	return seededDocument{id: docID, title: title}, nil
 }
 
-// litReviewBody returns the seeded lit-review document content.
-// Sample-quality — five fake citations on the project's idea so the
-// document viewer renders a realistic page.
-func litReviewBody() string {
-	return `# Lit review: Lion vs AdamW on tiny GPT
-
-**Scope:** This review covers optimizer comparisons on small
-transformer language models (≤1B params) trained from scratch on
-small text corpora.
-
-**Headline finding:** Lion shows modest advantages over AdamW on
-small models; the gap narrows or reverses at certain sequence-length
-and warmup-schedule combinations.
-
-## Foundational work
-
-- **Chen et al. (2023)** [arxiv:2302.06675] — *Symbolic Discovery
-  of Optimization Algorithms*. Introduces Lion; shows competitive
-  results on transformer language models with smaller memory
-  footprint than AdamW.
-- **Kingma & Ba (2014)** [arxiv:1412.6980] — Original Adam paper;
-  AdamW (Loshchilov & Hutter, 2017) [arxiv:1711.05101] is the
-  reference baseline this study should compare against.
-
-## At small scale
-
-- **Karpathy nanoGPT** [github.com/karpathy/nanoGPT] — De-facto
-  reference for tiny GPT pretraining. Configurable, MIT-licensed,
-  no fork required. Default trains on Shakespeare with AdamW.
-- **Geiping & Goldstein (2023)** [arxiv:2212.14034] — *Cramming:
-  Training a Language Model on a Single GPU in One Day*. Notes
-  that optimizer choice matters more at small batch sizes than at
-  large.
-
-## Open question this study addresses
-
-The cited work covers Lion at large scale (Chen 2023) and AdamW
-at small scale (Geiping 2023), but no direct A/B comparison at
-the model sizes this study targets (n_embd ∈ {128, 256, 384},
-1000 iters on Shakespeare). The result-summary phase will fill
-this gap.
-
-## What's known
-- Lion has lower memory cost than AdamW.
-- AdamW is robust across schedule choices.
-- Optimizer effects are sensitive to batch size at small scale.
-
-## What's open
-- Lion's behavior at n_embd ≤ 384 with limited training budget.
-- Whether the optimizer × size interaction is monotonic.
-
-## References
-- [arxiv:2302.06675](https://arxiv.org/abs/2302.06675)
-- [arxiv:1412.6980](https://arxiv.org/abs/1412.6980)
-- [arxiv:1711.05101](https://arxiv.org/abs/1711.05101)
-- [github.com/karpathy/nanoGPT](https://github.com/karpathy/nanoGPT)
-- [arxiv:2212.14034](https://arxiv.org/abs/2212.14034)
-`
+// seedDeliverables inserts the declared deliverables + their components
+// into the transaction and returns the resulting seededDeliverable list.
+// Ratified deliverables get their ratified_at + ratified_by_actor stamped
+// at seed-time so the W5b viewer renders the closed-pip state.
+func seedDeliverables(
+	c *seedProjectCtx, specs []deliverableSpec,
+) ([]seededDeliverable, error) {
+	out := make([]seededDeliverable, 0, len(specs))
+	for ord, d := range specs {
+		id := NewID()
+		var ratifiedAt sql.NullString
+		var ratifiedByActor sql.NullString
+		if d.state == "ratified" {
+			ratifiedAt = sql.NullString{String: c.now, Valid: true}
+			ratifiedByActor = sql.NullString{
+				String: "user:director", Valid: true,
+			}
+		}
+		if _, err := c.tx.ExecContext(c.ctx, `
+			INSERT INTO deliverables
+				(id, project_id, phase, kind, ratification_state,
+				 ratified_at, ratified_by_actor,
+				 required, ord, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+			id, c.projectID, d.phase, d.kind, d.state,
+			ratifiedAt, ratifiedByActor, ord, c.now, c.now); err != nil {
+			return nil, fmt.Errorf("insert deliverable %s: %w", d.kind, err)
+		}
+		for ci, comp := range d.components {
+			cord := comp.ord
+			if cord == 0 {
+				cord = ci
+			}
+			if _, err := c.tx.ExecContext(c.ctx, `
+				INSERT INTO deliverable_components
+					(id, deliverable_id, kind, ref_id, required, ord, created_at)
+				VALUES (?, ?, ?, ?, 1, ?, ?)`,
+				NewID(), id, comp.kind, comp.refID, cord, c.now); err != nil {
+				return nil, fmt.Errorf("insert component %s: %w", comp.kind, err)
+			}
+		}
+		out = append(out, seededDeliverable{
+			id: id, logID: d.logID, phase: d.phase, kind: d.kind, state: d.state,
+		})
+	}
+	return out, nil
 }
 
-// methodDraftBody returns the seeded partial method-spec content
-// (phase 2 is in_progress; the document is a draft, not the
-// frozen spec).
-func methodDraftBody() string {
-	return `# Method (draft): nanoGPT-Shakespeare optimizer × size sweep
+func seedCriteria(
+	c *seedProjectCtx, specs []criterionSpec,
+) ([]seededCriterion, error) {
+	out := make([]seededCriterion, 0, len(specs))
+	for ord, cr := range specs {
+		id := NewID()
+		bodyJSON, _ := json.Marshal(cr.body)
+		req := 0
+		if cr.required {
+			req = 1
+		}
+		var deliv sql.NullString
+		if cr.deliverableID != "" {
+			deliv = sql.NullString{String: cr.deliverableID, Valid: true}
+		}
+		var metAt, metBy sql.NullString
+		if cr.state == "met" {
+			metAt = sql.NullString{String: c.now, Valid: true}
+			metBy = sql.NullString{String: "user:director", Valid: true}
+		}
+		var evid sql.NullString
+		if cr.evidenceRef != "" {
+			evid = sql.NullString{String: cr.evidenceRef, Valid: true}
+		}
+		if _, err := c.tx.ExecContext(c.ctx, `
+			INSERT INTO acceptance_criteria
+				(id, project_id, phase, deliverable_id, kind, body,
+				 state, met_at, met_by_actor, evidence_ref,
+				 required, ord, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, c.projectID, cr.phase, deliv, cr.kind, string(bodyJSON),
+			cr.state, metAt, metBy, evid, req, ord, c.now, c.now); err != nil {
+			return nil, fmt.Errorf("insert criterion %s: %w", cr.logID, err)
+		}
+		out = append(out, seededCriterion{id: id, state: cr.state, kind: cr.kind})
+	}
+	return out, nil
+}
 
-**Status:** Draft — coder is still implementing the training loop.
-Will freeze the experiment matrix once smoke-test passes.
+type seededArtifact struct{ id, name string }
 
-## Dataset
-Shakespeare (the karpathy/nanoGPT default split). Tokenized at
-char level for simplicity.
+func seedArtifact(
+	c *seedProjectCtx, kind, name, mime string, size int64,
+) (seededArtifact, error) {
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, kind, name,
+		fmt.Sprintf("blob:mock/lifecycle/%s", id),
+		size, mime, c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
 
-## Model
-nanoGPT (karpathy reference implementation), unmodified. Sizes:
-- n_embd ∈ {128, 256, 384}
-- depth fixed at 6 layers
-- Other hyperparameters per nanoGPT defaults
+type seededRun struct{ id string }
 
-## Training loop
-PyTorch + the karpathy nanoGPT training script with two
-modifications:
-1. Optimizer parametrized — AdamW (baseline) vs Lion
-2. Trackio integration for metric logging
+func seedRun(
+	c *seedProjectCtx, status string, configBlob map[string]any,
+) (seededRun, error) {
+	id := NewID()
+	cfg, _ := json.Marshal(configBlob)
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO runs
+			(id, project_id, config_json, seed, status,
+			 started_at, finished_at, trackio_run_uri, agent_id, created_at)
+		VALUES (?, ?, ?, 42, ?, ?, ?, ?, ?, ?)`,
+		id, c.projectID, string(cfg), status, c.now, c.now,
+		fmt.Sprintf("trackio://lifecycle/%s", id), c.stewardID, c.now); err != nil {
+		return seededRun{}, fmt.Errorf("insert run: %w", err)
+	}
+	c.runsSeeded++
+	return seededRun{id: id}, nil
+}
 
-## Optimizer settings
-- AdamW: lr=1e-3, betas=(0.9, 0.95), wd=0.1
-- Lion: lr=2e-4, betas=(0.9, 0.99), wd=0.1
-  (Following Chen et al. 2023's recommended scaling — Lion
-  needs ~5× smaller lr than AdamW)
+// ---------------------------------------------------------------------
+// Helpers.
+// ---------------------------------------------------------------------
 
-## Evaluation
-Validation loss every 100 iters. Final reported metric is
-val_loss at iter=1000.
+func buildStructuredBody(
+	schemaID string, sections []sectionSeed, now, ratifiedActor string,
+) string {
+	type sectionWire struct {
+		Slug                    string `json:"slug"`
+		Title                   string `json:"title,omitempty"`
+		Body                    string `json:"body"`
+		Status                  string `json:"status"`
+		LastAuthoredAt          string `json:"last_authored_at,omitempty"`
+		LastAuthoredBySessionID string `json:"last_authored_by_session_id,omitempty"`
+		RatifiedAt              string `json:"ratified_at,omitempty"`
+		RatifiedByActor         string `json:"ratified_by_actor,omitempty"`
+	}
+	type bodyWire struct {
+		SchemaVersion int           `json:"schema_version"`
+		SchemaID      string        `json:"schema_id"`
+		Sections      []sectionWire `json:"sections"`
+	}
+	out := bodyWire{SchemaVersion: 1, SchemaID: schemaID}
+	for _, s := range sections {
+		w := sectionWire{Slug: s.slug, Title: s.title, Body: s.body, Status: s.status}
+		switch s.status {
+		case "draft":
+			w.LastAuthoredAt = now
+		case "ratified":
+			w.LastAuthoredAt = now
+			w.RatifiedAt = now
+			w.RatifiedByActor = ratifiedActor
+		}
+		out.Sections = append(out.Sections, w)
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
 
-## Experiment matrix (draft — to freeze on smoke-test pass)
-| cell | n_embd | optimizer |
-|---|---|---|
-| 1 | 128 | adamw |
-| 2 | 128 | lion |
-| 3 | 256 | adamw |
-| 4 | 256 | lion |
-| 5 | 384 | adamw |
-| 6 | 384 | lion |
+func buildPhaseHistory(past []string, current, now string) phaseHistoryDoc {
+	doc := phaseHistoryDoc{}
+	prev := ""
+	for _, p := range past {
+		doc.Transitions = append(doc.Transitions, phaseTransition{
+			From: prev, To: p, At: now, ByActor: "system",
+		})
+		prev = p
+	}
+	doc.Transitions = append(doc.Transitions, phaseTransition{
+		From: prev, To: current, At: now, ByActor: "system",
+	})
+	return doc
+}
 
-## Code
-Worktree at ~/hub-work/coder/<spawn-id>/lifecycle-demo. Smoke test
-not yet run. Will add commit SHA + entry-point command to this
-document before requesting steward approval.
+func emitAudit(
+	ctx context.Context, tx *sql.Tx, action, targetKind, targetID,
+	summary string, meta map[string]any, now string,
+) int {
+	metaJSON := "{}"
+	if len(meta) > 0 {
+		if b, err := json.Marshal(meta); err == nil {
+			metaJSON = string(b)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO audit_events
+			(id, team_id, ts, actor_kind, actor_handle,
+			 action, target_kind, target_id, summary, meta_json)
+		VALUES (?, ?, ?, 'agent', 'steward.lifecycle', ?, ?, ?, ?, ?)`,
+		NewID(), defaultTeamID, now,
+		action, targetKind, targetID, summary, metaJSON); err != nil {
+		return 0
+	}
+	return 1
+}
 
-## TODO before freeze
-- Run smoke test (` + "`python train.py --iters 1`" + `)
-- Pin requirements.txt versions
-- Verify trackio writes are visible to host-runner
-- Write reproducibility section
-`
+func findDeliverableByLogID(dls []seededDeliverable, logID string) string {
+	for _, d := range dls {
+		if d.logID == logID {
+			return d.id
+		}
+	}
+	return ""
+}
+
+// ---------------------------------------------------------------------
+// Section content (per-schema) — written here rather than as flat const
+// strings so the per-state mix (empty/draft/ratified) stays
+// self-documenting.
+// ---------------------------------------------------------------------
+
+func domainOverviewBody() string {
+	return "## Domain overview\n\n" +
+		"This study sits in the small-language-model optimizer-comparison\n" +
+		"sub-area. The closest peers are the Lion paper (Chen et al. 2023)\n" +
+		"and Cramming (Geiping & Goldstein 2023). Both cover one corner of\n" +
+		"the (size × optimizer × budget) cube; this project completes the\n" +
+		"square at sizes ≤ 384.\n"
+}
+
+func priorWorkBody() string {
+	return "## Key prior work\n\n" +
+		"- **Chen et al. 2023** — Lion. Symbolic-discovery optimizer\n" +
+		"  with smaller memory footprint than AdamW; results on transformer\n" +
+		"  language models.\n" +
+		"- **Loshchilov & Hutter 2017** — AdamW. Decoupled weight decay\n" +
+		"  baseline.\n" +
+		"- **Karpathy nanoGPT** — Reference small-transformer training\n" +
+		"  recipe used for setup.\n" +
+		"- **Geiping & Goldstein 2023** — Cramming. Argues optimizer choice\n" +
+		"  matters more at small batch sizes than large.\n"
+}
+
+func gapsDraftBody() string {
+	return "## Research gaps\n\n" +
+		"_Draft — pending steward+director review._\n\n" +
+		"No direct A/B comparison of Lion vs AdamW at n_embd ≤ 384 with\n" +
+		"a 1000-iter budget on a small text corpus exists. Closest peers\n" +
+		"hold one variable constant while sweeping the other.\n"
+}
+
+func gapsRatifiedBody() string {
+	return "## Research gaps\n\n" +
+		"No direct A/B comparison of Lion vs AdamW at n_embd ≤ 384 with\n" +
+		"a 1000-iter budget on a small text corpus exists. Closest peers\n" +
+		"hold one variable constant while sweeping the other. This\n" +
+		"project fills the (size × optimizer) gap at the small end.\n"
+}
+
+func positioningBody() string {
+	return "## Project positioning\n\n" +
+		"Three sizes (n_embd ∈ {128, 256, 384}) × two optimizers (Lion,\n" +
+		"AdamW) × 1000 iters on Shakespeare. Reports val_loss at the end\n" +
+		"of training. Goal: confirm or falsify Lion's small-scale\n" +
+		"advantage over AdamW.\n"
+}
+
+func methodSectionSeeds() []sectionSeed {
+	// "Method in progress" mix: 4 ratified + 1 draft + 2 empty.
+	return []sectionSeed{
+		{slug: "research-question", title: "Research question", status: "ratified",
+			body: "Does Lion's reported optimizer advantage over AdamW persist " +
+				"at n_embd ≤ 384 with a 1000-iter Shakespeare budget?\n"},
+		{slug: "hypothesis", title: "Hypothesis", status: "ratified",
+			body: "Lion's val_loss at iter 1000 is at least 0.02 lower than " +
+				"AdamW's at every size in {128, 256, 384}.\n"},
+		{slug: "approach", title: "Approach", status: "ratified",
+			body: "Six runs (2 optimizers × 3 sizes); identical seed; " +
+				"Shakespeare-char tokenization; nanoGPT defaults aside from " +
+				"optimizer hyperparameters.\n"},
+		{slug: "experimental-setup", title: "Experimental setup", status: "ratified",
+			body: "Single A100 host, deterministic seeds, trackio logging\n" +
+				"every 100 iters.\n"},
+		{slug: "evaluation-plan", title: "Evaluation plan", status: "draft",
+			body: "_Draft._ Final-step val_loss is the headline metric. Need\n" +
+				"to decide whether to also report intermediate-step deltas.\n"},
+		{slug: "risks", title: "Risks", status: "empty"},
+		{slug: "budget", title: "Budget", status: "empty"},
+	}
+}
+
+func methodSectionSeedsRatified() []sectionSeed {
+	out := make([]sectionSeed, 0, 7)
+	for _, s := range methodSectionSeeds() {
+		s.status = "ratified"
+		if s.body == "" {
+			s.body = "Frozen at method-ratify time.\n"
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func litReviewSectionSeedsRatified() []sectionSeed {
+	return []sectionSeed{
+		{slug: "domain-overview", title: "Domain overview", status: "ratified",
+			body: domainOverviewBody()},
+		{slug: "prior-work", title: "Key prior work", status: "ratified",
+			body: priorWorkBody()},
+		{slug: "gaps", title: "Research gaps", status: "ratified",
+			body: gapsRatifiedBody()},
+		{slug: "positioning", title: "Project positioning", status: "ratified",
+			body: positioningBody()},
+	}
+}
+
+func experimentReportDraftSeeds() []sectionSeed {
+	// 2 draft, 1 empty so the W5a viewer + W5b component pip both land
+	// in mixed states.
+	return []sectionSeed{
+		{slug: "setup-recap", title: "Setup recap", status: "draft",
+			body: "_Draft._ Six runs (Lion vs AdamW × {128, 256, 384}) on\n" +
+				"a single A100 with the nanoGPT-Shakespeare default split.\n"},
+		{slug: "results", title: "Results", status: "draft",
+			body: "_Draft._ Best val_loss on n_embd=384 was Lion@1.74 vs\n" +
+				"AdamW@1.81. Lion advantage at small sizes is +0.04–+0.07\n" +
+				"depending on size.\n"},
+		{slug: "ablations", title: "Ablations", status: "empty"},
+		{slug: "analysis", title: "Analysis", status: "empty"},
+		{slug: "limitations", title: "Limitations", status: "empty"},
+	}
+}
+
+func experimentReportRatifiedSeeds() []sectionSeed {
+	out := make([]sectionSeed, 0, 5)
+	for _, s := range experimentReportDraftSeeds() {
+		s.status = "ratified"
+		if s.body == "" {
+			s.body = "Filled in for the ratified report.\n"
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func paperDraftSeeds() []sectionSeed {
+	// Mixed: 7 ratified, 1 draft, 1 empty — exercises every pip.
+	return []sectionSeed{
+		{slug: "abstract", title: "Abstract", status: "ratified",
+			body: "We compare Lion and AdamW at small transformer sizes …\n"},
+		{slug: "introduction", title: "Introduction", status: "ratified",
+			body: "Optimizer choice at small scale remains under-studied. …\n"},
+		{slug: "related-work", title: "Related work", status: "ratified",
+			body: "Lion (Chen 2023), AdamW (Loshchilov & Hutter 2017), …\n"},
+		{slug: "method", title: "Method", status: "ratified",
+			body: "We follow nanoGPT defaults aside from the optimizer …\n"},
+		{slug: "experiments", title: "Experiments", status: "ratified",
+			body: "Six runs across (size × optimizer); identical seeds …\n"},
+		{slug: "results", title: "Results", status: "ratified",
+			body: "Lion outperforms AdamW at every size by 0.04–0.07 in val_loss.\n"},
+		{slug: "discussion", title: "Discussion", status: "draft",
+			body: "_Draft._ The advantage at small scale is consistent with\n" +
+				"Geiping 2023's claim, but our budget is much tighter.\n"},
+		{slug: "conclusion", title: "Conclusion", status: "ratified",
+			body: "Lion's advantage holds at small scale within our budget.\n"},
+		{slug: "references", title: "References", status: "empty"},
+	}
 }

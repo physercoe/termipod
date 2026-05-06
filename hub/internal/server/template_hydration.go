@@ -25,11 +25,42 @@ import (
 // cares about. We deliberately do NOT couple to the rest of the schema
 // (deliverables, transitions, worker_hints, section_schemas, …) —
 // those are steward-consumed today; the chassis only needs phases +
-// per-phase criteria for hydration.
+// per-phase criteria for hydration plus per-phase overview_widget for
+// hero swap-in.
 type phaseSpecsHead struct {
 	PhaseSpecs map[string]struct {
-		Criteria []phaseCriterionSpec `yaml:"criteria"`
+		OverviewWidget string               `yaml:"overview_widget"`
+		Criteria       []phaseCriterionSpec `yaml:"criteria"`
 	} `yaml:"phase_specs"`
+}
+
+// phaseOverviewWidget returns the phase-scoped overview_widget declared
+// at phase_specs[<phase>].overview_widget, or "" when the template
+// doesn't declare one for that phase. Empty result means "fall back to
+// the project-level overview_widget".
+func (s *Server) phaseOverviewWidget(templateID, phase string) string {
+	if templateID == "" || phase == "" {
+		return ""
+	}
+	body := s.readProjectTemplateYAML(templateID)
+	if body == "" {
+		return ""
+	}
+	var head phaseSpecsHead
+	if err := yaml.Unmarshal([]byte(body), &head); err != nil {
+		return ""
+	}
+	specs, ok := head.PhaseSpecs[phase]
+	if !ok {
+		return ""
+	}
+	if specs.OverviewWidget == "" {
+		return ""
+	}
+	if !validOverviewWidgets[specs.OverviewWidget] {
+		return ""
+	}
+	return specs.OverviewWidget
 }
 
 type phaseCriterionSpec struct {

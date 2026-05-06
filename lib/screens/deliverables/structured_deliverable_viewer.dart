@@ -6,7 +6,9 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/deliverable_state_pip.dart';
+import '../projects/artifacts_screen.dart' show showArtifactDetailSheet;
 import '../projects/documents_screen.dart' show DocumentDetailScreen;
+import '../projects/runs_screen.dart' show RunDetailScreen;
 
 /// W5b — Structured Deliverable Viewer (A5).
 ///
@@ -311,13 +313,13 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
-class _ComponentCard extends StatelessWidget {
+class _ComponentCard extends ConsumerWidget {
   final Map<String, dynamic> component;
   final String projectId;
   const _ComponentCard({required this.component, required this.projectId});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final kind = (component['kind'] ?? '').toString();
     final refId = (component['ref_id'] ?? '').toString();
     final required = component['required'] == true;
@@ -329,7 +331,7 @@ class _ComponentCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap: () => _onTap(context),
+          onTap: () => _onTap(context, ref),
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -403,10 +405,11 @@ class _ComponentCard extends StatelessWidget {
     );
   }
 
-  void _onTap(BuildContext context) {
+  Future<void> _onTap(BuildContext context, WidgetRef ref) async {
     final kind = (component['kind'] ?? '').toString();
     final refId = (component['ref_id'] ?? '').toString();
-    if (kind == 'document' && refId.isNotEmpty) {
+    if (refId.isEmpty) return;
+    if (kind == 'document') {
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => DocumentDetailScreen(documentId: refId),
@@ -414,14 +417,42 @@ class _ComponentCard extends StatelessWidget {
       );
       return;
     }
-    // Artifact / run / commit components don't yet have dedicated viewer
-    // routes from the deliverable surface; surface the ref so the user can
-    // jump to the right tab.
+    if (kind == 'run') {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => RunDetailScreen(runId: refId),
+        ),
+      );
+      return;
+    }
+    if (kind == 'artifact') {
+      // Bottom-sheet detail mirrors the artifacts-tab tap behavior.
+      // Fetch the row first since the deliverable component only
+      // carries the artifact id, not the full row the sheet expects.
+      final client = ref.read(hubProvider.notifier).client;
+      Map<String, dynamic>? row;
+      if (client != null) {
+        try {
+          row = await client.getArtifact(refId);
+        } catch (_) {
+          row = null;
+        }
+      }
+      if (!context.mounted) return;
+      if (row != null) {
+        showArtifactDetailSheet(context, row);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load artifact $refId')),
+        );
+      }
+      return;
+    }
+    // Commit (and any future component kind) doesn't yet have a
+    // dedicated viewer; surface the ref so the user can locate it.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          '${_labelFor(kind)} component → $refId',
-        ),
+        content: Text('${_labelFor(kind)} component → $refId'),
       ),
     );
   }

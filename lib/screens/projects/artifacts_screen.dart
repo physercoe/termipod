@@ -395,6 +395,14 @@ class ArtifactKindChip extends StatelessWidget {
 }
 
 void _showDetail(BuildContext context, Map<String, dynamic> row) {
+  showArtifactDetailSheet(context, row);
+}
+
+/// Public entry point for showing the artifact detail bottom sheet
+/// from outside the artifacts screen (e.g. the W5b deliverable
+/// viewer's component card). Caller hands in a fully-loaded artifact
+/// row (`/v1/teams/{team}/artifacts/{id}` shape).
+void showArtifactDetailSheet(BuildContext context, Map<String, dynamic> row) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,

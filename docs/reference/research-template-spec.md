@@ -1,9 +1,9 @@
 # Research project template — content spec
 
 > **Type:** reference
-> **Status:** Draft (2026-05-05) — content not yet shipped; pending plan + ADR
+> **Status:** Draft (2026-05-06) — research.v1.yaml shipped (lifecycle-mvp W7); per-phase overview_widget swap landed 2026-05-06
 > **Audience:** contributors (template authors, hub backend, mobile)
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.359
 
 **TL;DR.** Concrete content of the **research project template**, the
 demo's primary template. Five phases (Idea → Lit-review → Method →
@@ -899,6 +899,18 @@ against either:
 - The mock-trainer harness (backup; identical UX, simulated metrics)
 
 Both paths exercise the same chassis primitives.
+
+For mobile-UI dress-rehearsal *across* the lifecycle (not just the
+Experiment phase), see `seed-demo --shape lifecycle`. As of v1.0.359
+this seeds a five-project portfolio (one project parked at each
+phase) so the W7 phase heroes, the W5a/W5b typed-document and
+deliverable viewers, and the W6 acceptance-criteria pip vocabulary
+can all be inspected without running phases live. The chassis honors
+`phase_specs[<phase>].overview_widget` (this section's per-phase
+declarations), so each seeded project picks up the phase-appropriate
+hero through the project read endpoint. See
+[`how-to/run-lifecycle-demo.md`](../how-to/run-lifecycle-demo.md)
+§"Lifecycle UI dress-rehearsal" for the row-by-row inventory.
 
 ---
 

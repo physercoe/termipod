@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../providers/hub_provider.dart';
+import '../screens/deliverables/structured_deliverable_viewer.dart';
 import '../screens/projects/artifacts_screen.dart';
 import '../screens/projects/blobs_section.dart';
 import '../screens/projects/documents_screen.dart';
@@ -186,7 +188,7 @@ class _NoTilesPlaceholder extends StatelessWidget {
   }
 }
 
-class _TileRow extends StatelessWidget {
+class _TileRow extends ConsumerWidget {
   final TileSlug slug;
   final String projectId;
   final String projectName;
@@ -197,12 +199,12 @@ class _TileRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final spec = tileSpecFor(slug);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: () => _open(context),
+      onTap: () => _open(context, ref),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
@@ -248,7 +250,14 @@ class _TileRow extends StatelessWidget {
     );
   }
 
-  void _open(BuildContext context) {
+  Future<void> _open(BuildContext context, WidgetRef ref) async {
+    // References needs an async resolve: route to the project's
+    // lit-review deliverable when one exists (its body carries
+    // citations + prior-work), else fall back to the Documents screen.
+    if (slug == TileSlug.references) {
+      await _openReferences(context, ref);
+      return;
+    }
     Widget page;
     switch (slug) {
       case TileSlug.outputs:
@@ -264,10 +273,8 @@ class _TileRow extends StatelessWidget {
       case TileSlug.experiments:
         page = RunsScreen(projectId: projectId);
       case TileSlug.references:
-        page = _StubScreen(
-          title: 'References',
-          message: 'Citations and SOTA library land with W5b/W7.',
-        );
+        // Handled by the early return above.
+        return;
       case TileSlug.risks:
         page = _StubScreen(
           title: 'Risks',
@@ -279,7 +286,55 @@ class _TileRow extends StatelessWidget {
           projectName: projectName,
         );
     }
+    if (!context.mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
+
+  Future<void> _openReferences(BuildContext context, WidgetRef ref) async {
+    final client = ref.read(hubProvider.notifier).client;
+    Map<String, dynamic>? litReviewDeliverable;
+    if (client != null && projectId.isNotEmpty) {
+      try {
+        final dls = await client.listDeliverables(
+          projectId: projectId,
+          includeComponents: true,
+        );
+        for (final d in dls) {
+          if ((d['kind'] ?? '').toString() == 'lit-review') {
+            litReviewDeliverable = d;
+            break;
+          }
+        }
+      } catch (_) {
+        // Swallow — fall through to the Documents screen below.
+      }
+    }
+    if (!context.mounted) return;
+    if (litReviewDeliverable != null) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => StructuredDeliverableViewer(
+          projectId: projectId,
+          deliverableId: (litReviewDeliverable!['id'] ?? '').toString(),
+          initialDeliverable: litReviewDeliverable,
+        ),
+      ));
+      return;
+    }
+    // No lit-review deliverable yet — open the Documents screen so the
+    // director can see whatever the steward has in flight, with a
+    // breadcrumb that explains References will fill in once the
+    // lit-review phase ratifies a doc.
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DocumentsScreen(projectId: projectId),
+    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'No lit-review document yet — showing all project documents. '
+          'References will land here once the lit-review deliverable ratifies.',
+        ),
+      ),
+    );
   }
 }
 

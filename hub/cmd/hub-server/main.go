@@ -430,8 +430,8 @@ func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Log
 		os.Exit(1)
 	}
 	if res.Skipped {
-		fmt.Printf("seed-demo: lifecycle project already exists (id=%s) — nothing written. "+
-			"Pass -reset to refresh.\n", res.ProjectID)
+		fmt.Printf("seed-demo: lifecycle portfolio already exists (idea-project id=%s) — "+
+			"nothing written. Pass -reset to refresh.\n", res.IdeaProjectID)
 		return
 	}
 	res.Reset = wasReset
@@ -439,9 +439,36 @@ func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Log
 	if wasReset {
 		action = "reset + re-inserted"
 	}
-	fmt.Printf("seed-demo: %s lifecycle-demo state.\n  project:        %s\n  plan:           %s (5 phases: 0+1 done, 2 in_progress, 3+4 pending)\n  steward agent:  %s (running)\n  coder agent:    %s (running, phase 2)\n  lit-review doc: %s\n  method draft:   %s\n  attention:      %s (phase 2 → 3 gate)\n",
-		action, res.ProjectID, res.PlanID, res.StewardAgentID, res.CoderAgentID,
-		res.LitReviewDocID, res.MethodDocID, res.AttentionID)
+	fmt.Printf("seed-demo: %s lifecycle-demo portfolio (5 phase-staged research projects).\n",
+		action)
+	rows := []struct {
+		label, id, hint string
+	}{
+		{"idea         ", res.IdeaProjectID, "hero=idea_conversation, scope-criterion pending"},
+		{"lit-review   ", res.LitReviewProjectID, "hero=deliverable_focus, doc in-review, metric met"},
+		{"method       ", res.MethodProjectID, "hero=deliverable_focus, doc ratified, gate met"},
+		{"experiment   ", res.ExperimentProjectID, "hero=experiment_dash, mixed components, criterion failed"},
+		{"paper        ", res.PaperProjectID, "hero=paper_acceptance, doc in-review, gate waived"},
+	}
+	for _, r := range rows {
+		fmt.Printf("  %s %s — %s\n", r.label, r.id, r.hint)
+	}
+	fmt.Printf("  ----\n")
+	fmt.Printf("  totals:        %d deliverables, %d criteria (",
+		res.DeliverableCount, res.CriterionCount)
+	first := true
+	for _, k := range []string{"pending", "met", "failed", "waived"} {
+		if v := res.CriteriaByState[k]; v > 0 {
+			if !first {
+				fmt.Print(", ")
+			}
+			fmt.Printf("%d %s", v, k)
+			first = false
+		}
+	}
+	fmt.Printf("), %d typed docs, %d artifacts, %d runs, %d attention items, %d audits\n",
+		res.DocumentCount, res.ArtifactCount, res.RunCount,
+		res.AttentionItemCount, res.AuditCount)
 }
 
 // ---- helpers ----

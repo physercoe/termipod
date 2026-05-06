@@ -1,18 +1,19 @@
 // seed_demo_lifecycle_test.go — coverage for `seed-demo --shape
-// lifecycle` (W6). Verifies the seed inserts the expected row
-// shapes so the mobile UI renders without running phases live.
+// lifecycle`. Verifies the seed inserts the expected five-project
+// portfolio (one per phase) with the right deliverables/criteria/
+// section state mix, plus the idempotency + reset round-trip behavior.
 
 package server
 
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 )
 
-func TestSeedLifecycleDemo_InsertsExpectedShape(t *testing.T) {
+func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := dir + "/hub.db"
 	if _, err := Init(dir, dbPath); err != nil {
@@ -33,128 +34,188 @@ func TestSeedLifecycleDemo_InsertsExpectedShape(t *testing.T) {
 		t.Fatal("first call: Skipped=true unexpected")
 	}
 
-	// Project exists with the expected name + template_id.
-	var projName, templateID, paramsJSON string
-	if err := db.QueryRowContext(ctx,
-		`SELECT name, COALESCE(template_id,''), COALESCE(parameters_json,'{}')
-		 FROM projects WHERE id = ?`, res.ProjectID).
-		Scan(&projName, &templateID, &paramsJSON); err != nil {
-		t.Fatalf("project lookup: %v", err)
+	// Five projects, all with template_id=research and phase set.
+	wantProjects := []struct {
+		id, phase string
+	}{
+		{res.IdeaProjectID, "idea"},
+		{res.LitReviewProjectID, "lit-review"},
+		{res.MethodProjectID, "method"},
+		{res.ExperimentProjectID, "experiment"},
+		{res.PaperProjectID, "paper"},
 	}
-	if projName != lifecycleDemoProjectName {
-		t.Errorf("project name=%q; want %q", projName, lifecycleDemoProjectName)
-	}
-	if templateID != "research-project.v1" {
-		t.Errorf("project template_id=%q; want research-project.v1", templateID)
-	}
-	if !strings.Contains(paramsJSON, `"idea"`) {
-		t.Errorf("parameters_json missing idea: %s", paramsJSON)
-	}
-
-	// Plan exists with 5 phases in spec_json + status running.
-	var planSpec, planStatus string
-	if err := db.QueryRowContext(ctx,
-		`SELECT spec_json, status FROM plans WHERE id = ?`, res.PlanID).
-		Scan(&planSpec, &planStatus); err != nil {
-		t.Fatalf("plan lookup: %v", err)
-	}
-	if planStatus != "running" {
-		t.Errorf("plan status=%q; want running", planStatus)
-	}
-	// Note: Go's json.Marshal escapes `&` as `&` by default, so
-	// the literal "Method & Code" doesn't appear verbatim — search
-	// for the JSON-encoded form for that phase.
-	expected := []string{"Bootstrap", "Lit Review", `Method & Code`, "Experiment", "Paper"}
-	for _, phase := range expected {
-		if !strings.Contains(planSpec, phase) {
-			t.Errorf("plan spec missing phase %q: %s", phase, planSpec)
+	for _, p := range wantProjects {
+		if p.id == "" {
+			t.Fatalf("phase %s: project id empty", p.phase)
+		}
+		var tplID, phase string
+		if err := db.QueryRowContext(ctx, `
+			SELECT COALESCE(template_id,''), COALESCE(phase,'')
+			FROM projects WHERE id = ?`, p.id).Scan(&tplID, &phase); err != nil {
+			t.Fatalf("project %s lookup: %v", p.id, err)
+		}
+		if tplID != "research" {
+			t.Errorf("phase %s: template_id=%q; want research", p.phase, tplID)
+		}
+		if phase != p.phase {
+			t.Errorf("project %s: phase=%q; want %q", p.id, phase, p.phase)
 		}
 	}
 
-	// Plan steps: 5 rows, 0+1 completed, 2 in_progress, 3+4 pending.
-	wantStatus := map[int]string{
-		0: "completed",
-		1: "completed",
-		2: "in_progress",
-		3: "pending",
-		4: "pending",
+	// Deliverable count: idea=0, lit-review=1, method=2,
+	// experiment=3, paper=4 → total 10.
+	if got := res.DeliverableCount; got != 10 {
+		t.Errorf("deliverable count = %d; want 10", got)
 	}
+
+	// Criteria states: every state value should appear at least once
+	// (the seed deliberately exercises pending/met/failed/waived).
+	wantStates := []string{"pending", "met", "failed", "waived"}
+	for _, st := range wantStates {
+		if res.CriteriaByState[st] == 0 {
+			t.Errorf("CriteriaByState[%s] = 0; expected ≥ 1 to exercise the pip", st)
+		}
+	}
+
+	// All three criterion kinds present (text, metric, gate).
 	rows, err := db.QueryContext(ctx,
-		`SELECT phase_idx, status FROM plan_steps WHERE plan_id = ?
-		 ORDER BY phase_idx`, res.PlanID)
+		`SELECT DISTINCT kind FROM acceptance_criteria
+		 WHERE project_id IN (?,?,?,?,?)`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID)
 	if err != nil {
-		t.Fatalf("plan_steps query: %v", err)
+		t.Fatalf("kind query: %v", err)
 	}
 	defer rows.Close()
-	gotPhases := map[int]string{}
+	gotKinds := map[string]bool{}
 	for rows.Next() {
-		var phase int
-		var status string
-		if err := rows.Scan(&phase, &status); err != nil {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			t.Fatalf("scan kind: %v", err)
+		}
+		gotKinds[k] = true
+	}
+	for _, want := range []string{"text", "metric", "gate"} {
+		if !gotKinds[want] {
+			t.Errorf("criterion kind %q missing from seeded portfolio", want)
+		}
+	}
+
+	// Deliverable ratification states: all three should appear (draft,
+	// in-review, ratified).
+	dRows, err := db.QueryContext(ctx, `
+		SELECT DISTINCT ratification_state FROM deliverables
+		WHERE project_id IN (?,?,?,?,?)`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID)
+	if err != nil {
+		t.Fatalf("deliverable state query: %v", err)
+	}
+	defer dRows.Close()
+	gotDStates := map[string]bool{}
+	for dRows.Next() {
+		var s string
+		if err := dRows.Scan(&s); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		gotPhases[phase] = status
+		gotDStates[s] = true
 	}
-	for p, want := range wantStatus {
-		if got := gotPhases[p]; got != want {
-			t.Errorf("phase %d status=%q; want %q", p, got, want)
+	for _, want := range []string{"draft", "in-review", "ratified"} {
+		if !gotDStates[want] {
+			t.Errorf("deliverable state %q missing from seeded portfolio", want)
 		}
 	}
 
-	// Steward agent exists with kind=steward.research.v1, role
-	// derives to steward via the manifest.
-	var stewardKind string
-	if err := db.QueryRowContext(ctx,
-		`SELECT kind FROM agents WHERE id = ?`, res.StewardAgentID).
-		Scan(&stewardKind); err != nil {
-		t.Fatalf("steward lookup: %v", err)
+	// Typed-document section states: every project's document content
+	// is structuredBody JSON; every section state (empty/draft/ratified)
+	// should be present somewhere in the portfolio.
+	docRows, err := db.QueryContext(ctx, `
+		SELECT content_inline FROM documents
+		WHERE project_id IN (?,?,?,?,?)
+		  AND schema_id IS NOT NULL`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID)
+	if err != nil {
+		t.Fatalf("doc content query: %v", err)
 	}
-	if stewardKind != "steward.research.v1" {
-		t.Errorf("steward kind=%q; want steward.research.v1", stewardKind)
+	defer docRows.Close()
+	gotSecStates := map[string]bool{}
+	for docRows.Next() {
+		var inline sql.NullString
+		if err := docRows.Scan(&inline); err != nil {
+			t.Fatalf("scan content_inline: %v", err)
+		}
+		var body struct {
+			Sections []struct {
+				Status string `json:"status"`
+			} `json:"sections"`
+		}
+		if err := json.Unmarshal([]byte(inline.String), &body); err != nil {
+			t.Fatalf("decode section body: %v", err)
+		}
+		for _, s := range body.Sections {
+			gotSecStates[s.Status] = true
+		}
 	}
-
-	// Coder agent exists with parent_agent_id = steward.
-	var coderKind, coderParent string
-	if err := db.QueryRowContext(ctx,
-		`SELECT kind, COALESCE(parent_agent_id,'') FROM agents WHERE id = ?`,
-		res.CoderAgentID).Scan(&coderKind, &coderParent); err != nil {
-		t.Fatalf("coder lookup: %v", err)
-	}
-	if coderKind != "coder.v1" {
-		t.Errorf("coder kind=%q; want coder.v1", coderKind)
-	}
-	if coderParent != res.StewardAgentID {
-		t.Errorf("coder parent=%q; want %q", coderParent, res.StewardAgentID)
-	}
-
-	// Documents: lit-review and method draft.
-	var litTitle, methodTitle string
-	if err := db.QueryRowContext(ctx,
-		`SELECT title FROM documents WHERE id = ?`, res.LitReviewDocID).
-		Scan(&litTitle); err != nil {
-		t.Fatalf("lit-review doc lookup: %v", err)
-	}
-	if !strings.Contains(litTitle, "Lit review") {
-		t.Errorf("lit-review title=%q", litTitle)
-	}
-	if err := db.QueryRowContext(ctx,
-		`SELECT title FROM documents WHERE id = ?`, res.MethodDocID).
-		Scan(&methodTitle); err != nil {
-		t.Fatalf("method doc lookup: %v", err)
-	}
-	if !strings.Contains(methodTitle, "Method") {
-		t.Errorf("method title=%q", methodTitle)
+	for _, want := range []string{"empty", "draft", "ratified"} {
+		if !gotSecStates[want] {
+			t.Errorf("section state %q missing from typed-doc seeds", want)
+		}
 	}
 
-	// Attention item: open select kind on this project.
-	var attStatus, attKind string
-	if err := db.QueryRowContext(ctx,
-		`SELECT status, kind FROM attention_items WHERE id = ?`, res.AttentionID).
-		Scan(&attStatus, &attKind); err != nil {
-		t.Fatalf("attention lookup: %v", err)
+	// Idea project's phase_history should record the system →idea transition
+	// only; paper project's history should have all five phase transitions.
+	for _, p := range []struct {
+		id   string
+		want int
+	}{
+		{res.IdeaProjectID, 1},
+		{res.PaperProjectID, 5},
+	} {
+		var hist sql.NullString
+		if err := db.QueryRowContext(ctx,
+			`SELECT phase_history FROM projects WHERE id = ?`, p.id).
+			Scan(&hist); err != nil {
+			t.Fatalf("phase_history lookup: %v", err)
+		}
+		var doc struct {
+			Transitions []struct{} `json:"transitions"`
+		}
+		if err := json.Unmarshal([]byte(hist.String), &doc); err != nil {
+			t.Fatalf("decode phase_history: %v", err)
+		}
+		if len(doc.Transitions) != p.want {
+			t.Errorf("project %s: %d transitions; want %d",
+				p.id, len(doc.Transitions), p.want)
+		}
 	}
-	if attStatus != "open" || attKind != "select" {
-		t.Errorf("attention status=%q kind=%q; want open/select", attStatus, attKind)
+
+	// Attention items: one per project (5 total).
+	if got := res.AttentionItemCount; got != 5 {
+		t.Errorf("AttentionItemCount = %d; want 5", got)
+	}
+
+	// Audit rows include criterion.created entries and at least one
+	// deliverable.ratified entry.
+	var critCreated, delivRatified int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM audit_events
+		WHERE team_id = ? AND action = 'criterion.created'
+		  AND actor_handle = 'steward.lifecycle'`,
+		defaultTeamID).Scan(&critCreated); err != nil {
+		t.Fatalf("audit count (criterion.created): %v", err)
+	}
+	if critCreated == 0 {
+		t.Error("expected criterion.created audit rows, got 0")
+	}
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM audit_events
+		WHERE team_id = ? AND action = 'deliverable.ratified'`,
+		defaultTeamID).Scan(&delivRatified); err != nil {
+		t.Fatalf("audit count (deliverable.ratified): %v", err)
+	}
+	if delivRatified == 0 {
+		t.Error("expected deliverable.ratified audit rows, got 0")
 	}
 }
 
@@ -182,9 +243,9 @@ func TestSeedLifecycleDemo_Idempotent(t *testing.T) {
 	if !second.Skipped {
 		t.Errorf("second call: Skipped=false; want true")
 	}
-	if second.ProjectID != first.ProjectID {
-		t.Errorf("second call returned different project id: %s vs %s",
-			second.ProjectID, first.ProjectID)
+	if second.IdeaProjectID != first.IdeaProjectID {
+		t.Errorf("second call returned different idea-project id: %s vs %s",
+			second.IdeaProjectID, first.IdeaProjectID)
 	}
 }
 
@@ -206,7 +267,7 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 		t.Fatalf("empty reset: deleted=%v err=%v", deleted, err)
 	}
 
-	// Seed, then reset, then verify project gone.
+	// Seed, then reset, then verify all five projects gone.
 	first, err := SeedLifecycleDemo(ctx, db)
 	if err != nil {
 		t.Fatalf("seed: %v", err)
@@ -218,23 +279,31 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 	if !deleted {
 		t.Error("reset: deleted=false after seed")
 	}
-	var count int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM projects WHERE id = ?`, first.ProjectID).
-		Scan(&count); err != nil {
-		t.Fatalf("post-reset project count: %v", err)
+	for _, pid := range []string{
+		first.IdeaProjectID, first.LitReviewProjectID,
+		first.MethodProjectID, first.ExperimentProjectID,
+		first.PaperProjectID,
+	} {
+		var count int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM projects WHERE id = ?`, pid).
+			Scan(&count); err != nil {
+			t.Fatalf("post-reset project count: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("project %s still exists after reset (count=%d)", pid, count)
+		}
 	}
-	if count != 0 {
-		t.Errorf("project still exists after reset (count=%d)", count)
-	}
-	// Plan should be gone too (CASCADE plus our explicit delete).
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(1) FROM plans WHERE id = ?`, first.PlanID).
-		Scan(&count); err != nil && err != sql.ErrNoRows {
-		t.Fatalf("post-reset plan count: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("plan still exists after reset (count=%d)", count)
+	// All deliverables + criteria for the seeded set should be gone.
+	for _, table := range []string{"deliverables", "acceptance_criteria"} {
+		var count int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM `+table).Scan(&count); err != nil {
+			t.Fatalf("%s count: %v", table, err)
+		}
+		if count != 0 {
+			t.Errorf("table %s still has %d rows after reset", table, count)
+		}
 	}
 	// Re-seed succeeds (proves reset cleaned thoroughly).
 	if _, err := SeedLifecycleDemo(ctx, db); err != nil {
@@ -243,8 +312,8 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 }
 
 // TestLifecycleSeed_BundledPlanTemplate verifies the bundled
-// research-project.v1.yaml file is reachable via the embed.FS so
-// stewards (and tests against template-loading) can read it.
+// research.v1.yaml file is reachable via the embed.FS so stewards (and
+// tests against template-loading) can read it.
 func TestLifecycleSeed_BundledPlanTemplate(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := dir + "/hub.db"
@@ -257,8 +326,6 @@ func TestLifecycleSeed_BundledPlanTemplate(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	// writeBuiltinTemplates ran inside New(); the plan template
-	// should have been copied to the team overlay.
 	body, err := s.loadBuiltinAgentTemplate("steward.research.v1.yaml")
 	if err != nil {
 		t.Fatalf("seed agent template missing: %v", err)
@@ -266,9 +333,7 @@ func TestLifecycleSeed_BundledPlanTemplate(t *testing.T) {
 	if len(body) == 0 {
 		t.Fatal("seed agent body empty")
 	}
-
-	// Verify the plan file is on disk under team/templates/plans/.
-	overlayPath := dir + "/team/templates/plans/research-project.v1.yaml"
+	overlayPath := dir + "/team/templates/projects/research.v1.yaml"
 	if _, err := os.Stat(overlayPath); err != nil {
 		t.Errorf("plan template not copied to overlay at %s: %v", overlayPath, err)
 	}

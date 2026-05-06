@@ -1,9 +1,9 @@
 # Run the lifecycle demo — end-to-end walkthrough + test plan
 
 > **Type:** how-to
-> **Status:** Current (2026-04-30) — staged via wedges W1–W6
+> **Status:** Current (2026-05-06) — staged via wedges W1–W6 + lifecycle-mvp W1–W7
 > **Audience:** testers, contributors, demo reviewers
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.359
 
 **TL;DR.** The canonical end-to-end walkthrough for the amended MVP
 demo (the 5-phase research lifecycle locked in
@@ -39,8 +39,12 @@ intermediate point knows what's expected to work and what's not.
   as the acceptance contract. The phase passes only when the
   director sees the named transition and the named artifact.
 - **As a debugger:** failures localise to one phase + one wedge. Use
-  `hub-server seed-demo --shape lifecycle` (W6) to fast-forward to
-  any checkpoint without running the prior phases live.
+  `hub-server seed-demo --shape lifecycle` (W6, expanded 2026-05-06)
+  to stage a five-project portfolio — one project parked at each
+  phase, with the phase-appropriate deliverable / criterion / section
+  mix already on disk — so any phase's mobile UI can be inspected
+  without running prior phases live. See §Pre-flight for the row-by-
+  row inventory.
 
 ---
 
@@ -73,6 +77,44 @@ intermediate point knows what's expected to work and what's not.
   phone with completed runs + briefing + pending review.
 - This proves the underlying pipeline (hub → host-runner → mobile
   AG-UI broker) is healthy *before* introducing lifecycle complexity.
+
+**Lifecycle UI dress-rehearsal (no live agents):**
+
+```
+hub-server seed-demo --data <DataRoot> --shape lifecycle [-reset]
+```
+
+Stages a five-project portfolio under team `default`, one project
+parked at each phase, with realistic state already wired in so a
+reviewer can tap through every lifecycle UI surface without running
+phases live. The intent is to exercise the mobile UI vocabulary
+end-to-end — phase ribbon at every position, all five W7 phase
+heroes (`idea_conversation`, `deliverable_focus` ×2, `experiment_dash`,
+`paper_acceptance`), all four acceptance-criteria states (pending /
+met / failed / waived), all three deliverable ratification states
+(draft / in-review / ratified), and all three section states (empty
+/ draft / ratified) on typed (W5a) documents — before pulling in a
+live host-runner.
+
+Seeded portfolio:
+
+| Project name                     | Phase       | Hero (overview_widget) | Notable state |
+|----------------------------------|-------------|------------------------|---------------|
+| `research-idea-demo`             | idea        | `idea_conversation`    | scope-criterion pending; 0 deliverables (idea phase declares none) |
+| `research-litreview-demo`        | lit-review  | `deliverable_focus`    | doc deliverable in-review; metric criterion met (citations≥5); gate criterion pending |
+| `research-method-demo`           | method      | `deliverable_focus`    | method-doc ratified; gate criterion met; 7-section typed doc all ratified |
+| `research-experiment-demo`       | experiment  | `experiment_dash`      | mixed-component deliverable in draft (doc + 2 artifacts + 1 run); metric criterion met; gate pending; one criterion **failed** |
+| `research-paper-demo`            | paper       | `paper_acceptance`     | paper-draft in-review; gate criterion **waived** ("ratify deferred until reviewer feedback returns") |
+
+Idempotent — re-running without `-reset` reports the existing
+portfolio and writes nothing. `-reset` wipes the prior portfolio
+(deliverables, components, criteria, plans, agents, attention,
+typed docs, artifacts, runs, audits) before re-inserting.
+
+This harness does not exercise W1's role-gating, W2's overlay
+writes, or any prompt-engineering surface — it's a pure-DB stage
+for the read paths. To verify a *running* phase, follow §Phase 0
+through §Phase 4 below.
 
 ---
 

@@ -67,6 +67,75 @@ walkthroughs.
 See `../plans/research-demo-gaps.md` "Dress-rehearsal harness" for
 the full pipeline recipe.
 
+### 0.2 Lifecycle UI dress-rehearsal harness (project-lifecycle-mvp)
+
+_New 2026-05-06 (v1.0.359) — exercises the lifecycle-mvp W1–W7 mobile
+surfaces. This subsection's last-verified version is independent of the
+doc header, per the per-section pinning convention in §0._
+
+```
+hub-server seed-demo --data <hub-data-root> --shape lifecycle [-reset]
+```
+
+Stages a five-project research-template portfolio under team
+`default`, one project parked at each phase. The intent is to
+exercise the lifecycle UI vocabulary end-to-end before tagging a
+release for device test:
+
+| Project name              | Phase       | Hero                | Notable state |
+|---------------------------|-------------|---------------------|---------------|
+| `research-idea-demo`      | idea        | `idea_conversation` | scope-criterion pending; 0 deliverables |
+| `research-litreview-demo` | lit-review  | `deliverable_focus` | doc in-review; metric criterion met; gate pending |
+| `research-method-demo`    | method      | `deliverable_focus` | method-doc ratified; gate met; 7-section typed doc all ratified |
+| `research-experiment-demo`| experiment  | `experiment_dash`   | mixed-component deliverable in draft; one criterion **failed** |
+| `research-paper-demo`     | paper       | `paper_acceptance`  | paper-draft in-review; gate criterion **waived** |
+
+Coverage:
+
+- Phase ribbon at every position (current=highlighted,
+  completed=ok, pending=muted)
+- All 5 W7 phase heroes
+- All 3 deliverable ratification states (draft / in-review / ratified)
+- All 4 acceptance-criteria states (pending / met / failed / waived)
+- All 3 section states (empty / draft / ratified) on typed (W5a) docs
+- All 3 criterion kinds (text / metric / gate)
+- Mixed-component deliverable (typed doc + 2 artifacts + 1 run)
+- W6 cascade evidence (ratified-deliverable gate criterion stamped
+  with `evidence_ref`)
+- Per-project attention item on the Me tab
+
+**Tests to run after seeding:**
+
+1. Open the Projects tab → verify all five `research-*-demo`
+   projects appear, each tagged with its phase abbreviation in the
+   header strip.
+2. Open `research-idea-demo` → confirm `idea_conversation` hero
+   renders (steward-CTA framing, no deliverable list).
+3. Open `research-experiment-demo` → confirm `experiment_dash`
+   hero renders, then drill into the `experiment-results`
+   deliverable; the W5b viewer should show 4 components (typed
+   document → 5 sections in draft/empty mix; 2 artifacts with
+   blob-ref names; 1 run row).
+4. From `research-experiment-demo` → criteria list should include
+   one row in `failed` state with the rationale string visible.
+5. Open `research-paper-demo` → criteria list includes a row in
+   `waived` state with the waive note. Open the paper-draft
+   deliverable → 9-section typed doc with one section empty + one
+   draft + the rest ratified.
+6. Activity tab → audit feed should carry rows for
+   `project.create`, `project.phase_set`, `criterion.created`,
+   `criterion.met`, `criterion.failed`, `criterion.waived`,
+   `deliverable.created`, `deliverable.ratified`, all stamped with
+   `actor_handle='steward.lifecycle'`.
+7. `--reset` round-trip: re-run with `-reset`, confirm IDs change
+   and counts match (`5 attention items, 10 deliverables, 18
+   criteria, 10 typed docs, 4 artifacts, 2 runs`).
+
+The harness is read-path-only — it doesn't exercise W1's role-
+gating, W2's overlay writes, or any prompt-engineering surface.
+For those, run §3+ against a live host-runner with a fresh
+project from the template picker.
+
 ---
 
 ## 1. Smoke — bottom navigation & app boot

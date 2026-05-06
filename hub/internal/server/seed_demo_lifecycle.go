@@ -55,6 +55,7 @@ type SeedLifecycleResult struct {
 	DocumentCount      int // typed (W5a) + plain documents
 	ArtifactCount      int
 	RunCount           int
+	AnnotationCount    int // ADR-020 W1 — director annotations on typed docs
 	AttentionItemCount int
 	AuditCount         int
 
@@ -242,6 +243,7 @@ func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, e
 		res.DocumentCount += ctxRes.documents
 		res.ArtifactCount += ctxRes.artifacts
 		res.RunCount += ctxRes.runs
+		res.AnnotationCount += ctxRes.annotations
 		res.AttentionItemCount += ctxRes.attentionItems
 		res.AuditCount += ctxRes.audits
 	}
@@ -290,9 +292,10 @@ type seedProjectCtx struct {
 	// Side-effect counters: bumped by the typed-document / artifact /
 	// run helpers so the per-project pass can roll them up into the
 	// SeedLifecycleResult without threading return values.
-	documentsSeeded int
-	artifactsSeeded int
-	runsSeeded      int
+	documentsSeeded   int
+	artifactsSeeded   int
+	runsSeeded        int
+	annotationsSeeded int
 }
 
 type seededDeliverable struct {
@@ -378,6 +381,22 @@ func lifecycleSpecs() []lifecycleSpec {
 					})
 				if err != nil {
 					return nil, err
+				}
+				// ADR-020 W1: 3 director annotations on the lit-review doc
+				// (one per kind), so the dress-rehearsal exercises the
+				// overlay's redline / suggestion / question glyphs and the
+				// open / resolved filter.
+				for _, a := range []annotationSeed{
+					{docID: doc.id, section: "gaps", kind: "redline",
+						body: "Trim the second paragraph — it duplicates what's already in domain-overview."},
+					{docID: doc.id, section: "gaps", kind: "suggestion",
+						body: "Replace 'recent work' with a concrete pointer to Lin et al. 2025 §3.2."},
+					{docID: doc.id, section: "prior-work", kind: "question", status: "resolved",
+						body: "Did we cite Hu et al. 2024? Looks adjacent to the routing axis."},
+				} {
+					if err := seedAnnotation(c, a); err != nil {
+						return nil, err
+					}
 				}
 				return seedDeliverables(c, []deliverableSpec{
 					{
@@ -466,6 +485,19 @@ func lifecycleSpecs() []lifecycleSpec {
 					methodSectionSeeds())
 				if err != nil {
 					return nil, err
+				}
+				// ADR-020 W1: 2 director annotations on the in-flight method
+				// doc — both anchored to the still-draft evaluation-plan
+				// section where the director would naturally push back.
+				for _, a := range []annotationSeed{
+					{docID: methDoc.id, section: "evaluation-plan", kind: "comment",
+						body: "We should also report the trajectory at iter 500 — late-only is too lossy for the demo."},
+					{docID: methDoc.id, section: "evaluation-plan", kind: "redline",
+						body: "Drop the 'intermediate-step deltas' hedge — pick one and commit."},
+				} {
+					if err := seedAnnotation(c, a); err != nil {
+						return nil, err
+					}
 				}
 				return seedDeliverables(c, []deliverableSpec{
 					{
@@ -769,6 +801,7 @@ type lifecycleProjectResult struct {
 	documents      int
 	artifacts      int
 	runs           int
+	annotations    int
 	attentionItems int
 	audits         int
 }
@@ -946,6 +979,7 @@ func seedLifecycleProject(
 	res.documents = c.documentsSeeded
 	res.artifacts = c.artifactsSeeded
 	res.runs = c.runsSeeded
+	res.annotations = c.annotationsSeeded
 
 	return res, nil
 }
@@ -986,6 +1020,58 @@ type criterionSpec struct {
 	state         string
 	evidenceRef   string
 	required      bool
+}
+
+// annotationSeed describes one director annotation on a section of a
+// typed document. ADR-020 W1: kind ∈ {comment, redline, suggestion,
+// question}; status ∈ {open, resolved}. char_start/end are optional —
+// when both zero the annotation lands as a section-level note.
+type annotationSeed struct {
+	docID     string
+	section   string
+	kind      string
+	body      string
+	status    string // open | resolved
+	charStart int
+	charEnd   int
+}
+
+// seedAnnotation inserts a single director-authored annotation on a
+// typed-document section. Author is stamped as the director (the
+// principal who would have left the note in the demo) so the
+// "edit-by-author" gate can be exercised in the dress-rehearsal.
+func seedAnnotation(c *seedProjectCtx, a annotationSeed) error {
+	if a.kind == "" {
+		a.kind = "comment"
+	}
+	if a.status == "" {
+		a.status = "open"
+	}
+	var charStartArg, charEndArg any
+	if a.charStart != 0 || a.charEnd != 0 {
+		charStartArg = a.charStart
+		charEndArg = a.charEnd
+	}
+	var resolvedAt, resolvedBy any
+	if a.status == "resolved" {
+		resolvedAt = c.now
+		resolvedBy = "user:director"
+	}
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO document_annotations (
+			id, document_id, section_slug, char_start, char_end,
+			kind, body, status, author_kind, author_handle,
+			created_at, resolved_at, resolved_by_actor
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'principal', 'director',
+		          ?, ?, ?)`,
+		NewID(), a.docID, a.section, charStartArg, charEndArg,
+		a.kind, a.body, a.status, c.now, resolvedAt, resolvedBy,
+	); err != nil {
+		return fmt.Errorf("insert annotation on %s/%s: %w",
+			a.docID, a.section, err)
+	}
+	c.annotationsSeeded++
+	return nil
 }
 
 func seedTypedDocument(

@@ -1966,6 +1966,90 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  // ---- ADR-020 W1: document annotations ------------------------------
+  // Director redline / comment / suggestion / question on a typed-doc
+  // section. Append-only-on-content (resolve, don't delete; D3).
+
+  /// GET /documents/{doc}/annotations.
+  /// [section] filters to one slug; [status] is `open` (default),
+  /// `resolved`, or `all`.
+  Future<List<Map<String, dynamic>>> listAnnotations({
+    required String documentId,
+    String? section,
+    String? status,
+  }) async {
+    final q = <String, String>{};
+    if (section != null && section.isNotEmpty) q['section'] = section;
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
+      query: q.isEmpty ? null : q,
+    );
+    final m = (out as Map).cast<String, dynamic>();
+    return (m['annotations'] as List? ?? const [])
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+  }
+
+  /// POST /documents/{doc}/annotations. [kind] defaults to `comment`.
+  /// [charStart]/[charEnd] are optional in-section offsets.
+  Future<Map<String, dynamic>> createAnnotation({
+    required String documentId,
+    required String sectionSlug,
+    required String body,
+    String kind = 'comment',
+    int? charStart,
+    int? charEnd,
+  }) async {
+    final payload = <String, dynamic>{
+      'section_slug': sectionSlug,
+      'body': body,
+      'kind': kind,
+    };
+    if (charStart != null) payload['char_start'] = charStart;
+    if (charEnd != null) payload['char_end'] = charEnd;
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
+      payload,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// PATCH /annotations/{id}. Author-only on the server side; passing
+  /// either [body] or [kind] (or both) updates the row.
+  Future<Map<String, dynamic>> patchAnnotation({
+    required String annotationId,
+    String? body,
+    String? kind,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (body != null) payload['body'] = body;
+    if (kind != null) payload['kind'] = kind;
+    final out = await _patch(
+      '/v1/teams/${cfg.teamId}/annotations/$annotationId',
+      payload,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// POST /annotations/{id}/resolve. Soft-close per ADR-020 D3.
+  Future<Map<String, dynamic>> resolveAnnotation(String annotationId) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/annotations/$annotationId/resolve',
+      const {},
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// POST /annotations/{id}/reopen.
+  Future<Map<String, dynamic>> reopenAnnotation(String annotationId) async {
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/annotations/$annotationId/reopen',
+      const {},
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
   // ---- W5b: deliverables + components + project overview --------------
   // A3 §4 + §5 + §9. Mobile uses these to render the Structured
   // Deliverable Viewer (A5) and to power the phase-summary navigation

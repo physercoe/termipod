@@ -38,7 +38,7 @@ next sequential number — don't reserve, don't skip.
 | [017](017-layered-stewards.md) | Layered stewards (general frozen + domain overlay) | Accepted 2026-04-30 | [004](004-single-steward-mvp.md) |
 | [018](018-tailnet-deployment-assumption.md) | Hub ↔ host-runner connectivity assumes a tailnet | Accepted 2026-04-19 (back-dated) | — |
 | [019](019-channels-as-event-log.md) | Channels = append-only event logs with task_id/correlation_id | Accepted 2026-04-19 (back-dated) | — |
-| [020](020-director-action-surface.md) | Director-action surface on typed documents and deliverables | Proposed 2026-05-06 | — |
+| [020](020-director-action-surface.md) | Director-action surface on typed documents and deliverables | Accepted 2026-05-06 | — |
 
 ---
 

@@ -68,6 +68,26 @@ func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 		t.Errorf("deliverable count = %d; want 10", got)
 	}
 
+	// ADR-020 W1: 3 annotations on the lit-review demo + 2 on the
+	// method demo → 5 director annotations seeded. The mix covers
+	// open/resolved + every kind except question→open.
+	if got := res.AnnotationCount; got != 5 {
+		t.Errorf("annotation count = %d; want 5 (3 lit-review + 2 method)", got)
+	}
+	var openCount, resolvedCount int
+	if err := db.QueryRowContext(ctx,
+		`SELECT
+		   SUM(CASE WHEN status='open' THEN 1 ELSE 0 END),
+		   SUM(CASE WHEN status='resolved' THEN 1 ELSE 0 END)
+		 FROM document_annotations`,
+	).Scan(&openCount, &resolvedCount); err != nil {
+		t.Fatalf("annotation status query: %v", err)
+	}
+	if openCount != 4 || resolvedCount != 1 {
+		t.Errorf("annotation status mix: open=%d resolved=%d; want 4/1",
+			openCount, resolvedCount)
+	}
+
 	// Criteria states: every state value should appear at least once
 	// (the seed deliberately exercises pending/met/failed/waived).
 	wantStates := []string{"pending", "met", "failed", "waived"}
@@ -294,8 +314,10 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 			t.Errorf("project %s still exists after reset (count=%d)", pid, count)
 		}
 	}
-	// All deliverables + criteria for the seeded set should be gone.
-	for _, table := range []string{"deliverables", "acceptance_criteria"} {
+	// All deliverables + criteria + annotations for the seeded set should
+	// be gone. document_annotations cascade off documents (migration 0035),
+	// which the reset path explicitly DELETEs.
+	for _, table := range []string{"deliverables", "acceptance_criteria", "document_annotations"} {
 		var count int
 		if err := db.QueryRowContext(ctx,
 			`SELECT COUNT(1) FROM `+table).Scan(&count); err != nil {

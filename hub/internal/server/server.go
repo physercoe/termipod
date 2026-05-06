@@ -366,7 +366,22 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 					r.Patch("/", s.handlePatchDocumentSection)
 					r.Post("/status", s.handleSetDocumentSectionStatus)
 				})
+				// ADR-020 W1 — anchored director annotations on a
+				// section. List + create live under the document; PATCH /
+				// resolve / reopen live at /annotations/{id} below since
+				// they don't need the document URL parameter. DELETE is
+				// rejected (annotations are append-only-on-content; D3).
+				r.Route("/annotations", func(r chi.Router) {
+					r.Get("/", s.handleListAnnotations)
+					r.Post("/", s.handleCreateAnnotation)
+				})
 			})
+		})
+		r.Route("/annotations/{annotation}", func(r chi.Router) {
+			r.Patch("/", s.handlePatchAnnotation)
+			r.Delete("/", s.handleDeleteAnnotationDisallowed)
+			r.Post("/resolve", s.handleResolveAnnotation)
+			r.Post("/reopen", s.handleReopenAnnotation)
 		})
 		r.Route("/reviews", func(r chi.Router) {
 			r.Get("/", s.handleListReviews)

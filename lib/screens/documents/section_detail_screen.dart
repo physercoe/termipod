@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/hub_client.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/annotation_overlay.dart';
 import '../../widgets/markdown_section_editor.dart';
 import '../../widgets/section_state_pip.dart';
 
@@ -170,9 +171,16 @@ class _SectionDetailScreenState extends ConsumerState<SectionDetailScreen> {
       ),
       body: Stack(
         children: [
-          Padding(
+          ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-            child: _bodyView(),
+            children: [
+              _bodyView(),
+              const SizedBox(height: 16),
+              AnnotationOverlay(
+                documentId: widget.documentId,
+                sectionSlug: widget.slug,
+              ),
+            ],
           ),
           Positioned(
             left: 0,

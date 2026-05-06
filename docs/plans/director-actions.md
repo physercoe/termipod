@@ -1,9 +1,9 @@
 # Director-actions wedge plan — annotation primitive + send-back-with-notes
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-06)
+> **Status:** In flight (2026-05-06) — **W1 shipped (v1.0.362-alpha)**; W2 next
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.360-alpha
+> **Last verified vs code:** v1.0.362-alpha
 
 **TL;DR.** Two wedges to ship the MVP slice of [ADR-020](../decisions/020-director-action-surface.md). W1 lands the `document_annotations` primitive end-to-end (schema + REST + section-overlay UI + structured-deliverable-viewer overlay). W2 adds the `revision_requested` attention kind plus the "Send back with notes" button on the deliverable viewer. Roughly 3–4 days of work. One schema migration (`0035_document_annotations`). No new ADRs after ADR-020.
 
@@ -54,7 +54,7 @@ The following are intentionally not part of this plan and shouldn't grow into it
   - Tap → bottom sheet with full body, author, created_at, kind, "Resolve" / "Reopen" / "Edit" (edit only if author).
   - Long-press on a paragraph in the section → "Add annotation" sheet seeded with kind picker.
 - `lib/screens/documents/section_detail_screen.dart` — wire AnnotationOverlay into the section body; long-press handler binds to char offsets via the existing markdown renderer (best-effort; annotations without a recoverable range render as section-level notes).
-- `lib/screens/deliverables/structured_deliverable_viewer.dart` — for each component of `kind = 'document_section'`, render the same AnnotationOverlay. Composed deliverable-level note (per ADR-020 D6) is a section-level note on the intro section.
+- `lib/screens/deliverables/structured_deliverable_viewer.dart` — left as a pure navigation surface. Per ADR-020 D6 a deliverable-level note belongs on the intro section, and the actual `deliverable_components.kind` enum is `document | artifact | run | commit` — there is no `document_section` kind to render against. Tap → DocumentDetailScreen → SectionDetailScreen → AnnotationOverlay is the canonical path.
 - `lib/screens/projects/project_detail_screen.dart` — Activity tile picks up annotation events from `audit_events` automatically once the kinds land.
 
 **Verification:**

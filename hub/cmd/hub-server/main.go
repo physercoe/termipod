@@ -466,9 +466,9 @@ func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Log
 			first = false
 		}
 	}
-	fmt.Printf("), %d typed docs, %d artifacts, %d runs, %d attention items, %d audits\n",
+	fmt.Printf("), %d typed docs, %d artifacts, %d runs, %d annotations, %d attention items, %d audits\n",
 		res.DocumentCount, res.ArtifactCount, res.RunCount,
-		res.AttentionItemCount, res.AuditCount)
+		res.AnnotationCount, res.AttentionItemCount, res.AuditCount)
 }
 
 // ---- helpers ----

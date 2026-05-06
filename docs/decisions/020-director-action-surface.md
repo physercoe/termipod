@@ -1,9 +1,9 @@
 # 020. Director-action surface on typed documents and deliverables
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-06)
+> **Status:** Accepted (2026-05-06) — D1–D6 implemented in v1.0.362-alpha (annotation primitive + seed); D4 send-back deferred to W2
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.360-alpha
+> **Last verified vs code:** v1.0.362-alpha
 
 **TL;DR.** The control plane today gives the director two coarse moves on a typed document or deliverable: *edit the body directly*, or *promote/ratify*. That's a binary verdict layer with no deliberation layer in between. This ADR enumerates the seven director-actions a control plane should expose, locks the **annotation** primitive and the **send-back-with-notes** handoff as the MVP pair, and defers the other five with a note on each. Rationale: the annotation row + a typed return-to-sender attention item cover the bulk of director-on-doc behaviour without adding new primitives or rewriting the W5/W6 surface.
 

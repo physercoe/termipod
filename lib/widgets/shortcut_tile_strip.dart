@@ -295,11 +295,11 @@ class _TileRow extends ConsumerWidget {
     Map<String, dynamic>? litReviewDeliverable;
     if (client != null && projectId.isNotEmpty) {
       try {
-        final dls = await client.listDeliverables(
+        final cached = await client.listDeliverablesCached(
           projectId: projectId,
           includeComponents: true,
         );
-        for (final d in dls) {
+        for (final d in cached.body) {
           if ((d['kind'] ?? '').toString() == 'lit-review') {
             litReviewDeliverable = d;
             break;

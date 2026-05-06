@@ -1991,6 +1991,39 @@ class HubClient {
         .toList();
   }
 
+  /// Read-through variant of [listAnnotations]; see [listRunsCached]
+  /// for the offline-fallback contract. Annotation overlays use this
+  /// so a director's notes on a section render even when the hub is
+  /// unreachable.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listAnnotationsCached({
+    required String documentId,
+    String? section,
+    String? status,
+  }) {
+    final q = <String, String>{};
+    if (section != null && section.isNotEmpty) q['section'] = section;
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listAnnotations(
+        documentId: documentId,
+        section: section,
+        status: status,
+      ),
+      decode: (raw) {
+        // Annotations return as {annotations: [...]} on the wire but the
+        // raw fetch already unwraps to a list — match that shape so the
+        // cached body and the live body decode identically.
+        return _decodeListMaps(raw);
+      },
+    );
+  }
+
   /// POST /documents/{doc}/annotations. [kind] defaults to `comment`.
   /// [charStart]/[charEnd] are optional in-section offsets.
   Future<Map<String, dynamic>> createAnnotation({
@@ -2012,6 +2045,9 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
       payload,
     );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/documents/$documentId/annotations',
+    );
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -2029,7 +2065,9 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/annotations/$annotationId',
       payload,
     );
-    return (out as Map).cast<String, dynamic>();
+    final m = (out as Map).cast<String, dynamic>();
+    await _invalidateAnnotationsForDoc(m);
+    return m;
   }
 
   /// POST /annotations/{id}/resolve. Soft-close per ADR-020 D3.
@@ -2038,7 +2076,9 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/annotations/$annotationId/resolve',
       const {},
     );
-    return (out as Map).cast<String, dynamic>();
+    final m = (out as Map).cast<String, dynamic>();
+    await _invalidateAnnotationsForDoc(m);
+    return m;
   }
 
   /// POST /annotations/{id}/reopen.
@@ -2047,7 +2087,20 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/annotations/$annotationId/reopen',
       const {},
     );
-    return (out as Map).cast<String, dynamic>();
+    final m = (out as Map).cast<String, dynamic>();
+    await _invalidateAnnotationsForDoc(m);
+    return m;
+  }
+
+  /// PATCH/resolve/reopen all return the updated annotation row whose
+  /// `document_id` field is the only handle the mutation methods have on
+  /// the cache-key prefix. Pull it out and drop the matching list rows.
+  Future<void> _invalidateAnnotationsForDoc(Map<String, dynamic> row) async {
+    final docId = (row['document_id'] ?? '').toString();
+    if (docId.isEmpty) return;
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/documents/$docId/annotations',
+    );
   }
 
   // ---- W5b: deliverables + components + project overview --------------
@@ -2076,6 +2129,35 @@ class HubClient {
     return items;
   }
 
+  /// Read-through variant of [listDeliverables]; see [listRunsCached]
+  /// for the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listDeliverablesCached({
+    required String projectId,
+    String? phase,
+    String? state,
+    bool includeComponents = false,
+  }) {
+    final q = <String, String>{};
+    if (phase != null && phase.isNotEmpty) q['phase'] = phase;
+    if (state != null && state.isNotEmpty) q['state'] = state;
+    if (includeComponents) q['include'] = 'components';
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listDeliverables(
+        projectId: projectId,
+        phase: phase,
+        state: state,
+        includeComponents: includeComponents,
+      ),
+      decode: _decodeListMaps,
+    );
+  }
+
   Future<Map<String, dynamic>> getDeliverable({
     required String projectId,
     required String deliverableId,
@@ -2086,6 +2168,25 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Read-through variant of [getDeliverable]; see [listRunsCached] for
+  /// the offline-fallback contract. The structured deliverable viewer
+  /// uses this so directors can re-open a deliverable without network.
+  Future<CachedResponse<Map<String, dynamic>>> getDeliverableCached({
+    required String projectId,
+    required String deliverableId,
+  }) =>
+      readThrough<Map<String, dynamic>>(
+        cache: snapshotCache,
+        hubKey: _cacheHubKey,
+        endpoint:
+            '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId',
+        fetch: () => getDeliverable(
+          projectId: projectId,
+          deliverableId: deliverableId,
+        ),
+        decode: _decodeMap,
+      );
+
   Future<Map<String, dynamic>> ratifyDeliverable({
     required String projectId,
     required String deliverableId,
@@ -2095,9 +2196,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId/ratify',
       {if (rationale != null && rationale.isNotEmpty) 'rationale': rationale},
     );
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
-    );
+    await _invalidateProjectDeliverable(projectId, deliverableId);
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -2110,9 +2209,7 @@ class HubClient {
       '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId/unratify',
       {if (reason != null && reason.isNotEmpty) 'rationale': reason},
     );
-    await _invalidate(
-      '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
-    );
+    await _invalidateProjectDeliverable(projectId, deliverableId);
     return (out as Map).cast<String, dynamic>();
   }
 
@@ -2134,10 +2231,30 @@ class HubClient {
         if (annotationIds.isNotEmpty) 'annotation_ids': annotationIds,
       },
     );
+    await _invalidateProjectDeliverable(projectId, deliverableId);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Drop every cache row touched by a deliverable mutation: the
+  /// deliverable itself, the project's deliverable list (any phase /
+  /// state filter), the criteria list (ratification mutates criterion
+  /// gates as a cascade), and the project overview snippet.
+  Future<void> _invalidateProjectDeliverable(
+    String projectId,
+    String deliverableId,
+  ) async {
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables/$deliverableId',
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables',
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/criteria',
+    );
     await _invalidate(
       '/v1/teams/${cfg.teamId}/projects/$projectId/overview',
     );
-    return (out as Map).cast<String, dynamic>();
   }
 
   Future<Map<String, dynamic>> getProjectOverview(String projectId) async {
@@ -2177,6 +2294,34 @@ class HubClient {
     return (m['items'] as List? ?? const [])
         .map((e) => (e as Map).cast<String, dynamic>())
         .toList();
+  }
+
+  /// Read-through variant of [listProjectCriteria]; see [listRunsCached]
+  /// for the offline-fallback contract.
+  Future<CachedResponse<List<Map<String, dynamic>>>> listProjectCriteriaCached({
+    required String projectId,
+    String? phase,
+    String? deliverableId,
+  }) {
+    final q = <String, String>{};
+    if (phase != null && phase.isNotEmpty) q['phase'] = phase;
+    if (deliverableId != null && deliverableId.isNotEmpty) {
+      q['deliverable_id'] = deliverableId;
+    }
+    return readThrough<List<Map<String, dynamic>>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey(
+        '/v1/teams/${cfg.teamId}/projects/$projectId/criteria',
+        q.isEmpty ? null : q,
+      ),
+      fetch: () => listProjectCriteria(
+        projectId: projectId,
+        phase: phase,
+        deliverableId: deliverableId,
+      ),
+      decode: _decodeListMaps,
+    );
   }
 
   Future<Map<String, dynamic>> createCriterion({
@@ -2249,6 +2394,15 @@ class HubClient {
     final out = await _post(
       '/v1/teams/${cfg.teamId}/projects/$projectId/criteria/$criterionId/$action',
       payload,
+    );
+    // Criterion mutations can cascade into deliverable.ratified gate
+    // state, so drop the project's deliverable + criteria + overview
+    // caches as a unit.
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/deliverables',
+    );
+    await _invalidate(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/criteria',
     );
     await _invalidate(
       '/v1/teams/${cfg.teamId}/projects/$projectId/overview',

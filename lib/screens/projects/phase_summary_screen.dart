@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/deliverable_state_pip.dart';
+import '../../widgets/hub_offline_banner.dart';
 import '../deliverables/structured_deliverable_viewer.dart';
 
 /// W5b — Phase summary screen (A5 §3). Lands when the director taps a
@@ -34,6 +35,7 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
   List<Map<String, dynamic>> _deliverables = const [];
   bool _loading = true;
   String? _error;
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -51,14 +53,15 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
       return;
     }
     try {
-      final items = await client.listDeliverables(
+      final cached = await client.listDeliverablesCached(
         projectId: widget.projectId,
         phase: widget.phase,
         includeComponents: true,
       );
       if (!mounted) return;
       setState(() {
-        _deliverables = items;
+        _deliverables = cached.body;
+        _staleSince = cached.staleSince;
         _loading = false;
         _error = null;
       });
@@ -83,6 +86,7 @@ class _PhaseSummaryScreenState extends ConsumerState<PhaseSummaryScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
+            HubOfflineBanner(staleSince: _staleSince, onRetry: _load),
             Text(widget.projectName,
                 style: theme.textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w700)),

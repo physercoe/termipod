@@ -35,6 +35,8 @@ class AnnotationOverlay extends ConsumerStatefulWidget {
 class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
   bool _loading = true;
   List<Map<String, dynamic>> _items = const [];
+  // Non-null when annotations were served from the offline cache.
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -60,14 +62,15 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
     }
     setState(() => _loading = true);
     try {
-      final out = await client.listAnnotations(
+      final out = await client.listAnnotationsCached(
         documentId: widget.documentId,
         section: widget.sectionSlug,
         status: widget.showResolved ? 'all' : 'open',
       );
       if (!mounted) return;
       setState(() {
-        _items = out;
+        _items = out.body;
+        _staleSince = out.staleSince;
         _loading = false;
       });
     } catch (_) {
@@ -150,6 +153,16 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
                   ),
                 ),
                 const Spacer(),
+                if (_staleSince != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Tooltip(
+                      message:
+                          'Showing cached annotations · last updated ${_formatHm(_staleSince!)}',
+                      child: const Icon(Icons.cloud_off,
+                          size: 14, color: DesignColors.warning),
+                    ),
+                  ),
                 TextButton.icon(
                   icon: const Icon(Icons.add, size: 14),
                   label: Text(
@@ -165,7 +178,7 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                  onPressed: _addAnnotation,
+                  onPressed: _staleSince != null ? null : _addAnnotation,
                 ),
               ],
             ),
@@ -208,6 +221,12 @@ class _AnnotationOverlayState extends ConsumerState<AnnotationOverlay> {
         ],
       ),
     );
+  }
+
+  static String _formatHm(DateTime t) {
+    final l = t.toLocal();
+    return '${l.hour.toString().padLeft(2, '0')}:'
+        '${l.minute.toString().padLeft(2, '0')}';
   }
 }
 

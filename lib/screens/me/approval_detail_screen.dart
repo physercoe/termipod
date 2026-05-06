@@ -918,10 +918,11 @@ class _RevisionRequestedBlockState
       return;
     }
     try {
-      final d = await client.getDeliverable(
+      final cached = await client.getDeliverableCached(
         projectId: widget.projectId,
         deliverableId: _deliverableId,
       );
+      final d = cached.body;
       _deliverableLabel = (d['kind'] ?? 'Deliverable').toString();
       final comps = ((d['components'] as List?) ?? const [])
           .map((e) => (e as Map).cast<String, dynamic>())
@@ -934,9 +935,9 @@ class _RevisionRequestedBlockState
         if (docID.isEmpty) continue;
         _firstDocumentId ??= docID;
         try {
-          final list =
-              await client.listAnnotations(documentId: docID, status: 'all');
-          for (final a in list) {
+          final list = await client.listAnnotationsCached(
+              documentId: docID, status: 'all');
+          for (final a in list.body) {
             final id = (a['id'] ?? '').toString();
             if (wantIDs.contains(id)) {
               byID[id] = {...a, '_doc_id': docID};

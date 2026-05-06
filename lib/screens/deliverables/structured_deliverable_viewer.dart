@@ -8,6 +8,7 @@ import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/criterion_state_pip.dart';
 import '../../widgets/deliverable_state_pip.dart';
+import '../../widgets/hub_offline_banner.dart';
 import '../projects/artifacts_screen.dart' show showArtifactDetailSheet;
 import '../projects/documents_screen.dart' show DocumentDetailScreen;
 import '../projects/runs_screen.dart' show RunDetailScreen;
@@ -44,6 +45,9 @@ class _StructuredDeliverableViewerState
   List<Map<String, dynamic>> _criteria = const [];
   bool _busy = false;
   String? _error;
+  // Non-null when the loaded body came from the offline cache; UI can
+  // show "Last updated X" so the user knows the hub is unreachable.
+  DateTime? _staleSince;
 
   @override
   void initState() {
@@ -62,18 +66,19 @@ class _StructuredDeliverableViewerState
     if (client == null) return;
     setState(() => _busy = true);
     try {
-      final d = await client.getDeliverable(
+      final d = await client.getDeliverableCached(
         projectId: widget.projectId,
         deliverableId: widget.deliverableId,
       );
-      final crits = await client.listProjectCriteria(
+      final crits = await client.listProjectCriteriaCached(
         projectId: widget.projectId,
         deliverableId: widget.deliverableId,
       );
       if (!mounted) return;
       setState(() {
-        _deliverable = d;
-        _criteria = crits;
+        _deliverable = d.body;
+        _criteria = crits.body;
+        _staleSince = d.staleSince ?? crits.staleSince;
         _busy = false;
         _error = null;
       });
@@ -127,9 +132,9 @@ class _StructuredDeliverableViewerState
       final docId = (d['ref_id'] ?? '').toString();
       if (docId.isEmpty) continue;
       try {
-        final out =
-            await client.listAnnotations(documentId: docId, status: 'open');
-        for (final a in out) {
+        final out = await client.listAnnotationsCached(
+            documentId: docId, status: 'open');
+        for (final a in out.body) {
           openAnnotations.add({...a, '_doc_id': docId});
         }
       } catch (_) {}
@@ -267,6 +272,8 @@ class _StructuredDeliverableViewerState
                 ListView(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
                   children: [
+                    HubOfflineBanner(
+                        staleSince: _staleSince, onRetry: _load),
                     if (phase.isNotEmpty)
                       _MetaRow(label: 'Phase', value: _prettyKind(phase)),
                     _MetaRow(label: 'Kind', value: title),

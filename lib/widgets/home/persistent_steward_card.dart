@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -49,18 +51,137 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     return null;
   }
 
+  /// Tolerate either a parsed JSON object or a raw JSON string under
+  /// `capabilities` — the hub serializes it as a json.RawMessage which
+  /// Dart parses to Map, but cache/SSE paths may surface the verbatim
+  /// string form.
+  Map<String, dynamic> _capsAsMap(dynamic raw) {
+    if (raw is Map) return raw.cast<String, dynamic>();
+    if (raw is String && raw.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {}
+    }
+    return const <String, dynamic>{};
+  }
+
+  /// Bottom sheet picker for the binding host. Surfaces each team-host
+  /// with a one-line caps summary so the principal sees at a glance
+  /// which boxes can actually run claude-code (the steward's backend);
+  /// hosts that haven't probed yet, or report claude-code missing,
+  /// stay tappable but show a warning subtitle so the call lands the
+  /// real "not installed on host" error rather than masking it.
+  Future<String?> _pickHost(List<Map<String, dynamic>> hosts) {
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        final muted = Theme.of(sheetCtx).brightness == Brightness.dark
+            ? DesignColors.textMuted
+            : DesignColors.textMutedLight;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Choose a host',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'The general steward will run on this host.',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    color: muted,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                for (final h in hosts) _hostTile(sheetCtx, h, muted),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// One row in the host picker. Resolves the host's caps_json (if
+  /// present) so we can flag boxes that don't have claude-code yet —
+  /// the spawn would still fail there, and surfacing that ahead of
+  /// time saves the user a round-trip.
+  Widget _hostTile(
+      BuildContext sheetCtx, Map<String, dynamic> host, Color muted) {
+    final id = (host['id'] ?? '').toString();
+    final name = (host['name'] ?? '').toString();
+    final displayName = name.isEmpty ? 'host:${id.substring(0, 8)}' : name;
+    final status = (host['status'] ?? '').toString();
+    final caps = _capsAsMap(host['capabilities']);
+    final agents = caps['agents'] is Map
+        ? (caps['agents'] as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
+    final claude = agents['claude-code'] is Map
+        ? (agents['claude-code'] as Map).cast<String, dynamic>()
+        : const <String, dynamic>{};
+    final installed = claude['installed'] == true;
+    final probed = agents.isNotEmpty;
+    final subtitle = !probed
+        ? 'No probe yet · status=$status'
+        : installed
+            ? 'claude-code ready · status=$status'
+            : 'claude-code NOT installed · status=$status';
+    final warn = probed && !installed;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        Icons.dns_outlined,
+        color: warn ? Colors.orange : null,
+      ),
+      title: Text(
+        displayName,
+        style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 11,
+          color: warn ? Colors.orange : muted,
+        ),
+      ),
+      onTap: () => Navigator.of(sheetCtx).pop(id),
+    );
+  }
+
   Future<void> _open() async {
     if (_busy) return;
     final client = ref.read(hubProvider.notifier).client;
     final hubState = ref.read(hubProvider).value;
     if (client == null || hubState == null || !hubState.configured) return;
+
+    // First-time spawn on a multi-host team — let the principal pick
+    // which host the always-on steward binds to. Single-host stays
+    // one-tap; idempotent re-opens (existing live steward) skip the
+    // sheet because the host is already locked in.
+    String? pinnedHostId;
+    final isLive = _findRunning() != null;
+    if (!isLive && hubState.hosts.length >= 2) {
+      pinnedHostId = await _pickHost(hubState.hosts);
+      if (pinnedHostId == null) return; // user dismissed
+    }
+
     setState(() => _busy = true);
     try {
       // ensureGeneralSteward is idempotent — fast path returns the
       // existing agent id without touching host. Slow path picks a
       // host, copies the bundled template, and spawns. Both paths
       // return the same envelope.
-      final res = await client.ensureGeneralSteward();
+      final res = await client.ensureGeneralSteward(hostId: pinnedHostId);
       final agentId = (res['agent_id'] ?? '').toString();
       if (agentId.isEmpty) {
         throw StateError('hub returned no agent_id');

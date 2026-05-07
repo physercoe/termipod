@@ -1232,10 +1232,14 @@ class HubClient {
   /// avoids manual spawn-sheet UX for the always-on concierge — there
   /// is exactly one general steward per team, archived only by
   /// explicit director action.
-  Future<Map<String, dynamic>> ensureGeneralSteward() async {
+  Future<Map<String, dynamic>> ensureGeneralSteward({String? hostId}) async {
+    final body = <String, dynamic>{};
+    if (hostId != null && hostId.isNotEmpty) {
+      body['host_id'] = hostId;
+    }
     final out = await _post(
       '/v1/teams/${cfg.teamId}/steward.general/ensure',
-      const <String, dynamic>{},
+      body,
     );
     return (out as Map).cast<String, dynamic>();
   }

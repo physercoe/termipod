@@ -177,6 +177,93 @@ func TestEnsureGeneralSteward_RespawnAfterArchive(t *testing.T) {
 	}
 }
 
+// host_id in the body pins the spawn to a specific team-host. This is
+// the multi-host director-picker path (mobile renders a sheet when the
+// team has 2+ hosts). Auto-pick (most-recent host) must still be the
+// fallback when no body is supplied — the legacy single-host UX stays
+// one-tap.
+func TestEnsureGeneralSteward_PinnedHost(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/hub.db"
+	token, err := Init(dir, dbPath)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.router)
+	t.Cleanup(srv.Close)
+
+	// Two hosts. Without pinning, pickFirstHost returns the most
+	// recently created — which would be host-2 here. Pinning host-1
+	// proves the body field is honored.
+	seedTestHost(t, s, defaultTeamID, "host-1", "older-host")
+	seedTestHost(t, s, defaultTeamID, "host-2", "newer-host")
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		srv.URL+"/v1/teams/"+defaultTeamID+"/steward.general/ensure",
+		bytes.NewReader([]byte(`{"host_id":"host-1"}`)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("ensure http: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("want 201, got %d (%s)", resp.StatusCode, body)
+	}
+	var out ensureGeneralStewardOut
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	var hostID string
+	if err := s.db.QueryRowContext(context.Background(),
+		`SELECT host_id FROM agents WHERE id = ?`, out.AgentID).Scan(&hostID); err != nil {
+		t.Fatalf("lookup host_id: %v", err)
+	}
+	if hostID != "host-1" {
+		t.Errorf("spawned on host=%q; want host-1 (pinned)", hostID)
+	}
+}
+
+func TestEnsureGeneralSteward_PinnedHost_Unknown(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := dir + "/hub.db"
+	token, err := Init(dir, dbPath)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	s, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	srv := httptest.NewServer(s.router)
+	t.Cleanup(srv.Close)
+
+	seedTestHost(t, s, defaultTeamID, "host-1", "ours")
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST",
+		srv.URL+"/v1/teams/"+defaultTeamID+"/steward.general/ensure",
+		bytes.NewReader([]byte(`{"host_id":"host-does-not-exist"}`)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("ensure http: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown host pin: want 400, got %d (%s)", resp.StatusCode, body)
+	}
+}
+
 func TestEnsureGeneralSteward_NoHost(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := dir + "/hub.db"

@@ -48,6 +48,15 @@ const generalStewardKind = "steward.general.v1"
 // rely on a stable string.
 const generalStewardHandle = "@steward"
 
+// ensureGeneralStewardIn is the optional request body. host_id pins the
+// spawn to a specific team-host (e.g. when the team has multiple hosts
+// and the principal wants to bind the steward to one of them via the
+// mobile picker). Empty body keeps the legacy auto-pick semantics —
+// the most recently registered team-host wins.
+type ensureGeneralStewardIn struct {
+	HostID string `json:"host_id,omitempty"`
+}
+
 // ensureGeneralStewardOut is the response shape — same envelope as
 // /agents/spawn, plus a flag indicating whether we actually spawned
 // or found an existing instance. Callers (mobile, tests) use the
@@ -68,6 +77,12 @@ func (s *Server) handleEnsureGeneralSteward(w http.ResponseWriter, r *http.Reque
 	team := chi.URLParam(r, "team")
 	ctx := r.Context()
 
+	// Optional body: caller may pin the spawn to a specific host.
+	// We tolerate an empty body (legacy callers POST `{}`) — the
+	// decoder leaves HostID="" and we fall through to pickFirstHost.
+	var body ensureGeneralStewardIn
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
 	// Fast path: an existing running instance.
 	if existing, err := s.findRunningGeneralSteward(ctx, team); err == nil && existing != "" {
 		writeJSON(w, http.StatusOK, ensureGeneralStewardOut{
@@ -81,14 +96,23 @@ func (s *Server) handleEnsureGeneralSteward(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Pick a host for the spawn. Multi-host policy is post-MVP; for
-	// now we pick the first host that the team can see. If no host
-	// is registered yet, we surface a clear error rather than
-	// silently spawning host-less.
-	hostID, err := s.pickFirstHost(ctx, team)
-	if err != nil {
-		writeErr(w, http.StatusFailedDependency, "no host available: "+err.Error())
-		return
+	// Pick a host for the spawn. If the caller named one, validate it
+	// belongs to this team; otherwise auto-pick the most-recently
+	// registered host for backwards compatibility.
+	var hostID string
+	var err error
+	if body.HostID != "" {
+		if err = s.validateTeamHost(ctx, team, body.HostID); err != nil {
+			writeErr(w, http.StatusBadRequest, "host_id: "+err.Error())
+			return
+		}
+		hostID = body.HostID
+	} else {
+		hostID, err = s.pickFirstHost(ctx, team)
+		if err != nil {
+			writeErr(w, http.StatusFailedDependency, "no host available: "+err.Error())
+			return
+		}
 	}
 
 	// Load the bundled steward.general.v1 template body — disk
@@ -166,6 +190,22 @@ func (s *Server) findRunningGeneralSteward(ctx context.Context, team string) (st
 		return "", err
 	}
 	return id, nil
+}
+
+// validateTeamHost confirms the host id exists and belongs to the
+// named team. Returns sql.ErrNoRows-shaped failure as a 400-ready
+// message rather than letting the FK trip later in DoSpawn — the
+// principal asked for this host explicitly so a clear error beats a
+// generic spawn-failed.
+func (s *Server) validateTeamHost(ctx context.Context, team, hostID string) error {
+	var got string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id FROM hosts WHERE id = ? AND team_id = ?`,
+		hostID, team).Scan(&got)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("host %s not found in team %s", hostID, team)
+	}
+	return err
 }
 
 // pickFirstHost returns the most-recently-registered host for the

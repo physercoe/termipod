@@ -244,6 +244,46 @@ printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=%s\n' \
 Mode `0640`, group-readable by the login user. Re-run with a different
 username + token for each additional instance.
 
+### Backend-CLI auth env vars (claude / codex / gemini)
+
+The systemd unit reads **only** `/etc/termipod-host/<user>.env` — it
+does not source `~/.bashrc`, `~/.profile`, `/etc/environment`, or any
+other interactive shell config. Whatever the host-runner sees is what
+the spawned claude/codex/gemini process sees (Go's `exec.Command`
+inherits the parent environment). So API keys exported in your
+shell **don't reach the agent**, and you'll see "not logged in" when
+you spawn a steward.
+
+Append the auth env vars your engines need to the same file. Pick the
+ones that apply:
+
+```env
+# /etc/termipod-host/ubuntu.env  (append below the HUB_* lines)
+
+# claude-code: API-key auth. Skip if you've run `claude /login` as the
+# host's login user — credentials live in ~/.claude/credentials.json
+# and are picked up via filesystem.
+ANTHROPIC_API_KEY=sk-ant-...
+
+# codex: API-key auth. Same skip rule applies if ~/.codex is logged in.
+OPENAI_API_KEY=sk-...
+
+# gemini-cli (optional)
+GEMINI_API_KEY=...
+```
+
+After editing, restart the instance so systemd reloads the file:
+
+```bash
+sudo systemctl restart termipod-host@ubuntu
+```
+
+> **OAuth alternative.** If you'd rather not put keys on disk, run
+> `claude /login` (or `codex login`) interactively as the same login
+> user the unit runs as. The OAuth credentials land in `~/.claude/`
+> or `~/.codex/`, which the systemd unit can read via
+> `User=%i` + `HOME=/home/%i`. No env vars needed in that case.
+
 ### Install the shipped systemd template unit
 
 The repo ships a **template unit** at

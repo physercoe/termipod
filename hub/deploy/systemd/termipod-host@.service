@@ -23,8 +23,16 @@
 #
 #   # 2. Per-user env file. Name it <username>.env to match the instance.
 #   #    Token comes from:  hub-server tokens issue -kind host …
+#   #
+#   #    Append backend-CLI auth env vars HERE — systemd does NOT source
+#   #    ~/.bashrc, so ANTHROPIC_API_KEY / OPENAI_API_KEY exported in your
+#   #    interactive shell never reach the spawned agent and steward
+#   #    spawn will report "not logged in." Skip env vars only if you've
+#   #    already run `claude /login` or `codex login` as the same login
+#   #    user (creds live in ~/.claude/ or ~/.codex/ and are read via
+#   #    User=%i + HOME=/home/%i).
 #   sudo install -d -o root -g root -m 0755 /etc/termipod-host
-#   printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=paste-here\n' \
+#   printf 'HUB_URL=https://hub.example.com\nHUB_TEAM=default\nHUB_TOKEN=paste-here\nANTHROPIC_API_KEY=sk-ant-...\nOPENAI_API_KEY=sk-...\n' \
 #       | sudo install -o root -g ubuntu -m 0640 /dev/stdin /etc/termipod-host/ubuntu.env
 #
 #   # (Optional) Enable A2A agent-card server. Add these lines to the env

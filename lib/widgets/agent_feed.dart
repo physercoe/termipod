@@ -2423,7 +2423,7 @@ class AgentEventCard extends StatelessWidget {
       color: textColor,
     );
     return MarkdownBody(
-      data: s,
+      data: _normalizeMultilineMath(s),
       selectable: true,
       shrinkWrap: true,
       // Override fenced-code rendering with syntax highlighting so the
@@ -2438,19 +2438,15 @@ class AgentEventCard extends StatelessWidget {
         'math': _MathBuilder(isDark: isDark, display: false),
         'mathblock': _MathBuilder(isDark: isDark, display: true),
       },
-      // Custom syntaxes for LaTeX. Order matters for the inline list:
-      // $$...$$ must be tried before $...$ or the parser will eat the
-      // leading $$ as two empty $$s; \[...\] before \(...\) for the
-      // same reason. The markdown package tries inline syntaxes in
-      // registration order, so block-display variants come first.
-      // The block syntax catches multi-line \[ ... \] which inline
-      // syntaxes can't span (they don't cross newlines).
+      // Custom inline syntaxes only — no BlockSyntax. The preprocessor
+      // (_normalizeMultilineMath) collapses well-formed multi-line
+      // $$...$$ and \[...\] regions into single-line $$...$$ before
+      // we get here; unbalanced delimiters fall through to plain text.
+      // Order matters: $$...$$ must be tried before $...$ or the
+      // parser will eat the leading $$ as two empty $$s; same for
+      // \[...\] vs \(...\).
       extensionSet: md.ExtensionSet(
-        [
-          _DollarBlockSyntax(),
-          _LatexBracketBlockSyntax(),
-          ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
-        ],
+        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
         [
           _MathBlockInlineSyntax(),
           _MathInlineSyntax(),
@@ -2758,7 +2754,8 @@ class _MathInlineSyntax extends md.InlineSyntax {
 }
 
 // _LatexBracketDisplayInlineSyntax: matches single-line \[ ... \].
-// Multi-line \[...\] is handled by _LatexBracketBlockSyntax below.
+// Multi-line \[...\] is collapsed to $$...$$ by _normalizeMultilineMath
+// before this syntax sees the input.
 class _LatexBracketDisplayInlineSyntax extends md.InlineSyntax {
   _LatexBracketDisplayInlineSyntax() : super(r'\\\[([^\n]+?)\\\]');
   @override
@@ -2780,112 +2777,65 @@ class _LatexBracketInlineSyntax extends md.InlineSyntax {
   }
 }
 
-// _DollarBlockSyntax: multi-line $$ ... $$.
+// _normalizeMultilineMath collapses well-formed multi-line math regions
+// into single-line forms the inline syntaxes already handle.
 //
-//   $$
-//   \int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
-//   $$
+//   $$\n<expr>\n$$           →  $$<expr-flattened>$$
+//   \[\n<expr>\n\]           →  $$<expr-flattened>$$
 //
-// Mirrors _LatexBracketBlockSyntax but for dollar delimiters. Inline
-// $$...$$ on a single line is still claimed by _MathBlockInlineSyntax
-// before this block syntax sees the line, so we don't double-handle
-// the inline case.
-class _DollarBlockSyntax extends md.BlockSyntax {
-  static final _open = RegExp(r'^\s*\$\$\s*(.*)$');
-  static final _close = RegExp(r'^(.*?)\$\$\s*$');
-
-  @override
-  RegExp get pattern => _open;
-
-  @override
-  bool canParse(md.BlockParser parser) {
-    final line = parser.current.content;
-    final m = _open.firstMatch(line);
-    if (m == null) return false;
-    final tail = m.group(1) ?? '';
-    if (tail.contains(r'$$')) return false;
-    return true;
+// Internal newlines become spaces — TeX treats both identically, so
+// this preserves matrix `\\` row breaks and other structural commands.
+//
+// Why preprocess instead of registering a BlockSyntax: a greedy block
+// parser silently swallows everything after a stray `$$` when no close
+// follows (codex transcripts contain shell `$$`, prompt strings, etc.)
+// — the visible symptom is "transcript renders blank." This function
+// only rewrites a region when it finds a matching close; unbalanced
+// delimiters fall through unchanged and render as plain text.
+//
+// Fenced code blocks (``` … ```) are skipped so command examples stay
+// untouched; non-greedy matching keeps two adjacent regions distinct.
+String _normalizeMultilineMath(String input) {
+  if (input.isEmpty) return input;
+  // Split on fenced code blocks; even-indexed slices are body text we
+  // rewrite, odd-indexed slices are code we leave verbatim. The
+  // fence itself goes back into the odd slice.
+  final fence = RegExp(r'(```[\s\S]*?```|~~~[\s\S]*?~~~)', multiLine: true);
+  final parts = <String>[];
+  int cursor = 0;
+  for (final m in fence.allMatches(input)) {
+    parts.add(input.substring(cursor, m.start));
+    parts.add(m.group(0)!);
+    cursor = m.end;
   }
+  parts.add(input.substring(cursor));
 
-  @override
-  md.Node parse(md.BlockParser parser) {
-    final firstLine = parser.current.content;
-    parser.advance();
-    final openMatch = _open.firstMatch(firstLine);
-    final firstBody = openMatch?.group(1)?.trim() ?? '';
-    final closeOnSameLine = _close.firstMatch(firstBody);
-    if (closeOnSameLine != null) {
-      final tex = closeOnSameLine.group(1)?.trim() ?? '';
-      return md.Element.text('mathblock', tex);
-    }
-    final lines = <String>[];
-    if (firstBody.isNotEmpty) lines.add(firstBody);
-    while (!parser.isDone) {
-      final line = parser.current.content;
-      final closeMatch = _close.firstMatch(line);
-      if (closeMatch != null) {
-        final tail = closeMatch.group(1)?.trim() ?? '';
-        if (tail.isNotEmpty) lines.add(tail);
-        parser.advance();
-        break;
-      }
-      lines.add(line);
-      parser.advance();
-    }
-    return md.Element.text('mathblock', lines.join('\n'));
+  // Patterns are non-greedy; the (?=\s*\n|$) anchors require the
+  // delimiters to sit on their own line so we don't claim inline
+  // sequences the inline syntaxes already handle.
+  final dollarBlock = RegExp(
+    r'(^|\n)\$\$\s*\n([\s\S]+?)\n\s*\$\$(?=\s*\n|\s*$)',
+    multiLine: true,
+  );
+  final bracketBlock = RegExp(
+    r'(^|\n)\\\[\s*\n([\s\S]+?)\n\s*\\\](?=\s*\n|\s*$)',
+    multiLine: true,
+  );
+
+  String flatten(String body) =>
+      body.replaceAll(RegExp(r'\s*\n\s*'), ' ').trim();
+
+  for (var i = 0; i < parts.length; i += 2) {
+    var s = parts[i];
+    s = s.replaceAllMapped(dollarBlock, (m) {
+      return '${m.group(1)}\$\$${flatten(m.group(2)!)}\$\$';
+    });
+    s = s.replaceAllMapped(bracketBlock, (m) {
+      return '${m.group(1)}\$\$${flatten(m.group(2)!)}\$\$';
+    });
+    parts[i] = s;
   }
-}
-
-// _LatexBracketBlockSyntax: multi-line \[ ... \].
-//
-//   \[
-//   \int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
-//   \]
-//
-// Triggers when a line is exactly "\[" (optional trailing whitespace),
-// consumes lines until a line that is exactly "\]" (optional leading
-// whitespace), and renders the joined body as display math. Also
-// accepts content on the opening or closing line so
-// "\[ expr \]" on one line still routes here when an inline isn't
-// reached (defensive — InlineSyntax catches that case first).
-class _LatexBracketBlockSyntax extends md.BlockSyntax {
-  static final _open = RegExp(r'^\s*\\\[\s*(.*)$');
-  static final _close = RegExp(r'^(.*)\\\]\s*$');
-
-  @override
-  RegExp get pattern => _open;
-
-  @override
-  bool canParse(md.BlockParser parser) =>
-      _open.hasMatch(parser.current.content);
-
-  @override
-  md.Node parse(md.BlockParser parser) {
-    final firstLine = parser.current.content;
-    parser.advance();
-    final openMatch = _open.firstMatch(firstLine);
-    final firstBody = openMatch?.group(1)?.trim() ?? '';
-    final closeOnSameLine = _close.firstMatch(firstBody);
-    if (closeOnSameLine != null) {
-      final tex = closeOnSameLine.group(1)?.trim() ?? '';
-      return md.Element.text('mathblock', tex);
-    }
-    final lines = <String>[];
-    if (firstBody.isNotEmpty) lines.add(firstBody);
-    while (!parser.isDone) {
-      final line = parser.current.content;
-      final closeMatch = _close.firstMatch(line);
-      if (closeMatch != null) {
-        final tail = closeMatch.group(1)?.trim() ?? '';
-        if (tail.isNotEmpty) lines.add(tail);
-        parser.advance();
-        break;
-      }
-      lines.add(line);
-      parser.advance();
-    }
-    return md.Element.text('mathblock', lines.join('\n'));
-  }
+  return parts.join();
 }
 
 // _MathBuilder renders a flutter_math_fork Math.tex widget for the

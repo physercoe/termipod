@@ -719,6 +719,34 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     if (modelTotals.isEmpty && cumulativeUsage != null) {
       modelTotals[cumulativeBucketKey] = cumulativeUsage;
     }
+    // Claude path for context window: the codex `usage` event already
+    // populated latestContextWindow / latestContextUsed when present.
+    // For claude (which carries the data per-model on turn.result and
+    // does not emit cumulative `usage` events), pick the dominant
+    // model from modelTotals — the one with the most output, since
+    // sub-agents like Haiku produce trivial output relative to the
+    // main agent. Use that model's contextWindow as capacity and its
+    // latest input + cache_read + cache_create as "used" (matches
+    // what claude's TUI statusline shows for the most recent message).
+    if (latestContextWindow == null && modelTotals.isNotEmpty) {
+      String? mainModel;
+      var bestOutput = -1;
+      modelTotals.forEach((name, t) {
+        if (t.contextWindow > 0 && t.output > bestOutput) {
+          mainModel = name;
+          bestOutput = t.output;
+        }
+      });
+      if (mainModel != null) {
+        final t = modelTotals[mainModel]!;
+        latestContextWindow = t.contextWindow;
+        // Latest-turn "used" = the model's input + cache hits for the
+        // last turn it ran. cacheCreate is included because writes
+        // also occupy context for the rest of the session.
+        final used = t.latestInput + t.latestCacheRead + t.latestCacheCreate;
+        if (used > 0) latestContextUsed = used;
+      }
+    }
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
         latestRateLimit != null ||
@@ -4221,6 +4249,19 @@ class _ModelTokens {
   int cacheRead = 0;
   int cacheCreate = 0;
   double costUsd = 0.0;
+  // Static per-model capacity carried by claude's modelUsage and
+  // codex's tokenUsage.modelContextWindow. Driver normalizes both
+  // into `context_window` on the wire. 0 = unknown/not reported.
+  int contextWindow = 0;
+  int maxOutputTokens = 0;
+  // Latest per-call input + cache totals (NOT cumulative), used to
+  // estimate current context-window utilization. claude's `result`
+  // frame ships these as cumulative within the run, so this matches
+  // what claude itself shows in its TUI: "what was loaded for the
+  // most recent message."
+  int latestInput = 0;
+  int latestCacheRead = 0;
+  int latestCacheCreate = 0;
 
   static _ModelTokens empty() => _ModelTokens();
 
@@ -4235,6 +4276,19 @@ class _ModelTokens {
     cacheRead += cr;
     cacheCreate += cc;
     costUsd += c;
+    // Static metadata — overwrite (not sum). The driver carries
+    // these per-model on every turn.result; the latest non-zero
+    // wins so a model swap mid-session updates the capacity.
+    final cw = (v['context_window'] as num?)?.toInt() ?? 0;
+    if (cw > 0) contextWindow = cw;
+    final mo = (v['max_output_tokens'] as num?)?.toInt() ?? 0;
+    if (mo > 0) maxOutputTokens = mo;
+    // Latest-turn snapshot — overwrites each call so a single
+    // backward walk (or sequential add()) leaves the trailing
+    // values intact.
+    latestInput = i;
+    latestCacheRead = cr;
+    latestCacheCreate = cc;
   }
 
   // Total billable input = fresh input + cache writes (cache reads are
@@ -4248,11 +4302,14 @@ class _TelemetryStrip extends StatelessWidget {
   final int turnCount;
   final Map<String, _ModelTokens> modelTotals;
   final Map<String, dynamic>? rateLimit;
-  // Context window: total capacity (modelContextWindow) and current
-  // used (cumulative total_tokens). Both are codex-only at the moment
-  // — claude's stream-json doesn't carry an authoritative window size,
-  // and a hard-coded model→size table would rot fast. The tile
-  // suppresses itself when either field is null.
+  // Context window: total capacity and current used. Codex sources
+  // the pair from `thread/tokenUsage/updated` (`modelContextWindow` +
+  // cumulative `total_tokens`); claude sources it from the dominant
+  // model in `result.modelUsage` — `contextWindow` for capacity and
+  // the latest turn's `inputTokens + cacheReadInputTokens +
+  // cacheCreationInputTokens` for "used" (matches what claude's TUI
+  // statusline shows for the most recent message). The tile
+  // suppresses itself when capacity is null/zero.
   final int? contextWindow;
   final int? contextUsed;
   const _TelemetryStrip({

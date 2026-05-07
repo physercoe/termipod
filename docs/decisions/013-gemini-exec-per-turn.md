@@ -1,20 +1,35 @@
 # 013. Gemini integration is exec-per-turn-with-resume
 
 > **Type:** decision
-> **Status:** Accepted (2026-04-29)
+> **Status:** Superseded by `gemini-cli --acp` daemon path (2026-05-07) — exec-per-turn-with-resume retained as M2 fallback only
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.347
 
-**TL;DR.** Gemini-cli has no `app-server` equivalent and no in-stream
-per-tool-call approval gate, but headless mode now emits a stable
-`session_id` and accepts `--resume <UUID>` for cross-process session
-continuity (PR #14504, merged 2025-12-04). The driver is therefore
-exec-per-turn — one subprocess per user turn — with the session UUID
-captured from the first turn's `init` event and threaded into
-subsequent spawns via `--resume`. The frame-profile substrate (ADR-010)
-ports cleanly because gemini's stream-json events (`init`, `message`,
-`tool_use`, `tool_result`, `result`, `error`) are line-delimited JSON
-keyed on `type`, the same dispatch shape claude-code already uses.
+**Amendment (2026-05-07).** Verification against `@google/gemini-cli@0.41.2`
+showed `gemini --acp` is stable and exposes
+`session/request_permission` for per-tool-call approval. The premise
+in §Context that "Gemini-cli has no `app-server` equivalent and no
+in-stream per-tool-call approval gate" was wrong at the time of
+writing for the experimental flag, and is now wrong outright: ACP
+graduated from `--experimental-acp` to `--acp`. The preferred shape
+is now M1 (`launch_m1.go` → `ACPDriver`, the same driver the M1
+blueprint slot was always reserved for). The exec-per-turn driver
+described below remains as the M2 fallback for hosts whose gemini
+build pre-dates ACP daemon mode; it is no longer the primary path.
+See the gemini steward template (`steward.gemini.v1.yaml`) for the
+current `driving_mode: M1` / `fallback_modes: [M2, M4]` declaration.
+
+**TL;DR (original).** Gemini-cli has no `app-server` equivalent and
+no in-stream per-tool-call approval gate, but headless mode now emits
+a stable `session_id` and accepts `--resume <UUID>` for cross-process
+session continuity (PR #14504, merged 2025-12-04). The driver is
+therefore exec-per-turn — one subprocess per user turn — with the
+session UUID captured from the first turn's `init` event and threaded
+into subsequent spawns via `--resume`. The frame-profile substrate
+(ADR-010) ports cleanly because gemini's stream-json events (`init`,
+`message`, `tool_use`, `tool_result`, `result`, `error`) are
+line-delimited JSON keyed on `type`, the same dispatch shape
+claude-code already uses.
 
 ## Context
 

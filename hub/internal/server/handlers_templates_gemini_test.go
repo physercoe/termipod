@@ -9,18 +9,18 @@ import (
 )
 
 // TestEmbeddedGeminiStewardTemplate_ShipsExpectedShape pins the
-// slice-6 contract: the gemini steward template loads from the
-// embedded fs, declares backend.kind=gemini-cli, and its launch
-// command resolves to the gemini bin via PATH (the exec-per-turn
-// driver appends -p / --output-format / --resume per turn — those
-// flags are NOT in the template cmd). Per ADR-013 D7 the template
-// stays minimal because the driver owns argv construction.
+// gemini steward template's launch contract: it loads from the
+// embedded fs, declares backend.kind=gemini-cli, drives M1 (ACP),
+// and its cmd line invokes `gemini --acp` so host-runner's M1
+// launcher gets a long-running JSON-RPC daemon to attach ACPDriver
+// to. M2 (exec-per-turn-with-resume) is the documented fallback for
+// hosts whose gemini binary doesn't speak ACP.
 //
-// The template is what makes the gemini driver reachable from the
-// steward UX: without an `agents.steward.gemini` template the spawn
-// path has nothing to render. Locking the cmd shape here means a
-// future renaming pass (or a stray edit) can't silently break the
-// spawn → ExecResumeDriver wiring chain that slices 1-5 set up.
+// History: the template originally drove M2/ExecResumeDriver per
+// ADR-013 D7. Verification against gemini-cli@0.41.2 confirmed
+// --acp is stable and exposes session/request_permission, so the
+// preferred shape switched to M1/ACPDriver and the old path moved
+// to the fallback list.
 func TestEmbeddedGeminiStewardTemplate_ShipsExpectedShape(t *testing.T) {
 	yaml, err := fs.ReadFile(hub.TemplatesFS,
 		"templates/agents/steward.gemini.v1.yaml")
@@ -36,9 +36,6 @@ func TestEmbeddedGeminiStewardTemplate_ShipsExpectedShape(t *testing.T) {
 		}
 	}
 	// cmdLine returns the literal value of the cmd: key in backend.
-	// We only check that the cmd VALUE is bin-only — the template
-	// comments above the value are free to discuss flags the driver
-	// appends so a reader knows what's actually launched at runtime.
 	cmdLine := ""
 	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -60,24 +57,25 @@ func TestEmbeddedGeminiStewardTemplate_ShipsExpectedShape(t *testing.T) {
 	must("template: agents.steward.gemini",
 		"the canonical name spawn requests bind to")
 	must("kind: gemini-cli",
-		"backend.kind drives the launch_m2 driver dispatch")
-	must("driving_mode: M2",
-		"stream-json output requires structured stdio")
-	must(`cmd: "gemini"`,
-		"bin name only — the exec-per-turn driver appends per-turn flags itself (ADR-013 D7)")
+		"backend.kind drives the launcher's family-keyed dispatch")
+	must("driving_mode: M1",
+		"M1 = ACP daemon (Zed Agent Client Protocol over stdio); M2 is the fallback")
+	must("fallback_modes: [M2, M4]",
+		"M2 (exec-per-turn) preserves the ADR-013 path for older gemini builds without --acp")
+	must(`cmd: "gemini --acp"`,
+		"M1 launcher spawns the engine in ACP daemon mode and wires ACPDriver to its stdio")
 	must("prompt: steward.gemini.v1.md",
 		"the system prompt file that must also embed")
 
-	// Negative checks: per-turn flags MUST NOT be baked into cmd.
-	// The exec-per-turn driver appends them itself; including them
-	// here would be ignored at best and produce a broken argv at
-	// worst.
+	// Negative checks: per-turn flags from the legacy exec-per-turn
+	// path MUST NOT survive into the cmd line. With --acp the
+	// engine reads turns from session/prompt RPCs, not argv.
 	cmdMustNot("--output-format",
-		"per-turn flag — driver appends, not the template")
+		"stream-json was the exec-per-turn output format; ACP uses session/update notifications")
 	cmdMustNot("--resume",
-		"per-turn flag — driver derives the UUID and threads --resume itself (ADR-013 D2)")
+		"resume was the exec-per-turn cursor; ACP keeps the session live in-process")
 	cmdMustNot("-p ",
-		"the prompt argument is the per-turn user text, not a template constant")
+		"-p was the exec-per-turn prompt arg; ACP delivers turns over JSON-RPC")
 
 	// Prompt file must also be embedded so the spawn renderer can
 	// resolve the prompt: reference at startup.

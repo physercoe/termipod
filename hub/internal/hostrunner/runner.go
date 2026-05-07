@@ -502,11 +502,29 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		pane = res.PaneID
 		drv = res.Driver
 	case "M1":
-		// M1 launcher not implemented yet (blueprint P1.?). Fall through to
-		// M4 so the pane still exists; mark the drop in the log.
-		a.Log.Warn("M1 launcher not implemented; using M4 fallback",
-			"agent", sp.ChildID, "handle", sp.Handle)
-		mode = "M4"
+		// M1 = ACP daemon. Spawn the engine in `--acp` mode, wire
+		// ACPDriver to its stdio. On handshake failure (engine
+		// doesn't speak ACP, or speaks a different protocol version)
+		// we drop to M4 so the pane still surfaces *something* the
+		// operator can attach to and inspect.
+		hubURLForAgent := a.Client.BaseURL
+		if a.egressProxy != nil {
+			hubURLForAgent = a.egressProxy.LocalURL
+		}
+		res, m1err := launchM1(ctx, M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: a.Launcher,
+			Client:   a.agentPoster,
+			HubURL:   hubURLForAgent,
+		})
+		if m1err != nil {
+			a.Log.Warn("M1 launch failed; falling back to M4",
+				"handle", sp.Handle, "err", m1err)
+			mode = "M4"
+			break
+		}
+		pane = res.PaneID
+		drv = res.Driver
 	}
 
 	if mode == "M4" && drv == nil {

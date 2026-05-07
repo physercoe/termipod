@@ -1,10 +1,20 @@
-# Gemini steward template — ADR-013.
+# Gemini steward template.
 #
-# Drives `gemini -p <text> --output-format stream-json [--resume <UUID>]
-# --yolo` via the exec-per-turn-with-resume driver. Slice 3 of the
-# gemini wedge (driver_exec_resume.go) handles the framing — one
-# subprocess per user turn, session UUID threaded through --resume —
-# this template is what makes that driver reachable to the steward UX.
+# Drives `gemini --acp` as a long-running stdio JSON-RPC daemon via
+# the M1/ACP path (ACPDriver, driver_acp.go). Gemini's --acp flag
+# starts an Agent Client Protocol server (Zed's spec, JSON-RPC over
+# stdio): handshake = initialize + session/new; turn = session/prompt;
+# events = session/update notifications; per-tool-call approval =
+# session/request_permission round-trips.
+#
+# History: ADR-013 originally specified exec-per-turn-with-resume
+# (`gemini -p <text> --output-format stream-json --resume <UUID>`) on
+# the assumption gemini had no daemon mode. Verification against
+# gemini-cli@0.41.2 (2026-05-07) showed --acp is stable and exposes
+# session/request_permission, closing the ADR-013 D4 vendor gap.
+# The exec-per-turn driver remains as the M2 fallback for hosts whose
+# gemini build doesn't speak ACP (older versions; the M1 handshake
+# fails clean and the resolver moves to M2).
 #
 # Built-in. Copied to team/templates/agents/ on first init; user
 # edits win — subsequent inits never overwrite.
@@ -12,32 +22,32 @@ template: agents.steward.gemini
 version: 1
 extends: null
 
-# M2 (structured stdio) is the only mode that matches gemini's
-# stream-json output. M4 pane fallback exists for hosts that can't
-# expose the agent's stdio at all; it loses turn-based interaction
-# but keeps a live transcript.
-driving_mode: M2
-fallback_modes: [M4]
+# M1 (ACP daemon) is the preferred shape — persistent process, real
+# tail pane, per-tool-call approval. M2 (exec-per-turn-with-resume)
+# is the legacy fallback; M4 keeps a transcript when neither stdio
+# protocol is reachable.
+driving_mode: M1
+fallback_modes: [M2, M4]
 
 backend:
   kind: gemini-cli
   default_workdir: ~/hub-work
-  # cmd shape:
-  #   gemini
-  #     — just the bin name. The exec-per-turn driver appends per-turn
-  #       flags itself (-p <text> --output-format stream-json
-  #       --resume <UUID> --yolo); embedding them here would be
-  #       ignored. exec.LookPath resolves the bin against PATH at
-  #       launch time, or you can specify an absolute path.
-  cmd: "gemini"
-  # No permission_modes map: gemini-cli has no in-stream
-  # per-tool-call approval gate (ADR-013 D4 — flag-time --yolo /
-  # --approval-mode only). The exec-per-turn driver always passes
-  # --yolo so tool calls run without prompting; risky decisions are
-  # routed through `request_approval` (turn-based, vendor-neutral)
-  # at the steward's discretion. The driver rejects
-  # `permission_prompt` attention replies as a defense-in-depth
-  # check, since the engine never raises one.
+  # cmd is what host-runner executes via `bash -c "cd <workdir> &&
+  # <cmd>"`. The --acp flag puts gemini into Agent Client Protocol
+  # mode (Zed spec, JSON-RPC over stdio); ACPDriver speaks the rest.
+  # No --yolo here: per-tool-call approval is now in-stream via
+  # session/request_permission, so flag-time bypass is no longer
+  # required. Operators who want flag-time auto-approval can override
+  # via the team-local steward.gemini.v1.yaml overlay.
+  cmd: "gemini --acp"
+  # No permission_modes map: ACP's session/request_permission is
+  # always-on at the protocol level, so we don't need a per-template
+  # flag toggle the way claude-code's --permission-prompt-tool needs.
+  # ACPDriver translates each request_permission RPC into an
+  # approval_request agent_event and parks the JSON-RPC id until the
+  # principal answers via input.approval. Risky decisions stewards
+  # raise themselves still go through the existing
+  # `request_approval` MCP tool (turn-based, vendor-neutral).
 
 default_role: team.coordinator
 display_label: "Steward (gemini)"

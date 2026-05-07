@@ -1426,8 +1426,22 @@ func TestAppServerDriver_ToolCallApprovalRoutesAsPermissionPrompt(t *testing.T) 
 	if got, _ := result["action"].(string); got != "accept" {
 		t.Errorf("result.action = %q; want accept (rmcp rejects {decision} on this method)", got)
 	}
-	if _, hasContent := result["content"]; hasContent {
-		t.Errorf("result.content present; want absent (empty schema means nothing to fill); result=%v", result)
+	// content: {} — empty object satisfies the request's
+	// `requestedSchema: {type: object, properties: {}}`. Missing the
+	// field entirely leaves codex's deserializer ambiguous and the
+	// turn stuck in waitingOnApproval.
+	content, hasContent := result["content"].(map[string]any)
+	if !hasContent {
+		t.Errorf("result.content missing; want empty object {} to satisfy the empty-properties schema; result=%v", result)
+	} else if len(content) != 0 {
+		t.Errorf("result.content = %v; want empty {}", content)
+	}
+	// _meta.persist: "session" — pre-authorize subsequent termipod
+	// tool calls in the same thread so the principal isn't gated
+	// every single MCP call.
+	meta, _ := result["_meta"].(map[string]any)
+	if got, _ := meta["persist"].(string); got != "session" {
+		t.Errorf("result._meta.persist = %q; want session (skip-future-gates hint)", got)
 	}
 }
 

@@ -525,9 +525,35 @@ func (d *AppServerDriver) resolvePendingApproval(payload map[string]any) error {
 	case "mcpServer/elicitation/request":
 		// MCP-tool-call approvals routed via permission_prompt arrive
 		// here. The wire shape is the elicitation response — codex's
-		// rmcp deserializer rejects {decision} on this method. Empty
-		// content because there's no schema to fill.
-		result = map[string]any{"action": codexDecision}
+		// rmcp deserializer rejects {decision} on this method.
+		//
+		// content: {} — the request's `requestedSchema` is
+		// `{type: object, properties: {}}` (empty-properties object).
+		// A missing `content` field can leave codex's rmcp wedged on
+		// the schema match; sending an empty object both satisfies the
+		// schema and disambiguates the deserialization. Decline carries
+		// no content (codex is supposed to discard it anyway).
+		//
+		// _meta.persist: "session" — codex's MCP gate offers
+		// once / session / always persistence (see `_meta.persist` on
+		// the request: `["session", "always"]`). Without a persist
+		// hint, codex defaults to once, so every subsequent
+		// request_select / request_approval / request_help in the
+		// same thread re-fires the gate. "session" is the strongest
+		// hint we can take on the principal's behalf without a UI
+		// affordance for "always" — the principal effectively says
+		// "yes, run termipod tools for the rest of this thread."
+		// A "Trust always" affordance on the attention card can promote
+		// this to "always" later; per-server persist UX is post-MVP.
+		if codexDecision == "accept" {
+			result = map[string]any{
+				"action":  "accept",
+				"content": map[string]any{},
+				"_meta":   map[string]any{"persist": "session"},
+			}
+		} else {
+			result = map[string]any{"action": "decline"}
+		}
 	default:
 		// commandExecution + fileChange both take {decision}.
 		result = map[string]any{"decision": codexDecision}
@@ -535,6 +561,17 @@ func (d *AppServerDriver) resolvePendingApproval(payload map[string]any) error {
 	if err := d.writeRawResponse(pa.jsonRPCID, result); err != nil {
 		return fmt.Errorf("appserver driver: write approval response: %w", err)
 	}
+	// One-line audit marker so the transcript records that the parked
+	// gate was answered. Surfaces on the timeline alongside the
+	// `appserver_request_parked` event from the bridge — useful when
+	// debugging a "engine still busy after approve" report.
+	_ = d.Poster.PostAgentEvent(context.Background(), d.AgentID, "system", "agent",
+		map[string]any{
+			"kind":         "appserver_request_resolved",
+			"method":       pa.method,
+			"attention_id": attID,
+			"decision":     decision,
+		})
 	return nil
 }
 

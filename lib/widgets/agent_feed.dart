@@ -2447,6 +2447,7 @@ class AgentEventCard extends StatelessWidget {
       // syntaxes can't span (they don't cross newlines).
       extensionSet: md.ExtensionSet(
         [
+          _DollarBlockSyntax(),
           _LatexBracketBlockSyntax(),
           ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
         ],
@@ -2776,6 +2777,62 @@ class _LatexBracketInlineSyntax extends md.InlineSyntax {
     final tex = match[1] ?? '';
     parser.addNode(md.Element.text('math', tex));
     return true;
+  }
+}
+
+// _DollarBlockSyntax: multi-line $$ ... $$.
+//
+//   $$
+//   \int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+//   $$
+//
+// Mirrors _LatexBracketBlockSyntax but for dollar delimiters. Inline
+// $$...$$ on a single line is still claimed by _MathBlockInlineSyntax
+// before this block syntax sees the line, so we don't double-handle
+// the inline case.
+class _DollarBlockSyntax extends md.BlockSyntax {
+  static final _open = RegExp(r'^\s*\$\$\s*(.*)$');
+  static final _close = RegExp(r'^(.*?)\$\$\s*$');
+
+  @override
+  RegExp get pattern => _open;
+
+  @override
+  bool canParse(md.BlockParser parser) {
+    final line = parser.current.content;
+    final m = _open.firstMatch(line);
+    if (m == null) return false;
+    final tail = m.group(1) ?? '';
+    if (tail.contains(r'$$')) return false;
+    return true;
+  }
+
+  @override
+  md.Node parse(md.BlockParser parser) {
+    final firstLine = parser.current.content;
+    parser.advance();
+    final openMatch = _open.firstMatch(firstLine);
+    final firstBody = openMatch?.group(1)?.trim() ?? '';
+    final closeOnSameLine = _close.firstMatch(firstBody);
+    if (closeOnSameLine != null) {
+      final tex = closeOnSameLine.group(1)?.trim() ?? '';
+      return md.Element.text('mathblock', tex);
+    }
+    final lines = <String>[];
+    if (firstBody.isNotEmpty) lines.add(firstBody);
+    while (!parser.isDone) {
+      final line = parser.current.content;
+      final closeMatch = _close.firstMatch(line);
+      if (closeMatch != null) {
+        final tail = closeMatch.group(1)?.trim() ?? '';
+        if (tail.isNotEmpty) lines.add(tail);
+        parser.advance();
+        break;
+      }
+      lines.add(line);
+      parser.advance();
+    }
+    return md.Element.text('mathblock', lines.join('\n'));
   }
 }
 

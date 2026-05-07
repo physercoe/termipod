@@ -303,6 +303,33 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     });
   }
 
+  // Replace _events with [snapshot] (server-DESC, displayed ASC) and
+  // refresh the bookkeeping (_ids, _maxSeq, _minSeq, _oldestTs).
+  // Used by both the cache-paint and network-refresh halves of
+  // _bootstrap; pulled out so they stay in lockstep on the rules
+  // for seq tracking.
+  void _ingestSnapshot(List<Map<String, dynamic>> snapshot) {
+    final ascending = snapshot.reversed.toList();
+    _events
+      ..clear()
+      ..addAll(ascending);
+    _ids.clear();
+    _maxSeq = 0;
+    _minSeq = 0;
+    _oldestTs = '';
+    for (final e in _events) {
+      final id = (e['id'] ?? '').toString();
+      if (id.isNotEmpty) _ids.add(id);
+      final seq = (e['seq'] as num?)?.toInt() ?? 0;
+      if (seq > _maxSeq) _maxSeq = seq;
+      if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
+      final ts = (e['ts'] ?? '').toString();
+      if (ts.isNotEmpty && (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
+        _oldestTs = ts;
+      }
+    }
+  }
+
   Future<void> _bootstrap() async {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
@@ -311,6 +338,43 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         _loading = false;
       });
       return;
+    }
+    // Cache-first (ADR-006): render whatever the snapshot cache holds
+    // before the network call returns, so the user sees the transcript
+    // they had last time inside one frame. SSE with `since=<maxSeq>`
+    // catches the delta. The background refresh below keeps the cache
+    // warm for next cold-open without blocking the UI.
+    var paintedFromCache = false;
+    try {
+      final cacheOnly = await client.listAgentEventsCacheOnly(
+        widget.agentId,
+        tail: true,
+        limit: _pageSize,
+        sessionId: widget.sessionId,
+      );
+      if (!mounted) return;
+      if (cacheOnly != null && cacheOnly.body.isNotEmpty) {
+        _ingestSnapshot(cacheOnly.body);
+        _atHead = cacheOnly.body.length < _pageSize;
+        setState(() {
+          _loading = false;
+          // Mark stale right now — refresh below will clear it the
+          // moment fresh data lands.
+          _staleSince = cacheOnly.staleSince ?? DateTime.now();
+        });
+        _subscribe(client);
+        paintedFromCache = true;
+        // Pin to the tail on first paint; the background refresh is
+        // a cache top-up, not a viewport reset, so we only do this
+        // once on the cache paint to avoid yanking the user later.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (widget.initialSeq != null && _trySeekInitialSeq()) return;
+          _scrollToTail();
+        });
+        _maybeBackfillSessionInit(client);
+      }
+    } catch (_) {
+      // Cache read failed — fall through to network-first below.
     }
     try {
       // Read-through cache + tail mode: cold open returns the newest
@@ -325,25 +389,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         sessionId: widget.sessionId,
       );
       if (!mounted) return;
-      final ascending = cached.body.reversed.toList();
-      _events
-        ..clear()
-        ..addAll(ascending);
-      _ids.clear();
-      _maxSeq = 0;
-      _minSeq = 0;
-      _oldestTs = '';
-      for (final e in _events) {
-        final id = (e['id'] ?? '').toString();
-        if (id.isNotEmpty) _ids.add(id);
-        final seq = (e['seq'] as num?)?.toInt() ?? 0;
-        if (seq > _maxSeq) _maxSeq = seq;
-        if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
-        final ts = (e['ts'] ?? '').toString();
-        if (ts.isNotEmpty && (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
-          _oldestTs = ts;
-        }
+      if (paintedFromCache) {
+        // Cache+SSE already painted live state and the read-through
+        // call just refreshed the on-disk cache for next cold-open.
+        // Don't re-ingest in-memory: SSE has been delivering events
+        // since the cache paint, and replacing _events would lose
+        // any delta that arrived in this window. Just clear the
+        // stale pill so the offline hint goes away.
+        setState(() => _staleSince = cached.staleSince);
+        return;
       }
+      _ingestSnapshot(cached.body);
       // If the first page already smaller than our request, nothing
       // older exists to load — no point spinning the pager later.
       _atHead = cached.body.length < _pageSize;
@@ -369,12 +425,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _maybeBackfillSessionInit(client);
     } on HubApiError catch (e) {
       if (!mounted) return;
+      // If the cache already painted, the user has a usable view and
+      // we don't want a blocking error card to clobber it. Keep the
+      // stale pill (set during cache paint) so they know it's not
+      // live; the SSE reconnect loop will surface a separate banner
+      // if the live tail also fails.
+      if (paintedFromCache) return;
       setState(() {
         _error = 'Feed error (${e.status})';
         _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
+      if (paintedFromCache) return;
       setState(() {
         _error = 'Feed error: $e';
         _loading = false;

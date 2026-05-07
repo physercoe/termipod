@@ -1452,6 +1452,46 @@ class HubClient {
     );
   }
 
+  /// Cache-only read of agent events for cold-open render-first-paint.
+  /// Returns null when no snapshot exists; otherwise serves the cached
+  /// rows immediately without waiting on a network round-trip. Pair
+  /// with [listAgentEventsCached] kicked off in parallel (and ignored
+  /// on success — SSE with `since=<maxSeq>` does the actual delta
+  /// catch-up) so the cache stays warm for next cold-open.
+  ///
+  /// ADR-006: cache-first beats network-first-with-fallback. The
+  /// blocking `await fetch()` in [readThrough] is the wait users feel
+  /// when opening a session; this method skips it.
+  Future<CachedResponse<List<Map<String, dynamic>>>?>
+      listAgentEventsCacheOnly(
+    String agentId, {
+    int? since,
+    bool tail = false,
+    int? limit,
+    String? sessionId,
+  }) async {
+    final cache = snapshotCache;
+    if (cache == null) return null;
+    final q = <String, String>{};
+    if (tail) {
+      q['tail'] = 'true';
+    } else if (since != null) {
+      q['since'] = '$since';
+    }
+    if (limit != null) q['limit'] = '$limit';
+    if (sessionId != null && sessionId.isNotEmpty) q['session'] = sessionId;
+    final endpoint = buildEndpointKey(
+      '/v1/teams/${cfg.teamId}/agents/$agentId/events',
+      q.isEmpty ? null : q,
+    );
+    final snap = await cache.get(_cacheHubKey, endpoint);
+    if (snap == null) return null;
+    return CachedResponse<List<Map<String, dynamic>>>(
+      _decodeListMaps(snap.body),
+      snap.fetchedAt,
+    );
+  }
+
   /// SSE tail of the agent's event queue. Subscribes before replaying
   /// backfill from [sinceSeq] so no live event is missed in the gap.
   /// `sessionId` filters the live + backfilled events server-side to one

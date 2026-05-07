@@ -78,6 +78,14 @@ jobs:
           # 2026-05-07: install share was negligible vs. release-asset
           # bloat and the post-Play-Store 64-bit-only policy.
           #
+          # --split-per-abi is REQUIRED even with a single target. The
+          # Flutter Gradle plugin adds an ABI offset to versionCode
+          # only when split-per-abi is on (arm64-v8a → +4000). v1.0.381
+          # dropped the flag, which dropped the on-device versionCode
+          # from 14378 back to 10381 — Android refused the install with
+          # "higher version already installed." Keep the flag so the
+          # offset stays consistent with every prior release.
+          #
           # --obfuscate + --split-debug-info strips Dart symbols for a
           # few more MB; the mapping lives under build/symbols/.
           #
@@ -89,7 +97,7 @@ jobs:
           # following sources" which is fatal but transient. Retry up
           # to 3 times with backoff before failing the build for real.
           for attempt in 1 2 3; do
-            if flutter build apk --release \
+            if flutter build apk --release --split-per-abi \
                 --target-platform=android-arm64 \
                 --obfuscate --split-debug-info=build/symbols \
                 --build-name="$VERSION_NUM" \
@@ -108,7 +116,7 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk \
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
              "build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk"
 
       - name: Setup Go

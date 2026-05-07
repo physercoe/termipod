@@ -556,11 +556,26 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	// owns the pending → running transition: it flips only once tmux
 	// reports a non-shell foreground command, so a pane whose CLI failed
 	// to start is correctly distinguished from a working one.
+	//
+	// Exec-per-turn drivers (gemini-cli, ADR-013) have no pane to anchor
+	// — there's no long-running process for tmux to watch. Reconcile
+	// gates on PaneID != "" and would skip these forever, leaving the
+	// agent stuck pending. Patch status="running" here directly: the
+	// driver Start() succeeded above, so the agent IS live by every
+	// definition this mode supports.
 	if pane != "" {
 		if err := a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{
 			PaneID: &pane,
 		}); err != nil {
 			a.Log.Error("patch agent failed", "handle", sp.Handle, "err", err)
+			return
+		}
+	} else if drv != nil {
+		running := "running"
+		if err := a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{
+			Status: &running,
+		}); err != nil {
+			a.Log.Error("patch agent status failed", "handle", sp.Handle, "err", err)
 			return
 		}
 	}

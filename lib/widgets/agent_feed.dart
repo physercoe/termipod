@@ -2438,15 +2438,23 @@ class AgentEventCard extends StatelessWidget {
         'math': _MathBuilder(isDark: isDark, display: false),
         'mathblock': _MathBuilder(isDark: isDark, display: true),
       },
-      // Custom inline syntaxes for LaTeX. Order matters: $$...$$ must
-      // be tried before $...$ or the parser will eat the leading $$
-      // as two empty $$s. The markdown package tries inline syntaxes
-      // in the order they're registered; we put block before inline.
+      // Custom syntaxes for LaTeX. Order matters for the inline list:
+      // $$...$$ must be tried before $...$ or the parser will eat the
+      // leading $$ as two empty $$s; \[...\] before \(...\) for the
+      // same reason. The markdown package tries inline syntaxes in
+      // registration order, so block-display variants come first.
+      // The block syntax catches multi-line \[ ... \] which inline
+      // syntaxes can't span (they don't cross newlines).
       extensionSet: md.ExtensionSet(
-        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        [
+          _LatexBracketBlockSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        ],
         [
           _MathBlockInlineSyntax(),
           _MathInlineSyntax(),
+          _LatexBracketDisplayInlineSyntax(),
+          _LatexBracketInlineSyntax(),
           ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
         ],
       ),
@@ -2707,14 +2715,20 @@ class _HighlightedCodeBuilder extends MarkdownElementBuilder {
   }
 }
 
-// LaTeX math support — matches `$...$` (inline) and `$$...$$`
-// (display). Both are inline syntaxes from the markdown parser's
-// perspective; the difference is the rendered widget's MathStyle.
+// LaTeX math support. Two delimiter conventions, both common in LLM
+// output:
 //
-// We accept the convention LLMs and arXiv-style markdown use:
-// single $ for inline math, double $$ for display math. A $...$ run
-// must be on a single line and contain at least one non-$ char so
-// stray dollar-signs in prose don't hijack the parser.
+//   1. arXiv/Pandoc dollar style:   $...$  (inline)   $$...$$ (display)
+//   2. LaTeX bracket style:         \(...\) (inline)  \[...\] (display)
+//
+// All three single-line variants are inline syntaxes; only \[...\]
+// also has a block flavor since LLMs frequently emit it as
+//
+//   \[
+//   <expr possibly with \\ row breaks>
+//   \]
+//
+// — and inline syntaxes can't span newlines.
 
 // _MathBlockInlineSyntax: matches $$...$$ (single-line). Listed BEFORE
 // the inline $...$ rule so the parser can claim both delimiters
@@ -2739,6 +2753,81 @@ class _MathInlineSyntax extends md.InlineSyntax {
     final tex = match[1] ?? '';
     parser.addNode(md.Element.text('math', tex));
     return true;
+  }
+}
+
+// _LatexBracketDisplayInlineSyntax: matches single-line \[ ... \].
+// Multi-line \[...\] is handled by _LatexBracketBlockSyntax below.
+class _LatexBracketDisplayInlineSyntax extends md.InlineSyntax {
+  _LatexBracketDisplayInlineSyntax() : super(r'\\\[([^\n]+?)\\\]');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = match[1] ?? '';
+    parser.addNode(md.Element.text('mathblock', tex));
+    return true;
+  }
+}
+
+// _LatexBracketInlineSyntax: matches \( ... \) on a single line.
+class _LatexBracketInlineSyntax extends md.InlineSyntax {
+  _LatexBracketInlineSyntax() : super(r'\\\(([^\n]+?)\\\)');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = match[1] ?? '';
+    parser.addNode(md.Element.text('math', tex));
+    return true;
+  }
+}
+
+// _LatexBracketBlockSyntax: multi-line \[ ... \].
+//
+//   \[
+//   \int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}
+//   \]
+//
+// Triggers when a line is exactly "\[" (optional trailing whitespace),
+// consumes lines until a line that is exactly "\]" (optional leading
+// whitespace), and renders the joined body as display math. Also
+// accepts content on the opening or closing line so
+// "\[ expr \]" on one line still routes here when an inline isn't
+// reached (defensive — InlineSyntax catches that case first).
+class _LatexBracketBlockSyntax extends md.BlockSyntax {
+  static final _open = RegExp(r'^\s*\\\[\s*(.*)$');
+  static final _close = RegExp(r'^(.*)\\\]\s*$');
+
+  @override
+  RegExp get pattern => _open;
+
+  @override
+  bool canParse(md.BlockParser parser) =>
+      _open.hasMatch(parser.current.content);
+
+  @override
+  md.Node parse(md.BlockParser parser) {
+    final firstLine = parser.current.content;
+    parser.advance();
+    final openMatch = _open.firstMatch(firstLine);
+    final firstBody = openMatch?.group(1)?.trim() ?? '';
+    final closeOnSameLine = _close.firstMatch(firstBody);
+    if (closeOnSameLine != null) {
+      final tex = closeOnSameLine.group(1)?.trim() ?? '';
+      return md.Element.text('mathblock', tex);
+    }
+    final lines = <String>[];
+    if (firstBody.isNotEmpty) lines.add(firstBody);
+    while (!parser.isDone) {
+      final line = parser.current.content;
+      final closeMatch = _close.firstMatch(line);
+      if (closeMatch != null) {
+        final tail = closeMatch.group(1)?.trim() ?? '';
+        if (tail.isNotEmpty) lines.add(tail);
+        parser.advance();
+        break;
+      }
+      lines.add(line);
+      parser.advance();
+    }
+    return md.Element.text('mathblock', lines.join('\n'));
   }
 }
 

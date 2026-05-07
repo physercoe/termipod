@@ -397,7 +397,12 @@ families:
               session_id: "$.params.thread.id"
               preview:    "$.params.thread.preview"
               ephemeral:  "$.params.thread.ephemeral"
-              model:      "$.params.thread.modelProvider"
+              # Prefer concrete model name (`$.thread.model`) over the
+              # umbrella provider (`$.thread.modelProvider`) when both
+              # are present — codex carries the provider always but
+              # only newer builds carry the model. Fall back so older
+              # codex still surfaces something rather than blank.
+              model:      "$.params.thread.model || $.params.thread.modelProvider"
               created_at: "$.params.thread.createdAt"
 
         # ── thread/status/changed  →  system ─────────────────────

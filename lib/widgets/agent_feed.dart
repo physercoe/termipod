@@ -659,6 +659,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // track it separately and fold it in once below.
     _ModelTokens? cumulativeUsage;
     String cumulativeBucketKey = 'agent';
+    // Latest known context-window stats (codex's
+    // thread/tokenUsage/updated carries both modelContextWindow and the
+    // cumulative total). The window can change mid-session if codex
+    // hot-swaps models, so we always track the most recent values.
+    int? latestContextWindow;
+    int? latestContextUsed;
     for (final e in _events) {
       final kind = (e['kind'] ?? '').toString();
       final p = e['payload'];
@@ -696,6 +702,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         // to 'agent' if the upstream profile didn't tag.
         final engineTag = (p['engine'] as String?) ?? 'agent';
         cumulativeBucketKey = engineTag;
+        // Context-window snapshot rides on the same event. Total
+        // tokens (input+output+reasoning, all cumulative) is what
+        // codex itself uses in its TUI statusline — it's the value
+        // the model sees its context filled with on the next turn.
+        final cw = (p['context_window'] as num?)?.toInt() ?? 0;
+        final used = (p['total_tokens'] as num?)?.toInt() ?? 0;
+        if (cw > 0) latestContextWindow = cw;
+        if (used > 0) latestContextUsed = used;
       }
     }
     // If no by_model rows arrived (codex's turn/completed doesn't
@@ -707,7 +721,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     }
     final hasTelemetry = turnCount > 0 ||
         modelTotals.isNotEmpty ||
-        latestRateLimit != null;
+        latestRateLimit != null ||
+        latestContextWindow != null;
     // Build the visible event list: drop folded-in kinds.
     //   tool_call_update — folded into parent tool_call card.
     //   tool_result      — paired with parent tool_call by tool_use_id;
@@ -744,6 +759,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             turnCount: turnCount,
             modelTotals: modelTotals,
             rateLimit: latestRateLimit,
+            contextWindow: latestContextWindow,
+            contextUsed: latestContextUsed,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -4231,11 +4248,20 @@ class _TelemetryStrip extends StatelessWidget {
   final int turnCount;
   final Map<String, _ModelTokens> modelTotals;
   final Map<String, dynamic>? rateLimit;
+  // Context window: total capacity (modelContextWindow) and current
+  // used (cumulative total_tokens). Both are codex-only at the moment
+  // — claude's stream-json doesn't carry an authoritative window size,
+  // and a hard-coded model→size table would rot fast. The tile
+  // suppresses itself when either field is null.
+  final int? contextWindow;
+  final int? contextUsed;
   const _TelemetryStrip({
     required this.totalCostUsd,
     required this.turnCount,
     required this.modelTotals,
     required this.rateLimit,
+    this.contextWindow,
+    this.contextUsed,
   });
 
   @override
@@ -4320,6 +4346,36 @@ class _TelemetryStrip extends StatelessWidget {
         fg: fg,
         muted: mutedColor,
         tooltip: tooltip.toString(),
+      ));
+    }
+    // Context-window tile: used / total + percent. Mirrors what
+    // codex's TUI statusline shows so a session running in the
+    // background can be checked at a glance without re-attaching to
+    // the terminal. Color tracks fill: green < 70%, amber 70-90%,
+    // red > 90% — past 90% the next big response will spill, which
+    // is the threshold to summarize/compact.
+    final cw = contextWindow;
+    final cu = contextUsed;
+    if (cw != null && cw > 0) {
+      final used = cu ?? 0;
+      final pct = (used / cw).clamp(0.0, 1.0);
+      final pctStr = '${(pct * 100).toStringAsFixed(0)}%';
+      final color = pct >= 0.9
+          ? DesignColors.error
+          : pct >= 0.7
+              ? Colors.orange
+              : DesignColors.success;
+      tiles.add(_TelemetryTile(
+        icon: Icons.donut_large,
+        label: '${_fmtTokens(used)}/${_fmtTokens(cw)}',
+        sub: pctStr,
+        color: color,
+        fg: fg,
+        muted: mutedColor,
+        tooltip:
+            'Context window utilization: $used / $cw tokens ($pctStr).\n'
+            'Past ~90% the next response will spill — a good moment to '
+            'summarize or branch a fresh thread.',
       ));
     }
     final rl = rateLimit;

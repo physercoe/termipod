@@ -120,6 +120,14 @@ func runDaemon(args []string) {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
+	// One-shot audit at startup: which backend-CLI auth env vars are
+	// actually visible to host-runner? Spawned claude/codex/gemini
+	// inherit os.Environ() through exec.Command, so what host-runner
+	// sees here is what the agent will see. If a value is missing the
+	// agent will report "not logged in" — and operators have asked
+	// repeatedly how to verify this without instrumenting the spawn.
+	auditAuthEnv(log)
+
 	var lnch hostrunner.Launcher
 	switch *launcher {
 	case "stub":
@@ -180,4 +188,34 @@ func defaultStateDir() string {
 func die(msg string) {
 	fmt.Fprintln(os.Stderr, msg)
 	os.Exit(1)
+}
+
+// auditAuthEnv logs whether each backend-CLI auth env var is visible
+// to host-runner (which is exactly what the spawned agent will inherit).
+// Values are NEVER logged — only present/absent — so this is safe to
+// leave on by default and to share in bug reports.
+//
+// Also reports HOME because misconfigured systemd / sudo can leave it
+// empty or pointing at root, which silently breaks credential lookup
+// for engines that read ~/.claude/credentials.json or ~/.codex/auth.json.
+func auditAuthEnv(log *slog.Logger) {
+	keys := []string{
+		"ANTHROPIC_API_KEY",
+		"ANTHROPIC_AUTH_TOKEN",
+		"OPENAI_API_KEY",
+		"GEMINI_API_KEY",
+		"GOOGLE_API_KEY",
+		"CODEX_HOME",
+		"CLAUDE_CONFIG",
+	}
+	pairs := make([]any, 0, len(keys)*2+2)
+	for _, k := range keys {
+		state := "absent"
+		if os.Getenv(k) != "" {
+			state = "present"
+		}
+		pairs = append(pairs, k, state)
+	}
+	pairs = append(pairs, "HOME", os.Getenv("HOME"))
+	log.Info("auth-env-audit", pairs...)
 }

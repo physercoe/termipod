@@ -123,6 +123,13 @@ type AppServerDriver struct {
 	threadIDMu sync.RWMutex
 	threadID   string
 
+	// turnID is captured from `turn/started` notifications and cleared
+	// on `turn/completed`. Required (alongside threadId) by codex's
+	// `turn/interrupt`; without it the server replies -32600
+	// "missing field `turnId`" and the cancel button is a no-op.
+	turnIDMu sync.RWMutex
+	turnID   string
+
 	// shutdownCh is closed by Stop to fail in-flight calls fast
 	// instead of waiting on CallTimeout.
 	shutdownCh chan struct{}
@@ -355,6 +362,15 @@ func (d *AppServerDriver) ThreadID() string {
 	return d.threadID
 }
 
+// TurnID returns the active turn id (empty when no turn is in
+// progress). Captured from `turn/started`, cleared on
+// `turn/completed`. Required by `turn/interrupt`.
+func (d *AppServerDriver) TurnID() string {
+	d.turnIDMu.RLock()
+	defer d.turnIDMu.RUnlock()
+	return d.turnID
+}
+
 // Input dispatches a hub-side input event to the JSON-RPC method
 // that maps onto the same semantics. Implements the Inputter
 // interface so the host-runner's InputRouter can hand off to either
@@ -411,19 +427,27 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		}
 		return d.startTurn(ctx, body)
 	case "cancel":
-		// codex requires `threadId` on turn/interrupt — without it the
-		// server replies -32600 "Invalid request: missing field
-		// `threadId`". Best-effort: if the handshake never captured a
-		// thread id (very early cancel) there's nothing to interrupt
-		// anyway, so report a clean error instead of dispatching a
-		// malformed call.
+		// codex requires both `threadId` and `turnId` on turn/interrupt.
+		// Without either the server replies -32600 "missing field …".
+		// Best-effort: if the handshake never captured a thread id
+		// (very early cancel) there's nothing to interrupt anyway, so
+		// report a clean error instead of dispatching a malformed call.
 		tid := d.ThreadID()
 		if tid == "" {
 			return fmt.Errorf("appserver driver: cannot cancel — no active thread")
 		}
-		_, err := d.Call(ctx, "turn/interrupt", map[string]any{
-			"threadId": tid,
-		})
+		// Unblock any parked elicit/approval first. turn/interrupt on
+		// the codex side aborts in-flight tool calls, but the parked
+		// JSON-RPC ids stay open until we write a response on the
+		// stdio pipe. Drain them with cancel-shaped responses so codex
+		// can complete the interrupt cleanly and the next user-text
+		// turn isn't stuck behind a half-closed gate.
+		d.cancelPendingApprovals(ctx)
+		params := map[string]any{"threadId": tid}
+		if turnID := d.TurnID(); turnID != "" {
+			params["turnId"] = turnID
+		}
+		_, err := d.Call(ctx, "turn/interrupt", params)
 		return err
 	case "approval", "answer":
 		return fmt.Errorf("appserver driver: %q input shape not used by codex (use attention_reply / slice-4 approval bridge)", kind)
@@ -498,6 +522,12 @@ func (d *AppServerDriver) resolvePendingApproval(payload map[string]any) error {
 				"permissions": map[string]any{},
 			}
 		}
+	case "mcpServer/elicitation/request":
+		// MCP-tool-call approvals routed via permission_prompt arrive
+		// here. The wire shape is the elicitation response — codex's
+		// rmcp deserializer rejects {decision} on this method. Empty
+		// content because there's no schema to fill.
+		result = map[string]any{"action": codexDecision}
 	default:
 		// commandExecution + fileChange both take {decision}.
 		result = map[string]any{"decision": codexDecision}
@@ -555,6 +585,48 @@ func (d *AppServerDriver) resolvePendingElicitation(payload map[string]any) erro
 		return fmt.Errorf("appserver driver: write elicitation response: %w", err)
 	}
 	return nil
+}
+
+// cancelPendingApprovals drains every parked codex request with the
+// correct cancel-shaped response, freeing the JSON-RPC id on the
+// codex side. Called from the cancel path so turn/interrupt has no
+// half-closed gates to fight. The hub-side attention rows stay open;
+// resolving them is a separate /decide call. (Auto-resolving them
+// here would create a confusing audit trail — the principal didn't
+// approve OR decline, they bailed on the whole turn.)
+func (d *AppServerDriver) cancelPendingApprovals(ctx context.Context) {
+	d.approvalMu.Lock()
+	parked := d.pendingApprovals
+	d.pendingApprovals = make(map[string]pendingApproval)
+	d.approvalMu.Unlock()
+	if len(parked) == 0 {
+		return
+	}
+	for attID, pa := range parked {
+		var result map[string]any
+		switch pa.method {
+		case "mcpServer/elicitation/request":
+			// MCP elicitation cancel uses a distinct action verb; rmcp
+			// rejects an empty/decline shape on this method otherwise.
+			result = map[string]any{"action": "cancel"}
+		default:
+			// Approval-shaped methods accept the decline shape.
+			result = autoDeclineResultFor(pa.method)
+		}
+		if err := d.writeRawResponse(pa.jsonRPCID, result); err != nil {
+			d.Log.Warn("appserver: cancel parked request failed",
+				"attention_id", attID,
+				"method", pa.method,
+				"err", err)
+			continue
+		}
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+			map[string]any{
+				"kind":         "appserver_request_cancelled",
+				"method":       pa.method,
+				"attention_id": attID,
+			})
+	}
 }
 
 // elicitationContentFromBody best-effort-parses the principal's
@@ -828,7 +900,22 @@ func (d *AppServerDriver) handleServerRequest(
 	params := decodeParams(resp.Params)
 	attentionKind := "permission_prompt"
 	if isElicitationMethod(method) {
-		attentionKind = "elicit"
+		// codex re-uses MCP elicitation as the wire-level shape for two
+		// distinct UX flows. Distinguish by the codex-private meta
+		// hint (`_meta.codex_approval_kind`):
+		//   - "mcp_tool_call" → permission gate (yes/no buttons),
+		//     response is `{action: accept|decline}` with no content.
+		//   - anything else → real form fill, response carries the
+		//     principal's typed reply as `content`.
+		// Falling back to "elicit" for a tool-call gate routes the
+		// principal into a free-text input that codex then can't
+		// deserialize against the empty schema, leaving the turn
+		// stuck in waitingOnApproval.
+		if isToolCallApprovalElicitation(params) {
+			attentionKind = "permission_prompt"
+		} else {
+			attentionKind = "elicit"
+		}
 	}
 	att, err := d.Attention.PostAttention(ctx, AttentionIn{
 		ScopeKind:      "team",
@@ -891,6 +978,39 @@ func isApprovalMethod(method string) bool {
 // side UX (free-text reply rather than yes/no) both differ.
 func isElicitationMethod(method string) bool {
 	return method == "mcpServer/elicitation/request"
+}
+
+// isToolCallApprovalElicitation returns true when an
+// `mcpServer/elicitation/request` is actually codex asking the
+// principal to permit an MCP tool call (vs. forwarding a real form
+// fill from the MCP server). codex tags this case with
+// `_meta.codex_approval_kind: "mcp_tool_call"` and ships an empty
+// `requestedSchema.properties` because no input is being collected.
+//
+// Detection rules (any one suffices):
+//   - `_meta.codex_approval_kind == "mcp_tool_call"` — codex's
+//     explicit signal.
+//   - `requestedSchema` missing or has no properties — protocol-level
+//     fingerprint that no input is being collected; an "elicit" UX
+//     would just dump the principal into a useless free-text box.
+//
+// A real form-fill elicitation always carries a non-empty
+// `requestedSchema.properties` describing the field shapes.
+func isToolCallApprovalElicitation(params map[string]any) bool {
+	if meta, ok := params["_meta"].(map[string]any); ok {
+		if k, _ := meta["codex_approval_kind"].(string); k == "mcp_tool_call" {
+			return true
+		}
+	}
+	rs, hasSchema := params["requestedSchema"].(map[string]any)
+	if !hasSchema {
+		return true
+	}
+	props, hasProps := rs["properties"].(map[string]any)
+	if !hasProps || len(props) == 0 {
+		return true
+	}
+	return false
 }
 
 // autoDeclineResultFor builds the per-method decline-shape for any
@@ -1140,6 +1260,37 @@ func (d *AppServerDriver) translateNotification(ctx context.Context, raw []byte)
 						d.threadID = id
 					}
 					d.threadIDMu.Unlock()
+				}
+			}
+		}
+	}
+	// Track the active turn id so cancel can populate
+	// turn/interrupt.turnId. turn/started carries it on
+	// `params.turn.id`; turn/completed clears it. Any in-between
+	// notification (item/started, etc.) also carries `params.turnId`
+	// — we use those as a fallback in case turn/started was missed.
+	if m, _ := frame["method"].(string); m != "" {
+		if params, ok := frame["params"].(map[string]any); ok {
+			switch m {
+			case "turn/started":
+				if turn, ok := params["turn"].(map[string]any); ok {
+					if id, ok := turn["id"].(string); ok && id != "" {
+						d.turnIDMu.Lock()
+						d.turnID = id
+						d.turnIDMu.Unlock()
+					}
+				}
+			case "turn/completed", "turn/failed":
+				d.turnIDMu.Lock()
+				d.turnID = ""
+				d.turnIDMu.Unlock()
+			default:
+				if id, ok := params["turnId"].(string); ok && id != "" {
+					d.turnIDMu.Lock()
+					if d.turnID == "" {
+						d.turnID = id
+					}
+					d.turnIDMu.Unlock()
 				}
 			}
 		}

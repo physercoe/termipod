@@ -975,6 +975,14 @@ func TestAppServerDriver_ElicitationBridge_RaisesAttention(t *testing.T) {
 	server.serverRequest(77, "mcpServer/elicitation/request", map[string]any{
 		"server":  "termipod",
 		"message": "Pick one of: A, B, C",
+		// Non-empty requestedSchema → real form-fill elicit (not a
+		// codex tool-call approval gate, which uses empty schema).
+		"requestedSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"choice": map[string]any{"type": "string"},
+			},
+		},
 	})
 
 	// Attention should land with kind=elicit and the server's message
@@ -1050,6 +1058,12 @@ func TestAppServerDriver_ElicitationBridge_ReplyAccepts(t *testing.T) {
 	server.serverRequest(88, "mcpServer/elicitation/request", map[string]any{
 		"server":  "termipod",
 		"message": "What's your favorite color?",
+		"requestedSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"value": map[string]any{"type": "string"},
+			},
+		},
 	})
 
 	// Wait for the bridge to post the attention.
@@ -1252,5 +1266,253 @@ func TestElicitationContentFromBody(t *testing.T) {
 				t.Errorf("body=%q: got[%q]=%v; want %v", tc.body, k, got[k], v)
 			}
 		}
+	}
+}
+
+// TestAppServerDriver_Cancel_IncludesTurnID pins the bug fix where
+// turn/interrupt was sent with only threadId and codex replied
+// -32600 "Invalid request: missing field `turnId`". Once turn/started
+// has fired, the cancel path must include both ids.
+func TestAppServerDriver_Cancel_IncludesTurnID(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_t"}}
+	})
+	server.onCall("turn/start", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("turn/interrupt", func(_ map[string]any) any { return map[string]any{} })
+	go server.run()
+
+	poster := &fakePoster{}
+	drv := &AppServerDriver{
+		AgentID:          "agent-tcancel",
+		Poster:           poster,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	if err := drv.Input(ctx, "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input(text): %v", err)
+	}
+	server.waitForMethod("turn/start", time.Second)
+	server.notify("turn/started", map[string]any{
+		"turn": map[string]any{"id": "turn_42", "status": "inProgress"},
+	})
+
+	// Wait for the driver to absorb the notification.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && drv.TurnID() == "" {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if drv.TurnID() != "turn_42" {
+		t.Fatalf("driver did not capture turn id from turn/started; got %q", drv.TurnID())
+	}
+
+	if err := drv.Input(ctx, "cancel", map[string]any{}); err != nil {
+		t.Fatalf("Input(cancel): %v", err)
+	}
+	frame := server.waitForMethod("turn/interrupt", time.Second)
+	params, _ := frame["params"].(map[string]any)
+	if got, _ := params["threadId"].(string); got != "thr_t" {
+		t.Errorf("turn/interrupt.params.threadId = %q; want thr_t", got)
+	}
+	if got, _ := params["turnId"].(string); got != "turn_42" {
+		t.Errorf("turn/interrupt.params.turnId = %q; want turn_42 (rmcp rejects without it)", got)
+	}
+}
+
+// TestAppServerDriver_ToolCallApprovalRoutesAsPermissionPrompt pins
+// the bug fix where codex's MCP-tool-call approval (wire-level shape:
+// `mcpServer/elicitation/request` with `_meta.codex_approval_kind ==
+// "mcp_tool_call"` and an empty `requestedSchema.properties`) was
+// being routed as a free-text elicit. The principal would type "yes"
+// and codex's rmcp couldn't deserialize {value: "yes"} against the
+// empty schema, leaving the turn stuck. The driver must route this
+// shape as kind=permission_prompt and respond with `{action: accept}`
+// (no content) on approve.
+func TestAppServerDriver_ToolCallApprovalRoutesAsPermissionPrompt(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_tc"}}
+	})
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_tc"}
+	drv := &AppServerDriver{
+		AgentID:          "agent-tc",
+		Handle:           "@coder",
+		Poster:           poster,
+		Attention:        att,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	server.serverRequest(7, "mcpServer/elicitation/request", map[string]any{
+		"serverName": "termipod",
+		"mode":       "form",
+		"_meta": map[string]any{
+			"codex_approval_kind": "mcp_tool_call",
+			"persist":             []any{"session", "always"},
+		},
+		"message":         "Allow the termipod MCP server to run tool \"request_select\"?",
+		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(att.snapshot()) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	posted := att.snapshot()
+	if len(posted) != 1 {
+		t.Fatalf("expected one attention; got %d", len(posted))
+	}
+	if posted[0].Kind != "permission_prompt" {
+		t.Errorf("attention.kind = %q; want permission_prompt (tool-call approvals must not be free-text elicits)", posted[0].Kind)
+	}
+
+	if err := drv.Input(ctx, "attention_reply", map[string]any{
+		"kind":       "permission_prompt",
+		"request_id": "att_tc1",
+		"decision":   "approve",
+	}); err != nil {
+		t.Fatalf("attention_reply: %v", err)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) && resp == nil {
+		for _, f := range server.seen() {
+			if id, ok := f["id"].(float64); ok && int64(id) == 7 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("driver did not respond to parked tool-call approval after attention_reply")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["action"].(string); got != "accept" {
+		t.Errorf("result.action = %q; want accept (rmcp rejects {decision} on this method)", got)
+	}
+	if _, hasContent := result["content"]; hasContent {
+		t.Errorf("result.content present; want absent (empty schema means nothing to fill); result=%v", result)
+	}
+}
+
+// TestAppServerDriver_Cancel_DrainsParkedRequests pins the bug where
+// canceling a turn left parked elicit/approval JSON-RPC ids open on
+// the codex side. turn/interrupt aborts in-flight tool calls, but
+// the wire response on the parked id still has to be written or
+// codex's rmcp keeps the request alive. Cancel must write
+// cancel-shaped responses to every parked id.
+func TestAppServerDriver_Cancel_DrainsParkedRequests(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any { return map[string]any{} })
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{"thread": map[string]any{"id": "thr_drain"}}
+	})
+	server.onCall("turn/interrupt", func(_ map[string]any) any { return map[string]any{} })
+	go server.run()
+
+	poster := &fakePoster{}
+	att := &fakeAttentionPoster{idPrefix: "att_d"}
+	drv := &AppServerDriver{
+		AgentID:          "agent-drain",
+		Handle:           "@coder",
+		Poster:           poster,
+		Attention:        att,
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+
+	// Park a tool-call approval (elicitation method, empty schema).
+	server.serverRequest(101, "mcpServer/elicitation/request", map[string]any{
+		"serverName": "termipod",
+		"_meta": map[string]any{
+			"codex_approval_kind": "mcp_tool_call",
+		},
+		"message":         "Allow tool call?",
+		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	})
+	// Wait for it to be parked.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && len(att.snapshot()) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(att.snapshot()) != 1 {
+		t.Fatalf("expected parked attention; got %d", len(att.snapshot()))
+	}
+
+	if err := drv.Input(ctx, "cancel", map[string]any{}); err != nil {
+		t.Fatalf("Input(cancel): %v", err)
+	}
+
+	// turn/interrupt is one signal; the cancel-shaped response on
+	// id=101 is the other. Both must arrive.
+	server.waitForMethod("turn/interrupt", time.Second)
+	deadline = time.Now().Add(time.Second)
+	var resp map[string]any
+	for time.Now().Before(deadline) && resp == nil {
+		for _, f := range server.seen() {
+			if id, ok := f["id"].(float64); ok && int64(id) == 101 {
+				if _, hasMethod := f["method"]; !hasMethod {
+					resp = f
+					break
+				}
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if resp == nil {
+		t.Fatal("cancel did not write a response on the parked elicitation id")
+	}
+	result, _ := resp["result"].(map[string]any)
+	if got, _ := result["action"].(string); got != "cancel" {
+		t.Errorf("parked elicit cancel.action = %q; want cancel", got)
 	}
 }

@@ -341,6 +341,7 @@ class _MeItem {
   static _Filter _filterForAttention(String kind) {
     switch (kind) {
       case 'approval_request':
+      case 'permission_prompt':
       case 'select':
       case 'help_request':
       case 'elicit':

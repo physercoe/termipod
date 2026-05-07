@@ -153,3 +153,35 @@ func TestDoSpawn_UnprobedHost_PermissiveFallback(t *testing.T) {
 		t.Fatalf("out.Mode = %q; want M2", out.Mode)
 	}
 }
+
+// Singleton handlers (the persistent general steward, future similar
+// kinds) pass a *template id* in spawnIn.Kind because that's what the
+// agents.kind row needs to be for findRunningGeneralSteward to recognise
+// the singleton. The mode resolver must still look the host's caps up by
+// the *family* declared in the template's backend.kind — without that
+// the lookup misses on every probed host (caps.Agents only carries family
+// keys: claude-code/codex/gemini-cli) and resolution fails with
+// "no compatible mode" the moment any probe has run.
+func TestDoSpawn_ModeFromBackendKind_TemplateIdAsKind(t *testing.T) {
+	s, _ := newTestServer(t)
+	hostID := seedHostCaps(t, s, `{
+		"agents": {
+			"claude-code": {"installed": true, "supports": ["M1","M2","M4"]}
+		}
+	}`)
+
+	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@steward",
+		Kind:        "steward.general.v1",
+		HostID:      hostID,
+		SpawnSpec: "driving_mode: M2\n" +
+			"fallback_modes: [M4]\n" +
+			"backend:\n  kind: claude-code\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+	if out.Mode != "M2" {
+		t.Fatalf("out.Mode = %q; want M2 (resolved via backend.kind)", out.Mode)
+	}
+}

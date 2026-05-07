@@ -10,6 +10,7 @@ import '../../providers/activity_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../providers/urgent_tasks_provider.dart';
+import '../../services/host_label.dart';
 import '../../services/hub/open_steward_session.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
@@ -160,6 +161,7 @@ class MeScreen extends ConsumerWidget {
                   sessions: activeSessions,
                   agents: hubState.agents,
                   projects: hubState.projects,
+                  hosts: hubState.hosts,
                 ),
               ),
             SliverToBoxAdapter(
@@ -862,10 +864,12 @@ class _ActiveSessionsStrip extends StatelessWidget {
   final List<Map<String, dynamic>> sessions;
   final List<Map<String, dynamic>> agents;
   final List<Map<String, dynamic>> projects;
+  final List<Map<String, dynamic>> hosts;
   const _ActiveSessionsStrip({
     required this.sessions,
     required this.agents,
     required this.projects,
+    required this.hosts,
   });
 
   String _scopeLabel(Map<String, dynamic> s) {
@@ -900,6 +904,29 @@ class _ActiveSessionsStrip extends StatelessWidget {
     return '';
   }
 
+  /// Resolve `engine · host` for the strip's third line. The session
+  /// row only carries `current_agent_id`; engine + host live on the
+  /// agents row. Returns empty when the agent isn't loaded yet so the
+  /// caller can omit the line.
+  String _engineHost(String agentId) {
+    if (agentId.isEmpty) return '';
+    Map<String, dynamic>? agent;
+    for (final a in agents) {
+      if ((a['id'] ?? '').toString() == agentId) {
+        agent = a;
+        break;
+      }
+    }
+    if (agent == null) return '';
+    final engine = (agent['kind'] ?? '').toString();
+    final hostId = (agent['host_id'] ?? '').toString();
+    final host = hostLabel(hosts, hostId) ?? '';
+    if (engine.isEmpty && host.isEmpty) return '';
+    if (engine.isEmpty) return host;
+    if (host.isEmpty) return engine;
+    return '$engine @ $host';
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -915,7 +942,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
       children: [
         _SectionLabel(text: l10n.meActiveSessionsSection),
         SizedBox(
-          height: 92,
+          height: 108,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -930,6 +957,7 @@ class _ActiveSessionsStrip extends StatelessWidget {
                   rawTitle.isEmpty ? '(untitled session)' : rawTitle;
               final scope = _scopeLabel(s);
               final steward = _stewardName(agentId);
+              final engineHost = _engineHost(agentId);
               return InkWell(
                 onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
                   builder: (_) => SessionChatScreen(
@@ -976,6 +1004,16 @@ class _ActiveSessionsStrip extends StatelessWidget {
                           if (steward.isNotEmpty)
                             Text(
                               '· $steward',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 10,
+                                color: muted,
+                              ),
+                            ),
+                          if (engineHost.isNotEmpty)
+                            Text(
+                              engineHost,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.jetBrainsMono(

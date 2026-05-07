@@ -26,9 +26,18 @@ import (
 // spawnModeYAML is the mode-only slice of SpawnSpec we parse on the hub.
 // Keeping it local to the server package avoids a hub→host-runner import;
 // host-runner's SpawnSpec stays the canonical shape for launcher use.
+//
+// backend.kind names the agent *family* (claude-code/codex/gemini-cli) the
+// template's binary belongs to. Resolution looks the family up in the
+// host's probed capabilities; without this we'd be looking up the spawn's
+// `kind` which is sometimes a template id (e.g. steward.general.v1) and
+// not a probe-reported family name — which then never matches.
 type spawnModeYAML struct {
 	DrivingMode   string   `yaml:"driving_mode"`
 	FallbackModes []string `yaml:"fallback_modes"`
+	Backend       struct {
+		Kind string `yaml:"kind"`
+	} `yaml:"backend"`
 }
 
 func parseSpawnModeYAML(text string) spawnModeYAML {
@@ -90,8 +99,18 @@ func (s *Server) resolveSpawnMode(ctx context.Context, in spawnIn) (string, erro
 	}
 
 	caps := s.loadHostCaps(ctx, in.HostID)
-	kindCaps := caps.Agents[in.Kind]
-	billing := modes.Billing(caps.BillingDeclarations[in.Kind])
+	// Family for the host-caps lookup. Most spawn paths (mobile-driven)
+	// pass the family directly via in.Kind, so backend.kind is empty in
+	// the YAML and we fall back to in.Kind. Internal singletons like
+	// steward.general (handlers_general_steward.go) pass a template id
+	// in in.Kind — backend.kind from the parsed template is the only
+	// thing that resolves to a real family there.
+	family := in.Kind
+	if y.Backend.Kind != "" {
+		family = y.Backend.Kind
+	}
+	kindCaps := caps.Agents[family]
+	billing := modes.Billing(caps.BillingDeclarations[family])
 
 	// Permissive fallback on an unprobed host: if the host row has no
 	// capabilities yet, assume the agent is installed and trust the
@@ -110,7 +129,7 @@ func (s *Server) resolveSpawnMode(ctx context.Context, in spawnIn) (string, erro
 	// list ⇒ no billing rejections (consistent with the resolver's
 	// permissive default for unknown billing).
 	var incompat []modes.Incompat
-	if fam, ok := agentfamilies.ByName(in.Kind); ok {
+	if fam, ok := agentfamilies.ByName(family); ok {
 		for _, ic := range fam.Incompatibilities {
 			incompat = append(incompat, modes.Incompat{
 				Mode:    ic.Mode,
@@ -121,7 +140,7 @@ func (s *Server) resolveSpawnMode(ctx context.Context, in spawnIn) (string, erro
 	}
 
 	res, err := modes.Resolve(modes.Input{
-		AgentKind:         in.Kind,
+		AgentKind:         family,
 		Requested:         y.DrivingMode,
 		FallbackModes:     y.FallbackModes,
 		Override:          in.Mode,

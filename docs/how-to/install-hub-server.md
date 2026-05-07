@@ -1,9 +1,9 @@
 # Install hub-server
 
 > **Type:** how-to
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-07)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.314
+> **Last verified vs code:** v1.0.380
 
 **TL;DR.** End-to-end walkthrough for standing up `hub-server` and
 connecting the TermiPod mobile app's **Hub Dashboard** to it. Two
@@ -30,7 +30,9 @@ tracks:
 ## 1. Get the mobile build
 
 The release workflow (`.github/workflows/release.yml`) fires on tag push
-and attaches three Android APKs plus an unsigned iOS IPA.
+and attaches one signed `arm64-v8a` Android APK, an unsigned iOS IPA,
+and four pre-built `hub-server`+`host-runner` tarballs (Linux/macOS,
+amd64/arm64).
 
 ```bash
 # From the repo root, on the branch containing the hub changes.
@@ -44,10 +46,16 @@ gh release view vX.Y.Z-alpha       # grab the asset URLs
 
 Assets (where `vX.Y.Z` matches the tag you pushed):
 
-- `termipod-vX.Y.Z-alpha-arm64-v8a.apk`     ← modern phones
-- `termipod-vX.Y.Z-alpha-armeabi-v7a.apk`   ← older 32-bit ARM
-- `termipod-vX.Y.Z-alpha-x86_64.apk`        ← emulator / ChromeOS
+- `termipod-vX.Y.Z-alpha-arm64-v8a.apk`     ← every modern Android phone/tablet
 - `termipod-vX.Y.Z-alpha-ios-unsigned.ipa`  ← sideload via AltStore/Sideloadly
+- `termipod-hub-vX.Y.Z-alpha-linux-amd64.tar.gz`   ← VPS, x86_64 servers
+- `termipod-hub-vX.Y.Z-alpha-linux-arm64.tar.gz`   ← ARM servers, Raspberry Pi 4/5
+- `termipod-hub-vX.Y.Z-alpha-darwin-amd64.tar.gz`  ← Intel Mac
+- `termipod-hub-vX.Y.Z-alpha-darwin-arm64.tar.gz`  ← Apple Silicon Mac
+
+> 32-bit `armeabi-v7a` and `x86_64` APKs were dropped 2026-05-07 — every
+> currently-supported Android device is 64-bit ARM, and Play-Store
+> policy already requires it.
 
 ### Sideload on Android
 
@@ -57,7 +65,29 @@ Assets (where `vX.Y.Z` matches the tag you pushed):
 
 ---
 
-## 2. Build `hub-server`
+## 2. Get `hub-server` (and `host-runner`)
+
+### Option A — pre-built binary (recommended)
+
+```bash
+TAG=vX.Y.Z-alpha
+ARCH=$(uname -m | sed 's/aarch64/arm64/;s/x86_64/amd64/')
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+curl -L -o hub.tar.gz \
+  "https://github.com/physercoe/termipod/releases/download/${TAG}/termipod-hub-${TAG}-${OS}-${ARCH}.tar.gz"
+tar -xzf hub.tar.gz
+sudo install "termipod-hub-${TAG}-${OS}-${ARCH}/hub-server"  /usr/local/bin/
+sudo install "termipod-hub-${TAG}-${OS}-${ARCH}/host-runner" /usr/local/bin/
+hub-server help
+```
+
+The tarball contains both `hub-server` and `host-runner`; `host-runner`
+is needed on every host that will execute agents (see
+[`install-host-runner.md`](install-host-runner.md)). Both binaries are
+statically linked (CGO disabled, pure-Go SQLite via
+`modernc.org/sqlite`) — they run on any kernel of the matching arch.
+
+### Option B — build from source
 
 ```bash
 cd hub
@@ -65,9 +95,8 @@ go build -o /tmp/hub-server ./cmd/hub-server
 /tmp/hub-server help
 ```
 
-The binary is self-contained — no libc dependency beyond the platform
-default. Cross-compile for a VPS with e.g.
-`GOOS=linux GOARCH=amd64 go build -o hub-server-linux-amd64 ./cmd/hub-server`.
+Cross-compile for a different target with e.g.
+`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o hub-server-linux-amd64 ./cmd/hub-server`.
 
 > **Version reporting.** `go build` inside a git tree automatically
 > embeds the commit hash + build time (via `runtime/debug.ReadBuildInfo`),

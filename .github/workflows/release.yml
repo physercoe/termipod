@@ -61,7 +61,7 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
 
-      - name: Build APKs (split per ABI)
+      - name: Build arm64-v8a APK
         env:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -73,8 +73,11 @@ jobs:
           IFS='.' read -r MAJOR MINOR PATCH <<< "${VERSION_NUM%%-*}"
           BUILD_NUMBER=$((MAJOR * 10000 + MINOR * 100 + ${PATCH:-0}))
           GIT_REF="${{ github.ref_name }}@$(echo '${{ github.sha }}' | cut -c1-7)"
-          # --split-per-abi emits one APK per ABI (~30 MB each) instead of
-          # a ~90 MB fat APK that bundles native libs for all three.
+          # Only ship arm64-v8a — covers every modern Android device.
+          # 32-bit armeabi-v7a and x86_64 emulator builds were dropped
+          # 2026-05-07: install share was negligible vs. release-asset
+          # bloat and the post-Play-Store 64-bit-only policy.
+          #
           # --obfuscate + --split-debug-info strips Dart symbols for a
           # few more MB; the mapping lives under build/symbols/.
           #
@@ -86,7 +89,8 @@ jobs:
           # following sources" which is fatal but transient. Retry up
           # to 3 times with backoff before failing the build for real.
           for attempt in 1 2 3; do
-            if flutter build apk --release --split-per-abi \
+            if flutter build apk --release \
+                --target-platform=android-arm64 \
                 --obfuscate --split-debug-info=build/symbols \
                 --build-name="$VERSION_NUM" \
                 --build-number="$BUILD_NUMBER" \
@@ -102,26 +106,67 @@ jobs:
             sleep $((attempt * 30))
           done
 
-      - name: Rename APKs
+      - name: Rename APK
         run: |
-          cd build/app/outputs/flutter-apk
-          for abi in arm64-v8a armeabi-v7a x86_64; do
-            mv "app-${abi}-release.apk" \
-               "termipod-${{ github.ref_name }}-${abi}.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             "build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: hub/go.sum
+
+      - name: Build hub-server + host-runner binaries
+        # Cross-compile the two server-side binaries for the four
+        # platforms operators actually deploy to (linux/{amd64,arm64}
+        # for VPS / Pi-style hosts; darwin/{amd64,arm64} for dev
+        # machines). modernc.org/sqlite is pure Go so CGO=0 keeps
+        # cross-compilation honest with no toolchain juggling.
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.ref_name }}"
+          OUT_DIR="dist/hub"
+          mkdir -p "$OUT_DIR"
+          cd hub
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            stage="../$OUT_DIR/termipod-hub-${VERSION}-${os}-${arch}"
+            mkdir -p "$stage"
+            for bin in hub-server host-runner; do
+              echo "::group::build $bin for $os/$arch"
+              CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+                go build -trimpath -ldflags="-s -w" \
+                -o "$stage/$bin" "./cmd/$bin"
+              echo "::endgroup::"
+            done
+            tar -C "$stage/.." -czf \
+              "../$OUT_DIR/termipod-hub-${VERSION}-${os}-${arch}.tar.gz" \
+              "termipod-hub-${VERSION}-${os}-${arch}"
+            rm -rf "$stage"
           done
+          cd ..
+          ls -lh "$OUT_DIR"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk
-            build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-armeabi-v7a.apk
-            build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-x86_64.apk
+            dist/hub/termipod-hub-${{ github.ref_name }}-linux-amd64.tar.gz
+            dist/hub/termipod-hub-${{ github.ref_name }}-linux-arm64.tar.gz
+            dist/hub/termipod-hub-${{ github.ref_name }}-darwin-amd64.tar.gz
+            dist/hub/termipod-hub-${{ github.ref_name }}-darwin-arm64.tar.gz
           body: |
-            **Pick the APK matching your device:**
-            - `arm64-v8a` — almost every modern phone/tablet (Android 8+, 64-bit ARM). **Default choice.**
-            - `armeabi-v7a` — older 32-bit ARM devices.
-            - `x86_64` — emulators / ChromeOS / rare Intel tablets.
+            **Mobile (Android):**
+            - `termipod-${{ github.ref_name }}-arm64-v8a.apk` — every modern Android phone/tablet (Android 8+). 32-bit and x86_64 builds are no longer published.
 
-            Not sure? Grab `arm64-v8a`.
+            **Server-side binaries** (`hub-server` + `host-runner`, statically linked, no CGO):
+            - `linux-amd64` — VPS, x86_64 servers
+            - `linux-arm64` — ARM servers, Raspberry Pi 4/5, Ampere
+            - `darwin-amd64` — Intel Macs
+            - `darwin-arm64` — Apple Silicon Macs
+
+            Each tarball expands to a directory containing both binaries; drop them on `$PATH` and run `hub-server help`.
           generate_release_notes: true

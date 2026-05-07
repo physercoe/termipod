@@ -2496,7 +2496,7 @@ class AgentEventCard extends StatelessWidget {
       // see what's behind the visible label. Long-press (copy/share)
       // is wired in _MarkdownLinkBuilder below since onTapLink only
       // gives us the tap channel.
-      onTapLink: (text, href, title) => _openLink(context, href),
+      onTapLink: (text, href, title) => _openLink(ctx, href),
       // Override fenced-code rendering with syntax highlighting so the
       // big block of code Claude tends to paste reads as colored tokens
       // instead of flat mono. Inline code (no class on the <code>

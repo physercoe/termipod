@@ -2491,16 +2491,12 @@ class AgentEventCard extends StatelessWidget {
       selectable: true,
       shrinkWrap: true,
       // Tap on `[text](href)` opens the URL in the system browser.
-      // Without this, the link is a colored span the user can't reach
-      // — they'd have to paste the raw payload into another tool to
-      // see what's behind the visible label. Long-press (copy/share)
-      // is wired in _MarkdownLinkBuilder below since onTapLink only
-      // gives us the tap channel.
+      // Underline + primary color come from styleSheet.a below; we
+      // intentionally don't register a custom 'a' element builder,
+      // because flutter_markdown appends the builder's widget *after*
+      // the default styled inline span — registering one renders the
+      // visible label twice (once colored-underlined, once tappable).
       onTapLink: (text, href, title) => _openLink(ctx, href),
-      // Override fenced-code rendering with syntax highlighting so the
-      // big block of code Claude tends to paste reads as colored tokens
-      // instead of flat mono. Inline code (no class on the <code>
-      // element) falls through to default styling via the styleSheet.
       builders: {
         'code': _HighlightedCodeBuilder(isDark: isDark),
         // KaTeX-style LaTeX math. Two flavors of the same builder so
@@ -2508,13 +2504,6 @@ class AgentEventCard extends StatelessWidget {
         // ($$...$$) at different vertical sizes/alignment.
         'math': _MathBuilder(isDark: isDark, display: false),
         'mathblock': _MathBuilder(isDark: isDark, display: true),
-        // Render <a> as a tappable span that long-presses to a
-        // sheet (Open / Copy URL). selectable: true above means
-        // text long-press opens the system selection menu, but
-        // hyperlinks deserve their own bottom-sheet so the user
-        // can grab the underlying href without first highlighting
-        // the visible label.
-        'a': _MarkdownLinkBuilder(isDark: isDark),
       },
       // Custom inline syntaxes only — no BlockSyntax. The preprocessor
       // (_normalizeMultilineMath) collapses well-formed multi-line
@@ -2536,7 +2525,11 @@ class AgentEventCard extends StatelessWidget {
       // Keep paragraph and block spacing tight so cards don't balloon.
       styleSheet: MarkdownStyleSheet(
         p: base,
-        a: base.copyWith(color: DesignColors.primary),
+        a: base.copyWith(
+          color: DesignColors.primary,
+          decoration: TextDecoration.underline,
+          decorationColor: DesignColors.primary.withValues(alpha: 0.4),
+        ),
         strong: base.copyWith(fontWeight: FontWeight.w700),
         em: base.copyWith(fontStyle: FontStyle.italic),
         code: codeStyle,
@@ -2827,102 +2820,6 @@ Future<void> _openLink(BuildContext ctx, String? href) async {
         SnackBar(content: Text('Open failed: $e')),
       );
     }
-  }
-}
-
-// _showLinkSheet pops a bottom sheet with the resolved URL and two
-// actions — Open / Copy. Triggered from the <a> long-press. The URL
-// is rendered selectable so the user can also grab it inline.
-void _showLinkSheet(BuildContext ctx, String href, String label) {
-  showModalBottomSheet<void>(
-    context: ctx,
-    showDragHandle: true,
-    builder: (sheetCtx) => SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (label.isNotEmpty && label != href)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  label,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            SelectableText(
-              href,
-              style: GoogleFonts.jetBrainsMono(fontSize: 12),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    icon: const Icon(Icons.open_in_new, size: 18),
-                    label: const Text('Open'),
-                    onPressed: () {
-                      Navigator.pop(sheetCtx);
-                      _openLink(ctx, href);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    icon: const Icon(Icons.copy_outlined, size: 18),
-                    label: const Text('Copy'),
-                    onPressed: () async {
-                      await Clipboard.setData(ClipboardData(text: href));
-                      if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          const SnackBar(content: Text('Link copied')),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-// _MarkdownLinkBuilder renders <a href="..."> as a colored, tappable
-// span the user can also long-press to reveal/copy the underlying
-// URL. The flutter_markdown default treats <a> as a styled span
-// (color from styleSheet.a, no gesture); without this the link looks
-// like a hyperlink but the user has no way to get to it.
-class _MarkdownLinkBuilder extends MarkdownElementBuilder {
-  final bool isDark;
-  _MarkdownLinkBuilder({required this.isDark});
-
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final href = element.attributes['href'] ?? '';
-    final label = element.textContent;
-    final color = DesignColors.primary;
-    final style = (preferredStyle ?? const TextStyle()).copyWith(
-      color: color,
-      decoration: TextDecoration.underline,
-      decorationColor: color.withValues(alpha: 0.4),
-    );
-    return Builder(
-      builder: (ctx) => GestureDetector(
-        onTap: () => _openLink(ctx, href),
-        onLongPress: () => _showLinkSheet(ctx, href, label),
-        child: Text(label, style: style),
-      ),
-    );
   }
 }
 

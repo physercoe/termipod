@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.375-alpha+10375
+version: 1.0.376-alpha+10376
 
 environment:
   sdk: ^3.10.7
@@ -82,6 +82,10 @@ dependencies:
   # Syntax highlighting for fenced code blocks in agent transcripts.
   # Static highlight.js port; covers ~190 languages with built-in themes.
   flutter_highlight: ^0.7.0
+  # LaTeX math rendering for agent transcripts ($...$ inline, $$...$$
+  # display). Self-contained — bundles its own KaTeX-style fonts so
+  # output is consistent across devices.
+  flutter_math_fork: ^0.7.4
   # Offline snapshot cache for hub list/get responses. SQLite fits the
   # "mutable server content" storage tier; SharedPreferences is reserved
   # for stable config/metadata.

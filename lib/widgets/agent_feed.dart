@@ -8,10 +8,12 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -1857,15 +1859,63 @@ class AgentEventCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _CardHeader(
-              kind: kind,
-              producer: producer,
-              accent: accent,
-              ts: event['ts']?.toString()),
+            kind: kind,
+            producer: producer,
+            accent: accent,
+            ts: event['ts']?.toString(),
+            copyText: _copyTextFor(kind, payload, event),
+          ),
           const SizedBox(height: 6),
           _body(context, kind, producer, payload),
         ],
       ),
     );
+  }
+
+  // Builds the clipboard payload for a given card. The principal hits
+  // copy on a transcript tile most often to drop content into a bug
+  // report, a follow-up prompt to a different agent, or a doc — so
+  // prefer the *rendered* content (text, tool args, json body) over
+  // the wrapping event metadata. For unknown kinds, fall through to
+  // pretty JSON so nothing is silently lost.
+  static String _copyTextFor(
+    String kind,
+    Map<String, dynamic> payload,
+    Map<String, dynamic> event,
+  ) {
+    String s;
+    switch (kind) {
+      case 'text':
+      case 'thought':
+        s = (payload['text'] ?? '').toString();
+        break;
+      case 'tool_call':
+        final name = (payload['name'] ?? payload['tool'] ?? 'tool').toString();
+        final input = payload['input'] ?? payload['arguments'] ?? payload['args'];
+        s = '$name\n${_jsonPretty(input is Map ? input : payload)}';
+        break;
+      case 'tool_result':
+        final content = payload['content'];
+        if (content is String && content.isNotEmpty) {
+          s = content;
+        } else if (content is Map || content is List) {
+          s = _jsonPretty(content);
+        } else {
+          s = (payload['text'] ?? _jsonPretty(payload)).toString();
+        }
+        break;
+      case 'system':
+        // System rows usually carry a one-liner; otherwise fall back
+        // to the full payload so audit-trail entries copy with their
+        // structured fields intact.
+        final t = (payload['text'] ?? payload['summary'] ?? '').toString();
+        s = t.isNotEmpty ? t : _jsonPretty(payload);
+        break;
+      default:
+        final t = (payload['text'] ?? '').toString();
+        s = t.isNotEmpty ? t : _jsonPretty(payload);
+    }
+    return s.isEmpty ? _jsonPretty(event) : s;
   }
 
   Widget _body(
@@ -2335,7 +2385,26 @@ class AgentEventCard extends StatelessWidget {
       // big block of code Claude tends to paste reads as colored tokens
       // instead of flat mono. Inline code (no class on the <code>
       // element) falls through to default styling via the styleSheet.
-      builders: {'code': _HighlightedCodeBuilder(isDark: isDark)},
+      builders: {
+        'code': _HighlightedCodeBuilder(isDark: isDark),
+        // KaTeX-style LaTeX math. Two flavors of the same builder so
+        // the markdown parser can route inline ($...$) and display
+        // ($$...$$) at different vertical sizes/alignment.
+        'math': _MathBuilder(isDark: isDark, display: false),
+        'mathblock': _MathBuilder(isDark: isDark, display: true),
+      },
+      // Custom inline syntaxes for LaTeX. Order matters: $$...$$ must
+      // be tried before $...$ or the parser will eat the leading $$
+      // as two empty $$s. The markdown package tries inline syntaxes
+      // in the order they're registered; we put block before inline.
+      extensionSet: md.ExtensionSet(
+        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        [
+          _MathBlockInlineSyntax(),
+          _MathInlineSyntax(),
+          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+        ],
+      ),
       // Keep paragraph and block spacing tight so cards don't balloon.
       styleSheet: MarkdownStyleSheet(
         p: base,
@@ -2593,16 +2662,102 @@ class _HighlightedCodeBuilder extends MarkdownElementBuilder {
   }
 }
 
+// LaTeX math support — matches `$...$` (inline) and `$$...$$`
+// (display). Both are inline syntaxes from the markdown parser's
+// perspective; the difference is the rendered widget's MathStyle.
+//
+// We accept the convention LLMs and arXiv-style markdown use:
+// single $ for inline math, double $$ for display math. A $...$ run
+// must be on a single line and contain at least one non-$ char so
+// stray dollar-signs in prose don't hijack the parser.
+
+// _MathBlockInlineSyntax: matches $$...$$ (single-line). Listed BEFORE
+// the inline $...$ rule so the parser can claim both delimiters
+// before the $-rule eats the leading pair.
+class _MathBlockInlineSyntax extends md.InlineSyntax {
+  _MathBlockInlineSyntax() : super(r'\$\$([^\$\n]+?)\$\$');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = match[1] ?? '';
+    parser.addNode(md.Element.text('mathblock', tex));
+    return true;
+  }
+}
+
+// _MathInlineSyntax: matches $...$ on a single line, requiring
+// non-$ content. Avoids triggering on bare $5 / $20 currency
+// references (those would need a closing $ to match).
+class _MathInlineSyntax extends md.InlineSyntax {
+  _MathInlineSyntax() : super(r'\$([^\$\n]+?)\$');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = match[1] ?? '';
+    parser.addNode(md.Element.text('math', tex));
+    return true;
+  }
+}
+
+// _MathBuilder renders a flutter_math_fork Math.tex widget for the
+// element's text. `display` toggles inline (uses MathStyle.text) vs
+// block (uses MathStyle.display, larger and centered).
+//
+// Errors fall back to the raw TeX wrapped in $...$ as inline mono —
+// keeps malformed math visible rather than silently dropped, so the
+// principal can spot LLM-generated typos.
+class _MathBuilder extends MarkdownElementBuilder {
+  final bool isDark;
+  final bool display;
+  _MathBuilder({required this.isDark, required this.display});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final tex = element.textContent;
+    final color = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final base = GoogleFonts.spaceGrotesk(
+      fontSize: display ? 15 : 13,
+      color: color,
+    );
+    final widget = Math.tex(
+      tex,
+      textStyle: base,
+      mathStyle: display ? MathStyle.display : MathStyle.text,
+      onErrorFallback: (e) => Text(
+        '\$$tex\$',
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 11,
+          color: DesignColors.error,
+        ),
+      ),
+    );
+    if (!display) return widget;
+    // Display-math: center on its own line with a touch of vertical
+    // breathing room so the bigger glyphs don't run into surrounding
+    // paragraphs.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Center(child: widget),
+    );
+  }
+}
+
 class _CardHeader extends StatelessWidget {
   final String kind;
   final String producer;
   final Color accent;
   final String? ts;
-  const _CardHeader(
-      {required this.kind,
-      required this.producer,
-      required this.accent,
-      required this.ts});
+  // Pre-computed clipboard text for this card. Empty disables the
+  // copy affordance entirely (e.g. internal placeholders we don't
+  // want operators dumping into bug reports).
+  final String copyText;
+  const _CardHeader({
+    required this.kind,
+    required this.producer,
+    required this.accent,
+    required this.ts,
+    this.copyText = '',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2640,8 +2795,43 @@ class _CardHeader extends StatelessWidget {
             _formatTs(ts!),
             style: GoogleFonts.jetBrainsMono(fontSize: 10, color: muted),
           ),
+        if (copyText.isNotEmpty) ...[
+          const SizedBox(width: 4),
+          // Compact copy affordance — small enough to not crowd the
+          // header row, large enough to hit on mobile. Tapping copies
+          // the pre-computed text and surfaces a SnackBar receipt so
+          // the principal knows the action took.
+          InkResponse(
+            radius: 14,
+            onTap: () => _copy(context),
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                Icons.copy_outlined,
+                size: 14,
+                color: muted,
+              ),
+            ),
+          ),
+        ],
       ],
     );
+  }
+
+  Future<void> _copy(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: copyText));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Copied ${kind.isEmpty ? "tile" : kind}',
+            style: GoogleFonts.jetBrainsMono(fontSize: 12),
+          ),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   static String _formatTs(String iso) {

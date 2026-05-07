@@ -150,7 +150,7 @@ jobs:
           ls -lh "$OUT_DIR"
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             build/app/outputs/flutter-apk/termipod-${{ github.ref_name }}-arm64-v8a.apk

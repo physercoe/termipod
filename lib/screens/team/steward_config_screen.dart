@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 
@@ -227,12 +228,12 @@ class _StewardConfigScreenState extends ConsumerState<StewardConfigScreen> {
   }
 }
 
-class _CurrentStewardCard extends StatelessWidget {
+class _CurrentStewardCard extends ConsumerWidget {
   final Map<String, dynamic>? steward;
   const _CurrentStewardCard({this.steward});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
@@ -240,6 +241,11 @@ class _CurrentStewardCard extends StatelessWidget {
         isDark ? DesignColors.borderDark : DesignColors.borderLight;
     final status = (steward?['status'] ?? 'none').toString();
     final hostId = (steward?['host_id'] ?? '').toString();
+    // Resolve host_id → friendly host name. Falls back to the raw id
+    // when the host record isn't loaded — keeps the field useful for
+    // operators chasing a stale binding.
+    final hubHosts = ref.watch(hubProvider).value?.hosts ?? const [];
+    final hostName = hostLabel(hubHosts, hostId);
     final running =
         steward != null && (status == 'running' || status == 'pending');
 
@@ -273,7 +279,8 @@ class _CurrentStewardCard extends StatelessWidget {
                 ),
                 if (steward != null)
                   Text(
-                    'status=$status${hostId.isEmpty ? '' : '  host=$hostId'}',
+                    'status=$status'
+                    '${hostName != null ? '  host=$hostName' : (hostId.isEmpty ? '' : '  host=$hostId')}',
                     style: GoogleFonts.jetBrainsMono(
                       fontSize: 11,
                       color: DesignColors.textMuted,

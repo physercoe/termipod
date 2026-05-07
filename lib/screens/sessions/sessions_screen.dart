@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -562,6 +563,15 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
       _ => muted,
     };
     final shortKind = group.kind == 'claude-code' ? 'claude' : group.kind;
+    // Where this steward is running. Resolved from the cached hosts
+    // list so the operator sees the friendly name, not a UUID.
+    // Hidden when the agent has no host_id (worker bootstrapping)
+    // or the host record isn't loaded yet.
+    final hubHosts = ref.watch(hubProvider).value?.hosts ?? const [];
+    final hostName = hostLabel(
+      hubHosts,
+      (group.agent['host_id'] ?? '').toString(),
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -616,6 +626,7 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                               [
                                 if (shortKind.isNotEmpty) shortKind,
                                 if (group.status.isNotEmpty) group.status,
+                                if (hostName != null) '@$hostName',
                               ].join(' · '),
                               style: GoogleFonts.jetBrainsMono(
                                 fontSize: 10,
@@ -1358,6 +1369,22 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
     return null;
   }
 
+  // Friendly host label for the agent's host_id. Resolved against the
+  // cached hosts list so the AppBar shows the operator's name for the
+  // box (e.g. "research-pi") rather than a UUID. Returns null when the
+  // agent or host record isn't loaded yet — the chip then hides.
+  String? _hostName() {
+    final hub = ref.read(hubProvider).value;
+    if (hub == null) return null;
+    String? hostId;
+    for (final a in hub.agents) {
+      if ((a['id'] ?? '').toString() != widget.agentId) continue;
+      hostId = (a['host_id'] ?? '').toString();
+      break;
+    }
+    return hostLabel(hub.hosts, hostId);
+  }
+
   Future<void> _rename() async {
     final current = _title == '(untitled session)' ? '' : _title;
     final next = await _SessionTileState._promptForSessionTitle(
@@ -1629,13 +1656,36 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         sessionStatus == 'archived' || sessionStatus == 'closed';
     final scopeChip = _buildScopeChip(context, ref, sessionRow);
 
+    final hostName = _hostName();
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _title,
-          style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _title,
+              style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            // Host the steward's process is running on. Surfaces the
+            // box+login-user the agent is bound to so users running
+            // multiple host-runners can tell at a glance which one is
+            // doing the work. Silent when no host record is loaded.
+            if (hostName != null)
+              Text(
+                '@$hostName',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? DesignColors.textMuted
+                      : DesignColors.textMutedLight,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
         ),
         actions: [
           if (scopeChip != null) scopeChip,

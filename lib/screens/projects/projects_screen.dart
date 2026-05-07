@@ -10,6 +10,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
@@ -1256,8 +1257,19 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                '${widget.agent['kind'] ?? ''}'
-                '${widget.agent['host_id'] != null ? ' · host ${widget.agent['host_id']}' : ''}',
+                () {
+                  final kind = (widget.agent['kind'] ?? '').toString();
+                  final hostId = (widget.agent['host_id'] ?? '').toString();
+                  final hubHosts =
+                      ref.read(hubProvider).value?.hosts ?? const [];
+                  final hostName = hostLabel(hubHosts, hostId);
+                  // Prefer friendly name; fall back to raw id for an
+                  // operator who's debugging a deleted-host situation.
+                  final hostFragment = hostName != null
+                      ? ' · @$hostName'
+                      : (hostId.isEmpty ? '' : ' · host $hostId');
+                  return '$kind$hostFragment';
+                }(),
                 style: GoogleFonts.jetBrainsMono(
                     fontSize: 11, color: mutedColor),
               ),

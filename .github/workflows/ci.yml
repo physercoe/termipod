@@ -18,7 +18,7 @@ jobs:
     name: Analyze & Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Lint docs
         # Enforces docs/doc-spec.md §3 status block, resolved-discussion

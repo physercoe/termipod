@@ -1033,6 +1033,238 @@ func TestACPDriver_HandshakeTimeoutDefault(t *testing.T) {
 	}
 }
 
+// TestACPDriver_AccumulatesAgentMessageChunks pins v1.0.404 (a):
+// gemini-cli@0.41 emits agent_message_chunk notifications in pieces
+// (incremental, not cumulative). Without aggregation each chunk would
+// render as its own bubble in the mobile transcript. The driver must
+// accumulate per-turn and emit cumulative `kind=text, partial:true,
+// message_id=<turn-id>` events whose text carries the FULL running
+// content so mobile's _collapseStreamingPartials chain folds them into
+// one bubble.
+func TestACPDriver_AccumulatesAgentMessageChunks(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Custom fake that auto-replies to handshake AND emits two
+	// agent_message_chunks before responding to session/prompt.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-stream"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				// Stream two chunks then respond.
+				for _, chunk := range []string{"Hello! ", "I'm Gemini."} {
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0",
+						"method":  "session/update",
+						"params": map[string]any{
+							"sessionId": "sess-stream",
+							"update": map[string]any{
+								"sessionUpdate": "agent_message_chunk",
+								"content":       map[string]any{"type": "text", "text": chunk},
+							},
+						},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+					time.Sleep(2 * time.Millisecond)
+				}
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"stopReason": "end_turn"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-stream",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	// Find every text-kind agent event.
+	var partials []map[string]any
+	for _, e := range poster.snapshot() {
+		if e.Kind == "text" && e.Producer == "agent" {
+			partials = append(partials, e.Payload)
+		}
+	}
+	if len(partials) != 2 {
+		t.Fatalf("text events = %d (want 2 from chunks); got %+v", len(partials), partials)
+	}
+	if partials[0]["text"] != "Hello! " {
+		t.Errorf("partials[0].text = %q; want %q (first chunk only)", partials[0]["text"], "Hello! ")
+	}
+	if partials[1]["text"] != "Hello! I'm Gemini." {
+		t.Errorf("partials[1].text = %q; want cumulative %q (chunk1 + chunk2)",
+			partials[1]["text"], "Hello! I'm Gemini.")
+	}
+	for i, p := range partials {
+		if p["partial"] != true {
+			t.Errorf("partials[%d].partial = %v; want true (lets mobile collapse fold the chain)", i, p["partial"])
+		}
+	}
+	if partials[0]["message_id"] == "" || partials[0]["message_id"] != partials[1]["message_id"] {
+		t.Errorf("chunks must share one message_id (chain root); got %q vs %q",
+			partials[0]["message_id"], partials[1]["message_id"])
+	}
+}
+
+// TestACPDriver_PostsTurnResultOnPromptResponse pins v1.0.404 (b)+(c).
+// On session/prompt success the driver MUST post a turn.result event
+// — both because mobile's _isAgentBusy() returns false on it (clears
+// the cancel-button overlay so the user can send the next prompt) AND
+// because it carries the lifted token usage the telemetry strip reads.
+func TestACPDriver_PostsTurnResultOnPromptResponse(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Real-shaped session/prompt result from gemini-cli@0.41.2:
+	// stopReason + nested _meta.quota.{token_count,model_usage}.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-tr"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{
+						"stopReason": "end_turn",
+						"_meta": map[string]any{
+							"quota": map[string]any{
+								"token_count": map[string]any{
+									"input_tokens":  19614,
+									"output_tokens": 45,
+								},
+								"model_usage": []any{
+									map[string]any{
+										"model": "gemini-3-flash-preview",
+										"token_count": map[string]any{
+											"input_tokens":  19614,
+											"output_tokens": 45,
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-tr",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	var tr map[string]any
+	for _, e := range poster.snapshot() {
+		if e.Kind == "turn.result" {
+			tr = e.Payload
+			break
+		}
+	}
+	if tr == nil {
+		t.Fatal("no turn.result posted — without it mobile's busy-walker stays on cancel forever")
+	}
+
+	if tr["stop_reason"] != "end_turn" {
+		t.Errorf("stop_reason = %v; want end_turn", tr["stop_reason"])
+	}
+	if it, _ := tr["input_tokens"].(float64); it != 19614 {
+		t.Errorf("input_tokens = %v; want 19614 (lifted from _meta.quota.token_count)", tr["input_tokens"])
+	}
+	if ot, _ := tr["output_tokens"].(float64); ot != 45 {
+		t.Errorf("output_tokens = %v; want 45 (lifted from _meta.quota.token_count)", tr["output_tokens"])
+	}
+	bm, ok := tr["by_model"].(map[string]any)
+	if !ok {
+		t.Fatalf("by_model missing or wrong type: %+v", tr["by_model"])
+	}
+	entry, ok := bm["gemini-3-flash-preview"].(map[string]any)
+	if !ok {
+		t.Fatalf("by_model[gemini-3-flash-preview] missing")
+	}
+	if v, _ := entry["input"].(float64); v != 19614 {
+		t.Errorf("by_model entry.input = %v; want 19614 (canonical name lifted from input_tokens)", entry["input"])
+	}
+	if v, _ := entry["output"].(float64); v != 45 {
+		t.Errorf("by_model entry.output = %v; want 45 (canonical name lifted from output_tokens)", entry["output"])
+	}
+}
+
 // TestACPDriver_CapabilityNotificationsAreSystemKind pins v1.0.403:
 // gemini emits available_commands_update, current_mode_update, and
 // current_model_update after session/new as one-shot capability

@@ -90,6 +90,22 @@ type ACPDriver struct {
 	permMu      sync.Mutex
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
 	sessionID   string
+
+	// Per-turn streaming aggregator state. gemini-cli emits
+	// `agent_message_chunk` and `agent_thought_chunk` notifications
+	// during a session/prompt — each chunk is incremental, not
+	// cumulative. Without aggregation each chunk would render as a
+	// separate bubble in the mobile transcript. We accumulate per-turn
+	// and emit cumulative `kind=text, partial:true, message_id=<id>`
+	// events so the existing mobile `_collapseStreamingPartials` chain
+	// folds them into one bubble that grows. message_ids are turn-
+	// local: regenerated at every Input("text"/"attach") entry so
+	// turn N+1's chunks don't merge into turn N's bubble.
+	turnMu           sync.Mutex
+	turnTextBuf      []byte
+	turnTextMsgID    string
+	turnThoughtBuf   []byte
+	turnThoughtMsgID string
 }
 
 type acpWriteReq struct {
@@ -285,6 +301,103 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 	}
 }
 
+// resetTurn clears the per-turn streaming aggregator state so chunks
+// from the next session/prompt don't merge into the previous turn's
+// bubble. Called from Input("text"/"attach") entry under turnMu so a
+// concurrent handleNotification (very unlikely — the steward
+// serializes turns — but cheap to defend) sees consistent state.
+func (d *ACPDriver) resetTurn() {
+	d.turnMu.Lock()
+	d.turnTextBuf = nil
+	d.turnTextMsgID = ""
+	d.turnThoughtBuf = nil
+	d.turnThoughtMsgID = ""
+	d.turnMu.Unlock()
+}
+
+// postTurnResult emits a turn.result agent_event on session/prompt
+// success. Two things ride on this:
+//   (a) Mobile's _isAgentBusy() returns false on turn.result, which
+//       clears the cancel-button overlay so the user can send the next
+//       prompt. Without it the composer sticks in cancel-state forever
+//       (the streaming text events are agent-produced and tip the
+//       busy walker the wrong way).
+//   (b) The mobile telemetry strip reads turnCount + by_model + tokens
+//       from this event — same canonical hub shape the other drivers
+//       (StdioDriver, AppServerDriver, ExecResumeDriver) emit so one
+//       renderer code path lights up for every engine.
+//
+// gemini-cli@0.41 surfaces token usage on the session/prompt result's
+// `_meta.quota` block: token_count for whole-turn totals plus a
+// model_usage list for per-model breakdown. We flatten that into the
+// canonical {by_model: {<model>: {input, output, cache_read}}} shape
+// so the mobile aggregator's _ModelTokens.add picks the values up
+// without needing to know about gemini's nesting. Engines that don't
+// ship tokens (claude-code SDK ACP, etc.) will just get an empty
+// turn.result with stop_reason — still load-bearing for (a).
+func (d *ACPDriver) postTurnResult(ctx context.Context, raw json.RawMessage) {
+	var r struct {
+		StopReason string                 `json:"stopReason"`
+		Meta       map[string]any         `json:"_meta"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		// Even if parsing fails we still want a turn.result so the
+		// busy walker sees a terminal kind. Empty payload is fine.
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
+			map[string]any{"status": "success"})
+		return
+	}
+	payload := map[string]any{
+		"status": "success",
+	}
+	if r.StopReason != "" {
+		payload["stop_reason"] = r.StopReason
+	}
+	if quota, ok := r.Meta["quota"].(map[string]any); ok {
+		payload["quota"] = quota
+		if tc, ok := quota["token_count"].(map[string]any); ok {
+			if v, ok := tc["input_tokens"].(float64); ok {
+				payload["input_tokens"] = v
+			}
+			if v, ok := tc["output_tokens"].(float64); ok {
+				payload["output_tokens"] = v
+			}
+			if it, _ := payload["input_tokens"].(float64); it > 0 {
+				if ot, _ := payload["output_tokens"].(float64); ot > 0 {
+					payload["total_tokens"] = it + ot
+				}
+			}
+		}
+		if mu, ok := quota["model_usage"].([]any); ok {
+			byModel := map[string]any{}
+			for _, item := range mu {
+				m, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				name, _ := m["model"].(string)
+				if name == "" {
+					continue
+				}
+				entry := map[string]any{}
+				if tc, ok := m["token_count"].(map[string]any); ok {
+					if v, ok := tc["input_tokens"].(float64); ok {
+						entry["input"] = v
+					}
+					if v, ok := tc["output_tokens"].(float64); ok {
+						entry["output"] = v
+					}
+				}
+				byModel[name] = entry
+			}
+			if len(byModel) > 0 {
+				payload["by_model"] = byModel
+			}
+		}
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent", payload)
+}
+
 // logRPCFrame appends a JSONL trace line to d.RPCLog if configured.
 // Failure to log is intentionally silent — the trace is a debug aid,
 // not a transport guarantee. Marshalling the wrapper itself can't fail
@@ -470,11 +583,39 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 			return
 		}
 		ekind := "text"
-		if kind == "agent_thought_chunk" {
+		isThought := kind == "agent_thought_chunk"
+		if isThought {
 			ekind = "thought"
 		}
+		// Per-turn accumulator: append the incremental chunk to the
+		// turn-local buffer and emit the running cumulative text with a
+		// stable message_id + partial:true. mobile's collapse chain
+		// then folds this stream into a single bubble.
+		d.turnMu.Lock()
+		var cumulative string
+		var msgID string
+		if isThought {
+			d.turnThoughtBuf = append(d.turnThoughtBuf, text...)
+			if d.turnThoughtMsgID == "" {
+				d.turnThoughtMsgID = newMessageID()
+			}
+			cumulative = string(d.turnThoughtBuf)
+			msgID = d.turnThoughtMsgID
+		} else {
+			d.turnTextBuf = append(d.turnTextBuf, text...)
+			if d.turnTextMsgID == "" {
+				d.turnTextMsgID = newMessageID()
+			}
+			cumulative = string(d.turnTextBuf)
+			msgID = d.turnTextMsgID
+		}
+		d.turnMu.Unlock()
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, ekind, "agent",
-			map[string]any{"text": text})
+			map[string]any{
+				"text":       cumulative,
+				"message_id": msgID,
+				"partial":    true,
+			})
 	case "tool_call":
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
 			map[string]any{
@@ -539,16 +680,21 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if body == "" {
 			return fmt.Errorf("acp driver: text input missing body")
 		}
+		d.resetTurn()
 		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
 		defer cancel()
-		_, err := d.call(promptCtx, "session/prompt", map[string]any{
+		res, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt":    []map[string]any{{"type": "text", "text": body}},
 		})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("acp session/prompt: no reply within %s — agent likely stuck on auth (set GEMINI_API_KEY for gemini-cli, or check ~/.gemini/oauth_creds.json reachability): %w", d.PromptTimeout, err)
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		d.postTurnResult(ctx, res)
+		return nil
 	case "cancel":
 		// session/cancel is a notification (no id) per the ACP spec.
 		return d.writeMsg(map[string]any{
@@ -561,9 +707,10 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if docID == "" {
 			return fmt.Errorf("acp driver: attach missing document_id")
 		}
+		d.resetTurn()
 		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
 		defer cancel()
-		_, err := d.call(promptCtx, "session/prompt", map[string]any{
+		res, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt": []map[string]any{{
 				"type": "text",
@@ -573,7 +720,11 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("acp session/prompt (attach): no reply within %s: %w", d.PromptTimeout, err)
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		d.postTurnResult(ctx, res)
+		return nil
 	case "approval":
 		reqID, _ := payload["request_id"].(string)
 		if reqID == "" {

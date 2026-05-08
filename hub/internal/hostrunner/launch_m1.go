@@ -143,12 +143,30 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		return M1LaunchResult{}, fmt.Errorf("create err log: %w", err)
 	}
 
-	stdout, stderr, stdin, kill, err := cfg.Spawner.SpawnWithStderr(ctx, command)
+	// Bidirectional JSON-RPC trace — what the driver SENT (out) plus
+	// what the agent SENT BACK (in), each wrapped as a JSONL record
+	// with a UTC timestamp + direction tag. The plain `*.log` only
+	// captures gemini's stdout, so without this file we have no record
+	// of session/prompt etc. ever leaving host-runner. Operators can
+	// `jq` the file or grep `"dir":"out"` to see every outbound frame.
+	rpcLogPath := strings.TrimSuffix(logPath, ".log") + "-rpc.jsonl"
+	rpcLogFile, err := os.Create(rpcLogPath)
 	if err != nil {
 		_ = logFile.Close()
 		_ = errLogFile.Close()
 		_ = os.Remove(logPath)
 		_ = os.Remove(errLogPath)
+		return M1LaunchResult{}, fmt.Errorf("create rpc log: %w", err)
+	}
+
+	stdout, stderr, stdin, kill, err := cfg.Spawner.SpawnWithStderr(ctx, command)
+	if err != nil {
+		_ = logFile.Close()
+		_ = errLogFile.Close()
+		_ = rpcLogFile.Close()
+		_ = os.Remove(logPath)
+		_ = os.Remove(errLogPath)
+		_ = os.Remove(rpcLogPath)
 		return M1LaunchResult{}, fmt.Errorf("spawn: %w", err)
 	}
 
@@ -182,6 +200,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		}
 		_ = logFile.Close()
 		_ = errLogFile.Close()
+		_ = rpcLogFile.Close()
 	}
 
 	drv := &ACPDriver{
@@ -189,6 +208,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		Poster:  cfg.Client,
 		Stdin:   stdin,
 		Stdout:  teed,
+		RPCLog:  rpcLogFile,
 		Closer:  closer,
 	}
 	if err := drv.Start(ctx); err != nil {
@@ -203,6 +223,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		}
 		_ = logFile.Close()
 		_ = errLogFile.Close()
+		_ = rpcLogFile.Close()
 		kill()
 		return M1LaunchResult{}, fmt.Errorf("acp start: %w", err)
 	}

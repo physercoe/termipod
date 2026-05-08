@@ -55,6 +55,20 @@ type ACPDriver struct {
 	// place so the operator can retry after fixing creds.
 	PromptTimeout time.Duration
 
+	// RPCLog, when non-nil, receives a JSONL trace of every JSON-RPC
+	// frame in both directions: each line is a wrapping object with
+	// `t` (UTC timestamp), `dir` (`out` = driver→agent, `in` =
+	// agent→driver), and `frame` (the raw RPC message). M1 launch wires
+	// this to a sibling `*-rpc.jsonl` file so operators can replay the
+	// exact wire conversation when diagnosing hangs — the existing
+	// stdout log only shows what the agent *sent back*, not what the
+	// driver wrote. nil disables logging.
+	RPCLog io.Writer
+	// rpcLogMu serializes RPCLog writes — readLoop and writerLoop both
+	// log frames concurrently and io.Writer is not generally
+	// thread-safe.
+	rpcLogMu sync.Mutex
+
 	mu      sync.Mutex
 	started bool
 	stopped bool
@@ -261,11 +275,36 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 	}
 }
 
+// logRPCFrame appends a JSONL trace line to d.RPCLog if configured.
+// Failure to log is intentionally silent — the trace is a debug aid,
+// not a transport guarantee. Marshalling the wrapper itself can't fail
+// for our shapes (timestamp string + direction string + already-valid
+// JSON bytes), but if the underlying writer errors (full disk, fd
+// closed) we drop the line rather than tear down the wire.
+func (d *ACPDriver) logRPCFrame(dir string, frame []byte) {
+	if d.RPCLog == nil {
+		return
+	}
+	wrap := map[string]any{
+		"t":     time.Now().UTC().Format(time.RFC3339Nano),
+		"dir":   dir,
+		"frame": json.RawMessage(frame),
+	}
+	b, err := json.Marshal(wrap)
+	if err != nil {
+		return
+	}
+	d.rpcLogMu.Lock()
+	_, _ = d.RPCLog.Write(append(b, '\n'))
+	d.rpcLogMu.Unlock()
+}
+
 func (d *ACPDriver) writeMsg(m any) error {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
+	d.logRPCFrame("out", b)
 	req := &acpWriteReq{
 		frame: append(b, '\n'),
 		done:  make(chan error, 1),
@@ -331,6 +370,7 @@ func (d *ACPDriver) readLoop(ctx context.Context) {
 		if len(line) == 0 {
 			continue
 		}
+		d.logRPCFrame("in", line)
 		var msg acpMessage
 		if err := json.Unmarshal(line, &msg); err != nil {
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent",

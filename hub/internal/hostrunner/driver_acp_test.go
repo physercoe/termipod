@@ -815,3 +815,132 @@ func TestACPDriver_PromptTimeoutDefaults(t *testing.T) {
 			drv.PromptTimeout)
 	}
 }
+
+// TestACPDriver_RPCLogCapturesBothDirections pins v1.0.401's
+// bidirectional trace. The plain stdout log only captures what gemini
+// SENT BACK; without this trace there's no record of session/prompt
+// etc. ever leaving host-runner. The trace MUST include both
+// `dir=out` (driver → agent) and `dir=in` (agent → driver) lines and
+// must be pure JSONL so operators can `jq` it.
+func TestACPDriver_RPCLogCapturesBothDirections(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-rpclog")
+	go fake.serve()
+
+	rpcLog := newSyncBuffer()
+	drv := &ACPDriver{
+		AgentID:          "agent-rpclog",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		RPCLog:           rpcLog,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "ping"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	// Wait briefly for the readLoop / writerLoop to flush all trace lines.
+	deadline := time.Now().Add(time.Second)
+	var lines []map[string]any
+	for time.Now().Before(deadline) {
+		lines = parseRPCLog(t, rpcLog.Bytes())
+		// initialize-out, initialize-in, session/new-out, session/new-in,
+		// session/prompt-out, session/prompt-in. ≥6 lines means everything
+		// flushed.
+		if len(lines) >= 6 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if len(lines) < 6 {
+		t.Fatalf("RPC log captured %d lines; want ≥6 (init+sessionNew+prompt × 2 dirs):\n%s",
+			len(lines), rpcLog.String())
+	}
+
+	var sawOutInit, sawOutPrompt bool
+	inboundCount := 0
+	for _, l := range lines {
+		if _, hasT := l["t"].(string); !hasT {
+			t.Errorf("line missing `t` (timestamp): %+v", l)
+		}
+		dir, _ := l["dir"].(string)
+		frame, _ := l["frame"].(map[string]any)
+		method, _ := frame["method"].(string)
+		if dir == "out" && method == "initialize" {
+			sawOutInit = true
+		}
+		if dir == "out" && method == "session/prompt" {
+			sawOutPrompt = true
+		}
+		if dir == "in" {
+			inboundCount++
+		}
+	}
+	if !sawOutInit {
+		t.Error("RPC log missing dir=out method=initialize — driver→agent direction not captured")
+	}
+	if !sawOutPrompt {
+		t.Error("RPC log missing dir=out method=session/prompt — the exact frame this trace exists to verify")
+	}
+	// Expect at least 3 inbound frames: replies to initialize, session/new,
+	// and session/prompt. Less than 3 means the agent→driver direction
+	// isn't being recorded.
+	if inboundCount < 3 {
+		t.Errorf("RPC log inbound count = %d; want ≥3 (init+sessionNew+prompt replies) — agent→driver direction not captured",
+			inboundCount)
+	}
+}
+
+// syncBuffer is a thread-safe bytes.Buffer; readLoop and writerLoop
+// both write to RPCLog from their own goroutines, so the production
+// path holds rpcLogMu but this test fixture must also be concurrent-
+// safe to avoid a flaky test on -race builds.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func newSyncBuffer() *syncBuffer { return &syncBuffer{} }
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	b.buf = append(b.buf, p...)
+	b.mu.Unlock()
+	return len(p), nil
+}
+func (b *syncBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cp := make([]byte, len(b.buf))
+	copy(cp, b.buf)
+	return cp
+}
+func (b *syncBuffer) String() string { return string(b.Bytes()) }
+
+func parseRPCLog(t *testing.T, raw []byte) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Errorf("RPC log produced non-JSON line %q: %v", line, err)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}

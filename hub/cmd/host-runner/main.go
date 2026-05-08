@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner"
 	"github.com/termipod/hub/internal/mcpbridge"
 )
@@ -56,10 +57,26 @@ func main() {
 		os.Exit(mcpbridge.Run(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
+	case "-v", "--version", "version":
+		printVersion()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown subcommand: %s\n\n", os.Args[1])
 		usage()
 		os.Exit(2)
+	}
+}
+
+func printVersion() {
+	fmt.Printf("host-runner %s\n", buildinfo.Version)
+	if buildinfo.Commit != "" {
+		mod := ""
+		if buildinfo.Modified {
+			mod = " (dirty)"
+		}
+		fmt.Printf("  commit: %s%s\n", buildinfo.Commit, mod)
+	}
+	if buildinfo.BuildTime != "" {
+		fmt.Printf("  built:  %s\n", buildinfo.BuildTime)
 	}
 }
 

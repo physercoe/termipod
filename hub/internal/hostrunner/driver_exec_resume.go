@@ -445,11 +445,54 @@ func (d *ExecResumeDriver) streamFrames(ctx context.Context, stdout io.Reader) {
 		}
 		evts := ApplyProfile(frame, d.FrameProfile)
 		for _, e := range evts {
+			if e.Kind == "turn.result" {
+				normalizeGeminiByModel(e.Payload)
+			}
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, e.Kind, e.Producer, e.Payload)
 		}
 	}
 	if err := sc.Err(); err != nil && !errors.Is(err, io.EOF) {
 		d.Log.Debug("exec-resume read error", "agent", d.AgentID, "err", err)
+	}
+}
+
+// normalizeGeminiByModel rewrites gemini's per-model stats keys
+// (input_tokens / output_tokens / cached) into the canonical hub names
+// (input / output / cache_read) the mobile telemetry aggregator
+// (_ModelTokens.add in lib/widgets/agent_feed.dart) reads. The original
+// gemini-named fields are preserved alongside so the raw `stats` block
+// under turn.result.stats stays lossless for future telemetry rules.
+//
+// Why driver, not frame profile: the YAML profile evaluator is
+// stateless and has no map-iter construct, so it can lift `by_model:
+// $.stats.models` verbatim but can't walk the map to rename child keys.
+// Doing the rewrite here keeps the gemini-specific knowledge inside the
+// gemini driver and out of the mobile renderer.
+func normalizeGeminiByModel(payload map[string]any) {
+	bm, ok := payload["by_model"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, v := range bm {
+		m, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, has := m["input"]; !has {
+			if it, ok := m["input_tokens"]; ok {
+				m["input"] = it
+			}
+		}
+		if _, has := m["output"]; !has {
+			if ot, ok := m["output_tokens"]; ok {
+				m["output"] = ot
+			}
+		}
+		if _, has := m["cache_read"]; !has {
+			if c, ok := m["cached"]; ok {
+				m["cache_read"] = c
+			}
+		}
 	}
 }
 

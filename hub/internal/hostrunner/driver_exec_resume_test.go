@@ -576,3 +576,98 @@ func containsFlag(args []string, flag string) bool {
 	}
 	return false
 }
+
+// TestExecResumeDriver_NormalizesByModelTokens pins the gemini→hub key
+// rewrite the driver applies after the frame profile lifts
+// `stats.models` verbatim. gemini-cli@0.41 emits per-model entries with
+// gemini-native names (input_tokens / output_tokens / cached) that the
+// mobile telemetry aggregator (_ModelTokens.add in agent_feed.dart)
+// doesn't read — it expects input / output / cache_read. Without this
+// rewrite, the mobile token-usage tile reads 0 for every gemini turn
+// even though the JSON has real numbers (caught in v1.0.399).
+func TestExecResumeDriver_NormalizesByModelTokens(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+
+	// Real-shaped result frame from gemini-cli@0.41.2: nested stats with
+	// per-model entries using input_tokens / output_tokens / cached.
+	frames := []string{
+		`{"type":"init","session_id":"sess-norm","model":"m","timestamp":"t1"}`,
+		`{"type":"result","status":"success","stats":{"total_tokens":20476,"input_tokens":19820,"output_tokens":40,"cached":0,"input":19820,"duration_ms":40219,"tool_calls":0,"models":{"gemini-2.5-flash-lite":{"total_tokens":881,"input_tokens":787,"output_tokens":28,"cached":0,"input":787},"gemini-3-flash-preview":{"total_tokens":19595,"input_tokens":19033,"output_tokens":12,"cached":0,"input":19033}}},"timestamp":"t2"}`,
+	}
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		return newFakeGeminiCmd(append([]string{name}, args...), frames)
+	}
+
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-norm",
+		Handle:         "@s",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		Yolo:           true,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	var got map[string]any
+	poster.mu.Lock()
+	for _, e := range poster.events {
+		if e.Kind == "turn.result" {
+			got = e.Payload
+			break
+		}
+	}
+	poster.mu.Unlock()
+	if got == nil {
+		t.Fatal("no turn.result event posted")
+	}
+
+	bm, ok := got["by_model"].(map[string]any)
+	if !ok {
+		t.Fatalf("turn.result.by_model missing or wrong type: %+v", got["by_model"])
+	}
+
+	for _, name := range []string{"gemini-2.5-flash-lite", "gemini-3-flash-preview"} {
+		entry, ok := bm[name].(map[string]any)
+		if !ok {
+			t.Errorf("by_model[%q] missing", name)
+			continue
+		}
+		// Canonical keys must be present so _ModelTokens.add picks them up.
+		if _, has := entry["input"]; !has {
+			t.Errorf("by_model[%q].input missing — mobile aggregator reads `input`, not `input_tokens`", name)
+		}
+		if _, has := entry["output"]; !has {
+			t.Errorf("by_model[%q].output missing — mobile aggregator reads `output`, not `output_tokens`", name)
+		}
+		if _, has := entry["cache_read"]; !has {
+			t.Errorf("by_model[%q].cache_read missing — mobile aggregator reads `cache_read`, not `cached`", name)
+		}
+	}
+
+	// Pin specific values for the lite model so a regression that
+	// silently zeroes out output gets caught.
+	lite := bm["gemini-2.5-flash-lite"].(map[string]any)
+	if v, _ := lite["output"].(float64); v != 28 {
+		t.Errorf("by_model[lite].output = %v; want 28 (lifted from output_tokens)", lite["output"])
+	}
+	if v, _ := lite["input"].(float64); v != 787 {
+		t.Errorf("by_model[lite].input = %v; want 787", lite["input"])
+	}
+
+	// Original gemini-named fields must still be present so the raw
+	// `stats` block under turn.result.stats stays lossless.
+	if _, has := lite["input_tokens"]; !has {
+		t.Errorf("by_model[lite].input_tokens removed — original fields must be preserved alongside canonical ones")
+	}
+}

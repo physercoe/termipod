@@ -1032,3 +1032,91 @@ func TestACPDriver_HandshakeTimeoutDefault(t *testing.T) {
 			drv.HandshakeTimeout)
 	}
 }
+
+// TestACPDriver_CapabilityNotificationsAreSystemKind pins v1.0.403:
+// gemini emits available_commands_update, current_mode_update, and
+// current_model_update after session/new as one-shot capability
+// announcements. They MUST land as kind=system, not the previous
+// kind=raw — mobile's _isAgentBusy() walks events newest-first and
+// treats any non-skipped agent-produced kind as "turn in progress",
+// so kind=raw was tripping the cancel-button overlay even when the
+// agent was idle. kind=system is on the skip list AND hidden from the
+// feed unless verbose, which is what we want for these.
+func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-caps")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-caps",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Each of the three capability announcements gemini sends after
+	// session/new, with payload shapes that mirror the real wire
+	// format from gemini-cli@0.41.2.
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-caps",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []any{
+				map[string]any{"name": "memory", "description": "Manage memory."},
+			},
+		},
+	})
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-caps",
+		"update": map[string]any{
+			"sessionUpdate": "current_mode_update",
+			"currentModeId": "default",
+		},
+	})
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-caps",
+		"update": map[string]any{
+			"sessionUpdate": "current_model_update",
+			"currentModelId": "auto-gemini-3",
+		},
+	})
+
+	// Wait: lifecycle.started + 3 translated events.
+	poster.wait(t, 4, 2*time.Second)
+	evs := poster.snapshot()
+
+	// Skip lifecycle.started at [0]; the next 3 are the capability events.
+	caps := evs[1:4]
+	wantUpdates := []string{
+		"available_commands_update",
+		"current_mode_update",
+		"current_model_update",
+	}
+	for i, want := range wantUpdates {
+		if caps[i].Kind != "system" {
+			t.Errorf("%s: kind = %q; want system (so mobile _isAgentBusy skips it instead of treating as turn activity)",
+				want, caps[i].Kind)
+		}
+		// Producer should also be system to match other capability frames.
+		if caps[i].Producer != "system" {
+			t.Errorf("%s: producer = %q; want system", want, caps[i].Producer)
+		}
+		// Payload preserved verbatim — the slash command catalog needs
+		// to be lift-able from this without a hub-side schema change.
+		got, _ := caps[i].Payload["sessionUpdate"].(string)
+		if got != want {
+			t.Errorf("%s: payload.sessionUpdate = %q; want %q (full update preserved)",
+				want, got, want)
+		}
+	}
+}

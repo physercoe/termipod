@@ -493,6 +493,21 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 	case "user_message_chunk":
 		// Our own input being echoed back — drop to avoid a loop.
 		return
+	case "available_commands_update", "current_mode_update", "current_model_update":
+		// Capability-state announcements gemini emits after session/new
+		// (slash-command catalog, current approval mode, current model).
+		// They're informational, not turn activity — mobile's
+		// _isAgentBusy() walks events newest-first and treats anything
+		// from producer=agent that isn't on its skip list as
+		// "turn in progress", which trips the cancel-button overlay
+		// even though the agent is idle waiting for the user's prompt.
+		// Tagging these as kind=system + producer=system folds them
+		// into the same skip path mobile already has for lifecycle and
+		// pings, AND keeps them hidden from the feed unless verbose.
+		// Payload is preserved verbatim so a future slash-command
+		// picker / mode pill on mobile can lift fields from it without
+		// a hub-side schema change.
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system", u)
 	default:
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", u)
 	}

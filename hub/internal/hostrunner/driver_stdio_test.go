@@ -709,6 +709,92 @@ func TestStdioDriver_InputFrames(t *testing.T) {
 	}
 }
 
+// TestStdioDriver_InputImageBlocks — W4.2: text inputs that carry
+// `images: [{mime_type, data}]` produce a content array with image
+// blocks ahead of the text block, in Anthropic stream-json shape:
+//
+//	{type: "image", source: {type: "base64", media_type, data}}
+//
+// Hub-side validation (W4.1) already enforced mime/size/count; the
+// driver's job is just the wire shape. Image-only inputs (no body)
+// land as content arrays with only image blocks.
+func TestStdioDriver_InputImageBlocks(t *testing.T) {
+	t.Run("text_with_images_orders_images_first", func(t *testing.T) {
+		payload := map[string]any{
+			"body": "describe these",
+			"images": []any{
+				map[string]any{"mime_type": "image/png", "data": "AAA="},
+				map[string]any{"mime_type": "image/jpeg", "data": "BBB="},
+			},
+		}
+		b, err := buildStreamJSONInputFrame("text", payload)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		var frame map[string]any
+		if err := json.Unmarshal(b, &frame); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		blocks := frame["message"].(map[string]any)["content"].([]any)
+		if len(blocks) != 3 {
+			t.Fatalf("want 3 blocks, got %d: %+v", len(blocks), blocks)
+		}
+		// Image blocks come first (Anthropic convention — text last
+		// reads more naturally for the model when the question
+		// references the image).
+		first := blocks[0].(map[string]any)
+		if first["type"] != "image" {
+			t.Errorf("blocks[0].type = %v, want image", first["type"])
+		}
+		src := first["source"].(map[string]any)
+		if src["type"] != "base64" || src["media_type"] != "image/png" || src["data"] != "AAA=" {
+			t.Errorf("blocks[0].source malformed: %+v", src)
+		}
+		second := blocks[1].(map[string]any)
+		if second["type"] != "image" || second["source"].(map[string]any)["media_type"] != "image/jpeg" {
+			t.Errorf("blocks[1] malformed: %+v", second)
+		}
+		text := blocks[2].(map[string]any)
+		if text["type"] != "text" || text["text"] != "describe these" {
+			t.Errorf("blocks[2] malformed: %+v", text)
+		}
+	})
+	t.Run("images_only_no_body", func(t *testing.T) {
+		payload := map[string]any{
+			"images": []any{
+				map[string]any{"mime_type": "image/webp", "data": "CCC="},
+			},
+		}
+		b, err := buildStreamJSONInputFrame("text", payload)
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		var frame map[string]any
+		_ = json.Unmarshal(b, &frame)
+		blocks := frame["message"].(map[string]any)["content"].([]any)
+		if len(blocks) != 1 {
+			t.Fatalf("want 1 block, got %d", len(blocks))
+		}
+		if blocks[0].(map[string]any)["type"] != "image" {
+			t.Errorf("blocks[0] should be image")
+		}
+	})
+	t.Run("text_only_unaffected", func(t *testing.T) {
+		// Pre-W4.2 behaviour stays intact: a text input without
+		// images produces a single text block.
+		b, err := buildStreamJSONInputFrame("text", map[string]any{"body": "hi"})
+		if err != nil {
+			t.Fatalf("build: %v", err)
+		}
+		var frame map[string]any
+		_ = json.Unmarshal(b, &frame)
+		blocks := frame["message"].(map[string]any)["content"].([]any)
+		if len(blocks) != 1 || blocks[0].(map[string]any)["type"] != "text" {
+			t.Errorf("text-only should be single text block: %+v", blocks)
+		}
+	})
+}
+
 func TestStdioDriver_InputMissingFields(t *testing.T) {
 	if _, err := buildStreamJSONInputFrame("text", map[string]any{}); err == nil {
 		t.Fatal("text without body should error")

@@ -524,10 +524,29 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)
-		if body == "" {
+		images := extractImageInputs(payload)
+		if body == "" && len(images) == 0 {
 			return nil, fmt.Errorf("stdio driver: text input missing body")
 		}
-		content = []map[string]any{{"type": "text", "text": body}}
+		// ADR-021 W4.2 — image content blocks. Anthropic's stream-json
+		// reader accepts a content array with image blocks ahead of
+		// text. Source shape is `{type:"base64", media_type, data}`.
+		// Hub-side validation (W4.1) already enforced mime/size/count
+		// caps; the driver trusts the payload to be well-formed.
+		content = make([]map[string]any, 0, len(images)+1)
+		for _, img := range images {
+			content = append(content, map[string]any{
+				"type": "image",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": img.mime,
+					"data":       img.data,
+				},
+			})
+		}
+		if body != "" {
+			content = append(content, map[string]any{"type": "text", "text": body})
+		}
 	case "approval":
 		reqID, _ := payload["request_id"].(string)
 		decision, _ := payload["decision"].(string)

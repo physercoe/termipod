@@ -23,6 +23,24 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.431-alpha — 2026-05-08
+
+### Added
+- **Claude image content blocks (ADR-021 W4.2).** StdioDriver's
+  `buildStreamJSONInputFrame` text branch now produces a content
+  array. Image inputs from `payload["images"]` lower to Anthropic's
+  stream-json shape `{type:"image", source:{type:"base64",
+  media_type, data}}` and lead the array; the text block (if any)
+  comes last so the model reads the question after seeing the
+  imagery. Image-only inputs (no body) are accepted. Hub-side
+  validation (W4.1) already enforced mime/size/count caps so the
+  driver trusts the payload shape. Shared
+  `extractImageInputs(payload)` helper extracted to
+  `image_inputs.go` so W4.3 (codex) and W4.4 (ACP) reuse the same
+  type-assertion ladder.
+
+---
+
 ## v1.0.430-alpha — 2026-05-08
 
 ### Added

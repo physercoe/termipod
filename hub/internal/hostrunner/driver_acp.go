@@ -119,7 +119,15 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		d.Log = slog.Default()
 	}
 	if d.HandshakeTimeout == 0 {
-		d.HandshakeTimeout = 10 * time.Second
+		// 60s is generous for an in-process handshake but the right floor
+		// for engines that may briefly stall on credential refresh
+		// (gemini-cli refreshing OAuth via ~/.gemini/oauth_creds.json,
+		// claude-code SDK refreshing API keys). A short floor here turns
+		// transient auth latency into a confusing M4 fallback. Engines
+		// that trigger a *full* OAuth flow (interactive browser callback)
+		// still trip this — that's a setup bug we want surfaced, not
+		// papered over.
+		d.HandshakeTimeout = 60 * time.Second
 	}
 	if d.WriteTimeout == 0 {
 		d.WriteTimeout = 5 * time.Second

@@ -126,3 +126,89 @@ func TestLaunchOne_ExecResumeDriver_PatchesStatusRunning(t *testing.T) {
 		t.Fatalf("expected PATCH status=running for paneless driver; got patches=%+v", patches)
 	}
 }
+
+// stubDriver is a Driver that records Start/Stop calls. Used by the
+// paneless terminate test to verify the registry-based teardown path.
+type stubDriver struct {
+	mu      sync.Mutex
+	started bool
+	stopped bool
+}
+
+func (s *stubDriver) Start(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.started = true
+	return nil
+}
+
+func (s *stubDriver) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopped = true
+}
+
+func (s *stubDriver) wasStopped() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stopped
+}
+
+// TestTerminatePane_PanelessDriverStopsViaRegistry pins the bug where
+// terminating a paneless agent (M2 ExecResumeDriver, M1 ACPDriver post
+// tail-pane failure) returned `terminate: pane_id required` and left
+// the live process running. The fix routes paneless terminate through
+// stopDriver so the driver-owned process is killed via Driver.Stop().
+func TestTerminatePane_PanelessDriverStopsViaRegistry(t *testing.T) {
+	r := &Runner{
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+	}
+	r.inputs = NewInputRouter(nil, r.Log)
+	stub := &stubDriver{}
+	r.drivers["agent-paneless"] = stub
+
+	cmd := HostCommand{
+		ID:      "cmd-1",
+		AgentID: "agent-paneless",
+		Kind:    "terminate",
+		Args:    json.RawMessage(`{}`),
+	}
+	if err := r.terminatePane(context.Background(), cmd); err != nil {
+		t.Fatalf("terminatePane: %v", err)
+	}
+	if !stub.wasStopped() {
+		t.Error("driver Stop was not called")
+	}
+	if _, ok := r.drivers["agent-paneless"]; ok {
+		t.Error("driver still in registry after terminate")
+	}
+}
+
+// TestTerminatePane_PanelessNoDriverIsNoop locks the "agent already
+// stopped or living on another host" path: with pane_id absent and no
+// driver registered, terminate returns nil so the hub-side terminate
+// command flips to done. Returning an error here would loop the
+// command back to pending and spin forever.
+func TestTerminatePane_PanelessNoDriverIsNoop(t *testing.T) {
+	r := &Runner{
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+	}
+	r.inputs = NewInputRouter(nil, r.Log)
+	cmd := HostCommand{
+		ID:      "cmd-2",
+		AgentID: "agent-already-gone",
+		Kind:    "terminate",
+		Args:    json.RawMessage(`{}`),
+	}
+	if err := r.terminatePane(context.Background(), cmd); err != nil {
+		t.Errorf("terminatePane: %v; want nil for already-stopped paneless agent", err)
+	}
+}

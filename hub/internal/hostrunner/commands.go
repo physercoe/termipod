@@ -95,10 +95,26 @@ func (a *Runner) capturePane(ctx context.Context, cmd HostCommand) (map[string]a
 func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 	pane := paneTarget(cmd.Args)
 	if pane == "" {
-		return fmt.Errorf("terminate: pane_id required")
-	}
-	if _, err := runTmux(ctx, "kill-pane", "-t", pane); err != nil {
-		return err
+		// Paneless drivers (M2 ExecResumeDriver, M1 ACPDriver after tail-pane
+		// launch failed) have no tmux pane to kill — the live process is
+		// owned by the registered Driver. Drive teardown through the driver
+		// registry; stopDriver emits lifecycle.stopped + detaches the input
+		// router so the hub side flips to terminated cleanly.
+		if cmd.AgentID == "" {
+			return fmt.Errorf("terminate: pane_id or agent_id required")
+		}
+		if _, ok := a.drivers[cmd.AgentID]; !ok {
+			// Nothing live on this host — common when the agent was on
+			// another host or already torn down. Don't fail the command;
+			// the hub-side terminate semantics ("ensure not running") are
+			// already satisfied.
+			return nil
+		}
+		a.stopDriver(cmd.AgentID)
+	} else {
+		if _, err := runTmux(ctx, "kill-pane", "-t", pane); err != nil {
+			return err
+		}
 	}
 	// Best-effort worktree cleanup. A dirty tree is preserved and flagged
 	// on the hub so a human can inspect before discarding — never silently

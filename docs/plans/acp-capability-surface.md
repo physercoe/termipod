@@ -143,24 +143,38 @@ Driver-side. After `initialize` returns and we see non-empty
   `requiresAuthentication: true` (or, in its absence, if
   `session/new` returns an `auth_required`-shaped error), call
   `authenticate` before retrying.
-- Method selection: precedence as ADR-021 D3 — template-declared,
-  then family-default, then first non-interactive.
+- Method selection: precedence as ADR-021 D3 — template-declared
+  override, then family-default (**`oauth-personal` for
+  gemini-cli**), then first non-interactive method as fallback.
+
+The default targets the single-user-developer path: `gemini auth`
+once on the host, after which `~/.gemini/oauth_creds.json` carries
+cached tokens that the daemon uses without opening a browser.
+Service-account / shared-host deployments override via
+`auth_method: gemini-api-key` (or `vertex-ai`) on the steward
+template; no host-runner env diff required.
 
 If the chosen method is interactive AND the agent has no cached
-creds, fail fast with a typed `attention` event so the principal
-sees the auth-method options and can pick one (or set
-`GEMINI_API_KEY` and retry).
+creds (first run, expired refresh, keychain unreachable), fail
+fast with a typed `attention` event so the principal sees the
+auth-method options and can pick one (or run `gemini auth` on the
+host and retry).
 
-**Files:** `driver_acp.go` (auth branch), `agent_families.yaml`
-(`gemini-cli` default-method declaration), `templates/agents/
-steward.gemini.v1.yaml` (`auth_method:` field, optional).
+**Files:** `driver_acp.go` (auth branch + retry-after-auth-fail
+ladder), `agent_families.yaml` (`gemini-cli` family default
+`auth_method: oauth-personal`), `templates/agents/
+steward.gemini.v1.yaml` (`auth_method:` field — optional, falls
+through to family default when omitted).
 
-**Tests:** (a) `authMethods` empty → auth skipped. (b) Method
-selection precedence honored. (c) Interactive method without
-cached creds → `attention` event with method options.
+**Tests:** (a) `authMethods` empty → auth skipped. (b) Default
+picks `oauth-personal` for gemini-cli when no template override
+is set. (c) Template `auth_method: gemini-api-key` overrides the
+default. (d) Interactive method without cached creds → `attention`
+event with method options.
 
-**Done when:** a gemini M1 agent without `GEMINI_API_KEY` and
-without DBus access produces a clear attention-driven failure
+**Done when:** a gemini M1 agent on a host with cached OAuth creds
+authenticates cleanly without GEMINI_API_KEY in env. A host
+without cached creds produces a clear attention-driven failure
 mode rather than the silent hang of pre-v1.0.402.
 
 **Version:** v1.0.413.

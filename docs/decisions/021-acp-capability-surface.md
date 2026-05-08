@@ -145,19 +145,32 @@ methodId. Method selection precedence:
 
 1. Steward-template-declared `auth_method:` — explicit operator
    choice; no inference.
-2. Family-default from `agent_families.yaml` (`gemini-cli` defaults
-   to `gemini-api-key` if `GEMINI_API_KEY` env is non-empty, else
-   `oauth-personal`).
+2. Family-default from `agent_families.yaml`. **For `gemini-cli`,
+   the default is `oauth-personal`** — Google account login, with
+   credentials cached at `~/.gemini/oauth_creds.json` after a
+   one-time `gemini auth` run on the host. This matches the
+   single-user-developer case (the most common termipod
+   deployment) and avoids forcing API-key procurement up front.
+   Service-account / shared-host deployments override the family
+   default by setting `auth_method: gemini-api-key` (or
+   `vertex-ai`) on the steward template.
 3. First non-interactive method in the agent's `authMethods` list.
 
-Interactive flows (`oauth-personal` with no cached creds) cannot
-complete in a daemon — the agent needs a browser callback we
-can't surface. When the chosen method is interactive AND the
-agent has no cached creds, the driver fails fast with a recognizable
-error message and emits an `attention` event surfacing the
-auth-method options to the principal so they can pick a different
-method or set creds and retry. The hub does NOT proxy the OAuth
-URL through mobile — that's a Phase 5 concern (browser callback
+Why OAuth as default: `oauth-personal` is structurally interactive,
+but in the daemon path the agent uses *cached* tokens from a prior
+`gemini auth` and never opens a browser. The interactive flow only
+triggers on first run or token expiry. Defaulting to API-key
+instead would force every operator to mint a Google AI Studio key
+even when a personal Google login is already on the host.
+
+When the chosen method needs an interactive flow AND there are no
+cached creds (first run, expired refresh token, or — most commonly
+— a daemon spawned in an env that can't reach the keychain), the
+driver fails fast with a recognizable error and emits an
+`attention` event surfacing the auth-method options to the
+principal so they can pick a different method or run
+`gemini auth` and retry. The hub does NOT proxy the OAuth URL
+through mobile — that's a Phase 5 concern (browser callback
 infrastructure).
 
 ### D4. Phase 2 — mode + model picker, capability-branched.

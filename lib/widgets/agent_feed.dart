@@ -86,6 +86,58 @@ String? agentEventReplayKey(Map<String, dynamic> evt) {
   return null;
 }
 
+/// ADR-021 W2.5 — extract the latest mode + model state advertised by
+/// the agent from a list of agent_events (newest-last). Walks events
+/// in reverse for the most recent `current_mode_update` /
+/// `current_model_update` system notifications (gemini ACP shape) and
+/// returns a `(currentMode, availableModes, currentModel,
+/// availableModels)` tuple as a plain map so test fixtures don't have
+/// to construct private types.
+///
+/// Returns null when neither a mode nor a model has been advertised —
+/// the strip widget hides itself in that case.
+@visibleForTesting
+Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events) {
+  String? currentMode;
+  List<Map<String, dynamic>>? availableModes;
+  String? currentModel;
+  List<Map<String, dynamic>>? availableModels;
+  for (var i = events.length - 1; i >= 0; i--) {
+    final e = events[i];
+    final kind = (e['kind'] ?? '').toString();
+    if (kind != 'system') continue;
+    final p = e['payload'];
+    if (p is! Map) continue;
+    final body = p.cast<String, dynamic>();
+    if (currentMode == null && body['currentModeId'] is String) {
+      currentMode = body['currentModeId'] as String;
+      if (body['availableModes'] is List) {
+        availableModes = [
+          for (final m in (body['availableModes'] as List))
+            if (m is Map) m.cast<String, dynamic>(),
+        ];
+      }
+    }
+    if (currentModel == null && body['currentModelId'] is String) {
+      currentModel = body['currentModelId'] as String;
+      if (body['availableModels'] is List) {
+        availableModels = [
+          for (final m in (body['availableModels'] as List))
+            if (m is Map) m.cast<String, dynamic>(),
+        ];
+      }
+    }
+    if (currentMode != null && currentModel != null) break;
+  }
+  if (currentMode == null && currentModel == null) return null;
+  return <String, dynamic>{
+    'currentMode': currentMode,
+    'availableModes': availableModes ?? const <Map<String, dynamic>>[],
+    'currentModel': currentModel,
+    'availableModels': availableModels ?? const <Map<String, dynamic>>[],
+  };
+}
+
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
 /// first frame is the in-DB backfill fetched via listAgentEvents; after
@@ -930,6 +982,7 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (_isVerboseOnly(kind, e['payload'])) hiddenForVerbose++;
       }
     }
+    final modeModelState = _latestModeModelState();
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -944,6 +997,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             rateLimit: latestRateLimit,
             contextWindow: latestContextWindow,
             contextUsed: latestContextUsed,
+          ),
+        // ADR-021 W2.5 — mode + model picker chips. Hidden when the
+        // active agent hasn't advertised either, so claude/codex M2
+        // (no current_mode_update yet) doesn't render an empty strip.
+        if (modeModelState != null)
+          _ModeModelStrip(
+            state: modeModelState,
+            onPickMode: _onSetMode,
+            onPickModel: _onSetModel,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -1126,6 +1188,80 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       }
     }
     return null;
+  }
+
+  /// ADR-021 W2.5 — find the latest mode + model state advertised by
+  /// the agent. ACP gemini emits these as `kind=system, producer=system`
+  /// notifications keyed by `sessionUpdate=current_mode_update` /
+  /// `current_model_update` (driver_acp.go line ~924). We sniff payload
+  /// keys rather than the upstream subtype so claude/codex (which carry
+  /// `model` directly on session.init) can also surface in the picker
+  /// once W2.3 / hub routing land for them.
+  ///
+  /// Returns null when no agent has advertised mode + model lists. The
+  /// strip hides itself in that case rather than rendering an empty
+  /// picker.
+  _ModeModelState? _latestModeModelState() {
+    final raw = modeModelStateFromEvents(_events);
+    if (raw == null) return null;
+    return _ModeModelState(
+      currentMode: raw['currentMode'] as String?,
+      availableModes:
+          (raw['availableModes'] as List).cast<Map<String, dynamic>>(),
+      currentModel: raw['currentModel'] as String?,
+      availableModels:
+          (raw['availableModels'] as List).cast<Map<String, dynamic>>(),
+    );
+  }
+
+  Future<void> _onSetMode(String modeId) async {
+    final cfg = ref.read(activeConnectionProvider);
+    if (cfg == null) return;
+    final client = ref.read(hubClientProvider(cfg));
+    try {
+      await client.postAgentInput(widget.agentId,
+          kind: 'set_mode', modeId: modeId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('mode → $modeId'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('set_mode failed: $e'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onSetModel(String modelId) async {
+    final cfg = ref.read(activeConnectionProvider);
+    if (cfg == null) return;
+    final client = ref.read(hubClientProvider(cfg));
+    try {
+      await client.postAgentInput(widget.agentId,
+          kind: 'set_model', modelId: modelId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('model → $modelId'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('set_model failed: $e'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   List<String> _stringList(Object? v) {
@@ -5045,6 +5181,123 @@ class _ToolResultInline extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// ADR-021 W2.5 — captured mode + model state advertised by the agent.
+/// `currentMode` / `currentModel` are nullable because some engines
+/// only advertise one of the two (e.g. claude exposes model but not a
+/// runtime "mode" concept). availableModes / availableModels each list
+/// `{id, name, description?}` maps mirroring the ACP shape.
+class _ModeModelState {
+  final String? currentMode;
+  final List<Map<String, dynamic>> availableModes;
+  final String? currentModel;
+  final List<Map<String, dynamic>> availableModels;
+  const _ModeModelState({
+    required this.currentMode,
+    required this.availableModes,
+    required this.currentModel,
+    required this.availableModels,
+  });
+  bool get hasMode => currentMode != null && availableModes.isNotEmpty;
+  bool get hasModel => currentModel != null && availableModels.isNotEmpty;
+}
+
+/// ADR-021 W2.5 — picker chip strip rendered above the AgentFeed when
+/// the agent has advertised mode and/or model state. Tap → bottom-
+/// sheet of available options → onPicked fires postAgentInput.
+class _ModeModelStrip extends StatelessWidget {
+  final _ModeModelState state;
+  final Future<void> Function(String modeId) onPickMode;
+  final Future<void> Function(String modelId) onPickModel;
+  const _ModeModelStrip({
+    required this.state,
+    required this.onPickMode,
+    required this.onPickModel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          if (state.hasMode)
+            ActionChip(
+              label: Text('mode: ${state.currentMode}',
+                  style: theme.textTheme.bodySmall),
+              avatar: const Icon(Icons.tune, size: 14),
+              onPressed: () => _showPicker(
+                context,
+                title: 'Mode',
+                current: state.currentMode!,
+                options: state.availableModes,
+                onSelect: onPickMode,
+              ),
+            ),
+          if (state.hasModel)
+            ActionChip(
+              label: Text('model: ${state.currentModel}',
+                  style: theme.textTheme.bodySmall),
+              avatar: const Icon(Icons.psychology_alt, size: 14),
+              onPressed: () => _showPicker(
+                context,
+                title: 'Model',
+                current: state.currentModel!,
+                options: state.availableModels,
+                onSelect: onPickModel,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showPicker(
+    BuildContext context, {
+    required String title,
+    required String current,
+    required List<Map<String, dynamic>> options,
+    required Future<void> Function(String id) onSelect,
+  }) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text(title,
+                    style: Theme.of(sheetCtx).textTheme.titleMedium),
+              ),
+              for (final opt in options)
+                ListTile(
+                  title: Text((opt['name'] ?? opt['id'] ?? '').toString()),
+                  subtitle: opt['description'] != null
+                      ? Text((opt['description']).toString())
+                      : null,
+                  trailing: (opt['id']?.toString() == current)
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  onTap: () {
+                    final id = opt['id']?.toString() ?? '';
+                    Navigator.of(sheetCtx).pop();
+                    if (id.isNotEmpty && id != current) onSelect(id);
+                  },
+                ),
+              const SizedBox(height: 4),
+            ],
+          ),
+        );
+      },
     );
   }
 }

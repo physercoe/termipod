@@ -1361,6 +1361,13 @@ class HubClient {
     String? note,
     String? reason,
     String? documentId,
+    // ADR-021 W2.1 — set_mode / set_model picker payload. The hub's
+    // input handler routes by family.runtime_mode_switch[driving_mode]:
+    // rpc/per_turn_argv land as input.* events the driver picks up;
+    // respawn triggers respawn-with-mutated-spec. Mobile sends one
+    // shape; the wire path varies per engine.
+    String? modeId,
+    String? modelId,
   }) async {
     final req = <String, dynamic>{'kind': kind};
     if (body != null) req['body'] = body;
@@ -1370,6 +1377,8 @@ class HubClient {
     if (note != null) req['note'] = note;
     if (reason != null) req['reason'] = reason;
     if (documentId != null) req['document_id'] = documentId;
+    if (modeId != null) req['mode_id'] = modeId;
+    if (modelId != null) req['model_id'] = modelId;
     final out =
         await _post('/v1/teams/${cfg.teamId}/agents/$agentId/input', req);
     return (out as Map).cast<String, dynamic>();

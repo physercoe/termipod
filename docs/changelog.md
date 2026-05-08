@@ -23,6 +23,25 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.424-alpha — 2026-05-08
+
+### Added
+- **Mobile mode + model picker UI (ADR-021 W2.5).** Closes Phase 2 of
+  the ACP capability surface plan. AgentFeed now renders a small
+  ActionChip strip above the message list when the active agent has
+  advertised mode and/or model state via system notifications
+  (`currentModeId` / `availableModes` / `currentModelId` /
+  `availableModels`). Tap → bottom-sheet picker → `postAgentInput`
+  with `set_mode` / `set_model`. The wire payload is engine-neutral;
+  the hub's `runtime_mode_switch` table (W2.1) routes per-driver:
+  gemini M1 RPC → instant; claude/codex respawn → ~3-5s with the
+  transcript intact via the engine_session_id resume cursor; gemini
+  exec-per-turn → applies on the next prompt.
+
+### Changed
+- `HubClient.postAgentInput` gains `modeId` / `modelId` named
+  parameters mirroring the new hub input contract.
+
 ## v1.0.423-alpha — 2026-05-08
 
 ### Added

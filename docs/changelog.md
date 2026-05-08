@@ -23,6 +23,30 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.412-alpha — 2026-05-08
+
+### Added
+- **Mobile dedupe for `replay:true` events (ADR-021 W1.3).** First
+  APK-touching wedge of the ACP capability surface plan. The
+  AgentFeed renderer now filters incoming SSE events flagged
+  `replay: true` by `agentEventReplayKey`, dropping any whose
+  content-stable key matches an event already in the cached
+  transcript. Without this, a session/load resume re-renders every
+  prior turn under the new agent's stream, doubling the visible
+  transcript. Keys are content-based (text body, tool_call_id,
+  request_id) because hub-side ids and seqs differ between the
+  dead agent's original event and the resumed agent's replay.
+- **`agentEventReplayKey` + `agentEventIsReplay` helpers** — exported
+  via `@visibleForTesting` so the dedupe contract has a unit-test
+  pin (`test/widgets/agent_feed_replay_dedupe_test.dart`). Keying
+  by kind: text/thought → length-prefixed body; tool_call →
+  tool_call_id; tool_call_update → tool_call_id + status;
+  approval_request → request_id. Other kinds (raw, lifecycle,
+  system, plan, diff) pass through replay unchanged — better
+  to duplicate than to drop on a fragile match.
+
+---
+
 ## v1.0.411-alpha — 2026-05-08
 
 ### Added

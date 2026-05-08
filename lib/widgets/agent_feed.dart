@@ -24,6 +24,68 @@ import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'agent_compose.dart';
 
+/// True when the event payload carries the `replay: true` flag the M1
+/// driver stamps on session/update notifications streamed inside a
+/// `session/load` window (ADR-021 W1.2). Used by the feed's ingest
+/// filter (W1.3) to drop frames whose content already appears in the
+/// cached transcript so the user doesn't see every prior turn twice
+/// after a resume.
+@visibleForTesting
+bool agentEventIsReplay(Map<String, dynamic> evt) {
+  final p = evt['payload'];
+  if (p is! Map) return false;
+  return p['replay'] == true;
+}
+
+/// Computes a content-stable dedupe key for an agent_event. The key
+/// must be the same for a freshly-streamed replay frame and the
+/// originally-streamed live frame, so we can identify equivalence
+/// across agent_id and seq (those differ between the dead agent that
+/// produced the original event and the resumed agent re-emitting it
+/// during session/load replay). Returns null for events whose shape
+/// has no stable identity — those are passed through (better duplicate
+/// than dropped).
+///
+/// Keying by kind:
+///   text / thought    → kind + length-prefixed text body. Length
+///                       prefix prevents prefix-collision (turn 1's
+///                       "hello" colliding with turn 2's "hello world"
+///                       once both have grown).
+///   tool_call         → kind + tool_call_id (agent-stable across
+///                       restart for the same logical call).
+///   tool_call_update  → kind + tool_call_id + status (status carries
+///                       the lifecycle position so multiple updates
+///                       per call don't collapse into one).
+///   approval_request  → kind + request_id.
+@visibleForTesting
+String? agentEventReplayKey(Map<String, dynamic> evt) {
+  final kind = (evt['kind'] ?? '').toString();
+  final raw = evt['payload'];
+  if (raw is! Map) return null;
+  final payload = raw.cast<String, dynamic>();
+  switch (kind) {
+    case 'text':
+    case 'thought':
+      final text = (payload['text'] ?? '').toString();
+      if (text.isEmpty) return null;
+      return '$kind:${text.length}:$text';
+    case 'tool_call':
+      final id = (payload['id'] ?? payload['toolCallId'] ?? '').toString();
+      if (id.isEmpty) return null;
+      return '$kind:$id';
+    case 'tool_call_update':
+      final id = (payload['toolCallId'] ?? payload['id'] ?? '').toString();
+      final status = (payload['status'] ?? '').toString();
+      if (id.isEmpty) return null;
+      return '$kind:$id:$status';
+    case 'approval_request':
+      final id = (payload['request_id'] ?? '').toString();
+      if (id.isEmpty) return null;
+      return '$kind:$id';
+  }
+  return null;
+}
+
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
 /// first frame is the in-DB backfill fetched via listAgentEvents; after
@@ -74,6 +136,16 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // unique. We keep _maxSeq for the agent-only path's incremental SSE
   // backfill cursor (since=<seq>); the session path uses ts.
   final Set<String> _ids = <String>{};
+
+  // Content-stable dedupe keys for events already in [_events]. Used
+  // by the W1.3 replay-ingest filter: a session/load replay re-streams
+  // historical turns under fresh agent_event ids and seqs, so the
+  // existing _ids dedup misses them — we need to match on payload
+  // content. Populated alongside _ids in [_ingestSnapshot] /
+  // [_loadOlder] / SSE add. Events without a derivable key (raw,
+  // lifecycle, system, plan/diff without stable id) don't add to the
+  // set and pass through replay unchanged.
+  final Set<String> _replayKeys = <String>{};
   int _maxSeq = 0;
   // Smallest seq we've loaded so the "load older" pager can ask for
   // anything strictly before it. 0 once we've reached the head of the
@@ -275,6 +347,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
               (_oldestTs.isEmpty || ts.compareTo(_oldestTs) < 0)) {
             _oldestTs = ts;
           }
+          final replayKey = agentEventReplayKey(e);
+          if (replayKey != null) _replayKeys.add(replayKey);
         }
         _atHead = older.length < _pageSize;
       });
@@ -314,12 +388,15 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       ..clear()
       ..addAll(ascending);
     _ids.clear();
+    _replayKeys.clear();
     _maxSeq = 0;
     _minSeq = 0;
     _oldestTs = '';
     for (final e in _events) {
       final id = (e['id'] ?? '').toString();
       if (id.isNotEmpty) _ids.add(id);
+      final replayKey = agentEventReplayKey(e);
+      if (replayKey != null) _replayKeys.add(replayKey);
       final seq = (e['seq'] as num?)?.toInt() ?? 0;
       if (seq > _maxSeq) _maxSeq = seq;
       if (_minSeq == 0 || seq < _minSeq) _minSeq = seq;
@@ -475,6 +552,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // session-scoped feed mixes events from prior + current agent).
       final id = (evt['id'] ?? '').toString();
       if (id.isNotEmpty && !_ids.add(id)) return;
+      // ADR-021 W1.3: drop session/load replay frames whose content is
+      // already in the cached transcript. The id-dedup above doesn't
+      // catch these — replay events get fresh hub-side ids when the
+      // resumed agent re-emits them — so we content-key on payload
+      // shape. Non-replay events bypass this filter regardless of
+      // content; live duplicates are fine to render and are already
+      // rare given the id-dedup.
+      final replayKey = agentEventReplayKey(evt);
+      if (agentEventIsReplay(evt) &&
+          replayKey != null &&
+          _replayKeys.contains(replayKey)) {
+        return;
+      }
+      if (replayKey != null) _replayKeys.add(replayKey);
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;
       // First successful delivery after a drop clears the banner, the
       // backoff counter, and any "Offline · last updated" pill — the

@@ -23,6 +23,32 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.435-alpha — 2026-05-08
+
+### Added
+- **Mobile image-attach UI (ADR-021 W4.6).** Closes Phase 4 of the
+  ACP capability surface plan. AgentCompose gains an attach button
+  (paperclip / image icon) gated on `family.prompt_image[mode]`:
+  - claude-code on M1/M2 → engaged
+  - codex on M1/M2 → engaged
+  - gemini-cli on M1 (--acp) → engaged
+  - gemini-cli on M2 (exec-per-turn) → hidden (the driver-side
+    W4.5 strip-and-warn is a fallback for forwarded payloads, not
+    an invitation to send them)
+  Tap → image_picker → ImageConverter (1024px max edge / 70% JPEG)
+  → base64 → enqueued on the composer. Up to 3 thumbnails render
+  in a horizontal strip above the text field with × removal taps.
+  Pre-flight cap matches the hub W4.1 validator (5 MiB decoded).
+  On send, the queued images ride alongside the text body in
+  `postAgentInput(images: …)`. Body becomes optional when at least
+  one image is queued — image-only turns are first-class. Family
+  registry endpoint now serves `prompt_image` and
+  `runtime_mode_switch` so the mobile gate has the same view the
+  hub does. Top-level `resolveCanAttachImages` helper exposed via
+  `@visibleForTesting` for the gate-decision unit test.
+
+---
+
 ## v1.0.434-alpha — 2026-05-08
 
 ### Added

@@ -92,6 +92,15 @@ type Family struct {
 	// both M1 (rpc) and M2 exec-per-turn (per_turn_argv); a single
 	// per-family token couldn't disambiguate.
 	RuntimeModeSwitch map[string]string `yaml:"runtime_mode_switch,omitempty" json:"runtime_mode_switch,omitempty"`
+
+	// PromptImage declares image-content-block support per driving_mode
+	// (ADR-021 D5 / W4.6). Mobile composer reads this map keyed by the
+	// active agent's driving_mode to gate the inline image attach
+	// affordance — true → engage the W4.1 hub `images:[]` path; false
+	// or missing → fall back to fs upload (or hide the affordance,
+	// depending on UI). Per-mode keying because gemini-cli supports
+	// images on M1 (--acp) but strips on M2 (exec-per-turn).
+	PromptImage map[string]bool `yaml:"prompt_image,omitempty" json:"prompt_image,omitempty"`
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

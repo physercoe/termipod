@@ -3,10 +3,14 @@
 // scaffolded so pending-request UI can hook them up without adding a
 // whole new widget later.
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:termipod/l10n/app_localizations.dart';
 
@@ -14,8 +18,40 @@ import '../providers/hub_provider.dart';
 import '../providers/input_history_provider.dart';
 import '../providers/snippet_provider.dart';
 import '../services/hub/hub_client.dart';
+import '../services/image/image_converter.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
+
+// ADR-021 W4.1 / D5 — image-content-block contract caps. Mirrors the
+// hub-side validator so the composer can clamp before sending instead
+// of round-tripping a 400. 5 MiB decoded per image, 3 images per turn,
+// 1024px max long edge for compression.
+const int _maxImagesPerTurn = 3;
+const int _maxImageBytes = 5 * 1024 * 1024;
+const int _composeImageMaxEdge = 1024;
+const int _composeImageJpegQuality = 70;
+
+/// resolveCanAttachImages joins an agent's `kind` + `driving_mode`
+/// against the family registry's `prompt_image[mode]` flag (ADR-021
+/// D5 / W4.6). Exported `@visibleForTesting` so widget tests can pin
+/// the gate without spinning up a fake HubClient.
+@visibleForTesting
+bool resolveCanAttachImages({
+  required String? kind,
+  required String? drivingMode,
+  required List<Map<String, dynamic>> families,
+}) {
+  if (kind == null || kind.isEmpty) return false;
+  final mode = (drivingMode == null || drivingMode.isEmpty) ? 'M4' : drivingMode;
+  for (final f in families) {
+    if (f['family'] == kind) {
+      final pi = f['prompt_image'];
+      if (pi is Map && pi[mode] == true) return true;
+      return false;
+    }
+  }
+  return false;
+}
 
 /// Sits under AgentFeed and routes text/cancel inputs to the hub's
 /// /agents/{id}/input endpoint. The hub persists them as producer='user'
@@ -58,6 +94,18 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   bool _sending = false;
   String? _error;
 
+  // ADR-021 W4.6 — image-attach state. _canAttachImages is resolved
+  // once at mount by joining getAgent (kind, driving_mode) with the
+  // family registry's prompt_image[mode] flag; absent or false leaves
+  // the affordance hidden so engines that don't support inline
+  // images don't surface a misleading button. _pendingImages holds
+  // up to _maxImagesPerTurn entries each shaped {mime_type, data}
+  // with data already base64-encoded; on send they ride alongside
+  // the text body in postAgentInput's images param (W4.1).
+  bool _canAttachImages = false;
+  bool _attaching = false;
+  final List<Map<String, String>> _pendingImages = [];
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +113,33 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
     // `/` and `@` prefixes at the cursor. The TextField itself doesn't
     // need a setState; the strip computes from controller.value.
     _ctrl.addListener(() => setState(() {}));
+    unawaited(_resolveImageAttachAffordance());
+  }
+
+  Future<void> _resolveImageAttachAffordance() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final agent = await client.getAgent(widget.agentId);
+      final cached = await client.listAgentFamiliesCached();
+      final families = cached.body
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
+      final ok = resolveCanAttachImages(
+        kind: agent['kind']?.toString(),
+        drivingMode: agent['driving_mode']?.toString(),
+        families: families,
+      );
+      if (!mounted) return;
+      if (ok != _canAttachImages) {
+        setState(() => _canAttachImages = ok);
+      }
+    } catch (_) {
+      // Swallow — a transient lookup failure leaves the affordance
+      // hidden, which is the safe default. The user can retry by
+      // refocusing the screen (next initState picks up the change
+      // if the family registry was the missing piece).
+    }
   }
 
   @override
@@ -127,7 +202,8 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
 
   Future<void> _send() async {
     final body = _ctrl.text.trimRight();
-    if (body.isEmpty || _sending) return;
+    final hasImages = _pendingImages.isNotEmpty;
+    if ((body.isEmpty && !hasImages) || _sending) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() => _error = 'Not connected');
@@ -138,15 +214,18 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       _error = null;
     });
     try {
-      await client.postAgentInput(widget.agentId, kind: 'text', body: body);
-      // Mirror the action-bar compose: every successful send goes into the
-      // shared input history so the snippet picker's History tab is the
-      // same list whether the user typed in the steward chat or in a tmux
-      // pane. Best-effort — a slow disk write shouldn't block the UI.
-      unawaited(ref.read(inputHistoryProvider.notifier).add(body));
+      await client.postAgentInput(
+        widget.agentId,
+        kind: 'text',
+        body: body.isEmpty ? null : body,
+        images: hasImages ? List<Map<String, String>>.from(_pendingImages) : null,
+      );
+      if (body.isNotEmpty) {
+        unawaited(ref.read(inputHistoryProvider.notifier).add(body));
+      }
       if (!mounted) return;
       _ctrl.clear();
-      // Keep focus so the user can fire a follow-up without another tap.
+      _pendingImages.clear();
       _focus.requestFocus();
     } on HubApiError catch (e) {
       if (!mounted) return;
@@ -156,6 +235,83 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       setState(() => _error = 'Send failed: $e');
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _pickImage() async {
+    if (_attaching || _sending) return;
+    if (_pendingImages.length >= _maxImagesPerTurn) {
+      setState(() => _error = 'Max $_maxImagesPerTurn images per turn');
+      return;
+    }
+    setState(() {
+      _attaching = true;
+      _error = null;
+    });
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+      final raw = await picked.readAsBytes();
+      // Compress to JPEG at 1024px max edge / 70% quality (per plan
+      // §W4.6). Hub validator caps decoded bytes at 5 MiB; the
+      // compression target is well under that for typical phone
+      // screenshots so we rarely retry.
+      final converted = await ImageConverter.convert(
+        bytes: raw,
+        format: ImageOutputFormat.jpeg,
+        jpegQuality: _composeImageJpegQuality,
+        autoResize: true,
+        maxWidth: _composeImageMaxEdge,
+        maxHeight: _composeImageMaxEdge,
+      );
+      final bytes = converted.bytes;
+      if (bytes.length > _maxImageBytes) {
+        setState(() => _error =
+            'Image too large after compression (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MiB > 5 MiB)');
+        return;
+      }
+      final mime = _mimeForExtension(converted.extension);
+      if (mime == null) {
+        setState(() => _error = 'Unsupported image format: ${converted.extension}');
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _pendingImages.add({
+          'mime_type': mime,
+          'data': base64Encode(bytes),
+        });
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attaching = false);
+    }
+  }
+
+  void _removePendingImage(int index) {
+    if (index < 0 || index >= _pendingImages.length) return;
+    setState(() => _pendingImages.removeAt(index));
+  }
+
+  // _mimeForExtension maps the ImageConverter's lowercase extension
+  // (jpg/png/gif) to the hub's accepted mime_type vocabulary (W4.1
+  // allowlist). webp/heic aren't produced by the converter's jpeg/png
+  // output paths; if a future format lands here we'd extend the map
+  // and the W4.1 allowlist together.
+  String? _mimeForExtension(String ext) {
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'gif':
+        return 'image/gif';
+      default:
+        return null;
     }
   }
 
@@ -317,6 +473,11 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               border: border,
               muted: muted,
             ),
+          if (_pendingImages.isNotEmpty)
+            _ImageThumbnailStrip(
+              images: _pendingImages,
+              onRemove: _removePendingImage,
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 4),
@@ -354,6 +515,35 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
               ),
+              // ADR-021 W4.6 — image attach. Only rendered when the
+              // active agent's family declares prompt_image[mode] == true
+              // (claude M2 / codex M2 / gemini M1). For gemini M2
+              // exec-per-turn the affordance stays hidden because the
+              // driver-side W4.5 strip-and-warn is a fallback for
+              // forwarded payloads, not an invitation to send them.
+              if (_canAttachImages)
+                IconButton(
+                  tooltip: _pendingImages.length >= _maxImagesPerTurn
+                      ? 'Max $_maxImagesPerTurn images per turn'
+                      : 'Attach image (${_pendingImages.length}/$_maxImagesPerTurn)',
+                  onPressed: (_sending ||
+                          _attaching ||
+                          _pendingImages.length >= _maxImagesPerTurn)
+                      ? null
+                      : _pickImage,
+                  icon: _attaching
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: muted),
+                        )
+                      : Icon(Icons.image_outlined, size: 22, color: muted),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
               // Field metrics matched to action_bar/compose_bar.dart so
               // the steward composer feels the same as the tmux one:
               // unbounded line count up to a 120px ceiling, fontSize 14,
@@ -422,7 +612,12 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _ctrl,
                 builder: (_, value, _) {
-                  final empty = value.text.trim().isEmpty;
+                  // ADR-021 W4.6 — empty body is acceptable when at
+                  // least one image is queued; the agent gets an
+                  // image-only turn (same shape the hub W4.1 contract
+                  // accepts).
+                  final empty =
+                      value.text.trim().isEmpty && _pendingImages.isEmpty;
                   if (_sending) {
                     return const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 10),
@@ -533,6 +728,80 @@ class _SuggestionStrip extends StatelessWidget {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+/// Horizontal thumbnail strip rendered above the text field when the
+/// composer has queued one or more images for the next prompt
+/// (ADR-021 W4.6). Tap × on a thumbnail to remove it before sending.
+/// Bytes are decoded back from the in-memory base64 string, so each
+/// thumbnail render is one decode pass — fine at 1024px max edge but
+/// not appropriate for arbitrary-resolution input.
+class _ImageThumbnailStrip extends StatelessWidget {
+  final List<Map<String, String>> images;
+  final ValueChanged<int> onRemove;
+  const _ImageThumbnailStrip({
+    required this.images,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+        itemCount: images.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 6),
+        itemBuilder: (ctx, i) {
+          final entry = images[i];
+          Uint8List? bytes;
+          try {
+            bytes = base64Decode(entry['data'] ?? '');
+          } catch (_) {
+            bytes = null;
+          }
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  color: DesignColors.surfaceDark,
+                  child: bytes != null
+                      ? Image.memory(bytes,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true)
+                      : const Icon(Icons.broken_image_outlined),
+                ),
+              ),
+              Positioned(
+                top: -6,
+                right: -6,
+                child: GestureDetector(
+                  onTap: () => onRemove(i),
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(
+                      color: DesignColors.error,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

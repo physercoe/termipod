@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1–W4.5 shipped v1.0.430–v1.0.434; W4.6 pending
+> **Status:** Done (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 (W4.1–W4.6) shipped v1.0.430–v1.0.435
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.434
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -414,7 +414,7 @@ Driver-side. exec-per-turn passes the prompt as `gemini -p
 
 **Version:** v1.0.434.
 
-#### W4.6 — Mobile image-attach UI
+#### W4.6 — Mobile image-attach UI ✅ v1.0.435
 
 Mobile-side. The composer already has an attach button that
 currently routes images to fs upload. Add a second branch: when

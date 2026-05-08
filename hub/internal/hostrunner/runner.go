@@ -737,6 +737,7 @@ func (a *Runner) fetchFamilies(ctx context.Context) []agentfamilies.Family {
 			Incompatibilities: incompat,
 			DefaultAuthMethod: f.DefaultAuthMethod,
 			RuntimeModeSwitch: f.RuntimeModeSwitch,
+			PromptImage:       f.PromptImage,
 		})
 	}
 	return out

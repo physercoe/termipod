@@ -79,12 +79,14 @@ func (s *Server) handleListAgentFamilies(w http.ResponseWriter, r *http.Request)
 	out := make([]map[string]any, 0, len(views))
 	for _, v := range views {
 		out = append(out, map[string]any{
-			"family":            v.Family.Family,
-			"bin":               v.Family.Bin,
-			"version_flag":      v.Family.VersionFlag,
-			"supports":          v.Family.Supports,
-			"incompatibilities": v.Family.Incompatibilities,
-			"source":            string(v.Source),
+			"family":              v.Family.Family,
+			"bin":                 v.Family.Bin,
+			"version_flag":        v.Family.VersionFlag,
+			"supports":            v.Family.Supports,
+			"incompatibilities":   v.Family.Incompatibilities,
+			"source":              string(v.Source),
+			"runtime_mode_switch": v.Family.RuntimeModeSwitch,
+			"prompt_image":        v.Family.PromptImage,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"families": out})
@@ -108,12 +110,14 @@ func (s *Server) handleGetAgentFamily(w http.ResponseWriter, r *http.Request) {
 	for _, v := range views {
 		if v.Family.Family == name {
 			writeJSON(w, http.StatusOK, map[string]any{
-				"family":            v.Family.Family,
-				"bin":               v.Family.Bin,
-				"version_flag":      v.Family.VersionFlag,
-				"supports":          v.Family.Supports,
-				"incompatibilities": v.Family.Incompatibilities,
-				"source":            string(v.Source),
+				"family":              v.Family.Family,
+				"bin":                 v.Family.Bin,
+				"version_flag":        v.Family.VersionFlag,
+				"supports":            v.Family.Supports,
+				"incompatibilities":   v.Family.Incompatibilities,
+				"source":              string(v.Source),
+				"runtime_mode_switch": v.Family.RuntimeModeSwitch,
+				"prompt_image":        v.Family.PromptImage,
 			})
 			return
 		}

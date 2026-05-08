@@ -43,6 +43,10 @@ type fakeACPAgent struct {
 	failSetMode     bool
 	failSetModel    bool
 
+	// W4.4 toggle: when set, initialize advertises
+	// promptCapabilities.image with this value. nil → field absent.
+	promptCapImage *bool
+
 	mu       sync.Mutex
 	closed   bool
 	initCh   chan struct{} // closed when handshake completes
@@ -79,6 +83,11 @@ func (f *fakeACPAgent) serve() {
 			caps := map[string]any{}
 			if f.advertiseLoadSession {
 				caps["loadSession"] = true
+			}
+			if f.promptCapImage != nil {
+				caps["promptCapabilities"] = map[string]any{
+					"image": *f.promptCapImage,
+				}
 			}
 			result := map[string]any{
 				"protocolVersion":   1,
@@ -485,6 +494,163 @@ func TestACPDriver_InputTextPrompts(t *testing.T) {
 	if block["type"] != "text" || block["text"] != "hello agent" {
 		t.Fatalf("prompt block wrong: %+v", block)
 	}
+}
+
+// TestACPDriver_InputTextWithImageBlocks — W4.4: when payload carries
+// `images`, the prompt array leads with `{type:"image", mimeType, data}`
+// blocks and the text block trails. Hub-side W4.1 already enforced
+// mime/size/count caps; this driver test pins the wire shape.
+func TestACPDriver_InputTextWithImageBlocks(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-img-1")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-img",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	err := drv.Input(context.Background(), "text", map[string]any{
+		"body": "what's in this?",
+		"images": []any{
+			map[string]any{"mime_type": "image/png", "data": "AAA="},
+			map[string]any{"mime_type": "image/webp", "data": "BBB="},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var prompt map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/prompt"); m != nil {
+			prompt = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if prompt == nil {
+		t.Fatal("session/prompt never arrived")
+	}
+	params, _ := prompt["params"].(map[string]any)
+	arr, _ := params["prompt"].([]any)
+	if len(arr) != 3 {
+		t.Fatalf("prompt array: want 3 blocks, got %d (%+v)", len(arr), arr)
+	}
+	first, _ := arr[0].(map[string]any)
+	if first["type"] != "image" || first["mimeType"] != "image/png" || first["data"] != "AAA=" {
+		t.Errorf("prompt[0] malformed: %+v", first)
+	}
+	second, _ := arr[1].(map[string]any)
+	if second["type"] != "image" || second["mimeType"] != "image/webp" {
+		t.Errorf("prompt[1] malformed: %+v", second)
+	}
+	third, _ := arr[2].(map[string]any)
+	if third["type"] != "text" || third["text"] != "what's in this?" {
+		t.Errorf("prompt[2] malformed: %+v", third)
+	}
+}
+
+// TestACPDriver_PromptCapImageGate — when initialize advertises
+// `promptCapabilities.image:false` explicitly, image inputs are
+// stripped and a kind=system warning event is emitted to the poster.
+// Absent declaration is treated as permitted (forward-compat with
+// agents that omit the field).
+func TestACPDriver_PromptCapImageGate(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-gate-1")
+	deny := false
+	fake.promptCapImage = &deny
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-gate",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	err := drv.Input(context.Background(), "text", map[string]any{
+		"body": "describe this",
+		"images": []any{
+			map[string]any{"mime_type": "image/png", "data": "AAA="},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	// Wait for the warning system event to land. We don't insist on
+	// strict ordering — any of the posted events may include other
+	// kinds — but at least one must be the strip-warn for our reason.
+	deadline := time.Now().Add(2 * time.Second)
+	var found bool
+	for time.Now().Before(deadline) && !found {
+		for _, e := range poster.snapshot() {
+			if e.Kind != "system" {
+				continue
+			}
+			reason, _ := e.Payload["reason"].(string)
+			if reason != "" && containsIgnoreCase(reason, "image input") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	if !found {
+		t.Fatalf("expected system event noting dropped images; got %+v", poster.snapshot())
+	}
+
+	// Verify the prompt still went through with text only.
+	deadline = time.Now().Add(2 * time.Second)
+	var prompt map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/prompt"); m != nil {
+			prompt = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if prompt == nil {
+		t.Fatal("session/prompt never arrived")
+	}
+	params, _ := prompt["params"].(map[string]any)
+	arr, _ := params["prompt"].([]any)
+	if len(arr) != 1 {
+		t.Fatalf("after strip: want 1 block, got %d (%+v)", len(arr), arr)
+	}
+	if first, _ := arr[0].(map[string]any); first["type"] != "text" {
+		t.Errorf("after strip: blocks[0] should be text, got %+v", first)
+	}
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	return len(s) >= len(substr) && strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // TestACPDriver_InputCancelSendsNotification verifies cancel emits a

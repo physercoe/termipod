@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1–W4.3 shipped v1.0.430–v1.0.432
+> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1–W4.4 shipped v1.0.430–v1.0.433
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.432
+> **Last verified vs code:** v1.0.433
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -383,7 +383,7 @@ init capabilities — exact field name verified in implementation.
 
 **Version:** v1.0.432.
 
-#### W4.4 — ACP (ACPDriver) image content blocks
+#### W4.4 — ACP (ACPDriver) image content blocks ✅ v1.0.433
 
 Driver-side. `Input("text")`'s prompt-array build inserts ACP
 image blocks ahead of text:

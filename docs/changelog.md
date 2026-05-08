@@ -23,6 +23,24 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.433-alpha — 2026-05-08
+
+### Added
+- **ACP image content blocks (ADR-021 W4.4).** ACPDriver's `text`
+  Input branch now lowers `payload["images"]` entries to ACP shape
+  `{type:"image", mimeType, data}` and leads them in the
+  `session/prompt.params.prompt` array; the text block (if any)
+  trails. promptCapabilities.image is now lifted from the agent's
+  `initialize` response into a tri-state cache: absent → permitted
+  (forward-compat with agents that omit the field), explicit
+  `false` → strip + emit a `kind=system` warning event, explicit
+  `true` → forward as-is. When images are stripped and there's no
+  body left, the call returns a typed error so the operator
+  notices instead of dispatching an empty turn. Image-only inputs
+  (no body) are accepted when capability allows.
+
+---
+
 ## v1.0.432-alpha — 2026-05-08
 
 ### Added

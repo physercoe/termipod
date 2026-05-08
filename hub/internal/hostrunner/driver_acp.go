@@ -153,6 +153,17 @@ type ACPDriver struct {
 	availableModes  map[string]struct{}
 	availableModels map[string]struct{}
 
+	// promptCapImageDecl tracks whether the agent's initialize response
+	// declared promptCapabilities.image (ADR-021 W4.4). Tri-state:
+	//   nil   — initialize hasn't completed, or the field was absent (we
+	//           treat absent as "permitted" because some agents omit the
+	//           map entirely while still accepting image blocks).
+	//   *true / *false — explicit declaration. We only strip+warn when
+	//                    the cached value is *false; absent or true →
+	//                    forward as-is.
+	promptCapMu        sync.Mutex
+	promptCapImageDecl *bool
+
 	// Per-turn streaming aggregator state. gemini-cli emits
 	// `agent_message_chunk` and `agent_thought_chunk` notifications
 	// during a session/prompt — each chunk is incremental, not
@@ -269,12 +280,28 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// `authenticate` RPC and which methodId to send.
 	var initParsed struct {
 		AgentCapabilities struct {
-			LoadSession bool `json:"loadSession"`
+			LoadSession        bool             `json:"loadSession"`
+			PromptCapabilities *json.RawMessage `json:"promptCapabilities,omitempty"`
 		} `json:"agentCapabilities"`
 		AuthMethods []acpAuthMethod `json:"authMethods"`
 	}
 	_ = json.Unmarshal(initRes, &initParsed)
 	canLoad := initParsed.AgentCapabilities.LoadSession
+
+	// ADR-021 W4.4 — cache the agent's promptCapabilities.image flag
+	// for content-block gating. Only the negative declaration is
+	// load-bearing (strip + warn); positive or absent → forward.
+	if initParsed.AgentCapabilities.PromptCapabilities != nil {
+		var pc struct {
+			Image *bool `json:"image"`
+		}
+		_ = json.Unmarshal(*initParsed.AgentCapabilities.PromptCapabilities, &pc)
+		if pc.Image != nil {
+			d.promptCapMu.Lock()
+			d.promptCapImageDecl = pc.Image
+			d.promptCapMu.Unlock()
+		}
+	}
 
 	// ADR-021 W1.4 — authenticate after initialize when the agent
 	// advertised any auth methods. Empty list = pre-authenticated
@@ -407,6 +434,19 @@ func (d *ACPDriver) Start(parent context.Context) error {
 
 // Stop closes the transport (which unblocks the reader), waits, and emits
 // lifecycle.stopped. Idempotent.
+// promptCapImage reports whether the agent's initialize response
+// allows image content blocks. Returns true when the declaration was
+// absent (forward-compat with agents that omit promptCapabilities) or
+// explicitly true; only an explicit false strips images. ADR-021 W4.4.
+func (d *ACPDriver) promptCapImage() bool {
+	d.promptCapMu.Lock()
+	defer d.promptCapMu.Unlock()
+	if d.promptCapImageDecl == nil {
+		return true
+	}
+	return *d.promptCapImageDecl
+}
+
 func (d *ACPDriver) Stop() {
 	d.mu.Lock()
 	if d.stopped || !d.started {
@@ -1004,15 +1044,49 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)
-		if body == "" {
+		images := extractImageInputs(payload)
+		if body == "" && len(images) == 0 {
 			return fmt.Errorf("acp driver: text input missing body")
+		}
+		// ADR-021 W4.4 — image content blocks lower to ACP shape
+		// `{type:"image", mimeType, data}` and lead the prompt array;
+		// the text block (if any) trails so the model reads imagery
+		// before the question. Hub-side W4.1 already enforced
+		// mime/size/count caps. promptCapabilities.image gating is
+		// best-effort: if the cached capabilities flag is explicitly
+		// false we drop images and emit a kind=system warning so the
+		// principal sees why their attachment didn't reach the agent;
+		// otherwise we forward as-is.
+		if len(images) > 0 && !d.promptCapImage() {
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+				map[string]any{
+					"reason":       "agent did not advertise image input support — attached images dropped",
+					"dropped":      len(images),
+					"engine":       "acp",
+					"capability":   "promptCapabilities.image",
+				})
+			images = nil
+			if body == "" {
+				return fmt.Errorf("acp driver: text input has no body and image attachments were dropped (agent rejected promptCapabilities.image)")
+			}
+		}
+		prompt := make([]map[string]any, 0, len(images)+1)
+		for _, img := range images {
+			prompt = append(prompt, map[string]any{
+				"type":     "image",
+				"mimeType": img.mime,
+				"data":     img.data,
+			})
+		}
+		if body != "" {
+			prompt = append(prompt, map[string]any{"type": "text", "text": body})
 		}
 		d.resetTurn()
 		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
 		defer cancel()
 		res, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
-			"prompt":    []map[string]any{{"type": "text", "text": body}},
+			"prompt":    prompt,
 		})
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("acp session/prompt: no reply within %s — agent likely stuck on auth (set GEMINI_API_KEY for gemini-cli, or check ~/.gemini/oauth_creds.json reachability): %w", d.PromptTimeout, err)

@@ -381,12 +381,48 @@ transcript. Carries `kind`, `producer`, `payload`, `session_id`,
 
 ### event kind
 The `kind` column on `agent_events`. Stable typed vocabulary:
-`text`, `tool_call`, `tool_result`, `usage`, `session.init`,
-`lifecycle`, `system`, `error`, `raw`, plus the ADR-014 markers
+`text`, `thought`, `tool_call`, `tool_call_update`, `tool_result`,
+`usage`, `session.init`, `lifecycle`, `system`, `error`, `raw`,
+`turn.result`, `plan`, `diff`, `approval_request`,
+`attention_request`, plus the ADR-014 markers
 `context.compacted`, `context.cleared`, `context.rewound`. Mobile
-renders by kind.
+renders by kind. Drivers tagged `producer=agent`/`system` emit
+these; `producer=user`/`a2a` events use input-kind names like
+`input.text` / `input.approval`.
 - *Distinguish from:* **agent kind**, **input kind**, **attention
   kind**.
+
+### approval_request (event kind)
+Emitted by ACPDriver when the agent calls
+`session/request_permission` mid-turn. Payload: `request_id`
+(opaque, round-tripped to the eventual `input.approval`),
+`params` (the agent-supplied tool/option summary). The mobile
+Attention surface materializes this as an `attention_items` row.
+- *Distinguish from:* `attention_request` (infrastructure
+  failure surface — auth, etc.), where the principal can't
+  resolve via a single yes/no decision.
+
+### attention_request (event kind)
+Driver-emitted event surfacing an out-of-band failure that needs
+principal action — most commonly an ACP `authenticate` failure
+(only-interactive methods + no cached creds, rpc-error,
+preference-mismatch, timeout). ADR-021 W1.4. Payload carries a
+sub-`kind` (`auth_required` so far), the configured method (when
+applicable), the agent's advertised options, and a one-line
+`remediation` hint. Mobile renders these distinctly from
+`approval_request` because the resolution isn't a single
+allow/deny — the principal typically fixes the host
+(`gemini auth`, `GEMINI_API_KEY`) or edits the steward template,
+then retries the spawn.
+
+### replay (event payload flag)
+When a session/load is in flight (W1.2), session/update
+notifications carrying historical turns are tagged
+`payload.replay = true` by ACPDriver. AgentFeed's W1.3 ingest
+filter uses a content-stable key
+(`agentEventReplayKey`) to drop replay frames whose semantic
+content matches an event already in the cached transcript. Live
+events (`replay` flag absent or false) bypass this filter.
 
 ### producer
 The `producer` column on `agent_events`. One of `agent` (engine

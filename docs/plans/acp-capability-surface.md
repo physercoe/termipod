@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-08), revised 2026-05-08 (cross-engine scope per ADR-021 amendment)
+> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2/4 not yet started
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.405
+> **Last verified vs code:** v1.0.413
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -61,9 +61,18 @@ non-text inputs.
 Eight wedges across three phases. Sized so each is a 1-2 day push and
 ships its own version bump.
 
-### Phase 1 — Resume + authenticate
+### Phase 1 — Resume + authenticate ✅ SHIPPED
 
-#### W1.1 — Persist + capture ACP `session/new` cursor
+All four wedges landed 2026-05-08 across versions v1.0.410–v1.0.413.
+Killing and respawning a gemini M1 steward now reattaches to the
+prior conversation when the agent advertises `loadSession`, falls
+back cleanly to `session/new` on stale cursors, dispatches
+`authenticate(methodId=oauth-personal)` by default for gemini-cli,
+and surfaces auth failures as typed `attention_request` events
+instead of silent hangs. Mobile drops replay duplicates so the
+transcript reads continuous across the restart.
+
+#### W1.1 — Persist + capture ACP `session/new` cursor ✅ v1.0.410
 
 Hub-side. Extend `captureEngineSessionID`
 (`hub/internal/server/handlers_agent_events.go`) to recognize ACP
@@ -83,7 +92,7 @@ no-op (column already exists). One test: capture happens for
 
 **Version:** v1.0.410.
 
-#### W1.2 — `session/load` on respawn
+#### W1.2 — `session/load` on respawn ✅ v1.0.411
 
 Driver-side. `ACPDriver.Start` checks if `d.ResumeSessionID` is
 non-empty (set from `sessions.engine_session_id` by `launch_m1.go`).
@@ -113,7 +122,7 @@ acknowledges prior turns.
 
 **Version:** v1.0.411.
 
-#### W1.3 — Mobile dedupe for `replay:true`
+#### W1.3 — Mobile dedupe for `replay:true` ✅ v1.0.412
 
 Mobile-side. Offline-snapshot cache for the agent's transcript
 already carries the events from before the restart. After restart,
@@ -134,7 +143,7 @@ bubbles.
 **Version:** v1.0.412 (forces APK rebuild — first APK-touching
 wedge of the plan).
 
-#### W1.4 — `authenticate` after `initialize`
+#### W1.4 — `authenticate` after `initialize` ✅ v1.0.413
 
 Driver-side. After `initialize` returns and we see non-empty
 `authMethods`, decide whether auth is needed:

@@ -1,9 +1,9 @@
 # 021. ACP capability surface — resume, auth, mode/model, image inputs
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-08), amended 2026-05-08 (cross-engine scope)
+> **Status:** Accepted (2026-05-08) — Phase 1 shipped (v1.0.410–v1.0.413); Phase 2/4 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.405
+> **Last verified vs code:** v1.0.413
 
 **Amendment (2026-05-08).** Cross-engine survey after the original
 draft showed Phases 2 and 4 are not actually M1-only: claude-code's

@@ -540,10 +540,22 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	// conversation instead of cold-starting. The sessions row carries
 	// the same spawn_spec_yaml across resumes, so we re-splice fresh
 	// each time and never persist a stale --resume flag in `sessions`.
+	//
+	// ADR-021 W1.2: ACP-capable families (gemini-cli today; future
+	// claude-code SDK ACP) carry the cursor at the protocol level via
+	// session/load, not via cmd argv. The hub injects a YAML field that
+	// ACPDriver reads via SpawnSpec.ResumeSessionID; M2/M4 launch paths
+	// ignore it. Inject regardless of mode — the field is harmless when
+	// the spawn ends up M2 (gemini exec-per-turn captures its own
+	// cursor independently).
 	specYAML := spawnSpecYAML.String
-	if deadKind.String == "claude-code" && engineSessionID.Valid &&
-		engineSessionID.String != "" {
-		specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
+	if engineSessionID.Valid && engineSessionID.String != "" {
+		switch deadKind.String {
+		case "claude-code":
+			specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
+		case "gemini-cli":
+			specYAML = spliceACPResume(specYAML, engineSessionID.String)
+		}
 	}
 
 	in := spawnIn{

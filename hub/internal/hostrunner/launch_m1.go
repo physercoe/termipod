@@ -210,6 +210,12 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		Stdout:  teed,
 		RPCLog:  rpcLogFile,
 		Closer:  closer,
+		// ADR-021 W1.2: when the hub spliced a captured cursor into the
+		// rendered spec (handlers_sessions.handleResumeSession), thread
+		// it through to ACPDriver so Start can call session/load instead
+		// of session/new. Empty for cold-starts; harmless field on the
+		// driver in either case.
+		ResumeSessionID: spec.ResumeSessionID,
 	}
 	if err := drv.Start(ctx); err != nil {
 		// Start covers initialize + session/new — if either fails the

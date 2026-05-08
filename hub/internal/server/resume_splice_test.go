@@ -148,3 +148,70 @@ func TestRewriteClaudeResumeFlag_AbsolutePath(t *testing.T) {
 		t.Errorf("unexpected rewrite: %q", got)
 	}
 }
+
+// TestSpliceACPResume_AddsField — ADR-021 W1.2. ACP-capable engines
+// carry the resume cursor at the protocol level, not in cmd argv. The
+// hub injects a top-level `resume_session_id:` field into the rendered
+// spawn_spec_yaml; SpawnSpec parses it; ACPDriver consumes it.
+func TestSpliceACPResume_AddsField(t *testing.T) {
+	in := `kind: gemini-cli
+backend:
+  cmd: "gemini --acp"
+  default_workdir: ~/work
+`
+	out := spliceACPResume(in, "engine-uuid-001")
+	if !strings.Contains(out, "resume_session_id: engine-uuid-001") {
+		t.Errorf("expected resume_session_id field; got:\n%s", out)
+	}
+	// Existing fields must survive the rewrite.
+	for _, want := range []string{"kind: gemini-cli", "gemini --acp", "default_workdir"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("splice dropped %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestSpliceACPResume_Idempotent — same id rewriting an already-spliced
+// spec must be a no-op (no duplicate keys).
+func TestSpliceACPResume_Idempotent(t *testing.T) {
+	in := `kind: gemini-cli
+resume_session_id: engine-uuid-001
+backend:
+  cmd: "gemini --acp"
+`
+	out := spliceACPResume(in, "engine-uuid-001")
+	if strings.Count(out, "resume_session_id:") != 1 {
+		t.Errorf("expected exactly one resume_session_id field, got %d:\n%s",
+			strings.Count(out, "resume_session_id:"), out)
+	}
+}
+
+// TestSpliceACPResume_ReplacesPriorID — operator hand-edited a stale
+// cursor into the template; the captured engineSessionID wins.
+func TestSpliceACPResume_ReplacesPriorID(t *testing.T) {
+	in := `kind: gemini-cli
+resume_session_id: stale-old-id
+backend:
+  cmd: "gemini --acp"
+`
+	out := spliceACPResume(in, "fresh-new-id")
+	if strings.Contains(out, "stale-old-id") {
+		t.Errorf("stale id leaked through:\n%s", out)
+	}
+	if !strings.Contains(out, "resume_session_id: fresh-new-id") {
+		t.Errorf("new id missing:\n%s", out)
+	}
+}
+
+// TestSpliceACPResume_EmptySessionID — empty cursor is a no-op (the
+// hub gates on engineSessionID.Valid && != "" but defending here too).
+func TestSpliceACPResume_EmptySessionID(t *testing.T) {
+	in := `kind: gemini-cli
+backend:
+  cmd: "gemini --acp"
+`
+	out := spliceACPResume(in, "")
+	if out != in {
+		t.Errorf("empty sessionID should pass through unchanged; got:\n%s", out)
+	}
+}

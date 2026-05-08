@@ -47,6 +47,16 @@ type SpawnSpec struct {
 	// simple filenames or shallow relative paths — leading `/`, `..`, or
 	// absolute paths are rejected by the launcher.
 	ContextFiles map[string]string `yaml:"context_files"`
+
+	// ResumeSessionID is the engine-side cursor captured from a prior
+	// session.init event (sessions.engine_session_id, ADR-014 + ADR-021
+	// W1.1). When set on an ACP-capable spawn, ACPDriver calls
+	// session/load with this id instead of session/new so the agent
+	// reattaches to its prior conversation. Other launch paths (M2/M4)
+	// ignore this field — claude's --resume flag is spliced directly
+	// into backend.cmd, and gemini's exec-per-turn driver captures its
+	// own cursor from per-turn init frames.
+	ResumeSessionID string `yaml:"resume_session_id"`
 }
 
 // ParseSpec tolerates empty input and returns a zero-valued spec so callers

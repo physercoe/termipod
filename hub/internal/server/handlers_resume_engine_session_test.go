@@ -287,6 +287,114 @@ func TestSessions_ResumeThreadsClaudeResume(t *testing.T) {
 	}
 }
 
+// TestSessions_ResumeThreadsACPCursor pins the gemini/ACP analogue of
+// TestSessions_ResumeThreadsClaudeResume: ADR-021 W1.2. After a
+// captured cursor + crash + resume cycle on a gemini-cli agent, the
+// new agent_spawns row's spawn_spec_yaml carries
+// `resume_session_id: <id>` so the host-runner-side ACPDriver can
+// dispatch session/load instead of session/new on the next launch.
+// Without this, the cursor stays stranded in the sessions table and
+// every "resume" cold-starts a fresh ACP session — the exact bug
+// W1.1+W1.2 are closing.
+func TestSessions_ResumeThreadsACPCursor(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	// Inline-seed a gemini-cli agent + host (seedChannelAndAgent
+	// hardcodes claude-code; reusing it would route the resume
+	// through the wrong splice path).
+	channelID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO channels (id, scope_kind, name, created_at)
+		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	if _, err := s.db.Exec(`
+		INSERT INTO hosts (id, team_id, name, status, capabilities_json, created_at)
+		VALUES (?, ?, 'h-gemini', 'online', '{}', ?)`,
+		"host-gemini", defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed host: %v", err)
+	}
+	oldAgentID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, host_id, created_at)
+		VALUES (?, ?, 'worker', 'gemini-cli', 'host-gemini', ?)`,
+		oldAgentID, defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	specYAML := "kind: gemini-cli\n" +
+		"backend:\n" +
+		"  cmd: \"gemini --acp\"\n" +
+		"  default_workdir: /tmp/wt\n"
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "resume threads acp cursor",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/acp-resume",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Capture the engine cursor — the same shape ACPDriver.Start emits
+	// after a successful session/new (W1.1).
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "gemini-engine-cursor-zzz"},
+		})
+
+	// Crash → session auto-pauses.
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+
+	// Resume.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+	if newAgentID == "" {
+		t.Fatalf("no new_agent_id: %s", body)
+	}
+
+	// agent_spawns for the new agent must carry the YAML field.
+	var newSpec string
+	_ = s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns
+		   WHERE child_agent_id = ?`, newAgentID).Scan(&newSpec)
+	if !strings.Contains(newSpec, "resume_session_id: gemini-engine-cursor-zzz") {
+		t.Errorf("new spawn_spec missing resume_session_id field:\n%s", newSpec)
+	}
+	// And NOT the claude flag — the gemini path must not route through
+	// spliceClaudeResume even by accident.
+	if strings.Contains(newSpec, "--resume gemini-engine-cursor-zzz") {
+		t.Errorf("gemini resume incorrectly added cmd-line --resume flag:\n%s",
+			newSpec)
+	}
+
+	// Sessions row must NOT carry the spliced field — same invariant
+	// claude follows; we re-splice fresh on every resume.
+	var sesSpec string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(spawn_spec_yaml, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&sesSpec)
+	if strings.Contains(sesSpec, "resume_session_id:") {
+		t.Errorf("sessions.spawn_spec_yaml leaked resume_session_id:\n%s", sesSpec)
+	}
+}
+
 // TestSessions_ForkDoesNotInheritEngineSessionID is the ADR-014
 // defensive guard: fork must mint a fresh engine cursor, never
 // inherit the source's. Engine session stores aren't multi-writer —

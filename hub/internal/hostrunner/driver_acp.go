@@ -55,6 +55,18 @@ type ACPDriver struct {
 	// place so the operator can retry after fixing creds.
 	PromptTimeout time.Duration
 
+	// ResumeSessionID is the prior engine-side cursor captured from a
+	// previous spawn's session.init event (ADR-014 column reused per
+	// ADR-021 W1.2). When set AND the agent advertises
+	// agentCapabilities.loadSession in its initialize response, Start
+	// calls `session/load` instead of `session/new` so the daemon
+	// reattaches to the prior conversation. On load failure (cursor
+	// stale on the agent's disk, or the agent doesn't actually
+	// implement loadSession despite advertising it), Start falls back
+	// to `session/new` so the user still gets a session — fresh, but
+	// usable. Empty → always cold-start with `session/new`.
+	ResumeSessionID string
+
 	// RPCLog, when non-nil, receives a JSONL trace of every JSON-RPC
 	// frame in both directions: each line is a wrapping object with
 	// `t` (UTC timestamp), `dir` (`out` = driver→agent, `in` =
@@ -97,6 +109,18 @@ type ACPDriver struct {
 	permMu      sync.Mutex
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
 	sessionID   string
+
+	// replayMu / replayActive marks the window during which a
+	// session/load call is in flight. While active, handleNotification
+	// tags emitted agent_events with `replay: true` in their payload so
+	// downstream caches (mobile transcript, hub-side filter) can
+	// distinguish historical replay frames from live activity. ACP's
+	// session/load contract: the agent emits a flurry of session/update
+	// notifications carrying historical turns *before* sending the
+	// session/load response. Once the response arrives, replayActive
+	// flips back to false and subsequent updates are live again.
+	replayMu     sync.Mutex
+	replayActive bool
 
 	// Per-turn streaming aggregator state. gemini-cli emits
 	// `agent_message_chunk` and `agent_thought_chunk` notifications
@@ -197,31 +221,80 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	// shim). Per-call deadline so a slow daemon startup doesn't eat
 	// into the next call's budget (see HandshakeTimeout doc above).
 	initCtx, cancelInit := context.WithTimeout(parent, d.HandshakeTimeout)
-	if _, err := d.call(initCtx, "initialize", map[string]any{
+	initRes, err := d.call(initCtx, "initialize", map[string]any{
 		"protocolVersion":    1,
 		"clientCapabilities": map[string]any{},
-	}); err != nil {
-		cancelInit()
+	})
+	cancelInit()
+	if err != nil {
 		return fmt.Errorf("acp initialize: %w", err)
 	}
-	cancelInit()
+	// Cache loadSession capability so session/load is gated on what the
+	// agent advertised, not on hopeful guessing. ADR-021 W1.2.
+	var initParsed struct {
+		AgentCapabilities struct {
+			LoadSession bool `json:"loadSession"`
+		} `json:"agentCapabilities"`
+	}
+	_ = json.Unmarshal(initRes, &initParsed)
+	canLoad := initParsed.AgentCapabilities.LoadSession
 
-	// session/new — capture sessionId so we can correlate updates.
-	// Fresh per-call deadline; same rationale as initialize.
-	nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
-	defer cancelNS()
-	sres, err := d.call(nsCtx, "session/new", map[string]any{
-		"cwd":             "",
-		"mcpServers":      []any{},
-		"clientMetadata":  map[string]any{"name": "termipod-hostrunner"},
-	})
-	if err != nil {
-		return fmt.Errorf("acp session/new: %w", err)
+	// Decide between session/new (cold start) and session/load (resume).
+	// Resume requires both: a captured cursor (ResumeSessionID) AND the
+	// agent advertising loadSession. Either missing → cold start. Load
+	// failure → fall through to session/new so the operator still gets
+	// a session even if the cursor is stale on the agent's disk.
+	var (
+		sres        json.RawMessage
+		usedLoad    bool
+	)
+	if d.ResumeSessionID != "" && canLoad {
+		// Set replayActive BEFORE issuing the call so any session/update
+		// notifications the agent streams during the load (historical
+		// turn replay) get tagged in handleNotification.
+		d.setReplay(true)
+		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
+		loadRes, loadErr := d.call(nsCtx, "session/load", map[string]any{
+			"sessionId":      d.ResumeSessionID,
+			"cwd":            "",
+			"mcpServers":     []any{},
+			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
+		})
+		cancelNS()
+		d.setReplay(false)
+		if loadErr == nil {
+			sres = loadRes
+			usedLoad = true
+		} else {
+			d.Log.Warn("acp session/load failed; falling back to session/new",
+				"agent", d.AgentID, "cursor", d.ResumeSessionID, "err", loadErr)
+		}
+	}
+	if !usedLoad {
+		// session/new — fresh session. Per-call deadline; same rationale
+		// as initialize.
+		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
+		newRes, newErr := d.call(nsCtx, "session/new", map[string]any{
+			"cwd":            "",
+			"mcpServers":     []any{},
+			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
+		})
+		cancelNS()
+		if newErr != nil {
+			return fmt.Errorf("acp session/new: %w", newErr)
+		}
+		sres = newRes
 	}
 	var sr struct {
 		SessionID string `json:"sessionId"`
 	}
 	_ = json.Unmarshal(sres, &sr)
+	// Some agents implement session/load by returning the same id we
+	// passed in; others might omit it. Fall back to ResumeSessionID
+	// when the response didn't carry one but we know the load succeeded.
+	if sr.SessionID == "" && usedLoad {
+		sr.SessionID = d.ResumeSessionID
+	}
 	d.mu.Lock()
 	d.sessionID = sr.SessionID
 	d.mu.Unlock()
@@ -336,6 +409,31 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 		}
 		return resp.result, nil
 	}
+}
+
+// setReplay flips the replay tag window. handleNotification reads the
+// flag while building each event payload so historical turn frames
+// streamed by the agent in response to session/load come through with
+// `replay: true` set.
+func (d *ACPDriver) setReplay(v bool) {
+	d.replayMu.Lock()
+	d.replayActive = v
+	d.replayMu.Unlock()
+}
+
+// tagIfReplay annotates a payload with `replay: true` when a
+// session/load is currently streaming history. Caller-supplied payloads
+// are kept untouched outside the replay window so the live wire shape
+// is byte-identical to today's traffic.
+func (d *ACPDriver) tagIfReplay(payload map[string]any) map[string]any {
+	d.replayMu.Lock()
+	active := d.replayActive
+	d.replayMu.Unlock()
+	if !active || payload == nil {
+		return payload
+	}
+	payload["replay"] = true
+	return payload
 }
 
 // resetTurn clears the per-turn streaming aggregator state so chunks
@@ -662,26 +760,26 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 		}
 		d.turnMu.Unlock()
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, ekind, "agent",
-			map[string]any{
+			d.tagIfReplay(map[string]any{
 				"text":       cumulative,
 				"message_id": msgID,
 				"partial":    true,
-			})
+			}))
 	case "tool_call":
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
-			map[string]any{
+			d.tagIfReplay(map[string]any{
 				"id":     u["toolCallId"],
 				"name":   u["title"],
 				"kind":   u["kind"],
 				"status": u["status"],
 				"input":  u["rawInput"],
-			})
+			}))
 	case "tool_call_update":
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", u)
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", d.tagIfReplay(u))
 	case "plan":
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", u)
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", d.tagIfReplay(u))
 	case "diff":
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "diff", "agent", u)
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "diff", "agent", d.tagIfReplay(u))
 	case "user_message_chunk":
 		// Our own input being echoed back — drop to avoid a loop.
 		return
@@ -701,7 +799,7 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 		// a hub-side schema change.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system", u)
 	default:
-		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", u)
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "raw", "agent", d.tagIfReplay(u))
 	}
 }
 

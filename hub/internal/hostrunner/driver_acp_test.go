@@ -20,6 +20,12 @@ type fakeACPAgent struct {
 	hostWrite io.Writer     // writes into the driver's stdout
 	sessionID string
 
+	// W1.2 toggles. Defaults preserve the W1.1-era handshake shape so
+	// existing tests don't have to opt in.
+	advertiseLoadSession bool                     // initialize → agentCapabilities.loadSession=true
+	failSessionLoad      bool                     // session/load → JSON-RPC error
+	loadReplayFrames     []map[string]any         // streamed BEFORE session/load reply
+
 	mu       sync.Mutex
 	closed   bool
 	initCh   chan struct{} // closed when handshake completes
@@ -53,13 +59,32 @@ func (f *fakeACPAgent) serve() {
 		id := msg["id"]
 		switch method {
 		case "initialize":
+			caps := map[string]any{}
+			if f.advertiseLoadSession {
+				caps["loadSession"] = true
+			}
 			f.respond(id, map[string]any{
 				"protocolVersion":   1,
-				"agentCapabilities": map[string]any{},
+				"agentCapabilities": caps,
 			})
 		case "session/new":
 			f.respond(id, map[string]any{"sessionId": f.sessionID})
 			close(f.initCh)
+		case "session/load":
+			// W1.2: ACP load response is preceded by a flurry of
+			// session/update notifications carrying historical turns.
+			// Stream them first so the readLoop tags them replay:true
+			// (replayActive flips off when the response below is
+			// delivered).
+			for _, frame := range f.loadReplayFrames {
+				f.notify("session/update", frame)
+			}
+			if f.failSessionLoad {
+				f.respondError(id, -32000, "stale cursor")
+			} else {
+				f.respond(id, map[string]any{"sessionId": f.sessionID})
+				close(f.initCh)
+			}
 		case "session/prompt":
 			f.respond(id, map[string]any{"stopReason": "end_turn"})
 		default:
@@ -77,6 +102,22 @@ func (f *fakeACPAgent) respond(id any, result map[string]any) {
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result":  result,
+	})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+	_, _ = f.hostWrite.Write(append(b, '\n'))
+}
+
+// respondError sends a JSON-RPC error frame for the request id. Used
+// by W1.2 tests that simulate a stale-cursor session/load failure.
+func (f *fakeACPAgent) respondError(id any, code int, message string) {
+	b, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error":   map[string]any{"code": code, "message": message},
 	})
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1564,6 +1605,229 @@ func eventKinds(evs []postedEvent) []string {
 	out := make([]string, len(evs))
 	for i := range evs {
 		out[i] = evs[i].Kind
+	}
+	return out
+}
+
+// TestACPDriver_StartUsesSessionLoadWhenCursorAndCapability — ADR-021
+// W1.2 happy path. With both a captured cursor (ResumeSessionID) and
+// the agent advertising loadSession in initialize, Start must call
+// session/load and skip session/new entirely.
+func TestACPDriver_StartUsesSessionLoadWhenCursorAndCapability(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-load")
+	fake.advertiseLoadSession = true
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-load",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "engine-uuid-load",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if got := fake.findReceived("session/load"); got == nil {
+		t.Fatalf("session/load not sent; received methods=%v", receivedMethods(fake))
+	}
+	if got := fake.findReceived("session/new"); got != nil {
+		t.Errorf("session/new should NOT have been sent when load succeeded; got %+v", got)
+	}
+	// Sanity: the driver must have latched the sessionID for subsequent
+	// prompts (without it Input("text") would refuse to prompt).
+	drv.mu.Lock()
+	sid := drv.sessionID
+	drv.mu.Unlock()
+	if sid != "engine-uuid-load" {
+		t.Errorf("sessionID after load = %q; want engine-uuid-load", sid)
+	}
+}
+
+// TestACPDriver_UsesSessionNewWhenLoadCapabilityAbsent — D6 capability
+// gating. When ResumeSessionID is set but the agent does NOT advertise
+// loadSession, the driver must fall through to session/new instead of
+// guessing.
+func TestACPDriver_UsesSessionNewWhenLoadCapabilityAbsent(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-fresh")
+	// advertiseLoadSession defaults false — agent doesn't support load.
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-no-load",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "engine-uuid-fresh", // cursor exists...
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if got := fake.findReceived("session/load"); got != nil {
+		t.Errorf("session/load sent without loadSession capability: %+v", got)
+	}
+	if got := fake.findReceived("session/new"); got == nil {
+		t.Fatalf("session/new not sent; received methods=%v", receivedMethods(fake))
+	}
+}
+
+// TestACPDriver_FallsBackToSessionNewOnLoadFailure — D2 fall-back. A
+// stale cursor (cursor on hub, gone from agent disk) must not strand
+// the operator. Start tries session/load; on rpc-error response, falls
+// through to session/new and continues normally.
+func TestACPDriver_FallsBackToSessionNewOnLoadFailure(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-fallback")
+	fake.advertiseLoadSession = true
+	fake.failSessionLoad = true
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-fallback",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "stale-cursor",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v (must NOT propagate stale-cursor failure)", err)
+	}
+	defer drv.Stop()
+
+	if got := fake.findReceived("session/load"); got == nil {
+		t.Fatalf("session/load not attempted before fallback; methods=%v",
+			receivedMethods(fake))
+	}
+	if got := fake.findReceived("session/new"); got == nil {
+		t.Fatalf("session/new fallback not sent; methods=%v",
+			receivedMethods(fake))
+	}
+	drv.mu.Lock()
+	sid := drv.sessionID
+	drv.mu.Unlock()
+	if sid != "engine-uuid-fallback" {
+		t.Errorf("sessionID after fallback = %q; want engine-uuid-fallback "+
+			"(the fresh sessionId from session/new, not the stale cursor)", sid)
+	}
+}
+
+// TestACPDriver_TagsReplayEvents — D2 replay handling. Events emitted
+// while a session/load is in flight (the agent's historical turn
+// stream) must carry `replay: true` in their payload so mobile's
+// dedupe layer can drop them when the cached transcript already has
+// them. Events emitted AFTER Start returns must NOT carry the flag.
+func TestACPDriver_TagsReplayEvents(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-replay")
+	fake.advertiseLoadSession = true
+	fake.loadReplayFrames = []map[string]any{
+		{
+			"sessionId": "engine-uuid-replay",
+			"update": map[string]any{
+				"sessionUpdate": "agent_message_chunk",
+				"content":       map[string]any{"type": "text", "text": "historical turn"},
+			},
+		},
+		{
+			"sessionId": "engine-uuid-replay",
+			"update": map[string]any{
+				"sessionUpdate": "tool_call",
+				"toolCallId":    "tc-replay",
+				"title":         "Read",
+				"kind":          "read",
+				"status":        "completed",
+				"rawInput":      map[string]any{"path": "/tmp/x"},
+			},
+		},
+	}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-replay",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		ResumeSessionID:  "engine-uuid-replay",
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// After Start: lifecycle.started + session.init + 2 replay events.
+	evs := poster.wait(t, 4, 2*time.Second)
+
+	var replayText, replayTool *postedEvent
+	for i := range evs {
+		switch evs[i].Kind {
+		case "text":
+			replayText = &evs[i]
+		case "tool_call":
+			replayTool = &evs[i]
+		}
+	}
+	if replayText == nil || replayTool == nil {
+		t.Fatalf("missing replay events; kinds=%v", eventKinds(evs))
+	}
+	if got, _ := replayText.Payload["replay"].(bool); !got {
+		t.Errorf("text event during load missing replay:true; payload=%+v",
+			replayText.Payload)
+	}
+	if got, _ := replayTool.Payload["replay"].(bool); !got {
+		t.Errorf("tool_call during load missing replay:true; payload=%+v",
+			replayTool.Payload)
+	}
+
+	// Now drive a LIVE notification — Start has returned, replayActive
+	// should be off. The text event must NOT carry replay:true.
+	fake.notify("session/update", map[string]any{
+		"sessionId": "engine-uuid-replay",
+		"update": map[string]any{
+			"sessionUpdate": "agent_message_chunk",
+			"content":       map[string]any{"type": "text", "text": " — and now live"},
+		},
+	})
+	evs = poster.wait(t, 5, 2*time.Second)
+	live := evs[len(evs)-1]
+	if live.Kind != "text" {
+		t.Fatalf("last event kind = %q; want text", live.Kind)
+	}
+	if got, _ := live.Payload["replay"].(bool); got {
+		t.Errorf("live event tagged replay:true; payload=%+v", live.Payload)
+	}
+}
+
+func receivedMethods(f *fakeACPAgent) []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.received))
+	for _, m := range f.received {
+		if mth, _ := m["method"].(string); mth != "" {
+			out = append(out, mth)
+		}
 	}
 	return out
 }

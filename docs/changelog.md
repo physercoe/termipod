@@ -23,6 +23,42 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.411-alpha — 2026-05-08
+
+### Added
+- **ACP `session/load` on respawn (ADR-021 W1.2).** When the hub
+  resumes a gemini-cli session that has a captured engine cursor,
+  it now injects `resume_session_id: <id>` into the rendered
+  `spawn_spec_yaml`. `SpawnSpec.ResumeSessionID` plumbs the value
+  through `launch_m1.go` to `ACPDriver.ResumeSessionID`. On
+  handshake, the driver caches `agentCapabilities.loadSession`
+  from the `initialize` response; when both the cursor is set AND
+  the agent advertises load support, it calls `session/load`
+  instead of `session/new`. On load failure (stale cursor, agent
+  doesn't actually implement the method), the driver logs a
+  warning and falls back to `session/new` so the operator still
+  gets a session — fresh, but usable.
+- **Replay event tagging.** Session/update notifications streamed
+  by the agent during `session/load` (the historical-turn replay)
+  are tagged `replay: true` in their event payloads via the new
+  `tagIfReplay` helper. Live notifications after Start completes
+  are unaffected. Mobile-side dedupe (W1.3) consumes this flag.
+- **`spliceACPResume` helper.** Sibling to `spliceClaudeResume` —
+  yaml.v3-Node-based top-level field injection so the cursor
+  flows through the same template-derived YAML pipeline as
+  claude's `--resume` cmd splice. Defensive: empty cursor →
+  no-op, idempotent, replaces a stale prior id.
+
+### Tests
+- 4 new ACPDriver tests cover load-when-capable, fallback when
+  loadSession unsupported, fallback on rpc-error, and replay
+  tagging round-trip.
+- 4 new `spliceACPResume` shape tests + 1 end-to-end resume test
+  (`TestSessions_ResumeThreadsACPCursor`) pin the gemini-cli
+  resume path mirror of the claude resume pin.
+
+---
+
 ## v1.0.410-alpha — 2026-05-08
 
 ### Added

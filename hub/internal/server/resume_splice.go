@@ -99,6 +99,70 @@ func rewriteClaudeResumeFlag(cmd, sessionID string) (string, bool) {
 	return strings.Join(out, " "), true
 }
 
+// spliceACPResume injects (or replaces) a top-level `resume_session_id`
+// scalar in the rendered spawn_spec_yaml. ACPDriver.Start reads this
+// field via SpawnSpec.ResumeSessionID and, when the agent advertises
+// loadSession capability, calls session/load instead of session/new
+// so the spawned daemon reattaches to its prior conversation
+// (ADR-021 W1.2).
+//
+// Behaviour mirrors spliceClaudeResume's defensive shape:
+//   - sessionID empty → return spec unchanged.
+//   - YAML parse fails → return spec unchanged. The resume still proceeds
+//     (cold-start) — better than a 500.
+//   - existing resume_session_id with the same value → idempotent no-op.
+//   - existing resume_session_id with a different value → overwrite.
+//   - field absent → append to the top-level mapping.
+//
+// Unlike claude's path we don't touch backend.cmd — ACP carries the
+// cursor at the protocol level, not the cmd flag level.
+func spliceACPResume(specYAML, sessionID string) string {
+	if sessionID == "" {
+		return specYAML
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(specYAML), &root); err != nil {
+		return specYAML
+	}
+	doc := &root
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		// Empty doc: synthesize a mapping with just the resume key.
+		// Empty input is rare here (resume requires spawn_spec_yaml to
+		// be set), but be defensive.
+		doc.Kind = yaml.MappingNode
+		doc.Tag = "!!map"
+	}
+	for i := 0; i+1 < len(doc.Content); i += 2 {
+		k := doc.Content[i]
+		if k.Kind == yaml.ScalarNode && k.Value == "resume_session_id" {
+			v := doc.Content[i+1]
+			if v.Kind == yaml.ScalarNode && v.Value == sessionID {
+				return specYAML
+			}
+			v.Kind = yaml.ScalarNode
+			v.Tag = "!!str"
+			v.Value = sessionID
+			out, err := yaml.Marshal(&root)
+			if err != nil {
+				return specYAML
+			}
+			return string(out)
+		}
+	}
+	doc.Content = append(doc.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "resume_session_id"},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: sessionID},
+	)
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return specYAML
+	}
+	return string(out)
+}
+
 // isClaudeBin returns true when tok names the claude-code CLI. Allows
 // either the bare `claude` or an absolute path ending in `/claude`,
 // the two shapes templates ship today.

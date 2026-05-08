@@ -83,6 +83,22 @@ func TestLaunchM2_GeminiFamily_WiresExecResumeDriver(t *testing.T) {
 		t.Error("CommandBuilder is nil — production wiring didn't set ExecCommandBuilder")
 	}
 
+	// Trust env: gemini-cli@0.41+ rejects headless turns from untrusted
+	// folders (overrides --yolo back to "default" and exits before any
+	// stream-json output). Hub-work is the agent's operating dir, so
+	// GEMINI_CLI_TRUST_WORKSPACE=true must be in the spawn env or the
+	// driver will run gemini and get nothing back.
+	var sawTrust bool
+	for _, kv := range drv.Env {
+		if kv == "GEMINI_CLI_TRUST_WORKSPACE=true" {
+			sawTrust = true
+			break
+		}
+	}
+	if !sawTrust {
+		t.Error("GEMINI_CLI_TRUST_WORKSPACE=true missing from drv.Env; gemini-cli@0.41 will refuse headless turns from untrusted folders")
+	}
+
 	// Pane / log: ADR-013 D7 — exec-per-turn doesn't anchor a pane
 	// since there's no long-running stdout to tail. Spawner must NOT
 	// have been called.

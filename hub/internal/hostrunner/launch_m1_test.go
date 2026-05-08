@@ -102,6 +102,14 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 	if !strings.Contains(spawner.cmd, "cd ") {
 		t.Errorf("spawner.cmd = %q; want a leading `cd <workdir>`", spawner.cmd)
 	}
+	// gemini-cli@0.41+ rejects headless mode (--acp included) from an
+	// untrusted folder: the binary exits before producing any
+	// JSON-RPC output, ACP initialize times out, and we fall back to
+	// M2/M4. Inline GEMINI_CLI_TRUST_WORKSPACE=true into the bash -c
+	// command so the trust gate clears.
+	if !strings.Contains(spawner.cmd, "GEMINI_CLI_TRUST_WORKSPACE=true") {
+		t.Errorf("spawner.cmd = %q; want a leading GEMINI_CLI_TRUST_WORKSPACE=true env so gemini-cli@0.41 doesn't refuse the launch", spawner.cmd)
+	}
 
 	// Lifecycle event must report mode=M1 (driver_acp.go emits this on
 	// successful handshake — proves the ACP path ran end-to-end).

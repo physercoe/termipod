@@ -200,16 +200,23 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		if lookErr != nil {
 			return M2LaunchResult{}, fmt.Errorf("gemini bin %q: %w", bin, lookErr)
 		}
+		// gemini-cli@0.41+ gates headless turns behind a trusted-folders
+		// list; an untrusted workdir overrides --yolo back to "default"
+		// and the binary exits before producing any stream-json frames.
+		// Hub-work is intentionally the agent's operating dir, so opt
+		// into trust for it explicitly. Prepended to os.Environ() so a
+		// host-runner-level override (operator unsetting it) still wins.
+		geminiEnv := append([]string{"GEMINI_CLI_TRUST_WORKSPACE=true"}, os.Environ()...)
 		drv := &ExecResumeDriver{
 			AgentID:        cfg.Spawn.ChildID,
 			Handle:         cfg.Spawn.Handle,
 			Poster:         cfg.Client,
 			Bin:            resolved,
 			Workdir:        expandedWorkdir,
-			Env:            os.Environ(),
+			Env:            geminiEnv,
 			Yolo:           true, // ADR-013 D4 — see steward template
 			FrameProfile:   fam.FrameProfile,
-			CommandBuilder: ExecCommandBuilder(expandedWorkdir, os.Environ()),
+			CommandBuilder: ExecCommandBuilder(expandedWorkdir, geminiEnv),
 		}
 		if err := drv.Start(ctx); err != nil {
 			return M2LaunchResult{}, fmt.Errorf("exec-resume start: %w", err)

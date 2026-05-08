@@ -71,6 +71,15 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		return M1LaunchResult{}, fmt.Errorf("M1 launch: backend.cmd is empty in spawn spec")
 	}
 
+	// gemini-cli@0.41+ refuses headless launch (incl. --acp) from an
+	// untrusted folder. Inline-export the trust opt-in into the bash -c
+	// command — this is the M1 mirror of the geminiEnv hook in launch_m2.
+	// Codex / claude-code don't read this var so it's a safe no-op for
+	// other families; we still gate on Kind to keep env clean.
+	if cfg.Spawn.Kind == "gemini-cli" {
+		command = "GEMINI_CLI_TRUST_WORKSPACE=true " + command
+	}
+
 	expandedWorkdir := ""
 	if wd := spec.Backend.DefaultWorkdir; wd != "" {
 		expanded, err := expandHome(wd)

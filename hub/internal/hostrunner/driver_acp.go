@@ -228,6 +228,18 @@ func (d *ACPDriver) Start(parent context.Context) error {
 
 	_ = d.Poster.PostAgentEvent(parent, d.AgentID, "lifecycle", "system",
 		map[string]any{"phase": "started", "mode": "M1", "session_id": sr.SessionID})
+
+	// session.init carries the engine-side cursor on a `producer=agent`
+	// event so handlers_sessions.captureEngineSessionID can lift it into
+	// `sessions.engine_session_id` (ADR-014 + ADR-021 W1.1). The lifecycle
+	// frame above is `producer=system` and intentionally excluded from
+	// that capture path; this dedicated event matches the shape claude's
+	// stream-json driver already emits (driver_stdio.go:309), so the
+	// engine-neutral capture works for ACP without a hub-side branch.
+	if sr.SessionID != "" {
+		_ = d.Poster.PostAgentEvent(parent, d.AgentID, "session.init", "agent",
+			map[string]any{"session_id": sr.SessionID})
+	}
 	return nil
 }
 

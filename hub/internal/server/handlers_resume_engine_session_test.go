@@ -106,6 +106,69 @@ func TestPostAgentEvent_IgnoresNonInitForCapture(t *testing.T) {
 	}
 }
 
+// TestPostAgentEvent_CapturesEngineSessionID_GeminiCLI is the ADR-021
+// W1.1 pin: the same engine-neutral capture path that lifts claude's
+// stream-json `system/init` cursor must also lift gemini's ACP
+// `session/new` cursor when the M1 driver emits its dedicated
+// `session.init` event (driver_acp.go Start()). The capture is gated on
+// the (kind, producer) tuple of the event — not on `agents.kind` — so
+// the same SQL fires regardless of engine. This test pins that
+// invariant against an agent stamped `kind=gemini-cli` so a future
+// refactor that accidentally adds a kind filter would fail loudly.
+func TestPostAgentEvent_CapturesEngineSessionID_GeminiCLI(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	// Seed a channel + a gemini-cli agent directly so we don't have to
+	// extend seedChannelAndAgent's signature for this one test.
+	channelID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO channels (id, scope_kind, name, created_at)
+		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	agentID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, created_at)
+		VALUES (?, ?, 'worker', 'gemini-cli', ?)`,
+		agentID, defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed gemini agent: %v", err)
+	}
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{"title": "gemini cursor test", "agent_id": agentID})
+	if status != http.StatusCreated {
+		t.Fatalf("open session: %d %s", status, body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Same shape ACPDriver.Start() emits after a successful session/new
+	// handshake. The session_id is gemini's UUID, not claude's.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+agentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload": map[string]any{
+				"session_id": "gemini-uuid-bbb",
+			},
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("post init: %d %s", status, body)
+	}
+
+	var got string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(engine_session_id, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&got)
+	if got != "gemini-uuid-bbb" {
+		t.Errorf("sessions.engine_session_id = %q; want %q "+
+			"(engine-neutral capture must work for gemini-cli agents)",
+			got, "gemini-uuid-bbb")
+	}
+}
+
 // TestPostAgentEvent_IgnoresUserProducerInit — a `producer=user` init
 // (echo of our own input, hypothetically) shouldn't update the
 // cursor. Only frames produced by the engine carry an authoritative

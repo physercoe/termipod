@@ -231,11 +231,12 @@ func TestACPDriver_HandshakeAndSessionUpdates(t *testing.T) {
 		},
 	})
 
-	// Expect: lifecycle.started + 4 translated events (user_message_chunk dropped).
-	poster.wait(t, 5, 2*time.Second)
+	// Expect: lifecycle.started + session.init + 4 translated events
+	// (user_message_chunk dropped).
+	poster.wait(t, 6, 2*time.Second)
 
 	drv.Stop()
-	poster.wait(t, 6, time.Second)
+	poster.wait(t, 7, time.Second)
 
 	evs := poster.snapshot()
 
@@ -243,9 +244,14 @@ func TestACPDriver_HandshakeAndSessionUpdates(t *testing.T) {
 		evs[0].Payload["mode"] != "M1" || evs[0].Payload["session_id"] != "sess-acp-1" {
 		t.Fatalf("evs[0] want lifecycle.started/M1/sess-acp-1; got %+v", evs[0])
 	}
+	if evs[1].Kind != "session.init" || evs[1].Producer != "agent" ||
+		evs[1].Payload["session_id"] != "sess-acp-1" {
+		t.Fatalf("evs[1] want session.init/agent/sess-acp-1; got %+v", evs[1])
+	}
 
-	// Collect translated events (skip lifecycle at [0] and [last]).
-	translated := evs[1 : len(evs)-1]
+	// Collect translated events (skip lifecycle.started + session.init at
+	// the front and lifecycle.stopped at the back).
+	translated := evs[2 : len(evs)-1]
 	if len(translated) != 4 {
 		t.Fatalf("want 4 translated events; got %d (%+v)", len(translated), translated)
 	}
@@ -1470,12 +1476,13 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 		},
 	})
 
-	// Wait: lifecycle.started + 3 translated events.
-	poster.wait(t, 4, 2*time.Second)
+	// Wait: lifecycle.started + session.init + 3 translated events.
+	poster.wait(t, 5, 2*time.Second)
 	evs := poster.snapshot()
 
-	// Skip lifecycle.started at [0]; the next 3 are the capability events.
-	caps := evs[1:4]
+	// Skip lifecycle.started at [0] and session.init at [1]; the next 3
+	// are the capability events.
+	caps := evs[2:5]
 	wantUpdates := []string{
 		"available_commands_update",
 		"current_mode_update",
@@ -1498,4 +1505,65 @@ func TestACPDriver_CapabilityNotificationsAreSystemKind(t *testing.T) {
 				want, got, want)
 		}
 	}
+}
+
+// TestACPDriver_EmitsSessionInitOnStart pins ADR-021 W1.1: after the
+// ACP `session/new` handshake completes, the driver emits a dedicated
+// `session.init` event with `producer=agent` carrying the engine-side
+// `session_id`. The hub's `captureEngineSessionID`
+// (handlers_sessions.go) gates on that exact (kind, producer) tuple to
+// lift the cursor into `sessions.engine_session_id`, so missing this
+// event would silently break resume across spawn restarts even though
+// the lifecycle.started frame still announces the same id.
+func TestACPDriver_EmitsSessionInitOnStart(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "engine-uuid-w11")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-w11",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	evs := poster.wait(t, 2, 2*time.Second)
+	// Expect the session.init event right after lifecycle.started, with
+	// producer=agent (the capture path ignores producer=system) and the
+	// session_id from session/new.
+	var init *postedEvent
+	for i := range evs {
+		if evs[i].Kind == "session.init" {
+			init = &evs[i]
+			break
+		}
+	}
+	if init == nil {
+		t.Fatalf("no session.init event emitted; got kinds=%v", eventKinds(evs))
+	}
+	if init.Producer != "agent" {
+		t.Errorf("session.init producer = %q; want agent (capture path filters on this)",
+			init.Producer)
+	}
+	if init.Payload["session_id"] != "engine-uuid-w11" {
+		t.Errorf("session.init session_id = %v; want engine-uuid-w11",
+			init.Payload["session_id"])
+	}
+}
+
+func eventKinds(evs []postedEvent) []string {
+	out := make([]string, len(evs))
+	for i := range evs {
+		out[i] = evs[i].Kind
+	}
+	return out
 }

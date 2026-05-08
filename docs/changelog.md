@@ -23,6 +23,24 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.410-alpha — 2026-05-08
+
+### Added
+- **ACP `session.init` event for engine-side cursor capture
+  (ADR-021 W1.1).** `ACPDriver.Start()` now emits a dedicated
+  `session.init` agent event with `producer=agent` after the ACP
+  `session/new` handshake completes. The hub's engine-neutral
+  `captureEngineSessionID` (gate: `kind=session.init &&
+  producer=agent`) lifts the gemini sessionId into
+  `sessions.engine_session_id` — same column claude already uses
+  per ADR-014. No migration; column existed since 0033. This is
+  the prerequisite for W1.2 (`session/load` on respawn): without
+  the cursor in the database, there is nothing to splice on
+  resume. Tests cover the driver-side emission and the hub-side
+  capture for `kind=gemini-cli` agents.
+
+---
+
 ## v1.0.349-alpha+1 — 2026-04-30 (docs/tooling, no app rebuild)
 
 ### Added

@@ -1,11 +1,51 @@
 package server
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// resolveRuntimeModeSwitch returns the routing token for the given
+// agent's family + driving_mode (ADR-021 D4 / W2.1). Returns:
+//   - "rpc" / "respawn" / "per_turn_argv" — declared route the handler
+//     dispatches on.
+//   - "unsupported" — declared explicitly, OR the family didn't declare
+//     a route for this driving_mode (missing-key fallback so the picker
+//     degrades safely instead of crashing).
+//   - error — only on unexpected SQL failures; agent-not-found is folded
+//     into "unsupported" because the agent_belongs_to_team check has
+//     already ruled it out at the call site.
+func (s *Server) resolveRuntimeModeSwitch(ctx context.Context, agentID string) (string, error) {
+	var kind, drivingMode sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		`SELECT kind, driving_mode FROM agents WHERE id = ?`,
+		agentID).Scan(&kind, &drivingMode)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "unsupported", nil
+		}
+		return "", err
+	}
+	mode := drivingMode.String
+	if mode == "" {
+		mode = "M4"
+	}
+	fam, ok := s.agentFamilies.ByName(kind.String)
+	if !ok {
+		return "unsupported", nil
+	}
+	route := fam.RuntimeModeSwitch[mode]
+	if route == "" {
+		return "unsupported", nil
+	}
+	return route, nil
+}
 
 // P1.8: structured user input sink. Writes land in agent_events with
 // producer='user' and kind='input.<kind>' so they share the monotonic
@@ -34,6 +74,13 @@ type agentInputIn struct {
 	Reason string `json:"reason,omitempty"`
 	// attach
 	DocumentID string `json:"document_id,omitempty"`
+	// set_mode / set_model (ADR-021 D4 / W2.1). ModeID is the agent's
+	// availableModes id ("default", "yolo", "plan", …); ModelID is the
+	// availableModels id. The hub validates the family routing token at
+	// the agent's driving_mode and the driver (W2.2) validates the id
+	// against the cached availableModes/availableModels list.
+	ModeID  string `json:"mode_id,omitempty"`
+	ModelID string `json:"model_id,omitempty"`
 }
 
 func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
@@ -149,9 +196,23 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		payloadMap["document_id"] = in.DocumentID
+	case "set_mode":
+		// ADR-021 D4 / W2.1 — runtime mode picker.
+		if in.ModeID == "" {
+			writeErr(w, http.StatusBadRequest, "mode_id required")
+			return
+		}
+		payloadMap["mode_id"] = in.ModeID
+	case "set_model":
+		// ADR-021 D4 / W2.1 — runtime model picker.
+		if in.ModelID == "" {
+			writeErr(w, http.StatusBadRequest, "model_id required")
+			return
+		}
+		payloadMap["model_id"] = in.ModelID
 	default:
 		writeErr(w, http.StatusBadRequest,
-			"kind must be text|approval|answer|attention_reply|cancel|attach")
+			"kind must be text|approval|answer|attention_reply|cancel|attach|set_mode|set_model")
 		return
 	}
 
@@ -177,6 +238,57 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeErr(w, http.StatusNotFound, "agent not found")
 		return
+	}
+
+	// ADR-021 D4 / W2.1 — set_mode/set_model routing. The family entry
+	// declares one of rpc | respawn | per_turn_argv | unsupported per
+	// driving_mode; we dispatch here so mobile sees a single contract
+	// and only the wire path varies. rpc and per_turn_argv land as
+	// regular input.* events the driver picks up via InputRouter; the
+	// driver-side handlers ship in W2.2 and W2.4. respawn is hub-side
+	// orchestration (W2.3) — currently a stub returning 501. unsupported
+	// is the explicit "this engine path can't switch at runtime" signal.
+	if in.Kind == "set_mode" || in.Kind == "set_model" {
+		route, routeErr := s.resolveRuntimeModeSwitch(r.Context(), agent)
+		if routeErr != nil {
+			writeErr(w, http.StatusInternalServerError, routeErr.Error())
+			return
+		}
+		switch route {
+		case "rpc", "per_turn_argv":
+			// Fall through to the standard event-emit path below.
+		case "respawn":
+			field := "mode"
+			value := in.ModeID
+			if in.Kind == "set_model" {
+				field = "model"
+				value = in.ModelID
+			}
+			if err := s.respawnWithSpecMutation(r.Context(), agent, field, value); err != nil {
+				if errors.Is(err, errRespawnSpecMutationNotImplemented) {
+					writeErr(w, http.StatusNotImplemented, err.Error())
+					return
+				}
+				writeErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			// W2.3 will emit its own audit event from inside the helper;
+			// for the W2.1 stub we 202-style ack with no row written.
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"routed": "respawn",
+			})
+			return
+		case "unsupported", "":
+			writeErr(w, http.StatusUnprocessableEntity,
+				"engine does not support runtime "+
+					strings.TrimPrefix(in.Kind, "set_")+
+					" switching for this driving_mode")
+			return
+		default:
+			writeErr(w, http.StatusInternalServerError,
+				"unknown runtime_mode_switch route: "+route)
+			return
+		}
 	}
 
 	payloadBytes, err := json.Marshal(payloadMap)

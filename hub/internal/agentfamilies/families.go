@@ -66,6 +66,32 @@ type Family struct {
 	// in the agent's authMethods list, OR emits an attention_request
 	// when only interactive methods are available.
 	DefaultAuthMethod string `yaml:"default_auth_method,omitempty" json:"default_auth_method,omitempty"`
+
+	// RuntimeModeSwitch declares how runtime mode/model switching is
+	// dispatched per driving-mode (ADR-021 D4 amended / W2.1). Keys are
+	// driving modes (M1/M2/M4); values are the routing token the hub's
+	// /agents/{id}/input handler consults when it sees a set_mode or
+	// set_model input. Vocabulary:
+	//   - "rpc"            — forward to the driver as input.set_mode/
+	//                        input.set_model; the M1 ACP driver dispatches
+	//                        session/set_mode RPCs (W2.2).
+	//   - "respawn"        — hub stops the agent and spawns a fresh one
+	//                        with mutated backend.cmd flags (W2.3). The
+	//                        engine_session_id resume cursor (ADR-014)
+	//                        keeps the conversation continuous.
+	//   - "per_turn_argv"  — forward to the driver; ExecResumeDriver
+	//                        stashes the override and applies it to the
+	//                        next subprocess argv (W2.4).
+	//   - "unsupported"    — hub returns 422 with a typed error mobile
+	//                        renders as "this engine doesn't support
+	//                        runtime switching."
+	// Missing-key (the agent is running in a mode this family hasn't
+	// declared) is treated as "unsupported" so the picker degrades safely.
+	//
+	// Keyed by mode rather than per-family because gemini-cli supports
+	// both M1 (rpc) and M2 exec-per-turn (per_turn_argv); a single
+	// per-family token couldn't disambiguate.
+	RuntimeModeSwitch map[string]string `yaml:"runtime_mode_switch,omitempty" json:"runtime_mode_switch,omitempty"`
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

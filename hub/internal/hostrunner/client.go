@@ -90,6 +90,10 @@ type AgentFamilyFromHub struct {
 	Incompatibilities []AgentFamilyIncompat  `json:"incompatibilities,omitempty"`
 	Source            string                 `json:"source,omitempty"`
 	DefaultAuthMethod string                 `json:"default_auth_method,omitempty"`
+	// RuntimeModeSwitch mirrors agentfamilies.Family.RuntimeModeSwitch
+	// (ADR-021 D4 / W2.1) over the wire so probe sweeps see the same
+	// declaration the hub-server consults at /agents/{id}/input time.
+	RuntimeModeSwitch map[string]string `json:"runtime_mode_switch,omitempty"`
 }
 
 type AgentFamilyIncompat struct {

@@ -223,7 +223,7 @@ func TestPostAgentInput_UnknownKindMessage(t *testing.T) {
 	}
 	// Contract: error body carries the normative kinds list so clients
 	// can surface a helpful message without hardcoding.
-	if !bytes.Contains(raw, []byte("text|approval|answer|attention_reply|cancel|attach")) {
+	if !bytes.Contains(raw, []byte("text|approval|answer|attention_reply|cancel|attach|set_mode|set_model")) {
 		t.Errorf("error body missing kinds list: %s", raw)
 	}
 }
@@ -287,6 +287,172 @@ func TestPostAgentInput_ProducerAttribution(t *testing.T) {
 			}
 			if producer != tc.want {
 				t.Errorf("producer = %q, want %q", producer, tc.want)
+			}
+		})
+	}
+}
+
+// seedAgentWithKindMode is a W2.1 helper: seedAgentForInput hardcodes
+// kind=claude-code with no driving_mode. Routing tests need explicit
+// (kind, driving_mode) pairs so they can target each cell of the
+// runtime_mode_switch table. Handle is derived from the agent id so
+// repeated calls in one server instance don't collide on
+// UNIQUE(team_id, handle).
+func seedAgentWithKindMode(t *testing.T, s *Server, kind, drivingMode string) string {
+	t.Helper()
+	agentID := NewID()
+	if _, err := s.db.ExecContext(context.Background(), `
+		INSERT INTO agents (id, team_id, handle, kind, driving_mode, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		agentID, defaultTeamID, "w-"+agentID[len(agentID)-8:], kind, drivingMode, NowUTC()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	return agentID
+}
+
+// TestPostAgentInput_SetModeRouting_RPC — gemini-cli M1 → rpc → emit
+// input.set_mode event same as text path. Driver-side dispatch lands
+// in W2.2; W2.1 verifies the routing token reaches "rpc" and the
+// audit row is written.
+func TestPostAgentInput_SetModeRouting_RPC(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentWithKindMode(t, s, "gemini-cli", "M1")
+
+	status, raw := postInput(t, h, defaultTeamID, agentID,
+		map[string]any{"kind": "set_mode", "mode_id": "yolo"})
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+
+	var kind, payloadRaw string
+	if err := s.db.QueryRow(
+		`SELECT kind, payload_json FROM agent_events WHERE id = ?`,
+		out["id"]).Scan(&kind, &payloadRaw); err != nil {
+		t.Fatalf("select row: %v", err)
+	}
+	if kind != "input.set_mode" {
+		t.Errorf("kind = %q, want input.set_mode", kind)
+	}
+	var payload map[string]any
+	_ = json.Unmarshal([]byte(payloadRaw), &payload)
+	if payload["mode_id"] != "yolo" {
+		t.Errorf("mode_id = %v, want yolo", payload["mode_id"])
+	}
+}
+
+// TestPostAgentInput_SetModelRouting_PerTurnArgv — gemini-cli M2 →
+// per_turn_argv → emit input.set_model event for the driver to stash.
+// Driver-side argv splice lands in W2.4.
+func TestPostAgentInput_SetModelRouting_PerTurnArgv(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentWithKindMode(t, s, "gemini-cli", "M2")
+
+	status, raw := postInput(t, h, defaultTeamID, agentID,
+		map[string]any{"kind": "set_model", "model_id": "gemini-2.5-flash"})
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+
+	var kind, payloadRaw string
+	if err := s.db.QueryRow(
+		`SELECT kind, payload_json FROM agent_events WHERE id = ?`,
+		out["id"]).Scan(&kind, &payloadRaw); err != nil {
+		t.Fatalf("select row: %v", err)
+	}
+	if kind != "input.set_model" {
+		t.Errorf("kind = %q, want input.set_model", kind)
+	}
+	var payload map[string]any
+	_ = json.Unmarshal([]byte(payloadRaw), &payload)
+	if payload["model_id"] != "gemini-2.5-flash" {
+		t.Errorf("model_id = %v, want gemini-2.5-flash", payload["model_id"])
+	}
+}
+
+// TestPostAgentInput_SetModelRouting_Respawn — claude-code M2 →
+// respawn → handler calls respawnWithSpecMutation. W2.3 implements;
+// W2.1 stub returns errRespawnSpecMutationNotImplemented → 501.
+func TestPostAgentInput_SetModelRouting_Respawn(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentWithKindMode(t, s, "claude-code", "M2")
+
+	status, raw := postInput(t, h, defaultTeamID, agentID,
+		map[string]any{"kind": "set_model", "model_id": "claude-3-7-opus"})
+	if status != http.StatusNotImplemented {
+		t.Fatalf("status = %d want 501, body=%s", status, raw)
+	}
+	if !bytes.Contains(raw, []byte("not yet implemented")) {
+		t.Errorf("body missing wedge marker: %s", raw)
+	}
+	// Stub path must NOT write an input event row — the audit emit
+	// belongs to W2.3's helper after the respawn lifecycle lands.
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(1) FROM agent_events WHERE agent_id = ? AND kind LIKE 'input.set_%'`,
+		agentID).Scan(&n)
+	if n != 0 {
+		t.Errorf("respawn stub emitted %d input rows; want 0", n)
+	}
+}
+
+// TestPostAgentInput_SetModeRouting_Unsupported — driving_mode missing
+// from the family's runtime_mode_switch map → 422 with a typed error.
+// Covers two paths: an unknown family and a known family on a mode it
+// hasn't declared (M4 for any of our entries).
+func TestPostAgentInput_SetModeRouting_Unsupported(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	cases := []struct {
+		name        string
+		kind        string
+		drivingMode string
+	}{
+		{"unknown_family", "no-such-family", "M1"},
+		{"undeclared_mode", "claude-code", "M4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agentID := seedAgentWithKindMode(t, s, tc.kind, tc.drivingMode)
+			status, raw := postInput(t, h, defaultTeamID, agentID,
+				map[string]any{"kind": "set_mode", "mode_id": "yolo"})
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d want 422, body=%s", status, raw)
+			}
+			if !bytes.Contains(raw, []byte("does not support")) {
+				t.Errorf("body missing typed marker: %s", raw)
+			}
+		})
+	}
+}
+
+// TestPostAgentInput_SetMode_MissingFields — mode_id required for
+// set_mode, model_id required for set_model. Validation fires before
+// routing so an unknown family combined with a missing field still
+// yields 400 (the field-validation error is the more actionable one).
+func TestPostAgentInput_SetMode_MissingFields(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentWithKindMode(t, s, "gemini-cli", "M1")
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"set_mode_no_id", map[string]any{"kind": "set_mode"}},
+		{"set_model_no_id", map[string]any{"kind": "set_model"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, raw := postInput(t, h, defaultTeamID, agentID, tc.body)
+			if status != http.StatusBadRequest {
+				t.Fatalf("status = %d want 400, body=%s", status, raw)
 			}
 		})
 	}

@@ -31,6 +31,15 @@ families:
     bin: claude
     version_flag: --version
     supports: [M1, M2, M4]
+    # ADR-021 D4 / W2.1 — claude has no protocol-level set_mode RPC on
+    # M2 stream-json; --model and --permission-mode are flag-time only.
+    # Mode/model picker selections route through respawn-with-mutated-spec
+    # (W2.3); engine_session_id resume keeps the transcript continuous.
+    # M1 (claude-code SDK ACP) ships post-MVP — when it lands the SDK's
+    # session/set_mode advertisement flips this row to "rpc".
+    runtime_mode_switch:
+      M1: respawn
+      M2: respawn
     incompatibilities:
       - mode: M1
         billing: subscription
@@ -244,6 +253,16 @@ families:
     # opening a browser. Service-account / shared-host deployments
     # override via auth_method: gemini-api-key on the steward template.
     default_auth_method: oauth-personal
+    # ADR-021 D4 / W2.1 — gemini supports two driving modes with
+    # different mode-switch protocols. M1 (gemini --acp) accepts
+    # session/set_mode and session/set_model RPCs against the live
+    # daemon (W2.2). M2 (gemini -p exec-per-turn) has no in-process
+    # handshake; the driver stashes overrides and splices them into the
+    # next subprocess argv (W2.4). Single-string per-family declaration
+    # couldn't disambiguate, so we key by driving_mode.
+    runtime_mode_switch:
+      M1: rpc
+      M2: per_turn_argv
     # Gemini, like codex, uses the profile translator authoritatively:
     # there is no legacy hardcoded path for the exec-per-turn-with-resume
     # driver (ADR-013). Dispatch is on the top-level `type` field, the
@@ -377,6 +396,14 @@ families:
     bin: codex
     version_flag: --version
     supports: [M1, M2, M4]
+    # ADR-021 D4 / W2.1 — codex's app-server JSON-RPC has no
+    # session/set_mode equivalent; --model and --approval-policy are
+    # flag-time only. Picker selection routes through respawn-with-
+    # mutated-spec (W2.3). The thread/started cursor (ADR-012)
+    # preserves transcript continuity across the respawn.
+    runtime_mode_switch:
+      M1: respawn
+      M2: respawn
     # Codex uses the profile translator authoritatively — there is no
     # legacy hardcoded driver for app-server JSON-RPC the way there is
     # for claude-code's stream-json. ADR-012 D4: the dispatch field is

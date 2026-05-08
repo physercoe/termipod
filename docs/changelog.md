@@ -23,6 +23,34 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.420-alpha — 2026-05-08
+
+### Added
+- **`runtime_mode_switch` family declaration + hub routing (ADR-021
+  W2.1).** Opens Phase 2 of the ACP capability surface plan. Each
+  `agent_families.yaml` entry declares one of `rpc | respawn |
+  per_turn_argv | unsupported` per driving_mode (M1/M2/M4) — keyed by
+  mode rather than per-family because gemini-cli supports both M1
+  (rpc) and M2 exec-per-turn (per_turn_argv) and a single string
+  couldn't disambiguate. `POST /agents/{id}/input` accepts new kinds
+  `set_mode` (with `mode_id`) and `set_model` (with `model_id`); the
+  handler resolves `(family, driving_mode)` against the
+  runtime_mode_switch table and dispatches: rpc/per_turn_argv → emit
+  input event for driver pickup (handlers ship in W2.2/W2.4);
+  respawn → call `respawnWithSpecMutation` helper (stub returns 501
+  until W2.3 lands the real string-edit + pause/spawn orchestration);
+  unsupported → 422. Mobile sends one shape; only the wire path
+  varies per engine.
+- **Family declarations:** `claude-code` = respawn (M1 + M2);
+  `gemini-cli` = rpc (M1) / per_turn_argv (M2); `codex` = respawn
+  (M1 + M2). M4 is unsupported across the board (tmux pane scrape
+  has no model concept).
+
+### Changed
+- `agentfamilies.Family` gains a `runtime_mode_switch map[string]string`
+  field; mirrored on the wire shape `AgentFamilyFromHub` so probe
+  sweeps see the same declaration the hub-server consults.
+
 ## v1.0.413-alpha — 2026-05-08
 
 ### Added

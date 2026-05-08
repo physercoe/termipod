@@ -1215,9 +1215,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   Future<void> _onSetMode(String modeId) async {
-    final cfg = ref.read(activeConnectionProvider);
-    if (cfg == null) return;
-    final client = ref.read(hubClientProvider(cfg));
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
     try {
       await client.postAgentInput(widget.agentId,
           kind: 'set_mode', modeId: modeId);
@@ -1240,9 +1239,8 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   }
 
   Future<void> _onSetModel(String modelId) async {
-    final cfg = ref.read(activeConnectionProvider);
-    if (cfg == null) return;
-    final client = ref.read(hubClientProvider(cfg));
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
     try {
       await client.postAgentInput(widget.agentId,
           kind: 'set_model', modelId: modelId);

@@ -944,3 +944,91 @@ func parseRPCLog(t *testing.T, raw []byte) []map[string]any {
 	}
 	return out
 }
+
+// TestACPDriver_HandshakeBudgetIsPerCall pins v1.0.402's split: each
+// handshake step gets its own d.HandshakeTimeout window, not a shared
+// budget. Real-world trigger: gemini-cli's initialize alone takes 30-50s
+// on a cold daemon (fnm shim + node startup + auth/model-list fetch),
+// and the previous shared 60s budget left session/new starved at ~17s,
+// tipping launch into the M2 fallback even when M1 was nearly there.
+func TestACPDriver_HandshakeBudgetIsPerCall(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Slow-on-initialize fake: replies to initialize after 200ms (well
+	// past the 100ms per-call budget IF shared, but fine for per-call).
+	// Replies to session/new immediately. The driver should succeed
+	// because each call starts fresh.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				time.Sleep(180 * time.Millisecond)
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-percall"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			}
+		}
+	}()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-percall",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 250 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: want success because each call gets a fresh 250ms budget (initialize sleep 180ms < 250ms; session/new instant); got %v",
+			err)
+	}
+	defer drv.Stop()
+}
+
+// TestACPDriver_HandshakeTimeoutDefault locks the v1.0.402 default
+// (90s, up from 60s) so a future regression that drops it doesn't
+// silently re-introduce the cold-start starvation problem.
+func TestACPDriver_HandshakeTimeoutDefault(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-default")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID: "agent-hs-default",
+		Poster:  &fakePoster{},
+		Stdin:   hostInW,
+		Stdout:  hostOutR,
+		Closer:  func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if drv.HandshakeTimeout != 90*time.Second {
+		t.Errorf("HandshakeTimeout default = %v; want 90s — needs headroom for slow daemon cold-start (gemini-cli initialize observed at 30-50s)",
+			drv.HandshakeTimeout)
+	}
+}

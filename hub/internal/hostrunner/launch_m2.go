@@ -233,6 +233,17 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 		if bin == "" {
 			bin = fam.Bin
 		}
+		// The same spec is sometimes reused across modes via the
+		// runtime fallback ladder (runner.launchOne walks primary →
+		// fallback_modes → M4 with one spec). M1's cmd typically
+		// carries argv ("gemini --acp"); for M2 we need only the
+		// binary token because the ExecResumeDriver constructs its
+		// own argv. Without this trim, exec.LookPath looks for a file
+		// literally called "gemini --acp" with the space and the M2
+		// fallback fails with a confusing PATH error.
+		if i := strings.IndexAny(bin, " \t"); i > 0 {
+			bin = bin[:i]
+		}
 		resolved, lookErr := exec.LookPath(bin)
 		if lookErr != nil {
 			return M2LaunchResult{}, fmt.Errorf("gemini bin %q: %w", bin, lookErr)

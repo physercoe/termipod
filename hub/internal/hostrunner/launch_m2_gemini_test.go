@@ -150,3 +150,59 @@ func TestLaunchM2_GeminiFamily_RejectsMissingBin(t *testing.T) {
 		t.Errorf("error missing 'gemini bin' context: %v", err)
 	}
 }
+
+// TestLaunchM2_GeminiFamily_TrimsCmdToBinaryToken pins v1.0.402's fix.
+// The runtime fallback ladder reuses the same spawn spec across modes,
+// so a spec authored for M1 (cmd: "gemini --acp") must still resolve
+// when M2 falls through. ExecResumeDriver builds its own argv — only
+// the leading binary token belongs in spec.Backend.Cmd.
+func TestLaunchM2_GeminiFamily_TrimsCmdToBinaryToken(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	binDir := t.TempDir()
+	fakeBin := filepath.Join(binDir, "gemini")
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake gemini: %v", err)
+	}
+	// Make `gemini` discoverable via PATH so the M1-shaped cmd
+	// "gemini --acp" resolves to the binary token alone after trim.
+	t.Setenv("PATH", binDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: ""}
+	poster := &fakePoster{}
+
+	// Note: cmd has TWO tokens — exactly the M1 shape that used to
+	// break the fallback (LookPath went hunting for an executable
+	// literally named "gemini --acp" and obviously didn't find one).
+	sp := Spawn{
+		ChildID: "agent-gemini-trim",
+		Kind:    "gemini-cli",
+		SpawnSpec: "backend:\n" +
+			"  cmd: gemini --acp\n" +
+			"  default_workdir: ~/x\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2 should succeed by trimming `--acp` from cmd: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	drv, ok := res.Driver.(*ExecResumeDriver)
+	if !ok {
+		t.Fatalf("res.Driver: want *ExecResumeDriver, got %T", res.Driver)
+	}
+	if drv.Bin != fakeBin {
+		t.Errorf("Bin = %q; want %q (the leading token of cmd, NOT the full M1 line)", drv.Bin, fakeBin)
+	}
+}

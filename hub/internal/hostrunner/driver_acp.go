@@ -142,15 +142,20 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		d.Log = slog.Default()
 	}
 	if d.HandshakeTimeout == 0 {
-		// 60s is generous for an in-process handshake but the right floor
-		// for engines that may briefly stall on credential refresh
-		// (gemini-cli refreshing OAuth via ~/.gemini/oauth_creds.json,
-		// claude-code SDK refreshing API keys). A short floor here turns
-		// transient auth latency into a confusing M4 fallback. Engines
-		// that trigger a *full* OAuth flow (interactive browser callback)
-		// still trip this — that's a setup bug we want surfaced, not
-		// papered over.
-		d.HandshakeTimeout = 60 * time.Second
+		// Per-call budget for each handshake step (initialize and
+		// session/new each get their own d.HandshakeTimeout window —
+		// not a shared budget). 90s is the right floor for engines
+		// that fold real work into one of the calls. Observed in
+		// production: gemini-cli's `initialize` on a cold daemon
+		// takes 30-50s on its own (fnm shim → node startup with a
+		// large heap → model-list fetch → OAuth refresh on the same
+		// path) before responding; sharing a 60s budget left
+		// session/new starved at ~17s and tipped the launch into
+		// the M2 fallback even though M1 was minutes away from
+		// succeeding. Engines that trigger a *full* interactive
+		// OAuth flow still trip this — that's a setup bug we want
+		// surfaced, not papered over.
+		d.HandshakeTimeout = 90 * time.Second
 	}
 	if d.WriteTimeout == 0 {
 		d.WriteTimeout = 5 * time.Second
@@ -163,20 +168,25 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	go d.readLoop(parent)
 	go d.writerLoop()
 
-	hsCtx, cancel := context.WithTimeout(parent, d.HandshakeTimeout)
-	defer cancel()
-
-	// initialize — announce protocol version; we accept whatever the agent
-	// returns (capability negotiation is out of scope for this shim).
-	if _, err := d.call(hsCtx, "initialize", map[string]any{
+	// initialize — announce protocol version; we accept whatever the
+	// agent returns (capability negotiation is out of scope for this
+	// shim). Per-call deadline so a slow daemon startup doesn't eat
+	// into the next call's budget (see HandshakeTimeout doc above).
+	initCtx, cancelInit := context.WithTimeout(parent, d.HandshakeTimeout)
+	if _, err := d.call(initCtx, "initialize", map[string]any{
 		"protocolVersion":    1,
 		"clientCapabilities": map[string]any{},
 	}); err != nil {
+		cancelInit()
 		return fmt.Errorf("acp initialize: %w", err)
 	}
+	cancelInit()
 
 	// session/new — capture sessionId so we can correlate updates.
-	sres, err := d.call(hsCtx, "session/new", map[string]any{
+	// Fresh per-call deadline; same rationale as initialize.
+	nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
+	defer cancelNS()
+	sres, err := d.call(nsCtx, "session/new", map[string]any{
 		"cwd":             "",
 		"mcpServers":      []any{},
 		"clientMetadata":  map[string]any{"name": "termipod-hostrunner"},

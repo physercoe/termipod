@@ -23,6 +23,21 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.432-alpha — 2026-05-08
+
+### Added
+- **Codex image content blocks (ADR-021 W4.3).** AppServerDriver's
+  `startTurn` now takes an `images []imageInput` arg and lowers
+  each entry to OpenAI responses-API shape
+  `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}`.
+  Image blocks lead the `turn/start.params.input` array; the
+  `{type:"text"}` block (if any) trails so the model sees the
+  imagery before the question. Image-only inputs (no body)
+  produce a single image block. attention_reply path passes
+  `nil` images — replies remain text-only by design.
+
+---
+
 ## v1.0.431-alpha — 2026-05-08
 
 ### Added

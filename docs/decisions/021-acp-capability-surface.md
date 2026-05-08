@@ -1,9 +1,9 @@
 # 021. ACP capability surface — resume, auth, mode/model, image inputs
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-08) — Phase 1 shipped (v1.0.410–v1.0.413); Phase 2 shipped (v1.0.420–v1.0.424); Phase 4 W4.1+W4.2 shipped (v1.0.430–v1.0.431)
+> **Status:** Accepted (2026-05-08) — Phase 1 shipped (v1.0.410–v1.0.413); Phase 2 shipped (v1.0.420–v1.0.424); Phase 4 W4.1–W4.3 shipped (v1.0.430–v1.0.432)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.431
+> **Last verified vs code:** v1.0.432
 
 **Amendment (2026-05-08).** Cross-engine survey after the original
 draft showed Phases 2 and 4 are not actually M1-only: claude-code's

@@ -282,6 +282,80 @@ func TestAppServerDriver_HandshakeAndTurn(t *testing.T) {
 	}
 }
 
+// TestAppServerDriver_TurnStart_ImageBlocks pins the W4.3 wire shape:
+// when payload["images"] is set, turn/start.params.input leads with
+// `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}` blocks
+// and follows with the `{type:"text", text:body}` block. Image-only
+// inputs (no body) produce a single image block. Hub-side W4.1
+// validation is upstream; the driver trusts the payload shape.
+func TestAppServerDriver_TurnStart_ImageBlocks(t *testing.T) {
+	pipes := newPipePair()
+	t.Cleanup(pipes.closeFn)
+
+	server := newFakeAppServer(t, pipes.serverRead, pipes.serverWrite)
+	server.onCall("initialize", func(_ map[string]any) any {
+		return map[string]any{"protocolVersion": "1.0"}
+	})
+	server.onCall("thread/start", func(_ map[string]any) any {
+		return map[string]any{
+			"thread": map[string]any{"id": "thr_img"},
+		}
+	})
+	server.onCall("turn/start", func(_ map[string]any) any {
+		return map[string]any{"turn": map[string]any{"id": "turn_img"}}
+	})
+	go server.run()
+
+	drv := &AppServerDriver{
+		AgentID:          "agent-img",
+		Poster:           &fakePoster{},
+		Stdout:           pipes.driverStdout,
+		Stdin:            pipes.driverStdin,
+		FrameProfile:     codexProfileForTest(t),
+		HandshakeTimeout: 2 * time.Second,
+		CallTimeout:      2 * time.Second,
+		Closer:           pipes.closeFn,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := drv.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(drv.Stop)
+	server.waitForMethod("thread/start", time.Second)
+
+	if err := drv.Input(ctx, "text", map[string]any{
+		"body": "what's in these?",
+		"images": []any{
+			map[string]any{"mime_type": "image/png", "data": "AAA="},
+			map[string]any{"mime_type": "image/jpeg", "data": "BBB="},
+		},
+	}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+	turnFrame := server.waitForMethod("turn/start", time.Second)
+	params, _ := turnFrame["params"].(map[string]any)
+	input, _ := params["input"].([]any)
+	if len(input) != 3 {
+		t.Fatalf("input: want 3 blocks, got %d (%+v)", len(input), input)
+	}
+	first, _ := input[0].(map[string]any)
+	if first["type"] != "input_image" {
+		t.Errorf("input[0].type = %v, want input_image", first["type"])
+	}
+	if got := first["image_url"]; got != "data:image/png;base64,AAA=" {
+		t.Errorf("input[0].image_url = %v", got)
+	}
+	second, _ := input[1].(map[string]any)
+	if second["type"] != "input_image" || second["image_url"] != "data:image/jpeg;base64,BBB=" {
+		t.Errorf("input[1] malformed: %+v", second)
+	}
+	third, _ := input[2].(map[string]any)
+	if third["type"] != "text" || third["text"] != "what's in these?" {
+		t.Errorf("input[2] malformed: %+v", third)
+	}
+}
+
 // TestAppServerDriver_Cancel_IncludesThreadID pins the cancel→
 // turn/interrupt translation: codex's app-server returns
 // -32600 "Invalid request: missing field `threadId`" when threadId

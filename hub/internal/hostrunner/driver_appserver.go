@@ -395,10 +395,11 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)
-		if body == "" {
+		images := extractImageInputs(payload)
+		if body == "" && len(images) == 0 {
 			return fmt.Errorf("appserver driver: text input missing body")
 		}
-		return d.startTurn(ctx, body)
+		return d.startTurn(ctx, body, images)
 	case "attention_reply":
 		// Three paths depending on attention kind:
 		//  - kind=permission_prompt → we have a parked codex JSON-RPC
@@ -425,7 +426,7 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		if body == "" {
 			return fmt.Errorf("appserver driver: attention_reply produced no text")
 		}
-		return d.startTurn(ctx, body)
+		return d.startTurn(ctx, body, nil)
 	case "cancel":
 		// codex requires both `threadId` and `turnId` on turn/interrupt.
 		// Without either the server replies -32600 "missing field …".
@@ -693,20 +694,34 @@ func elicitationContentFromBody(body string) map[string]any {
 	return map[string]any{"value": body}
 }
 
-// startTurn calls turn/start with one text content item. Returns
+// startTurn calls turn/start with the user's content blocks. Returns
 // after the server acknowledges the call; turn output flows back
 // through notifications (item/*, turn/started, turn/completed)
 // translated by the frame profile.
-func (d *AppServerDriver) startTurn(ctx context.Context, text string) error {
+//
+// ADR-021 W4.3 — image content blocks lower to OpenAI responses-API
+// shape `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}`
+// and lead the input array; the text block (if any) comes last so
+// the model sees the imagery before the question. Image-only inputs
+// (no body text) are accepted at this layer.
+func (d *AppServerDriver) startTurn(ctx context.Context, text string, images []imageInput) error {
 	tid := d.ThreadID()
 	if tid == "" {
 		return fmt.Errorf("appserver driver: no active thread (handshake didn't complete?)")
 	}
+	input := make([]map[string]any, 0, len(images)+1)
+	for _, img := range images {
+		input = append(input, map[string]any{
+			"type":      "input_image",
+			"image_url": "data:" + img.mime + ";base64," + img.data,
+		})
+	}
+	if text != "" {
+		input = append(input, map[string]any{"type": "text", "text": text})
+	}
 	_, err := d.Call(ctx, "turn/start", map[string]any{
 		"threadId": tid,
-		"input": []map[string]any{
-			{"type": "text", "text": text},
-		},
+		"input":    input,
 	})
 	return err
 }

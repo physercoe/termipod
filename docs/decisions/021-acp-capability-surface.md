@@ -1,9 +1,22 @@
 # 021. ACP capability surface — resume, auth, mode/model, image inputs
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-08)
+> **Status:** Proposed (2026-05-08), amended 2026-05-08 (cross-engine scope)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.405
+
+**Amendment (2026-05-08).** Cross-engine survey after the original
+draft showed Phases 2 and 4 are not actually M1-only: claude-code's
+stream-json content array, codex's app-server `turn/start` input
+array, and gemini-cli's ACP all accept image content blocks; only
+gemini's `gemini -p` argv-only path can't carry them. Mode/model
+runtime switching is M1-only at the protocol layer, but the mobile
+picker UX should still be cross-engine — non-M1 engines route the
+selection through "edit template + respawn" rather than a `set_*`
+RPC. Amendments update D4 (Phase 2 picker branches by capability)
+and D5 (Phase 4 lands per-driver, not just M1); plan §3 gains
+matching wedges. Original D-numbers preserved so cross-references
+in the plan still resolve.
 
 **TL;DR.** Our M1 (`ACPDriver`) currently implements the minimum ACP
 handshake: `initialize` → `session/new` → `session/prompt` →
@@ -13,8 +26,9 @@ own `agentCapabilities` in `initialize` advertises it: `loadSession` (resume),
 `promptCapabilities` (image / audio / embeddedContext), four
 authentication methods, and per-session model + mode switches. This ADR
 pins which of those gaps we close before MVP and how — Phase 1
-(`session/load` + `authenticate`), Phase 2 (`session/set_mode` +
-`session/set_model`), Phase 4 (image content blocks). Phase 3 (the
+(`session/load` + `authenticate`), Phase 2 (mode + model picker —
+runtime via M1, respawn via others), Phase 4 (image content blocks
+across all drivers that accept content arrays). Phase 3 (the
 `fs/*` and `terminal/*` client capability surface) is deferred to
 post-MVP.
 
@@ -146,71 +160,102 @@ method or set creds and retry. The hub does NOT proxy the OAuth
 URL through mobile — that's a Phase 5 concern (browser callback
 infrastructure).
 
-### D4. Phase 2 — `session/set_mode` + `session/set_model`.
+### D4. Phase 2 — mode + model picker, capability-branched.
 
-Both are new outbound RPCs from `ACPDriver.Input`, dispatched from
-new `kind=set_mode` and `kind=set_model` input shapes accepted by
-`POST /agents/{id}/input`. Mobile renders a small picker in the
-steward header sourced from the `available_commands_update` /
-`current_mode_update` / `current_model_update` notifications we
-already capture (v1.0.403). Selecting an option fires the input;
-the agent emits a fresh `current_mode_update` / `current_model_update`
-notification confirming.
+The mobile picker is cross-engine. The wire path it uses depends on
+what the engine supports:
 
-If the agent doesn't support the picker (older builds, non-gemini
-ACP engines), the available list will be empty and the picker won't
-render — same fall-back-to-no-UI pattern the slash command picker
-uses.
+| Engine path | Wire mechanism |
+|---|---|
+| **ACP M1** (gemini-cli `--acp`, future claude-code SDK ACP) | Live `session/set_mode` / `session/set_model` RPCs from `ACPDriver.Input`. Picker change applies in-session. |
+| **M2 stream-json (claude)** + **M2 app-server (codex)** | No protocol-level switch exists — `--permission-mode` and `--model` are flag-time only. Picker change requires a respawn: hub edits the active spec's `backend.cmd`, stops the agent, spawns a fresh one with new flags. The session row stays put so the transcript is continuous; the `engine_session_id` resume cursor (ADR-014 / W1.1) keeps conversation context across the respawn. |
+| **M2 exec-per-turn (gemini-cli `-p`)** | Per-turn argv. Driver stashes the override (`d.NextTurnModel` / `d.NextTurnMode`) and applies it to the next subprocess argv. No restart needed because gemini already spawns fresh per turn. |
 
-### D5. Phase 4 — image content blocks.
+Capability declaration lives on the agent_families.yaml entry —
+each family declares one of `runtime_mode_switch: rpc | respawn |
+per_turn_argv | unsupported`. The hub uses this to route the
+picker selection. Mobile renders the picker identically across all
+families; only the latency feedback differs ("applying…" → instant
+on rpc, ~few-second on respawn).
 
-`session/prompt`'s `prompt` array becomes heterogeneous:
+Outbound RPC dispatch from `ACPDriver.Input` is gated by the
+`agentCapabilities` cached at handshake — mode list comes from
+`session/new.modes.availableModes`, model list from
+`session/new.models.availableModels`. Unknown ids → driver returns
+a typed error (mobile renders as a snackbar).
 
-```json
-{
-  "prompt": [
-    {"type": "image", "mimeType": "image/png", "data": "<base64>"},
-    {"type": "text",  "text": "what's in this screenshot?"}
-  ]
-}
+If neither RPC nor respawn nor per-turn argv is available, the
+picker doesn't render — same fall-back-to-no-UI pattern the slash
+command picker uses.
+
+### D5. Phase 4 — image content blocks across all content-array drivers.
+
+Image inputs land per-driver, not just M1. Three of our four drivers
+already accept content-array inputs at the protocol level — they
+just disagree on the exact wire shape for an image block. The hub
+exposes one cross-engine input shape and each driver maps it to its
+native form:
+
+```
+mobile / hub input shape:
+  POST /agents/{id}/input
+  { "kind": "text", "body": "...", "images": [
+      {"mime_type": "image/png", "data": "<base64>"}
+  ]}
 ```
 
-Mobile's existing image-attach flow (`image_picker` →
-`flutter_image_compress`) already produces compressed bytes; the
-hub receives them on a new `images: [{mimeType, data}]` field of
-the input shape and the driver inserts the matching content blocks
-ahead of the text. We use base64-inline (`data:`) rather than URI
-references because the latter would require either hub-side hosting
-(HTTP server) or fs-capability support (Phase 3). Inline blocks
-work without either.
+| Driver | Native image-block shape |
+|---|---|
+| `StdioDriver` (claude M2 stream-json) | `{"type":"image","source":{"type":"base64","media_type":<mime>,"data":<b64>}}` — Anthropic SDK shape. |
+| `AppServerDriver` (codex M2 app-server) | `{"type":"input_image","image_url":"data:<mime>;base64,<b64>"}` — OpenAI responses-API shape. |
+| `ACPDriver` (gemini M1 + future ACP engines) | `{"type":"image","mimeType":<mime>,"data":<b64>}` — ACP shape. |
+| `ExecResumeDriver` (gemini M2 exec-per-turn) | Capability-gate strip — gemini's `-p` argv has no inline-image affordance. Driver drops images and emits a `kind=system` event noting incompatibility; mobile shows a warning chip and the text portion still goes through. |
 
-`embeddedContext` (resource references) is a smaller follow-up that
-piggybacks on the same `session/prompt` content-array work; landed
-together since the wire shape is identical with `type: "resource"`.
+Capability gating uses each engine's reported support — claude's
+`anthropic-vision` flag in stream-json init, codex's
+`promptCapabilities.image` field, ACP's
+`agentCapabilities.promptCapabilities.image`. Engines that report
+false → strip + warn.
+
+We use base64-inline (`data:` URLs / inline data fields) rather
+than URI references because the latter would require either
+hub-side hosting (HTTP server) or `fs/*` client capability support
+(Phase 3, deferred). Inline blocks work without either, at the
+cost of repeating the bytes in each turn.
+
+`embeddedContext` (ACP-only `type: "resource"`) is a smaller
+follow-up that piggybacks on the same content-array work;
+non-ACP engines don't have an equivalent so this stays M1-scoped
+within Phase 4.
 
 Audio support is *not* part of Phase 4 — there's no mobile audio
-capture infrastructure and no operator demand. The driver will
-forward `type: "audio"` blocks if the input layer ships them, but
-the hub doesn't fabricate a mobile UI for it.
+capture infrastructure and no operator demand. Drivers will
+forward audio blocks if the input layer ships them, but the hub
+doesn't fabricate a mobile UI for it.
 
 ### D6. Capability-gated dispatch. Don't blindly send.
 
-Each new outbound method checks `agentCapabilities` from the cached
-`initialize` response before dispatching:
+Each new outbound feature checks engine capabilities before dispatch:
 
-- `session/load` requires `loadSession: true`. Fall back to
-  `session/new` otherwise.
-- `set_mode` requires the mode to be in `session/new.modes.availableModes`.
-- `set_model` requires the modelId to be in `models.availableModels`.
-- Image blocks require `promptCapabilities.image: true`. When false,
-  the driver strips images from the prompt and emits a system event
-  noting the agent can't accept them — the mobile UI shows a
-  warning chip rather than silently dropping the attachment.
+- **`session/load`** requires `loadSession: true` on the cached ACP
+  capabilities. Fall back to `session/new` otherwise.
+- **Mode / model picker** routes by the family's
+  `runtime_mode_switch:` declaration (D4 amendment). RPC path
+  additionally requires the target id to be in the cached
+  `availableModes` / `availableModels`.
+- **Image blocks** route by per-driver capability flag (D5
+  amendment): claude/codex check engine init flags, ACP checks
+  `promptCapabilities.image`, exec-per-turn always strips. False →
+  driver strips images and emits a `kind=system` event so mobile
+  surfaces a warning chip rather than silently dropping the
+  attachment.
 
-Capability-gating is the load-bearing invariant that lets the same
-driver target future ACP agents (claude-code SDK ACP, Zed's own
-agent) without a per-engine fork. Adding a Tier-2 engine means a new
-steward template + family entry; no driver changes.
+Capability-gating is the load-bearing invariant that lets one mobile
+UI target every engine without per-engine UI hardcoding. Adding a
+new ACP engine means a new steward template + agent_families.yaml
+entry; no driver changes. Adding a new non-ACP engine means a new
+driver branch in the per-driver fan-out (D5 table) but no mobile
+changes.
 
 ### D7. Mobile shape — additive, not breaking.
 

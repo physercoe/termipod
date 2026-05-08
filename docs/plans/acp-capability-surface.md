@@ -1,16 +1,18 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-08)
+> **Status:** Proposed (2026-05-08), revised 2026-05-08 (cross-engine scope per ADR-021 amendment)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.405
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
-Phase 2 (`session/set_mode` + `session/set_model`), Phase 4 (image
-content blocks). Phase 3 (`fs/*` + `terminal/*` client capabilities)
-deferred to post-MVP per ADR-021 D1. Total: 8 wedges across 3 phases,
-each independently shippable.
+Phase 2 (mode + model picker, runtime via M1 / respawn via others),
+Phase 4 (image content blocks across all content-array drivers).
+Phase 3 (`fs/*` + `terminal/*` client capabilities) deferred to
+post-MVP per ADR-021 D1. Total: 12 wedges across 3 phases (revised
+upward from 8 after ADR-021's cross-engine amendment), each
+independently shippable.
 
 ---
 
@@ -163,126 +165,270 @@ mode rather than the silent hang of pre-v1.0.402.
 
 **Version:** v1.0.413.
 
-### Phase 2 — Mode + model picker
+### Phase 2 — Mode + model picker (cross-engine, capability-routed)
 
-#### W2.1 — `session/set_mode` + `session/set_model` driver dispatch
+ADR-021 D4 (amended) splits Phase 2 into one cross-engine input
+contract + per-engine routing branches. Mobile UI is identical
+across families; only the wire path differs.
 
-Driver-side. Two new input kinds accepted by `ACPDriver.Input`:
+#### W2.1 — `runtime_mode_switch` family declaration + hub routing
 
-- `kind=set_mode`, payload `{mode_id: <string>}` → calls
-  `session/set_mode` with the cached sessionId.
-- `kind=set_model`, payload `{model_id: <string>}` → calls
-  `session/set_model`.
+Hub-side. Each entry in `agent_families.yaml` declares one of
+`runtime_mode_switch: rpc | respawn | per_turn_argv | unsupported`.
+The hub's `POST /agents/{id}/input` accepts new input kinds
+`set_mode` and `set_model` and routes them based on the active
+agent's family declaration:
 
-Both validated against the cached lists from `session/new` /
-`session/load` response. Unknown ids → driver returns a typed
-error (mobile renders as a snackbar).
+- `rpc` → forward to the driver (W2.2).
+- `respawn` → enqueue a respawn with the current spec mutated;
+  hub stops the agent and starts a fresh one with new flags.
+  Conversation continuity rides on `engine_session_id` (W1.1).
+- `per_turn_argv` → stash on the driver as `NextTurnMode` /
+  `NextTurnModel`; applied to the next subprocess argv (W2.4).
+- `unsupported` → 422 with a typed error mobile renders as
+  "this engine doesn't support runtime switching."
 
-**Files:** `driver_acp.go` (dispatch), `handlers_agent_input.go`
-(validation: accept the new kinds, require the matching id field).
+**Files:** `agent_families.yaml` (declarations: claude=respawn,
+codex=respawn, gemini-cli=rpc, gemini-cli-exec=per_turn_argv),
+`handlers_agent_input.go` (accept set_mode/set_model + routing
+switch), `runner.go` (respawn-with-spec-mutation helper).
 
-**Tests:** (a) valid mode_id → outbound RPC. (b) unknown mode_id →
-404 (mode not in availableModes). (c) post-success the next
-`current_mode_update` notification arrives and confirms.
-
-**Done when:** `curl POST /agents/.../input -d
-'{"kind":"set_mode","mode_id":"yolo"}'` flips the running gemini
-agent into yolo without restarting the spawn.
+**Tests:** (a) each family routes to the right path. (b) invalid
+mode_id for `rpc` family → 404. (c) `unsupported` family → 422.
 
 **Version:** v1.0.420.
 
-#### W2.2 — Mobile mode + model picker UI
+#### W2.2 — `session/set_mode` + `session/set_model` ACP driver dispatch
 
-Mobile-side. Read the available lists from the agent's most recent
-`session/update` notifications (we already capture them as
-`kind=system, payload.sessionUpdate=current_mode_update`). Render
-two small chips in the steward header — current mode, current
-model — that open a bottom-sheet picker on tap.
+Driver-side, M1-only. `ACPDriver.Input` gains two cases that map to
+ACP RPCs against the cached sessionId. Validated against the
+cached `availableModes` / `availableModels` from `session/new` /
+`session/load`.
 
-Tapping an option fires the input from W2.1. Confirmation comes
-back as the next `current_mode_update` / `current_model_update`
-notification, which updates the chip.
+**Files:** `driver_acp.go`. Two driver tests covering the dispatch
++ unknown-id validation.
+
+**Done when:** ACP M1 routing path lights up — gemini agent flips
+mode without spawning a new process.
+
+**Version:** v1.0.421.
+
+#### W2.3 — Respawn-with-mutated-spec for claude/codex
+
+Hub-side, non-ACP path. The `respawn` branch from W2.1 needs a
+helper that:
+
+1. Reads the active spawn spec.
+2. Mutates `backend.cmd` — e.g. replaces `--model claude-3-5-sonnet`
+   with `--model claude-3-7-opus`.
+3. Calls `pause` on the agent (clean stop).
+4. Calls `spawn` with the mutated spec.
+5. The new agent re-attaches to the same session row via the
+   resume cursor (ADR-014); transcript stays continuous.
+
+**Files:** `runner.go` (`respawnWithSpecMutation`),
+`steward_template_mutator.go` (new — small string-edit helper for
+the common `--model X` and `--permission-mode X` flag forms;
+falls back to a typed error when the spec doesn't have the
+expected flag shape so we don't corrupt unfamiliar templates).
+
+**Tests:** (a) claude `--model` flag mutation. (b) codex
+`--approval-policy` flag mutation. (c) no-op when the flag isn't
+in the spec → return typed error rather than respawn-with-no-change.
+
+**Done when:** mobile picker selection on a claude steward
+respawns the agent with the new model and the next prompt uses
+the new model.
+
+**Version:** v1.0.422.
+
+#### W2.4 — `NextTurnModel` / `NextTurnMode` for gemini-exec
+
+Driver-side, exec-per-turn-only. `ExecResumeDriver` gains two
+fields that the next `runTurn` consults when building argv. No
+in-process handshake needed — gemini already spawns fresh per turn.
+
+**Files:** `driver_exec_resume.go` (fields + argv splice).
+
+**Tests:** (a) NextTurnModel set → next argv has `--model X`.
+(b) NextTurnModel cleared after one turn (sticky behavior is a
+follow-up).
+
+**Done when:** mobile picker selection on a gemini exec-per-turn
+agent applies on the next prompt without restarting.
+
+**Version:** v1.0.423.
+
+#### W2.5 — Mobile mode + model picker UI
+
+Mobile-side, cross-engine. Read the available lists from the
+agent's most recent `current_mode_update` / `current_model_update`
+notifications (already captured as `kind=system` per v1.0.403).
+Render two small chips in the steward header that open a
+bottom-sheet picker on tap. Tapping an option fires `set_mode` /
+`set_model` to the hub; the routing branch decides what happens.
+
+Latency feedback differs by family: `rpc` → instant; `respawn` →
+a "respawning…" spinner over the agent strip until the new
+lifecycle.started arrives; `per_turn_argv` → a small "applies on
+next turn" hint.
 
 **Files:** `agent_feed.dart` (header chips + picker sheet),
-`hub_client.dart` (input wrappers), one widget test.
+`hub_client.dart` (input wrappers), one widget test per family
+behavior.
 
-**Done when:** mobile users can flip a running gemini agent
-between gemini-2.5-pro and gemini-3-flash-preview from the steward
-header without restarting.
+**Done when:** mobile users can flip mode/model on any of the
+four engine paths from the steward header.
 
-**Version:** v1.0.421 (APK rebuild).
+**Version:** v1.0.424 (APK rebuild).
 
-### Phase 4 — Image content blocks
+### Phase 4 — Image content blocks (cross-engine)
 
-#### W4.1 — `session/prompt` heterogeneous content array
+ADR-021 D5 (amended) makes image inputs land per-driver, not just
+M1. One cross-engine hub input shape, four driver-specific
+mappings.
 
-Driver-side. The text-only assumption hard-coded into Input("text")
-becomes an array build:
+#### W4.1 — Hub input contract for `images: []`
 
-```go
-prompt := []map[string]any{}
-for _, img := range payload["images"].([]any) { ... insert image block ... }
-prompt = append(prompt, map[string]any{"type": "text", "text": body})
-```
+Hub-side. `POST /agents/{id}/input` accepts a new optional
+`images: [{mime_type: "image/png", data: "<base64>"}]` field
+alongside the existing `body`. Validation:
 
-Capability-gated: if `promptCapabilities.image` is false on the
-cached capabilities, the driver strips images and emits a
-`kind=system` event noting the agent can't accept them. Mobile
-shows a warning chip; the text portion still goes through.
+- mime_type in allowlist (`image/png`, `image/jpeg`, `image/webp`,
+  `image/gif`).
+- data is valid base64 and decodes to ≤5 MiB per image.
+- Up to 3 images per request (gemini per-prompt limit; the lower
+  bound across our engines).
 
-**Files:** `driver_acp.go` (prompt-array builder),
-`handlers_agent_input.go` (accept new `images: [{mime_type, data}]`
-field, validate base64).
+Field is plumbed through to `Driver.Input` payload alongside
+`body`. Drivers that don't know about images ignore the field
+(forward-compatible).
 
-**Tests:** (a) `images` field in input shape produces an image
-block ahead of text. (b) capability gate strips images when agent
-doesn't support them. (c) malformed base64 → 400 from the hub
-input handler.
+**Files:** `handlers_agent_input.go` (validation + plumbing),
+`hub_client.dart` (Dart-side request shape — but no UI yet; UI
+lands in W4.5).
 
-**Done when:** a curl with an image base64 produces a multimodal
-prompt that gemini reasons about.
+**Tests:** (a) valid images → 201 + plumbed to driver. (b) bad
+mime type → 400. (c) >5 MiB → 400. (d) >3 images → 400.
+(e) malformed base64 → 400.
 
 **Version:** v1.0.430.
 
-#### W4.2 — Mobile image-attach to prompt
+#### W4.2 — Claude (StdioDriver) image content blocks
+
+Driver-side. `buildStreamJSONInputFrame`'s `text` branch becomes a
+content-array builder that inserts image blocks ahead of the text:
+
+```json
+{ "type": "image",
+  "source": {"type": "base64", "media_type": "<mime>", "data": "<b64>"} }
+```
+
+Capability gate: claude's `system/init` frame includes
+`anthropic-vision` (or model-implied — Claude Sonnet 4+ all
+support vision). If the active model doesn't, strip + emit
+`kind=system` warn event.
+
+**Files:** `driver_stdio.go` (content-array builder), test for
+the wire shape.
+
+**Version:** v1.0.431.
+
+#### W4.3 — Codex (AppServerDriver) image content blocks
+
+Driver-side. `startTurn`'s `input: [...]` array gains image
+blocks in OpenAI responses-API shape:
+
+```json
+{ "type": "input_image",
+  "image_url": "data:<mime>;base64,<b64>" }
+```
+
+Capability gate: codex's app-server returns vision support in its
+init capabilities — exact field name verified in implementation.
+
+**Files:** `driver_appserver.go` (startTurn signature accepts
+`images []` and inserts blocks), one test.
+
+**Version:** v1.0.432.
+
+#### W4.4 — ACP (ACPDriver) image content blocks
+
+Driver-side. `Input("text")`'s prompt-array build inserts ACP
+image blocks ahead of text:
+
+```json
+{ "type": "image", "mimeType": "<mime>", "data": "<b64>" }
+```
+
+Capability gate: `agentCapabilities.promptCapabilities.image`
+from the cached `initialize` response (already parsed).
+
+**Files:** `driver_acp.go` (prompt-array builder), one test.
+
+**Version:** v1.0.433.
+
+#### W4.5 — gemini-exec (ExecResumeDriver) capability-gate strip
+
+Driver-side. exec-per-turn passes the prompt as `gemini -p
+"<text>"` argv with no inline-image affordance. The driver:
+
+- Strips images from the input payload.
+- Emits one `kind=system` event per stripped image:
+  `payload={engine: "gemini-exec", reason: "no inline image
+  support — switch to gemini M1 (--acp) for multimodal turns"}`.
+- Lets the text portion proceed normally.
+
+**Files:** `driver_exec_resume.go` (strip + warn), one test.
+
+**Version:** v1.0.434.
+
+#### W4.6 — Mobile image-attach UI
 
 Mobile-side. The composer already has an attach button that
 currently routes images to fs upload. Add a second branch: when
-the active agent's family supports `promptCapabilities.image`, the
-attach button inlines the image into the next prompt's `images`
-field instead of uploading to fs. UI: a small thumbnail strip
-above the text field, removable taps, capped at 3 images per
-prompt (gemini's per-prompt limit per the docs).
+the active agent's family declares image-input support (a new
+`prompt_image: true` flag on the family entry, populated by W4.2-
+W4.4), the attach button inlines the image into the next prompt's
+`images` field instead of uploading to fs.
 
-Compression: reuse the existing `flutter_image_compress` path,
-target 1024px max dimension and 70% quality. Base64 the result and
-send.
+UI: a small thumbnail strip above the text field, removable taps,
+capped at 3 images per prompt. Compression: existing
+`flutter_image_compress` path, target 1024px max dimension and
+70% quality. Base64 the result and send.
 
 **Files:** `agent_compose.dart` (attach branch), `hub_client.dart`
-(image field on input), one widget test.
+(image field on input — partially done in W4.1), one widget test.
 
 **Done when:** tapping attach → picking a screenshot → typing
-"what's in this?" → sending lands a multimodal turn that gemini
-describes.
+"what's in this?" → sending lands a multimodal turn that the
+agent describes. Verified across claude, codex, and gemini M1.
+Gemini M2 (exec-per-turn) shows the warning chip.
 
-**Version:** v1.0.431 (APK rebuild).
+**Version:** v1.0.435 (APK rebuild).
 
 ---
 
 ## 4. Phase order, dependency graph
 
 ```
-W1.1 → W1.2 → W1.3
-              W1.4 (independent)
+Phase 1:  W1.1 → W1.2 → W1.3
+                W1.4 (independent)
 
-W2.1 → W2.2
+Phase 2:  W2.1 → W2.2 (M1 RPC path)
+                W2.3 (claude/codex respawn — independent of W2.2)
+                W2.4 (gemini-exec per-turn argv — independent)
+          W2.5 (mobile UI; needs ≥1 of W2.2/W2.3/W2.4 to demo)
 
-W4.1 → W4.2
+Phase 4:  W4.1 → W4.2, W4.3, W4.4 (each engine independent)
+                 W4.5 (gemini-exec strip — independent)
+          W4.6 (mobile UI; needs W4.1 + ≥1 of W4.2/W4.3/W4.4)
 ```
 
-Three independent chains. Phase 1 chain has the longest
-critical path (W1.1 must precede W1.2 must precede W1.3) but each
-wedge is small.
+Three phases, each with a fan-out of per-engine wedges that can
+ship in parallel. Phase 1 chain has the longest critical path
+(three sequential wedges); Phase 2 and 4 are mostly fan-out so
+they ship faster once the contract wedge (W2.1 / W4.1) lands.
 
 Phase 2 and Phase 4 don't depend on Phase 1 — they could ship
 first if priority shifts. Recommended order is 1 → 2 → 4 because
@@ -324,22 +470,33 @@ For each phase, an operator-runnable scenario:
 4. Tap Resume.
 5. Send "what's my favorite color?" → agent answers "blue".
 
-**Phase 2 happy path.**
-1. With a running gemini M1 agent in `default` mode.
-2. Tap mode chip → pick `yolo`.
-3. Confirmation chip flips to yolo within ~1s.
-4. Send a prompt that triggers a tool call → no permission popup
-   surfaces (yolo auto-approves).
-5. Tap mode chip → flip back to `default`.
-6. Next tool call → permission popup surfaces again.
+**Phase 2 happy paths (one per engine path).**
 
-**Phase 4 happy path.**
-1. With a running gemini M1 agent.
-2. Tap attach → pick a screenshot.
-3. Thumbnail appears in composer.
-4. Type "describe this" → send.
-5. Agent's first text response references the image content
-   correctly.
+*M1 RPC (gemini --acp):* Pick `yolo` from chip → chip flips within
+~1s → next tool call auto-approves.
+
+*Respawn (claude / codex):* Pick a different model from chip →
+"respawning…" spinner over the steward strip for ~3-5s →
+new lifecycle.started arrives → next prompt uses the new model.
+Transcript continuity preserved by `engine_session_id` resume.
+
+*Per-turn argv (gemini exec-per-turn):* Pick a different model →
+"applies on next turn" hint shows briefly → next prompt's
+gemini subprocess invokes with the new `--model` flag.
+
+**Phase 4 happy paths.**
+
+*Claude:* Attach → pick screenshot → "describe this" → send →
+claude's response references the image content correctly.
+
+*Codex:* Same flow → codex describes the image.
+
+*Gemini M1:* Same flow → gemini-cli (ACP) describes the image.
+
+*Gemini M2 (exec-per-turn):* Attach → pick screenshot → send →
+text portion goes through; warning chip appears: "this engine
+doesn't support inline images — switch to gemini M1 for
+multimodal turns."
 
 ---
 

@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2/4 not yet started
+> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 not yet started
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.413
+> **Last verified vs code:** v1.0.424
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -188,13 +188,21 @@ mode rather than the silent hang of pre-v1.0.402.
 
 **Version:** v1.0.413.
 
-### Phase 2 — Mode + model picker (cross-engine, capability-routed)
+### Phase 2 — Mode + model picker ✅ SHIPPED
 
-ADR-021 D4 (amended) splits Phase 2 into one cross-engine input
-contract + per-engine routing branches. Mobile UI is identical
-across families; only the wire path differs.
+All five wedges landed 2026-05-08 across versions v1.0.420–v1.0.424.
+The picker chip strip in AgentFeed lifts the agent's advertised
+mode/model state and routes selection through the hub's
+`runtime_mode_switch` table: gemini M1 → live `session/set_mode` /
+`session/set_model` RPC; claude/codex → respawn-with-mutated-spec
+via `mutateBackendCmdFlag` + `engine_session_id` resume cursor;
+gemini exec-per-turn → `--approval-mode` / `--model` argv splice on
+the next turn. One mobile UI; per-driver wire shape mappers in the
+fan-out tables. Sticky behavior for the per-turn-argv path is a
+follow-up wedge (current implementation consumes the override after
+one turn, by design).
 
-#### W2.1 — `runtime_mode_switch` family declaration + hub routing
+#### W2.1 — `runtime_mode_switch` family declaration + hub routing ✅ v1.0.420
 
 Hub-side. Each entry in `agent_families.yaml` declares one of
 `runtime_mode_switch: rpc | respawn | per_turn_argv | unsupported`.
@@ -221,7 +229,7 @@ mode_id for `rpc` family → 404. (c) `unsupported` family → 422.
 
 **Version:** v1.0.420.
 
-#### W2.2 — `session/set_mode` + `session/set_model` ACP driver dispatch
+#### W2.2 — `session/set_mode` + `session/set_model` ACP driver dispatch ✅ v1.0.421
 
 Driver-side, M1-only. `ACPDriver.Input` gains two cases that map to
 ACP RPCs against the cached sessionId. Validated against the
@@ -236,7 +244,7 @@ mode without spawning a new process.
 
 **Version:** v1.0.421.
 
-#### W2.3 — Respawn-with-mutated-spec for claude/codex
+#### W2.3 — Respawn-with-mutated-spec for claude/codex ✅ v1.0.422
 
 Hub-side, non-ACP path. The `respawn` branch from W2.1 needs a
 helper that:
@@ -265,7 +273,7 @@ the new model.
 
 **Version:** v1.0.422.
 
-#### W2.4 — `NextTurnModel` / `NextTurnMode` for gemini-exec
+#### W2.4 — `NextTurnModel` / `NextTurnMode` for gemini-exec ✅ v1.0.423
 
 Driver-side, exec-per-turn-only. `ExecResumeDriver` gains two
 fields that the next `runTurn` consults when building argv. No
@@ -282,7 +290,7 @@ agent applies on the next prompt without restarting.
 
 **Version:** v1.0.423.
 
-#### W2.5 — Mobile mode + model picker UI
+#### W2.5 — Mobile mode + model picker UI ✅ v1.0.424
 
 Mobile-side, cross-engine. Read the available lists from the
 agent's most recent `current_mode_update` / `current_model_update`

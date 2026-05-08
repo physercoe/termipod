@@ -23,6 +23,22 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.421-alpha — 2026-05-08
+
+### Added
+- **ACP `session/set_mode` + `session/set_model` driver dispatch
+  (ADR-021 W2.2).** ACPDriver caches the agent's `availableModes` /
+  `availableModels` id sets at session/new (and session/load) time
+  and exposes two new Input kinds — `set_mode { mode_id }` and
+  `set_model { model_id }`. Each validates the requested id against
+  the cached set before dispatching the matching ACP RPC, so a typo
+  fails locally without burning a round trip. An agent that didn't
+  advertise modes/models at handshake gets a typed
+  "did not advertise modes/models" error rather than a silent no-op.
+  W2.1's hub routing already emits these as input.set_mode /
+  input.set_model events for gemini-cli M1 (route=rpc); the driver
+  picks them up via the existing InputRouter polling loop.
+
 ## v1.0.420-alpha — 2026-05-08
 
 ### Added

@@ -142,6 +142,17 @@ type ACPDriver struct {
 	replayMu     sync.Mutex
 	replayActive bool
 
+	// availableModes / availableModels are the id sets the agent reported
+	// in its session/new (or session/load) response (ADR-021 W2.2). Set
+	// once at handshake; consulted by Input("set_mode"/"set_model") to
+	// reject ids the agent never advertised before we waste a round trip.
+	// Empty = the agent didn't advertise modes/models in this session,
+	// in which case set_mode/set_model gets a typed error explaining the
+	// engine doesn't support runtime switching for this session.
+	modesMu         sync.Mutex
+	availableModes  map[string]struct{}
+	availableModels map[string]struct{}
+
 	// Per-turn streaming aggregator state. gemini-cli emits
 	// `agent_message_chunk` and `agent_thought_chunk` notifications
 	// during a session/prompt — each chunk is incremental, not
@@ -336,6 +347,21 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	var sr struct {
 		SessionID string `json:"sessionId"`
+		// ADR-021 W2.2 — cache the agent's mode/model lists at session/new
+		// time so Input("set_mode"/"set_model") can validate ids without
+		// burning a round trip on every keypress. Field shape is the ACP
+		// spec's session/new response (gemini-cli@0.41.2 verified): each
+		// list element is an object with `id`, `name`, `description`.
+		Modes struct {
+			AvailableModes []struct {
+				ID string `json:"id"`
+			} `json:"availableModes"`
+		} `json:"modes"`
+		Models struct {
+			AvailableModels []struct {
+				ID string `json:"id"`
+			} `json:"availableModels"`
+		} `json:"models"`
 	}
 	_ = json.Unmarshal(sres, &sr)
 	// Some agents implement session/load by returning the same id we
@@ -347,6 +373,20 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	d.mu.Lock()
 	d.sessionID = sr.SessionID
 	d.mu.Unlock()
+	d.modesMu.Lock()
+	d.availableModes = make(map[string]struct{}, len(sr.Modes.AvailableModes))
+	for _, m := range sr.Modes.AvailableModes {
+		if m.ID != "" {
+			d.availableModes[m.ID] = struct{}{}
+		}
+	}
+	d.availableModels = make(map[string]struct{}, len(sr.Models.AvailableModels))
+	for _, m := range sr.Models.AvailableModels {
+		if m.ID != "" {
+			d.availableModels[m.ID] = struct{}{}
+		}
+	}
+	d.modesMu.Unlock()
 
 	_ = d.Poster.PostAgentEvent(parent, d.AgentID, "lifecycle", "system",
 		map[string]any{"phase": "started", "mode": "M1", "session_id": sr.SessionID})
@@ -1074,6 +1114,54 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			"id":      rpcID,
 			"result":  map[string]any{"outcome": outcome},
 		})
+	case "set_mode":
+		// ADR-021 W2.2 — runtime mode switch. Validated against the cached
+		// availableModes from session/new so a typo doesn't burn a round
+		// trip. ACP RPC: session/set_mode { sessionId, modeId }.
+		modeID, _ := payload["mode_id"].(string)
+		if modeID == "" {
+			return fmt.Errorf("acp driver: set_mode missing mode_id")
+		}
+		d.modesMu.Lock()
+		_, ok := d.availableModes[modeID]
+		hasList := len(d.availableModes) > 0
+		d.modesMu.Unlock()
+		if !hasList {
+			return fmt.Errorf("acp driver: set_mode unsupported (agent did not advertise modes)")
+		}
+		if !ok {
+			return fmt.Errorf("acp driver: set_mode unknown mode_id %q", modeID)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, d.HandshakeTimeout)
+		defer cancel()
+		_, err := d.call(callCtx, "session/set_mode", map[string]any{
+			"sessionId": sid,
+			"modeId":    modeID,
+		})
+		return err
+	case "set_model":
+		// ADR-021 W2.2 — runtime model switch. Same shape as set_mode.
+		modelID, _ := payload["model_id"].(string)
+		if modelID == "" {
+			return fmt.Errorf("acp driver: set_model missing model_id")
+		}
+		d.modesMu.Lock()
+		_, ok := d.availableModels[modelID]
+		hasList := len(d.availableModels) > 0
+		d.modesMu.Unlock()
+		if !hasList {
+			return fmt.Errorf("acp driver: set_model unsupported (agent did not advertise models)")
+		}
+		if !ok {
+			return fmt.Errorf("acp driver: set_model unknown model_id %q", modelID)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, d.HandshakeTimeout)
+		defer cancel()
+		_, err := d.call(callCtx, "session/set_model", map[string]any{
+			"sessionId": sid,
+			"modelId":   modelID,
+		})
+		return err
 	default:
 		return fmt.Errorf("acp driver: unsupported input kind %q", kind)
 	}

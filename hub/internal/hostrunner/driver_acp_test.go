@@ -33,6 +33,16 @@ type fakeACPAgent struct {
 	hangAuthenticate  bool             // authenticate → never reply (timeout exercise)
 	authMethodsCalled []string         // recorded methodIds the driver dispatched
 
+	// W2.2 toggles. availableModes/availableModels are injected into the
+	// session/new response under modes.availableModes /
+	// models.availableModels so the driver caches them. failSetMode /
+	// failSetModel make the matching RPC return a JSON-RPC error so
+	// tests can exercise the error-propagation path.
+	availableModes  []string
+	availableModels []string
+	failSetMode     bool
+	failSetModel    bool
+
 	mu       sync.Mutex
 	closed   bool
 	initCh   chan struct{} // closed when handshake completes
@@ -93,8 +103,35 @@ func (f *fakeACPAgent) serve() {
 				f.respond(id, map[string]any{})
 			}
 		case "session/new":
-			f.respond(id, map[string]any{"sessionId": f.sessionID})
+			result := map[string]any{"sessionId": f.sessionID}
+			if len(f.availableModes) > 0 {
+				modes := make([]map[string]any, 0, len(f.availableModes))
+				for _, m := range f.availableModes {
+					modes = append(modes, map[string]any{"id": m, "name": m})
+				}
+				result["modes"] = map[string]any{"availableModes": modes}
+			}
+			if len(f.availableModels) > 0 {
+				models := make([]map[string]any, 0, len(f.availableModels))
+				for _, m := range f.availableModels {
+					models = append(models, map[string]any{"id": m, "name": m})
+				}
+				result["models"] = map[string]any{"availableModels": models}
+			}
+			f.respond(id, result)
 			close(f.initCh)
+		case "session/set_mode":
+			if f.failSetMode {
+				f.respondError(id, -32000, "set_mode refused")
+			} else {
+				f.respond(id, map[string]any{})
+			}
+		case "session/set_model":
+			if f.failSetModel {
+				f.respondError(id, -32000, "set_model refused")
+			} else {
+				f.respond(id, map[string]any{})
+			}
 		case "session/load":
 			// W1.2: ACP load response is preceded by a flurry of
 			// session/update notifications carrying historical turns.
@@ -2113,5 +2150,172 @@ func TestACPDriver_AuthMethodTypoFails(t *testing.T) {
 	}
 	if cm, _ := attn.Payload["configured_method"].(string); cm != "googl-personal" {
 		t.Errorf("configured_method in attention payload = %q; want googl-personal", cm)
+	}
+}
+
+// TestACPDriver_SetModeDispatch — W2.2: Input("set_mode") validates the
+// requested id against the cached availableModes from session/new and
+// dispatches session/set_mode RPC.
+func TestACPDriver_SetModeDispatch(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-mode-1")
+	fake.availableModes = []string{"default", "yolo", "plan"}
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-set-mode",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "set_mode", map[string]any{"mode_id": "yolo"}); err != nil {
+		t.Fatalf("Input set_mode: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var rpc map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/set_mode"); m != nil {
+			rpc = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rpc == nil {
+		t.Fatalf("session/set_mode never arrived; received methods=%v", receivedMethods(fake))
+	}
+	params, _ := rpc["params"].(map[string]any)
+	if params["sessionId"] != "sess-mode-1" {
+		t.Errorf("sessionId = %v, want sess-mode-1", params["sessionId"])
+	}
+	if params["modeId"] != "yolo" {
+		t.Errorf("modeId = %v, want yolo", params["modeId"])
+	}
+}
+
+// TestACPDriver_SetModelDispatch — W2.2: same as set_mode but for
+// session/set_model + availableModels.
+func TestACPDriver_SetModelDispatch(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-model-1")
+	fake.availableModels = []string{"gemini-2.5-pro", "gemini-2.5-flash"}
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-set-model",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "set_model",
+		map[string]any{"model_id": "gemini-2.5-flash"}); err != nil {
+		t.Fatalf("Input set_model: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var rpc map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/set_model"); m != nil {
+			rpc = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rpc == nil {
+		t.Fatalf("session/set_model never arrived; received methods=%v", receivedMethods(fake))
+	}
+	params, _ := rpc["params"].(map[string]any)
+	if params["modelId"] != "gemini-2.5-flash" {
+		t.Errorf("modelId = %v, want gemini-2.5-flash", params["modelId"])
+	}
+}
+
+// TestACPDriver_SetModeRejectsUnknownID — unknown id returns error
+// before any RPC is sent.
+func TestACPDriver_SetModeRejectsUnknownID(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-mode-bad")
+	fake.availableModes = []string{"default", "yolo"}
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-set-mode-bad",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	err := drv.Input(context.Background(), "set_mode", map[string]any{"mode_id": "doesnotexist"})
+	if err == nil {
+		t.Fatalf("expected error for unknown mode_id, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown mode_id") {
+		t.Errorf("error = %q; want substring 'unknown mode_id'", err.Error())
+	}
+	// Sanity: the driver must NOT have dispatched the RPC.
+	time.Sleep(50 * time.Millisecond)
+	if m := fake.findReceived("session/set_mode"); m != nil {
+		t.Errorf("driver dispatched RPC for unknown id; got %+v", m)
+	}
+}
+
+// TestACPDriver_SetModeUnsupportedWhenNoList — agent that didn't
+// advertise any modes (older or barebones daemon) → typed error
+// surfacing the mismatch instead of dispatching against an empty cache.
+func TestACPDriver_SetModeUnsupportedWhenNoList(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-no-modes")
+	// Intentionally no availableModes injected.
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-no-modes",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	err := drv.Input(context.Background(), "set_mode", map[string]any{"mode_id": "yolo"})
+	if err == nil {
+		t.Fatalf("expected error for no-list agent, got nil")
+	}
+	if !strings.Contains(err.Error(), "did not advertise modes") {
+		t.Errorf("error = %q; want substring 'did not advertise modes'", err.Error())
 	}
 }

@@ -1,9 +1,9 @@
 # API overview
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-08)
 > **Audience:** contributors (mobile, hub, integrators)
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** Single canonical entry for "what HTTP endpoints does the
 hub expose?" Indexes every `/v1/...` route grouped by resource +
@@ -122,7 +122,7 @@ Detail: [`hub-agents.md`](hub-agents.md), [`../spine/agent-lifecycle.md`](../spi
 | GET | `/v1/teams/{team}/agents/{agent}/pane` | Snapshot pane buffer |
 | POST / GET | `/v1/teams/{team}/agents/{agent}/events` | Append + list AG-UI events |
 | GET | `/v1/teams/{team}/agents/{agent}/stream` | SSE — live AG-UI stream |
-| POST | `/v1/teams/{team}/agents/{agent}/input` | Structured input (approve / reject / redirect / cancel) |
+| POST | `/v1/teams/{team}/agents/{agent}/input` | Structured input — text, approval, answer, attention_reply, cancel, attach, set_mode/set_model (ADR-021 W2.1), with optional `images:[]` (ADR-021 W4.1) |
 | POST | `/v1/teams/{team}/steward.general/ensure` | Idempotently ensure team's general steward exists |
 | GET / PUT / DELETE / PATCH | `/v1/teams/{team}/agent-families/{family}` | Agent-family templates |
 

@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-04-30)
+> **Status:** Current (2026-05-08)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows

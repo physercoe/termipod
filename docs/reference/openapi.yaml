@@ -2634,21 +2634,112 @@ components:
     AgentInput:
       type: object
       required: [kind]
+      description: |
+        Structured input event posted to an agent. The hub persists each
+        request as one row in `agent_events` with producer='user' (or
+        'a2a') and kind='input.<kind>'; the host-runner's InputRouter
+        forwards to the live driver. The kind selects which shape applies;
+        unrelated fields on the request are ignored.
+
+        ADR-021 expansions:
+          - W2.1 added `set_mode` + `set_model` for the runtime mode/model
+            picker. The hub routes by `family.runtime_mode_switch[mode]`:
+            rpc → forward to driver, respawn → mutate spec + DoSpawn,
+            per_turn_argv → stash for next argv, unsupported → 422.
+          - W4.1 added optional `images: [{mime_type, data}]` alongside
+            `body` on text inputs. Validated mime allowlist
+            (image/png|jpeg|webp|gif), ≤5 MiB decoded per image, ≤3
+            images per turn. Drivers map per-engine (Anthropic /
+            OpenAI / ACP / strip+warn for gemini-exec).
       properties:
         kind:
           type: string
-          enum: [message, approve, reject, redirect, cancel]
-        text: { type: string }
-        attention_id: { type: string }
-        choice: { type: string }
-        comment: { type: string }
+          enum:
+            - text
+            - approval
+            - answer
+            - attention_reply
+            - cancel
+            - attach
+            - set_mode
+            - set_model
+        producer:
+          type: string
+          enum: [user, a2a]
+          description: Defaults to "user". A2A peer-to-peer dispatch sets "a2a".
+        body: { type: string, description: "text + answer + attention_reply" }
+        decision:
+          type: string
+          description: "approval — approve|allow|deny|cancel, or any string when paired with option_id"
+        request_id: { type: string, description: "approval / answer / attention_reply" }
+        option_id: { type: string, description: "approval / attention_reply — ACP optionId verbatim" }
+        note: { type: string }
+        reason: { type: string, description: "cancel" }
+        document_id: { type: string, description: "attach" }
+        mode_id: { type: string, description: "set_mode — ACP availableModes id" }
+        model_id: { type: string, description: "set_model — ACP availableModels id" }
+        images:
+          type: array
+          maxItems: 3
+          description: "ADR-021 W4.1 — image content blocks alongside body on text inputs"
+          items:
+            type: object
+            required: [mime_type, data]
+            properties:
+              mime_type:
+                type: string
+                enum: [image/png, image/jpeg, image/webp, image/gif]
+              data:
+                type: string
+                format: byte
+                description: "base64-encoded; ≤5 MiB decoded"
 
     AgentFamily:
       type: object
-      required: [name]
+      required: [family]
+      description: |
+        One entry from the merged agent_families.yaml registry. The hub
+        embeds defaults; per-family override files under
+        `<DataRoot>/agent_families/<family>.yaml` replace embedded
+        entries by name.
       properties:
-        name: { type: string }
-        spec_yaml: { type: string }
+        family: { type: string, description: "wire-level name (claude-code, codex, gemini-cli)" }
+        bin: { type: string }
+        version_flag: { type: string }
+        supports:
+          type: array
+          items: { type: string, enum: [M1, M2, M4] }
+        incompatibilities:
+          type: array
+          items:
+            type: object
+            properties:
+              mode: { type: string }
+              billing: { type: string }
+              reason: { type: string }
+        source:
+          type: string
+          enum: [embedded, override, custom]
+        default_auth_method:
+          type: string
+          description: "ADR-021 D3 / W1.4 — family-level fallback for ACP authenticate methodId"
+        runtime_mode_switch:
+          type: object
+          description: |
+            ADR-021 D4 / W2.1 — keyed by driving_mode (M1/M2/M4); values
+            are the routing token (rpc | respawn | per_turn_argv |
+            unsupported) the hub consults at /agents/{id}/input time.
+          additionalProperties:
+            type: string
+            enum: [rpc, respawn, per_turn_argv, unsupported]
+        prompt_image:
+          type: object
+          description: |
+            ADR-021 D5 / W4.6 — keyed by driving_mode; true when the
+            engine accepts inline image content blocks. Mobile composer
+            reads `prompt_image[active_mode]` to gate the inline-image
+            attach affordance.
+          additionalProperties: { type: boolean }
 
     Session:
       type: object

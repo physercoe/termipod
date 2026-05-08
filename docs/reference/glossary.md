@@ -1,9 +1,9 @@
 # Glossary
 
 > **Type:** reference
-> **Status:** Current (2026-04-30)
+> **Status:** Current (2026-05-08)
 > **Audience:** contributors (humans + AI)
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** Canonical definitions for every project-specific term that
 has more than one possible meaning, or whose meaning is non-obvious
@@ -480,6 +480,45 @@ the M1 (W2.2) and M2 exec-per-turn (W2.4) drivers; the hub
 respawn path (W2.3) validates by attempting the
 `mutateBackendCmdFlag` edit and surfacing `errFlagNotInCmd` as
 422 when the rendered cmd doesn't carry the target flag.
+
+### images (input field)
+ADR-021 D5 / W4.1 — optional `images: [{mime_type, data}]` array
+on `POST /agents/{id}/input` text inputs. Hub validates a single
+contract (mime allowlist `image/png|jpeg|webp|gif`, ≤5 MiB
+decoded per image, ≤3 images per turn) and persists onto
+`payload_json["images"]`. Each driver maps to its engine-native
+content block:
+- **claude** (StdioDriver, W4.2) → Anthropic
+  `{type:"image", source:{type:"base64", media_type, data}}`
+- **codex** (AppServerDriver, W4.3) → OpenAI responses-API
+  `{type:"input_image", image_url:"data:<mime>;base64,<b64>"}`
+- **ACP** (ACPDriver, W4.4) → ACP
+  `{type:"image", mimeType, data}`; gated by
+  `agentCapabilities.promptCapabilities.image`
+- **gemini-exec** (ExecResumeDriver, W4.5) → strip + emit
+  `kind=system` event with the upgrade path (`gemini -p` argv
+  has no inline-image affordance)
+
+Image blocks lead the content array; the text block (if any)
+trails so the model reads imagery before the question. Body
+becomes optional when ≥1 image is queued — image-only turns
+are first-class.
+
+### prompt_image (family attribute)
+ADR-021 D5 / W4.6 declaration on each `agent_families.yaml`
+entry — a map from driving_mode (M1/M2/M4) to bool. Mobile
+composer reads `family.prompt_image[active driving_mode]` to
+gate the inline-image attach affordance:
+- claude-code: `{M1: true, M2: true, M4: false}`
+- codex: `{M1: true, M2: true, M4: false}`
+- gemini-cli: `{M1: true, M2: false, M4: false}` (M1 ACP
+  accepts; M2 exec-per-turn strips)
+
+Per-mode keying parallels `runtime_mode_switch`; a single
+per-family bool couldn't capture gemini's M1↔M2 split. The
+mobile gate (`resolveCanAttachImages`) returns false on missing
+declarations so old hubs that haven't backfilled the field
+degrade safely (no attach button rather than mis-route).
 
 ---
 

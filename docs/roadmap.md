@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-04-30)
+> **Status:** Current (2026-05-08)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.349
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -68,7 +68,7 @@ run is the actual milestone).
 
 ## Phases (big picture)
 
-The blueprint defines five phases. Status as of v1.0.308:
+The blueprint defines five phases. Status as of v1.0.435:
 
 | Phase | Title | Status |
 |---|---|---|
@@ -122,6 +122,7 @@ working list — what's actually moving this week or next.
 | **Claude-code resume cursor (ADR-014)** | Pre-v1.0.349 every "Resume" tap spawned a fresh claude session; the hub never threaded `--resume <id>`. v1.0.349 adds `sessions.engine_session_id` capture from `session.init` events + a yaml-node splice on the resume handler so `agent_spawns.spawn_spec_yaml` carries the cursor. Codex `threadId` and gemini cross-restart cursor capture remain as ADR-014 OQ-1/OQ-2. (`decisions/014-claude-code-resume-cursor.md`) | Done; verifying on device next |
 | **Agent state & identity (ADR-009)** | Phase 1 + 2 shipped v1.0.320–322: rename close→archive, fork action, scope chip + grouping, approval detail, attention-scope entry. (`plans/agent-state-and-identity.md`) | Done; verifying on device next |
 | **MVP parity gaps — Phase 1.5** | Local notifications (1.5a, v1.0.323+325) + session search (1.5c, v1.0.324) shipped. ntfy killed-state push (1.5b) deferred post-MVP. (`plans/mvp-parity-gaps.md`) | Done; verifying on device next |
+| **ACP capability surface (ADR-021)** | M1 had no resume / no auth dispatch / no mode-or-model picker / no image inputs — core single-engine parity gaps. Phase 1 (`session/load` + `authenticate`, v1.0.410–413), Phase 2 (cross-engine mode/model picker via rpc/respawn/per_turn_argv, v1.0.420–424), Phase 4 (image content blocks across claude/codex/ACP + gemini-exec strip-and-warn + mobile attach UI, v1.0.430–435). Phase 3 (`fs/*`/`terminal/*` client capabilities) explicitly post-MVP per ADR-021 D1. (`plans/acp-capability-surface.md`) | Done; verifying on device next |
 
 ### Next (committed, not started)
 
@@ -173,6 +174,9 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.430-435 | ADR-021 Phase 4 — cross-engine image content block inputs (hub `images:[]` contract + claude/codex/ACP wire shapes + gemini-exec strip-and-warn + mobile attach UI w/ thumbnail strip) |
+| v1.0.420-424 | ADR-021 Phase 2 — mode/model picker (cross-engine wire-path fan-out: M1 ACP rpc / claude+codex respawn / gemini-exec per-turn argv) + mobile chip strip |
+| v1.0.410-413 | ADR-021 Phase 1 — `session/load` resume cursor + `authenticate` dispatch + mobile replay-event dedupe |
 | v1.0.317 | GitHub-ecosystem hygiene + changelog seed (Dependabot, CodeQL, PR template, stale-doc warning) |
 | v1.0.316 | Status-block linter wired to CI (anti-drift Layer 1) |
 | v1.0.315 | Spine docs reconciled with shipped state (sessions Tentative→Resolved, blueprint phase status, IA wedges marked) |

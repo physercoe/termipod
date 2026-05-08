@@ -1,9 +1,9 @@
 # termipod docs
 
 > **Type:** axiom
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-08)
 > **Audience:** anyone landing in `docs/` for the first time
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.435
 
 **TL;DR.** The index. Tells you where to start based on what you came
 to find. If you're going to add a doc, read [`doc-spec.md`](doc-spec.md)

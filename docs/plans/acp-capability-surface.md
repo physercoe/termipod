@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 not yet started
+> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1 shipped v1.0.430
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.424
+> **Last verified vs code:** v1.0.430
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -319,7 +319,7 @@ ADR-021 D5 (amended) makes image inputs land per-driver, not just
 M1. One cross-engine hub input shape, four driver-specific
 mappings.
 
-#### W4.1 — Hub input contract for `images: []`
+#### W4.1 — Hub input contract for `images: []` ✅ v1.0.430
 
 Hub-side. `POST /agents/{id}/input` accepts a new optional
 `images: [{mime_type: "image/png", data: "<base64>"}]` field

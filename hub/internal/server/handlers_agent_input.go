@@ -3,13 +3,70 @@ package server
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// ADR-021 Phase 4 / W4.1 — image content blocks. Cross-engine input
+// contract. Drivers map this to their native shape (Anthropic / OpenAI
+// / ACP); gemini-exec strips and warns. Caps are the lower bound across
+// our engines so anything we accept here is acceptable to every driver
+// that *does* support images:
+//   - mime allowlist matches what the engines themselves accept
+//   - 5 MiB decoded per image is well under Anthropic's 20 MiB and
+//     OpenAI's 20 MiB ceilings; chosen to keep base64 envelopes from
+//     blowing up event_payload sizes (we store these on agent_events)
+//   - 3 images per turn is gemini's per-prompt cap
+const (
+	maxImagesPerInput = 3
+	maxImageSizeBytes = 5 * 1024 * 1024
+)
+
+var allowedImageMimes = map[string]struct{}{
+	"image/png":  {},
+	"image/jpeg": {},
+	"image/webp": {},
+	"image/gif":  {},
+}
+
+// imageInput is the wire shape carried on POST /agents/{id}/input
+// alongside body. We persist it as-is into payload_json["images"]; each
+// driver's Input handler reshapes it to engine-native blocks (Phase 4
+// W4.2-W4.5).
+type imageInput struct {
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"`
+}
+
+func validateImages(images []imageInput) error {
+	if len(images) > maxImagesPerInput {
+		return fmt.Errorf("at most %d images per input", maxImagesPerInput)
+	}
+	for i, img := range images {
+		if _, ok := allowedImageMimes[img.MimeType]; !ok {
+			return fmt.Errorf("image[%d]: mime_type %q not allowed (use image/png|image/jpeg|image/webp|image/gif)",
+				i, img.MimeType)
+		}
+		if img.Data == "" {
+			return fmt.Errorf("image[%d]: data required", i)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(img.Data)
+		if err != nil {
+			return fmt.Errorf("image[%d]: malformed base64", i)
+		}
+		if len(decoded) > maxImageSizeBytes {
+			return fmt.Errorf("image[%d]: %d bytes exceeds %d byte cap",
+				i, len(decoded), maxImageSizeBytes)
+		}
+	}
+	return nil
+}
 
 // resolveRuntimeModeSwitch returns the routing token for the given
 // agent's family + driving_mode (ADR-021 D4 / W2.1). Returns:
@@ -81,6 +138,11 @@ type agentInputIn struct {
 	// against the cached availableModes/availableModels list.
 	ModeID  string `json:"mode_id,omitempty"`
 	ModelID string `json:"model_id,omitempty"`
+	// Images (ADR-021 D5 / Phase 4 W4.1). Optional alongside text Body;
+	// each driver maps to its native content-array shape. Drivers that
+	// don't know about images ignore the field — text turns stay
+	// backward-compatible.
+	Images []imageInput `json:"images,omitempty"`
 }
 
 func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
@@ -99,11 +161,20 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	payloadMap := map[string]any{}
 	switch in.Kind {
 	case "text":
-		if in.Body == "" {
-			writeErr(w, http.StatusBadRequest, "body required")
+		if in.Body == "" && len(in.Images) == 0 {
+			writeErr(w, http.StatusBadRequest, "body or images required")
 			return
 		}
-		payloadMap["body"] = in.Body
+		if err := validateImages(in.Images); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if in.Body != "" {
+			payloadMap["body"] = in.Body
+		}
+		if len(in.Images) > 0 {
+			payloadMap["images"] = in.Images
+		}
 	case "approval":
 		// Valid decisions: approve/allow/deny map to "selected" on the
 		// M1 wire; cancel maps to "cancelled". "approve" and "allow" are

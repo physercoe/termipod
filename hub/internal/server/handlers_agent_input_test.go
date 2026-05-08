@@ -3,10 +3,12 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -458,6 +460,184 @@ func TestPostAgentInput_SetMode_MissingFields(t *testing.T) {
 				t.Fatalf("status = %d want 400, body=%s", status, raw)
 			}
 		})
+	}
+}
+
+// b64png returns a base64-encoded blob of n bytes prefixed with the
+// 8-byte PNG magic so the tests use realistic-looking but fake image
+// data. Validation is structural (length, mime, base64 well-formedness)
+// — we don't sniff bytes — so the prefix is cosmetic.
+func b64bytes(n int) string {
+	buf := make([]byte, n)
+	for i := range buf {
+		buf[i] = byte(i % 256)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// TestPostAgentInput_ImagesHappyPath — W4.1: text input with valid
+// images plumbs through to payload_json["images"] verbatim. Drivers
+// that map to engine-native content arrays read this in W4.2-W4.5.
+func TestPostAgentInput_ImagesHappyPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	body := map[string]any{
+		"kind": "text",
+		"body": "describe these",
+		"images": []map[string]string{
+			{"mime_type": "image/png", "data": b64bytes(1024)},
+			{"mime_type": "image/jpeg", "data": b64bytes(2048)},
+		},
+	}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+
+	var payloadRaw string
+	if err := s.db.QueryRow(
+		`SELECT payload_json FROM agent_events WHERE id = ?`,
+		out["id"]).Scan(&payloadRaw); err != nil {
+		t.Fatalf("select payload: %v", err)
+	}
+	var payload struct {
+		Body   string `json:"body"`
+		Images []struct {
+			MimeType string `json:"mime_type"`
+			Data     string `json:"data"`
+		} `json:"images"`
+	}
+	if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
+		t.Fatalf("payload decode: %v", err)
+	}
+	if payload.Body != "describe these" {
+		t.Errorf("body = %q", payload.Body)
+	}
+	if len(payload.Images) != 2 {
+		t.Fatalf("images = %d, want 2", len(payload.Images))
+	}
+	if payload.Images[0].MimeType != "image/png" {
+		t.Errorf("images[0].mime_type = %q", payload.Images[0].MimeType)
+	}
+	if payload.Images[1].MimeType != "image/jpeg" {
+		t.Errorf("images[1].mime_type = %q", payload.Images[1].MimeType)
+	}
+}
+
+// TestPostAgentInput_ImagesOnly — body may be empty when at least one
+// image is present (e.g. "here, look" gestures). Pre-W4.1 contract
+// required body; relaxed for multimodal turns.
+func TestPostAgentInput_ImagesOnly(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	body := map[string]any{
+		"kind": "text",
+		"images": []map[string]string{
+			{"mime_type": "image/webp", "data": b64bytes(64)},
+		},
+	}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+}
+
+// TestPostAgentInput_ImagesValidation — W4.1: the four rejection paths
+// from the plan. Each must return 400 with a typed error fragment so
+// mobile renders an actionable snackbar without parsing the message.
+func TestPostAgentInput_ImagesValidation(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	cases := []struct {
+		name    string
+		images  []map[string]string
+		marker  string // substring expected in error body
+	}{
+		{
+			name: "bad_mime",
+			images: []map[string]string{
+				{"mime_type": "image/bmp", "data": b64bytes(64)},
+			},
+			marker: "not allowed",
+		},
+		{
+			name: "missing_data",
+			images: []map[string]string{
+				{"mime_type": "image/png", "data": ""},
+			},
+			marker: "data required",
+		},
+		{
+			name: "malformed_base64",
+			images: []map[string]string{
+				{"mime_type": "image/png", "data": "!!!not-base64!!!"},
+			},
+			marker: "malformed base64",
+		},
+		{
+			name: "too_large",
+			images: []map[string]string{
+				{"mime_type": "image/png", "data": b64bytes(maxImageSizeBytes + 1)},
+			},
+			marker: "exceeds",
+		},
+		{
+			name: "too_many",
+			images: []map[string]string{
+				{"mime_type": "image/png", "data": b64bytes(64)},
+				{"mime_type": "image/png", "data": b64bytes(64)},
+				{"mime_type": "image/png", "data": b64bytes(64)},
+				{"mime_type": "image/png", "data": b64bytes(64)},
+			},
+			marker: "at most 3 images",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := map[string]any{
+				"kind":   "text",
+				"body":   "x",
+				"images": tc.images,
+			}
+			status, raw := postInput(t, h, defaultTeamID, agentID, body)
+			if status != http.StatusBadRequest {
+				t.Fatalf("status = %d want 400, body=%s", status, raw)
+			}
+			if !strings.Contains(string(raw), tc.marker) {
+				t.Errorf("body missing %q: %s", tc.marker, raw)
+			}
+		})
+	}
+}
+
+// TestPostAgentInput_ImagesIgnoredOnNonText — images on a non-text kind
+// is forward-compat noise: validation only fires on text. Sending a
+// malformed image alongside cancel kind still succeeds. (Drivers that
+// see images on cancel will still ignore them.)
+func TestPostAgentInput_ImagesIgnoredOnNonText(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	// Even with malformed base64 and bad mime, cancel goes through:
+	// validation only runs on text. This locks the forward-compat
+	// principle so future kinds can opt into images without changing
+	// the validation path.
+	body := map[string]any{
+		"kind":   "cancel",
+		"images": []map[string]string{{"mime_type": "image/bmp", "data": "!!!"}},
+	}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
 	}
 }
 

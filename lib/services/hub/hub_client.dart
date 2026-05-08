@@ -1368,6 +1368,12 @@ class HubClient {
     // shape; the wire path varies per engine.
     String? modeId,
     String? modelId,
+    // ADR-021 W4.1 — image content blocks alongside body. Each entry
+    // is `{mime_type, data}` where data is base64. The hub validates
+    // (mime allowlist, ≤5 MiB decoded, ≤3 images) and persists onto
+    // payload_json["images"]; per-driver shape mapping lands in
+    // W4.2-W4.5. UI surface (composer attach branch) lands in W4.6.
+    List<Map<String, String>>? images,
   }) async {
     final req = <String, dynamic>{'kind': kind};
     if (body != null) req['body'] = body;
@@ -1379,6 +1385,7 @@ class HubClient {
     if (documentId != null) req['document_id'] = documentId;
     if (modeId != null) req['mode_id'] = modeId;
     if (modelId != null) req['model_id'] = modelId;
+    if (images != null && images.isNotEmpty) req['images'] = images;
     final out =
         await _post('/v1/teams/${cfg.teamId}/agents/$agentId/input', req);
     return (out as Map).cast<String, dynamic>();

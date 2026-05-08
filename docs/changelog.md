@@ -23,6 +23,26 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.430-alpha — 2026-05-08
+
+### Added
+- **Hub input contract for `images: []` (ADR-021 W4.1).** Opens Phase 4
+  of the ACP capability surface plan. `POST /agents/{id}/input` accepts
+  an optional `images: [{mime_type, data}]` array alongside `body`.
+  Validation: mime allowlist (`image/png` / `image/jpeg` / `image/webp`
+  / `image/gif`), well-formed base64, ≤5 MiB decoded per image, ≤3
+  images per request. Caps are the lower bound across our engines so
+  any accepted payload is acceptable to every content-array driver.
+  Plumbed onto `payload_json["images"]` verbatim — per-driver shape
+  mapping (Anthropic image_source / OpenAI input_image / ACP
+  prompt-array) lands in W4.2–W4.4. Drivers that don't know about
+  images ignore the field, so text-only turns remain backward-
+  compatible. UI surface (composer attach branch) lands in W4.6.
+  HubClient gains an `images` named parameter on `postAgentInput`;
+  consumers don't yet send it.
+
+---
+
 ## v1.0.424-alpha — 2026-05-08
 
 ### Added

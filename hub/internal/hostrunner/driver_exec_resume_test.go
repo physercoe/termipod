@@ -802,6 +802,145 @@ func TestExecResumeDriver_NextTurnModeArgvSplice(t *testing.T) {
 	}
 }
 
+// TestExecResumeDriver_TextStripsImagesAndWarns — W4.5: gemini's
+// exec-per-turn argv has no inline-image affordance, so when a hub
+// input carries `images`, the driver:
+//   - emits a kind=system event noting the strip + the upgrade
+//     path (switch to gemini --acp / M1 for multimodal turns),
+//   - lets the text portion proceed normally as gemini -p <body>.
+// Hub-side W4.1 validation has already enforced caps; this is the
+// last-mile drop.
+func TestExecResumeDriver_TextStripsImagesAndWarns(t *testing.T) {
+	fam, ok := agentfamilies.ByName("gemini-cli")
+	if !ok {
+		t.Fatal("gemini-cli family missing")
+	}
+	frames := []string{
+		`{"type":"init","session_id":"sess-w45","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"message","role":"assistant","content":"ok","delta":false,"timestamp":"t"}`,
+		`{"type":"result","status":"success","timestamp":"t"}`,
+	}
+	var capturedArgs []string
+	var argsMu sync.Mutex
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		argsMu.Lock()
+		capturedArgs = append([]string{name}, args...)
+		argsMu.Unlock()
+		return newFakeGeminiCmd(append([]string{name}, args...), frames)
+	}
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-w45",
+		Handle:         "@steward",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{
+		"body": "describe this",
+		"images": []any{
+			map[string]any{"mime_type": "image/png", "data": "AAA="},
+		},
+	}); err != nil {
+		t.Fatalf("Input: %v", err)
+	}
+
+	// argv must carry the body, not an image flag (gemini-exec has
+	// no such flag — but check anyway for forward-compat regression
+	// guard if someone adds one to gemini and we forget to rewire).
+	argsMu.Lock()
+	args := append([]string{}, capturedArgs...)
+	argsMu.Unlock()
+	if !containsArg(args, "-p", "describe this") {
+		t.Errorf("argv missing -p body: %v", args)
+	}
+	for _, a := range args {
+		if a == "AAA=" {
+			t.Errorf("argv leaked image data: %v", args)
+		}
+	}
+
+	// Find the system warn event.
+	poster.mu.Lock()
+	defer poster.mu.Unlock()
+	var found bool
+	for _, e := range poster.events {
+		if e.Kind != "system" {
+			continue
+		}
+		reason, _ := e.Payload["reason"].(string)
+		engine, _ := e.Payload["engine"].(string)
+		if engine == "gemini-exec" && reason != "" && strings.Contains(strings.ToLower(reason), "no inline image support") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected gemini-exec strip warning; got events %+v", poster.events)
+	}
+}
+
+// TestExecResumeDriver_TextImagesOnlyStillRejected — gemini-exec
+// can't carry images at all; an image-only input (no body) is still
+// invalid because the strip leaves nothing to send. The text-input
+// missing-body error is the right user-visible signal.
+func TestExecResumeDriver_TextImagesOnlyStillRejected(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		t.Fatalf("CommandBuilder must not be invoked when body is empty")
+		return nil
+	}
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-w45b",
+		Handle:         "@steward",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	err := drv.Input(context.Background(), "text", map[string]any{
+		"images": []any{
+			map[string]any{"mime_type": "image/png", "data": "AAA="},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error for image-only input on gemini-exec")
+	}
+	// Still warn — the principal needs to know images were dropped
+	// before the error message about missing body.
+	poster.mu.Lock()
+	defer poster.mu.Unlock()
+	var sawWarn bool
+	for _, e := range poster.events {
+		if e.Kind == "system" {
+			engine, _ := e.Payload["engine"].(string)
+			if engine == "gemini-exec" {
+				sawWarn = true
+				break
+			}
+		}
+	}
+	if !sawWarn {
+		t.Errorf("expected gemini-exec strip warning before missing-body error; events=%+v", poster.events)
+	}
+}
+
 // TestExecResumeDriver_SetModelMissingID — empty model_id returns a
 // typed error without touching the override slot.
 func TestExecResumeDriver_SetModelMissingID(t *testing.T) {

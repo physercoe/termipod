@@ -23,6 +23,25 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.434-alpha — 2026-05-08
+
+### Added
+- **gemini-exec image strip + warn (ADR-021 W4.5).** ExecResumeDriver
+  now intercepts `payload["images"]` on text input. gemini's
+  exec-per-turn argv (`gemini -p "<text>"`) has no inline-image
+  affordance, so the driver:
+  - emits a `kind=system` event with engine=`gemini-exec`,
+    reason="…no inline image support — switch to gemini --acp (M1)
+    for multimodal turns…", dropped=count, so the principal sees
+    why the attachment didn't reach the model and what to do
+    about it,
+  - lets the text portion proceed normally as `gemini -p <body>`.
+  Image-only inputs (no body) emit the warning and then return the
+  existing missing-body error so the principal isn't left thinking
+  silence = success.
+
+---
+
 ## v1.0.433-alpha — 2026-05-08
 
 ### Added

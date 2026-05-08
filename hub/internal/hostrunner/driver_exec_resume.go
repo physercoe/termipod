@@ -248,6 +248,21 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)
+		// ADR-021 W4.5 — gemini's exec-per-turn argv (`gemini -p
+		// "<text>"`) has no inline-image affordance, so any images
+		// the hub forwarded get stripped here and a kind=system warn
+		// event lands on the transcript so the principal sees why
+		// their attachment didn't reach the model. Switching to M1
+		// (--acp) is the path forward for multimodal turns; the
+		// warning text says so.
+		if images := extractImageInputs(payload); len(images) > 0 {
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
+				map[string]any{
+					"reason":  "gemini exec-per-turn has no inline image support — switch to gemini --acp (M1) for multimodal turns",
+					"engine":  "gemini-exec",
+					"dropped": len(images),
+				})
+		}
 		if body == "" {
 			return fmt.Errorf("exec-resume driver: text input missing body")
 		}

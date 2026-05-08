@@ -1,9 +1,9 @@
 # ACP capability surface
 
 > **Type:** plan
-> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1–W4.4 shipped v1.0.430–v1.0.433
+> **Status:** In progress (2026-05-08) — Phase 1 (W1.1–W1.4) shipped v1.0.410–v1.0.413; Phase 2 (W2.1–W2.5) shipped v1.0.420–v1.0.424; Phase 4 W4.1–W4.5 shipped v1.0.430–v1.0.434; W4.6 pending
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.433
+> **Last verified vs code:** v1.0.434
 
 **TL;DR.** Implementation plan for ADR-021 (ACP capability surface).
 Three phases scoped for MVP — Phase 1 (`session/load` + `authenticate`),
@@ -399,7 +399,7 @@ from the cached `initialize` response (already parsed).
 
 **Version:** v1.0.433.
 
-#### W4.5 — gemini-exec (ExecResumeDriver) capability-gate strip
+#### W4.5 — gemini-exec (ExecResumeDriver) capability-gate strip ✅ v1.0.434
 
 Driver-side. exec-per-turn passes the prompt as `gemini -p
 "<text>"` argv with no inline-image affordance. The driver:

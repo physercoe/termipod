@@ -188,6 +188,24 @@ func TestTerminatePane_PanelessDriverStopsViaRegistry(t *testing.T) {
 	}
 }
 
+// TestParseSpec_FallbackModes pins the runtime fallback ladder: spec
+// YAML carries fallback_modes, host-runner parses it so a launch failure
+// at a higher mode (M1 ACP handshake stall, M2 stdio start crash) lands
+// on the next-best mode rather than straight on M4. Without this field
+// the dispatch loop has no way to honor the template's preferred order.
+func TestParseSpec_FallbackModes(t *testing.T) {
+	yaml := "driving_mode: M1\n" +
+		"fallback_modes: [M2, M4]\n" +
+		"backend:\n  cmd: gemini --acp\n"
+	spec, err := ParseSpec(yaml)
+	if err != nil {
+		t.Fatalf("ParseSpec: %v", err)
+	}
+	if len(spec.FallbackModes) != 2 || spec.FallbackModes[0] != "M2" || spec.FallbackModes[1] != "M4" {
+		t.Errorf("FallbackModes = %v; want [M2 M4]", spec.FallbackModes)
+	}
+}
+
 // TestTerminatePane_PanelessNoDriverIsNoop locks the "agent already
 // stopped or living on another host" path: with pane_id absent and no
 // driver registered, terminate returns nil so the hub-side terminate

@@ -470,61 +470,93 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	// resolves mode against host capabilities + billing before the spawn
 	// lands here. An empty Mode means "hub had no opinion" (opt-in
 	// column) and we default to M4 so unmigrated clients keep working.
-	mode := sp.Mode
-	if mode == "" {
-		mode = "M4"
+	//
+	// Runtime fallback chain: hub-side resolution checks host capabilities,
+	// but doesn't catch *runtime* launch failures (M1 ACP handshake stall on
+	// expired creds, M2 stdio start that exits before the first frame). Walk
+	// the spec's fallback_modes list one rung at a time so a transient
+	// failure on a higher mode lands on the next-best mode rather than
+	// straight on M4. M4 always works, so it remains the final rung.
+	primary := sp.Mode
+	if primary == "" {
+		primary = "M4"
+	}
+	candidates := []string{primary}
+	for _, m := range spec.FallbackModes {
+		if m == primary || m == "" {
+			continue
+		}
+		candidates = append(candidates, m)
+	}
+	if len(candidates) == 0 || candidates[len(candidates)-1] != "M4" {
+		candidates = append(candidates, "M4")
 	}
 
 	var pane string
 	var drv Driver
-	switch mode {
-	case "M2":
-		// Prefer the egress-proxy URL when the proxy is up — that way
-		// the agent's .mcp.json points at 127.0.0.1:NNNN instead of
-		// the public hub URL. Falls back to the real URL when the
-		// proxy is disabled or its bind failed at start.
-		hubURLForAgent := a.Client.BaseURL
-		if a.egressProxy != nil {
-			hubURLForAgent = a.egressProxy.LocalURL
+	mode := primary
+	for _, cand := range candidates {
+		mode = cand
+		switch cand {
+		case "M2":
+			// Prefer the egress-proxy URL when the proxy is up — that way
+			// the agent's .mcp.json points at 127.0.0.1:NNNN instead of
+			// the public hub URL. Falls back to the real URL when the
+			// proxy is disabled or its bind failed at start.
+			hubURLForAgent := a.Client.BaseURL
+			if a.egressProxy != nil {
+				hubURLForAgent = a.egressProxy.LocalURL
+			}
+			res, m2err := launchM2(ctx, M2LaunchConfig{
+				Spawn:    sp,
+				Launcher: a.Launcher,
+				Client:   a.agentPoster,
+				HubURL:   hubURLForAgent,
+			})
+			if m2err != nil {
+				a.Log.Warn("M2 launch failed; trying next fallback",
+					"handle", sp.Handle, "err", m2err)
+				continue
+			}
+			pane = res.PaneID
+			drv = res.Driver
+		case "M1":
+			// M1 = ACP daemon. Spawn the engine in `--acp` mode, wire
+			// ACPDriver to its stdio. On handshake failure the next
+			// fallback in the template's fallback_modes list takes over
+			// (typically M2 → M4); a missing list collapses to M4.
+			hubURLForAgent := a.Client.BaseURL
+			if a.egressProxy != nil {
+				hubURLForAgent = a.egressProxy.LocalURL
+			}
+			res, m1err := launchM1(ctx, M1LaunchConfig{
+				Spawn:    sp,
+				Launcher: a.Launcher,
+				Client:   a.agentPoster,
+				HubURL:   hubURLForAgent,
+			})
+			if m1err != nil {
+				a.Log.Warn("M1 launch failed; trying next fallback",
+					"handle", sp.Handle, "err", m1err)
+				continue
+			}
+			pane = res.PaneID
+			drv = res.Driver
+		case "M4":
+			// M4 path is built below outside the loop — fall through so
+			// the existing M4 launcher constructs the PaneDriver. break
+			// out of the for loop because no higher mode will be tried
+			// after M4.
+		default:
+			a.Log.Warn("unknown driving mode; skipping",
+				"handle", sp.Handle, "mode", cand)
+			continue
 		}
-		res, m2err := launchM2(ctx, M2LaunchConfig{
-			Spawn:    sp,
-			Launcher: a.Launcher,
-			Client:   a.agentPoster,
-			HubURL:   hubURLForAgent,
-		})
-		if m2err != nil {
-			a.Log.Warn("M2 launch failed; falling back to M4",
-				"handle", sp.Handle, "err", m2err)
-			mode = "M4"
+		// A successful M1/M2 launch sets drv; if it's still nil we landed
+		// on M4 and let the M4 block below build the pane driver.
+		if drv != nil || cand == "M4" {
 			break
 		}
-		pane = res.PaneID
-		drv = res.Driver
-	case "M1":
-		// M1 = ACP daemon. Spawn the engine in `--acp` mode, wire
-		// ACPDriver to its stdio. On handshake failure (engine
-		// doesn't speak ACP, or speaks a different protocol version)
-		// we drop to M4 so the pane still surfaces *something* the
-		// operator can attach to and inspect.
-		hubURLForAgent := a.Client.BaseURL
-		if a.egressProxy != nil {
-			hubURLForAgent = a.egressProxy.LocalURL
-		}
-		res, m1err := launchM1(ctx, M1LaunchConfig{
-			Spawn:    sp,
-			Launcher: a.Launcher,
-			Client:   a.agentPoster,
-			HubURL:   hubURLForAgent,
-		})
-		if m1err != nil {
-			a.Log.Warn("M1 launch failed; falling back to M4",
-				"handle", sp.Handle, "err", m1err)
-			mode = "M4"
-			break
-		}
-		pane = res.PaneID
-		drv = res.Driver
 	}
 
 	if mode == "M4" && drv == nil {

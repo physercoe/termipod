@@ -12,6 +12,14 @@ type SpawnSpec struct {
 	ProjectID string `yaml:"project_id"`
 	ChannelID string `yaml:"channel_id"`
 
+	// FallbackModes is the template's preferred runtime fallback ladder.
+	// The hub-side mode resolver consumes this list at spawn-creation time
+	// to pick a single primary mode; host-runner re-parses it so a launch
+	// failure (M1 ACP handshake, M2 stdio start) can drop one rung at a
+	// time instead of straight to M4. Honored only when entries name modes
+	// the host actually supports — invalid entries are silently skipped.
+	FallbackModes []string `yaml:"fallback_modes"`
+
 	// Backend is a loose catch-all for launcher hints; TmuxLauncher reads
 	// `backend.cmd` when present, falling back to its DefaultCmd otherwise.
 	// DefaultWorkdir, when set, is the cwd the M2 launcher cd's into before

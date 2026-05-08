@@ -113,7 +113,14 @@ func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 		a.stopDriver(cmd.AgentID)
 	} else {
 		if _, err := runTmux(ctx, "kill-pane", "-t", pane); err != nil {
-			return err
+			// "can't find pane: %N" means the pane already exited (e.g.
+			// the agent crashed before terminate fired). The semantic
+			// goal of terminate — "ensure not running" — is satisfied,
+			// so don't bubble the error and fail the command. Other
+			// tmux errors (server gone, permission) still propagate.
+			if !strings.Contains(err.Error(), "can't find pane") {
+				return err
+			}
 		}
 	}
 	// Best-effort worktree cleanup. A dirty tree is preserved and flagged

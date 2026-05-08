@@ -96,8 +96,11 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 	}
 
 	// Spawner must have been invoked with the workdir-prefixed command.
-	if !strings.Contains(spawner.cmd, "gemini --acp") {
-		t.Errorf("spawner.cmd = %q; want it to contain `gemini --acp`", spawner.cmd)
+	// We splice --skip-trust between the binary and --acp for gemini
+	// (see launch_m1.go), so check the bin and the ACP flag separately
+	// rather than as a contiguous "gemini --acp" substring.
+	if !strings.Contains(spawner.cmd, "gemini ") || !strings.Contains(spawner.cmd, "--acp") {
+		t.Errorf("spawner.cmd = %q; want it to invoke `gemini` with `--acp`", spawner.cmd)
 	}
 	if !strings.Contains(spawner.cmd, "cd ") {
 		t.Errorf("spawner.cmd = %q; want a leading `cd <workdir>`", spawner.cmd)
@@ -106,9 +109,14 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 	// untrusted folder: the binary exits before producing any
 	// JSON-RPC output, ACP initialize times out, and we fall back to
 	// M2/M4. Inline GEMINI_CLI_TRUST_WORKSPACE=true into the bash -c
-	// command so the trust gate clears.
+	// command AND splice --skip-trust into argv so the trust gate
+	// clears even if env stripping (sudo, systemd Environment=) eats
+	// the first defense.
 	if !strings.Contains(spawner.cmd, "GEMINI_CLI_TRUST_WORKSPACE=true") {
 		t.Errorf("spawner.cmd = %q; want a leading GEMINI_CLI_TRUST_WORKSPACE=true env so gemini-cli@0.41 doesn't refuse the launch", spawner.cmd)
+	}
+	if !strings.Contains(spawner.cmd, "--skip-trust") {
+		t.Errorf("spawner.cmd = %q; want --skip-trust spliced in argv as backup against env stripping", spawner.cmd)
 	}
 
 	// Lifecycle event must report mode=M1 (driver_acp.go emits this on

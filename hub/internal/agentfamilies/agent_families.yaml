@@ -249,13 +249,21 @@ families:
         authoritative design.
 
         Dispatch is on the top-level `type` field. Most-specific match
-        wins (largest match-keyset; declaration order on ties). Streaming
-        message deltas (role=assistant, delta=true) are *not* emitted in
-        v1 — we emit on completion (delta=false), keeping transcript
-        shape parallel with claude-code and codex. The unprofiled delta
-        frames fall through to ApplyProfile's kind=raw fallback so a
-        future renderer wedge can opt in to live-streaming UI without a
-        Go change.
+        wins (largest match-keyset; declaration order on ties).
+
+        Assistant text emission (verified against gemini-cli@0.41.2):
+        the engine emits ONLY streaming chunks with `delta: true` —
+        there is no final `delta: false` consolidation frame. We match
+        `delta: true` and emit a `text` event per chunk; the mobile
+        transcript renderer concatenates consecutive text/agent events
+        from the same turn into one bubble. The earlier ADR-013 D7
+        plan to emit on `delta: false` matched a protocol shape gemini
+        never actually shipped.
+
+        User echoes (role=user) still fall through to ApplyProfile's
+        kind=raw fallback — the user's prompt is already in agent_events
+        from the mobile POST, and re-emitting as text would duplicate
+        the bubble.
 
         permission_prompt is unsupported on gemini (ADR-013 D4): the CLI
         offers only flag-time `--yolo` / `--approval-mode` and no
@@ -276,13 +284,15 @@ families:
               model:      "$.model"
               timestamp:  "$.timestamp"
 
-        # ── message  +  role=assistant  +  delta=false  →  text ──
-        # Final assistant text. Mirror of claude's
-        # assistant.message.content[type=text]. Streaming chunks
-        # (delta=true) and user echoes (role=user) intentionally fall
-        # through to the kind=raw fallback so they don't pollute the
-        # typed transcript.
-        - match: { type: message, role: assistant, delta: false }
+        # ── message  +  role=assistant  +  delta=true  →  text ──
+        # Streaming assistant chunk. gemini-cli@0.41 emits only chunks
+        # — no consolidated delta=false frame ever arrives. Each chunk
+        # becomes its own text event; the mobile renderer concatenates
+        # consecutive text/agent events within a turn into one bubble.
+        # User echoes (role=user) intentionally fall through to the
+        # kind=raw fallback so the prompt isn't double-bubbled (it is
+        # already in agent_events from the mobile input POST).
+        - match: { type: message, role: assistant, delta: true }
           emit:
             kind: text
             producer: agent

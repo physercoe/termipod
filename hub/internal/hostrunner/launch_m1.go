@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // M1LaunchConfig mirrors M2LaunchConfig — same dependencies (process
@@ -75,8 +76,13 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	// untrusted folder. Inline-export the trust opt-in into the bash -c
 	// command — this is the M1 mirror of the geminiEnv hook in launch_m2.
 	// Codex / claude-code don't read this var so it's a safe no-op for
-	// other families; we still gate on Kind to keep env clean.
+	// other families; we still gate on Kind to keep env clean. We also
+	// splice --skip-trust into the cmd if the operator hasn't already
+	// added it — protects against env stripping by pid 1 / sudo.
 	if cfg.Spawn.Kind == "gemini-cli" {
+		if !strings.Contains(command, "--skip-trust") {
+			command = strings.Replace(command, "gemini ", "gemini --skip-trust ", 1)
+		}
 		command = "GEMINI_CLI_TRUST_WORKSPACE=true " + command
 	}
 

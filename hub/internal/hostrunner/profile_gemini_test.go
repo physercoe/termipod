@@ -46,8 +46,15 @@ func TestProfile_Gemini_TranslatesStreamJSON(t *testing.T) {
 	wantKinds := map[matcher]string{
 		{"init", "", nil}:                 "session.init",
 		{"message", "user", false}:        "raw", // user echoes fall through
-		{"message", "assistant", true}:    "raw", // streaming deltas fall through
-		{"message", "assistant", false}:   "text",
+		// gemini-cli@0.41 emits assistant text ONLY as delta=true chunks
+		// (verified against the bundle source). Each chunk becomes its
+		// own text event; mobile renderer concatenates within a turn.
+		{"message", "assistant", true}:    "text",
+		// delta=false never actually appears in current gemini-cli; if a
+		// future version starts emitting it we'd add a parallel rule.
+		// For now it falls through to raw so accidental future frames
+		// don't silently double-emit alongside the chunks.
+		{"message", "assistant", false}:   "raw",
 		{"tool_use", "", nil}:             "tool_call",
 		{"tool_result", "", nil}:          "tool_result",
 		{"error", "", nil}:                "error",
@@ -108,8 +115,30 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 			got[0].Payload["model"])
 	}
 
-	// Final assistant message → kind=text. The text payload is what
-	// the mobile transcript renders.
+	// Streaming assistant chunk → kind=text. gemini-cli@0.41 emits
+	// every assistant frame with delta=true; each chunk becomes its own
+	// text event and the mobile transcript renderer coalesces
+	// consecutive text/agent events into one bubble.
+	asstChunk := map[string]any{
+		"type":      "message",
+		"role":      "assistant",
+		"content":   "Hello, world.",
+		"delta":     true,
+		"timestamp": "2026-04-29T10:00:02Z",
+	}
+	got = ApplyProfile(asstChunk, profile)
+	if len(got) != 1 || got[0].Kind != "text" {
+		t.Fatalf("message assistant chunk: want one text, got %+v", got)
+	}
+	if got[0].Payload["text"] != "Hello, world." {
+		t.Errorf("text.text = %v; want Hello, world.", got[0].Payload["text"])
+	}
+
+	// delta=false isn't emitted by current gemini — pin it as raw so a
+	// future engine release that adds a consolidated final frame
+	// doesn't silently double-emit alongside the chunks. If/when that
+	// changes upstream, add a parallel rule rather than dropping this
+	// expectation.
 	asstFinal := map[string]any{
 		"type":      "message",
 		"role":      "assistant",
@@ -118,26 +147,8 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 		"timestamp": "2026-04-29T10:00:03Z",
 	}
 	got = ApplyProfile(asstFinal, profile)
-	if len(got) != 1 || got[0].Kind != "text" {
-		t.Fatalf("message assistant final: want one text, got %+v", got)
-	}
-	if got[0].Payload["text"] != "Hello, world." {
-		t.Errorf("text.text = %v; want Hello, world.", got[0].Payload["text"])
-	}
-
-	// Streaming delta = no rule = kind=raw fallback. Pin so a future
-	// rule-author doesn't accidentally flood the typed transcript with
-	// chunked text events.
-	asstDelta := map[string]any{
-		"type":      "message",
-		"role":      "assistant",
-		"content":   "Hel",
-		"delta":     true,
-		"timestamp": "2026-04-29T10:00:02Z",
-	}
-	got = ApplyProfile(asstDelta, profile)
 	if len(got) != 1 || got[0].Kind != "raw" {
-		t.Errorf("message assistant delta: want raw fallback (deltas not emitted in v1), got %+v", got)
+		t.Errorf("message assistant delta=false: want raw fallback (gemini@0.41 doesn't emit this), got %+v", got)
 	}
 
 	// tool_use → tool_call pair. id pairs with the matching

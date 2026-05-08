@@ -276,7 +276,14 @@ func (d *ExecResumeDriver) runTurn(parent context.Context, prompt string) error 
 
 	// Build argv. --resume goes BEFORE -p so flag parsing sees them
 	// in the order gemini expects (positional -p value last).
-	args := []string{"--output-format", "stream-json"}
+	//
+	// --skip-trust is required for gemini-cli@0.41+ to run headlessly
+	// from any folder not on the user's interactive trust list. The
+	// hub-work workdir is intentionally where the agent operates, so
+	// trust is intent here — adding the flag belt-and-suspenders with
+	// the GEMINI_CLI_TRUST_WORKSPACE env so a stripped-env exec or a
+	// future env-name change can't silently break the turn.
+	args := []string{"--output-format", "stream-json", "--skip-trust"}
 	if uuid := d.SessionID(); uuid != "" {
 		args = append(args, "--resume", uuid)
 	}

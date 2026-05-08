@@ -151,6 +151,9 @@ func TestExecResumeDriver_FirstTurnHasNoResume(t *testing.T) {
 	if !containsFlag(args, "--yolo") {
 		t.Errorf("argv missing --yolo (Yolo=true should add it): %v", args)
 	}
+	if !containsFlag(args, "--skip-trust") {
+		t.Errorf("argv missing --skip-trust (gemini-cli@0.41 refuses headless launch from untrusted folder otherwise): %v", args)
+	}
 
 	if got := drv.SessionID(); got != "sess-1" {
 		t.Errorf("SessionID after first turn = %q; want sess-1", got)

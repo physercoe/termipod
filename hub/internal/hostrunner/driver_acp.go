@@ -67,6 +67,26 @@ type ACPDriver struct {
 	// usable. Empty → always cold-start with `session/new`.
 	ResumeSessionID string
 
+	// AuthMethod is the resolved ACP `authenticate` methodId for this
+	// spawn (ADR-021 W1.4). launch_m1 sets this from
+	// SpawnSpec.AuthMethod (template override) falling back to the
+	// family-level default (`agent_families.yaml`'s
+	// default_auth_method). Empty is "no preference" — the driver
+	// picks the first non-interactive method in `authMethods` from
+	// the initialize response. Methods we never picked still satisfy
+	// the agent's contract: the spec lets us NOT call authenticate
+	// when authMethods is empty (zero-cost daemon, e.g. a daemon that
+	// already has cached creds and treats authenticate as a no-op).
+	AuthMethod string
+
+	// AuthTimeout caps the `authenticate` RPC. 0 → 30s. Interactive
+	// methods (oauth-personal without cached creds) can hang opening a
+	// browser the daemon's environment can't actually reach. The
+	// timeout converts a silent hang into a typed `attention_request`
+	// event the principal can act on (run `gemini auth` on the host,
+	// or pick a different methodId via the steward template).
+	AuthTimeout time.Duration
+
 	// RPCLog, when non-nil, receives a JSONL trace of every JSON-RPC
 	// frame in both directions: each line is a wrapping object with
 	// `t` (UTC timestamp), `dir` (`out` = driver→agent, `in` =
@@ -211,6 +231,9 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	if d.PromptTimeout == 0 {
 		d.PromptTimeout = 120 * time.Second
 	}
+	if d.AuthTimeout == 0 {
+		d.AuthTimeout = 30 * time.Second
+	}
 
 	d.wg.Add(2)
 	go d.readLoop(parent)
@@ -231,13 +254,39 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	// Cache loadSession capability so session/load is gated on what the
 	// agent advertised, not on hopeful guessing. ADR-021 W1.2.
+	// Also lift authMethods so W1.4 can decide whether to dispatch the
+	// `authenticate` RPC and which methodId to send.
 	var initParsed struct {
 		AgentCapabilities struct {
 			LoadSession bool `json:"loadSession"`
 		} `json:"agentCapabilities"`
+		AuthMethods []acpAuthMethod `json:"authMethods"`
 	}
 	_ = json.Unmarshal(initRes, &initParsed)
 	canLoad := initParsed.AgentCapabilities.LoadSession
+
+	// ADR-021 W1.4 — authenticate after initialize when the agent
+	// advertised any auth methods. Empty list = pre-authenticated
+	// daemon (cached creds; nothing for us to do). On failure or
+	// timeout we emit an attention_request event with the option set
+	// the agent reported and return an error from Start so the host
+	// runner can fall back to M2/M4.
+	if len(initParsed.AuthMethods) > 0 {
+		methodID, err := d.pickAuthMethod(initParsed.AuthMethods)
+		if err != nil {
+			d.emitAuthAttention(parent, initParsed.AuthMethods, err.Error())
+			return fmt.Errorf("acp authenticate: %w", err)
+		}
+		authCtx, cancelAuth := context.WithTimeout(parent, d.AuthTimeout)
+		_, authErr := d.call(authCtx, "authenticate", map[string]any{
+			"methodId": methodID,
+		})
+		cancelAuth()
+		if authErr != nil {
+			d.emitAuthAttention(parent, initParsed.AuthMethods, authErr.Error())
+			return fmt.Errorf("acp authenticate (method=%s): %w", methodID, authErr)
+		}
+	}
 
 	// Decide between session/new (cold start) and session/load (resume).
 	// Resume requires both: a captured cursor (ResumeSessionID) AND the
@@ -409,6 +458,95 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 		}
 		return resp.result, nil
 	}
+}
+
+// acpAuthMethod is one entry from initialize.authMethods. ACP doesn't
+// pin the field set tightly — we read what we need (id, label,
+// description, optional `interactive` flag) and tolerate extras.
+type acpAuthMethod struct {
+	ID          string `json:"id"`
+	Label       string `json:"label,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Interactive is set true when invoking this method requires a
+	// human present at the host (e.g. opening an OAuth URL in a
+	// browser). Daemons spawned in non-desktop environments can't
+	// satisfy interactive flows; the picker prefers non-interactive
+	// methods when no explicit AuthMethod is set.
+	Interactive bool `json:"interactive,omitempty"`
+}
+
+// pickAuthMethod resolves which ACP authentication methodId to use,
+// per ADR-021 D3 precedence:
+//
+//  1. Explicit override from steward template / family default
+//     (d.AuthMethod). Returns it as-is provided the agent advertises
+//     a method with that id.
+//  2. First non-interactive method in `methods`. Targets daemons that
+//     can self-auth from cached creds without opening a browser.
+//  3. Fallback: error — there is no method we can pick without human
+//     intervention; the caller emits an attention_request so the
+//     principal can resolve out-of-band (run `gemini auth`, set
+//     GEMINI_API_KEY, or override via the steward template).
+func (d *ACPDriver) pickAuthMethod(methods []acpAuthMethod) (string, error) {
+	// (1) explicit preference. Validate against the advertised set so
+	// a typo'd template fails loudly rather than passing a meaningless
+	// id to the agent.
+	if d.AuthMethod != "" {
+		for _, m := range methods {
+			if m.ID == d.AuthMethod {
+				return d.AuthMethod, nil
+			}
+		}
+		return "", fmt.Errorf(
+			"configured auth_method %q not in agent's advertised authMethods",
+			d.AuthMethod,
+		)
+	}
+	// (2) first non-interactive method.
+	for _, m := range methods {
+		if !m.Interactive {
+			return m.ID, nil
+		}
+	}
+	// (3) only interactive methods left — daemon needs out-of-band
+	// human attention to authenticate.
+	return "", fmt.Errorf(
+		"only interactive auth methods available; cached creds required",
+	)
+}
+
+// emitAuthAttention surfaces an authentication failure as a typed
+// `attention_request` agent_event so mobile can render the option set
+// to the principal. ADR-021 W1.4. The payload matches the same broad
+// shape mobile already renders for `approval_request` events (request
+// id + agent-supplied options) so the renderer code path can be
+// shared on the Phase 1.4 mobile work — for now it lands as a typed
+// kind even if the renderer treats it as a generic "needs your
+// attention" surface.
+func (d *ACPDriver) emitAuthAttention(
+	ctx context.Context, methods []acpAuthMethod, reason string,
+) {
+	options := make([]map[string]any, 0, len(methods))
+	for _, m := range methods {
+		options = append(options, map[string]any{
+			"id":          m.ID,
+			"label":       m.Label,
+			"description": m.Description,
+			"interactive": m.Interactive,
+		})
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "attention_request", "agent",
+		map[string]any{
+			"kind":               "auth_required",
+			"reason":             reason,
+			"configured_method":  d.AuthMethod,
+			"available_methods":  options,
+			// Hint surfaces the most common operator fix verbatim so
+			// mobile doesn't need its own copy of the playbook.
+			"remediation": "Run `gemini auth` on the host (oauth-personal) " +
+				"OR set GEMINI_API_KEY in the daemon's environment " +
+				"OR override `auth_method:` in the steward template.",
+		})
 }
 
 // setReplay flips the replay tag window. handleNotification reads the

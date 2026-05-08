@@ -57,6 +57,16 @@ type SpawnSpec struct {
 	// into backend.cmd, and gemini's exec-per-turn driver captures its
 	// own cursor from per-turn init frames.
 	ResumeSessionID string `yaml:"resume_session_id"`
+
+	// AuthMethod is the steward-template-declared override for the ACP
+	// `authenticate` method id (ADR-021 D3 / W1.4). Empty falls through
+	// to the family default (Family.DefaultAuthMethod) and finally to
+	// the first non-interactive method in the agent's `authMethods`
+	// list. Service-account / shared-host deployments override this
+	// (e.g. `auth_method: gemini-api-key`) when the family default
+	// (oauth-personal for gemini-cli) doesn't match how the host caches
+	// credentials.
+	AuthMethod string `yaml:"auth_method"`
 }
 
 // ParseSpec tolerates empty input and returns a zero-valued spec so callers

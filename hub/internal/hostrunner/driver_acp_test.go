@@ -26,6 +26,13 @@ type fakeACPAgent struct {
 	failSessionLoad      bool                     // session/load → JSON-RPC error
 	loadReplayFrames     []map[string]any         // streamed BEFORE session/load reply
 
+	// W1.4 toggles. Defaults preserve "no auth required" so all
+	// pre-W1.4 tests remain unaffected.
+	authMethods       []map[string]any // initialize.authMethods array
+	failAuthenticate  bool             // authenticate → JSON-RPC error
+	hangAuthenticate  bool             // authenticate → never reply (timeout exercise)
+	authMethodsCalled []string         // recorded methodIds the driver dispatched
+
 	mu       sync.Mutex
 	closed   bool
 	initCh   chan struct{} // closed when handshake completes
@@ -63,10 +70,28 @@ func (f *fakeACPAgent) serve() {
 			if f.advertiseLoadSession {
 				caps["loadSession"] = true
 			}
-			f.respond(id, map[string]any{
+			result := map[string]any{
 				"protocolVersion":   1,
 				"agentCapabilities": caps,
-			})
+			}
+			if len(f.authMethods) > 0 {
+				result["authMethods"] = f.authMethods
+			}
+			f.respond(id, result)
+		case "authenticate":
+			params, _ := msg["params"].(map[string]any)
+			methodID, _ := params["methodId"].(string)
+			f.mu.Lock()
+			f.authMethodsCalled = append(f.authMethodsCalled, methodID)
+			f.mu.Unlock()
+			if f.hangAuthenticate {
+				continue // never reply; driver should timeout
+			}
+			if f.failAuthenticate {
+				f.respondError(id, -32001, "auth refused")
+			} else {
+				f.respond(id, map[string]any{})
+			}
 		case "session/new":
 			f.respond(id, map[string]any{"sessionId": f.sessionID})
 			close(f.initCh)
@@ -1830,4 +1855,263 @@ func receivedMethods(f *fakeACPAgent) []string {
 		}
 	}
 	return out
+}
+
+// TestACPDriver_AuthSkippedWhenNoMethods — ADR-021 W1.4 fast path: an
+// agent that doesn't advertise any auth methods is treated as
+// pre-authenticated. Driver MUST NOT dispatch authenticate.
+func TestACPDriver_AuthSkippedWhenNoMethods(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-noauth")
+	// authMethods empty — agent advertises no auth.
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-noauth",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		AuthMethod:       "oauth-personal", // even with a preference, no advert = skip
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if got := fake.findReceived("authenticate"); got != nil {
+		t.Errorf("authenticate dispatched even though authMethods was empty: %+v",
+			got)
+	}
+}
+
+// TestACPDriver_PicksConfiguredAuthMethod — explicit AuthMethod from
+// steward template / family default wins over heuristics, provided
+// the agent advertises a matching id.
+func TestACPDriver_PicksConfiguredAuthMethod(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-auth")
+	fake.authMethods = []map[string]any{
+		{"id": "gemini-api-key", "label": "API key", "interactive": false},
+		{"id": "oauth-personal", "label": "Google login", "interactive": true},
+	}
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-auth",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		AuthMethod:       "oauth-personal", // explicit override
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	fake.mu.Lock()
+	called := append([]string{}, fake.authMethodsCalled...)
+	fake.mu.Unlock()
+	if len(called) != 1 || called[0] != "oauth-personal" {
+		t.Errorf("authMethodsCalled = %v; want [oauth-personal]", called)
+	}
+}
+
+// TestACPDriver_PicksFirstNonInteractiveMethod — when AuthMethod is
+// not set, the driver falls back to the first non-interactive method
+// in the agent's authMethods list. This is the daemon-friendly
+// default: cached creds + no human standing by.
+func TestACPDriver_PicksFirstNonInteractiveMethod(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-auto")
+	fake.authMethods = []map[string]any{
+		{"id": "oauth-personal", "interactive": true},
+		{"id": "gemini-api-key", "interactive": false},
+		{"id": "vertex-ai", "interactive": false},
+	}
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-auto",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		// AuthMethod unset.
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	fake.mu.Lock()
+	called := append([]string{}, fake.authMethodsCalled...)
+	fake.mu.Unlock()
+	if len(called) != 1 || called[0] != "gemini-api-key" {
+		t.Errorf("authMethodsCalled = %v; want [gemini-api-key] "+
+			"(first non-interactive)", called)
+	}
+}
+
+// TestACPDriver_AttentionRequestOnInteractiveOnly — when no AuthMethod
+// preference is set AND the agent advertises only interactive methods,
+// the driver fails fast (no handshake) and emits an attention_request
+// so the principal can fix creds out of band or override the method
+// via the steward template.
+func TestACPDriver_AttentionRequestOnInteractiveOnly(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-attn")
+	fake.authMethods = []map[string]any{
+		{"id": "oauth-personal", "label": "Google login", "interactive": true},
+	}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-attn",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	err := drv.Start(context.Background())
+	if err == nil {
+		drv.Stop()
+		t.Fatalf("Start succeeded with only interactive methods + no preference; want error")
+	}
+	defer drv.Stop()
+
+	// authenticate must NOT have been called — pickAuthMethod returned
+	// an error before we even tried.
+	if got := fake.findReceived("authenticate"); got != nil {
+		t.Errorf("authenticate dispatched despite no method being pickable: %+v", got)
+	}
+	// attention_request event with the method options must be present.
+	var attn *postedEvent
+	for _, ev := range poster.snapshot() {
+		if ev.Kind == "attention_request" {
+			attn = &ev
+			break
+		}
+	}
+	if attn == nil {
+		t.Fatalf("attention_request event not emitted; events=%v",
+			eventKinds(poster.snapshot()))
+	}
+	if k, _ := attn.Payload["kind"].(string); k != "auth_required" {
+		t.Errorf("attention_request kind = %q; want auth_required", k)
+	}
+	opts, _ := attn.Payload["available_methods"].([]map[string]any)
+	if len(opts) != 1 {
+		t.Errorf("available_methods len = %d; want 1 (the interactive option)",
+			len(opts))
+	}
+}
+
+// TestACPDriver_AttentionRequestOnAuthFailure — authenticate returns
+// rpc-error (auth refused). Driver must surface the failure as an
+// attention_request rather than a silent infinite hang.
+func TestACPDriver_AttentionRequestOnAuthFailure(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-authfail")
+	fake.authMethods = []map[string]any{
+		{"id": "gemini-api-key", "interactive": false},
+	}
+	fake.failAuthenticate = true
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-authfail",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	err := drv.Start(context.Background())
+	if err == nil {
+		drv.Stop()
+		t.Fatalf("Start succeeded with failing authenticate; want error")
+	}
+	defer drv.Stop()
+
+	var attn *postedEvent
+	for _, ev := range poster.snapshot() {
+		if ev.Kind == "attention_request" {
+			attn = &ev
+			break
+		}
+	}
+	if attn == nil {
+		t.Fatalf("attention_request not emitted after authenticate failure; events=%v",
+			eventKinds(poster.snapshot()))
+	}
+}
+
+// TestACPDriver_AuthMethodTypoFails — an explicit AuthMethod that
+// doesn't appear in the agent's advertised list is a configuration
+// error; we fail fast (no authenticate dispatched) and surface
+// attention_request with the actual options so the operator can fix
+// the typo or pick a real method.
+func TestACPDriver_AuthMethodTypoFails(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-typo")
+	fake.authMethods = []map[string]any{
+		{"id": "gemini-api-key", "interactive": false},
+		{"id": "oauth-personal", "interactive": true},
+	}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-typo",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		AuthMethod:       "googl-personal", // typo
+	}
+	err := drv.Start(context.Background())
+	if err == nil {
+		drv.Stop()
+		t.Fatalf("Start succeeded with typo'd auth method; want error")
+	}
+	defer drv.Stop()
+
+	if got := fake.findReceived("authenticate"); got != nil {
+		t.Errorf("authenticate dispatched for typo'd method: %+v", got)
+	}
+	var attn *postedEvent
+	for _, ev := range poster.snapshot() {
+		if ev.Kind == "attention_request" {
+			attn = &ev
+			break
+		}
+	}
+	if attn == nil {
+		t.Fatalf("attention_request not emitted for typo'd method; events=%v",
+			eventKinds(poster.snapshot()))
+	}
+	if cm, _ := attn.Payload["configured_method"].(string); cm != "googl-personal" {
+		t.Errorf("configured_method in attention payload = %q; want googl-personal", cm)
+	}
 }

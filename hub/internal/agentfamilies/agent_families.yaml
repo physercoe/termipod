@@ -236,6 +236,14 @@ families:
     bin: gemini
     version_flag: --version
     supports: [M1, M2, M4]
+    # ADR-021 D3 / W1.4 — default ACP authentication method when the
+    # steward template doesn't specify one. oauth-personal targets the
+    # single-user-developer case (the most common termipod deployment):
+    # `gemini auth` once on the host caches tokens at
+    # ~/.gemini/oauth_creds.json; the daemon reuses them without
+    # opening a browser. Service-account / shared-host deployments
+    # override via auth_method: gemini-api-key on the steward template.
+    default_auth_method: oauth-personal
     # Gemini, like codex, uses the profile translator authoritatively:
     # there is no legacy hardcoded path for the exec-per-turn-with-resume
     # driver (ADR-013). Dispatch is on the top-level `type` field, the

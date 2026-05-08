@@ -735,6 +735,7 @@ func (a *Runner) fetchFamilies(ctx context.Context) []agentfamilies.Family {
 			VersionFlag:       f.VersionFlag,
 			Supports:          f.Supports,
 			Incompatibilities: incompat,
+			DefaultAuthMethod: f.DefaultAuthMethod,
 		})
 	}
 	return out

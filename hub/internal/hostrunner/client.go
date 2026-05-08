@@ -89,6 +89,7 @@ type AgentFamilyFromHub struct {
 	Supports          []string               `json:"supports"`
 	Incompatibilities []AgentFamilyIncompat  `json:"incompatibilities,omitempty"`
 	Source            string                 `json:"source,omitempty"`
+	DefaultAuthMethod string                 `json:"default_auth_method,omitempty"`
 }
 
 type AgentFamilyIncompat struct {

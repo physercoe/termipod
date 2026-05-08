@@ -23,6 +23,46 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.413-alpha — 2026-05-08
+
+### Added
+- **ACP `authenticate` after `initialize` (ADR-021 W1.4).** Closes
+  Phase 1 of the ACP capability surface plan. ACPDriver now lifts
+  `authMethods` from the initialize response and, when non-empty,
+  dispatches `authenticate(methodId=...)` before `session/new` /
+  `session/load`. Selection precedence: explicit
+  `SpawnSpec.AuthMethod` (steward template) → family default
+  (`agent_families.yaml`'s `default_auth_method`) → first
+  non-interactive method in the agent's advertised list. Empty
+  `authMethods` is treated as pre-authenticated and skipped.
+- **`gemini-cli` family default = `oauth-personal`.** Targets the
+  single-user-developer case (`gemini auth` once on the host caches
+  tokens at `~/.gemini/oauth_creds.json`; the daemon reuses them
+  without opening a browser). Service-account / shared-host
+  deployments override via `auth_method: gemini-api-key` in the
+  steward template.
+- **`attention_request` agent_event for auth failures.** When
+  authenticate returns rpc-error, only-interactive methods are
+  available with no preference, an explicit `auth_method` doesn't
+  match the agent's advertised list, or the call hits
+  `AuthTimeout` (default 30s), the driver emits a typed
+  `attention_request` event with `kind: auth_required`,
+  the configured method, the available method options, and a
+  remediation hint, then fails Start. Surface for principal-level
+  resolution (run `gemini auth`, set `GEMINI_API_KEY`, or override
+  the steward template) without silent infinite hangs.
+
+### Tests
+- 6 new ACPDriver tests cover: skip when no methods, explicit
+  preference wins, first-non-interactive fallback, attention on
+  interactive-only, attention on rpc failure, attention on
+  preference-not-in-advertised-list typo.
+- 2 new launch_m1 tests pin the resolution precedence (spec
+  override beats family default; family default applies when spec
+  is empty).
+
+---
+
 ## v1.0.412-alpha — 2026-05-08
 
 ### Added

@@ -240,6 +240,161 @@ func TestLaunchM1_StderrLandsInSiblingLog(t *testing.T) {
 	}
 }
 
+// TestLaunchM1_ResolvesAuthMethodFromSpecOverFamilyDefault — ADR-021
+// W1.4 precedence: when the steward template's spawn_spec_yaml carries
+// `auth_method:`, that wins over the family-level default in
+// `agent_families.yaml`. The fake agent advertises both options as
+// non-interactive (so either would handshake successfully); the assert
+// is that the driver dispatched authenticate against the OVERRIDE id,
+// not the family default.
+func TestLaunchM1_ResolvesAuthMethodFromSpecOverFamilyDefault(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:gemini-acp.0"}
+
+	sp := Spawn{
+		ChildID: "agent-auth-spec",
+		Handle:  "gemini-acp",
+		Kind:    "gemini-cli", // family default = oauth-personal
+		Mode:    "M1",
+		SpawnSpec: "backend:\n" +
+			"  cmd: gemini --acp\n" +
+			"  default_workdir: " + homeDir + "\n" +
+			"auth_method: gemini-api-key\n", // explicit override
+	}
+
+	type result struct {
+		res M1LaunchResult
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, e := launchM1(context.Background(), M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: launcher,
+			Client:   &fakePoster{},
+			Spawner:  spawner,
+			LogDir:   logDir,
+		})
+		done <- result{r, e}
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for spawner.child == nil {
+		select {
+		case <-deadline:
+			t.Fatal("spawner never invoked")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-auth-spec")
+	agent.authMethods = []map[string]any{
+		{"id": "gemini-api-key", "interactive": false},
+		{"id": "oauth-personal", "interactive": false},
+	}
+	go agent.serve()
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("launchM1 did not return")
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("launchM1: %v", r.err)
+		}
+		defer r.res.Driver.Stop()
+	}
+
+	agent.mu.Lock()
+	called := append([]string{}, agent.authMethodsCalled...)
+	agent.mu.Unlock()
+	if len(called) != 1 || called[0] != "gemini-api-key" {
+		t.Errorf("authMethodsCalled = %v; want [gemini-api-key] "+
+			"(spec override beats family default)", called)
+	}
+}
+
+// TestLaunchM1_FallsBackToFamilyDefaultAuthMethod — when the spec has
+// no auth_method, launch_m1 looks up the family entry's
+// default_auth_method (oauth-personal for gemini-cli per W1.4) and
+// passes that to the driver.
+func TestLaunchM1_FallsBackToFamilyDefaultAuthMethod(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:gemini-acp.0"}
+
+	sp := Spawn{
+		ChildID: "agent-auth-fam",
+		Handle:  "gemini-acp",
+		Kind:    "gemini-cli",
+		Mode:    "M1",
+		SpawnSpec: "backend:\n" +
+			"  cmd: gemini --acp\n" +
+			"  default_workdir: " + homeDir + "\n",
+		// No auth_method on the spec; family default applies.
+	}
+
+	type result struct {
+		res M1LaunchResult
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, e := launchM1(context.Background(), M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: launcher,
+			Client:   &fakePoster{},
+			Spawner:  spawner,
+			LogDir:   logDir,
+		})
+		done <- result{r, e}
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for spawner.child == nil {
+		select {
+		case <-deadline:
+			t.Fatal("spawner never invoked")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-auth-fam")
+	// Advertise oauth-personal as non-interactive so the family-default
+	// path can succeed without tripping the attention_request branch.
+	// In real life cached creds make oauth-personal effectively
+	// non-interactive — that's the whole point of the default.
+	agent.authMethods = []map[string]any{
+		{"id": "oauth-personal", "interactive": false},
+		{"id": "gemini-api-key", "interactive": false},
+	}
+	go agent.serve()
+
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("launchM1 did not return")
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("launchM1: %v", r.err)
+		}
+		defer r.res.Driver.Stop()
+	}
+
+	agent.mu.Lock()
+	called := append([]string{}, agent.authMethodsCalled...)
+	agent.mu.Unlock()
+	if len(called) != 1 || called[0] != "oauth-personal" {
+		t.Errorf("authMethodsCalled = %v; want [oauth-personal] "+
+			"(family default for gemini-cli)", called)
+	}
+}
+
 // TestLaunchM1_ErrorsWhenBackendCmdMissing locks the precondition
 // guard. M1 launch needs a real cmd to spawn — without one the
 // resolver should fail clean, not stand up half a daemon.

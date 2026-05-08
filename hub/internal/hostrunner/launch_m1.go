@@ -28,6 +28,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/termipod/hub/internal/agentfamilies"
 )
 
 // M1LaunchConfig mirrors M2LaunchConfig — same dependencies (process
@@ -203,6 +205,17 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		_ = rpcLogFile.Close()
 	}
 
+	// ADR-021 W1.4: resolve the ACP authentication methodId.
+	// Precedence: spec override (steward template) → family default
+	// (agent_families.yaml) → "" (driver picks first non-interactive
+	// or fails with attention_request).
+	authMethod := spec.AuthMethod
+	if authMethod == "" {
+		if fam, ok := agentfamilies.ByName(cfg.Spawn.Kind); ok {
+			authMethod = fam.DefaultAuthMethod
+		}
+	}
+
 	drv := &ACPDriver{
 		AgentID: cfg.Spawn.ChildID,
 		Poster:  cfg.Client,
@@ -216,6 +229,7 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		// of session/new. Empty for cold-starts; harmless field on the
 		// driver in either case.
 		ResumeSessionID: spec.ResumeSessionID,
+		AuthMethod:      authMethod,
 	}
 	if err := drv.Start(ctx); err != nil {
 		// Start covers initialize + session/new — if either fails the

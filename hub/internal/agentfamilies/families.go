@@ -58,6 +58,14 @@ type Family struct {
 	//
 	// Valid values: "" / "legacy" / "profile" / "both".
 	FrameTranslator string `yaml:"frame_translator,omitempty" json:"frame_translator,omitempty"`
+
+	// DefaultAuthMethod is the family-level fallback for the ACP
+	// `authenticate` method id when the steward template doesn't
+	// specify one (ADR-021 D3 / W1.4). Empty means no family default
+	// — the driver falls through to the first non-interactive method
+	// in the agent's authMethods list, OR emits an attention_request
+	// when only interactive methods are available.
+	DefaultAuthMethod string `yaml:"default_auth_method,omitempty" json:"default_auth_method,omitempty"`
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

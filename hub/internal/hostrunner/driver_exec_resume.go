@@ -139,6 +139,16 @@ type ExecResumeDriver struct {
 	resumeMu        sync.RWMutex
 	resumeSessionID string
 
+	// ADR-021 W2.4 — next-turn argv override slots. Input("set_mode")
+	// and Input("set_model") write here; runTurn consumes the value
+	// when building argv and clears the slot. One-shot semantics by
+	// design: sticky model/mode is a follow-up wedge, and an absent
+	// override falls through to whatever the rendered backend.cmd
+	// (and W2.3's respawn-with-spec-mutation path) already carries.
+	nextTurnMu    sync.Mutex
+	nextTurnMode  string
+	nextTurnModel string
+
 	shutdownCh chan struct{}
 }
 
@@ -269,6 +279,29 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 		return cmd.Kill()
 	case "approval", "answer":
 		return fmt.Errorf("exec-resume driver: %q input shape not used by gemini (use attention_reply / request_approval MCP)", kind)
+	case "set_mode":
+		// ADR-021 W2.4 — stash the override; next runTurn consumes it.
+		// The hub-side router (W2.1) only forwards set_mode to this
+		// driver when the family declares per_turn_argv for the agent's
+		// driving_mode, so reaching here implies the family agreed.
+		modeID, _ := payload["mode_id"].(string)
+		if modeID == "" {
+			return fmt.Errorf("exec-resume driver: set_mode missing mode_id")
+		}
+		d.nextTurnMu.Lock()
+		d.nextTurnMode = modeID
+		d.nextTurnMu.Unlock()
+		return nil
+	case "set_model":
+		// ADR-021 W2.4 — same shape as set_mode for the model picker.
+		modelID, _ := payload["model_id"].(string)
+		if modelID == "" {
+			return fmt.Errorf("exec-resume driver: set_model missing model_id")
+		}
+		d.nextTurnMu.Lock()
+		d.nextTurnModel = modelID
+		d.nextTurnMu.Unlock()
+		return nil
 	default:
 		return fmt.Errorf("exec-resume driver: unsupported input kind %q", kind)
 	}
@@ -294,7 +327,32 @@ func (d *ExecResumeDriver) runTurn(parent context.Context, prompt string) error 
 	if uuid := d.SessionID(); uuid != "" {
 		args = append(args, "--resume", uuid)
 	}
-	if d.Yolo {
+
+	// ADR-021 W2.4 — consume one-shot mode/model overrides set via
+	// Input("set_mode")/Input("set_model"). Spliced before --yolo / -p
+	// so flag parsing sees them in the order gemini-cli expects.
+	// Cleared atomically with the read so a Stop+respawn racing with
+	// runTurn doesn't apply the same override twice.
+	d.nextTurnMu.Lock()
+	mode := d.nextTurnMode
+	model := d.nextTurnModel
+	d.nextTurnMode = ""
+	d.nextTurnModel = ""
+	d.nextTurnMu.Unlock()
+	if model != "" {
+		args = append(args, "--model", model)
+	}
+	if mode != "" {
+		// gemini-cli@0.41.x exposes the picker concept as
+		// `--approval-mode <default|auto-edit|yolo>`; the older `--yolo`
+		// is now a shortcut for --approval-mode=yolo. We pass the id
+		// verbatim so a future ACP-side mode addition (`plan`, etc.)
+		// flows through without a driver edit. Validation belongs in
+		// the picker UI.
+		args = append(args, "--approval-mode", mode)
+	} else if d.Yolo {
+		// Skip the legacy --yolo flag when the picker explicitly chose a
+		// different mode for this turn — the new --approval-mode wins.
 		args = append(args, "--yolo")
 	}
 	args = append(args, "-p", prompt)

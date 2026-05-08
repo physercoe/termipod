@@ -671,3 +671,162 @@ func TestExecResumeDriver_NormalizesByModelTokens(t *testing.T) {
 		t.Errorf("by_model[lite].input_tokens removed — original fields must be preserved alongside canonical ones")
 	}
 }
+
+// TestExecResumeDriver_NextTurnModelArgvSplice — W2.4: Input("set_model")
+// stashes the override, the next runTurn argv carries `--model X`, and
+// the slot is consumed (subsequent turns omit the flag unless the
+// picker fires again — sticky behavior is a follow-up).
+func TestExecResumeDriver_NextTurnModelArgvSplice(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	frames := []string{
+		`{"type":"init","session_id":"s","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"result","status":"success","stats":{},"timestamp":"t"}`,
+	}
+	var capturedArgs [][]string
+	var argsMu sync.Mutex
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		full := append([]string{name}, args...)
+		argsMu.Lock()
+		capturedArgs = append(capturedArgs, full)
+		argsMu.Unlock()
+		return newFakeGeminiCmd(full, frames)
+	}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-set-model",
+		Handle:         "@steward",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// Stash the override.
+	if err := drv.Input(context.Background(), "set_model",
+		map[string]any{"model_id": "gemini-2.5-flash"}); err != nil {
+		t.Fatalf("Input set_model: %v", err)
+	}
+	// Drive turn 1 — must include --model gemini-2.5-flash.
+	if err := drv.Input(context.Background(), "text",
+		map[string]any{"body": "hello"}); err != nil {
+		t.Fatalf("Input text 1: %v", err)
+	}
+	// Drive turn 2 — must NOT carry --model (slot consumed; sticky is
+	// a follow-up).
+	if err := drv.Input(context.Background(), "text",
+		map[string]any{"body": "again"}); err != nil {
+		t.Fatalf("Input text 2: %v", err)
+	}
+
+	argsMu.Lock()
+	turn1 := append([]string{}, capturedArgs[0]...)
+	turn2 := append([]string{}, capturedArgs[1]...)
+	argsMu.Unlock()
+	if !containsArg(turn1, "--model", "gemini-2.5-flash") {
+		t.Errorf("turn1 argv missing --model gemini-2.5-flash: %v", turn1)
+	}
+	if containsFlag(turn2, "--model") {
+		t.Errorf("turn2 argv still carries --model after one-shot consume: %v", turn2)
+	}
+}
+
+// TestExecResumeDriver_NextTurnModeArgvSplice — W2.4: same shape as
+// model, but the override maps to gemini's `--approval-mode <id>`.
+// When the picker explicitly chooses a mode for this turn, the legacy
+// `--yolo` flag is suppressed so --approval-mode wins.
+func TestExecResumeDriver_NextTurnModeArgvSplice(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	frames := []string{
+		`{"type":"init","session_id":"s","model":"gemini-2.5-pro","timestamp":"t"}`,
+		`{"type":"result","status":"success","stats":{},"timestamp":"t"}`,
+	}
+	var capturedArgs [][]string
+	var argsMu sync.Mutex
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		full := append([]string{name}, args...)
+		argsMu.Lock()
+		capturedArgs = append(capturedArgs, full)
+		argsMu.Unlock()
+		return newFakeGeminiCmd(full, frames)
+	}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-set-mode",
+		Handle:         "@steward",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		Yolo:           true, // baseline state; override should suppress --yolo
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "set_mode",
+		map[string]any{"mode_id": "auto-edit"}); err != nil {
+		t.Fatalf("Input set_mode: %v", err)
+	}
+	if err := drv.Input(context.Background(), "text",
+		map[string]any{"body": "hello"}); err != nil {
+		t.Fatalf("Input text 1: %v", err)
+	}
+	if err := drv.Input(context.Background(), "text",
+		map[string]any{"body": "again"}); err != nil {
+		t.Fatalf("Input text 2: %v", err)
+	}
+
+	argsMu.Lock()
+	turn1 := append([]string{}, capturedArgs[0]...)
+	turn2 := append([]string{}, capturedArgs[1]...)
+	argsMu.Unlock()
+	if !containsArg(turn1, "--approval-mode", "auto-edit") {
+		t.Errorf("turn1 argv missing --approval-mode auto-edit: %v", turn1)
+	}
+	if containsFlag(turn1, "--yolo") {
+		t.Errorf("turn1 argv still has --yolo despite explicit --approval-mode override: %v", turn1)
+	}
+	// Turn 2 reverts: no override, Yolo=true → --yolo back, no --approval-mode.
+	if !containsFlag(turn2, "--yolo") {
+		t.Errorf("turn2 argv missing --yolo (should revert after one-shot consume): %v", turn2)
+	}
+	if containsFlag(turn2, "--approval-mode") {
+		t.Errorf("turn2 argv still carries --approval-mode: %v", turn2)
+	}
+}
+
+// TestExecResumeDriver_SetModelMissingID — empty model_id returns a
+// typed error without touching the override slot.
+func TestExecResumeDriver_SetModelMissingID(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		t.Fatalf("CommandBuilder must not be invoked on validation failure")
+		return nil
+	}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-bad",
+		Handle:         "@steward",
+		Poster:         &recordingPoster{},
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "set_model",
+		map[string]any{}); err == nil {
+		t.Fatalf("expected error for missing model_id, got nil")
+	}
+}

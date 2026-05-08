@@ -23,6 +23,19 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.423-alpha — 2026-05-08
+
+### Added
+- **NextTurnMode / NextTurnModel for gemini-exec (ADR-021 W2.4).**
+  Lights up the `per_turn_argv` route declared by W2.1. ExecResumeDriver
+  gains `Input("set_mode")` / `Input("set_model")` cases that stash the
+  override on `nextTurnMode` / `nextTurnModel`; the next `runTurn`
+  consumes the slot and splices `--approval-mode <id>` / `--model <id>`
+  into argv. One-shot semantics by design (sticky behavior is a
+  follow-up wedge): an absent override falls through to the rendered
+  cmd's existing flags. When the mode override fires, the legacy
+  `--yolo` flag is suppressed for that turn so `--approval-mode` wins.
+
 ## v1.0.422-alpha — 2026-05-08
 
 ### Added

@@ -443,10 +443,43 @@ operation-log transcript.
 
 ### input kind
 The `kind` field on agent input requests. Values: `text`,
-`approval`, `answer`, `attention_reply`, `cancel`, `attach`. Stored
-on `agent_events` as `input.<kind>`.
+`approval`, `answer`, `attention_reply`, `cancel`, `attach`,
+`set_mode`, `set_model`. Stored on `agent_events` as
+`input.<kind>`. ADR-021 W2.1 added `set_mode` and `set_model`;
+those carry `mode_id` / `model_id` and route by the active
+agent's family `runtime_mode_switch` declaration rather than
+landing as bare events for every driver.
 - *Distinguish from:* **event kind** (the broader event-row
   vocabulary), **attention kind**.
+
+### runtime_mode_switch (family attribute)
+ADR-021 D4 declaration on each `agent_families.yaml` entry —
+a map from driving_mode (M1/M2/M4) to one of `rpc | respawn |
+per_turn_argv | unsupported`. Tells the hub how to dispatch
+`POST /agents/{id}/input` with kind `set_mode` / `set_model`:
+- `rpc` — emit input event for the driver to forward as a live
+  ACP `session/set_mode` / `session/set_model` RPC (W2.2).
+- `respawn` — call `respawnWithSpecMutation` to swap the agent
+  with a mutated backend.cmd inside one DoSpawn tx (W2.3); the
+  engine_session_id resume cursor preserves transcript continuity.
+- `per_turn_argv` — emit input event for the driver to stash;
+  the next subprocess argv carries the override (W2.4).
+- `unsupported` — 422 with a typed error.
+
+Keyed by mode rather than per-family because gemini-cli
+supports both M1 (rpc) and M2 exec-per-turn (per_turn_argv) and
+a single string couldn't disambiguate.
+
+### set_mode / set_model (input kinds)
+ADR-021 W2.1 input kinds for the runtime mode/model picker.
+Mobile sends one shape (`{kind: 'set_mode', mode_id: 'yolo'}`);
+the wire path varies per engine via the family's
+`runtime_mode_switch` table. Driver-side validation against the
+agent's advertised `availableModes`/`availableModels` lives in
+the M1 (W2.2) and M2 exec-per-turn (W2.4) drivers; the hub
+respawn path (W2.3) validates by attempting the
+`mutateBackendCmdFlag` edit and surfacing `errFlagNotInCmd` as
+422 when the rendered cmd doesn't carry the target flag.
 
 ---
 

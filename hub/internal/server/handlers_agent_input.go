@@ -265,15 +265,21 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 				value = in.ModelID
 			}
 			if err := s.respawnWithSpecMutation(r.Context(), agent, field, value); err != nil {
-				if errors.Is(err, errRespawnSpecMutationNotImplemented) {
-					writeErr(w, http.StatusNotImplemented, err.Error())
+				switch {
+				case errors.Is(err, errUnknownFamilyField):
+					writeErr(w, http.StatusUnprocessableEntity,
+						"engine has no known flag for runtime "+field+" switching")
+					return
+				case errors.Is(err, errFlagNotInCmd):
+					writeErr(w, http.StatusUnprocessableEntity,
+						"backend.cmd does not carry the expected flag for "+field+
+							"; pick a fresh template that exposes it")
+					return
+				default:
+					writeErr(w, http.StatusInternalServerError, err.Error())
 					return
 				}
-				writeErr(w, http.StatusInternalServerError, err.Error())
-				return
 			}
-			// W2.3 will emit its own audit event from inside the helper;
-			// for the W2.1 stub we 202-style ack with no row written.
 			writeJSON(w, http.StatusAccepted, map[string]any{
 				"routed": "respawn",
 			})

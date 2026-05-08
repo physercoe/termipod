@@ -23,6 +23,32 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.422-alpha — 2026-05-08
+
+### Added
+- **Respawn-with-mutated-spec for claude/codex (ADR-021 W2.3).** Lights
+  up the `respawn` route declared by W2.1. New helper
+  `respawnWithSpecMutation` reads the active session's
+  `spawn_spec_yaml`, surgically swaps the per-engine flag (claude:
+  `--model` / `--permission-mode`; codex: `--model` / `--approval-policy`)
+  via a yaml.v3 Node-API mutator that preserves all other fields
+  byte-for-byte, splices the engine_session_id resume cursor (ADR-014
+  for claude, W1.2 for ACP), enqueues a host-runner terminate, and
+  calls `DoSpawn` with the existing `SessionID` so the prior agent is
+  swapped inside one tx. Transcript continuity rides on the session
+  row; the picker selection lands as a fresh `--model` argv on the
+  new pane.
+- New `mutateBackendCmdFlag(specYAML, flag, newValue)` returns
+  `errFlagNotInCmd` when the rendered cmd doesn't carry the target
+  flag — surfaced as 422 by the input handler so mobile shows
+  "this template doesn't expose <flag>" rather than a silent no-op.
+
+### Changed
+- `POST /agents/{id}/input` `set_mode`/`set_model` on a respawn-route
+  family no longer returns 501; happy path now responds 202 and lands
+  a real respawn. Failure modes map to typed 422s
+  (`errUnknownFamilyField`, `errFlagNotInCmd`).
+
 ## v1.0.421-alpha — 2026-05-08
 
 ### Added

@@ -375,30 +375,33 @@ func TestPostAgentInput_SetModelRouting_PerTurnArgv(t *testing.T) {
 	}
 }
 
-// TestPostAgentInput_SetModelRouting_Respawn — claude-code M2 →
-// respawn → handler calls respawnWithSpecMutation. W2.3 implements;
-// W2.1 stub returns errRespawnSpecMutationNotImplemented → 501.
-func TestPostAgentInput_SetModelRouting_Respawn(t *testing.T) {
+// TestPostAgentInput_SetModelRouting_Respawn_NoSession — claude-code
+// M2 + respawn route runs the helper. With no live session attached,
+// helper returns "no live session" → 500. Full happy-path is covered
+// in respawn_with_spec_mutation_test.go where DoSpawn integration
+// can be exercised.
+func TestPostAgentInput_SetModelRouting_Respawn_NoSession(t *testing.T) {
 	s, _ := newTestServer(t)
 	h := newInputRouter(s)
 	agentID := seedAgentWithKindMode(t, s, "claude-code", "M2")
 
 	status, raw := postInput(t, h, defaultTeamID, agentID,
 		map[string]any{"kind": "set_model", "model_id": "claude-3-7-opus"})
-	if status != http.StatusNotImplemented {
-		t.Fatalf("status = %d want 501, body=%s", status, raw)
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status = %d want 500, body=%s", status, raw)
 	}
-	if !bytes.Contains(raw, []byte("not yet implemented")) {
-		t.Errorf("body missing wedge marker: %s", raw)
+	if !bytes.Contains(raw, []byte("no live session")) {
+		t.Errorf("body missing 'no live session' marker: %s", raw)
 	}
-	// Stub path must NOT write an input event row — the audit emit
-	// belongs to W2.3's helper after the respawn lifecycle lands.
+	// Even on respawn errors we must NOT have emitted an input event
+	// row — the helper rolls back via DoSpawn's tx; for the
+	// no-session path no DB work landed at all.
 	var n int
 	_ = s.db.QueryRow(
 		`SELECT COUNT(1) FROM agent_events WHERE agent_id = ? AND kind LIKE 'input.set_%'`,
 		agentID).Scan(&n)
 	if n != 0 {
-		t.Errorf("respawn stub emitted %d input rows; want 0", n)
+		t.Errorf("respawn path emitted %d input rows; want 0", n)
 	}
 }
 

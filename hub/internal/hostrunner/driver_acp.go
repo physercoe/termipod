@@ -18,6 +18,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,6 +46,14 @@ type ACPDriver struct {
 	// caller gets an error immediately; any orphaned blocked Write
 	// unwinds when Stop closes the transport.
 	WriteTimeout time.Duration
+	// PromptTimeout caps how long a single session/prompt call may wait
+	// for the agent's reply. 0 → 120s. The mobile UI's "agent busy"
+	// state is bounded by this — without it, an unauthenticated daemon
+	// (gemini-cli without GEMINI_API_KEY) silently hangs forever, and
+	// the mobile cancel button is the only way out. On timeout the
+	// caller gets context.DeadlineExceeded; the agent record stays in
+	// place so the operator can retry after fixing creds.
+	PromptTimeout time.Duration
 
 	mu      sync.Mutex
 	started bool
@@ -131,6 +140,9 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	if d.WriteTimeout == 0 {
 		d.WriteTimeout = 5 * time.Second
+	}
+	if d.PromptTimeout == 0 {
+		d.PromptTimeout = 120 * time.Second
 	}
 
 	d.wg.Add(2)
@@ -462,10 +474,15 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if body == "" {
 			return fmt.Errorf("acp driver: text input missing body")
 		}
-		_, err := d.call(ctx, "session/prompt", map[string]any{
+		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
+		defer cancel()
+		_, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt":    []map[string]any{{"type": "text", "text": body}},
 		})
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("acp session/prompt: no reply within %s — agent likely stuck on auth (set GEMINI_API_KEY for gemini-cli, or check ~/.gemini/oauth_creds.json reachability): %w", d.PromptTimeout, err)
+		}
 		return err
 	case "cancel":
 		// session/cancel is a notification (no id) per the ACP spec.
@@ -479,13 +496,18 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if docID == "" {
 			return fmt.Errorf("acp driver: attach missing document_id")
 		}
-		_, err := d.call(ctx, "session/prompt", map[string]any{
+		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
+		defer cancel()
+		_, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt": []map[string]any{{
 				"type": "text",
 				"text": "[attach] document_id=" + docID,
 			}},
 		})
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("acp session/prompt (attach): no reply within %s: %w", d.PromptTimeout, err)
+		}
 		return err
 	case "approval":
 		reqID, _ := payload["request_id"].(string)

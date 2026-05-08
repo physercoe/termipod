@@ -18,6 +18,7 @@ import (
 type fakeProcSpawner struct {
 	cmd       string
 	child     *io.PipeWriter // test writes here to simulate child stdout
+	childErr  *io.PipeWriter // test writes here to simulate child stderr (split-stream mode only)
 	input     *io.PipeReader // test reads here to see what host-runner wrote
 	killed    chan struct{}
 }
@@ -42,6 +43,31 @@ func (f *fakeProcSpawner) Spawn(_ context.Context, command string) (io.ReadClose
 		_ = inR.Close()
 	}
 	return outR, inW, kill, nil
+}
+
+// SpawnWithStderr mirrors RealProcSpawner.SpawnWithStderr for M1 tests:
+// stdout, stderr, stdin returned as independent pipe pairs. Tests that
+// don't write to childErr leave stderr silent — same outward behavior
+// as the production path when the child writes nothing to stderr.
+func (f *fakeProcSpawner) SpawnWithStderr(_ context.Context, command string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
+	f.cmd = command
+	outR, outW := io.Pipe()
+	errR, errW := io.Pipe()
+	inR, inW := io.Pipe()
+	f.child = outW
+	f.childErr = errW
+	f.input = inR
+	kill := func() {
+		select {
+		case <-f.killed:
+		default:
+			close(f.killed)
+		}
+		_ = outW.Close()
+		_ = errW.Close()
+		_ = inR.Close()
+	}
+	return outR, errR, inW, kill, nil
 }
 
 // recordingLauncher captures the command and pane target so the test can

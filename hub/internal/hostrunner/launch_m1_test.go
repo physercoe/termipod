@@ -2,6 +2,7 @@ package hostrunner
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +136,107 @@ func TestLaunchM1_WiresACPDriverAndPane(t *testing.T) {
 	}
 	if !sawStarted {
 		t.Errorf("never saw lifecycle started/M1 event; events = %+v", poster.snapshot())
+	}
+}
+
+// TestLaunchM1_StderrLandsInSiblingLog pins the v1.0.400 split: the
+// child's stderr goes to a sibling `*-err.log`, not the JSON-RPC log
+// the driver parses. Mixing stderr garbage into stdout would crash the
+// frame parser the moment any non-JSON line lands; persisting stderr
+// separately also gives operators a place to grep for auth diagnostics
+// when the daemon hangs silently (the bug v1.0.400 cleared up after).
+func TestLaunchM1_StderrLandsInSiblingLog(t *testing.T) {
+	logDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:gemini-err.0"}
+	poster := &fakePoster{}
+
+	sp := Spawn{
+		ChildID: "agent-stderr",
+		Handle:  "gemini-err",
+		Kind:    "gemini-cli",
+		Mode:    "M1",
+		SpawnSpec: "backend:\n" +
+			"  cmd: gemini --acp\n" +
+			"  default_workdir: " + homeDir + "\n",
+	}
+
+	type result struct {
+		res M1LaunchResult
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, e := launchM1(context.Background(), M1LaunchConfig{
+			Spawn:    sp,
+			Launcher: launcher,
+			Client:   poster,
+			Spawner:  spawner,
+			LogDir:   logDir,
+		})
+		done <- result{r, e}
+	}()
+
+	deadline := time.After(2 * time.Second)
+	for spawner.child == nil {
+		select {
+		case <-deadline:
+			t.Fatal("spawner never invoked")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	// Drive the JSON-RPC handshake on stdout while emitting a stderr
+	// line that resembles what gemini writes when it can't reach the
+	// keychain. The driver MUST NOT see this on its parsed stream.
+	agent := newFakeACPAgent(t, spawner.input, spawner.child, "sess-stderr")
+	go agent.serve()
+	if spawner.childErr != nil {
+		go func() {
+			_, _ = spawner.childErr.Write([]byte("Opening authentication page in your browser…\n"))
+		}()
+	}
+
+	var res M1LaunchResult
+	select {
+	case <-time.After(3 * time.Second):
+		t.Fatal("launchM1 did not return")
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("launchM1: %v", r.err)
+		}
+		res = r.res
+		defer res.Driver.Stop()
+	}
+
+	// Wait briefly for the stderr copy goroutine to flush.
+	errLogPath := strings.TrimSuffix(res.LogPath, ".log") + "-err.log"
+	var errBody []byte
+	flushDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(flushDeadline) {
+		b, rerr := os.ReadFile(errLogPath)
+		if rerr == nil && strings.Contains(string(b), "authentication page") {
+			errBody = b
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(string(errBody), "authentication page") {
+		t.Errorf("err log %q did not capture stderr line; contents=%q", errLogPath, string(errBody))
+	}
+
+	// The main log (driver-side, JSON-RPC) MUST NOT contain the stderr
+	// line — that's the point of the split. JSON-RPC frames from the
+	// handshake should be there instead.
+	mainBody, err := os.ReadFile(res.LogPath)
+	if err != nil {
+		t.Fatalf("read main log: %v", err)
+	}
+	if strings.Contains(string(mainBody), "authentication page") {
+		t.Errorf("main log %q got stderr garbage — split failed; contents=%q", res.LogPath, string(mainBody))
 	}
 }
 

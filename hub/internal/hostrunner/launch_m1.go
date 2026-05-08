@@ -129,19 +129,43 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		return M1LaunchResult{}, fmt.Errorf("create log: %w", err)
 	}
 
-	stdout, stdin, kill, err := cfg.Spawner.Spawn(ctx, command)
+	// Stderr lands in a sibling file so a hung-on-auth daemon's
+	// diagnostic line (e.g. gemini's "Opening authentication page in
+	// your browser…" or keychain unreachable) is persisted somewhere
+	// the operator can grep, instead of being lost. Splitting the
+	// streams also keeps the JSON-RPC frame parser on stdout clean —
+	// any non-JSON line on stderr would otherwise break it.
+	errLogPath := strings.TrimSuffix(logPath, ".log") + "-err.log"
+	errLogFile, err := os.Create(errLogPath)
 	if err != nil {
 		_ = logFile.Close()
 		_ = os.Remove(logPath)
+		return M1LaunchResult{}, fmt.Errorf("create err log: %w", err)
+	}
+
+	stdout, stderr, stdin, kill, err := cfg.Spawner.SpawnWithStderr(ctx, command)
+	if err != nil {
+		_ = logFile.Close()
+		_ = errLogFile.Close()
+		_ = os.Remove(logPath)
+		_ = os.Remove(errLogPath)
 		return M1LaunchResult{}, fmt.Errorf("spawn: %w", err)
 	}
 
 	// Tee child's stdout into the log file so the cosmetic tail pane
 	// renders the same bytes the driver consumes. ACP traffic is raw
 	// JSON-RPC, so the pane shows ndjson — useful for debugging but
-	// not a polished read. Same trade we accept for codex's
-	// app-server.
+	// not a polished read.
 	teed := io.TeeReader(stdout, logFile)
+
+	// Pump stderr into its sibling log on a background goroutine. The
+	// driver doesn't read stderr, so this copy runs until the child
+	// closes its stderr (process exit) or the closer fires.
+	if stderr != nil {
+		go func() {
+			_, _ = io.Copy(errLogFile, stderr)
+		}()
+	}
 
 	paneCmd := fmt.Sprintf("tail -F %s", shellEscape(logPath))
 	pane, paneErr := cfg.Launcher.LaunchCmd(ctx, cfg.Spawn, paneCmd)
@@ -153,7 +177,11 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		kill()
 		_ = stdin.Close()
 		_ = stdout.Close()
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		_ = logFile.Close()
+		_ = errLogFile.Close()
 	}
 
 	drv := &ACPDriver{
@@ -170,7 +198,11 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		// fall back to M2.
 		_ = stdin.Close()
 		_ = stdout.Close()
+		if stderr != nil {
+			_ = stderr.Close()
+		}
 		_ = logFile.Close()
+		_ = errLogFile.Close()
 		kill()
 		return M1LaunchResult{}, fmt.Errorf("acp start: %w", err)
 	}

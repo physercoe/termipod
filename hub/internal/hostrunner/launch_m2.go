@@ -33,12 +33,18 @@ import (
 // driver's Stop will invoke.
 type ProcSpawner interface {
 	Spawn(ctx context.Context, command string) (stdout io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
+	// SpawnWithStderr returns the child's stdout and stderr as separate
+	// streams. M1 (ACP) launch uses this so non-JSON stderr lines (auth
+	// diagnostics, ripgrep warnings, etc.) don't pollute the JSON-RPC
+	// frame parser the driver runs over stdout. M2 still uses Spawn —
+	// stream-json drivers tolerate stderr garbage on stdout and the
+	// merged stream gives a richer pane tail.
+	SpawnWithStderr(ctx context.Context, command string) (stdout io.ReadCloser, stderr io.ReadCloser, stdin io.WriteCloser, kill func(), err error)
 }
 
-// RealProcSpawner runs the command under `bash -c`, capturing stdout +
-// stderr together so the log file (and thus the pane tail) matches what
-// would appear on a terminal. Callers needing a distinct stderr stream
-// can build a more elaborate spawner later.
+// RealProcSpawner runs the command under `bash -c`. Spawn merges
+// stderr into stdout (M2 path); SpawnWithStderr keeps them separate
+// (M1 path) so the ACP driver's frame parser only sees clean JSON-RPC.
 type RealProcSpawner struct{}
 
 func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser, io.WriteCloser, func(), error) {
@@ -66,6 +72,37 @@ func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser
 		}
 	}
 	return stdout, stdin, kill, nil
+}
+
+func (RealProcSpawner) SpawnWithStderr(ctx context.Context, command string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, nil, nil, nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		return nil, nil, nil, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return nil, nil, nil, nil, err
+	}
+	kill := func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	return stdout, stderr, stdin, kill, nil
 }
 
 // M2LaunchConfig carries everything launchM2 needs, grouped so the

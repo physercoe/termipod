@@ -702,3 +702,116 @@ func TestACPDriver_WriteTimeout(t *testing.T) {
 	_ = hostInW.Close() // unblock any in-flight Write
 	drv.wg.Wait()
 }
+
+// TestACPDriver_PromptTimeoutSurfaces pins v1.0.400's PromptTimeout
+// guard. An agent that handshakes successfully but never replies to
+// session/prompt (the gemini-cli-without-GEMINI_API_KEY hang we hit in
+// real testing) used to lock the driver indefinitely — `call` only
+// honored ctx.Done() and the hub HTTP ctx doesn't expire. With
+// PromptTimeout set, Input("text") must return cleanly within a bounded
+// window so the mobile state can move out of "busy".
+func TestACPDriver_PromptTimeoutSurfaces(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Hand-rolled fake that handshakes but ignores session/prompt — no
+	// reply ever comes back. Mirrors the gemini-cli-hung-on-auth state.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-hung"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				// Intentionally ignore — replicate the unauthenticated
+				// daemon's silent hang.
+			default:
+				if id != nil {
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": id, "result": map[string]any{},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}
+			}
+		}
+	}()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-prompt-to",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    150 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	start := time.Now()
+	err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Input(text): want error from prompt timeout, got nil")
+	}
+	if !strings.Contains(err.Error(), "no reply within") {
+		t.Errorf("err = %v; want it to mention the prompt-timeout shape (`no reply within ...`) so operators recognize the auth-hang case",
+			err)
+	}
+	// 150ms timeout + bookkeeping; allow generous slack for CI noise.
+	if elapsed > 2*time.Second {
+		t.Errorf("Input took %v; want it to error near PromptTimeout (150ms), not block on the hub HTTP ctx", elapsed)
+	}
+}
+
+// TestACPDriver_PromptTimeoutDefaults locks the default — operators
+// running with a stock ACPDriver (HandshakeTimeout/PromptTimeout zero)
+// must still get the timeout protection. A regression that drops the
+// default would silently let unauthenticated daemons lock agents again.
+func TestACPDriver_PromptTimeoutDefaults(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-defaults")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID: "agent-defaults",
+		Poster:  &fakePoster{},
+		Stdin:   hostInW,
+		Stdout:  hostOutR,
+		Closer:  func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if drv.PromptTimeout != 120*time.Second {
+		t.Errorf("PromptTimeout default = %v; want 120s — silent hang on session/prompt is the failure mode this defends against",
+			drv.PromptTimeout)
+	}
+}

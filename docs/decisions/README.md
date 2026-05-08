@@ -39,6 +39,7 @@ next sequential number — don't reserve, don't skip.
 | [018](018-tailnet-deployment-assumption.md) | Hub ↔ host-runner connectivity assumes a tailnet | Accepted 2026-04-19 (back-dated) | — |
 | [019](019-channels-as-event-log.md) | Channels = append-only event logs with task_id/correlation_id | Accepted 2026-04-19 (back-dated) | — |
 | [020](020-director-action-surface.md) | Director-action surface on typed documents and deliverables | Accepted 2026-05-06 | — |
+| [021](021-acp-capability-surface.md) | ACP capability surface — resume, auth, mode/model, image inputs | Proposed 2026-05-08 | — |
 
 ---
 

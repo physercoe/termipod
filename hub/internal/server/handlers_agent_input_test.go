@@ -113,6 +113,10 @@ func TestPostAgentInput_ValidationErrors(t *testing.T) {
 		{"bad_decision", map[string]any{
 			"kind": "approval", "decision": "maybe", "request_id": "r1",
 		}},
+		{"bad_decision_with_empty_option_id", map[string]any{
+			"kind": "approval", "decision": "proceed_once",
+			"request_id": "r1", "option_id": "",
+		}},
 		{"missing_request_id", map[string]any{
 			"kind": "approval", "decision": "approve",
 		}},
@@ -153,6 +157,12 @@ func TestPostAgentInput_ApprovalOptionID(t *testing.T) {
 		{"approve_with_option", "approve", "allow-once"},
 		{"deny_with_option", "deny", "reject-once"},
 		{"cancel_with_option", "cancel", ""},
+		// v1.0.405: ACP M1 agents (gemini-cli) use option-id strings as
+		// decision words. Mobile forwards o.id verbatim as both decision
+		// AND option_id. With option_id present any decision string
+		// must be accepted — the option_id is the source of truth.
+		{"acp_proceed_once", "proceed_once", "proceed_once"},
+		{"acp_proceed_always_server", "proceed_always_server", "proceed_always_server"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

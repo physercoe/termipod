@@ -85,6 +85,13 @@ type ACPDriver struct {
 
 	pendingMu sync.Mutex
 	pending   map[int64]chan acpResponse
+	// promptIDs tracks JSON-RPC ids that were issued for session/prompt
+	// requests. deliverResponse uses this to recognize an orphaned
+	// session/prompt response (one whose call already timed out or
+	// was abandoned) and post a synthetic turn.result so mobile's
+	// busy-walker still sees a terminal kind. Cleared when the call
+	// returns OR when the orphaned-response path consumes the id.
+	promptIDs map[int64]struct{}
 	// permMu protects pendingPerm; we need a separate lock because the
 	// reader (recording a request_id) and Input (resolving it) can race.
 	permMu      sync.Mutex
@@ -149,6 +156,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	d.started = true
 	d.pending = make(map[int64]chan acpResponse)
+	d.promptIDs = make(map[int64]struct{})
 	d.pendingPerm = make(map[string]json.RawMessage)
 	d.writeQ = make(chan *acpWriteReq, 32)
 	d.done = make(chan struct{})
@@ -270,6 +278,14 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 	ch := make(chan acpResponse, 1)
 	d.pendingMu.Lock()
 	d.pending[id] = ch
+	// Track session/prompt ids so deliverResponse can recognize an
+	// orphaned response (one whose call timed out and is no longer
+	// listening) and post a synthetic turn.result. Without this,
+	// gemini's late stopReason=cancelled reply gets dropped and mobile
+	// stays stuck on the cancel button.
+	if method == "session/prompt" {
+		d.promptIDs[id] = struct{}{}
+	}
 	d.pendingMu.Unlock()
 
 	if err := d.writeMsg(map[string]any{
@@ -280,17 +296,26 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 	}); err != nil {
 		d.pendingMu.Lock()
 		delete(d.pending, id)
+		delete(d.promptIDs, id)
 		d.pendingMu.Unlock()
 		return nil, err
 	}
 
 	select {
 	case <-ctx.Done():
+		// Leave promptIDs[id] set on timeout/cancel — the orphaned
+		// session/prompt response is exactly the case the deliverResponse
+		// path needs to recognize. Only the pending channel is removed.
 		d.pendingMu.Lock()
 		delete(d.pending, id)
 		d.pendingMu.Unlock()
 		return nil, ctx.Err()
 	case resp, ok := <-ch:
+		// Successful (or rpc-errored) response — call is no longer
+		// orphaned, drop the prompt-id tracker.
+		d.pendingMu.Lock()
+		delete(d.promptIDs, id)
+		d.pendingMu.Unlock()
 		if !ok {
 			return nil, fmt.Errorf("transport closed")
 		}
@@ -544,11 +569,25 @@ func (d *ACPDriver) deliverResponse(msg acpMessage) {
 	if ok {
 		delete(d.pending, idNum)
 	}
+	_, isPrompt := d.promptIDs[idNum]
+	if isPrompt {
+		delete(d.promptIDs, idNum)
+	}
 	d.pendingMu.Unlock()
-	if !ok {
+	if ok {
+		ch <- acpResponse{result: msg.Result, err: msg.Error}
 		return
 	}
-	ch <- acpResponse{result: msg.Result, err: msg.Error}
+	// Orphaned response — call timed out or was abandoned but the
+	// agent eventually replied. For session/prompt this is the path
+	// that fires when gemini sends stopReason=cancelled after our
+	// PromptTimeout already kicked us out of Input("text"). Post a
+	// synthetic turn.result so mobile's busy walker still sees a
+	// terminal kind and clears the cancel button. We use a fresh
+	// background context — the original Input ctx is gone.
+	if isPrompt && msg.Result != nil {
+		d.postTurnResult(context.Background(), msg.Result)
+	}
 }
 
 // handleNotification is the translation hot path. session/update carries
@@ -697,11 +736,27 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		return nil
 	case "cancel":
 		// session/cancel is a notification (no id) per the ACP spec.
-		return d.writeMsg(map[string]any{
+		err := d.writeMsg(map[string]any{
 			"jsonrpc": "2.0",
 			"method":  "session/cancel",
 			"params":  map[string]any{"sessionId": sid},
 		})
+		// Eagerly post a turn.result so mobile's _isAgentBusy()
+		// flips off immediately — the cancel-button → send-button
+		// transition can't wait for the agent's stopReason=cancelled
+		// response to come back. In practice the response often gets
+		// orphaned (the originating session/prompt's call may have
+		// already returned from PromptTimeout, and deliverResponse
+		// then drops the late arrival). If a real response does
+		// arrive afterwards, the driver posts a second turn.result —
+		// harmless; mobile aggregator just counts both for the same
+		// logical turn.
+		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
+			map[string]any{
+				"status":      "cancelled",
+				"stop_reason": "cancelled",
+			})
+		return err
 	case "attach":
 		docID, _ := payload["document_id"].(string)
 		if docID == "" {

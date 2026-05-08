@@ -1033,6 +1033,153 @@ func TestACPDriver_HandshakeTimeoutDefault(t *testing.T) {
 	}
 }
 
+// TestACPDriver_CancelPostsTurnResult pins v1.0.405: when the user
+// taps the cancel button, the driver MUST post a turn.result eagerly
+// so mobile's _isAgentBusy() flips off (cancel → send button). Waiting
+// for gemini's stopReason=cancelled response often races with
+// PromptTimeout having already kicked the original Input("text") out
+// — the late response then gets orphaned and dropped.
+func TestACPDriver_CancelPostsTurnResult(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-cancel-tr")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-cancel-tr",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "cancel", nil); err != nil {
+		t.Fatalf("Input(cancel): %v", err)
+	}
+
+	// Look for the turn.result the cancel branch must post eagerly.
+	var found bool
+	for _, e := range poster.snapshot() {
+		if e.Kind == "turn.result" {
+			if e.Payload["stop_reason"] != "cancelled" {
+				t.Errorf("turn.result.stop_reason = %v; want cancelled", e.Payload["stop_reason"])
+			}
+			if e.Payload["status"] != "cancelled" {
+				t.Errorf("turn.result.status = %v; want cancelled", e.Payload["status"])
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("cancel did not post turn.result — mobile cancel-button overlay would stick")
+	}
+}
+
+// TestACPDriver_OrphanedPromptResponsePostsTurnResult covers the
+// other half of v1.0.405: even without an explicit cancel, a
+// session/prompt response that arrives after the originating call
+// timed out (gemini takes >120s spinning on permission requests) MUST
+// post a synthetic turn.result so mobile sees a terminal kind. Without
+// this, deliverResponse used to drop the late reply silently and the
+// busy walker stayed stuck.
+func TestACPDriver_OrphanedPromptResponsePostsTurnResult(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Fake that handshakes but holds session/prompt responses for a
+	// while — simulates a daemon that exceeds PromptTimeout.
+	releasePrompt := make(chan struct{})
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-orphan"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				go func(id any) {
+					<-releasePrompt
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": id,
+						"result": map[string]any{"stopReason": "cancelled"},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}(id)
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-orphan",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    100 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// Input will time out at 100ms; the session/prompt response will
+	// arrive AFTER that and get processed by deliverResponse as an
+	// orphaned reply.
+	err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	if err == nil {
+		t.Fatal("Input: want timeout error since fake holds the response")
+	}
+
+	// Now release the held response. deliverResponse should see the
+	// orphaned reply and post turn.result.
+	close(releasePrompt)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "turn.result" {
+				if e.Payload["stop_reason"] != "cancelled" {
+					t.Errorf("turn.result.stop_reason = %v; want cancelled (lifted from orphaned response)",
+						e.Payload["stop_reason"])
+				}
+				return // success
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("orphaned session/prompt response did not produce a synthetic turn.result — mobile cancel button would stick")
+}
+
 // TestACPDriver_AccumulatesAgentMessageChunks pins v1.0.404 (a):
 // gemini-cli@0.41 emits agent_message_chunk notifications in pieces
 // (incremental, not cumulative). Without aggregation each chunk would

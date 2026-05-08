@@ -62,12 +62,24 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		// M1 wire; cancel maps to "cancelled". "approve" and "allow" are
 		// aliases — "allow" matches Claude Code / ACP option naming,
 		// "approve" was the original hub vocabulary before M1 landed.
+		//
+		// ACP M1 agents (gemini-cli) ship optionId-based decisions like
+		// "proceed_once" / "proceed_always_server" / "cancel" rather
+		// than the legacy semantic vocabulary. Mobile forwards the
+		// optionId verbatim as both `decision` and `option_id`. When
+		// option_id is set we trust it as the source of truth and
+		// allow any decision string — the driver's M1 path forwards
+		// option_id as the "selected" outcome regardless. Without an
+		// option_id we still need a recognizable semantic decision so
+		// the hub can route correctly.
 		switch in.Decision {
 		case "approve", "allow", "deny", "cancel":
 		default:
-			writeErr(w, http.StatusBadRequest,
-				"decision must be approve|allow|deny|cancel")
-			return
+			if in.OptionID == "" {
+				writeErr(w, http.StatusBadRequest,
+					"decision must be approve|allow|deny|cancel (or any value paired with option_id)")
+				return
+			}
 		}
 		if in.RequestID == "" {
 			writeErr(w, http.StatusBadRequest, "request_id required")

@@ -440,6 +440,123 @@ func (p *recordingPoster) has(kind, sessionID string) bool {
 	return false
 }
 
+// TestExecResumeDriver_AccumulatesAssistantDeltas pins the per-turn
+// streaming-text accumulator. gemini-cli@0.41 emits assistant content
+// only as delta=true chunks (incremental, not cumulative). The driver
+// must accumulate them and emit `kind=text, partial=true,
+// message_id=<turn-local id>` events whose `text` carries the FULL
+// running content — that's the shape the mobile transcript's
+// _collapseStreamingPartials chain expects to fold into one bubble.
+//
+// Two turns in this test: each turn must get a different message_id so
+// turn N's chunks don't merge into turn N-1's bubble.
+func TestExecResumeDriver_AccumulatesAssistantDeltas(t *testing.T) {
+	fam, _ := agentfamilies.ByName("gemini-cli")
+
+	turn1Frames := []string{
+		`{"type":"init","session_id":"sess-acc","model":"m","timestamp":"t1"}`,
+		`{"type":"message","role":"user","content":"hi","timestamp":"t1"}`,
+		`{"type":"message","role":"assistant","content":"Hello","delta":true,"timestamp":"t2"}`,
+		`{"type":"message","role":"assistant","content":", world","delta":true,"timestamp":"t3"}`,
+		`{"type":"result","status":"success","stats":{"input_tokens":1},"timestamp":"t4"}`,
+	}
+	turn2Frames := []string{
+		`{"type":"init","session_id":"sess-acc","model":"m","timestamp":"t5"}`,
+		`{"type":"message","role":"assistant","content":"Bye","delta":true,"timestamp":"t6"}`,
+		`{"type":"result","status":"success","stats":{"input_tokens":1},"timestamp":"t7"}`,
+	}
+
+	turn := 0
+	cb := func(ctx context.Context, name string, args ...string) GeminiCmd {
+		defer func() { turn++ }()
+		if turn == 0 {
+			return newFakeGeminiCmd(append([]string{name}, args...), turn1Frames)
+		}
+		return newFakeGeminiCmd(append([]string{name}, args...), turn2Frames)
+	}
+
+	poster := &recordingPoster{}
+	drv := &ExecResumeDriver{
+		AgentID:        "agt-acc",
+		Handle:         "@s",
+		Poster:         poster,
+		Bin:            "/usr/bin/gemini",
+		Workdir:        "/tmp/wt",
+		FrameProfile:   fam.FrameProfile,
+		CommandBuilder: cb,
+		Yolo:           true,
+		KillGrace:      500 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "hello"}); err != nil {
+		t.Fatalf("Input turn 1: %v", err)
+	}
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "again"}); err != nil {
+		t.Fatalf("Input turn 2: %v", err)
+	}
+
+	// Collect every text/agent partial event in order.
+	type partial struct {
+		text  string
+		mid   string
+		isPar bool
+	}
+	var partials []partial
+	poster.mu.Lock()
+	for _, e := range poster.events {
+		if e.Kind != "text" || e.Producer != "agent" {
+			continue
+		}
+		txt, _ := e.Payload["text"].(string)
+		mid, _ := e.Payload["message_id"].(string)
+		par, _ := e.Payload["partial"].(bool)
+		partials = append(partials, partial{text: txt, mid: mid, isPar: par})
+	}
+	poster.mu.Unlock()
+
+	// Turn 1: 2 chunks → 2 partials with cumulative text "Hello" and
+	// "Hello, world". Turn 2: 1 chunk → 1 partial with "Bye". So 3
+	// total partial text events.
+	if len(partials) != 3 {
+		t.Fatalf("partial count = %d (want 3 — 2 from turn1 + 1 from turn2); got %+v", len(partials), partials)
+	}
+	if partials[0].text != "Hello" {
+		t.Errorf("turn1 chunk1.text = %q; want %q (single chunk so far)", partials[0].text, "Hello")
+	}
+	if partials[1].text != "Hello, world" {
+		t.Errorf("turn1 chunk2.text = %q; want cumulative %q", partials[1].text, "Hello, world")
+	}
+	if partials[2].text != "Bye" {
+		t.Errorf("turn2 chunk1.text = %q; want %q (fresh buffer for new turn)", partials[2].text, "Bye")
+	}
+
+	// All 3 partials must be flagged partial:true.
+	for i, p := range partials {
+		if !p.isPar {
+			t.Errorf("partial[%d].partial = false; want true (lets mobile collapse fold the chain)", i)
+		}
+	}
+
+	// Turn 1's chunks share a message_id. Turn 2's chunk uses a
+	// DIFFERENT message_id — otherwise the mobile collapse would merge
+	// the new turn's bubble into the previous turn's bubble.
+	if partials[0].mid == "" {
+		t.Error("turn1 message_id is empty; collapse needs a stable id per turn")
+	}
+	if partials[0].mid != partials[1].mid {
+		t.Errorf("turn1 chunks have different message_ids (%q vs %q); chain must share one id within a turn",
+			partials[0].mid, partials[1].mid)
+	}
+	if partials[2].mid == partials[0].mid {
+		t.Errorf("turn2 message_id %q == turn1 message_id; new turns MUST start a fresh chain or bubbles merge across turns",
+			partials[2].mid)
+	}
+}
+
 // containsArg returns true iff args contains `flag value` as adjacent tokens.
 func containsArg(args []string, flag, value string) bool {
 	for i := 0; i+1 < len(args); i++ {

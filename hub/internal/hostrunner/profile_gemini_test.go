@@ -46,14 +46,13 @@ func TestProfile_Gemini_TranslatesStreamJSON(t *testing.T) {
 	wantKinds := map[matcher]string{
 		{"init", "", nil}:                 "session.init",
 		{"message", "user", false}:        "raw", // user echoes fall through
-		// gemini-cli@0.41 emits assistant text ONLY as delta=true chunks
-		// (verified against the bundle source). Each chunk becomes its
-		// own text event; mobile renderer concatenates within a turn.
-		{"message", "assistant", true}:    "text",
-		// delta=false never actually appears in current gemini-cli; if a
-		// future version starts emitting it we'd add a parallel rule.
-		// For now it falls through to raw so accidental future frames
-		// don't silently double-emit alongside the chunks.
+		// Assistant delta frames are handled by ExecResumeDriver's
+		// streamFrames accumulator, not by the profile — the evaluator
+		// is stateless and gemini's chunks are incremental, not
+		// cumulative. Both delta=true and delta=false fall through to
+		// kind=raw at the profile layer; the driver's special-case
+		// produces the user-visible cumulative text events.
+		{"message", "assistant", true}:    "raw",
 		{"message", "assistant", false}:   "raw",
 		{"tool_use", "", nil}:             "tool_call",
 		{"tool_result", "", nil}:          "tool_result",
@@ -115,10 +114,14 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 			got[0].Payload["model"])
 	}
 
-	// Streaming assistant chunk → kind=text. gemini-cli@0.41 emits
-	// every assistant frame with delta=true; each chunk becomes its own
-	// text event and the mobile transcript renderer coalesces
-	// consecutive text/agent events into one bubble.
+	// Assistant frames (delta=true OR delta=false) intentionally fall
+	// through to kind=raw at the profile layer. The driver's
+	// streamFrames accumulator owns turning incremental chunks into a
+	// growing cumulative text event with partial:true + a turn-local
+	// message_id; the profile evaluator is stateless and can't
+	// accumulate. Pin both shapes here so a future profile editor
+	// doesn't accidentally re-add a per-chunk text rule and double-
+	// emit alongside the driver-side accumulator.
 	asstChunk := map[string]any{
 		"type":      "message",
 		"role":      "assistant",
@@ -127,18 +130,10 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 		"timestamp": "2026-04-29T10:00:02Z",
 	}
 	got = ApplyProfile(asstChunk, profile)
-	if len(got) != 1 || got[0].Kind != "text" {
-		t.Fatalf("message assistant chunk: want one text, got %+v", got)
-	}
-	if got[0].Payload["text"] != "Hello, world." {
-		t.Errorf("text.text = %v; want Hello, world.", got[0].Payload["text"])
+	if len(got) != 1 || got[0].Kind != "raw" {
+		t.Errorf("message assistant delta=true: want raw fallback (driver accumulates), got %+v", got)
 	}
 
-	// delta=false isn't emitted by current gemini — pin it as raw so a
-	// future engine release that adds a consolidated final frame
-	// doesn't silently double-emit alongside the chunks. If/when that
-	// changes upstream, add a parallel rule rather than dropping this
-	// expectation.
 	asstFinal := map[string]any{
 		"type":      "message",
 		"role":      "assistant",
@@ -193,14 +188,28 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 		t.Errorf("tool_result.status = %v; want success", got[0].Payload["status"])
 	}
 
-	// result → turn.result with stats forwarded verbatim.
+	// result → turn.result with the canonical hub fields the mobile
+	// transcript's token aggregator keys on. We flatten gemini's nested
+	// stats into top-level by_model + duration_ms + total/input/output
+	// tokens so the same renderer code that lights up for claude/codex
+	// fires for gemini. The full raw stats are still under `stats` for
+	// future telemetry rules.
 	resultFrame := map[string]any{
 		"type":   "result",
 		"status": "success",
 		"stats": map[string]any{
 			"input_tokens":  float64(100),
 			"output_tokens": float64(50),
+			"total_tokens":  float64(150),
 			"duration_ms":   float64(2000),
+			"tool_calls":    float64(0),
+			"models": map[string]any{
+				"gemini-3-flash-preview": map[string]any{
+					"input_tokens":  float64(80),
+					"output_tokens": float64(40),
+					"total_tokens":  float64(120),
+				},
+			},
 		},
 		"timestamp": "2026-04-29T10:00:09Z",
 	}
@@ -208,12 +217,26 @@ func TestProfile_Gemini_PayloadFields(t *testing.T) {
 	if len(got) != 1 || got[0].Kind != "turn.result" {
 		t.Fatalf("result: want one turn.result, got %+v", got)
 	}
-	if got[0].Payload["status"] != "success" {
-		t.Errorf("turn.result.status = %v; want success",
-			got[0].Payload["status"])
+	p := got[0].Payload
+	if p["status"] != "success" {
+		t.Errorf("turn.result.status = %v; want success", p["status"])
 	}
-	if got[0].Payload["stats"] == nil {
-		t.Errorf("turn.result.stats = nil; want stats object forwarded verbatim")
+	if p["duration_ms"] != float64(2000) {
+		t.Errorf("turn.result.duration_ms = %v; want 2000 (lifted from stats)", p["duration_ms"])
+	}
+	if p["total_tokens"] != float64(150) {
+		t.Errorf("turn.result.total_tokens = %v; want 150 (lifted from stats)", p["total_tokens"])
+	}
+	if p["by_model"] == nil {
+		t.Errorf("turn.result.by_model is nil; want it lifted from stats.models so mobile token-usage tile fires")
+	}
+	if bm, ok := p["by_model"].(map[string]any); ok {
+		if _, has := bm["gemini-3-flash-preview"]; !has {
+			t.Errorf("turn.result.by_model missing gemini-3-flash-preview key: %+v", bm)
+		}
+	}
+	if p["stats"] == nil {
+		t.Errorf("turn.result.stats = nil; want full stats forwarded for future telemetry rules")
 	}
 }
 

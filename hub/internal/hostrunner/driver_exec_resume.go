@@ -23,15 +23,22 @@
 //   - Per-tool-call approval gates. Gemini-cli has no in-stream
 //     approval event (ADR-013 D4); the steward routes risky
 //     decisions through `request_approval` MCP tool itself.
-//   - Streaming-delta rendering. The frame profile maps only
-//     {role:assistant, delta:false} → text; deltas fall through to
-//     kind=raw and aren't shown in the typed transcript. A future
-//     wedge can promote them once the live-streaming UI lands.
+//   - Streaming-delta rendering. The driver special-cases
+//     {role:assistant, delta:true} frames in streamFrames: it
+//     accumulates the per-chunk content into a per-turn buffer and
+//     emits cumulative `kind: text` events with `partial: true` and a
+//     turn-local message_id. The mobile transcript's
+//     _collapseStreamingPartials then folds the chain into a single
+//     bubble that grows. The frame profile YAML doesn't have a rule
+//     for delta:true assistant frames — accumulation is stateful and
+//     the profile evaluator is stateless by design.
 package hostrunner
 
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -368,6 +375,17 @@ func (d *ExecResumeDriver) streamFrames(ctx context.Context, stdout io.Reader) {
 	if captureFile != nil {
 		defer captureFile.Close()
 	}
+	// Per-turn assistant accumulator. gemini-cli@0.41 emits assistant
+	// text exclusively as delta=true chunks where each chunk's content
+	// is incremental (not cumulative). To get one transcript bubble
+	// that grows instead of N separate bubbles, we accumulate chunks
+	// here and emit cumulative `text` events tagged
+	// {partial: true, message_id: <turn id>} so the mobile renderer's
+	// _collapseStreamingPartials chain logic folds them. msgID is
+	// generated lazily on the first delta so non-text turns (pure
+	// tool_use) don't allocate.
+	var assistantBuf []byte
+	var assistantMsgID string
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), streamJSONBufferSize)
 	for sc.Scan() {
@@ -384,16 +402,45 @@ func (d *ExecResumeDriver) streamFrames(ctx context.Context, stdout io.Reader) {
 				map[string]any{"text": string(line)})
 			continue
 		}
+		frameType, _ := frame["type"].(string)
 		// Latch session_id on init. The frame profile also publishes
 		// a session.init event with this same id; capturing here is
 		// what threads --resume into the *next* turn's argv.
-		if t, _ := frame["type"].(string); t == "init" {
+		if frameType == "init" {
 			if sid, ok := frame["session_id"].(string); ok && sid != "" {
 				d.resumeMu.Lock()
 				if d.resumeSessionID == "" || d.resumeSessionID != sid {
 					d.resumeSessionID = sid
 				}
 				d.resumeMu.Unlock()
+			}
+		}
+		// Assistant delta accumulator: append content + emit cumulative
+		// partial text. Bypass the profile path for these frames — the
+		// YAML evaluator is stateless and can't accumulate. Errors
+		// extracting fields fall through silently because gemini's
+		// delta frame shape is well-known.
+		if frameType == "message" {
+			role, _ := frame["role"].(string)
+			delta, _ := frame["delta"].(bool)
+			if role == "assistant" && delta {
+				chunk, _ := frame["content"].(string)
+				if chunk != "" {
+					if assistantMsgID == "" {
+						assistantMsgID = newMessageID()
+					}
+					assistantBuf = append(assistantBuf, chunk...)
+					payload := map[string]any{
+						"text":       string(assistantBuf),
+						"message_id": assistantMsgID,
+						"partial":    true,
+					}
+					if ts, ok := frame["timestamp"].(string); ok {
+						payload["timestamp"] = ts
+					}
+					_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "text", "agent", payload)
+				}
+				continue
 			}
 		}
 		evts := ApplyProfile(frame, d.FrameProfile)
@@ -404,6 +451,23 @@ func (d *ExecResumeDriver) streamFrames(ctx context.Context, stdout io.Reader) {
 	if err := sc.Err(); err != nil && !errors.Is(err, io.EOF) {
 		d.Log.Debug("exec-resume read error", "agent", d.AgentID, "err", err)
 	}
+}
+
+// newMessageID returns a 16-hex-char id for tagging streaming chunks
+// from a single turn. Random per call so chunks from turn N don't
+// collide with chunks from turn N+1 (which would coalesce into the
+// same bubble). crypto/rand because the id is user-visible (anchors
+// the mobile collapse chain) — collisions across turns would silently
+// merge transcripts.
+func newMessageID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Fallback: use a timestamp-based id. Non-crypto-random is
+		// fine here — the id only needs to be unique within one
+		// driver process's lifetime, not unguessable.
+		return fmt.Sprintf("gemini-%d", time.Now().UnixNano())
+	}
+	return "gemini-" + hex.EncodeToString(b[:])
 }
 
 // execGeminiCmd wraps *exec.Cmd to satisfy the GeminiCmd interface.

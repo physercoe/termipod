@@ -197,6 +197,45 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
+  /// Project-scoped insights aggregator (ADR-022 D3 / insights-phase-1
+  /// W2). Returns the Tier-1 dimensions — spend / latency / errors /
+  /// concurrency — summed across `agent_events` filtered by project_id
+  /// and the optional time range. The hub caches the response with a
+  /// 30s TTL keyed on (project_id, since, until); the panel layers a
+  /// snapshot cache on top per ADR-006.
+  Future<Map<String, dynamic>> getInsights({
+    required String projectId,
+    DateTime? since,
+    DateTime? until,
+  }) async {
+    final q = <String, String>{'project_id': projectId};
+    if (since != null) q['since'] = since.toUtc().toIso8601String();
+    if (until != null) q['until'] = until.toUtc().toIso8601String();
+    final out = await _get('/v1/insights', query: q);
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Read-through variant of [getInsights]; same offline-fallback
+  /// contract as [listHostsCached]. The endpoint key folds project_id
+  /// + since + until into the cache row so a 24h-window read on
+  /// project A doesn't shadow a 7d-window read on the same project.
+  Future<CachedResponse<Map<String, dynamic>>> getInsightsCached({
+    required String projectId,
+    DateTime? since,
+    DateTime? until,
+  }) {
+    final q = <String, String>{'project_id': projectId};
+    if (since != null) q['since'] = since.toUtc().toIso8601String();
+    if (until != null) q['until'] = until.toUtc().toIso8601String();
+    return readThrough<Map<String, dynamic>>(
+      cache: snapshotCache,
+      hubKey: _cacheHubKey,
+      endpoint: buildEndpointKey('/v1/insights', q),
+      fetch: () => getInsights(projectId: projectId, since: since, until: until),
+      decode: _decodeMap,
+    );
+  }
+
   // ---- collections ----
 
   Future<List<Map<String, dynamic>>> listHosts() =>

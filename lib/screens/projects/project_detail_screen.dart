@@ -15,6 +15,7 @@ import '../../widgets/activity_snippet.dart'
         activityActionLabel,
         shortRelativeTs;
 import '../../widgets/hub_offline_banner.dart';
+import '../../widgets/insights_panel.dart';
 import '../../widgets/phase_ribbon.dart';
 import '../../widgets/shortcut_tile_strip.dart';
 import '../../widgets/team_switcher.dart';
@@ -1182,6 +1183,11 @@ class _OverviewView extends ConsumerWidget {
             phase: (project['phase'] ?? '').toString(),
           ),
           const SizedBox(height: 16),
+          // Insights — Tier-1 metric tiles (ADR-022 D3 / insights-phase-1
+          // W2). Renders silently when the project has no event volume,
+          // so legacy / lifecycle-disabled projects don't pay UI cost.
+          InsightsPanel(projectId: projectId),
+          const SizedBox(height: 12),
           const Divider(height: 1),
           const SizedBox(height: 16),
         ],

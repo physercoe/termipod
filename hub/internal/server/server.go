@@ -189,6 +189,14 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	// authenticated bearer can read it.
 	r.Get("/v1/hub/stats", s.handleHubStats)
 
+	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
+	// Phase 1 W2 wires the project scope only:
+	// /v1/insights?project_id=...&since=...&until=...
+	// Same auth posture as /v1/hub/stats; the project_id is the
+	// authorization unit and projects are team-owned, so a stray
+	// cross-team read is bounded to "you have a hub bearer".
+	r.Get("/v1/insights", s.handleInsights)
+
 	r.Route("/v1/teams/{team}", func(r chi.Router) {
 		r.Route("/hosts", func(r chi.Router) {
 			r.Post("/", s.handleRegisterHost)

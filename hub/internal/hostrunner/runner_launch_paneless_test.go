@@ -206,6 +206,50 @@ func TestParseSpec_FallbackModes(t *testing.T) {
 	}
 }
 
+// TestTerminatePane_PanedDriverAlsoStopped pins v1.0.450's fix: M1/M2
+// land here with BOTH a tmux pane (cosmetic tail-F display) AND a
+// registered driver (the live engine subprocess). The pre-fix path
+// only ran kill-pane and never called the driver's Closer, so the
+// "[host-runner] M1 stopped at ..." farewell line was never written
+// and lifecycle.stopped never posted. The fix routes through
+// stopDriver before the kill-pane (paneless and paned share the same
+// teardown sequence now).
+//
+// We deliberately don't try to assert the kill-pane shell call (would
+// require a tmux fixture). The driver-stop assertion is the key
+// invariant; missing the kill-pane in test scaffolding is harmless
+// because runTmux returns an error which terminatePane swallows when
+// the pane is already gone.
+func TestTerminatePane_PanedDriverAlsoStopped(t *testing.T) {
+	r := &Runner{
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+	}
+	r.inputs = NewInputRouter(nil, r.Log)
+	stub := &stubDriver{}
+	r.drivers["agent-paned"] = stub
+
+	cmd := HostCommand{
+		ID:      "cmd-paned",
+		AgentID: "agent-paned",
+		Kind:    "terminate",
+		// Non-existent pane id so kill-pane fails harmlessly with
+		// "can't find pane" — terminatePane swallows that case.
+		Args: json.RawMessage(`{"pane_id":"%nonexistent"}`),
+	}
+	_ = r.terminatePane(context.Background(), cmd) // ignore tmux err
+
+	if !stub.wasStopped() {
+		t.Error("driver Stop was not called when terminate had both pane_id and agent_id — Closer's farewell line never reaches the cosmetic log")
+	}
+	if _, ok := r.drivers["agent-paned"]; ok {
+		t.Error("driver still in registry after terminate")
+	}
+}
+
 // TestTerminatePane_PanelessNoDriverIsNoop locks the "agent already
 // stopped or living on another host" path: with pane_id absent and no
 // driver registered, terminate returns nil so the hub-side terminate

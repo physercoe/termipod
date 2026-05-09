@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // runCommand executes a host-directed command and reports the outcome back
@@ -94,30 +95,50 @@ func (a *Runner) capturePane(ctx context.Context, cmd HostCommand) (map[string]a
 
 func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 	pane := paneTarget(cmd.Args)
-	if pane == "" {
-		// Paneless drivers (M2 ExecResumeDriver, M1 ACPDriver after tail-pane
-		// launch failed) have no tmux pane to kill — the live process is
-		// owned by the registered Driver. Drive teardown through the driver
-		// registry; stopDriver emits lifecycle.stopped + detaches the input
-		// router so the hub side flips to terminated cleanly.
-		if cmd.AgentID == "" {
-			return fmt.Errorf("terminate: pane_id or agent_id required")
-		}
-		if _, ok := a.drivers[cmd.AgentID]; !ok {
-			// Nothing live on this host — common when the agent was on
-			// another host or already torn down. Don't fail the command;
-			// the hub-side terminate semantics ("ensure not running") are
-			// already satisfied.
+	if pane == "" && cmd.AgentID == "" {
+		return fmt.Errorf("terminate: pane_id or agent_id required")
+	}
+
+	// Always tear the driver down first when one is registered, even
+	// when a pane is attached. M1/M2 land here with BOTH a pane (the
+	// cosmetic tail-F display) AND a registered driver (the long-lived
+	// engine subprocess). Killing the pane alone left the driver
+	// leaking — no lifecycle.stopped, no Closer firing — and the
+	// "[host-runner] M1 stopped at ..." notice the Closer writes never
+	// reached the cosmetic log because it was never written. Driver
+	// teardown also closes the engine's stdio cleanly so a follow-up
+	// kill-pane is purely cosmetic at that point.
+	if cmd.AgentID != "" {
+		if _, ok := a.drivers[cmd.AgentID]; ok {
+			a.stopDriver(cmd.AgentID)
+			// Brief flush window — the Closer just wrote a final
+			// "stopped at ..." line into the cosmetic log; the pane's
+			// tail -F needs ~tens of milliseconds to pick it up via
+			// inotify (or its polling fallback) and tmux needs to
+			// render the new line before kill-pane destroys the pane
+			// buffer. Without this sleep the pane is killed faster
+			// than tail can read, and the operator sees the pane
+			// vanish with no farewell.
+			if pane != "" {
+				time.Sleep(150 * time.Millisecond)
+			}
+		} else if pane == "" {
+			// Paneless and no driver — common when the agent was on
+			// another host or already torn down. Don't fail the
+			// command; the hub-side terminate semantics ("ensure not
+			// running") are already satisfied.
 			return nil
 		}
-		a.stopDriver(cmd.AgentID)
-	} else {
+	}
+
+	if pane != "" {
 		if _, err := runTmux(ctx, "kill-pane", "-t", pane); err != nil {
-			// "can't find pane: %N" means the pane already exited (e.g.
-			// the agent crashed before terminate fired). The semantic
-			// goal of terminate — "ensure not running" — is satisfied,
-			// so don't bubble the error and fail the command. Other
-			// tmux errors (server gone, permission) still propagate.
+			// "can't find pane: %N" means the pane already exited
+			// (e.g. the agent crashed before terminate fired). The
+			// semantic goal of terminate — "ensure not running" —
+			// is satisfied, so don't bubble the error and fail the
+			// command. Other tmux errors (server gone, permission)
+			// still propagate.
 			if !strings.Contains(err.Error(), "can't find pane") {
 				return err
 			}

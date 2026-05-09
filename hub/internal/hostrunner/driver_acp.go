@@ -130,14 +130,19 @@ type ACPDriver struct {
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
 	// permSpawnNonce + permCounter generate the externally-visible
 	// request_id we put into approval_request payloads. We can NOT reuse
-	// the agent's JSON-RPC id because each spawn of the agent (e.g.
-	// resume after pause) restarts its outbound counter from a low number,
-	// so id=0 from spawn N collides with id=0 from spawn N-1. The mobile
-	// `resolvedApprovals` map is keyed by request_id and persists across
-	// spawns via the agent_events history, so a colliding id makes a
-	// fresh approval card render as already-decided (typically as the
-	// previous spawn's "cancel"). spawnNonce is set once at Start() so
-	// every reqID this driver instance issues is globally unique.
+	// the agent's raw JSON-RPC id (the `id` field on the inbound
+	// session/request_permission). The agent's outbound counter is per-
+	// process, so EVERY fresh spawn of the agent — whether it's a
+	// resume of the same agent_id, a sibling agent in the same session
+	// row, or a totally unrelated test agent — emits its first
+	// request_permission with the same low integer (typically 0).
+	// Mobile's `resolvedApprovals` map is built from agent_events that
+	// the session-scoped feed accumulates across agents and across the
+	// cached snapshot, so a colliding `request_id` makes a brand-new
+	// approval card render as already-decided (e.g. as a prior agent's
+	// "cancel"). permSpawnNonce is set once at Start() from
+	// time.Now().UnixNano(); every reqID this driver instance issues is
+	// thus globally unique across processes, agents, and time.
 	permSpawnNonce string
 	permCounter    atomic.Int64
 	sessionID      string

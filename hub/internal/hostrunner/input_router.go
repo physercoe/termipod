@@ -49,9 +49,14 @@ type InputLister interface {
 type InputRouter struct {
 	Client InputLister
 	Log    *slog.Logger
+	// Poster surfaces dispatch failures back to the hub as `kind=system`
+	// agent_events so the operator sees them on mobile instead of having
+	// to grep host-runner stderr. Optional — when nil, errors only land
+	// in the local log (which is the original behavior).
+	Poster AgentEventPoster
 
-	mu      sync.Mutex
-	agents  map[string]*inputAgentLoop
+	mu     sync.Mutex
+	agents map[string]*inputAgentLoop
 }
 
 type inputAgentLoop struct {
@@ -158,7 +163,11 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 	evs, err := r.Client.ListAgentEvents(ctx, agentID, loop.lastSeq, inputPollLimit)
 	if err != nil {
 		if ctx.Err() == nil {
-			r.Log.Debug("input router list failed", "agent", agentID, "err", err)
+			// Promoted from Debug to Warn so a wedged poll surfaces
+			// without changing log levels. A successful poll happens
+			// every 500ms; even a single Warn line per failure is
+			// rate-limited enough not to spam.
+			r.Log.Warn("input router list failed", "agent", agentID, "err", err)
 		}
 		return
 	}
@@ -191,6 +200,24 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 		if err := driver.Input(ctx, kind, payload); err != nil {
 			r.Log.Warn("input dispatch failed",
 				"agent", agentID, "seq", ev.Seq, "kind", kind, "err", err)
+			// Surface the failure back to mobile as a system event.
+			// Without this, a stale request_id, write-queue timeout, or
+			// any other Input error is invisible at the device — the
+			// approval card flips to "decided" locally and the agent
+			// stays parked forever, with the only diagnostic in
+			// host-runner stderr that the operator may not have access
+			// to. system events render in the transcript as a clearly-
+			// distinguishable warning row.
+			if r.Poster != nil {
+				_ = r.Poster.PostAgentEvent(ctx, agentID, "system", "system",
+					map[string]any{
+						"reason":    "input dispatch failed",
+						"kind":      kind,
+						"seq":       ev.Seq,
+						"event_id":  ev.ID,
+						"error":     err.Error(),
+					})
+			}
 		}
 	}
 }

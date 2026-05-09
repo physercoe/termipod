@@ -182,6 +182,13 @@ func (a *Runner) defaults() {
 	}
 	if a.inputs == nil {
 		a.inputs = NewInputRouter(a.Client, a.Log)
+		// Wire the same poster the drivers use so dispatch failures
+		// (stale request_id, write-queue timeout, missing pendingPerm
+		// entry) surface on mobile as system events instead of being
+		// trapped in host-runner stderr. Set after agentPoster is
+		// resolved below would loop the dependency; use Client directly
+		// here — its PostAgentEvent is what agentPoster wraps anyway.
+		a.inputs.Poster = a.Client
 	}
 	// Default agentPoster to the raw client; Start swaps in the a2a
 	// tap if the A2A server is enabled.

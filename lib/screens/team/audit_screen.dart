@@ -5,10 +5,12 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/insights_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/team_switcher.dart';
+import '../insights/insights_screen.dart';
 
 /// Activity tab body per `docs/ia-redesign.md` §6.3 — the team's mutation
 /// feed backed by `audit_events`. Chronological, filterable; a digest card
@@ -212,6 +214,24 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
     });
   }
 
+  // Map the current Activity filter state onto an [InsightsScope] and
+  // push the fullscreen Insights view (Phase 2 W2). The narrowest active
+  // filter wins: a project filter selects project scope; otherwise we
+  // fall back to the team the audit feed is currently scoped to. Other
+  // axes (actor, prefix) don't have a scope counterpart — actors are
+  // who *did* an action, not who emitted token-bearing events — so they
+  // don't pivot the scope.
+  void _openInsights() {
+    final cfg = ref.read(hubProvider).value?.config;
+    if (cfg == null) return;
+    final InsightsScope scope = (_projectId != null && _projectId!.isNotEmpty)
+        ? InsightsScope.project(_projectId!)
+        : InsightsScope.team(cfg.teamId);
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => InsightsScreen(scope: scope),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -227,6 +247,11 @@ class _AuditScreenState extends ConsumerState<AuditScreen> {
         ),
         actions: [
           const TeamSwitcher(),
+          IconButton(
+            tooltip: 'Insights',
+            icon: const Icon(Icons.insights_outlined),
+            onPressed: _openInsights,
+          ),
           IconButton(
             tooltip: _searchVisible ? 'Hide search' : 'Search',
             icon: Icon(_searchVisible ? Icons.search_off : Icons.search),

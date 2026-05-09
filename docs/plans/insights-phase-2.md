@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** In flight (W1 shipped 2026-05-09)
+> **Status:** In flight (W1+W2 shipped 2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.457
+> **Last verified vs code:** v1.0.458
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -85,13 +85,28 @@ ready for W2-W4 callers.
   of a raw `projectId`; re-exports `InsightsScope` for callers that
   already import the panel.
 
-### W2 — Insights icon on Activity AppBar
+### W2 — Insights icon on Activity AppBar (SHIPPED v1.0.458-alpha)
 
-Activity tab gets an Insights AppBar action that opens the Insights
-view filtered to the same `(action_filter, since)` Activity is
-currently scoped to. The cross-link is the lightweight bond between
-forensic and aggregate views (see
-[ADR-022 D1](../decisions/022-observability-surfaces.md)).
+Lands the **first fullscreen Insights view** (ADR-022 D7 — "one
+fullscreen view") and the cross-link from Activity. Tapping the
+new Insights icon in the Activity AppBar pushes
+`InsightsScreen(scope: …)` with the narrowest active filter as the
+scope: project filter → project scope, otherwise team scope keyed
+on the audit feed's current team. Actor / prefix filters don't
+participate — they're who-did-what axes, not metric scopes.
+
+The fullscreen view is a thin wrapper around `InsightsPanel` so the
+tile rendering stays in one place; what it adds is a scope banner +
+explicit refresh button + landing space for Tier-2 drilldown sheets
+(W5). Future entry points (Me Stats card W3, Hosts/Agent Detail W4)
+push the same screen with their own scope.
+
+**Files shipped:**
+- `lib/screens/insights/insights_screen.dart` — fullscreen wrapper.
+  Resolves project name from `hubProvider.projects` for the scope
+  banner; other scope kinds show the raw id (no name lookup at MVP).
+- `lib/screens/team/audit_screen.dart` — Insights AppBar action +
+  `_openInsights` method that maps current filters to scope.
 
 ### W3 — Me tab → Stats card
 

@@ -139,6 +139,15 @@ type ACPDriver struct {
 	// reader (recording a request_id) and Input (resolving it) can race.
 	permMu      sync.Mutex
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
+	// lastPermDrainAt is the wall-clock time of the most recent
+	// transition from pendingPerm non-empty → empty (i.e., the user
+	// just answered the agent's session/request_permission). The
+	// session/prompt watchdog treats the PromptTimeout window after
+	// this as "agent is doing real work, not stuck"; without it, the
+	// remaining timer budget after a long user-tap latency could be
+	// only seconds, and gemini's tool execution would race the timer
+	// to DeadlineExceeded. Bug source: device test on v1.0.448 where
+	// proceed_always_server tap left the session looking stuck.
 	// permSpawnNonce + permCounter generate the externally-visible
 	// request_id we put into approval_request payloads. We can NOT reuse
 	// the agent's raw JSON-RPC id (the `id` field on the inbound
@@ -154,9 +163,10 @@ type ACPDriver struct {
 	// "cancel"). permSpawnNonce is set once at Start() from
 	// time.Now().UnixNano(); every reqID this driver instance issues is
 	// thus globally unique across processes, agents, and time.
-	permSpawnNonce string
-	permCounter    atomic.Int64
-	sessionID      string
+	permSpawnNonce  string
+	permCounter     atomic.Int64
+	lastPermDrainAt time.Time
+	sessionID       string
 
 	// replayMu / replayActive marks the window during which a
 	// session/load call is in flight. While active, handleNotification
@@ -660,9 +670,20 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 			case <-timer.C:
 				d.permMu.Lock()
 				parked := len(d.pendingPerm) > 0
+				// recentlyDrained covers the window after the user
+				// has answered an agent's session/request_permission:
+				// the agent is now actively running the tool and
+				// composing its reply, not stuck. Without this, the
+				// remaining timer budget could be tiny if the user
+				// took most of a PromptTimeout window to tap, and
+				// gemini's tool latency would race to DeadlineExceeded
+				// before the id=4 reply could land. The pending check
+				// alone isn't enough — pendingPerm clears the moment
+				// we write the outcome.
+				recentlyDrained := !d.lastPermDrainAt.IsZero() &&
+					time.Since(d.lastPermDrainAt) < d.PromptTimeout
 				d.permMu.Unlock()
-				if parked {
-					// Agent is waiting on us, not stuck — extend.
+				if parked || recentlyDrained {
 					timer.Reset(d.PromptTimeout)
 					continue
 				}
@@ -1447,6 +1468,12 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		rpcID, ok := d.pendingPerm[reqID]
 		if ok {
 			delete(d.pendingPerm, reqID)
+			// Mark the drain so the watchdog gives the agent a fresh
+			// PromptTimeout window to actually run the tool and reply
+			// to the original session/prompt. Without this stamp the
+			// watchdog can fire moments after the user's reply and
+			// abort the in-flight prompt.
+			d.lastPermDrainAt = time.Now()
 		}
 		d.permMu.Unlock()
 		if !ok {
@@ -1604,6 +1631,37 @@ func (d *ACPDriver) handlePermissionRequest(ctx context.Context, rpcID json.RawM
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &p)
 	}
+
+	// Synthesize a parent tool_call when the permission is gating an MCP
+	// (or other) tool invocation. gemini-cli@0.41 emits the toolCall block
+	// inline on session/request_permission and SOMETIMES also on a
+	// preceding session/update[tool_call] — but for MCP tools the
+	// session/update is skipped (only the trailing tool_call_update lands).
+	// Without a parent tool_call event, the approval card has no preceding
+	// "tool_call (request_approval, pending)" row in the transcript and
+	// the user can't see what they're approving in context. Posted BEFORE
+	// the approval_request event so the cards land in causal order.
+	if tc, ok := p["toolCall"].(map[string]any); ok {
+		if id, ok := tc["toolCallId"].(string); ok && id != "" {
+			d.seenToolMu.Lock()
+			_, seen := d.seenToolCallIDs[id]
+			if !seen {
+				d.seenToolCallIDs[id] = struct{}{}
+			}
+			d.seenToolMu.Unlock()
+			if !seen {
+				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
+					d.tagIfReplay(map[string]any{
+						"id":     tc["toolCallId"],
+						"name":   tc["title"],
+						"kind":   tc["kind"],
+						"status": tc["status"],
+						"input":  tc["rawInput"],
+					}))
+			}
+		}
+	}
+
 	payload := map[string]any{
 		"request_id": reqID,
 		"params":     p,

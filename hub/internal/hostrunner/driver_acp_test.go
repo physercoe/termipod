@@ -3048,6 +3048,154 @@ func TestACPDriver_PromptTimeoutPausedDuringPermission(t *testing.T) {
 	}
 }
 
+// TestACPDriver_PromptTimeoutGracesPostPermissionDrain pins the
+// follow-up to the permission-aware watchdog: after the user's reply
+// drains pendingPerm, the agent is now actively running the tool and
+// composing its response — but the watchdog's remaining timer budget
+// could be tiny if the user took most of a PromptTimeout window to
+// tap. Without a post-drain grace window, gemini's tool latency races
+// the timer to DeadlineExceeded and the session looks stuck even
+// though everything succeeded. Bug source: device-test on v1.0.448
+// where proceed_always_server tap left the session looking stuck.
+//
+// Setup: PromptTimeout=100ms; the fake raises a permission immediately,
+// the test holds approval for 150ms (forces a parked-extend reset
+// once), then the fake waits 80ms after the approval to reply — that
+// 80ms exceeds whatever timer budget remained after the parked extend
+// (~50ms). Without the fix, the watchdog fires at t≈200ms with
+// pendingPerm empty and DeadlineExceeded's. With the fix,
+// recentlyDrained extends another PromptTimeout window from the drain.
+func TestACPDriver_PromptTimeoutGracesPostPermissionDrain(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		var promptID any
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			_, hasResult := msg["result"]
+			switch {
+			case method == "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case method == "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-perm-grace"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case method == "session/prompt":
+				promptID = id
+				perm, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
+					"params": map[string]any{
+						"sessionId": "sess-perm-grace",
+						"options": []map[string]any{
+							{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+						},
+						"toolCall": map[string]any{
+							"toolCallId": "tc-grace",
+							"status":     "pending",
+							"title":      "test",
+						},
+					},
+				})
+				_, _ = hostOutW.Write(append(perm, '\n'))
+			case hasResult && id != nil && fmt.Sprint(id) == "99":
+				// Hold off on the prompt reply for 80ms — longer than
+				// the timer's remaining budget after the human-on-phone
+				// pause but well within a fresh PromptTimeout window.
+				// Without the post-drain grace, the watchdog would fire
+				// before this reply lands.
+				go func(pid any) {
+					time.Sleep(80 * time.Millisecond)
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": pid,
+						"result": map[string]any{"stopReason": "end_turn"},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}(promptID)
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-perm-grace",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    100 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	var reqID string
+	for time.Now().Before(deadline) {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "approval_request" {
+				if id, ok := e.Payload["request_id"].(string); ok {
+					reqID = id
+					break
+				}
+			}
+		}
+		if reqID != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if reqID == "" {
+		t.Fatal("never saw the permission approval_request")
+	}
+
+	// Human-on-phone latency of 150ms — exceeds PromptTimeout (100ms)
+	// so the watchdog fires once with pendingPerm parked and resets,
+	// leaving ~50ms of remaining budget after our approval clears
+	// pendingPerm. Without the post-drain grace, the next fire (at
+	// ~250ms total) would DeadlineExceeded before gemini's 80ms tool
+	// reply could land.
+	time.Sleep(150 * time.Millisecond)
+
+	if err := drv.Input(context.Background(), "approval", map[string]any{
+		"request_id": reqID, "decision": "allow",
+	}); err != nil {
+		t.Fatalf("Input(approval): %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Input(text): want nil with post-drain grace, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Input(text) did not return within 3s — post-drain grace likely failed")
+	}
+}
+
 // TestACPDriver_OrphanCancelledSuppressedAfterCancel pins issue 3:
 // when Input("cancel") posts an eager turn.result(cancelled), the
 // orphan path's synthetic turn.result for the agent's eventual
@@ -3341,6 +3489,90 @@ func TestACPDriver_SynthesizesToolCallFromOrphanUpdate(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("orphan tool_call_update did not produce a synthesized tool_call event — mobile transcript would silently drop the card")
+}
+
+// TestACPDriver_SynthesizesToolCallFromPermissionRequest covers the
+// device-test scenario from v1.0.448: gemini-cli wraps an MCP tool
+// invocation in session/request_permission containing a `toolCall`
+// metadata block. Without synthesis, the approval card has no
+// preceding tool_call card so the user can't see what they're
+// approving in transcript context. The driver must emit a parent
+// tool_call BEFORE the approval_request, with the same toolCallId so
+// a later tool_call_update folds into it.
+func TestACPDriver_SynthesizesToolCallFromPermissionRequest(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-tc-perm")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-tc-perm",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// session/request_permission with an inline toolCall block — exact
+	// shape gemini-cli@0.41 sends for MCP-tool gates (see device-test
+	// rpc log captured 2026-05-09).
+	fake.notify("", nil) // priming write so any earlier framing is flushed
+	b, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      99,
+		"method":  "session/request_permission",
+		"params": map[string]any{
+			"sessionId": "sess-tc-perm",
+			"options": []map[string]any{
+				{"optionId": "proceed_always_server", "name": "Allow", "kind": "allow_always"},
+			},
+			"toolCall": map[string]any{
+				"toolCallId": "mcp_termipod_request_approval-1778316063690-1",
+				"status":     "pending",
+				"title":      "request_approval (termipod MCP Server)",
+				"kind":       "other",
+				"content":    []any{},
+				"locations":  []any{},
+			},
+		},
+	})
+	hostOutW.Write(append(b, '\n'))
+
+	// Expect tool_call (synthesized) BEFORE approval_request, both
+	// referencing the same toolCallId.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var sawTC, sawApr bool
+		var tcIdx, aprIdx int
+		for i, e := range poster.snapshot() {
+			switch e.Kind {
+			case "tool_call":
+				if id, _ := e.Payload["id"].(string); id == "mcp_termipod_request_approval-1778316063690-1" {
+					sawTC = true
+					tcIdx = i
+				}
+			case "approval_request":
+				sawApr = true
+				aprIdx = i
+			}
+		}
+		if sawTC && sawApr {
+			if tcIdx > aprIdx {
+				t.Fatalf("synthesized tool_call appeared AFTER approval_request (idx %d > %d) — transcript order is wrong", tcIdx, aprIdx)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("permission request did not produce a synthesized tool_call event — mobile transcript would have no tool_call card to fold the trailing update into")
 }
 
 // TestACPDriver_DoesNotDoubleSynthesizeToolCall confirms the cache

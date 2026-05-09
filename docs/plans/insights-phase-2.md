@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** In flight (W1+W2 shipped 2026-05-09)
+> **Status:** In flight (W1+W2+W3 shipped 2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.458
+> **Last verified vs code:** v1.0.459
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -108,11 +108,34 @@ push the same screen with their own scope.
 - `lib/screens/team/audit_screen.dart` — Insights AppBar action +
   `_openInsights` method that maps current filters to scope.
 
-### W3 — Me tab → Stats card
+### W3 — Me tab → Stats card (SHIPPED v1.0.459-alpha)
 
-Me tab below the digest gets a small Stats card showing team-wide
-spend today + Δ vs 7d. Tap → fullscreen Insights view scoped to
-team.
+Me tab gains a compact Stats card below the Activity digest:
+today's team-wide spend (tokens in + out) plus Δ% vs the prior 7-day
+**average** (not total — averaging keeps the comparison
+day-on-day-meaningful). Up arrow + warning color when spend climbs;
+down arrow + success color when it drops; "—" when prior is zero so
+a cold-start team doesn't render a misleading percentage. Tap →
+`InsightsScreen(scope: InsightsScope.team(teamId))`.
+
+Hidden when no traffic has flowed (todayTokens == 0 && priorAvg ==
+0), since glancing zeros adds noise without insight. Two
+`/v1/insights` reads under the hood — today (24h) and the 7 days
+before that — folded by `meTeamSpendDeltaProvider`. The hub's 30s
+response cache covers tab re-mounts; cache-fall-back is propagated
+as a `staleSince` field for future "stale dot" UI.
+
+**Files shipped:**
+- `lib/providers/me_stats_provider.dart` — new
+  `meTeamSpendDeltaProvider`, family-keyed by team id; returns
+  `MeSpendDelta` with todayTokens / prior7dAvgTokens / deltaPct /
+  staleSince / error.
+- `lib/widgets/me_stats_card.dart` — new `MeStatsCard` widget.
+  Lands in its own file (per the agent_feed-don't-grow lesson —
+  me_screen.dart was already 1064 lines).
+- `lib/screens/me/me_screen.dart` — sliver insertion below the
+  ActivityDigestCard; gates on `hubState.configured && teamId`
+  non-empty so the two-window read can't 400 on cold start.
 
 ### W4 — Hosts Detail / Agent Detail → Insights tab
 

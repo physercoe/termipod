@@ -17,6 +17,7 @@ import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/home/persistent_steward_card.dart';
+import '../../widgets/me_stats_card.dart';
 import '../../widgets/steward_badge.dart';
 import '../../widgets/team_switcher.dart';
 import '../projects/search_screen.dart';
@@ -206,6 +207,15 @@ class MeScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: ActivityDigestCard(events: audit.value ?? const []),
             ),
+            // Phase 2 W3 — small Stats card glanced at the bottom of
+            // the digest section. Hidden until we have a configured
+            // hub + a non-empty teamId; otherwise the two-window read
+            // would 400 immediately.
+            if (hubState.configured &&
+                (hubState.config?.teamId.isNotEmpty ?? false))
+              SliverToBoxAdapter(
+                child: MeStatsCard(teamId: hubState.config!.teamId),
+              ),
             const SliverToBoxAdapter(child: SizedBox(height: 100)),
           ],
         ),

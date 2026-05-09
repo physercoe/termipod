@@ -8,6 +8,7 @@ import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
+import '../../widgets/session_details_sheet.dart';
 import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';

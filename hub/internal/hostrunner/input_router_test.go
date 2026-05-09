@@ -118,14 +118,21 @@ func TestInputRouter_DispatchesUserEvents(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("want 3 Input calls; got %d (%+v)", len(calls), calls)
 	}
-	if calls[0].kind != "text" || calls[0].payload["body"] != "run tests" {
-		t.Fatalf("calls[0] wrong: %+v", calls[0])
+	// v1.0.454: dispatch is goroutine-per-event so the deadlock case
+	// (Input("text") blocking the poll loop) can't happen. Order is
+	// no longer deterministic; assert by kind lookup instead.
+	byKind := map[string]inputCall{}
+	for _, c := range calls {
+		byKind[c.kind] = c
 	}
-	if calls[1].kind != "cancel" || calls[1].payload["reason"] != "too slow" {
-		t.Fatalf("calls[1] wrong: %+v", calls[1])
+	if got, ok := byKind["text"]; !ok || got.payload["body"] != "run tests" {
+		t.Fatalf("text call wrong or missing: %+v", got)
 	}
-	if calls[2].kind != "approval" || calls[2].payload["request_id"] != "t1" {
-		t.Fatalf("calls[2] wrong: %+v", calls[2])
+	if got, ok := byKind["cancel"]; !ok || got.payload["reason"] != "too slow" {
+		t.Fatalf("cancel call wrong or missing: %+v", got)
+	}
+	if got, ok := byKind["approval"]; !ok || got.payload["request_id"] != "t1" {
+		t.Fatalf("approval call wrong or missing: %+v", got)
 	}
 }
 
@@ -161,9 +168,102 @@ func TestInputRouter_AdvancesSeqOnError(t *testing.T) {
 	if len(calls) < 2 {
 		t.Fatalf("want at least 2 calls (seq advanced past error); got %d", len(calls))
 	}
-	if calls[0].payload["body"] != "boom" || calls[1].payload["body"] != "after error" {
-		t.Fatalf("events out of order: %+v", calls)
+	// v1.0.454: dispatch is goroutine-per-event so two events from
+	// adjacent ticks may complete in any order. Assert both bodies are
+	// present rather than requiring positional order.
+	bodies := map[string]bool{}
+	for _, c := range calls {
+		if b, _ := c.payload["body"].(string); b != "" {
+			bodies[b] = true
+		}
 	}
+	if !bodies["boom"] || !bodies["after error"] {
+		t.Fatalf("missing expected bodies; got %+v", calls)
+	}
+}
+
+// TestInputRouter_NonBlockingDispatch pins the v1.0.454 fix: a slow
+// Input call (e.g. ACP's Input("text") which blocks on session/prompt
+// while the engine is waiting on a parked permission) must NOT prevent
+// the router from polling and dispatching subsequent events. Before
+// the fix, dispatch was synchronous in the poll loop — a blocked
+// Input("text") deadlocked the input.approval that would have unblocked
+// it. Symptom on v1.0.453 device test: rpc log had no out frame for
+// the permission outcome, no Warn, no system event; on Stop the
+// canceled blocked Input("text") was the only failure that surfaced.
+func TestInputRouter_NonBlockingDispatch(t *testing.T) {
+	lister := &fakeInputLister{
+		first: []AgentEvent{
+			ev(1, "user", "input.text", `{"body":"slow prompt"}`),
+			ev(2, "user", "input.approval", `{"request_id":"r1","decision":"allow"}`),
+		},
+	}
+	// blockingInputter blocks Input("text") forever; Input("approval")
+	// returns immediately. Pre-fix, the router would never reach
+	// approval because text never returns.
+	drv := &blockingInputter{
+		blockKind: "text",
+		release:   make(chan struct{}),
+	}
+	r := NewInputRouter(lister, silentLogger())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.Attach(ctx, "agent-deadlock", drv, 0)
+
+	// Approval should land within a few hundred ms even though text is
+	// stuck. The text goroutine remains blocked; approval runs because
+	// dispatch is per-goroutine.
+	deadline := time.Now().Add(2 * time.Second)
+	var sawApproval bool
+	for time.Now().Before(deadline) {
+		for _, c := range drv.snapshot() {
+			if c.kind == "approval" {
+				sawApproval = true
+				break
+			}
+		}
+		if sawApproval {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(drv.release)
+	r.Detach("agent-deadlock")
+
+	if !sawApproval {
+		t.Fatal("approval never dispatched — input.text blocked the poll loop (v1.0.454 deadlock)")
+	}
+}
+
+// blockingInputter blocks Input(blockKind) until release is closed.
+// Other kinds return immediately.
+type blockingInputter struct {
+	mu        sync.Mutex
+	calls     []inputCall
+	blockKind string
+	release   chan struct{}
+}
+
+func (b *blockingInputter) Input(ctx context.Context, kind string, payload map[string]any) error {
+	b.mu.Lock()
+	b.calls = append(b.calls, inputCall{kind, payload})
+	b.mu.Unlock()
+	if kind == b.blockKind {
+		select {
+		case <-b.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+func (b *blockingInputter) snapshot() []inputCall {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]inputCall, len(b.calls))
+	copy(out, b.calls)
+	return out
 }
 
 // TestInputRouter_Detach stops dispatch and waits for the goroutine.

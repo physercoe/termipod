@@ -197,27 +197,40 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 				continue
 			}
 		}
-		if err := driver.Input(ctx, kind, payload); err != nil {
-			r.Log.Warn("input dispatch failed",
-				"agent", agentID, "seq", ev.Seq, "kind", kind, "err", err)
-			// Surface the failure back to mobile as a system event.
-			// Without this, a stale request_id, write-queue timeout, or
-			// any other Input error is invisible at the device — the
-			// approval card flips to "decided" locally and the agent
-			// stays parked forever, with the only diagnostic in
-			// host-runner stderr that the operator may not have access
-			// to. system events render in the transcript as a clearly-
-			// distinguishable warning row.
-			if r.Poster != nil {
-				_ = r.Poster.PostAgentEvent(ctx, agentID, "system", "system",
-					map[string]any{
-						"reason":    "input dispatch failed",
-						"kind":      kind,
-						"seq":       ev.Seq,
-						"event_id":  ev.ID,
-						"error":     err.Error(),
-					})
+		// Dispatch in a goroutine so a long-running Input doesn't wedge
+		// the poll loop. ACP's Input("text") calls session/prompt and
+		// blocks until the engine replies — which can take minutes when
+		// the engine is parked on a session/request_permission round
+		// trip. With synchronous dispatch, that block prevents the
+		// router from EVER polling subsequent events for this agent —
+		// including the input.approval the user taps to unblock the
+		// very same prompt. Result: deadlock that surfaced as "session
+		// stuck, no rpc out frame, no error" on device tests.
+		//
+		// Driver-side concurrency is safe: writeMsg serializes via the
+		// per-driver writeQ; pendingPerm / seenToolCallIDs are
+		// mutex-guarded; each call() gets its own id from atomic.
+		// Spawning per-event is fine at user-input cardinality.
+		seq := ev.Seq
+		eventID := ev.ID
+		go func() {
+			if err := driver.Input(ctx, kind, payload); err != nil {
+				r.Log.Warn("input dispatch failed",
+					"agent", agentID, "seq", seq, "kind", kind, "err", err)
+				// Surface the failure back to mobile as a system event.
+				// Without this, a stale request_id, write-queue timeout,
+				// or any other Input error is invisible at the device.
+				if r.Poster != nil {
+					_ = r.Poster.PostAgentEvent(ctx, agentID, "system", "system",
+						map[string]any{
+							"reason":   "input dispatch failed",
+							"kind":     kind,
+							"seq":      seq,
+							"event_id": eventID,
+							"error":    err.Error(),
+						})
+				}
 			}
-		}
+		}()
 	}
 }

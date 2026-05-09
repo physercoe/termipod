@@ -354,7 +354,19 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	if d.ResumeSessionID != "" && canLoad {
 		// Set replayActive BEFORE issuing the call so any session/update
 		// notifications the agent streams during the load (historical
-		// turn replay) get tagged in handleNotification.
+		// turn replay) get tagged in handleNotification. We deliberately
+		// do NOT flip replayActive=false when the session/load response
+		// returns — gemini-cli@0.41.2 (and likely other agents) emits the
+		// last burst of historical session/update notifications (the
+		// previous turn's agent_thought_chunk + agent_message_chunk)
+		// AFTER the response, not before. If we flipped here, those
+		// trailing frames would be tagged as live and surface as
+		// duplicates in mobile (the cached transcript already has them).
+		// Instead the window stays open until the user's first
+		// Input() — autonomous agent emissions in the gap between
+		// session/load and a user prompt are by definition either
+		// historical replay (deduped on content) or capability-state
+		// (already routed through the no-replay-tag system path).
 		d.setReplay(true)
 		nsCtx, cancelNS := context.WithTimeout(parent, d.HandshakeTimeout)
 		loadRes, loadErr := d.call(nsCtx, "session/load", map[string]any{
@@ -364,11 +376,14 @@ func (d *ACPDriver) Start(parent context.Context) error {
 			"clientMetadata": map[string]any{"name": "termipod-hostrunner"},
 		})
 		cancelNS()
-		d.setReplay(false)
 		if loadErr == nil {
 			sres = loadRes
 			usedLoad = true
 		} else {
+			// Load failed — close the replay window so the session/new
+			// fallback below doesn't accidentally tag fresh-session
+			// notifications as replays.
+			d.setReplay(false)
 			d.Log.Warn("acp session/load failed; falling back to session/new",
 				"agent", d.AgentID, "cursor", d.ResumeSessionID, "err", loadErr)
 		}
@@ -1057,6 +1072,11 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 	if sid == "" {
 		return fmt.Errorf("acp driver: no session (handshake incomplete)")
 	}
+	// First user-initiated action closes the session/load replay window.
+	// Any agent emissions from this point are responses to live input,
+	// not historical replay. Idempotent — flipping false→false is a
+	// no-op, so calling unconditionally on every Input is fine.
+	d.setReplay(false)
 	switch kind {
 	case "text":
 		body, _ := payload["body"].(string)

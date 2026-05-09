@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.437
+> **Last verified vs code:** v1.0.438
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.438-alpha — 2026-05-09
+
+### Fixed
+- **Duplicate transcript bubbles after gemini-cli M1 resume.** A
+  resumed session showed the previous turn's `agent_thought_chunk`
+  and `agent_message_chunk` rendered a second time in the feed,
+  duplicating cached content. Root cause: the M1 driver's
+  `replayActive` window closed the moment the `session/load` response
+  arrived, but gemini-cli@0.41.2 emits the final burst of historical
+  `session/update` notifications AFTER the response (last turn's
+  trailing chunks land ~50µs to ~100ms after the load reply, on the
+  same connection). Those trailing frames went out without
+  `replay: true`, so mobile's W1.3 dedupe couldn't recognize them as
+  already-cached and rendered them as live. Fix keeps the replay
+  window open until the operator's first `Input()` (text / cancel /
+  approval / attach / set_mode / set_model) — autonomous agent
+  emissions in the gap between `session/load` and a user action are
+  by definition either historical replay (deduped on content key) or
+  capability-state (`available_commands_update`,
+  `current_mode_update`, `current_model_update` — already routed
+  through the no-replay-tag system path). Updates
+  `TestACPDriver_TagsReplayEvents` to cover the trailing-history and
+  post-Input cases.
 
 ---
 

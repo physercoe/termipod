@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -2034,7 +2035,13 @@ func TestACPDriver_FallsBackToSessionNewOnLoadFailure(t *testing.T) {
 // while a session/load is in flight (the agent's historical turn
 // stream) must carry `replay: true` in their payload so mobile's
 // dedupe layer can drop them when the cached transcript already has
-// them. Events emitted AFTER Start returns must NOT carry the flag.
+// them. The replay window stays open until the operator's first
+// Input() — gemini-cli@0.41.2 emits a trailing burst of history
+// notifications AFTER the session/load response (last turn's
+// agent_message_chunk arrives ~50µs after the load reply), and
+// closing the window on Start() return tags those trailing frames
+// as live, surfacing them as duplicate bubbles on resume. Events
+// emitted AFTER the first Input() must NOT carry the flag.
 func TestACPDriver_TagsReplayEvents(t *testing.T) {
 	hostInR, hostInW := io.Pipe()
 	hostOutR, hostOutW := io.Pipe()
@@ -2102,8 +2109,34 @@ func TestACPDriver_TagsReplayEvents(t *testing.T) {
 			replayTool.Payload)
 	}
 
-	// Now drive a LIVE notification — Start has returned, replayActive
-	// should be off. The text event must NOT carry replay:true.
+	// Trailing autonomous emission AFTER Start returned but BEFORE the
+	// operator has acted: replay window must still be open. gemini-cli
+	// emits the final agent_message_chunk of the previous turn here.
+	// Tagging these as live would surface them as duplicates of the
+	// already-cached transcript on the phone.
+	fake.notify("session/update", map[string]any{
+		"sessionId": "engine-uuid-replay",
+		"update": map[string]any{
+			"sessionUpdate": "agent_message_chunk",
+			"content":       map[string]any{"type": "text", "text": " — trailing history"},
+		},
+	})
+	evs = poster.wait(t, 5, 2*time.Second)
+	trailing := evs[len(evs)-1]
+	if trailing.Kind != "text" {
+		t.Fatalf("trailing event kind = %q; want text", trailing.Kind)
+	}
+	if got, _ := trailing.Payload["replay"].(bool); !got {
+		t.Errorf("post-load trailing emission missing replay:true; payload=%+v",
+			trailing.Payload)
+	}
+
+	// First user-initiated Input closes the replay window. Subsequent
+	// notifications are live (responses to the operator's prompt) and
+	// must NOT carry replay:true.
+	if err := drv.Input(context.Background(), "text", map[string]any{"body": "operator turn"}); err != nil {
+		t.Fatalf("Input text: %v", err)
+	}
 	fake.notify("session/update", map[string]any{
 		"sessionId": "engine-uuid-replay",
 		"update": map[string]any{
@@ -2111,13 +2144,30 @@ func TestACPDriver_TagsReplayEvents(t *testing.T) {
 			"content":       map[string]any{"type": "text", "text": " — and now live"},
 		},
 	})
-	evs = poster.wait(t, 5, 2*time.Second)
-	live := evs[len(evs)-1]
-	if live.Kind != "text" {
-		t.Fatalf("last event kind = %q; want text", live.Kind)
+	// Find the most recent text event — turn.result, lifecycle frames
+	// from the prompt round-trip may interleave.
+	var live *postedEvent
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for i := range poster.snapshot() {
+			ev := poster.snapshot()[i]
+			if ev.Kind == "text" && strings.Contains(
+				fmt.Sprint(ev.Payload["text"]), "and now live") {
+				e := ev
+				live = &e
+			}
+		}
+		if live != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if live == nil {
+		t.Fatal("post-Input live text event never observed")
 	}
 	if got, _ := live.Payload["replay"].(bool); got {
-		t.Errorf("live event tagged replay:true; payload=%+v", live.Payload)
+		t.Errorf("post-Input live event tagged replay:true; payload=%+v",
+			live.Payload)
 	}
 }
 

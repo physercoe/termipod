@@ -44,6 +44,18 @@ func (b *eventBus) Unsubscribe(channelID string, ch chan map[string]any) {
 	close(ch)
 }
 
+// SubscriberCount returns the total number of live SSE subscriptions
+// across all channels. /v1/hub/stats reads this for live.sse_subscribers.
+func (b *eventBus) SubscriberCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	n := 0
+	for _, set := range b.subs {
+		n += len(set)
+	}
+	return n
+}
+
 func (b *eventBus) Publish(channelID string, evt map[string]any) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

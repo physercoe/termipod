@@ -40,6 +40,13 @@ class HubState {
   /// Server-declared version from /v1/_info. Null until we've probed.
   final String? serverVersion;
 
+  /// Snapshot of /v1/hub/stats — machine + DB + live counts for the hub
+  /// box. Null until the first call lands. ADR-022 D2 / insights-phase-1
+  /// W1: surfaces capacity that isn't hostrunner-shaped (the hub itself
+  /// is multi-team, has no outbound link, and never appears in the
+  /// `hosts` table).
+  final Map<String, dynamic>? hubStats;
+
   /// When non-null, at least one of the dashboard lists above was served
   /// from the offline snapshot cache because the live fetch failed. Holds
   /// the oldest `fetchedAt` across the stale results — the Projects screen
@@ -59,6 +66,7 @@ class HubState {
     this.templates = const [],
     this.spawns = const [],
     this.serverVersion,
+    this.hubStats,
     this.staleSince,
   });
 
@@ -77,11 +85,13 @@ class HubState {
     List<Map<String, dynamic>>? templates,
     List<Map<String, dynamic>>? spawns,
     String? serverVersion,
+    Map<String, dynamic>? hubStats,
     DateTime? staleSince,
     bool clearConfig = false,
     bool clearError = false,
     bool clearStale = false,
     bool clearActive = false,
+    bool clearHubStats = false,
   }) =>
       HubState(
         config: clearConfig ? null : (config ?? this.config),
@@ -97,6 +107,7 @@ class HubState {
         templates: templates ?? this.templates,
         spawns: spawns ?? this.spawns,
         serverVersion: serverVersion ?? this.serverVersion,
+        hubStats: clearHubStats ? null : (hubStats ?? this.hubStats),
         staleSince: clearStale ? null : (staleSince ?? this.staleSince),
       );
 }
@@ -607,6 +618,28 @@ class HubNotifier extends AsyncNotifier<HubState> {
       clearError: errors.isEmpty,
     ));
     _maybeNotifyAttention(results[0].body);
+    // Hub-self stats refresh runs alongside the dashboard fan-out but
+    // doesn't gate it: a slow PRAGMA scan on the hub shouldn't delay
+    // the hostrunner list. Failures are silent — the Hub tile renders a
+    // loading row when state.hubStats is null and the list still works.
+    unawaited(refreshHubStats());
+  }
+
+  /// Refetch /v1/hub/stats and fold the response into [HubState.hubStats].
+  /// Called from [refreshAll] alongside the dashboard fan-out and from
+  /// the Hub Detail screen's pull-to-refresh.
+  Future<void> refreshHubStats() async {
+    final client = _client;
+    if (client == null) return;
+    try {
+      final stats = await client.getHubStats();
+      final cur = state.value;
+      if (cur != null) {
+        state = AsyncData(cur.copyWith(hubStats: stats));
+      }
+    } catch (_) {
+      // Best-effort; the Hosts tab keeps working without the hub block.
+    }
   }
 
   /// Phase 1.5a: emit a system notification for newly-appeared

@@ -11,11 +11,13 @@ import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/keychain/secure_storage.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/hub_tile.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../projects/projects_screen.dart' show openHostDetail;
 import '../terminal/terminal_screen.dart';
 import '../vault/vault_screen.dart';
+import 'hub_detail_screen.dart';
 
 /// Unified Hosts tab (Tier-2) per `docs/ia-redesign.md` §5 + §6.4.
 ///
@@ -85,6 +87,9 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
     final bindings = ref.watch(hostBindingsProvider);
     final hubAsync = ref.watch(hubProvider);
     final hubHosts = hubAsync.value?.hosts ?? const <Map<String, dynamic>>[];
+    final hubStats = hubAsync.value?.hubStats;
+    final hubBaseUrl = hubAsync.value?.config?.baseUrl;
+    final hubConfigured = hubAsync.value?.configured ?? false;
 
     final rows = _mergeRows(
       connections: connections,
@@ -151,6 +156,23 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
               ),
             ],
           ),
+          if (hubConfigured) ...[
+            const SliverToBoxAdapter(child: _StaticSectionLabel(label: 'HUB')),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              sliver: SliverToBoxAdapter(
+                child: HubTile(
+                  name: _hubDisplayName(hubStats, hubBaseUrl),
+                  stats: hubStats,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const HubDetailScreen(),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
           SliverToBoxAdapter(
             child: _CollapsibleHeader(
               label: 'Hosts',
@@ -297,6 +319,24 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
   String _connectionSubtitle(Connection c) {
     final port = c.port == 22 ? '' : ':${c.port}';
     return '${c.username}@${c.host}$port';
+  }
+
+  String _hubDisplayName(
+      Map<String, dynamic>? stats, String? baseUrl) {
+    final machine = stats?['machine'];
+    if (machine is Map) {
+      final hostname = machine['hostname']?.toString();
+      if (hostname != null && hostname.isNotEmpty) return hostname;
+    }
+    if (baseUrl != null && baseUrl.isNotEmpty) {
+      // Strip scheme + trailing slash for the tile label.
+      var s = baseUrl;
+      final colon = s.indexOf('://');
+      if (colon >= 0) s = s.substring(colon + 3);
+      if (s.endsWith('/')) s = s.substring(0, s.length - 1);
+      return s;
+    }
+    return 'Hub';
   }
 
   String _hubHostSubtitle(Map<String, dynamic> h) {
@@ -543,6 +583,34 @@ class _ScopeBadge extends StatelessWidget {
         label,
         style: GoogleFonts.jetBrainsMono(
             fontSize: 10, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+}
+
+/// Non-collapsible variant of the section label used for the Hub block.
+/// Hub is a single tile, not a list, so the chevron + count would be
+/// noise; this matches the rhythm of [_CollapsibleHeader] without the
+/// affordances.
+class _StaticSectionLabel extends StatelessWidget {
+  final String label;
+  const _StaticSectionLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: muted,
+          letterSpacing: 0.8,
+        ),
       ),
     );
   }

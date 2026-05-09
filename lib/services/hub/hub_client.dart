@@ -187,6 +187,16 @@ class HubClient {
     await _get('/v1/teams/${cfg.teamId}/hosts');
   }
 
+  /// Hub-self capacity report — machine, DB, and live counts. Backs the
+  /// Hub group on the Hosts tab + the Hub Detail screen (ADR-022 D2 /
+  /// insights-phase-1.md W1). Authed but not team-scoped: the hub box
+  /// is shared across teams, so the endpoint sits at /v1/hub/stats
+  /// rather than /v1/teams/{team}/hosts/...
+  Future<Map<String, dynamic>> getHubStats() async {
+    final out = await _get('/v1/hub/stats');
+    return (out as Map).cast<String, dynamic>();
+  }
+
   // ---- collections ----
 
   Future<List<Map<String, dynamic>>> listHosts() =>

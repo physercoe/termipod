@@ -182,6 +182,12 @@ func (s *Server) buildRouter() chi.Router {
 func (s *Server) buildAuthedRoutes(r chi.Router) {
 
 	r.Get("/v1/_info", s.handleInfo)
+	// /v1/hub/stats — hub-self capacity (machine + DB + live counts).
+	// ADR-022 D2: purpose-built endpoint; the hub does not appear as a
+	// synthetic row in the multi-tenant `hosts` table. Authed but not
+	// team-scoped; Phase 1 punts on token-scope refinement, so any
+	// authenticated bearer can read it.
+	r.Get("/v1/hub/stats", s.handleHubStats)
 
 	r.Route("/v1/teams/{team}", func(r chi.Router) {
 		r.Route("/hosts", func(r chi.Router) {

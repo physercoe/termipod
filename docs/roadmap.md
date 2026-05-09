@@ -3,7 +3,7 @@
 > **Type:** vision
 > **Status:** Current (2026-05-08)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.435
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -123,6 +123,7 @@ working list — what's actually moving this week or next.
 | **Agent state & identity (ADR-009)** | Phase 1 + 2 shipped v1.0.320–322: rename close→archive, fork action, scope chip + grouping, approval detail, attention-scope entry. (`plans/agent-state-and-identity.md`) | Done; verifying on device next |
 | **MVP parity gaps — Phase 1.5** | Local notifications (1.5a, v1.0.323+325) + session search (1.5c, v1.0.324) shipped. ntfy killed-state push (1.5b) deferred post-MVP. (`plans/mvp-parity-gaps.md`) | Done; verifying on device next |
 | **ACP capability surface (ADR-021)** | M1 had no resume / no auth dispatch / no mode-or-model picker / no image inputs — core single-engine parity gaps. Phase 1 (`session/load` + `authenticate`, v1.0.410–413), Phase 2 (cross-engine mode/model picker via rpc/respawn/per_turn_argv, v1.0.420–424), Phase 4 (image content blocks across claude/codex/ACP + gemini-exec strip-and-warn + mobile attach UI, v1.0.430–435). Phase 3 (`fs/*`/`terminal/*` client capabilities) explicitly post-MVP per ADR-021 D1. (`plans/acp-capability-surface.md`) | Done; verifying on device next |
+| **Observability / Insights (ADR-022)** | Manager-level "how much have I spent / is the hub OK / where in the lifecycle are we" gap surfaced by the v1.0.440 device test. Phase 1 shipped `/v1/hub/stats` + project-scoped `/v1/insights` + A2A relay throughput (v1.0.444–456). Phase 2 lifted insights to 5 scopes (project/team/agent/engine/host) + cross-linked Activity/Me/Hosts/Agent surfaces + Tier-2 drilldowns (engine arbitrage, multi-host distribution, tool-call efficiency, lifecycle flow) (v1.0.457–462). W5e (unit economics needs pricing), W5f (snippet usage needs instrumentation), W6 (rollup trigger fires on production load) deferred post-MVP. (`plans/insights-phase-1.md`, `plans/insights-phase-2.md`) | Done; verifying on device next |
 
 ### Next (committed, not started)
 
@@ -174,6 +175,7 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.444-462 | ADR-022 observability — `/v1/hub/stats` + scope-parameterized `/v1/insights` (project/team/agent/engine/host) + A2A relay throughput + 6 mobile entry points (Hosts tab Hub group, Hub Detail, Activity AppBar, Me Stats card, Agent Detail tab, Host Detail button) + Tier-2 drilldowns (engine arbitrage, multi-host distribution, tool-call efficiency, lifecycle flow). W5e ($/X) / W5f (snippet) / W6 (rollup trigger) deferred post-MVP |
 | v1.0.430-435 | ADR-021 Phase 4 — cross-engine image content block inputs (hub `images:[]` contract + claude/codex/ACP wire shapes + gemini-exec strip-and-warn + mobile attach UI w/ thumbnail strip) |
 | v1.0.420-424 | ADR-021 Phase 2 — mode/model picker (cross-engine wire-path fan-out: M1 ACP rpc / claude+codex respawn / gemini-exec per-turn argv) + mobile chip strip |
 | v1.0.410-413 | ADR-021 Phase 1 — `session/load` resume cursor + `authenticate` dispatch + mobile replay-event dedupe |

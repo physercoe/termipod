@@ -1,9 +1,9 @@
 # API overview
 
 > **Type:** reference
-> **Status:** Current (2026-05-08)
+> **Status:** Current (2026-05-09)
 > **Audience:** contributors (mobile, hub, integrators)
-> **Last verified vs code:** v1.0.435
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** Single canonical entry for "what HTTP endpoints does the
 hub expose?" Indexes every `/v1/...` route grouped by resource +
@@ -234,14 +234,25 @@ Detail: [`attention-delivery-surfaces.md`](attention-delivery-surfaces.md), [`at
 | POST | `…/auth-tokens/{id}/revoke` | Revoke a token |
 | GET | `/v1/teams/{team}/principals` | List active principals (humans + agents) |
 
-### 3.13 Templates
+### 3.13 Observability (ADR-022)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/v1/hub/stats` | Hub-self capacity: `machine` (OS / CPU / RAM), `db` (size, WAL, schema_version, per-table rows + bytes), `live` (active agents, open sessions, SSE subscribers, A2A relay throughput). 30s row-count cache. Hub-admin scope. |
+| GET | `/v1/insights?project_id=…` | Scope-parameterized aggregator. Pass exactly one of `project_id` / `team_id` / `agent_id` / `engine` / `host_id` plus optional `since`/`until` (RFC3339, defaults: last 24h). Returns Tier-1 dimensions (spend, latency p50/p95, errors, concurrency, tools) + Tier-2 rollups (`by_engine`, `by_model`, `lifecycle` for project scope). 30s response cache keyed on (scope_kind, scope_id, since, until). |
+
+Detail: [ADR-022](../decisions/022-observability-surfaces.md),
+[`plans/insights-phase-1.md`](../plans/insights-phase-1.md),
+[`plans/insights-phase-2.md`](../plans/insights-phase-2.md).
+
+### 3.14 Templates
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/v1/teams/{team}/templates` | List bundled + user templates |
 | GET / PUT / DELETE / PATCH | `/v1/teams/{team}/templates/{category}/{name}` | CRUD on a template |
 
-### 3.14 MCP gateway
+### 3.15 MCP gateway
 
 | Method | Path | Purpose |
 |---|---|---|

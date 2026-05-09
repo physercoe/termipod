@@ -1,9 +1,9 @@
 # 022. Observability surfaces — insights aggregator + hub stats
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-09)
+> **Status:** Accepted (2026-05-09; both phase plans Done as of v1.0.462)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.443
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** Termipod ships per-session telemetry today (token totals,
 latency, rate-limit progress on the in-session strip) but no

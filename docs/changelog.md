@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.443
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,118 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.444 → v1.0.462-alpha — 2026-05-09
+
+Observability work — ADR-022 + insights phases 1 + 2. Closed the
+"how much have I spent / is the hub OK / where in the lifecycle is
+this project" gap that the v1.0.440 device test surfaced.
+
+### Added
+- **`/v1/hub/stats` endpoint** (v1.0.444, ADR-022 D2). Hub-self
+  observability: machine block (OS / CPU / RAM / kernel), DB block
+  (per-table rows + bytes via `dbstat` virtual table when available,
+  schema_version, WAL size), live block (active agents, open
+  sessions, SSE subscribers). 30s row-count cache. Mobile renders a
+  Hub group at the top of the Hosts tab + a fullscreen Hub Detail
+  screen.
+- **`/v1/insights` endpoint** with project scope (v1.0.449, ADR-022
+  D3). Tier-1 dimensions: spend (tokens in/out, cache read/create),
+  latency (p50/p95 of `turn.result.duration_ms`, linear
+  interpolation), errors (failed turns, open attention),
+  concurrency (active agents, open sessions, turns/min). Token
+  rollups via `by_engine` + `by_model`. 30s response cache.
+  Migration `0036_agent_events_project_id` adds `project_id` column
+  + composite `(project_id, ts)` index + AFTER INSERT trigger that
+  stamps from `sessions(scope_kind='project')` so the seven
+  existing INSERT call sites stay untouched.
+- **A2A relay throughput** in `/v1/hub/stats` (v1.0.456). 30s × 1s
+  rolling window for aggregate + per-destination bytes/sec; `Begin`
+  / `Record` / `Dropped` instrumentation on `handleRelay`. Mobile
+  Hub Detail gains an A2A RELAY section.
+- **`/v1/insights` multi-scope** — project / team / agent / engine /
+  host (v1.0.457). Each scope has its own per-table SQL fragment in
+  `insights_scope.go`. user_id parked: ADR-005's principal/director
+  model has no users table at MVP. Mobile gains a typed
+  `InsightsScope` value object; `getInsights` takes named-arg scope
+  params and throws synchronously on >1.
+- **Fullscreen `InsightsScreen`** (v1.0.458, ADR-022 D7). Activity
+  tab AppBar gains an Insights icon that opens the screen with
+  project scope (when project filter is set) or team scope.
+- **Me tab Stats card** (v1.0.459). Today's tokens + Δ% vs prior 7d
+  average via two-window read; tap → fullscreen team-scoped
+  Insights.
+- **Agent Detail Insights tab** + **Host Detail Insights button**
+  (v1.0.460). Agent Detail's existing 3-tab controller grew to 4
+  (embedded panel for agent-scoped tiles); Host Detail gained an
+  Insights button that pops the sheet and pushes the fullscreen
+  view scoped to host.
+- **Tier-2 drilldowns** on `InsightsScreen` (v1.0.461 + v1.0.462):
+  - Engine + model breakdown — share bars, tokens/turn ratio,
+    sorted by tokens descending.
+  - Multi-host distribution — per-host agent count + capability
+    fingerprint; hides on degenerate scopes / single-host.
+  - Tool-call efficiency — `tools` block (tool_calls excluding
+    streaming `tool_call_update`, tools/turn, approval rate from
+    `EXISTS json_each(decisions_json) → approve` walk). Mobile
+    color-codes the rate (green ≥85%, warning ≥50%, error
+    otherwise).
+  - Lifecycle flow (project scope only) — `lifecycle` block with
+    phase timeline (trailing phase runs to `now()`), ratification
+    rate, criterion pass-rate, stuck count from
+    `acceptance_criteria.state='failed'`. Mobile renders a
+    timeline with a current-phase dot + rate bars + inline warning
+    when stuck > 0.
+
+### Changed
+- **`agent_events` schema** — `project_id TEXT` column added by
+  migration `0036`; existing rows backfilled from
+  `sessions(scope_kind='project')`. New events stamped via AFTER
+  INSERT trigger so the seven existing INSERT call sites need no
+  edits.
+
+### Deprecated / Deferred
+- **W5e unit economics** ($/session, $/deliverable, $/attention)
+  needs a pricing table (token×$ per model). ADR-022 marks pricing
+  post-MVP; current token-based metrics are the MVP proxy.
+- **W5f snippet usage telemetry** needs new instrumentation — the
+  action bar fires the `snippet` action without emitting an event.
+- **W6 p95 alert + materialized rollup** — fires on production load
+  that doesn't exist yet; the trigger-deferred design *is* the
+  design. Reopen when first real deployment crosses the p95 > 1s
+  threshold.
+
+### Documents
+- **ADR-022** observability surfaces — locked 7 design decisions
+  (Activity ≠ Insights, hub stats is purpose-built, scope-
+  parameterized insights, agent_events.project_id column,
+  rollups post-MVP, cache-first per ADR-006, six entry points + one
+  fullscreen view).
+- `plans/insights-phase-1.md` flipped to **Done**.
+- `plans/insights-phase-2.md` flipped to **Done — MVP scope**;
+  W5e/W5f/W6 marked deferred post-MVP with rationale.
+
+### Lessons (architectural)
+- Scope filter `SessionsClause` must prefix columns with `s.` so
+  the same fragment slots into a JOIN with `attention_items`
+  (which also has `scope_kind`/`scope_id`) without ambiguity.
+- Time-bucket rate windows: `>=` cutoff vs `>` matters — `>` clips
+  to 29s and biases the rate ~3% low.
+- `SUM(CASE …)` returns NULL on zero rows; always wrap in
+  `COALESCE` when scanning into a fixed Go type.
+- `*Type` + `omitempty` on optional response fields — keeps the
+  contract explicit ("the field IS sometimes absent") rather than
+  emitting zeroed structs that look like real data.
+- Dispatcher loops calling methods that block on the remote peer
+  must run those calls in goroutines — synchronous dispatch
+  deadlocks when the next event is what would unblock the previous
+  one. (See v1.0.454 `InputRouter` fix; `feedback_input_router_dispatch_async.md`.)
+- For `attention_items` decision walking, `EXISTS (SELECT 1 FROM
+  json_each(...) WHERE json_extract(value, '$.decision') =
+  'approve')` is the readable SQLite idiom — much cleaner than
+  LIKE-substring or `$[#-1]` indexing.
 
 ---
 

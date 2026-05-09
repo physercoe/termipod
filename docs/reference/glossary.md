@@ -1,9 +1,9 @@
 # Glossary
 
 > **Type:** reference
-> **Status:** Current (2026-05-08)
+> **Status:** Current (2026-05-09)
 > **Audience:** contributors (humans + AI)
-> **Last verified vs code:** v1.0.435
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** Canonical definitions for every project-specific term that
 has more than one possible meaning, or whose meaning is non-obvious

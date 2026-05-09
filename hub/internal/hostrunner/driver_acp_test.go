@@ -732,7 +732,10 @@ func TestACPDriver_PermissionAllowRoundTrip(t *testing.T) {
 		},
 	})
 
-	// Driver should emit an approval_request event with request_id="99".
+	// Driver should emit an approval_request event with a non-empty
+	// request_id. The id is namespaced by per-spawn nonce + counter so we
+	// don't assert a specific value (would couple the test to the nonce
+	// scheme); we just round-trip the emitted id through Input below.
 	deadline := time.Now().Add(2 * time.Second)
 	var reqEvt *postedEvent
 	for time.Now().Before(deadline) {
@@ -752,8 +755,11 @@ func TestACPDriver_PermissionAllowRoundTrip(t *testing.T) {
 		t.Fatal("approval_request event never emitted")
 	}
 	reqID, _ := reqEvt.Payload["request_id"].(string)
-	if reqID != "99" {
-		t.Fatalf("request_id = %q; want \"99\"", reqID)
+	if reqID == "" {
+		t.Fatal("request_id missing from approval_request event")
+	}
+	if reqID == "99" {
+		t.Fatal("request_id leaks raw JSON-RPC id; should be namespaced")
 	}
 	if reqEvt.Producer != "agent" {
 		t.Fatalf("producer = %q; want agent", reqEvt.Producer)
@@ -814,22 +820,30 @@ func TestACPDriver_PermissionCancelRoundTrip(t *testing.T) {
 	fake.sendRequest(7, "session/request_permission", map[string]any{})
 
 	deadline := time.Now().Add(2 * time.Second)
+	var reqEvt *postedEvent
 	for time.Now().Before(deadline) {
-		hit := false
 		for _, ev := range poster.snapshot() {
 			if ev.Kind == "approval_request" {
-				hit = true
+				e := ev
+				reqEvt = &e
 				break
 			}
 		}
-		if hit {
+		if reqEvt != nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	if reqEvt == nil {
+		t.Fatal("approval_request event never emitted")
+	}
+	reqID, _ := reqEvt.Payload["request_id"].(string)
+	if reqID == "" {
+		t.Fatal("request_id missing from approval_request event")
+	}
 
 	if err := drv.Input(context.Background(), "approval", map[string]any{
-		"request_id": "7",
+		"request_id": reqID,
 		"decision":   "cancel",
 	}); err != nil {
 		t.Fatalf("Input approval cancel: %v", err)
@@ -851,6 +865,65 @@ func TestACPDriver_PermissionCancelRoundTrip(t *testing.T) {
 	outcome, _ := result["outcome"].(map[string]any)
 	if outcome["outcome"] != "cancelled" {
 		t.Fatalf("outcome wrong: %+v (want cancelled)", outcome)
+	}
+}
+
+// TestACPDriver_PermissionRequestIDUniquePerSpawn: gemini-cli (and any
+// JSON-RPC peer) restarts its outbound id counter every time the
+// transport is re-established, so id=0 from spawn N collides with id=0
+// from spawn N-1. Mobile's resolvedApprovals map persists across spawns
+// via agent_events history; a colliding request_id makes a fresh card
+// render as already-decided. The driver namespaces request_id with a
+// per-spawn nonce + counter so the externally-visible id is globally
+// unique.
+func TestACPDriver_PermissionRequestIDUniquePerSpawn(t *testing.T) {
+	spawn := func() string {
+		hostInR, hostInW := io.Pipe()
+		hostOutR, hostOutW := io.Pipe()
+		fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-nonce")
+		go fake.serve()
+		poster := &fakePoster{}
+		drv := &ACPDriver{
+			AgentID:          "agent-nonce",
+			Poster:           poster,
+			Stdin:            hostInW,
+			Stdout:           hostOutR,
+			Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+			HandshakeTimeout: 2 * time.Second,
+		}
+		if err := drv.Start(context.Background()); err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		defer drv.Stop()
+		<-fake.initCh
+		// Both spawns send id=0 — the agent's counter is a blank slate.
+		fake.sendRequest(0, "session/request_permission", map[string]any{})
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, ev := range poster.snapshot() {
+				if ev.Kind == "approval_request" {
+					id, _ := ev.Payload["request_id"].(string)
+					if id != "" {
+						return id
+					}
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("approval_request event never emitted")
+		return ""
+	}
+	a := spawn()
+	// 1ns resolution means UnixNano collisions are theoretically possible
+	// on extremely fast machines; sleep one tick to make the test
+	// deterministic without coupling to the nonce scheme.
+	time.Sleep(2 * time.Millisecond)
+	b := spawn()
+	if a == "" || b == "" {
+		t.Fatalf("empty request_id: a=%q b=%q", a, b)
+	}
+	if a == b {
+		t.Fatalf("request_id collided across spawns: %q == %q", a, b)
 	}
 }
 

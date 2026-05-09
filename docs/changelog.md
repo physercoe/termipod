@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-08)
+> **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.435
+> **Last verified vs code:** v1.0.437
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.437-alpha — 2026-05-09
+
+### Fixed
+- **ACP approval card rendered as already-cancelled on resume.** A
+  `session/request_permission` arriving on a freshly-resumed gemini-cli
+  M1 session showed `decided: cancel` before the user tapped anything.
+  Root cause: the driver surfaced the agent's raw JSON-RPC `id` as the
+  externally-visible `request_id` in the `approval_request` agent_event.
+  Each spawn of the agent (including resume after pause) restarts
+  gemini's outbound id counter from a low number, so id=`0` from the
+  current spawn collided with id=`0` from a previous spawn that had
+  been cancelled. Mobile's `resolvedApprovals` map is keyed by
+  `request_id` and persists across spawns via the agent_events history;
+  the colliding id made the new card render as already-decided. Fix
+  namespaces the externally-visible `request_id` with a per-spawn
+  nonce + monotonic counter (`<UnixNano>-<n>`), keeping the agent's
+  raw JSON-RPC `id` only in the internal `pendingPerm` map so we still
+  respond on the correct RPC. Codex and claude were unaffected
+  (codex uses hub-generated `attention.ID`, claude uses
+  Anthropic-generated `tool_use_id`s — both globally unique by
+  construction). Regression test
+  `TestACPDriver_PermissionRequestIDUniquePerSpawn` asserts two
+  consecutive spawns each emitting id=`0` produce distinct request_ids.
 
 ---
 

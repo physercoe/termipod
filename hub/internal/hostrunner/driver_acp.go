@@ -128,7 +128,19 @@ type ACPDriver struct {
 	// reader (recording a request_id) and Input (resolving it) can race.
 	permMu      sync.Mutex
 	pendingPerm map[string]json.RawMessage // request_id → original JSON-RPC id
-	sessionID   string
+	// permSpawnNonce + permCounter generate the externally-visible
+	// request_id we put into approval_request payloads. We can NOT reuse
+	// the agent's JSON-RPC id because each spawn of the agent (e.g.
+	// resume after pause) restarts its outbound counter from a low number,
+	// so id=0 from spawn N collides with id=0 from spawn N-1. The mobile
+	// `resolvedApprovals` map is keyed by request_id and persists across
+	// spawns via the agent_events history, so a colliding id makes a
+	// fresh approval card render as already-decided (typically as the
+	// previous spawn's "cancel"). spawnNonce is set once at Start() so
+	// every reqID this driver instance issues is globally unique.
+	permSpawnNonce string
+	permCounter    atomic.Int64
+	sessionID      string
 
 	// replayMu / replayActive marks the window during which a
 	// session/load call is in flight. While active, handleNotification
@@ -224,6 +236,10 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	d.pending = make(map[int64]chan acpResponse)
 	d.promptIDs = make(map[int64]struct{})
 	d.pendingPerm = make(map[string]json.RawMessage)
+	// Per-spawn nonce so the request_id we surface to mobile doesn't
+	// collide with a previous spawn's id=0 (see permSpawnNonce doc).
+	d.permSpawnNonce = fmt.Sprintf("%d", time.Now().UnixNano())
+	d.permCounter.Store(0)
 	d.writeQ = make(chan *acpWriteReq, 32)
 	d.done = make(chan struct{})
 	d.mu.Unlock()
@@ -1247,9 +1263,12 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 // never responds, the agent's call blocks until the driver is stopped —
 // Stop closes stdin which the agent should treat as a cancellation.
 func (d *ACPDriver) handlePermissionRequest(ctx context.Context, rpcID json.RawMessage, params json.RawMessage) {
-	// request_id visible to the phone: stringified JSON of the rpc id so
-	// it round-trips without parsing (the id may be numeric or string).
-	reqID := string(rpcID)
+	// request_id visible to the phone is namespaced by per-spawn nonce +
+	// monotonic counter so it's globally unique across resumes. The
+	// agent's raw JSON-RPC id (which restarts at 0 every spawn) is kept
+	// only in the internal pendingPerm map so we still respond on the
+	// correct RPC. See permSpawnNonce doc for the collision history.
+	reqID := fmt.Sprintf("%s-%d", d.permSpawnNonce, d.permCounter.Add(1))
 	d.permMu.Lock()
 	d.pendingPerm[reqID] = append(json.RawMessage(nil), rpcID...)
 	d.permMu.Unlock()

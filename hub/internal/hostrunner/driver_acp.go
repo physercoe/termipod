@@ -1058,16 +1058,21 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 }
 
 // Input implements Inputter for M1 (ACP). Translations:
-//   - text:     session/prompt with a text content block against d.sessionID.
-//   - cancel:   session/cancel notification against d.sessionID.
-//   - approval: resolves a pending session/request_permission call that
-//               the agent initiated; request_id must match the one the
-//               driver emitted in its approval_request event. decision
-//               of "cancel" maps to ACP's "cancelled" outcome, any other
-//               value to "selected" with optionId taken from payload
-//               (defaults to the decision string itself).
-//   - attach:   surfaced as a text prompt with a document_id marker; the
-//               agent has no fs capability from this client yet.
+//   - text:             session/prompt with a text content block against d.sessionID.
+//   - cancel:           session/cancel notification against d.sessionID.
+//   - approval:         resolves a pending session/request_permission call that
+//                       the agent initiated; request_id must match the one the
+//                       driver emitted in its approval_request event. decision
+//                       of "cancel" maps to ACP's "cancelled" outcome, any other
+//                       value to "selected" with optionId taken from payload
+//                       (defaults to the decision string itself).
+//   - attention_reply:  turn-based wake-up for vendor-neutral attentions
+//                       (approval_request / select / help_request raised by the
+//                       request_* MCP tools). The principal's /decide is
+//                       rendered into a fresh session/prompt user turn —
+//                       same shape as the stdio + exec-resume drivers.
+//   - attach:           surfaced as a text prompt with a document_id marker; the
+//                       agent has no fs capability from this client yet.
 //
 // Missing sessionID means Start never succeeded; treat as a config error.
 func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]any) error {
@@ -1252,6 +1257,31 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		_, err := d.call(callCtx, "session/set_mode", map[string]any{
 			"sessionId": sid,
 			"modeId":    modeID,
+		})
+		return err
+	case "attention_reply":
+		// Wake-up turn for vendor-neutral, turn-based attention kinds
+		// (approval_request / select / help_request — the request_*
+		// MCP tools). Those tools return awaiting_response immediately
+		// and the agent ends its turn; the principal's /decide on
+		// mobile is fanned out by the hub as input.attention_reply,
+		// which we render into a fresh session/prompt so the agent
+		// sees the decision as a normal user turn. Same pattern as
+		// driver_stdio.go and driver_exec_resume.go; ACP has no
+		// permission_prompt path (those go through ACP's own
+		// session/request_permission RPC, handled via Input("approval")
+		// above), so we don't need the parked-JSON-RPC branch the
+		// codex appserver driver carries.
+		body := formatAttentionReplyText(payload)
+		if body == "" {
+			return fmt.Errorf("acp driver: attention_reply produced no text")
+		}
+		d.resetTurn()
+		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
+		defer cancel()
+		_, err := d.call(promptCtx, "session/prompt", map[string]any{
+			"sessionId": sid,
+			"prompt":    []map[string]any{{"type": "text", "text": body}},
 		})
 		return err
 	case "set_model":

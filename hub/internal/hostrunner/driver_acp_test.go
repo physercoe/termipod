@@ -960,6 +960,68 @@ func TestACPDriver_ApprovalRejectsUnknownRequestID(t *testing.T) {
 	}
 }
 
+// TestACPDriver_AttentionReplyDispatchesPrompt verifies that an
+// `attention_reply` Input — produced by the hub's /decide fan-out for
+// vendor-neutral attention kinds (approval_request/select/help_request)
+// — wakes the gemini-cli agent by writing a session/prompt with the
+// rendered reply text. Without this case ACP rejected the input as
+// "unsupported input kind" and the principal's Approve tap on a
+// request_approval attention silently failed to reach the agent.
+func TestACPDriver_AttentionReplyDispatchesPrompt(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-att-reply")
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-att-reply",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "attention_reply", map[string]any{
+		"kind":       "approval_request",
+		"request_id": "01KR57310H1P5JDPNZ8WPNS2TT",
+		"decision":   "approve",
+	}); err != nil {
+		t.Fatalf("Input attention_reply: %v", err)
+	}
+
+	// The driver should have written a session/prompt with rendered text.
+	deadline := time.Now().Add(2 * time.Second)
+	var sent map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/prompt"); m != nil {
+			sent = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sent == nil {
+		t.Fatal("driver never sent session/prompt for attention_reply")
+	}
+	params, _ := sent["params"].(map[string]any)
+	prompt, _ := params["prompt"].([]any)
+	if len(prompt) == 0 {
+		t.Fatalf("session/prompt has no content: %+v", params)
+	}
+	first, _ := prompt[0].(map[string]any)
+	text, _ := first["text"].(string)
+	if !strings.Contains(text, "Approved") {
+		t.Errorf("prompt text = %q; want it to contain \"Approved\"", text)
+	}
+}
+
 func TestACPDriver_InputRejectsBeforeHandshake(t *testing.T) {
 	drv := &ACPDriver{AgentID: "pre-handshake", Poster: &fakePoster{}}
 	if err := drv.Input(context.Background(), "text", map[string]any{"body": "x"}); err == nil {

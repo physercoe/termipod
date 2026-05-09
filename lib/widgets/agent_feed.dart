@@ -2134,7 +2134,7 @@ class _NewEventsPill extends StatelessWidget {
 /// Per-event card. The kind drives which fields get a first-class
 /// treatment; everything else falls through to a raw JSON block so we
 /// stay forward-compatible with new event kinds the hub emits.
-class AgentEventCard extends StatelessWidget {
+class AgentEventCard extends StatefulWidget {
   final Map<String, dynamic> event;
   // tool_use_id → tool name map, built by the Feed from all visible
   // tool_call events so tool_result cards can show the human name
@@ -2166,45 +2166,7 @@ class AgentEventCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final kind = (event['kind'] ?? '').toString();
-    final producer = (event['producer'] ?? 'agent').toString();
-    final payload = (event['payload'] is Map)
-        ? (event['payload'] as Map).cast<String, dynamic>()
-        : <String, dynamic>{};
-
-    final accent = _accentFor(kind, producer);
-    final bg = isDark
-        ? DesignColors.surfaceDark
-        : DesignColors.surfaceLight;
-    final border = isDark
-        ? DesignColors.borderDark
-        : DesignColors.borderLight;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: border),
-      ),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _CardHeader(
-            kind: kind,
-            producer: producer,
-            accent: accent,
-            ts: event['ts']?.toString(),
-            copyText: _copyTextFor(kind, payload, event),
-          ),
-          const SizedBox(height: 6),
-          _body(context, kind, producer, payload),
-        ],
-      ),
-    );
-  }
+  State<AgentEventCard> createState() => _AgentEventCardState();
 
   // Builds the clipboard payload for a given card. The principal hits
   // copy on a transcript tile most often to drop content into a bug
@@ -2926,6 +2888,92 @@ class AgentEventCard extends StatelessWidget {
   }
 }
 
+class _AgentEventCardState extends State<AgentEventCard> {
+  // Per-card collapse toggle. Default-expanded for every kind so the
+  // existing transcript shape is preserved on first render; the user
+  // chooses what to fold. Mounted state lives on the State, so the
+  // sliver's keyed widgets keep collapsed rows collapsed across
+  // scroll-and-back.
+  bool _collapsed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final kind = (widget.event['kind'] ?? '').toString();
+    final producer = (widget.event['producer'] ?? 'agent').toString();
+    final payload = (widget.event['payload'] is Map)
+        ? (widget.event['payload'] as Map).cast<String, dynamic>()
+        : <String, dynamic>{};
+
+    final accent = AgentEventCard._accentFor(kind, producer);
+    final bg = isDark
+        ? DesignColors.surfaceDark
+        : DesignColors.surfaceLight;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CardHeader(
+            kind: kind,
+            producer: producer,
+            accent: accent,
+            ts: widget.event['ts']?.toString(),
+            copyText: AgentEventCard._copyTextFor(kind, payload, widget.event),
+            collapsed: _collapsed,
+            onToggleCollapsed: () =>
+                setState(() => _collapsed = !_collapsed),
+          ),
+          const SizedBox(height: 6),
+          if (_collapsed)
+            _collapsedPreview(context, kind, payload)
+          else
+            widget._body(context, kind, producer, payload),
+        ],
+      ),
+    );
+  }
+
+  // Single-line preview rendered in place of the body when collapsed.
+  // Uses the same source string as the copy affordance so what the user
+  // sees in the preview is what they'd get on copy — no surprise.
+  Widget _collapsedPreview(
+    BuildContext ctx,
+    String kind,
+    Map<String, dynamic> payload,
+  ) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final raw = AgentEventCard._copyTextFor(kind, payload, widget.event);
+    final firstLine = () {
+      final nl = raw.indexOf('\n');
+      return nl == -1 ? raw : raw.substring(0, nl);
+    }();
+    final more = raw.length > firstLine.length;
+    final text = firstLine.isEmpty ? '(empty)' : firstLine;
+    return Text(
+      more ? '$text  …' : text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: GoogleFonts.jetBrainsMono(
+        fontSize: 11,
+        color: muted,
+      ),
+    );
+  }
+}
+
 /// MarkdownElementBuilder that swaps `<pre><code class="language-X">` blocks
 /// out for a syntax-highlighted view. Inline `<code>` (no class attribute)
 /// returns null so flutter_markdown falls back to its own monochrome
@@ -3213,12 +3261,21 @@ class _CardHeader extends StatelessWidget {
   // copy affordance entirely (e.g. internal placeholders we don't
   // want operators dumping into bug reports).
   final String copyText;
+  // Per-card collapse state, hoisted from AgentEventCardState. The
+  // chevron rotates and tapping the header (anywhere in the row, not
+  // just the chevron) toggles. Both are nullable so the header can
+  // still be used by a non-collapsible owner if a future caller
+  // wants the same visual without the affordance.
+  final bool? collapsed;
+  final VoidCallback? onToggleCollapsed;
   const _CardHeader({
     required this.kind,
     required this.producer,
     required this.accent,
     required this.ts,
     this.copyText = '',
+    this.collapsed,
+    this.onToggleCollapsed,
   });
 
   @override
@@ -3227,7 +3284,8 @@ class _CardHeader extends StatelessWidget {
     final muted = isDark
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
-    return Row(
+    final hasToggle = onToggleCollapsed != null;
+    final row = Row(
       children: [
         Container(
           width: 6,
@@ -3276,7 +3334,34 @@ class _CardHeader extends StatelessWidget {
             ),
           ),
         ],
+        if (hasToggle) ...[
+          const SizedBox(width: 4),
+          InkResponse(
+            radius: 14,
+            onTap: onToggleCollapsed,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                (collapsed ?? false)
+                    ? Icons.unfold_more
+                    : Icons.unfold_less,
+                size: 14,
+                color: muted,
+              ),
+            ),
+          ),
+        ],
       ],
+    );
+    if (!hasToggle) return row;
+    // Make the whole header row a tap target so users don't have to aim
+    // for the chevron — much friendlier on mobile thumbs. The copy and
+    // chevron InkResponses above sit on top of this and stop propagation
+    // by virtue of their own onTap callbacks.
+    return InkWell(
+      onTap: onToggleCollapsed,
+      borderRadius: BorderRadius.circular(4),
+      child: row,
     );
   }
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.438
+> **Last verified vs code:** v1.0.439
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,40 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.439-alpha — 2026-05-09
+
+### Fixed
+- **ACP driver missing `attention_reply` Input handler.** When the
+  principal approved a `request_approval` MCP attention on mobile,
+  the hub's `/decide` resolved the DB row and posted
+  `input.attention_reply` correctly, but the ACPDriver's `Input`
+  switch had no case for `attention_reply` — the InputRouter call
+  fell through to the default arm and returned `unsupported input
+  kind "attention_reply"`. The agent's wake-up turn never reached
+  gemini-cli, so the principal saw their decision card in the feed
+  but the agent stayed idle waiting for them. Driver now mirrors
+  the stdio + exec-resume pattern: render the structured payload
+  via `formatAttentionReplyText` and dispatch as a fresh
+  `session/prompt`. ACP needs none of the parked-JSON-RPC branch
+  the codex appserver carries — `permission_prompt` on this driver
+  goes through the dedicated `Input("approval")` path that responds
+  on the original `session/request_permission` RPC.
+
+### Added
+- **Per-card fold/collapse toggle on every transcript card.**
+  AgentEventCard gains a chevron in the header (next to the copy
+  affordance) that collapses the card to a single-line preview;
+  the whole header row is also a tap target so thumbs don't have
+  to aim. Default is expanded for every kind so the existing
+  transcript shape is unchanged on first render. Previously only
+  `tool_call` and `tool_result` had built-in collapse behaviour;
+  thoughts, approval-request cards, plans, diffs, system rows
+  etc. now share the same affordance. Preview text reuses
+  `_copyTextFor`'s output so what you see when collapsed is what
+  you'd get on copy.
 
 ---
 

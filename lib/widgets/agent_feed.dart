@@ -1366,11 +1366,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     Map<String, String> toolNames,
   ) {
     final kind = (e['kind'] ?? '').toString();
-    if (kind == 'tool_call_update' ||
-        kind == 'session.init' ||
+    // Always-hidden kinds: session.init lives in the AppBar chip, and
+    // usage/rate_limit drive the telemetry strip — rendering them as
+    // cards too would duplicate the signal with no extra data.
+    //
+    // tool_call_update and turn.result are demoted to verbose-only
+    // (handled below). They still drive folding (parent tool_call
+    // card status pill) and the telemetry strip respectively, but on
+    // the rare occasion the user wants to inspect the wire frames —
+    // e.g. confirming an approval flow's tool result content reached
+    // them, or seeing the cancelled stopReason that ended a turn —
+    // the verbose toggle now reveals them.
+    if (kind == 'session.init' ||
         kind == 'usage' ||
-        kind == 'rate_limit' ||
-        kind == 'turn.result') {
+        kind == 'rate_limit') {
       return true;
     }
     if (kind == 'tool_call') {
@@ -1426,6 +1435,14 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     'completion',
     'raw',
     'system',
+    // Wire-level RPC frames. tool_call_update folds into the parent
+    // tool_call card by default (which carries the latest status pill
+    // + content); the standalone card is only useful for forensic
+    // visibility of intermediate states. turn.result drives the
+    // telemetry strip; surfacing the cancelled / end_turn frames
+    // helps the user trace why a turn boundary fell where it did.
+    'tool_call_update',
+    'turn.result',
   };
 
   bool _isVerboseOnly(String kind, Object? payload) {
@@ -1595,8 +1612,8 @@ class _VerboseToggleChip extends StatelessWidget {
         : (hiddenCount > 0 ? '$hiddenCount' : '');
     return Tooltip(
       message: verbose
-          ? 'Hide debug events (lifecycle, raw, system)'
-          : 'Show debug events (lifecycle, raw, system)'
+          ? 'Hide wire frames (lifecycle, raw, system, tool_call_update, turn.result)'
+          : 'Show wire frames (lifecycle, raw, system, tool_call_update, turn.result)'
               '${hiddenCount > 0 ? ' — $hiddenCount currently hidden' : ''}',
       child: Material(
         color: bg.withValues(alpha: 0.92),
@@ -2310,8 +2327,12 @@ class AgentEventCard extends StatefulWidget {
         return _rawBody(ctx, payload);
       case 'tool_call':
         return _toolCallBody(ctx, payload);
+      case 'tool_call_update':
+        return _toolCallUpdateBody(ctx, payload);
       case 'tool_result':
         return _toolResultBody(ctx, payload);
+      case 'turn.result':
+        return _turnResultBody(ctx, payload);
       case 'completion':
         return _completionBody(ctx, payload);
       case 'error':
@@ -2328,6 +2349,8 @@ class AgentEventCard extends StatefulWidget {
         return _inputCancelBody(ctx, payload);
       case 'input.approval':
         return _inputApprovalBody(ctx, payload);
+      case 'input.attention_reply':
+        return _inputAttentionReplyBody(ctx, payload);
       case 'system':
         return _systemBody(ctx, payload);
       default:
@@ -2362,6 +2385,32 @@ class AgentEventCard extends StatefulWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _kv(ctx, 'decision', decision),
+        if (reqId.isNotEmpty) _kv(ctx, 'request_id', reqId),
+      ],
+    );
+  }
+
+  // Renders the principal's reply to a vendor-neutral attention
+  // (request_approval / request_select / request_help). The reply is
+  // posted by hub /decide as a structured event; without this case
+  // the transcript fell back to dumping the raw JSON, which read like
+  // "noise after Approve" even though the decision itself is the
+  // turn's cause-and-effect anchor.
+  Widget _inputAttentionReplyBody(BuildContext ctx, Map<String, dynamic> p) {
+    final decision = p['decision']?.toString() ?? '?';
+    final kind = p['kind']?.toString() ?? '';
+    final reqId = p['request_id']?.toString() ?? '';
+    final body = p['body']?.toString() ?? '';
+    final optionId = p['option_id']?.toString() ?? '';
+    final reason = p['reason']?.toString() ?? '';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _kv(ctx, 'decision', decision),
+        if (kind.isNotEmpty) _kv(ctx, 'kind', kind),
+        if (optionId.isNotEmpty) _kv(ctx, 'option_id', optionId),
+        if (body.isNotEmpty) _kv(ctx, 'reply', body),
+        if (reason.isNotEmpty) _kv(ctx, 'reason', reason),
         if (reqId.isNotEmpty) _kv(ctx, 'request_id', reqId),
       ],
     );
@@ -2510,6 +2559,59 @@ class AgentEventCard extends StatefulWidget {
       preview: preview,
       resultPayload: resultPayload,
       resultIsError: resultIsError,
+    );
+  }
+
+  // Verbose-only renderer for ACP tool_call_update wire frames. Folds
+  // its data into the parent tool_call card by default; this card is
+  // for the rare case the user toggled debug visibility to inspect
+  // intermediate states (e.g. confirming the request_approval gate
+  // returned its attention payload).
+  Widget _toolCallUpdateBody(BuildContext ctx, Map<String, dynamic> p) {
+    final id = p['toolCallId']?.toString() ?? '';
+    final status = p['status']?.toString() ?? '';
+    final title = p['title']?.toString() ?? '';
+    String? preview;
+    final content = p['content'];
+    if (content is List) {
+      for (final b in content) {
+        if (b is Map && b['type'] == 'content') {
+          final inner = b['content'];
+          if (inner is Map && inner['type'] == 'text') {
+            preview = inner['text']?.toString();
+            break;
+          }
+        }
+      }
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (title.isNotEmpty) _kv(ctx, 'tool', title),
+        if (status.isNotEmpty) _kv(ctx, 'status', status),
+        if (id.isNotEmpty) _kv(ctx, 'tool_call_id', id),
+        if (preview != null && preview.isNotEmpty) _mono(ctx, preview),
+      ],
+    );
+  }
+
+  // Verbose-only renderer for turn.result wire frames. Telemetry
+  // strip already aggregates these on every turn — the card is for
+  // forensic visibility (e.g. seeing stopReason=cancelled when a new
+  // attention_reply prompt cancelled the in-flight one).
+  Widget _turnResultBody(BuildContext ctx, Map<String, dynamic> p) {
+    final status = p['status']?.toString() ?? '';
+    final reason = p['stop_reason']?.toString() ?? '';
+    final input = p['input_tokens'];
+    final output = p['output_tokens'];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (status.isNotEmpty) _kv(ctx, 'status', status),
+        if (reason.isNotEmpty) _kv(ctx, 'stop_reason', reason),
+        if (input is num) _kv(ctx, 'input_tokens', input.toString()),
+        if (output is num) _kv(ctx, 'output_tokens', output.toString()),
+      ],
     );
   }
 

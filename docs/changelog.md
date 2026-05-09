@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.441
+> **Last verified vs code:** v1.0.442
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.442-alpha — 2026-05-09
+
+### Fixed
+- **`input.attention_reply` rendered as raw JSON in the transcript.**
+  The widget had handlers for `input.text` / `input.cancel` /
+  `input.approval` but fell through to `_jsonPretty` on the
+  attention-reply kind, so the principal's decision card read like a
+  config dump. New `_inputAttentionReplyBody` shows decision / kind /
+  option_id / reply / reason / request_id as a clean key-value
+  block.
+
+### Changed
+- **`tool_call_update` and `turn.result` demoted from unconditional
+  hide → verbose-gated.** They still drive folding (parent tool_call
+  card status pill) and the telemetry strip, but the wire frames
+  themselves are now revealed by the top-right debug chip alongside
+  the existing `lifecycle / raw / system` reveals. This makes the
+  request_approval gate's tool_call_update inspectable (it carries
+  the attention_id + severity payload the inline approval card was
+  built from) and surfaces the orphan `stopReason=cancelled` frame
+  that the driver's attention_reply path produces by design. Verbose
+  chip tooltip updated to "wire frames" so the surface is
+  discoverable. Also added compact renderers for both kinds
+  (`_toolCallUpdateBody`, `_turnResultBody`).
 
 ---
 

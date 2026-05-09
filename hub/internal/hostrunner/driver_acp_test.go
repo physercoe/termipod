@@ -974,9 +974,10 @@ func TestACPDriver_AttentionReplyDispatchesPrompt(t *testing.T) {
 	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-att-reply")
 	go fake.serve()
 
+	poster := &fakePoster{}
 	drv := &ACPDriver{
 		AgentID:          "agent-att-reply",
-		Poster:           &fakePoster{},
+		Poster:           poster,
 		Stdin:            hostInW,
 		Stdout:           hostOutR,
 		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
@@ -1019,6 +1020,29 @@ func TestACPDriver_AttentionReplyDispatchesPrompt(t *testing.T) {
 	text, _ := first["text"].(string)
 	if !strings.Contains(text, "Approved") {
 		t.Errorf("prompt text = %q; want it to contain \"Approved\"", text)
+	}
+
+	// On the v1.0.441 fix: when the post-attention turn ends, the
+	// driver MUST emit a turn.result so mobile's _isAgentBusy() flips
+	// off. Without it, the streaming agent_message_chunks (partial:
+	// true) leave the cancel-button overlay stuck on even after
+	// stopReason=end_turn arrives, because the busy walker is newest-
+	// first and partial chunks tip it the wrong way. The original
+	// in-flight prompt that raised this attention does cancel — its
+	// orphaned response posts turn.result(cancelled) — but that fires
+	// strictly before this one, so newest-first sees end_turn last.
+	var sawTurnResult bool
+	for _, e := range poster.snapshot() {
+		if e.Kind != "turn.result" {
+			continue
+		}
+		if e.Payload["stop_reason"] == "end_turn" {
+			sawTurnResult = true
+			break
+		}
+	}
+	if !sawTurnResult {
+		t.Fatal("attention_reply session/prompt success did not post turn.result(end_turn) — mobile's cancel-button overlay would stay stuck after the post-attention turn ends")
 	}
 }
 

@@ -158,6 +158,15 @@ class AgentFeed extends ConsumerStatefulWidget {
   final String? sessionId;
   final EdgeInsetsGeometry padding;
   final void Function(Map<String, dynamic> payload)? onSessionInit;
+  /// Fires whenever the feed's accumulated mode/model state changes
+  /// (cold open, every system event with currentModeId/currentModelId,
+  /// reconnects). Null while the agent hasn't advertised either
+  /// capability — the SessionChatScreen AppBar uses that to hide its
+  /// picker icon. The bound onPickMode / onPickModel callbacks here
+  /// route through the same hub_client postAgentInput the inline
+  /// strip used to call, so the parent can render the picker without
+  /// the feed body losing its vertical real estate to the chip strip.
+  final void Function(ModeModelPickerData? data)? onModeModelChanged;
   /// When set, after the cold-open backfill resolves the feed scrolls
   /// to and briefly highlights the event whose seq matches. Used by
   /// "Open in chat" from the approval-detail screen so the principal
@@ -172,6 +181,7 @@ class AgentFeed extends ConsumerStatefulWidget {
     this.sessionId,
     this.padding = const EdgeInsets.all(12),
     this.onSessionInit,
+    this.onModeModelChanged,
     this.initialSeq,
   });
 
@@ -1013,7 +1023,12 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         if (_isVerboseOnly(kind, e['payload'])) hiddenForVerbose++;
       }
     }
-    final modeModelState = _latestModeModelState();
+    // ADR-021 W2.5 — mode/model picker is now hung off the parent's
+    // AppBar via [onModeModelChanged] (lifted out of the body so it
+    // doesn't burn a row of vertical space above every transcript).
+    // The callback fires from the post-build microtask below to avoid
+    // a setState-during-build on the parent.
+    _maybeFireModeModelChanged();
     return Column(
       children: [
         // session.init is rendered in the parent AppBar via the
@@ -1028,15 +1043,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
             rateLimit: latestRateLimit,
             contextWindow: latestContextWindow,
             contextUsed: latestContextUsed,
-          ),
-        // ADR-021 W2.5 — mode + model picker chips. Hidden when the
-        // active agent hasn't advertised either, so claude/codex M2
-        // (no current_mode_update yet) doesn't render an empty strip.
-        if (modeModelState != null)
-          _ModeModelStrip(
-            state: modeModelState,
-            onPickMode: _onSetMode,
-            onPickModel: _onSetModel,
           ),
         if (_staleSince != null) _OfflineBanner(staleSince: _staleSince!),
         if (_loadingOlder)
@@ -1230,19 +1236,56 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   /// once W2.3 / hub routing land for them.
   ///
   /// Returns null when no agent has advertised mode + model lists. The
-  /// strip hides itself in that case rather than rendering an empty
-  /// picker.
-  _ModeModelState? _latestModeModelState() {
+  /// AppBar icon hides itself in that case rather than rendering an
+  /// empty picker.
+  ModeModelPickerData? _latestModeModelData() {
     final raw = modeModelStateFromEvents(_events);
     if (raw == null) return null;
-    return _ModeModelState(
+    return ModeModelPickerData(
       currentMode: raw['currentMode'] as String?,
       availableModes:
           (raw['availableModes'] as List).cast<Map<String, dynamic>>(),
       currentModel: raw['currentModel'] as String?,
       availableModels:
           (raw['availableModels'] as List).cast<Map<String, dynamic>>(),
+      onPickMode: _onSetMode,
+      onPickModel: _onSetModel,
     );
+  }
+
+  // Signature of the most recent payload we forwarded via
+  // [onModeModelChanged]. Cheap fingerprint over the four fields the
+  // parent renders — id-based, so picker option re-orderings without a
+  // current-id change don't trigger a redundant setState upstream.
+  String? _lastModeModelSig;
+
+  // Compute a stable signature for change detection.
+  String _modeModelSig(ModeModelPickerData? d) {
+    if (d == null) return '';
+    final modeIds = d.availableModes
+        .map((m) => m['id']?.toString() ?? '')
+        .join('|');
+    final modelIds = d.availableModels
+        .map((m) => m['id']?.toString() ?? '')
+        .join('|');
+    return '${d.currentMode ?? ''}::$modeIds::${d.currentModel ?? ''}::$modelIds';
+  }
+
+  // Fire the parent callback when the picker payload changes. Called
+  // from build() — schedules the actual notify on a post-frame
+  // callback so the parent's setState doesn't fire while AgentFeed is
+  // still building.
+  void _maybeFireModeModelChanged() {
+    final cb = widget.onModeModelChanged;
+    if (cb == null) return;
+    final next = _latestModeModelData();
+    final sig = _modeModelSig(next);
+    if (sig == _lastModeModelSig) return;
+    _lastModeModelSig = sig;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      cb(next);
+    });
   }
 
   Future<void> _onSetMode(String modeId) async {
@@ -5299,119 +5342,130 @@ class _ToolResultInline extends StatelessWidget {
   }
 }
 
-/// ADR-021 W2.5 — captured mode + model state advertised by the agent.
+/// ADR-021 W2.5 — captured mode + model state advertised by the agent
+/// plus the bound picker callbacks. Lifted out of [AgentFeed] so the
+/// SessionChatScreen AppBar can host the picker icon — without it the
+/// chip strip cost a row of vertical space above every transcript even
+/// for engines that never re-advertise mode/model after handshake.
+///
 /// `currentMode` / `currentModel` are nullable because some engines
 /// only advertise one of the two (e.g. claude exposes model but not a
 /// runtime "mode" concept). availableModes / availableModels each list
 /// `{id, name, description?}` maps mirroring the ACP shape.
-class _ModeModelState {
+class ModeModelPickerData {
   final String? currentMode;
   final List<Map<String, dynamic>> availableModes;
   final String? currentModel;
   final List<Map<String, dynamic>> availableModels;
-  const _ModeModelState({
+  final Future<void> Function(String modeId) onPickMode;
+  final Future<void> Function(String modelId) onPickModel;
+  const ModeModelPickerData({
     required this.currentMode,
     required this.availableModes,
     required this.currentModel,
     required this.availableModels,
-  });
-  bool get hasMode => currentMode != null && availableModes.isNotEmpty;
-  bool get hasModel => currentModel != null && availableModels.isNotEmpty;
-}
-
-/// ADR-021 W2.5 — picker chip strip rendered above the AgentFeed when
-/// the agent has advertised mode and/or model state. Tap → bottom-
-/// sheet of available options → onPicked fires postAgentInput.
-class _ModeModelStrip extends StatelessWidget {
-  final _ModeModelState state;
-  final Future<void> Function(String modeId) onPickMode;
-  final Future<void> Function(String modelId) onPickModel;
-  const _ModeModelStrip({
-    required this.state,
     required this.onPickMode,
     required this.onPickModel,
   });
+  bool get hasMode => currentMode != null && availableModes.isNotEmpty;
+  bool get hasModel => currentModel != null && availableModels.isNotEmpty;
+  bool get hasAny => hasMode || hasModel;
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          if (state.hasMode)
-            ActionChip(
-              label: Text('mode: ${state.currentMode}',
-                  style: theme.textTheme.bodySmall),
-              avatar: const Icon(Icons.tune, size: 14),
-              onPressed: () => _showPicker(
-                context,
-                title: 'Mode',
-                current: state.currentMode!,
-                options: state.availableModes,
-                onSelect: onPickMode,
-              ),
-            ),
-          if (state.hasModel)
-            ActionChip(
-              label: Text('model: ${state.currentModel}',
-                  style: theme.textTheme.bodySmall),
-              avatar: const Icon(Icons.psychology_alt, size: 14),
-              onPressed: () => _showPicker(
-                context,
-                title: 'Model',
-                current: state.currentModel!,
-                options: state.availableModels,
-                onSelect: onPickModel,
-              ),
-            ),
-        ],
-      ),
-    );
+  // Friendly label for the AppBar icon's tooltip / chip subtitle.
+  // Falls back to the id when no `name` is advertised.
+  String? _labelFor(String? currentId, List<Map<String, dynamic>> options) {
+    if (currentId == null) return null;
+    for (final o in options) {
+      if (o['id']?.toString() == currentId) {
+        final name = (o['name'] ?? '').toString();
+        return name.isNotEmpty ? name : currentId;
+      }
+    }
+    return currentId;
   }
 
-  Future<void> _showPicker(
-    BuildContext context, {
-    required String title,
-    required String current,
-    required List<Map<String, dynamic>> options,
-    required Future<void> Function(String id) onSelect,
-  }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+  String? get currentModeLabel => _labelFor(currentMode, availableModes);
+  String? get currentModelLabel => _labelFor(currentModel, availableModels);
+}
+
+/// Opens a single bottom-sheet listing both mode and model options
+/// (whichever the agent advertises) so the SessionChatScreen AppBar
+/// icon collapses to one tap. Each section header is suppressed when
+/// that capability is absent. Selecting a row pops the sheet and fires
+/// the matching `onPick*` callback — caller's responsibility to surface
+/// any error via SnackBar.
+Future<void> showModeModelPickerSheet(
+  BuildContext context,
+  ModeModelPickerData data,
+) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetCtx) {
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (data.hasMode) ...[
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                child: Text(title,
-                    style: Theme.of(sheetCtx).textTheme.titleMedium),
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Text(
+                  'Mode',
+                  style: Theme.of(sheetCtx).textTheme.titleSmall,
+                ),
               ),
-              for (final opt in options)
+              for (final opt in data.availableModes)
                 ListTile(
+                  leading: const Icon(Icons.tune, size: 18),
                   title: Text((opt['name'] ?? opt['id'] ?? '').toString()),
                   subtitle: opt['description'] != null
                       ? Text((opt['description']).toString())
                       : null,
-                  trailing: (opt['id']?.toString() == current)
+                  trailing: (opt['id']?.toString() == data.currentMode)
                       ? const Icon(Icons.check, size: 18)
                       : null,
                   onTap: () {
                     final id = opt['id']?.toString() ?? '';
                     Navigator.of(sheetCtx).pop();
-                    if (id.isNotEmpty && id != current) onSelect(id);
+                    if (id.isNotEmpty && id != data.currentMode) {
+                      data.onPickMode(id);
+                    }
                   },
                 ),
-              const SizedBox(height: 4),
             ],
-          ),
-        );
-      },
-    );
-  }
+            if (data.hasMode && data.hasModel) const Divider(height: 1),
+            if (data.hasModel) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                child: Text(
+                  'Model',
+                  style: Theme.of(sheetCtx).textTheme.titleSmall,
+                ),
+              ),
+              for (final opt in data.availableModels)
+                ListTile(
+                  leading: const Icon(Icons.psychology_alt, size: 18),
+                  title: Text((opt['name'] ?? opt['id'] ?? '').toString()),
+                  subtitle: opt['description'] != null
+                      ? Text((opt['description']).toString())
+                      : null,
+                  trailing: (opt['id']?.toString() == data.currentModel)
+                      ? const Icon(Icons.check, size: 18)
+                      : null,
+                  onTap: () {
+                    final id = opt['id']?.toString() ?? '';
+                    Navigator.of(sheetCtx).pop();
+                    if (id.isNotEmpty && id != data.currentModel) {
+                      data.onPickModel(id);
+                    }
+                  },
+                ),
+            ],
+            const SizedBox(height: 4),
+          ],
+        ),
+      );
+    },
+  );
 }

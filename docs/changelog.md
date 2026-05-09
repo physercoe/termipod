@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.440
+> **Last verified vs code:** v1.0.441
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.441-alpha — 2026-05-09
+
+### Fixed
+- **Cancel-button overlay stuck on after gemini ACP approval flow
+  ended.** The ACP driver's `attention_reply` Input writes a fresh
+  `session/prompt` with the rendered approval text — the only way to
+  push a turn-based decision back to gemini-cli. That new prompt
+  cancels the in-flight prompt that originally raised the attention
+  (gemini replies `stopReason=cancelled` on the old id), and the new
+  prompt then runs to `end_turn` normally. The bug: the
+  `attention_reply` branch in `driver_acp.go` discarded the new
+  prompt's response and never called `postTurnResult`, so mobile
+  never saw the live `end_turn`. The orphan cancel + the streaming
+  `partial:true` chunks left the busy walker glued to "turn in
+  progress" and the cancel-button overlay stayed on long after the
+  agent's final reply. Driver now mirrors the `text` branch:
+  `postTurnResult(res)` after a successful attention-reply prompt.
+  Test extended to assert the `turn.result(end_turn)` event is
+  posted.
+
+### Added
+- **Batch ops on the Sessions list.** Long-press a session tile (or
+  use the AppBar "Select…" menu) to enter multi-select mode. The
+  AppBar swaps to a count badge + Select-all / Cancel actions; tiles
+  render checkboxes; a bottom action bar exposes Archive (gated to
+  archive-eligible rows) and Delete (gated to all-archived rows; hub
+  refuses non-archived deletes). `SessionsNotifier.bulkArchive` /
+  `bulkDelete` run sequentially with a single refresh at the end, and
+  return per-id failures so the SnackBar can summarise instead of
+  bursting one toast per failure.
+
+### Changed
+- **Mode/Model picker moved from inline strip → AppBar icon.** The
+  ADR-021 W2.5 chip strip used to render above every transcript,
+  costing a row of vertical real estate even on engines that never
+  re-advertise mode/model after handshake. The picker now hangs off
+  the SessionChatScreen AppBar as a single `tune` icon — tap opens
+  one bottom-sheet showing both Mode and Model sections (whichever
+  the agent advertised). Tooltip surfaces the current values so the
+  current state is still glanceable without opening the sheet.
+  `AgentFeed` exposes the picker payload via a new
+  `onModeModelChanged` callback; the inline `_ModeModelStrip` is
+  retired.
 
 ---
 

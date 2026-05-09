@@ -109,6 +109,46 @@ class SessionsNotifier extends AsyncNotifier<SessionsState> {
     await refresh();
   }
 
+  /// Multi-select archive — runs each [archiveSession] sequentially,
+  /// collects per-id failures, then refreshes the list once at the
+  /// end. Returns the list of session ids that failed; empty when all
+  /// succeeded. The caller can show a single SnackBar instead of one
+  /// per failure. Sequential (not concurrent) to keep the hub's audit
+  /// log readable and avoid bursting the rate limiter on a long sweep.
+  Future<List<String>> bulkArchive(List<String> ids) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return ids;
+    final failed = <String>[];
+    for (final id in ids) {
+      try {
+        await client.archiveSession(id);
+      } catch (_) {
+        failed.add(id);
+      }
+    }
+    await _refreshSessionsAndHub();
+    return failed;
+  }
+
+  /// Multi-select delete — same semantics as [bulkArchive] but routes
+  /// through deleteSession. Hub refuses non-archived rows, so the UI
+  /// must gate this to archived selections; a refusal here ends up in
+  /// the failed list and the user keeps the original row intact.
+  Future<List<String>> bulkDelete(List<String> ids) async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return ids;
+    final failed = <String>[];
+    for (final id in ids) {
+      try {
+        await client.deleteSession(id);
+      } catch (_) {
+        failed.add(id);
+      }
+    }
+    await refresh();
+    return failed;
+  }
+
   /// Refresh both the sessions list and the hub-wide cache (which
   /// holds the agents list). Used by mutations that change which
   /// agents are live (resume, fork-with-attach, archive of the last

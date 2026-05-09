@@ -1305,11 +1305,25 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		d.resetTurn()
 		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
 		defer cancel()
-		_, err := d.call(promptCtx, "session/prompt", map[string]any{
+		// Mirrors the "text" branch above: post turn.result on success
+		// so mobile's busy walker flips off after the post-attention
+		// turn ends. Without this, the streaming agent_message_chunks
+		// (partial:true) leave the cancel-button overlay stuck on even
+		// though the agent has already replied stopReason=end_turn.
+		// Sending this prompt also cancels the in-flight prompt that
+		// raised the original attention; deliverResponse posts a
+		// synthetic turn.result(cancelled) for the orphan, which is
+		// fine — mobile is newest-first and the live end_turn we post
+		// here arrives strictly after the cancelled one.
+		res, err := d.call(promptCtx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt":    []map[string]any{{"type": "text", "text": body}},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		d.postTurnResult(ctx, res)
+		return nil
 	case "set_model":
 		// ADR-021 W2.2 — runtime model switch. Same shape as set_mode.
 		modelID, _ := payload["model_id"].(string)

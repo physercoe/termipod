@@ -20,64 +20,208 @@ import 'search_screen.dart';
 /// engine management. Per-steward kebab carries Reset (new
 /// conversation), Replace, Stop session, Rename.
 ///
+/// Multi-select mode: long-press on a session tile (or the AppBar
+/// "Select" menu item) enters select mode. While selecting, tiles
+/// render checkboxes, and a bottom action bar exposes batch Archive /
+/// Delete. Archive is gated on at least one active/paused row in the
+/// selection; Delete is gated on the selection being all-archived (the
+/// hub refuses to delete an active or paused session — gating here
+/// keeps the user from confusing the failure with a UI bug).
+///
 /// Single-steward installs collapse to the one-section view, which
 /// reads close to the prior flat-list page.
-class SessionsScreen extends ConsumerWidget {
+class SessionsScreen extends ConsumerStatefulWidget {
   const SessionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(sessionsProvider);
-    final hubState = ref.watch(hubProvider).value;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Sessions',
-          style:
-              GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700, fontSize: 18),
+  ConsumerState<SessionsScreen> createState() => _SessionsScreenState();
+}
+
+class _SessionsScreenState extends ConsumerState<SessionsScreen> {
+  // Multi-select state. _selecting toggles the AppBar to select mode
+  // and tiles to checkbox mode; _selectedIds tracks which session ids
+  // are currently picked. The set is keyed by session id (unique
+  // hub-side). Cleared when leaving select mode.
+  bool _selecting = false;
+  final Set<String> _selectedIds = <String>{};
+
+  // Enter select mode from a long-press on a tile. Pre-selects the
+  // tile so the gesture has the same feel as Gmail/Photos: long-press
+  // = "select this and turn on multi-pick".
+  void _enterSelectWith(String id) {
+    setState(() {
+      _selecting = true;
+      _selectedIds.add(id);
+    });
+  }
+
+  // Enter select mode from the AppBar kebab. No prime — the user picks
+  // which rows to act on after entering.
+  void _enterSelectEmpty() {
+    setState(() {
+      _selecting = true;
+    });
+  }
+
+  void _exitSelect() {
+    setState(() {
+      _selecting = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelect(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  // Gather all session rows (active + previous + orphans) currently
+  // visible in the screen. Used by Select-all and by the gating logic
+  // for the bottom-bar Archive/Delete actions.
+  List<Map<String, dynamic>> _visibleSessions(List<_StewardGroup> groups) {
+    final out = <Map<String, dynamic>>[];
+    for (final g in groups) {
+      if (g.current != null) out.add(g.current!);
+      out.addAll(g.previous);
+    }
+    return out;
+  }
+
+  void _selectAll(List<_StewardGroup> groups) {
+    setState(() {
+      for (final s in _visibleSessions(groups)) {
+        final id = (s['id'] ?? '').toString();
+        if (id.isNotEmpty) _selectedIds.add(id);
+      }
+    });
+  }
+
+  Future<void> _bulkArchive(List<Map<String, dynamic>> visible) async {
+    final ids = <String>[];
+    for (final s in visible) {
+      final id = (s['id'] ?? '').toString();
+      if (id.isEmpty || !_selectedIds.contains(id)) continue;
+      // Skip rows that are already archived — Archive is a no-op there
+      // and would just add audit-log noise.
+      final st = (s['status'] ?? '').toString();
+      if (st == 'archived' || st == 'closed' || st == 'deleted') continue;
+      ids.add(id);
+    }
+    if (ids.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Archive ${ids.length} session${ids.length == 1 ? '' : 's'}?'),
+        content: const Text(
+          'Archived sessions move to Previous. Their transcripts stay '
+          'available; you can fork from archive later to continue.',
         ),
         actions: [
-          IconButton(
-            tooltip: 'Search past sessions',
-            icon: const Icon(Icons.search),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const SessionSearchScreen(),
-              ),
-            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
-          IconButton(
-            tooltip: 'Spawn new steward',
-            icon: const Icon(Icons.add),
-            onPressed: () => _spawnNewSteward(context, ref),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            onSelected: (v) {
-              switch (v) {
-                case 'templates':
-                  // TemplatesScreen has tabs for both prompt/persona
-                  // templates and engines (agent_families) — one
-                  // entry covers both surfaces.
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => const TemplatesScreen(),
-                  ));
-                case 'refresh':
-                  ref.read(sessionsProvider.notifier).refresh();
-                  ref.read(hubProvider.notifier).refreshAll();
-              }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'templates',
-                child: Text('Templates & engines'),
-              ),
-              PopupMenuDivider(),
-              PopupMenuItem(value: 'refresh', child: Text('Refresh')),
-            ],
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Archive'),
           ),
         ],
       ),
+    );
+    if (ok != true || !mounted) return;
+    final failed = await ref
+        .read(sessionsProvider.notifier)
+        .bulkArchive(ids);
+    if (!mounted) return;
+    final n = ids.length - failed.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(failed.isEmpty
+            ? 'Archived $n session${n == 1 ? '' : 's'}.'
+            : 'Archived $n; ${failed.length} failed.'),
+      ),
+    );
+    _exitSelect();
+  }
+
+  Future<void> _bulkDelete(List<Map<String, dynamic>> visible) async {
+    final ids = <String>[];
+    var hasNonArchived = false;
+    for (final s in visible) {
+      final id = (s['id'] ?? '').toString();
+      if (id.isEmpty || !_selectedIds.contains(id)) continue;
+      final st = (s['status'] ?? '').toString();
+      if (st == 'archived' || st == 'closed') {
+        ids.add(id);
+      } else {
+        hasNonArchived = true;
+      }
+    }
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(hasNonArchived
+              ? 'Delete only works on archived sessions. Archive first.'
+              : 'No sessions selected.'),
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          'Delete ${ids.length} session${ids.length == 1 ? '' : 's'}?'
+          + (hasNonArchived ? ' (skipping unarchived)' : ''),
+        ),
+        content: const Text(
+          'The transcripts stay in the audit log but lose their '
+          'session-link. This is final.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final failed = await ref
+        .read(sessionsProvider.notifier)
+        .bulkDelete(ids);
+    if (!mounted) return;
+    final n = ids.length - failed.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(failed.isEmpty
+            ? 'Deleted $n session${n == 1 ? '' : 's'}.'
+            : 'Deleted $n; ${failed.length} failed.'),
+      ),
+    );
+    _exitSelect();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(sessionsProvider);
+    final hubState = ref.watch(hubProvider).value;
+    return Scaffold(
+      appBar: _selecting
+          ? _buildSelectAppBar(state, hubState)
+          : _buildDefaultAppBar(),
       body: state.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(
@@ -91,7 +235,16 @@ class SessionsScreen extends ConsumerWidget {
           final agents =
               hubState?.agents ?? const <Map<String, dynamic>>[];
           final groups = _groupByStateward(agents, s);
-          if (groups.isEmpty) return const _EmptyState();
+          if (groups.isEmpty) {
+            // Auto-exit select mode if everything disappeared (e.g.,
+            // bulkDelete cleared the list) — keeps the AppBar honest.
+            if (_selecting) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _exitSelect();
+              });
+            }
+            return const _EmptyState();
+          }
           return RefreshIndicator(
             onRefresh: () async {
               await ref.read(sessionsProvider.notifier).refresh();
@@ -100,11 +253,186 @@ class SessionsScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
-                for (final g in groups) _StewardSection(group: g),
+                for (final g in groups)
+                  _StewardSection(
+                    group: g,
+                    selecting: _selecting,
+                    selectedIds: _selectedIds,
+                    onLongPressTile: _enterSelectWith,
+                    onToggleTile: _toggleSelect,
+                  ),
+                if (_selecting) const SizedBox(height: 80),
               ],
             ),
           );
         },
+      ),
+      bottomNavigationBar: _selecting
+          ? state.maybeWhen(
+              data: (s) {
+                final groups = _groupByStateward(
+                  hubState?.agents ?? const <Map<String, dynamic>>[],
+                  s,
+                );
+                return _SelectionActionBar(
+                  selectedCount: _selectedIds.length,
+                  onArchive: () => _bulkArchive(_visibleSessions(groups)),
+                  onDelete: () => _bulkDelete(_visibleSessions(groups)),
+                );
+              },
+              orElse: () => const SizedBox.shrink(),
+            )
+          : null,
+    );
+  }
+
+  AppBar _buildDefaultAppBar() {
+    return AppBar(
+      title: Text(
+        'Sessions',
+        style: GoogleFonts.spaceGrotesk(
+            fontWeight: FontWeight.w700, fontSize: 18),
+      ),
+      actions: [
+        IconButton(
+          tooltip: 'Search past sessions',
+          icon: const Icon(Icons.search),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const SessionSearchScreen(),
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: 'Spawn new steward',
+          icon: const Icon(Icons.add),
+          onPressed: () => _spawnNewSteward(context, ref),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'More',
+          onSelected: (v) {
+            switch (v) {
+              case 'select':
+                _enterSelectEmpty();
+              case 'templates':
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const TemplatesScreen(),
+                ));
+              case 'refresh':
+                ref.read(sessionsProvider.notifier).refresh();
+                ref.read(hubProvider.notifier).refreshAll();
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(
+              value: 'select',
+              child: ListTile(
+                leading: Icon(Icons.check_box_outlined),
+                title: Text('Select…'),
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+              ),
+            ),
+            PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'templates',
+              child: Text('Templates & engines'),
+            ),
+            PopupMenuDivider(),
+            PopupMenuItem(value: 'refresh', child: Text('Refresh')),
+          ],
+        ),
+      ],
+    );
+  }
+
+  AppBar _buildSelectAppBar(
+    AsyncValue<SessionsState> state,
+    HubState? hubState,
+  ) {
+    final groups = state.maybeWhen(
+      data: (s) => _groupByStateward(
+        hubState?.agents ?? const <Map<String, dynamic>>[],
+        s,
+      ),
+      orElse: () => const <_StewardGroup>[],
+    );
+    final visible = _visibleSessions(groups);
+    final allSelected = visible.isNotEmpty &&
+        visible.every((s) =>
+            _selectedIds.contains((s['id'] ?? '').toString()));
+    return AppBar(
+      leading: IconButton(
+        tooltip: 'Cancel selection',
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelect,
+      ),
+      title: Text(
+        '${_selectedIds.length} selected',
+        style: GoogleFonts.spaceGrotesk(
+            fontWeight: FontWeight.w700, fontSize: 18),
+      ),
+      actions: [
+        IconButton(
+          tooltip: allSelected ? 'Clear selection' : 'Select all',
+          icon: Icon(allSelected
+              ? Icons.deselect
+              : Icons.select_all),
+          onPressed: () {
+            if (allSelected) {
+              setState(() => _selectedIds.clear());
+            } else {
+              _selectAll(groups);
+            }
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _SelectionActionBar extends StatelessWidget {
+  final int selectedCount;
+  final VoidCallback onArchive;
+  final VoidCallback onDelete;
+  const _SelectionActionBar({
+    required this.selectedCount,
+    required this.onArchive,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = selectedCount == 0;
+    return SafeArea(
+      top: false,
+      child: Material(
+        elevation: 8,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: disabled ? null : onArchive,
+                  icon: const Icon(Icons.archive_outlined),
+                  label: const Text('Archive'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: disabled ? null : onDelete,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -421,7 +749,21 @@ Future<void> _resetStewardConversation(
 ///   - Collapsible "previous (N)" subsection of closed sessions
 class _StewardSection extends ConsumerStatefulWidget {
   final _StewardGroup group;
-  const _StewardSection({required this.group});
+  // Multi-select wiring (sessions list batch-ops). Threaded through
+  // from the screen down to each _SessionTile so the same widget tree
+  // renders both modes — null in single-select callers means tiles
+  // behave like before.
+  final bool selecting;
+  final Set<String> selectedIds;
+  final void Function(String id) onLongPressTile;
+  final void Function(String id) onToggleTile;
+  const _StewardSection({
+    required this.group,
+    this.selecting = false,
+    this.selectedIds = const <String>{},
+    required this.onLongPressTile,
+    required this.onToggleTile,
+  });
 
   @override
   ConsumerState<_StewardSection> createState() => _StewardSectionState();
@@ -690,7 +1032,14 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
             ),
             // ── Current session ───────────────────────────────────
             if (group.current != null)
-              _SessionTile(session: group.current!)
+              _SessionTile(
+                session: group.current!,
+                selecting: widget.selecting,
+                selected: widget.selectedIds
+                    .contains((group.current!['id'] ?? '').toString()),
+                onLongPress: widget.onLongPressTile,
+                onToggleSelect: widget.onToggleTile,
+              )
             else if (!isOrphan)
               // Steward is alive but has no open/interrupted session.
               // Possible causes: pre-v1.0.290 steward spawned without
@@ -753,7 +1102,16 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                 ),
               ),
             if (_showPrevious)
-              ..._buildScopeGroupedPrevious(context, ref, group.previous, muted),
+              ..._buildScopeGroupedPrevious(
+                context,
+                ref,
+                group.previous,
+                muted,
+                selecting: widget.selecting,
+                selectedIds: widget.selectedIds,
+                onLongPressTile: widget.onLongPressTile,
+                onToggleTile: widget.onToggleTile,
+              ),
             const SizedBox(height: 4),
           ],
         ),
@@ -771,8 +1129,12 @@ List<Widget> _buildScopeGroupedPrevious(
   BuildContext context,
   WidgetRef ref,
   List<Map<String, dynamic>> previous,
-  Color muted,
-) {
+  Color muted, {
+  bool selecting = false,
+  Set<String> selectedIds = const <String>{},
+  void Function(String id)? onLongPressTile,
+  void Function(String id)? onToggleTile,
+}) {
   if (previous.isEmpty) return const [];
   final hub = ref.watch(hubProvider).value;
   // Bucket sessions into scope groups, preserving order.
@@ -848,7 +1210,13 @@ List<Widget> _buildScopeGroupedPrevious(
       ),
     ));
     for (final s in buckets[key]!) {
-      out.add(_SessionTile(session: s));
+      out.add(_SessionTile(
+        session: s,
+        selecting: selecting,
+        selected: selectedIds.contains((s['id'] ?? '').toString()),
+        onLongPress: onLongPressTile,
+        onToggleSelect: onToggleTile,
+      ));
     }
   }
   return out;
@@ -892,7 +1260,22 @@ class _EmptyState extends StatelessWidget {
 
 class _SessionTile extends ConsumerStatefulWidget {
   final Map<String, dynamic> session;
-  const _SessionTile({required this.session});
+  // Multi-select wiring. When [selecting] is true, the tile renders a
+  // checkbox in the leading position and intercepts taps to call
+  // [onToggleSelect] instead of opening the chat. Long-press always
+  // routes to [onLongPress] so users can enter select mode without
+  // opening a kebab menu first.
+  final bool selecting;
+  final bool selected;
+  final void Function(String id)? onLongPress;
+  final void Function(String id)? onToggleSelect;
+  const _SessionTile({
+    required this.session,
+    this.selecting = false,
+    this.selected = false,
+    this.onLongPress,
+    this.onToggleSelect,
+  });
 
   @override
   ConsumerState<_SessionTile> createState() => _SessionTileState();
@@ -1126,22 +1509,34 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
 
     final displayTitle = title.isEmpty ? '(untitled session)' : title;
 
+    // Selecting? Render a Checkbox in the leading slot, hide the
+    // per-row trailing actions (resume/menu) since they don't apply
+    // mid-batch, and route taps + long-press to the selection
+    // callbacks. The chat-open onTap is replaced wholesale so users
+    // can't accidentally navigate away with a selection in progress.
+    final selected = widget.selected;
+    final inSelect = widget.selecting;
     return ListTile(
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      leading: CircleAvatar(
-        radius: 14,
-        backgroundColor: statusColor.withValues(alpha: 0.18),
-        child: Icon(
-          (status == 'paused' || status == 'interrupted')
-              ? Icons.pause_circle_outline
-              : ((status == 'archived' || status == 'closed')
-                  ? Icons.history
-                  : Icons.forum_outlined),
-          size: 16,
-          color: statusColor,
-        ),
-      ),
+      leading: inSelect
+          ? Checkbox(
+              value: selected,
+              onChanged: (_) => widget.onToggleSelect?.call(id),
+            )
+          : CircleAvatar(
+              radius: 14,
+              backgroundColor: statusColor.withValues(alpha: 0.18),
+              child: Icon(
+                (status == 'paused' || status == 'interrupted')
+                    ? Icons.pause_circle_outline
+                    : ((status == 'archived' || status == 'closed')
+                        ? Icons.history
+                        : Icons.forum_outlined),
+                size: 16,
+                color: statusColor,
+              ),
+            ),
       title: Text(
         displayTitle,
         style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w600),
@@ -1154,23 +1549,30 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
           if (scopeKind.isNotEmpty) scopeKind,
           if (worktree.isNotEmpty) _shortPath(worktree),
         ].join(' · '),
-        style:
-            GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+        style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: _trailing(context, status, lastActive, muted),
-      onTap: agentId.isEmpty
+      trailing: inSelect
           ? null
-          : () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => SessionChatScreen(
-                    sessionId: id,
-                    agentId: agentId,
-                    title: displayTitle,
-                  ),
-                ),
-              ),
+          : _trailing(context, status, lastActive, muted),
+      selected: inSelect && selected,
+      onLongPress: inSelect
+          ? null
+          : (id.isEmpty ? null : () => widget.onLongPress?.call(id)),
+      onTap: inSelect
+          ? (id.isEmpty ? null : () => widget.onToggleSelect?.call(id))
+          : (agentId.isEmpty
+              ? null
+              : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SessionChatScreen(
+                        sessionId: id,
+                        agentId: agentId,
+                        title: displayTitle,
+                      ),
+                    ),
+                  )),
     );
   }
 
@@ -1354,6 +1756,12 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
   // surface itself isn't paying a row of vertical real estate for a
   // fixed-shape header.
   Map<String, dynamic>? _sessionInit;
+  // Latest mode + model picker payload reported up by AgentFeed (ADR-
+  // 021 W2.5). Hosting the picker in the AppBar keeps it one tap away
+  // without burning a chip strip above the transcript on every turn.
+  // Null when no agent has advertised either capability — the AppBar
+  // icon hides in that case.
+  ModeModelPickerData? _modeModel;
 
   // Best-effort lookup of the agent's `kind` (engine: claude-code,
   // codex, …) from the cached hub state. Returns null when the agent
@@ -1694,6 +2102,26 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               payload: _sessionInit!,
               agentKind: _agentKind(),
             ),
+          if (_modeModel != null && _modeModel!.hasAny)
+            IconButton(
+              // ADR-021 W2.5 — single AppBar entry covers both mode and
+              // model picker (sheet renders both sections when present).
+              // Tooltip surfaces the current values so users don't have
+              // to open the sheet just to check what's active.
+              tooltip: () {
+                final parts = <String>[];
+                final mode = _modeModel!.currentModeLabel;
+                final model = _modeModel!.currentModelLabel;
+                if (mode != null) parts.add('mode: $mode');
+                if (model != null) parts.add('model: $model');
+                return parts.isEmpty
+                    ? 'Mode & model'
+                    : parts.join(' · ');
+              }(),
+              icon: const Icon(Icons.tune),
+              onPressed: () =>
+                  showModeModelPickerSheet(context, _modeModel!),
+            ),
           IconButton(
             tooltip: 'Rename session',
             icon: const Icon(Icons.edit_outlined),
@@ -1744,6 +2172,7 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
         sessionId: widget.sessionId,
         initialSeq: widget.initialSeq,
         onSessionInit: (p) => setState(() => _sessionInit = p),
+        onModeModelChanged: (d) => setState(() => _modeModel = d),
       ),
     );
   }

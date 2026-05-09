@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** In flight (W1-W4 shipped 2026-05-09)
+> **Status:** In flight (W1-W4 + W5a shipped 2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.460
+> **Last verified vs code:** v1.0.461
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -163,17 +163,39 @@ want to swap scopes inside the same drilldown context.
 
 ### W5 — Tier-2 dimensions
 
-Six dimension blocks, each rendered as a drilldown sheet from a
-Tier-1 tile (or a new entry on a related screen):
+Six dimension blocks. Reframed mid-flight as **W5a-W5f sub-wedges**
+because each dimension's data source has its own readiness profile —
+shipping them serially lets the cheap ones land while the expensive
+ones remain queued.
 
-| Dimension | Surfaced from | Render |
-|---|---|---|
-| Engine arbitrage | Spend tile | $/turn × success% split by engine |
-| Lifecycle flow | (new tile) | time-in-phase, ratification rate, criterion pass-rate, gate-stuck count |
-| Tool-call efficiency | Errors tile | gate approve%, retries, tools/turn |
-| Unit economics | Spend tile | $/session, $/deliverable ratified, $/attention resolved |
-| Snippet / template usage | (new sheet on Settings) | which presets used, mode/model picker churn |
-| Multi-host distribution | Capacity tile (Hub Detail) | agent count per host, GPU vs CPU load, disk per host |
+#### W5a — Engine + model breakdown (SHIPPED v1.0.461-alpha)
+
+The hub's `/v1/insights` response already carries `by_engine` and
+`by_model` rollups (Phase 1 W2 / handlers_insights.go); this wedge
+is pure-mobile rendering. Adds an `InsightsBreakdownSection` below
+the panel on `InsightsScreen`. Two stacked tables — by engine, by
+model — each row showing tokens (sorted descending), a share bar
+relative to the max, turn count, and tokens/turn. The tokens/turn
+column is the actionable engine-arbitrage signal: a steady
+tokens/turn at a per-engine price differential is what "should I
+pivot to a cheaper engine" asks. Once the pricing table lands
+(post-MVP per ADR-022) it becomes the numerator of $/turn directly.
+
+**File shipped:**
+- `lib/widgets/insights_breakdown_section.dart` —
+  `InsightsBreakdownSection` widget; reads the same provider the
+  panel does, so no second round-trip.
+
+#### W5b-W5f remaining
+
+| Sub-wedge | Dimension | Status | Surfaced from | Render |
+|---|---|---|---|---|
+| W5a | Engine + model breakdown | SHIPPED | Insights screen | tokens, share-bar, turns, tokens/turn |
+| W5b | Multi-host distribution | pending | Capacity tile (Hub Detail) | agent count per host, GPU vs CPU load, disk per host |
+| W5c | Tool-call efficiency | pending | Errors tile | gate approve%, retries, tools/turn |
+| W5d | Lifecycle flow | pending | (new tile) | time-in-phase, ratification rate, criterion pass-rate, gate-stuck count |
+| W5e | Unit economics | pending | Spend tile | $/session, $/deliverable ratified, $/attention resolved |
+| W5f | Snippet / template usage | pending | (new sheet on Settings) | which presets used, mode/model picker churn |
 
 The lifecycle dimension reads from `phase_specs`, `deliverables`,
 `acceptance_criteria` (added by W5 / W6 of

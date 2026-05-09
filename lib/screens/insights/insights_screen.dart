@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/insights_breakdown_section.dart';
 import '../../widgets/insights_panel.dart';
 
 /// Fullscreen Insights view per ADR-022 D7 — "six entry points, one
@@ -56,10 +57,12 @@ class InsightsScreen extends ConsumerWidget {
             const SizedBox(height: 16),
             InsightsPanel(scope: scope),
             const SizedBox(height: 24),
-            // Phase 2 W5 lands Tier-2 drilldown sheets here. For now the
-            // panel is the whole body — the fullscreen view's value over
-            // the embedded one is the standalone scope context + the
-            // explicit refresh action.
+            // Phase 2 W5a — engine + model breakdown. Reads `by_engine`
+            // and `by_model` from the same /v1/insights response the
+            // panel already fetched, so this is pure-mobile cost.
+            // Lifecycle flow / tool-call efficiency / unit economics /
+            // snippet usage / multi-host distribution still pending.
+            InsightsBreakdownSection(scope: scope),
           ],
         ),
       ),

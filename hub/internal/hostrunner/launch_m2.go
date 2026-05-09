@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/agentfamilies"
@@ -49,6 +50,16 @@ type RealProcSpawner struct{}
 
 func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser, io.WriteCloser, func(), error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	// Run bash + its descendants in a fresh process group so kill()
+	// reaches the engine the bash invocation actually exec'd. Without
+	// Setpgid, `cmd.Process.Kill()` SIGKILLs only the bash parent; the
+	// gemini-cli (or any) child inherits init as its parent and stays
+	// alive holding per-user file locks (~/.gemini/oauth_creds.json,
+	// settings.json singleton). The next M1 launch then stalls at
+	// `initialize` — the new daemon contends with the orphan and times
+	// out at HandshakeTimeout (90s), forcing an M2 fallback with a
+	// brand-new session_id.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, nil, err
@@ -66,16 +77,16 @@ func (RealProcSpawner) Spawn(ctx context.Context, command string) (io.ReadCloser
 		_ = stdout.Close()
 		return nil, nil, nil, err
 	}
-	kill := func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	}
+	kill := killProcessGroup(cmd)
 	return stdout, stdin, kill, nil
 }
 
 func (RealProcSpawner) SpawnWithStderr(ctx context.Context, command string) (io.ReadCloser, io.ReadCloser, io.WriteCloser, func(), error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	// See Spawn() for why the process group matters. M1 spawn relies on
+	// this so a hung gemini-cli daemon dies on Stop() instead of leaking
+	// into the next launch's `initialize` window.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -97,12 +108,29 @@ func (RealProcSpawner) SpawnWithStderr(ctx context.Context, command string) (io.
 		_ = stderr.Close()
 		return nil, nil, nil, nil, err
 	}
-	kill := func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-	}
+	kill := killProcessGroup(cmd)
 	return stdout, stderr, stdin, kill, nil
+}
+
+// killProcessGroup returns a closer that SIGKILLs the entire process
+// group rooted at cmd. Negative pid in syscall.Kill targets the process
+// group leader's group; we also call cmd.Process.Kill() as a belt-and-
+// suspenders fallback for the (rare) case where Setpgid silently failed
+// at Start time. Idempotent: repeated calls after the group is dead
+// return ESRCH which we ignore.
+func killProcessGroup(cmd *exec.Cmd) func() {
+	return func() {
+		if cmd == nil || cmd.Process == nil {
+			return
+		}
+		// pgid == pid because we set Setpgid=true at Start; the kernel
+		// makes the child its own pgrp leader.
+		pid := cmd.Process.Pid
+		if pid > 0 {
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+		}
+		_ = cmd.Process.Kill()
+	}
 }
 
 // M2LaunchConfig carries everything launchM2 needs, grouped so the

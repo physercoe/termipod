@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -116,14 +117,24 @@ type ACPDriver struct {
 	done   chan struct{}
 
 	pendingMu sync.Mutex
-	pending   map[int64]chan acpResponse
+	// pending is keyed by the *canonical string form* of the JSON-RPC id,
+	// not the raw int64 we generate. JSON-RPC 2.0 §4 says ids are
+	// "String, Number, or NULL" and peers MAY echo back in a different
+	// JSON shape than we sent (gemini-cli@0.41+ stringifies our int ids
+	// in its session/prompt response — `{"id":"5",...}` for our
+	// `{"id":5,...}`). Indexing by the canonical string lets us match
+	// either echo without stringly-comparing JSON. canonicalACPID()
+	// produces "5" for both 5 and "5"; mismatched string ids match
+	// because we store the same canonical key when we issue.
+	pending map[string]chan acpResponse
 	// promptIDs tracks JSON-RPC ids that were issued for session/prompt
 	// requests. deliverResponse uses this to recognize an orphaned
 	// session/prompt response (one whose call already timed out or
 	// was abandoned) and post a synthetic turn.result so mobile's
 	// busy-walker still sees a terminal kind. Cleared when the call
 	// returns OR when the orphaned-response path consumes the id.
-	promptIDs map[int64]struct{}
+	// Keyed by the same canonical string form as `pending`.
+	promptIDs map[string]struct{}
 	// permMu protects pendingPerm; we need a separate lock because the
 	// reader (recording a request_id) and Input (resolving it) can race.
 	permMu      sync.Mutex
@@ -238,8 +249,8 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		return nil
 	}
 	d.started = true
-	d.pending = make(map[int64]chan acpResponse)
-	d.promptIDs = make(map[int64]struct{})
+	d.pending = make(map[string]chan acpResponse)
+	d.promptIDs = make(map[string]struct{})
 	d.pendingPerm = make(map[string]json.RawMessage)
 	// Per-spawn nonce so the request_id we surface to mobile doesn't
 	// collide with a previous spawn's id=0 (see permSpawnNonce doc).
@@ -548,19 +559,23 @@ func (d *ACPDriver) Stop() {
 }
 
 // call sends a request and blocks until the matching response arrives,
-// the context deadline fires, or the transport closes.
+// the context deadline fires, or the transport closes. The wire id is
+// always written as a JSON number; the pending map is keyed by the
+// canonical string form so an agent that echoes the id as a string
+// (gemini-cli@0.41+) still matches.
 func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	id := d.nextID.Add(1)
+	key := strconv.FormatInt(id, 10)
 	ch := make(chan acpResponse, 1)
 	d.pendingMu.Lock()
-	d.pending[id] = ch
+	d.pending[key] = ch
 	// Track session/prompt ids so deliverResponse can recognize an
 	// orphaned response (one whose call timed out and is no longer
 	// listening) and post a synthetic turn.result. Without this,
 	// gemini's late stopReason=cancelled reply gets dropped and mobile
 	// stays stuck on the cancel button.
 	if method == "session/prompt" {
-		d.promptIDs[id] = struct{}{}
+		d.promptIDs[key] = struct{}{}
 	}
 	d.pendingMu.Unlock()
 
@@ -571,26 +586,26 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 		"params":  params,
 	}); err != nil {
 		d.pendingMu.Lock()
-		delete(d.pending, id)
-		delete(d.promptIDs, id)
+		delete(d.pending, key)
+		delete(d.promptIDs, key)
 		d.pendingMu.Unlock()
 		return nil, err
 	}
 
 	select {
 	case <-ctx.Done():
-		// Leave promptIDs[id] set on timeout/cancel — the orphaned
+		// Leave promptIDs[key] set on timeout/cancel — the orphaned
 		// session/prompt response is exactly the case the deliverResponse
 		// path needs to recognize. Only the pending channel is removed.
 		d.pendingMu.Lock()
-		delete(d.pending, id)
+		delete(d.pending, key)
 		d.pendingMu.Unlock()
 		return nil, ctx.Err()
 	case resp, ok := <-ch:
 		// Successful (or rpc-errored) response — call is no longer
 		// orphaned, drop the prompt-id tracker.
 		d.pendingMu.Lock()
-		delete(d.promptIDs, id)
+		delete(d.promptIDs, key)
 		d.pendingMu.Unlock()
 		if !ok {
 			return nil, fmt.Errorf("transport closed")
@@ -600,6 +615,36 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 		}
 		return resp.result, nil
 	}
+}
+
+// canonicalACPID normalizes a JSON-RPC id into a stable string key. JSON
+// numbers and JSON strings produce the same key when they encode the
+// same logical value (so 5 and "5" both → "5"). Returns "", false for
+// null or otherwise unparseable ids — callers drop those messages
+// because there's no way to correlate them to an outstanding call.
+func canonicalACPID(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", false
+	}
+	var n int64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return strconv.FormatInt(n, 10), true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+		// If the string contains a clean integer, normalize to the int
+		// form so a peer toggling between 5 and "5" within one session
+		// (or replying with leading zeroes "05") still matches.
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return strconv.FormatInt(v, 10), true
+		}
+		return s, true
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return strconv.FormatFloat(f, 'f', -1, 64), true
+	}
+	return "", false
 }
 
 // acpAuthMethod is one entry from initialize.authMethods. ACP doesn't
@@ -950,18 +995,18 @@ func (d *ACPDriver) readLoop(ctx context.Context) {
 }
 
 func (d *ACPDriver) deliverResponse(msg acpMessage) {
-	var idNum int64
-	if err := json.Unmarshal(*msg.ID, &idNum); err != nil {
+	key, ok := canonicalACPID(*msg.ID)
+	if !ok {
 		return
 	}
 	d.pendingMu.Lock()
-	ch, ok := d.pending[idNum]
+	ch, ok := d.pending[key]
 	if ok {
-		delete(d.pending, idNum)
+		delete(d.pending, key)
 	}
-	_, isPrompt := d.promptIDs[idNum]
+	_, isPrompt := d.promptIDs[key]
 	if isPrompt {
-		delete(d.promptIDs, idNum)
+		delete(d.promptIDs, key)
 	}
 	d.pendingMu.Unlock()
 	if ok {

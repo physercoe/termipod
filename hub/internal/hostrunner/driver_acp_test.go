@@ -1111,7 +1111,7 @@ func TestACPDriver_WriteTimeout(t *testing.T) {
 	drv.started = true
 	drv.done = make(chan struct{})
 	drv.writeQ = make(chan *acpWriteReq, 32)
-	drv.pending = make(map[int64]chan acpResponse)
+	drv.pending = make(map[string]chan acpResponse)
 	drv.pendingPerm = make(map[string]json.RawMessage)
 	drv.wg.Add(1)
 	go drv.writerLoop()
@@ -1844,6 +1844,111 @@ func TestACPDriver_PostsTurnResultOnPromptResponse(t *testing.T) {
 	}
 	if v, _ := entry["output"].(float64); v != 45 {
 		t.Errorf("by_model entry.output = %v; want 45 (canonical name lifted from output_tokens)", entry["output"])
+	}
+}
+
+// TestACPDriver_StringIDResponseDelivers locks the v1.0.445 fix.
+// gemini-cli@0.41+ echoes the JSON-RPC id back as a JSON *string*
+// (`{"id":"5",...}`) rather than the JSON number we sent
+// (`{"id":5,...}`). The previous deliverResponse path tried
+// `json.Unmarshal(*msg.ID, &idNum)` straight into an int64 and silently
+// dropped responses whose id wasn't a number — leaving session/prompt
+// blocked until PromptTimeout fired with the misleading "stuck on auth"
+// hint. canonicalACPID() now normalizes both shapes to the same key.
+//
+// Without this test, a future refactor could re-introduce the
+// type-strict path and the bug would only surface against real gemini.
+func TestACPDriver_StringIDResponseDelivers(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Fake agent that ALWAYS echoes the id back as a JSON string,
+	// regardless of what we sent. Mirrors gemini-cli@0.41+'s observed
+	// wire behaviour for session/prompt responses.
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			// Force the id into a string regardless of original type.
+			var idStr string
+			switch v := msg["id"].(type) {
+			case float64:
+				idStr = fmt.Sprintf("%d", int64(v))
+			case string:
+				idStr = v
+			default:
+				idStr = fmt.Sprintf("%v", v)
+			}
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": idStr,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": idStr,
+					"result": map[string]any{"sessionId": "sess-strid"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": idStr,
+					"result": map[string]any{"stopReason": "end_turn"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-strid",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		// Tight prompt budget so a regression that drops the response
+		// surfaces as a fast test failure rather than a 2-minute hang.
+		PromptTimeout: 800 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start (initialize id was a string — driver must still match it): %v", err)
+	}
+	defer drv.Stop()
+
+	start := time.Now()
+	err := drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("Input: %v (a string-id session/prompt response should deliver to call() instead of timing out)", err)
+	}
+	if elapsed > 700*time.Millisecond {
+		t.Errorf("Input took %v; want it to return quickly once the response delivers, not block on PromptTimeout", elapsed)
+	}
+
+	var tr map[string]any
+	for _, e := range poster.snapshot() {
+		if e.Kind == "turn.result" {
+			tr = e.Payload
+			break
+		}
+	}
+	if tr == nil {
+		t.Fatal("no turn.result posted — string-id response did not deliver")
+	}
+	if tr["stop_reason"] != "end_turn" {
+		t.Errorf("stop_reason = %v; want end_turn", tr["stop_reason"])
 	}
 }
 

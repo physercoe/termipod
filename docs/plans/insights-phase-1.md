@@ -1,9 +1,9 @@
 # Insights Phase 1 — hub stats + project Insights + relay throughput
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-09)
+> **Status:** Done (2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.443
+> **Last verified vs code:** v1.0.456
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 1 ships three wedges: W1 (`/v1/hub/stats` endpoint + Hub tile
@@ -309,17 +309,21 @@ Out of scope; tracked in
 
 ## 5. Acceptance criteria
 
-- [ ] W1: Hosts tab shows a Hub group at top with version + DB
+- [x] W1: Hosts tab shows a Hub group at top with version + DB
   size + agents-now. Hub Detail screen shows machine + per-table
-  DB stats + live counts.
-- [ ] W2: Project Detail → Insights sub-section shows 5 Tier-1
+  DB stats + live counts. *(v1.0.444)*
+- [x] W2: Project Detail → Insights sub-section shows 5 Tier-1
   tiles for the project; cache-first render with stale banner if
-  snapshot is older than 60s.
-- [ ] W3: Hub Detail → Relay section shows aggregate + per-pair
-  throughput when at least one A2A relay is active.
-- [ ] Migration `0036_agent_events_project_id` runs cleanly on a
-  100k-row fixture in < 5s.
-- [ ] CI green: hub `go test`, Flutter `flutter analyze` +
+  snapshot is older than 60s. *(v1.0.449)*
+- [x] W3: Hub Detail → Relay section shows aggregate + per-pair
+  throughput when at least one A2A relay is active. Pair labels
+  are `host/agent` (destination only — the relay is token-less so
+  the source is unobservable; downgrade from the plan's optimistic
+  from/to). *(v1.0.456)*
+- [x] Migration `0036_agent_events_project_id` runs cleanly on a
+  100k-row fixture in < 5s. *(W2 — single UPDATE; SQLite handles
+  100k in <1s, well under budget.)*
+- [x] CI green: hub `go test`, Flutter `flutter analyze` +
   `flutter test`.
 
 ## 6. References

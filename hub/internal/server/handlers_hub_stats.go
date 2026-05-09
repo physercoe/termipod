@@ -76,7 +76,7 @@ func (s *Server) handleHubStats(w http.ResponseWriter, r *http.Request) {
 			"schema_version": schemaV,
 			"tables":         tablesBlock,
 		},
-		"live": readLiveBlock(ctx, s.db, s.bus),
+		"live": readLiveBlock(ctx, s.db, s.bus, s.tunnel),
 	}
 	if buildinfo.Commit != "" {
 		out["commit"] = buildinfo.Commit
@@ -172,12 +172,37 @@ func cloneTables(rows, bytes map[string]int64) map[string]map[string]int64 {
 // readLiveBlock returns the realtime counters for the stats endpoint.
 // active_agents counts agents in 'running' status; open_sessions counts
 // sessions with status 'active'. SSE subscribers come from the in-process
-// event bus subscriber map.
-func readLiveBlock(ctx context.Context, db *sql.DB, bus *eventBus) map[string]any {
+// event bus subscriber map. A2A relay throughput (insights-phase-1 W3)
+// is appended as flat fields so the existing `live` shape stays
+// non-breaking; pair detail goes under `a2a_relay_pairs`.
+func readLiveBlock(ctx context.Context, db *sql.DB, bus *eventBus, tunnel *TunnelManager) map[string]any {
 	out := map[string]any{
 		"active_agents":   countOrZero(ctx, db, "SELECT count(*) FROM agents WHERE status = 'running'"),
 		"open_sessions":   countOrZero(ctx, db, "SELECT count(*) FROM sessions WHERE status = 'active'"),
 		"sse_subscribers": bus.SubscriberCount(),
+	}
+	if tunnel != nil && tunnel.metrics != nil {
+		snap := tunnel.metrics.Snapshot()
+		// Always surface active + dropped — they answer "is the relay
+		// loop alive" even on a quiet hub. bytes_per_sec / pairs only
+		// ship when there's something to show, keeping mobile tile
+		// rendering simple (presence of pairs == there's a sub-list).
+		out["a2a_relay_active"] = snap.Active
+		out["a2a_dropped_total"] = snap.Dropped
+		if snap.BytesPerSec > 0 {
+			out["a2a_bytes_per_sec"] = snap.BytesPerSec
+		}
+		if len(snap.Pairs) > 0 {
+			pairs := make([]map[string]any, 0, len(snap.Pairs))
+			for _, p := range snap.Pairs {
+				pairs = append(pairs, map[string]any{
+					"host":          p.Host,
+					"agent":         p.Agent,
+					"bytes_per_sec": p.BytesPerSec,
+				})
+			}
+			out["a2a_relay_pairs"] = pairs
+		}
 	}
 	return out
 }

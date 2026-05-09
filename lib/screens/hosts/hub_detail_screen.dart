@@ -13,8 +13,11 @@ import '../../theme/design_colors.dart';
 ///   1. Machine — OS / arch / CPU / RAM / kernel
 ///   2. Database — total size / WAL / schema version / per-table rows + bytes
 ///   3. Live — active agents / open sessions / SSE subscribers
-///   4. Relay (W3) — landed in a follow-up wedge; this file only renders
-///      the placeholder when the `live.a2a_relay_*` keys are present.
+///   4. Relay — A2A throughput aggregate + per-pair list. Only rendered
+///      when the hub has shipped any of the `live.a2a_relay_*` keys.
+///      Quiet hubs ship `a2a_relay_active` + `a2a_dropped_total` only,
+///      so the section still appears (with zero rows) — confirms the
+///      relay loop is alive even before any traffic flows.
 ///
 /// Pull-to-refresh re-runs `refreshHubStats()`.
 class HubDetailScreen extends ConsumerWidget {
@@ -57,6 +60,11 @@ class HubDetailScreen extends ConsumerWidget {
                   const SizedBox(height: 16),
                   _SectionHeader(label: 'LIVE'),
                   _LiveCard(live: stats['live']),
+                  if (_hasRelayBlock(stats['live'])) ...[
+                    const SizedBox(height: 16),
+                    _SectionHeader(label: 'A2A RELAY'),
+                    _RelayCard(live: stats['live']),
+                  ],
                 ],
               ),
       ),
@@ -316,12 +324,105 @@ class _LiveCard extends StatelessWidget {
           _Row(
               label: 'SSE subscribers',
               value: _toInt(l['sse_subscribers']).toString()),
-          if (l.containsKey('a2a_relay_active'))
-            _Row(label: 'A2A relays', value: _toInt(l['a2a_relay_active']).toString()),
         ],
       ),
     );
   }
+}
+
+bool _hasRelayBlock(Object? live) {
+  if (live is! Map) return false;
+  final l = (live).cast<String, dynamic>();
+  return l.containsKey('a2a_relay_active') ||
+      l.containsKey('a2a_dropped_total') ||
+      l.containsKey('a2a_bytes_per_sec') ||
+      l.containsKey('a2a_relay_pairs');
+}
+
+/// Surfaces the W3 throughput block from `/v1/hub/stats.live`. Aggregate
+/// rows always render (active gauge + dropped counter); the per-pair
+/// list only appears when at least one destination is currently active.
+/// Pair labels are `host/agent` because the relay path is token-less and
+/// can't observe the source agent — see relay_metrics.go.
+class _RelayCard extends StatelessWidget {
+  final Object? live;
+  const _RelayCard({required this.live});
+
+  @override
+  Widget build(BuildContext context) {
+    if (live is! Map) return const _Card(child: Text('—'));
+    final l = (live as Map).cast<String, dynamic>();
+    final active = _toInt(l['a2a_relay_active']);
+    final dropped = _toInt(l['a2a_dropped_total']);
+    final bps = _toInt(l['a2a_bytes_per_sec']);
+    final pairsRaw = l['a2a_relay_pairs'];
+    final pairs = pairsRaw is List
+        ? pairsRaw
+            .whereType<Map>()
+            .map((p) => p.cast<String, dynamic>())
+            .toList()
+        : const <Map<String, dynamic>>[];
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Row(label: 'In-flight', value: active.toString()),
+          _Row(label: 'Throughput', value: _bytesPerSec(bps)),
+          _Row(label: 'Dropped', value: dropped.toString()),
+          if (pairs.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            for (final p in pairs)
+              _PairRow(
+                host: p['host']?.toString() ?? '',
+                agent: p['agent']?.toString() ?? '',
+                bytesPerSec: _toInt(p['bytes_per_sec']),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PairRow extends StatelessWidget {
+  final String host;
+  final String agent;
+  final int bytesPerSec;
+  const _PairRow({
+    required this.host,
+    required this.agent,
+    required this.bytesPerSec,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text('$host / $agent',
+                style: GoogleFonts.jetBrainsMono(
+                    fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+          Text(_bytesPerSec(bytesPerSec),
+              style:
+                  GoogleFonts.jetBrainsMono(fontSize: 11, color: muted)),
+        ],
+      ),
+    );
+  }
+}
+
+String _bytesPerSec(int bps) {
+  if (bps <= 0) return '0 B/s';
+  return '${_bytesToHuman(bps)}/s';
 }
 
 int _toInt(Object? v) {

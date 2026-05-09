@@ -125,6 +125,70 @@ func TestHubStats_RowCountCache(t *testing.T) {
 	}
 }
 
+// TestHubStats_RelayBlock verifies the W3 throughput counters land in
+// the live block once a relay has seen traffic, and stay omitted (only
+// the active+dropped gauges) on a quiet hub. Active/dropped are the
+// "is the relay loop alive" signal; bytes_per_sec/pairs answer "what
+// is it doing right now."
+func TestHubStats_RelayBlock(t *testing.T) {
+	c := newE2E(t)
+
+	// Quiet hub: no relay traffic. Active + dropped MUST be present
+	// (mobile reads them unconditionally); pairs/bytes MUST be absent.
+	_, body := c.call("GET", "/v1/hub/stats", nil)
+	live, ok := body["live"].(map[string]any)
+	if !ok {
+		t.Fatalf("live block missing")
+	}
+	if _, ok := live["a2a_relay_active"]; !ok {
+		t.Errorf("quiet hub: a2a_relay_active should be present (gauge)")
+	}
+	if _, ok := live["a2a_dropped_total"]; !ok {
+		t.Errorf("quiet hub: a2a_dropped_total should be present (counter)")
+	}
+	if _, ok := live["a2a_bytes_per_sec"]; ok {
+		t.Errorf("quiet hub: a2a_bytes_per_sec should be omitted; got %v", live["a2a_bytes_per_sec"])
+	}
+	if _, ok := live["a2a_relay_pairs"]; ok {
+		t.Errorf("quiet hub: a2a_relay_pairs should be omitted; got %v", live["a2a_relay_pairs"])
+	}
+
+	// Drive the metrics directly (a real relay round-trip needs a
+	// host-runner echoing /tunnel/next; tunnel_a2a_test covers that
+	// integration path). We just need bytes_per_sec to be > 0 and a
+	// pair to surface.
+	c.s.tunnel.metrics.Record("host-gpu", "agent-w", 30_000)
+
+	_, body = c.call("GET", "/v1/hub/stats", nil)
+	live = body["live"].(map[string]any)
+	if v, ok := live["a2a_bytes_per_sec"]; !ok || toInt64(v) <= 0 {
+		t.Errorf("active hub: a2a_bytes_per_sec should be positive; got %v", v)
+	}
+	pairs, ok := live["a2a_relay_pairs"].([]any)
+	if !ok || len(pairs) == 0 {
+		t.Fatalf("active hub: a2a_relay_pairs should have ≥1 entry; got %v", live["a2a_relay_pairs"])
+	}
+	pair := pairs[0].(map[string]any)
+	if pair["host"] != "host-gpu" || pair["agent"] != "agent-w" {
+		t.Errorf("pair = %v, want host-gpu/agent-w", pair)
+	}
+	if toInt64(pair["bytes_per_sec"]) <= 0 {
+		t.Errorf("pair bytes_per_sec = %v, want > 0", pair["bytes_per_sec"])
+	}
+}
+
+func toInt64(v any) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	}
+	return 0
+}
+
 func tableRows(t *testing.T, body map[string]any, table string) int64 {
 	t.Helper()
 	db, ok := body["db"].(map[string]any)

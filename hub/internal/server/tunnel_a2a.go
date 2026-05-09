@@ -35,6 +35,10 @@ type TunnelManager struct {
 	mu       sync.Mutex
 	requests map[string]chan *tunnelRequest  // host_id → queue of pending requests
 	pending  map[string]chan *tunnelResponse // req_id → response waiter
+	// metrics is the W3 throughput counter — see relay_metrics.go.
+	// Always non-nil; absence is signalled from the stats handler by
+	// omitting the block when no traffic was observed.
+	metrics *RelayMetrics
 }
 
 // tunnelRequest is one queued A2A request awaiting a host-runner dispatch.
@@ -60,6 +64,7 @@ func newTunnelManager() *TunnelManager {
 	return &TunnelManager{
 		requests: map[string]chan *tunnelRequest{},
 		pending:  map[string]chan *tunnelResponse{},
+		metrics:  NewRelayMetrics(),
 	}
 }
 
@@ -274,8 +279,15 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 
+	// Stats accounting (insights-phase-1 W3) — counted around the
+	// enqueue→wait so the gauge reflects actual hub-side time spent on
+	// this round trip, including the host-runner's processing latency.
+	releaseActive := s.tunnel.metrics.Begin()
+	defer releaseActive()
+
 	resp, err := s.tunnel.enqueueAndWait(ctx, host, req)
 	if err != nil {
+		s.tunnel.metrics.Dropped()
 		if errors.Is(err, context.DeadlineExceeded) {
 			writeErr(w, http.StatusGatewayTimeout, "host-runner did not respond in time")
 			return
@@ -301,6 +313,10 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
+	// Record the round-trip's byte volume against the destination pair
+	// before writing the response — ensures the metrics tick before the
+	// client closes its end and a quick burst of subsequent calls.
+	s.tunnel.metrics.Record(host, agent, int64(len(body))+int64(len(bodyBytes)))
 	w.WriteHeader(status)
 	_, _ = w.Write(bodyBytes)
 }

@@ -353,6 +353,14 @@ The Go daemon (`cmd/host-runner`) that runs on each host, polling
 the hub for spawn requests, launching engines, owning their
 processes, translating their output, and posting events back.
 
+### host capabilities
+The JSON blob in `hosts.capabilities_json` describing what one
+host-runner-managed worker box reports (OS, arch, CPU count, RAM,
+kernel, hostname). Probed once at host-runner startup via
+`hostrunner.ProbeHostInfo`; pushed up to the hub.
+- *Distinguish from:* **hub stats** (`/v1/hub/stats` payload — the
+  hub-self capacity report; ADR-022 D2).
+
 ### pane
 A tmux pane. M4 agents are anchored to a pane (the user can attach
 a real terminal). M2 agents have an optional cosmetic pane running
@@ -663,6 +671,41 @@ acts on them here.
 The chat-style scroll of `agent_events` for one hub session. The
 mobile session detail screen embeds this.
 
+### insights surface
+The mobile screen rendering scope-parameterized aggregate metrics
+(spend / latency / errors / capacity / concurrency). Phase 1 =
+project-scoped sub-section on Project Detail; Phase 2 = multi-scope
+fullscreen view reachable from Project / Me / Activity / Hosts /
+Agent details.
+- *Distinguish from:* **activity surface** (chronological audit
+  feed; forensic, not aggregate), **transcript view** (per-session
+  event scroll).
+- *Canonical:* ADR-022, plans `insights-phase-1.md` / `insights-phase-2.md`.
+
+### activity surface
+The mobile Activity tab — chronological feed of `audit_events`
+plus a 24h digest card. Forensic, not aggregate.
+- *Distinguish from:* **insights surface** (aggregate, scope-
+  parameterized).
+
+### hub stats
+The `/v1/hub/stats` payload — hub-self capacity, returned as
+machine + DB + live blocks. Distinct from per-team
+`hosts.capabilities_json` (which the host-runner pushes up to the
+hub for each NAT'd worker box).
+- *Distinguish from:* **host capabilities** (per-worker, written by
+  host-runner into `hosts.capabilities_json`).
+- *Canonical:* ADR-022 D2.
+
+### tier-1 metric
+The five mobile-glance metric families on the insights surface:
+spend, latency, reliability (errors), capacity, concurrency.
+Backed by FinOps Inform + SRE Golden Signals. Tier-2 is drilldown
+sheets (engine arbitrage, lifecycle flow, tool-call efficiency,
+unit economics, snippet usage, multi-host distribution); Tier-3 is
+post-MVP (governance, security, knowledge curves).
+- *Canonical:* ADR-022.
+
 ---
 
 ## 11. Process / project meta
@@ -723,6 +766,10 @@ A flat list of the high-traffic confusion points, for grep:
 - **screen** vs **sheet** vs **dialog**.
 - **AppBar** vs **action bar** — top vs bottom.
 - **snapshot cache** vs **secure storage** vs **SharedPreferences**.
+- **insights surface** vs **activity surface** — aggregate vs
+  chronological; ADR-022 D1.
+- **hub stats** vs **host capabilities** — hub-self capacity
+  endpoint vs per-worker capability blob; ADR-022 D2.
 
 If you find a confusion not in this list, add an entry above and
 extend this index in the same change.

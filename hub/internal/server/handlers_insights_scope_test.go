@@ -478,6 +478,180 @@ func TestInsights_LifecycleBlock_PopulatedForProjectScope(t *testing.T) {
 	}
 }
 
+// resetInsightsCache wipes the package-level response cache. Several
+// tests in this file seed `team_id=insights-test` then query with
+// `time.Now().Add(-1 * time.Hour)`-style windows; the cache key folds
+// in (scope_kind, scope_id, since, until) and on systems with
+// microsecond-resolution clocks the windows can collide between
+// adjacent tests, leaking the previous test's body into the next
+// one's response. Call this at the top of any test that issues
+// scope-parameterized reads.
+func resetInsightsCache() {
+	hubInsightsCache.mu.Lock()
+	hubInsightsCache.entries = map[string]insightsCacheEntry{}
+	hubInsightsCache.mu.Unlock()
+}
+
+// TestInsights_TeamStewards_FiltersToStewardHandles seeds three
+// agents on one team — a steward (handle `steward`), a domain steward
+// (handle `research-steward`), and a worker (handle `worker`). Each
+// emits a usage event. A team-scoped read must see all three; a
+// team+kind=steward read must see only the two stewards. The general
+// steward (`@steward`) is also included in the predicate, asserted by
+// a fourth agent.
+func TestInsights_TeamStewards_FiltersToStewardHandles(t *testing.T) {
+	resetInsightsCache()
+	srv, tok, team, project, agentDefault, sessionDefault := insightsSetup(t)
+	now := NowUTC()
+
+	type seedAgent struct {
+		handle string
+		tokens int
+	}
+	// agentDefault is already 'steward' from insightsSetup; seed three
+	// more to round out the matrix.
+	extras := []seedAgent{
+		{"@steward", 50},          // general singleton
+		{"research-steward", 100}, // domain steward
+		{"worker", 999},           // non-steward
+	}
+	for _, a := range extras {
+		agentID := NewID()
+		if _, err := srv.db.Exec(`
+			INSERT INTO agents (id, team_id, handle, kind, status, created_at)
+			VALUES (?, ?, ?, 'claude-code', 'running', ?)`,
+			agentID, team, a.handle, now); err != nil {
+			t.Fatalf("seed agent %s: %v", a.handle, err)
+		}
+		sessionID := NewID()
+		if _, err := srv.db.Exec(`
+			INSERT INTO sessions
+				(id, team_id, scope_kind, scope_id, current_agent_id,
+				 status, opened_at, last_active_at)
+			VALUES (?, ?, 'project', ?, ?, 'active', ?, ?)`,
+			sessionID, team, project, agentID, now, now); err != nil {
+			t.Fatalf("seed session %s: %v", a.handle, err)
+		}
+		insertEvent(t, srv, agentID, sessionID, "usage", map[string]any{
+			"input_tokens": a.tokens,
+		})
+	}
+	insertEvent(t, srv, agentDefault, sessionDefault, "usage", map[string]any{
+		"input_tokens": 25,
+	})
+
+	since := time.Now().Add(-1 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+
+	// team scope (no kind) — sums all four: 25 + 50 + 100 + 999 = 1174.
+	_, outTeam, body := callInsightsScope(t, srv, tok,
+		map[string]string{"team_id": team}, since, until)
+	if outTeam == nil {
+		t.Fatalf("team query failed: %s", body)
+	}
+	if outTeam.Spend.TokensIn != 1174 {
+		t.Errorf("team tokens_in=%d, want 1174 (body=%s)", outTeam.Spend.TokensIn, body)
+	}
+	if outTeam.Scope.Kind != "team" {
+		t.Errorf("team scope.kind=%q, want team", outTeam.Scope.Kind)
+	}
+
+	// team + kind=steward — sums only stewards: 25 + 50 + 100 = 175.
+	_, outStewards, body := callInsightsScope(t, srv, tok,
+		map[string]string{"team_id": team, "kind": "steward"}, since, until)
+	if outStewards == nil {
+		t.Fatalf("team_stewards query failed: %s", body)
+	}
+	if outStewards.Spend.TokensIn != 175 {
+		t.Errorf("team_stewards tokens_in=%d, want 175 (body=%s)",
+			outStewards.Spend.TokensIn, body)
+	}
+	if outStewards.Scope.Kind != "team_stewards" {
+		t.Errorf("scope.kind=%q, want team_stewards", outStewards.Scope.Kind)
+	}
+}
+
+// TestInsights_ByAgent_PopulatesAndSortsByTokensIn seeds three agents
+// on one project, each with different token counts, and verifies:
+//   - by_agent is present and has 3 rows
+//   - rows are sorted by tokens_in desc
+//   - handle + engine + status are populated from the agents JOIN
+//   - by_agent is omitted on agent scope (degenerate)
+func TestInsights_ByAgent_PopulatesAndSortsByTokensIn(t *testing.T) {
+	resetInsightsCache()
+	srv, tok, team, project, agentBase, sessionBase := insightsSetup(t)
+	now := NowUTC()
+
+	insertEvent(t, srv, agentBase, sessionBase, "usage", map[string]any{
+		"input_tokens": 100,
+	})
+
+	// Two more agents with different token counts so we can verify ordering.
+	extras := []struct {
+		handle string
+		kind   string
+		tokens int
+	}{
+		{"alpha-steward", "gemini-cli", 500},
+		{"worker", "codex", 50},
+	}
+	for _, e := range extras {
+		agentID := NewID()
+		if _, err := srv.db.Exec(`
+			INSERT INTO agents (id, team_id, handle, kind, status, created_at)
+			VALUES (?, ?, ?, ?, 'running', ?)`,
+			agentID, team, e.handle, e.kind, now); err != nil {
+			t.Fatalf("seed agent %s: %v", e.handle, err)
+		}
+		sessionID := NewID()
+		if _, err := srv.db.Exec(`
+			INSERT INTO sessions
+				(id, team_id, scope_kind, scope_id, current_agent_id,
+				 status, opened_at, last_active_at)
+			VALUES (?, ?, 'project', ?, ?, 'active', ?, ?)`,
+			sessionID, team, project, agentID, now, now); err != nil {
+			t.Fatalf("seed session %s: %v", e.handle, err)
+		}
+		insertEvent(t, srv, agentID, sessionID, "usage", map[string]any{
+			"input_tokens": e.tokens,
+		})
+	}
+
+	since := time.Now().Add(-1 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+
+	_, out, body := callInsightsScope(t, srv, tok,
+		map[string]string{"project_id": project}, since, until)
+	if out == nil {
+		t.Fatalf("project query failed: %s", body)
+	}
+	if len(out.ByAgent) != 3 {
+		t.Fatalf("by_agent len=%d, want 3 (body=%s)", len(out.ByAgent), body)
+	}
+	// Sort: alpha-steward (500) > base steward (100) > worker (50).
+	if out.ByAgent[0].Handle != "alpha-steward" || out.ByAgent[0].TokensIn != 500 {
+		t.Errorf("by_agent[0]=%+v, want alpha-steward/500", out.ByAgent[0])
+	}
+	if out.ByAgent[2].Handle != "worker" || out.ByAgent[2].TokensIn != 50 {
+		t.Errorf("by_agent[2]=%+v, want worker/50", out.ByAgent[2])
+	}
+	// Engine + status pulled from agents JOIN.
+	if out.ByAgent[0].Engine != "gemini-cli" || out.ByAgent[0].Status != "running" {
+		t.Errorf("by_agent[0] engine/status=%q/%q, want gemini-cli/running",
+			out.ByAgent[0].Engine, out.ByAgent[0].Status)
+	}
+
+	// Agent scope — by_agent must be absent (omitempty drops the field).
+	_, outAgent, body := callInsightsScope(t, srv, tok,
+		map[string]string{"agent_id": agentBase}, since, until)
+	if outAgent == nil {
+		t.Fatalf("agent query failed: %s", body)
+	}
+	if len(outAgent.ByAgent) != 0 {
+		t.Errorf("by_agent on agent scope=%+v, want empty/absent", outAgent.ByAgent)
+	}
+}
+
 // TestInsights_ScopeCacheKeysIsolate verifies the response cache keys
 // fold scope kind into their prefix — so a project_id="abc" read can't
 // shadow an agent_id="abc" read even when ids collide. Real ULIDs

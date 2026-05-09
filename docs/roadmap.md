@@ -3,7 +3,7 @@
 > **Type:** vision
 > **Status:** Current (2026-05-08)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.462
+> **Last verified vs code:** v1.0.463
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →

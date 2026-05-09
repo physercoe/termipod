@@ -1,9 +1,9 @@
 # 022. Observability surfaces — insights aggregator + hub stats
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-09; both phase plans Done as of v1.0.462)
+> **Status:** Accepted (2026-05-09; both phase plans Done as of v1.0.462; team_stewards qualifier + by_agent + time-range picker shipped v1.0.463)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.462
+> **Last verified vs code:** v1.0.463
 
 **TL;DR.** Termipod ships per-session telemetry today (token totals,
 latency, rate-limit progress on the in-session strip) but no
@@ -126,6 +126,25 @@ sub-section). Phase 2 expands the scope filter chip and the surface
 appears in Me → Stats card, Activity AppBar icon, Hosts Detail,
 Agent Detail. The endpoint shape doesn't change between phases —
 only the scope branches that are wired.
+
+**Amendment (v1.0.463): `team_stewards` sub-qualifier + `by_agent`
+dimension.** Pair `team_id=X` with `kind=steward` to narrow team
+scope to steward-handle agents (`steward`, `*-steward`, or
+`@steward`). Response echoes `scope.kind = "team_stewards"`. This is
+a sub-qualifier, *not* a sixth top-level scope kind — the "exactly
+one of {project_id, team_id, agent_id, engine, host_id}" rule is
+preserved. The response also gains a top-level `by_agent` array
+(one row per agent in the scope, sorted by tokens_in desc),
+populated whenever scope ∈ {project, team, team_stewards, engine,
+host}; omitted on agent scope where the breakdown is degenerate.
+
+The Sessions AppBar's new Insights icon opens
+`InsightsScreen(scope: teamStewards(teamId))` — addresses the gap
+where the Persistent Steward Card jumps directly to chat (no path to
+agent insights for stewards) and individual stewards aren't listed
+on Me/Activity. `InsightsScreen` also gained a 24h / 7d / 30d
+ChoiceChip row; `since`/`until` are now part of `InsightsScope`'s
+identity so each window has its own family-provider cache row.
 
 ### D4. agent_events grain — add `project_id` column in Phase 1.
 

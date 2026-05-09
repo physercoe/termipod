@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.462
+> **Last verified vs code:** v1.0.463
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,71 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.463-alpha — 2026-05-09
+
+Steward Insights wedge — surfaces an aggregate view of every live
+steward (general + domain) and adds a time-range picker to the
+fullscreen Insights view. Closes the "where do I see steward usage"
+question raised after v1.0.462: the Persistent Steward Card jumps
+straight into chat, so per-agent insights for stewards previously
+required navigating to the Sessions screen, finding the right row,
+and opening Agent Detail — none of which scaled past one steward.
+
+### Added
+
+- **Sessions AppBar → Insights icon.** Pushes a fullscreen
+  `InsightsScreen` scoped to `team_stewards`. Aggregates every agent
+  whose handle matches the steward predicate (`steward`, `*-steward`,
+  or `@steward`) on the active team. One destination, all stewards.
+- **`/v1/insights?team_id=X&kind=steward` qualifier.** Narrows the
+  team-scoped aggregator to steward-handle agents. Response echoes
+  `scope.kind = "team_stewards"` so the body is self-describing.
+  `kind` is silently ignored on non-team scopes (hub-side
+  `insights_scope.go`).
+- **`by_agent` breakdown dimension on `/v1/insights`.** New top-level
+  array with one row per agent in the scope (excluding agent scope,
+  where the breakdown is degenerate). Each row carries
+  `agent_id` / `handle` / `engine` / `status` / token totals /
+  `turns` / `errors`. Sorted by `tokens_in` desc.
+- **`InsightsByAgentSection` widget.** Renders the new dimension
+  inside any non-agent-scope `InsightsScreen`. Steward rows get a
+  small concierge badge; tap a row → drills into that single agent's
+  fullscreen Insights view.
+- **Time-range picker on `InsightsScreen`.** ChoiceChip row at the
+  top — 24h / 7d / 30d. Selecting a chip re-keys the
+  `insightsProvider` family (since/until are now part of
+  `InsightsScope`'s identity), so each window has its own snapshot
+  cache row that persists across screen revisits.
+
+### Changed
+
+- `InsightsScope` is now a value object that includes `since` /
+  `until` plus the existing kind+id pair. Equality + hashCode were
+  updated so the family provider's cache key includes the time
+  window. `withWindow()` returns a copy with new bounds.
+- `InsightsScreen` is now a `ConsumerStatefulWidget` (was
+  `ConsumerWidget`). Holds the selected range + the "frozen now"
+  timestamp so the family-provider cache key stays stable across
+  rebuilds inside one chip view.
+
+### Documents
+
+- ADR-022 §D3 amended to call out `team_stewards` as a sub-qualifier
+  on team scope (not a sixth top-level scope kind). Phase 2 plan
+  status unchanged — this wedge ships post-MVP-completion.
+- `api-overview.md` §3.13 updated to document `kind=steward` and
+  the `by_agent` dimension.
+
+### Lessons
+
+- The package-level `hubInsightsCache` is shared across tests in one
+  `go test` invocation — adjacent tests that hit the same
+  `(scope_kind, scope_id, since, until)` key can see each other's
+  bodies on systems with sub-nanosecond clock collisions. Added
+  `resetInsightsCache()` test helper; new tests call it at start.
 
 ---
 

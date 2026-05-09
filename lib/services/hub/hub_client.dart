@@ -216,6 +216,7 @@ class HubClient {
     String? agentId,
     String? engine,
     String? hostId,
+    bool stewardOnly = false,
     DateTime? since,
     DateTime? until,
   }) async {
@@ -226,6 +227,7 @@ class HubClient {
       engine: engine,
       hostId: hostId,
     );
+    if (stewardOnly) q['kind'] = 'steward';
     if (since != null) q['since'] = since.toUtc().toIso8601String();
     if (until != null) q['until'] = until.toUtc().toIso8601String();
     final out = await _get('/v1/insights', query: q);
@@ -242,6 +244,7 @@ class HubClient {
     String? agentId,
     String? engine,
     String? hostId,
+    bool stewardOnly = false,
     DateTime? since,
     DateTime? until,
   }) {
@@ -252,6 +255,7 @@ class HubClient {
       engine: engine,
       hostId: hostId,
     );
+    if (stewardOnly) q['kind'] = 'steward';
     if (since != null) q['since'] = since.toUtc().toIso8601String();
     if (until != null) q['until'] = until.toUtc().toIso8601String();
     return readThrough<Map<String, dynamic>>(
@@ -264,6 +268,7 @@ class HubClient {
         agentId: agentId,
         engine: engine,
         hostId: hostId,
+        stewardOnly: stewardOnly,
         since: since,
         until: until,
       ),

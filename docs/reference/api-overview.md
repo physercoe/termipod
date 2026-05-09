@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors (mobile, hub, integrators)
-> **Last verified vs code:** v1.0.462
+> **Last verified vs code:** v1.0.463
 
 **TL;DR.** Single canonical entry for "what HTTP endpoints does the
 hub expose?" Indexes every `/v1/...` route grouped by resource +
@@ -239,7 +239,7 @@ Detail: [`attention-delivery-surfaces.md`](attention-delivery-surfaces.md), [`at
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/v1/hub/stats` | Hub-self capacity: `machine` (OS / CPU / RAM), `db` (size, WAL, schema_version, per-table rows + bytes), `live` (active agents, open sessions, SSE subscribers, A2A relay throughput). 30s row-count cache. Hub-admin scope. |
-| GET | `/v1/insights?project_id=…` | Scope-parameterized aggregator. Pass exactly one of `project_id` / `team_id` / `agent_id` / `engine` / `host_id` plus optional `since`/`until` (RFC3339, defaults: last 24h). Returns Tier-1 dimensions (spend, latency p50/p95, errors, concurrency, tools) + Tier-2 rollups (`by_engine`, `by_model`, `lifecycle` for project scope). 30s response cache keyed on (scope_kind, scope_id, since, until). |
+| GET | `/v1/insights?project_id=…` | Scope-parameterized aggregator. Pass exactly one of `project_id` / `team_id` / `agent_id` / `engine` / `host_id` plus optional `since`/`until` (RFC3339, defaults: last 24h). Returns Tier-1 dimensions (spend, latency p50/p95, errors, concurrency, tools) + Tier-2 rollups (`by_engine`, `by_model`, `by_agent`, `lifecycle` for project scope). `by_agent` is omitted on agent scope (degenerate). Append `&kind=steward` to a `team_id=…` request to narrow to steward-handle agents (`steward`, `*-steward`, `@steward`); response echoes `scope.kind = "team_stewards"`. 30s response cache keyed on (scope_kind, scope_id, since, until). |
 
 Detail: [ADR-022](../decisions/022-observability-surfaces.md),
 [`plans/insights-phase-1.md`](../plans/insights-phase-1.md),

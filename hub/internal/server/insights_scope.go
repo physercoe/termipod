@@ -12,10 +12,22 @@ import (
 // scope-parameterized; Phase 1 wired the project branch only. This
 // file owns the rest.
 //
-// Scope kinds shipped here: project / team / agent / engine / host.
+// Scope kinds shipped here: project / team / team_stewards / agent /
+// engine / host. `team_stewards` is a sub-qualifier on team scope —
+// pass `team_id=X&kind=steward` to narrow agent_events / sessions
+// to agents whose handle matches the steward convention (`steward`
+// or `*-steward`, mirrors mobile-side isStewardHandle).
 // `user` is deferred — there's no per-token user attribution at MVP
 // (ADR-005 has principal/director rather than per-user identity);
 // adding it would mean adding a real users table first.
+
+// stewardsHandlePredicate is the SQL fragment that selects steward
+// agent rows. Mirrors the Dart-side isStewardHandle predicate
+// (lib/services/steward_handle.dart) — keep the two in sync. The
+// general steward (`@steward`) is included via the `LIKE '%-steward'`
+// branch — wait, no: `@steward` doesn't end in `-steward`. Both
+// branches are kept explicit so the rule stays readable.
+const stewardsHandlePredicate = "(handle = 'steward' OR handle = '@steward' OR handle LIKE '%-steward')"
 
 // errInsightsScope is the shared bad-request error message. The handler
 // 400s with the unwrapped string.
@@ -83,6 +95,16 @@ func parseInsightsScope(q url.Values) (*scopeFilter, error) {
 	if seen != 1 {
 		return nil, errInsightsScope
 	}
+	// Steward qualifier — only meaningful on team scope. Narrows the
+	// per-table subqueries to agents whose handle matches the steward
+	// convention. Silently ignored on non-team scopes; the alternative
+	// (400 on misuse) trades off against forward-compat — a Sessions-
+	// AppBar icon hard-codes kind=steward, and a future ctor that
+	// re-uses the icon for, say, engine scope shouldn't have to strip
+	// the param.
+	if kind == "team" && strings.EqualFold(strings.TrimSpace(q.Get("kind")), "steward") {
+		return newScopeFilter("team_stewards", id), nil
+	}
 	return newScopeFilter(kind, id), nil
 }
 
@@ -122,6 +144,21 @@ func newScopeFilter(kind, id string) *scopeFilter {
 			EventsArgs:     []any{id},
 			SessionsClause: "s.team_id = ?",
 			SessionsArgs:   []any{id},
+		}
+	case "team_stewards":
+		// Same team scope but narrowed to steward-handle agents. The
+		// handle predicate is identical for events and sessions; the
+		// session path also constrains via current_agent_id since
+		// sessions don't carry a handle column themselves.
+		return &scopeFilter{
+			Kind: "team_stewards", ID: id,
+			EventsClause: "agent_id IN (SELECT id FROM agents WHERE team_id = ? AND " +
+				stewardsHandlePredicate + ")",
+			EventsArgs: []any{id},
+			SessionsClause: "s.team_id = ? AND s.current_agent_id IN " +
+				"(SELECT id FROM agents WHERE team_id = ? AND " +
+				stewardsHandlePredicate + ")",
+			SessionsArgs: []any{id, id},
 		}
 	case "agent":
 		return &scopeFilter{

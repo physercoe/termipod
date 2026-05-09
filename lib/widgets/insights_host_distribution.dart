@@ -110,6 +110,15 @@ class InsightsHostDistribution extends ConsumerWidget {
             .toList();
       case InsightsScopeKind.team:
         return all;
+      case InsightsScopeKind.teamStewards:
+        // Steward-handle filter — same predicate the hub uses on its
+        // side (see stewardsHandlePredicate in insights_scope.go).
+        return all.where((a) {
+          final h = (a['handle'] ?? '').toString();
+          return h == 'steward' ||
+              h == '@steward' ||
+              h.endsWith('-steward');
+        }).toList();
       case InsightsScopeKind.host:
       case InsightsScopeKind.agent:
         return const [];

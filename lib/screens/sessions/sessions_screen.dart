@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/session_details_sheet.dart';
+import '../insights/insights_screen.dart';
 import '../projects/projects_screen.dart' show confirmAndRecreateSteward;
 import '../team/spawn_steward_sheet.dart';
 import '../team/templates_screen.dart';
@@ -295,6 +297,11 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             fontWeight: FontWeight.w700, fontSize: 18),
       ),
       actions: [
+        IconButton(
+          tooltip: 'Steward insights',
+          icon: const Icon(Icons.insights_outlined),
+          onPressed: () => _openStewardInsights(context, ref),
+        ),
         IconButton(
           tooltip: 'Search past sessions',
           icon: const Icon(Icons.search),
@@ -663,6 +670,27 @@ Future<void> _spawnNewSteward(BuildContext context, WidgetRef ref) async {
   if (!context.mounted) return;
   await ref.read(hubProvider.notifier).refreshAll();
   await ref.read(sessionsProvider.notifier).refresh();
+}
+
+/// Opens the team-stewards Insights view — aggregate spend / latency
+/// / errors across every live steward (general + domain) plus a
+/// `by_agent` breakdown for per-steward drill-in. The hub aggregator
+/// receives `team_id=X&kind=steward`; mobile materializes that as
+/// [InsightsScope.teamStewards].
+void _openStewardInsights(BuildContext context, WidgetRef ref) {
+  final hub = ref.read(hubProvider).value;
+  final teamId = hub?.config?.teamId ?? '';
+  if (teamId.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Configure a team first')),
+    );
+    return;
+  }
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => InsightsScreen(
+      scope: InsightsScope.teamStewards(teamId),
+    ),
+  ));
 }
 
 /// Per-steward "Reset (new conversation)": closes the steward's

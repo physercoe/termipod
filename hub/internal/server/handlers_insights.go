@@ -124,6 +124,28 @@ type insightsResponse struct {
 	Lifecycle *insightsLifecycle     `json:"lifecycle,omitempty"`
 	ByEngine    map[string]insightsAgg `json:"by_engine"`
 	ByModel     map[string]insightsAgg `json:"by_model"`
+	// ByAgent is populated whenever the scope can plausibly hold more
+	// than one agent — project / team / team_stewards / engine / host.
+	// Skipped (nil → JSON `null` via omitempty) on agent scope, where
+	// the breakdown is degenerate. Sorted by tokens_in desc so the
+	// highest-spend row renders first.
+	ByAgent []insightsAgentAgg `json:"by_agent,omitempty"`
+}
+
+// insightsAgentAgg is one row of the per-agent breakdown. handle +
+// engine + status come from the agents table at materialization time;
+// token / turn counts are folded in the spend loop.
+type insightsAgentAgg struct {
+	AgentID     string `json:"agent_id"`
+	Handle      string `json:"handle"`
+	Engine      string `json:"engine"`
+	Status      string `json:"status"`
+	TokensIn    int64  `json:"tokens_in"`
+	TokensOut   int64  `json:"tokens_out"`
+	CacheRead   int64  `json:"cache_read"`
+	CacheCreate int64  `json:"cache_create"`
+	Turns       int64  `json:"turns"`
+	Errors      int64  `json:"errors"`
 }
 
 // insightsLifecycle is the W5d project-lifecycle rollup. Each phase
@@ -268,6 +290,11 @@ func readInsightsSpendAndLatency(
 
 	durations := make([]int64, 0, 64)
 	agentEngines := map[string]string{}
+	// Per-agent fold for by_agent. Skipped on agent scope (single-row
+	// view, breakdown is degenerate). The map is materialized into
+	// out.ByAgent after the loop with one agents-table JOIN per id.
+	wantByAgent := scope.Kind != "agent"
+	byAgent := map[string]*insightsAgentAgg{}
 	for rows.Next() {
 		var kind, payloadJSON, agentID string
 		if err := rows.Scan(&kind, &payloadJSON, &agentID); err != nil {
@@ -364,6 +391,23 @@ func readInsightsSpendAndLatency(
 			eAgg.Turns++
 		}
 		out.ByEngine[engineKey] = eAgg
+
+		// Per-agent fold. Status / handle come from the agents table at
+		// materialization; here we just accumulate token + turn counters.
+		if wantByAgent && agentID != "" {
+			aAgg, ok := byAgent[agentID]
+			if !ok {
+				aAgg = &insightsAgentAgg{AgentID: agentID, Engine: engineKey}
+				byAgent[agentID] = aAgg
+			}
+			aAgg.TokensIn += in
+			aAgg.TokensOut += outTok
+			aAgg.CacheRead += cacheRead
+			aAgg.CacheCreate += cacheCreate
+			if isTurn {
+				aAgg.Turns++
+			}
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -372,6 +416,58 @@ func readInsightsSpendAndLatency(
 	out.Latency.Samples = int64(len(durations))
 	out.Latency.TurnP50Ms = percentile(durations, 0.50)
 	out.Latency.TurnP95Ms = percentile(durations, 0.95)
+
+	// Materialize by_agent. Pull handle + status for each accumulated
+	// agent_id; sort by tokens_in desc so the highest spender is first.
+	if wantByAgent && len(byAgent) > 0 {
+		for id, agg := range byAgent {
+			var handle, status string
+			_ = db.QueryRowContext(ctx,
+				`SELECT COALESCE(handle, ''), COALESCE(status, '')
+				   FROM agents WHERE id = ?`, id,
+			).Scan(&handle, &status)
+			agg.Handle = handle
+			agg.Status = status
+		}
+		// Failed-turn errors per agent — single grouped query rather than
+		// per-row roundtrip. Filter clause mirrors the spend window so the
+		// counts are aligned to the same scope/range.
+		errArgs := append([]any{}, scope.EventsArgs...)
+		errArgs = append(errArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
+		errRows, err := db.QueryContext(ctx, `
+			SELECT agent_id, count(*) FROM agent_events
+			 WHERE `+scope.EventsClause+`
+			   AND ts >= ? AND ts < ?
+			   AND kind = 'turn.result'
+			   AND COALESCE(json_extract(payload_json, '$.status'), 'success') <> 'success'
+			 GROUP BY agent_id`,
+			errArgs...,
+		)
+		if err == nil {
+			for errRows.Next() {
+				var id string
+				var n int64
+				if scanErr := errRows.Scan(&id, &n); scanErr == nil {
+					if agg, ok := byAgent[id]; ok {
+						agg.Errors = n
+					}
+				}
+			}
+			errRows.Close()
+		}
+
+		out.ByAgent = make([]insightsAgentAgg, 0, len(byAgent))
+		for _, agg := range byAgent {
+			out.ByAgent = append(out.ByAgent, *agg)
+		}
+		sort.Slice(out.ByAgent, func(i, j int) bool {
+			a, b := out.ByAgent[i], out.ByAgent[j]
+			if a.TokensIn != b.TokensIn {
+				return a.TokensIn > b.TokensIn
+			}
+			return a.AgentID < b.AgentID
+		})
+	}
 
 	// turns_per_min from the same dataset; window in minutes can never be
 	// zero because we already validated since < until. Concurrency block

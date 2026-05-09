@@ -251,8 +251,18 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	// so we don't burn a placeholder process to satisfy a flow shape
 	// gemini doesn't fit.
 	if cfg.Spawn.Kind == "gemini-cli" {
+		// Don't remove the log: the runtime fallback ladder
+		// (runner.launchOne) reaches us only when a prior M1 launch
+		// failed, and that M1 launcher already attached a tmux pane
+		// running `tail -F <logPath>`. Removing the file makes that
+		// orphan pane print "tail: file inaccessible" forever. Keep
+		// the file alive and append a one-line mode-switch notice so
+		// the pane stays readable and the operator can tell what
+		// happened. When M2 is the primary mode (no prior M1, no
+		// orphan pane) the file is just an inert empty marker.
+		fmt.Fprintf(logFile,
+			"[host-runner] M1 unavailable; falling back to M2 (gemini-exec-resume). Per-turn output flows through agent_events; nothing to stream here.\n")
 		_ = logFile.Close()
-		_ = os.Remove(logPath)
 		fam, ok := agentfamilies.ByName("gemini-cli")
 		if !ok {
 			return M2LaunchResult{}, fmt.Errorf("gemini-cli family missing from registry")

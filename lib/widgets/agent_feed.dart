@@ -4378,13 +4378,17 @@ void showSessionDetailsSheet(
   BuildContext context,
   Map<String, dynamic> payload, {
   String? agentKind,
+  ModeModelPickerData? modeModel,
 }) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (ctx) =>
-        _SessionDetailsSheet(payload: payload, agentKind: agentKind),
+    builder: (ctx) => _SessionDetailsSheet(
+      payload: payload,
+      agentKind: agentKind,
+      modeModel: modeModel,
+    ),
   );
 }
 
@@ -4401,10 +4405,18 @@ void showSessionDetailsSheet(
 class SessionInitChip extends StatelessWidget {
   final Map<String, dynamic> payload;
   final String? agentKind;
+  // When provided, the details sheet (opened on tap) renders Mode +
+  // Model selection sections at the top. This consolidates what used
+  // to live behind a separate tune AppBar icon — one entry, one sheet,
+  // one cognitive surface for "what is this agent and how is it
+  // configured." Pass null when the engine doesn't advertise modes
+  // or models and the chip should stay read-only.
+  final ModeModelPickerData? modeModel;
   const SessionInitChip({
     super.key,
     required this.payload,
     this.agentKind,
+    this.modeModel,
   });
 
   @override
@@ -4419,7 +4431,7 @@ class SessionInitChip extends StatelessWidget {
     final mcpServers = _SessionHeader._toMapList(payload['mcp_servers']);
     return InkWell(
       onTap: () => showSessionDetailsSheet(context, payload,
-          agentKind: agentKind),
+          agentKind: agentKind, modeModel: modeModel),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -4805,7 +4817,12 @@ class _Pill extends StatelessWidget {
 class _SessionDetailsSheet extends StatelessWidget {
   final Map<String, dynamic> payload;
   final String? agentKind;
-  const _SessionDetailsSheet({required this.payload, this.agentKind});
+  final ModeModelPickerData? modeModel;
+  const _SessionDetailsSheet({
+    required this.payload,
+    this.agentKind,
+    this.modeModel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4832,6 +4849,59 @@ class _SessionDetailsSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: body,
       ));
+    }
+
+    // Mode + Model sections render at the top so the controls the user
+    // most often comes here to change are reachable in one scroll. The
+    // subsequent AGENT/WORKDIR/TOOLS/... sections are read-only state;
+    // mode/model is the "do something" surface, hence the prominence.
+    if (modeModel != null && modeModel!.hasMode) {
+      section(
+        'MODE',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final opt in modeModel!.availableModes)
+              _ModeModelOptionRow(
+                label: (opt['name'] ?? opt['id'] ?? '').toString(),
+                description: opt['description']?.toString(),
+                selected: opt['id']?.toString() == modeModel!.currentMode,
+                leading: Icons.tune,
+                onTap: () {
+                  final id = opt['id']?.toString() ?? '';
+                  Navigator.of(context).pop();
+                  if (id.isNotEmpty && id != modeModel!.currentMode) {
+                    modeModel!.onPickMode(id);
+                  }
+                },
+              ),
+          ],
+        ),
+      );
+    }
+    if (modeModel != null && modeModel!.hasModel) {
+      section(
+        'MODEL',
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final opt in modeModel!.availableModels)
+              _ModeModelOptionRow(
+                label: (opt['name'] ?? opt['id'] ?? '').toString(),
+                description: opt['description']?.toString(),
+                selected: opt['id']?.toString() == modeModel!.currentModel,
+                leading: Icons.psychology_alt,
+                onTap: () {
+                  final id = opt['id']?.toString() ?? '';
+                  Navigator.of(context).pop();
+                  if (id.isNotEmpty && id != modeModel!.currentModel) {
+                    modeModel!.onPickModel(id);
+                  }
+                },
+              ),
+          ],
+        ),
+      );
     }
 
     final model = payload['model']?.toString() ?? '';
@@ -5606,19 +5676,35 @@ class ModeModelPickerData {
 /// that capability is absent. Selecting a row pops the sheet and fires
 /// the matching `onPick*` callback — caller's responsibility to surface
 /// any error via SnackBar.
+///
+/// Now a fallback path: when a session.init payload is present, the
+/// mode/model sections render inline inside [showSessionDetailsSheet]
+/// so users see a single consolidated sheet from the engine chip. This
+/// standalone sheet stays for the rare case where the agent advertises
+/// modes/models but no session.init has landed yet.
 Future<void> showModeModelPickerSheet(
   BuildContext context,
   ModeModelPickerData data,
 ) {
   return showModalBottomSheet<void>(
     context: context,
+    // Without isScrollControlled the sheet's height is capped at half
+    // the screen; a long model list (claude has 6+) overflows and the
+    // bottom rows are unreachable. With it, the SingleChildScrollView
+    // below can grow to fit and the user can scroll.
+    isScrollControlled: true,
     showDragHandle: true,
     builder: (sheetCtx) {
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetCtx).size.height * 0.85,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             if (data.hasMode) ...[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -5675,9 +5761,47 @@ Future<void> showModeModelPickerSheet(
                 ),
             ],
             const SizedBox(height: 4),
-          ],
+              ],
+            ),
+          ),
         ),
       );
     },
   );
+}
+
+/// One row in the consolidated session-details sheet's MODE / MODEL
+/// sections. Shape mirrors a ListTile but with a smaller leading icon
+/// + subtle selected-state ring so the row reads as "tap to switch"
+/// rather than "permanent label." Subtitle is the engine's optional
+/// `description` string; absent means the engine offered an id without
+/// human-friendly prose.
+class _ModeModelOptionRow extends StatelessWidget {
+  final String label;
+  final String? description;
+  final bool selected;
+  final IconData leading;
+  final VoidCallback onTap;
+  const _ModeModelOptionRow({
+    required this.label,
+    required this.description,
+    required this.selected,
+    required this.leading,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(leading, size: 18),
+      title: Text(label),
+      subtitle: (description != null && description!.isNotEmpty)
+          ? Text(description!)
+          : null,
+      trailing: selected ? const Icon(Icons.check, size: 18) : null,
+      onTap: onTap,
+    );
+  }
 }

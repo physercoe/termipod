@@ -2101,13 +2101,16 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
             SessionInitChip(
               payload: _sessionInit!,
               agentKind: _agentKind(),
+              // Folds the mode/model picker into the engine chip's
+              // details sheet so the AppBar carries one entry instead
+              // of two — and the sheet itself stays scrollable for
+              // long model lists. Falls back to the standalone tune
+              // icon below when there's no session.init payload yet.
+              modeModel:
+                  (_modeModel != null && _modeModel!.hasAny) ? _modeModel : null,
             ),
-          if (_modeModel != null && _modeModel!.hasAny)
+          if (_sessionInit == null && _modeModel != null && _modeModel!.hasAny)
             IconButton(
-              // ADR-021 W2.5 — single AppBar entry covers both mode and
-              // model picker (sheet renders both sections when present).
-              // Tooltip surfaces the current values so users don't have
-              // to open the sheet just to check what's active.
               tooltip: () {
                 final parts = <String>[];
                 final mode = _modeModel!.currentModeLabel;

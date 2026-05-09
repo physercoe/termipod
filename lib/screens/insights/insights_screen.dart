@@ -6,7 +6,10 @@ import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/insights_breakdown_section.dart';
+import '../../widgets/insights_host_distribution.dart';
+import '../../widgets/insights_lifecycle_section.dart';
 import '../../widgets/insights_panel.dart';
+import '../../widgets/insights_tools_section.dart';
 
 /// Fullscreen Insights view per ADR-022 D7 — "six entry points, one
 /// fullscreen view, NO sixth bottom-nav tab." Activity AppBar opens it
@@ -60,9 +63,21 @@ class InsightsScreen extends ConsumerWidget {
             // Phase 2 W5a — engine + model breakdown. Reads `by_engine`
             // and `by_model` from the same /v1/insights response the
             // panel already fetched, so this is pure-mobile cost.
-            // Lifecycle flow / tool-call efficiency / unit economics /
-            // snippet usage / multi-host distribution still pending.
             InsightsBreakdownSection(scope: scope),
+            // Phase 2 W5c — tool-call efficiency: total calls,
+            // tools/turn, approval rate. Hides when scope produced
+            // zero tool calls AND zero approvals.
+            InsightsToolsSection(scope: scope),
+            // Phase 2 W5d — lifecycle (project scope only). Phase
+            // timeline + ratification rate + criterion pass-rate +
+            // stuck count. Hides on non-project scopes since the hub
+            // omits the lifecycle block there.
+            InsightsLifecycleSection(scope: scope),
+            // Phase 2 W5b — multi-host distribution. Pure-mobile,
+            // reads cached agents+hosts. Hides itself on degenerate
+            // scopes (single-host or single-agent) and when fewer
+            // than 2 hosts contribute to the scope.
+            InsightsHostDistribution(scope: scope),
           ],
         ),
       ),

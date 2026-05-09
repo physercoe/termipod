@@ -116,8 +116,53 @@ type insightsResponse struct {
 	Latency     insightsLatency        `json:"latency"`
 	Errors      insightsErrors         `json:"errors"`
 	Concurrency insightsConcurrency    `json:"concurrency"`
+	Tools       insightsTools          `json:"tools"`
+	// Lifecycle is populated only for project scope (W5d
+	// insights-phase-2). The other scopes have no project to
+	// resolve `phase_history` / `deliverables` / `acceptance_criteria`
+	// against, so the field is omitted via the pointer-+-omitempty.
+	Lifecycle *insightsLifecycle     `json:"lifecycle,omitempty"`
 	ByEngine    map[string]insightsAgg `json:"by_engine"`
 	ByModel     map[string]insightsAgg `json:"by_model"`
+}
+
+// insightsLifecycle is the W5d project-lifecycle rollup. Each phase
+// gets a (phase, entered_at, duration_s) row so the mobile renderer
+// can show a horizontal timeline. The trailing phase's duration is
+// "open-ended" — measured to now() — so the user sees how long the
+// project has been parked in its current phase.
+//
+// Deliverables and criteria counts answer the "is this thing
+// finishable" question. Stuck count = criteria stuck in 'failed'
+// state — actionable item that the steward should clear.
+type insightsLifecycle struct {
+	CurrentPhase         string          `json:"current_phase"`
+	Phases               []phaseTimespan `json:"phases"`
+	DeliverablesTotal    int64           `json:"deliverables_total"`
+	DeliverablesRatified int64           `json:"deliverables_ratified"`
+	RatificationRate     float64         `json:"ratification_rate"`
+	CriteriaTotal        int64           `json:"criteria_total"`
+	CriteriaMet          int64           `json:"criteria_met"`
+	CriterionPassRate    float64         `json:"criterion_pass_rate"`
+	StuckCount           int64           `json:"stuck_count"`
+}
+
+type phaseTimespan struct {
+	Phase     string `json:"phase"`
+	EnteredAt string `json:"entered_at"`
+	DurationS int64  `json:"duration_s"`
+}
+
+// insightsTools is the W5c (insights-phase-2) tool-call efficiency
+// rollup. tool_calls = total `agent_events.kind='tool_call'` rows in
+// the scope; tools_per_turn = tool_calls / turn_count; approvals
+// counts come from attention_items where kind='approval_request'.
+type insightsTools struct {
+	ToolCalls         int64   `json:"tool_calls"`
+	ToolsPerTurn      float64 `json:"tools_per_turn"`
+	ApprovalsTotal    int64   `json:"approvals_total"`
+	ApprovalsApproved int64   `json:"approvals_approved"`
+	ApprovalRate      float64 `json:"approval_rate"`
 }
 
 type insightsScope struct {
@@ -179,6 +224,12 @@ func buildInsightsResponse(ctx context.Context, db *sql.DB, scope *scopeFilter, 
 		return nil, err
 	}
 	if err := readInsightsConcurrency(ctx, db, scope, since, until, out); err != nil {
+		return nil, err
+	}
+	if err := readInsightsTools(ctx, db, scope, since, until, out); err != nil {
+		return nil, err
+	}
+	if err := readInsightsLifecycle(ctx, db, scope, out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -413,6 +464,196 @@ func readInsightsConcurrency(
 		return err
 	}
 	return nil
+}
+
+// readInsightsTools fills the W5c tool-call efficiency block.
+//
+//   - tool_calls — count of `agent_events.kind='tool_call'` rows in the
+//     scope. Doesn't count tool_call_update because each call's lifecycle
+//     can emit several updates; the user-facing "tools" count means the
+//     distinct invocations, not the streaming progress frames.
+//   - tools_per_turn — divides by the count of `kind='turn.result'` in
+//     the same window. Zero turns ⇒ ratio is 0 (rather than NaN) so the
+//     mobile renderer doesn't have to special-case `null`.
+//   - approvals_total / approvals_approved — `attention_items` rows
+//     scoped via the session join, kind='approval_request', resolved
+//     status. Approve detection walks `decisions_json` via json_each.
+//     Approval_request rows carry exactly one resolving decision (the
+//     code path in handlers_attention.go appends one entry on
+//     resolution), so EXISTS-on-approve is reliable.
+func readInsightsTools(
+	ctx context.Context, db *sql.DB,
+	scope *scopeFilter, since, until time.Time,
+	out *insightsResponse,
+) error {
+	args := append([]any{}, scope.EventsArgs...)
+	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
+	var toolCalls int64
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM agent_events
+		 WHERE `+scope.EventsClause+`
+		   AND ts >= ? AND ts < ?
+		   AND kind = 'tool_call'`,
+		args...,
+	).Scan(&toolCalls); err != nil {
+		return err
+	}
+	out.Tools.ToolCalls = toolCalls
+
+	// turn count for the ratio. We could fold this into the
+	// spend-and-latency loop but the extra query keeps that path
+	// untouched and the count is constant-time on the (project_id, ts)
+	// index.
+	var turnCount int64
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM agent_events
+		 WHERE `+scope.EventsClause+`
+		   AND ts >= ? AND ts < ?
+		   AND kind = 'turn.result'`,
+		args...,
+	).Scan(&turnCount); err != nil {
+		return err
+	}
+	if turnCount > 0 {
+		out.Tools.ToolsPerTurn = float64(toolCalls) / float64(turnCount)
+	}
+
+	// Approval funnel — total resolved approval_requests, plus the
+	// subset whose decisions_json contains an approve verdict.
+	approvalArgs := append([]any{}, scope.SessionsArgs...)
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM attention_items ai
+		 JOIN sessions s ON s.id = ai.session_id
+		 WHERE `+scope.SessionsClause+`
+		   AND ai.kind = 'approval_request'
+		   AND ai.status = 'resolved'`,
+		approvalArgs...,
+	).Scan(&out.Tools.ApprovalsTotal); err != nil {
+		return err
+	}
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*) FROM attention_items ai
+		 JOIN sessions s ON s.id = ai.session_id
+		 WHERE `+scope.SessionsClause+`
+		   AND ai.kind = 'approval_request'
+		   AND ai.status = 'resolved'
+		   AND EXISTS (
+		     SELECT 1 FROM json_each(ai.decisions_json) je
+		      WHERE json_extract(je.value, '$.decision') = 'approve'
+		   )`,
+		approvalArgs...,
+	).Scan(&out.Tools.ApprovalsApproved); err != nil {
+		return err
+	}
+	if out.Tools.ApprovalsTotal > 0 {
+		out.Tools.ApprovalRate =
+			float64(out.Tools.ApprovalsApproved) / float64(out.Tools.ApprovalsTotal)
+	}
+	return nil
+}
+
+// readInsightsLifecycle fills the W5d block for project scope.
+// Other scopes return nil with no error (Lifecycle stays unset and
+// the response omits the key).
+//
+//   - phases — (phase, entered_at, duration_s) rows derived from
+//     `projects.phase_history`. The trailing phase's duration runs
+//     to now() so the mobile timeline shows the live "we've been
+//     parked here" gap.
+//   - deliverables — count by ratification_state.
+//   - criteria — count by state ('met' / 'failed').
+//   - stuck_count — criteria in 'failed' state (the actionable
+//     bucket); 'pending' is the normal idle state, not a problem.
+func readInsightsLifecycle(
+	ctx context.Context, db *sql.DB,
+	scope *scopeFilter, out *insightsResponse,
+) error {
+	if scope.Kind != "project" {
+		return nil
+	}
+	projectID := scope.ID
+
+	var currentPhase, historyJSON string
+	if err := db.QueryRowContext(ctx, `
+		SELECT COALESCE(phase, ''), COALESCE(phase_history, '')
+		  FROM projects WHERE id = ?`, projectID,
+	).Scan(&currentPhase, &historyJSON); err != nil {
+		// project missing → no lifecycle to report; skip cleanly.
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+
+	lc := &insightsLifecycle{CurrentPhase: currentPhase}
+	if historyJSON != "" {
+		var hist phaseHistoryDoc
+		if err := json.Unmarshal([]byte(historyJSON), &hist); err == nil {
+			lc.Phases = computePhaseTimespans(hist.Transitions)
+		}
+	}
+
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*),
+		       COALESCE(SUM(CASE WHEN ratification_state = 'ratified' THEN 1 ELSE 0 END), 0)
+		  FROM deliverables WHERE project_id = ?`, projectID,
+	).Scan(&lc.DeliverablesTotal, &lc.DeliverablesRatified); err != nil {
+		return err
+	}
+	if lc.DeliverablesTotal > 0 {
+		lc.RatificationRate =
+			float64(lc.DeliverablesRatified) / float64(lc.DeliverablesTotal)
+	}
+
+	if err := db.QueryRowContext(ctx, `
+		SELECT count(*),
+		       COALESCE(SUM(CASE WHEN state = 'met'    THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN state = 'failed' THEN 1 ELSE 0 END), 0)
+		  FROM acceptance_criteria WHERE project_id = ?`, projectID,
+	).Scan(&lc.CriteriaTotal, &lc.CriteriaMet, &lc.StuckCount); err != nil {
+		return err
+	}
+	if lc.CriteriaTotal > 0 {
+		lc.CriterionPassRate =
+			float64(lc.CriteriaMet) / float64(lc.CriteriaTotal)
+	}
+
+	out.Lifecycle = lc
+	return nil
+}
+
+// computePhaseTimespans walks an ordered transition list and emits
+// one phaseTimespan per *destination* phase. Each row's duration is
+// the gap to the next transition's `at`, except the final row whose
+// duration runs to time.Now() so the renderer sees how long the
+// project has been parked in the current phase.
+func computePhaseTimespans(trs []phaseTransition) []phaseTimespan {
+	if len(trs) == 0 {
+		return nil
+	}
+	out := make([]phaseTimespan, 0, len(trs))
+	for i, t := range trs {
+		var endAt time.Time
+		if i+1 < len(trs) {
+			endAt, _ = time.Parse(time.RFC3339, trs[i+1].At)
+		} else {
+			endAt = time.Now().UTC()
+		}
+		startAt, err := time.Parse(time.RFC3339, t.At)
+		if err != nil {
+			continue
+		}
+		duration := endAt.Sub(startAt)
+		if duration < 0 {
+			duration = 0
+		}
+		out = append(out, phaseTimespan{
+			Phase:     t.To,
+			EnteredAt: t.At,
+			DurationS: int64(duration.Seconds()),
+		})
+	}
+	return out
 }
 
 // percentile returns the int64 floor at the q-th percentile (0..1) of a

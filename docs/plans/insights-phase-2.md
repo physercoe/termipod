@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** In flight (W1-W4 + W5a shipped 2026-05-09)
+> **Status:** Done — MVP scope (W1-W5a-W5d shipped 2026-05-09; W5e/W5f/W6 deferred post-MVP)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.461
+> **Last verified vs code:** v1.0.462
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -186,29 +186,109 @@ pivot to a cheaper engine" asks. Once the pricing table lands
   `InsightsBreakdownSection` widget; reads the same provider the
   panel does, so no second round-trip.
 
-#### W5b-W5f remaining
+#### W5b — Multi-host distribution (SHIPPED v1.0.462-alpha)
 
-| Sub-wedge | Dimension | Status | Surfaced from | Render |
-|---|---|---|---|---|
-| W5a | Engine + model breakdown | SHIPPED | Insights screen | tokens, share-bar, turns, tokens/turn |
-| W5b | Multi-host distribution | pending | Capacity tile (Hub Detail) | agent count per host, GPU vs CPU load, disk per host |
-| W5c | Tool-call efficiency | pending | Errors tile | gate approve%, retries, tools/turn |
-| W5d | Lifecycle flow | pending | (new tile) | time-in-phase, ratification rate, criterion pass-rate, gate-stuck count |
-| W5e | Unit economics | pending | Spend tile | $/session, $/deliverable ratified, $/attention resolved |
-| W5f | Snippet / template usage | pending | (new sheet on Settings) | which presets used, mode/model picker churn |
+Pure-mobile widget reading cached `hubProvider.hosts` +
+`hubProvider.agents`. Per-host: agent count (sorted descending), a
+share bar relative to the max, capability fingerprint
+(CPU + memory) drawn from `capabilities.host` when available, status
+dot. Hides itself on degenerate scopes (agent / host) and when fewer
+than two hosts contribute. Project scope falls back to "team-wide
+agents" because the hub agents endpoint doesn't carry project linkage
+— the strict join lives in W5d.
+
+GPU split + disk-per-host stay deferred — neither field exists in
+`capabilities_json` today. Token spend per host needs a `by_host`
+rollup the hub doesn't compute (would mirror by_engine work). Both
+trail W5b.
+
+**File shipped:**
+- `lib/widgets/insights_host_distribution.dart` —
+  `InsightsHostDistribution` widget.
+
+#### W5c — Tool-call efficiency (SHIPPED v1.0.462-alpha)
+
+Hub adds a `tools` block to `/v1/insights`:
+- `tool_calls` — `agent_events.kind='tool_call'` count in scope
+  (excludes `tool_call_update`, which streams progress frames).
+- `tools_per_turn` — call count divided by `turn.result` count.
+- `approvals_total` / `approvals_approved` — resolved
+  `attention_items` of kind `approval_request`, walked via
+  `json_each(decisions_json)` for an `EXISTS` approve check.
+- `approval_rate` — derived ratio.
+
+Mobile adds a `TOOL CALLS` section under the panel: total + per-turn
++ approval rate with a color-coded bar (green ≥ 85%, warning ≥ 50%,
+error otherwise — low approval rates suggest gate misalignment).
+Hides on zero-call zero-approval scopes.
+
+**Files shipped:**
+- `hub/internal/server/handlers_insights.go` — `insightsTools` type,
+  `readInsightsTools` helper.
+- `hub/internal/server/handlers_insights_scope_test.go` —
+  `TestInsights_ToolsBlock_AggregatesToolCallsAndApprovals`.
+- `lib/widgets/insights_tools_section.dart` — `InsightsToolsSection`.
+
+#### W5d — Lifecycle flow (SHIPPED v1.0.462-alpha)
+
+Hub adds a project-only `lifecycle` block (omitted on team / agent /
+engine / host scopes via pointer + omitempty):
+- `current_phase` — `projects.phase`.
+- `phases` — derived from `projects.phase_history.transitions`; one
+  row per destination phase with `entered_at` + `duration_s`. The
+  trailing phase's duration runs to `time.Now()` so the renderer
+  shows the live "we've been parked here" gap.
+- `deliverables_total` / `deliverables_ratified` /
+  `ratification_rate` — straight count + ratio over `deliverables`.
+- `criteria_total` / `criteria_met` / `criterion_pass_rate` /
+  `stuck_count` — same shape over `acceptance_criteria`. Stuck =
+  `state='failed'` (the actionable bucket); pending is normal idle.
+
+Mobile renders three sub-sections: phase timeline (per-phase row,
+duration bar, current-phase dot), ratification + criterion rate
+rows with color-coded bars, plus an inline warning row when
+`stuck_count > 0` ("clear with the steward"). Section hides when
+the project has no phase history AND no deliverables AND no
+criteria.
+
+**Files shipped:**
+- `hub/internal/server/handlers_insights.go` —
+  `insightsLifecycle` + `phaseTimespan` types,
+  `readInsightsLifecycle` + `computePhaseTimespans` helpers.
+- `hub/internal/server/handlers_insights_scope_test.go` —
+  `TestInsights_LifecycleBlock_PopulatedForProjectScope` (covers
+  presence on project, absence on team).
+- `lib/widgets/insights_lifecycle_section.dart` —
+  `InsightsLifecycleSection`.
+
+#### W5e/W5f deferred
+
+| Sub-wedge | Dimension | Status | Render |
+|---|---|---|---|
+| W5a | Engine + model breakdown | SHIPPED v1.0.461 | tokens, share-bar, turns, tokens/turn |
+| W5b | Multi-host distribution | SHIPPED v1.0.462 | agent count per host with capability fingerprint |
+| W5c | Tool-call efficiency | SHIPPED v1.0.462 | tool calls, tools/turn, approval rate (color-coded) |
+| W5d | Lifecycle flow | SHIPPED v1.0.462 | phase timeline, ratification rate, criterion pass-rate, stuck count |
+| W5e | Unit economics ($/session etc) | **deferred post-MVP** | Needs a pricing table — token×$ per model. ADR-022 marks pricing post-MVP; the current token-based metrics are the MVP proxy |
+| W5f | Snippet / template usage | **deferred post-MVP** | Needs snippet-press telemetry events (currently the action bar fires `snippet` without emitting an event) |
 
 The lifecycle dimension reads from `phase_specs`, `deliverables`,
 `acceptance_criteria` (added by W5 / W6 of
 [project-lifecycle-mvp.md](project-lifecycle-mvp.md)). DORA-for-AI
 flow rate.
 
-### W6 — Performance posture + rollup trigger
+### W6 — Performance posture + rollup trigger (DEFERRED post-MVP)
 
 Adds a p95-latency alert on the Insights endpoint. When p95 exceeds
 1s on real workloads, this is the trigger to land the materialized
 rollup table (`agent_event_rollups` keyed `team_id, project_id,
-agent_id, engine, day`). The rollup work is post-Phase-2; W6 wires
-the trigger and writes the post-MVP follow-up.
+agent_id, engine, day`).
+
+**Deferred 2026-05-09**: alpha workloads are tiny — the trigger
+condition (p95 > 1s) cannot fire today. The design *is* "wait for
+real load, then act." Reopen this wedge when the first real
+deployment crosses the threshold; until then the on-demand
+aggregation in handlers_insights.go is fine.
 
 ---
 

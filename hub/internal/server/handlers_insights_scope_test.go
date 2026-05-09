@@ -316,6 +316,168 @@ func TestInsights_HostScope_FiltersByAgentHost(t *testing.T) {
 	}
 }
 
+// TestInsights_ToolsBlock_AggregatesToolCallsAndApprovals seeds three
+// tool_call rows + three turn.result rows + two resolved
+// approval_requests (one approved, one rejected) and verifies the
+// W5c (insights-phase-2) tools block surfaces:
+//   - tool_calls = 3
+//   - tools_per_turn = 1.0
+//   - approvals_total = 2
+//   - approvals_approved = 1
+//   - approval_rate = 0.5
+func TestInsights_ToolsBlock_AggregatesToolCallsAndApprovals(t *testing.T) {
+	srv, tok, _, project, agent, session := insightsSetup(t)
+
+	for i := 0; i < 3; i++ {
+		insertEvent(t, srv, agent, session, "tool_call", map[string]any{
+			"name": fmt.Sprintf("Tool%d", i),
+		})
+		insertEvent(t, srv, agent, session, "turn.result", map[string]any{
+			"status":      "success",
+			"duration_ms": 100,
+		})
+	}
+
+	// Two resolved approval_requests in the same project — one
+	// approved, one rejected. Mirrors handlers_attention.go's append
+	// of one decision row on resolution.
+	now := NowUTC()
+	for _, c := range []struct {
+		id, decision string
+	}{
+		{NewID(), "approve"},
+		{NewID(), "reject"},
+	} {
+		decisions := fmt.Sprintf(`[{"decision":%q,"actor":"test","ts":%q}]`,
+			c.decision, now)
+		if _, err := srv.db.Exec(`
+			INSERT INTO attention_items
+				(id, project_id, scope_kind, scope_id, kind, summary,
+				 current_assignees_json, decisions_json, status,
+				 created_at, session_id)
+			VALUES (?, ?, 'project', ?, 'approval_request', 'test',
+				'[]', ?, 'resolved', ?, ?)`,
+			c.id, project, project, decisions, now, session); err != nil {
+			t.Fatalf("seed attention %s: %v", c.id, err)
+		}
+	}
+
+	since := time.Now().Add(-1 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+	_, out, body := callInsightsScope(t, srv, tok,
+		map[string]string{"project_id": project}, since, until)
+	if out == nil {
+		t.Fatalf("project query failed: %s", body)
+	}
+	if out.Tools.ToolCalls != 3 {
+		t.Errorf("tool_calls=%d, want 3 (body=%s)", out.Tools.ToolCalls, body)
+	}
+	if out.Tools.ToolsPerTurn != 1.0 {
+		t.Errorf("tools_per_turn=%v, want 1.0", out.Tools.ToolsPerTurn)
+	}
+	if out.Tools.ApprovalsTotal != 2 {
+		t.Errorf("approvals_total=%d, want 2", out.Tools.ApprovalsTotal)
+	}
+	if out.Tools.ApprovalsApproved != 1 {
+		t.Errorf("approvals_approved=%d, want 1", out.Tools.ApprovalsApproved)
+	}
+	if out.Tools.ApprovalRate != 0.5 {
+		t.Errorf("approval_rate=%v, want 0.5", out.Tools.ApprovalRate)
+	}
+}
+
+// TestInsights_LifecycleBlock_PopulatedForProjectScope seeds two
+// phase transitions, two deliverables (one ratified), and three
+// acceptance criteria (one met, one failed, one pending) and verifies
+// the W5d block reports the correct counts + ratios. Project-only —
+// the block must NOT appear for team/agent/engine/host scopes.
+func TestInsights_LifecycleBlock_PopulatedForProjectScope(t *testing.T) {
+	srv, tok, _, project, _, _ := insightsSetup(t)
+
+	// phase_history: empty → idea → research. The first transition is
+	// "set initial phase" so duration is from t1; the second is the
+	// real advance.
+	t1 := time.Now().Add(-2 * time.Hour).UTC().Format(time.RFC3339)
+	t2 := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	historyJSON := fmt.Sprintf(`{"transitions":[
+		{"from":"","to":"idea","at":%q},
+		{"from":"idea","to":"research","at":%q}
+	]}`, t1, t2)
+	if _, err := srv.db.Exec(`
+		UPDATE projects SET phase = 'research', phase_history = ? WHERE id = ?`,
+		historyJSON, project); err != nil {
+		t.Fatalf("seed phase history: %v", err)
+	}
+
+	now := NowUTC()
+	for _, d := range []struct{ id, state string }{
+		{NewID(), "ratified"},
+		{NewID(), "draft"},
+	} {
+		if _, err := srv.db.Exec(`
+			INSERT INTO deliverables
+				(id, project_id, phase, kind, ratification_state, created_at)
+			VALUES (?, ?, 'research', 'doc', ?, ?)`,
+			d.id, project, d.state, now); err != nil {
+			t.Fatalf("seed deliverable %s: %v", d.id, err)
+		}
+	}
+	for _, c := range []struct{ id, state string }{
+		{NewID(), "met"},
+		{NewID(), "failed"},
+		{NewID(), "pending"},
+	} {
+		if _, err := srv.db.Exec(`
+			INSERT INTO acceptance_criteria
+				(id, project_id, phase, kind, body, state, created_at)
+			VALUES (?, ?, 'research', 'text', ?, ?, ?)`,
+			c.id, project, "Crit "+c.id, c.state, now); err != nil {
+			t.Fatalf("seed criterion %s: %v", c.id, err)
+		}
+	}
+
+	since := time.Now().Add(-3 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+
+	// Project scope — lifecycle must be present and populated.
+	_, out, body := callInsightsScope(t, srv, tok,
+		map[string]string{"project_id": project}, since, until)
+	if out == nil {
+		t.Fatalf("project query failed: %s", body)
+	}
+	lc := out.Lifecycle
+	if lc == nil {
+		t.Fatalf("lifecycle block missing for project scope (body=%s)", body)
+	}
+	if lc.CurrentPhase != "research" {
+		t.Errorf("current_phase=%q, want research", lc.CurrentPhase)
+	}
+	if len(lc.Phases) != 2 {
+		t.Errorf("phases len=%d, want 2 (entries=%+v)", len(lc.Phases), lc.Phases)
+	}
+	if lc.DeliverablesTotal != 2 || lc.DeliverablesRatified != 1 {
+		t.Errorf("deliverables total=%d ratified=%d, want 2/1",
+			lc.DeliverablesTotal, lc.DeliverablesRatified)
+	}
+	if lc.RatificationRate != 0.5 {
+		t.Errorf("ratification_rate=%v, want 0.5", lc.RatificationRate)
+	}
+	if lc.CriteriaTotal != 3 || lc.CriteriaMet != 1 || lc.StuckCount != 1 {
+		t.Errorf("criteria total=%d met=%d stuck=%d, want 3/1/1",
+			lc.CriteriaTotal, lc.CriteriaMet, lc.StuckCount)
+	}
+
+	// Team scope — lifecycle must be omitted.
+	_, outTeam, body := callInsightsScope(t, srv, tok,
+		map[string]string{"team_id": "insights-test"}, since, until)
+	if outTeam == nil {
+		t.Fatalf("team query failed: %s", body)
+	}
+	if outTeam.Lifecycle != nil {
+		t.Errorf("lifecycle present on team scope: %+v", outTeam.Lifecycle)
+	}
+}
+
 // TestInsights_ScopeCacheKeysIsolate verifies the response cache keys
 // fold scope kind into their prefix — so a project_id="abc" read can't
 // shadow an agent_id="abc" read even when ids collide. Real ULIDs

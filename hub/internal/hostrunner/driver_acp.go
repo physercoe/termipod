@@ -416,14 +416,12 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		// spec's session/new response (gemini-cli@0.41.2 verified): each
 		// list element is an object with `id`, `name`, `description`.
 		Modes struct {
-			AvailableModes []struct {
-				ID string `json:"id"`
-			} `json:"availableModes"`
+			AvailableModes []map[string]any `json:"availableModes"`
+			CurrentModeID  string           `json:"currentModeId"`
 		} `json:"modes"`
 		Models struct {
-			AvailableModels []struct {
-				ID string `json:"id"`
-			} `json:"availableModels"`
+			AvailableModels []map[string]any `json:"availableModels"`
+			CurrentModelID  string           `json:"currentModelId"`
 		} `json:"models"`
 	}
 	_ = json.Unmarshal(sres, &sr)
@@ -439,17 +437,45 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	d.modesMu.Lock()
 	d.availableModes = make(map[string]struct{}, len(sr.Modes.AvailableModes))
 	for _, m := range sr.Modes.AvailableModes {
-		if m.ID != "" {
-			d.availableModes[m.ID] = struct{}{}
+		if id, _ := m["id"].(string); id != "" {
+			d.availableModes[id] = struct{}{}
 		}
 	}
 	d.availableModels = make(map[string]struct{}, len(sr.Models.AvailableModels))
 	for _, m := range sr.Models.AvailableModels {
-		if m.ID != "" {
-			d.availableModels[m.ID] = struct{}{}
+		if id, _ := m["id"].(string); id != "" {
+			d.availableModels[id] = struct{}{}
 		}
 	}
 	d.modesMu.Unlock()
+
+	// ADR-021 W2.5 — surface the initial mode/model state to mobile so
+	// the picker chips render on cold start. gemini-cli (and the ACP
+	// spec) returns the lists + current-id in the session/new and
+	// session/load *response* — not as `current_mode_update` /
+	// `current_model_update` notifications — so without this synthetic
+	// event mobile's modeModelStateFromEvents has nothing to walk and
+	// the chips stay hidden until the user explicitly switches. Shape
+	// matches the notification path's payload (top-level
+	// currentModeId/availableModes/currentModelId/availableModels) so
+	// the same mobile reducer handles both.
+	if len(sr.Modes.AvailableModes) > 0 || sr.Modes.CurrentModeID != "" ||
+		len(sr.Models.AvailableModels) > 0 || sr.Models.CurrentModelID != "" {
+		initialState := map[string]any{}
+		if sr.Modes.CurrentModeID != "" {
+			initialState["currentModeId"] = sr.Modes.CurrentModeID
+		}
+		if len(sr.Modes.AvailableModes) > 0 {
+			initialState["availableModes"] = sr.Modes.AvailableModes
+		}
+		if sr.Models.CurrentModelID != "" {
+			initialState["currentModelId"] = sr.Models.CurrentModelID
+		}
+		if len(sr.Models.AvailableModels) > 0 {
+			initialState["availableModels"] = sr.Models.AvailableModels
+		}
+		_ = d.Poster.PostAgentEvent(parent, d.AgentID, "system", "system", initialState)
+	}
 
 	_ = d.Poster.PostAgentEvent(parent, d.AgentID, "lifecycle", "system",
 		map[string]any{"phase": "started", "mode": "M1", "session_id": sr.SessionID})

@@ -2504,6 +2504,101 @@ func TestACPDriver_AuthMethodTypoFails(t *testing.T) {
 	}
 }
 
+// TestACPDriver_EmitsInitialModeModelSystemEvent — gemini-cli (and the
+// ACP spec) returns the available mode/model lists *and* the
+// currentModeId/currentModelId in the session/new and session/load
+// response — NOT as `current_mode_update`/`current_model_update`
+// notifications. Without a synthetic cold-start event the mobile
+// modeModelStateFromEvents reducer has nothing to walk, and the picker
+// chips stay hidden until the user explicitly switches mode/model.
+// Driver lifts the response payload into a kind=system, producer=system
+// event with top-level `currentModeId/availableModes/currentModelId/
+// availableModels` so it joins the existing modeModelStateFromEvents
+// path used for the runtime current_mode_update notifications.
+func TestACPDriver_EmitsInitialModeModelSystemEvent(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-init-mm")
+	fake.availableModes = []string{"default", "yolo"}
+	fake.availableModels = []string{"auto-gemini-3", "gemini-2.5-pro"}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-init-mm",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// The system event MUST arrive in the cold-start sequence so a fresh
+	// transcript shows the picker without the user nudging anything.
+	deadline := time.Now().Add(2 * time.Second)
+	var sys *postedEvent
+	for time.Now().Before(deadline) {
+		for i := range poster.snapshot() {
+			ev := poster.snapshot()[i]
+			if ev.Kind == "system" && ev.Payload["availableModes"] != nil {
+				e := ev
+				sys = &e
+				break
+			}
+		}
+		if sys != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sys == nil {
+		t.Fatalf("expected initial system event with availableModes; kinds=%v",
+			eventKinds(poster.snapshot()))
+	}
+	if sys.Producer != "system" {
+		t.Errorf("producer = %q; want system (matches notification path)",
+			sys.Producer)
+	}
+	modes, _ := sys.Payload["availableModes"].([]map[string]any)
+	if len(modes) == 0 {
+		// Fall back to the looser []any shape — JSON round-trip can
+		// surface either, depending on whether anything mutated the
+		// map post-parse.
+		if list, ok := sys.Payload["availableModes"].([]any); ok {
+			modes = make([]map[string]any, 0, len(list))
+			for _, m := range list {
+				if mm, ok := m.(map[string]any); ok {
+					modes = append(modes, mm)
+				}
+			}
+		}
+	}
+	if len(modes) != 2 {
+		t.Errorf("availableModes len = %d; want 2; payload=%+v",
+			len(modes), sys.Payload)
+	}
+	models, _ := sys.Payload["availableModels"].([]map[string]any)
+	if len(models) == 0 {
+		if list, ok := sys.Payload["availableModels"].([]any); ok {
+			models = make([]map[string]any, 0, len(list))
+			for _, m := range list {
+				if mm, ok := m.(map[string]any); ok {
+					models = append(models, mm)
+				}
+			}
+		}
+	}
+	if len(models) != 2 {
+		t.Errorf("availableModels len = %d; want 2; payload=%+v",
+			len(models), sys.Payload)
+	}
+}
+
 // TestACPDriver_SetModeDispatch — W2.2: Input("set_mode") validates the
 // requested id against the cached availableModes from session/new and
 // dispatches session/set_mode RPC.

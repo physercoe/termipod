@@ -124,9 +124,14 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       final families = cached.body
           .map((e) => e.cast<String, dynamic>())
           .toList();
+      // The hub serializes the resolved driving mode as `mode`
+      // (see agentOut.Mode in hub/internal/server/handlers_agents.go).
+      // Older clients/payloads may still surface it as `driving_mode`,
+      // so accept both — `mode` wins when present.
+      final drivingMode = (agent['mode'] ?? agent['driving_mode'])?.toString();
       final ok = resolveCanAttachImages(
         kind: agent['kind']?.toString(),
-        drivingMode: agent['driving_mode']?.toString(),
+        drivingMode: drivingMode,
         families: families,
       );
       if (!mounted) return;

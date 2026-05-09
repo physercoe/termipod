@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.439
+> **Last verified vs code:** v1.0.440
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,45 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.440-alpha — 2026-05-09
+
+### Fixed
+- **Image-attach button always hidden on mobile (ADR-021 Phase 4
+  reachability bug).** AgentCompose's `_resolveImageAttachAffordance`
+  read `agent['driving_mode']` from the `getAgent` response, but the
+  hub serialises that field as `mode` (see `agentOut.Mode` in
+  `hub/internal/server/handlers_agents.go`). Field mismatch made
+  `drivingMode` always null → `resolveCanAttachImages` defaulted to
+  `M4` → all families have `prompt_image['M4'] == false` → button
+  hidden for every agent regardless of capability. Compose now reads
+  `agent['mode'] ?? agent['driving_mode']` so the gate works on
+  current hubs and stays forward-compat if a future payload reverts
+  the field name.
+- **Mode/Model picker chips never showed for ACP agents on cold
+  start.** gemini-cli (and the ACP spec) returns the available
+  mode/model lists *and* the current ids in the `session/new` /
+  `session/load` response — NOT as `current_mode_update` /
+  `current_model_update` notifications. The driver cached the lists
+  locally for `set_mode` / `set_model` validation but never surfaced
+  them to mobile, so `modeModelStateFromEvents` had nothing to walk
+  and `_ModeModelStrip` rendered empty. Driver now emits a synthetic
+  `kind=system, producer=system` event after handshake with the
+  top-level `currentModeId / availableModes / currentModelId /
+  availableModels` shape (matches the runtime notification path so
+  the mobile reducer joins both transparently).
+- **Stream-dropped banner appeared on idle network drops.** dart:io
+  surfaces `HttpException: Connection closed before full body
+  received` and similar on Android-doze / carrier-NAT-timeout /
+  proxy-idle reaps — the SSE reconnect logic recovers transparently,
+  but the banner pushed noise to a user with nothing to act on. The
+  reconnect path's banner gate now suppresses the well-known idle
+  signatures (`connection closed`, `connection reset`,
+  `connection abort`, `connection terminated`, `before full body
+  received`, `stream closed`); genuine connectivity loss
+  (network-unreachable / DNS) still surfaces the banner.
 
 ---
 

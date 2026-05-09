@@ -662,9 +662,18 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     // sufficient. Earlier this code threshold-counted empty cycles
     // and surfaced the banner after 3, which lit up "Stream dropped"
     // on a finished-and-idle session that was working perfectly.
-    // Now: banner only on real errors, where the user might
-    // actually need to retry or check connectivity.
-    final shouldShowBanner = isError;
+    //
+    // Some onError signatures are also idle artifacts in disguise:
+    // dart:io's HttpClient surfaces `HttpException: Connection
+    // closed before full body received` (and similar variants) when
+    // the underlying TCP connection is reaped by Android dozing,
+    // carrier NAT timeouts, or load-balancer idle ceilings — none
+    // of which the user can act on. Treat the well-known idle
+    // signatures as banner-suppressed too; reconnect runs in the
+    // background regardless. Genuine connectivity loss surfaces as
+    // SocketException("Network is unreachable") / hostname-resolution
+    // failures which still trip the banner.
+    final shouldShowBanner = isError && !_isIdleDropSignature(reason);
     if (shouldShowBanner &&
         (_bannerGraceTimer == null || !_bannerGraceTimer!.isActive)) {
       // Schedule the banner grace-period instead of showing immediately.
@@ -691,6 +700,28 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       _bannerGraceTimer = null;
       _subscribe(client);
     });
+  }
+
+  /// Recognizes the dart:io / network-stack signatures that match a
+  /// passive idle close rather than a real connectivity failure. The
+  /// SSE stream sits idle between turns; many proxies / Android
+  /// dozers / carrier NATs reap idle TCP after ~60s, which surfaces as
+  /// an `HttpException: Connection closed ...` (or a peer-reset
+  /// SocketException) on the dart side. The reconnect timer recovers
+  /// transparently — the banner adds noise without giving the user
+  /// anything to do, so we suppress it for these cases. Match by
+  /// substring rather than exact text: dart:io's wording has shifted
+  /// between SDK versions, and the messages are not part of any
+  /// stable contract.
+  static bool _isIdleDropSignature(String reason) {
+    final lc = reason.toLowerCase();
+    return lc.contains('connection closed') ||
+        lc.contains('connection reset') ||
+        lc.contains('connection abort') ||
+        lc.contains('connection terminated') ||
+        lc.contains('http2streamlimit') ||
+        lc.contains('stream closed') ||
+        lc.contains('before full body received');
   }
 
   void _scrollToTail() {

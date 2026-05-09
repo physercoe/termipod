@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** In flight (W1+W2+W3 shipped 2026-05-09)
+> **Status:** In flight (W1-W4 shipped 2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.459
+> **Last verified vs code:** v1.0.460
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -137,10 +137,29 @@ as a `staleSince` field for future "stale dot" UI.
   ActivityDigestCard; gates on `hubState.configured && teamId`
   non-empty so the two-window read can't 400 on cold start.
 
-### W4 — Hosts Detail / Agent Detail → Insights tab
+### W4 — Hosts Detail / Agent Detail → Insights (SHIPPED v1.0.460-alpha)
 
-Each detail screen gets an Insights tab (alongside existing tabs).
-Default scope = the entity in question (this host / this agent).
+**Plan adjustment:** Both Host Detail and Agent Detail are bottom
+sheets, not tabbed screens. The literal "Insights tab" was right for
+Agent (its sheet already has a 3-tab DefaultTabController; we
+extended to 4) but wrong for Host (a flat SingleChildScrollView —
+adding tabs would have rebuilt the whole sheet). Pragmatic
+adaptation:
+
+- **Agent Detail** — added a 4th tab `Insights` showing
+  `InsightsPanel(scope: InsightsScope.agent(_id))`. Embedded so the
+  user keeps the sheet's lifecycle controls (Pause / Terminate /
+  Respawn) one tab away.
+- **Host Detail** — added an `Insights` outlined button between the
+  bind/unbind row and the Delete-host action. Pops the sheet and
+  pushes `InsightsScreen(scope: InsightsScope.host(hostId))` so the
+  fullscreen view gets the whole vertical budget. host scope folds
+  through `agents.host_id` per W1's scopeFilter.
+
+Both surfaces validate the InsightsScope API W1 designed for; the
+mobile scope chip stays deferred — a chip strip on the fullscreen
+view becomes useful with W5's Tier-2 dimensions, since the user will
+want to swap scopes inside the same drilldown context.
 
 ### W5 — Tier-2 dimensions
 

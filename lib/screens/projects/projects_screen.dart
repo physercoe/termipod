@@ -15,8 +15,10 @@ import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
+import '../../widgets/insights_panel.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
+import '../insights/insights_screen.dart';
 import '../terminal/terminal_screen.dart';
 import '../team/host_edit_sheet.dart';
 import '../hub/hub_bootstrap_screen.dart';
@@ -1327,7 +1329,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
             const SizedBox(height: 12),
             Expanded(
               child: DefaultTabController(
-                length: 3,
+                length: 4,
                 child: Column(
                   children: [
                     TabBar(
@@ -1336,6 +1338,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                         Tab(text: 'Feed'),
                         Tab(text: 'Pane'),
                         Tab(text: 'Journal'),
+                        Tab(text: 'Insights'),
                       ],
                     ),
                     Expanded(
@@ -1477,6 +1480,16 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                                   ),
                                 ),
                               ),
+                            ],
+                          ),
+                          // --- Insights (Phase 2 W4): per-agent Tier-1
+                          // tiles. Embed the panel rather than pushing
+                          // the fullscreen view so the user keeps the
+                          // sheet's lifecycle controls one tab away.
+                          ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                            children: [
+                              InsightsPanel(scope: InsightsScope.agent(_id)),
                             ],
                           ),
                         ],
@@ -1846,6 +1859,24 @@ class _HostDetailSheetState extends ConsumerState<_HostDetailSheet> {
                 ),
               );
             }),
+            // Phase 2 W4 — host-scoped Insights. Pushes the same
+            // fullscreen view the Activity AppBar opens, scoped via
+            // InsightsScope.host(id) which folds through agents.host_id.
+            OutlinedButton.icon(
+              onPressed: () {
+                final hostId = h['id']?.toString() ?? '';
+                if (hostId.isEmpty) return;
+                final rootNav = Navigator.of(context, rootNavigator: true);
+                Navigator.of(context).pop();
+                rootNav.push(MaterialPageRoute(
+                  builder: (_) => InsightsScreen(
+                      scope: InsightsScope.host(hostId)),
+                ));
+              },
+              icon: const Icon(Icons.insights_outlined, size: 18),
+              label: const Text('Insights'),
+            ),
+            const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: _busy ? null : _delete,
               style: FilledButton.styleFrom(

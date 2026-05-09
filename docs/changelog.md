@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.442
+> **Last verified vs code:** v1.0.443
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,38 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.443-alpha — 2026-05-09
+
+### Changed
+- **`tool_call_update` and non-`end_turn` `turn.result` now visible by
+  default in the transcript** (correcting the v1.0.442 verbose-only
+  approach). Reasoning: v1.0.442 hid both kinds behind the debug
+  toggle, but the user reported they expected these wire frames in
+  the normal log so they could trace approval-flow state. New rules:
+  - `tool_call_update` shows standalone only when its parent
+    `tool_call` is hidden by a gate (`request_approval`,
+    `request_select`, `request_help`, `request_decision`,
+    `permission_prompt`) — that's the case where the standalone card
+    is the only place to see the wire result. For non-gated tools
+    the update keeps folding into the parent card to avoid
+    duplicating the latest status pill.
+  - `turn.result` shows when `stop_reason != end_turn`. Cancelled /
+    error / max-token / refused turns become inline cards (e.g. the
+    cancelled in-flight prompt that gets replaced by an
+    attention_reply). Clean `end_turn` boundaries stay silent so
+    every reply doesn't add a "turn ended" card.
+- **`input.attention_reply` card now leads with the rendered prompt
+  text the agent received** (e.g. `[reply to approval_request
+  01KR5CT6] Approved.`), not just the structured decision fields.
+  Mobile ports `formatAttentionReplyText` (Go: `driver_stdio.go`) as
+  `renderAttentionReplyText` (Dart) so the transcript matches
+  exactly what the engine sees on the wire. Cross-language contract
+  pinned by `attention_reply_render_test.dart` (Dart) +
+  `TestFormatAttentionReplyText` (Go) — same input table, same
+  expected outputs.
 
 ---
 

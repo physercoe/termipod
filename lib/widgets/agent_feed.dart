@@ -138,6 +138,59 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
   };
 }
 
+/// Dart port of `formatAttentionReplyText` (Go: driver_stdio.go).
+/// Renders the structured payload of an `input.attention_reply` event
+/// into the literal text the agent sees on its user turn — so the
+/// transcript card matches what was sent on the wire. Both sides must
+/// stay in sync; pinned by `test/widgets/attention_reply_render_test.dart`.
+String renderAttentionReplyText(Map<String, dynamic> p) {
+  final kind = (p['kind'] ?? '').toString();
+  final reqID = (p['request_id'] ?? '').toString();
+  final decision = (p['decision'] ?? '').toString();
+  final body = (p['body'] ?? '').toString();
+  final option = (p['option_id'] ?? '').toString();
+  final reason = (p['reason'] ?? '').toString();
+
+  var prefix = '';
+  if (reqID.isNotEmpty) {
+    final short = reqID.length > 8 ? reqID.substring(0, 8) : reqID;
+    prefix = '[reply to $kind $short] ';
+  }
+
+  switch (kind) {
+    case 'approval_request':
+      switch (decision) {
+        case 'approve':
+          return reason.isEmpty
+              ? '${prefix}Approved.'
+              : '${prefix}Approved. Reason: $reason';
+        case 'reject':
+          return reason.isEmpty
+              ? '${prefix}Rejected.'
+              : '${prefix}Rejected. Reason: $reason';
+      }
+      return prefix + decision;
+    case 'select':
+      if (decision == 'reject') {
+        return reason.isEmpty
+            ? '${prefix}No option chosen.'
+            : '${prefix}No option chosen. Reason: $reason';
+      }
+      if (option.isNotEmpty) return '${prefix}Selected: $option';
+      return '${prefix}Selected.';
+    case 'help_request':
+      if (decision == 'reject') {
+        return reason.isEmpty
+            ? '${prefix}Dismissed without reply.'
+            : '${prefix}Dismissed without reply. Reason: $reason';
+      }
+      if (body.isNotEmpty) return prefix + body;
+      return '${prefix}(empty reply)';
+  }
+  if (body.isNotEmpty) return prefix + body;
+  return prefix + decision;
+}
+
 /// Renders a live, scrollable feed of agent_events for [agentId]. Keeps
 /// its own seq cursor so reconnects don't replay the whole history. The
 /// first frame is the in-DB backfill fetched via listAgentEvents; after
@@ -1426,7 +1479,64 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       }
       return false;
     }
+    if (kind == 'tool_call_update') {
+      // Folds into the parent tool_call card when there IS a visible
+      // parent — rendering the standalone card too would just
+      // duplicate the latest status pill the parent already shows.
+      // For gated tools (request_approval/select/help_request — the
+      // request_* MCP gates) the parent is hidden by the gate rule
+      // above, so the standalone card becomes the only place to see
+      // the wire-level result content (e.g. the attention_id +
+      // severity payload the agent received). Same fall-through for
+      // updates whose toolCallId never had a matching tool_call event
+      // (drivers that emit updates without an opening frame).
+      final p = e['payload'];
+      if (p is Map) {
+        final id = (p['toolCallId'] ?? p['tool_call_id'] ?? '').toString();
+        if (id.isNotEmpty) {
+          final parentName = toolNames[id] ?? '';
+          if (parentName.isNotEmpty && !_isGatedToolName(parentName)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+    if (kind == 'turn.result') {
+      // The normal `end_turn` boundary fires on every clean turn —
+      // showing it as a card would clutter the transcript on every
+      // reply. Cancelled / errored / max-token / refused turns are
+      // unusual signals worth surfacing inline (e.g. a cancelled
+      // turn that fell because attention_reply replaced it). The
+      // telemetry strip aggregates ALL turn.results regardless.
+      final p = e['payload'];
+      if (p is Map) {
+        final reason = (p['stop_reason'] ?? '').toString();
+        if (reason == 'end_turn' || reason == '') return true;
+      }
+      return false;
+    }
     if (!_verbose && _isVerboseOnly(kind, e['payload'])) return true;
+    return false;
+  }
+
+  // Names of MCP gate tools whose tool_call card is hidden because the
+  // inline attention card represents the same gesture. Used by the
+  // tool_call_update visibility rule so updates for gated tools fall
+  // back to a standalone card when the parent is suppressed.
+  static const _kGateToolNames = <String>{
+    'permission_prompt',
+    'request_select',
+    'request_decision',
+    'request_approval',
+    'request_help',
+  };
+
+  bool _isGatedToolName(String name) {
+    if (_kGateToolNames.contains(name)) return true;
+    for (final g in _kGateToolNames) {
+      if (name.endsWith('__$g')) return true;
+    }
     return false;
   }
 
@@ -1435,14 +1545,6 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     'completion',
     'raw',
     'system',
-    // Wire-level RPC frames. tool_call_update folds into the parent
-    // tool_call card by default (which carries the latest status pill
-    // + content); the standalone card is only useful for forensic
-    // visibility of intermediate states. turn.result drives the
-    // telemetry strip; surfacing the cancelled / end_turn frames
-    // helps the user trace why a turn boundary fell where it did.
-    'tool_call_update',
-    'turn.result',
   };
 
   bool _isVerboseOnly(String kind, Object? payload) {
@@ -1612,8 +1714,8 @@ class _VerboseToggleChip extends StatelessWidget {
         : (hiddenCount > 0 ? '$hiddenCount' : '');
     return Tooltip(
       message: verbose
-          ? 'Hide wire frames (lifecycle, raw, system, tool_call_update, turn.result)'
-          : 'Show wire frames (lifecycle, raw, system, tool_call_update, turn.result)'
+          ? 'Hide debug events (lifecycle, raw, system)'
+          : 'Show debug events (lifecycle, raw, system)'
               '${hiddenCount > 0 ? ' — $hiddenCount currently hidden' : ''}',
       child: Material(
         color: bg.withValues(alpha: 0.92),
@@ -2392,10 +2494,11 @@ class AgentEventCard extends StatefulWidget {
 
   // Renders the principal's reply to a vendor-neutral attention
   // (request_approval / request_select / request_help). The reply is
-  // posted by hub /decide as a structured event; without this case
-  // the transcript fell back to dumping the raw JSON, which read like
-  // "noise after Approve" even though the decision itself is the
-  // turn's cause-and-effect anchor.
+  // posted by hub /decide as a structured event; the rendered text we
+  // build here mirrors `formatAttentionReplyText` in
+  // hub/internal/hostrunner/driver_stdio.go — same per-kind shape
+  // because the engine sees this exact text as a user turn, and the
+  // transcript should match what the agent saw on the wire.
   Widget _inputAttentionReplyBody(BuildContext ctx, Map<String, dynamic> p) {
     final decision = p['decision']?.toString() ?? '?';
     final kind = p['kind']?.toString() ?? '';
@@ -2403,18 +2506,25 @@ class AgentEventCard extends StatefulWidget {
     final body = p['body']?.toString() ?? '';
     final optionId = p['option_id']?.toString() ?? '';
     final reason = p['reason']?.toString() ?? '';
+    final rendered = renderAttentionReplyText(p);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Lead with the literal text the engine receives. Reads like a
+        // typed user message — that's the user's mental model when
+        // they tap Approve.
+        if (rendered.isNotEmpty) _mono(ctx, rendered),
+        if (rendered.isNotEmpty) const SizedBox(height: 6),
         _kv(ctx, 'decision', decision),
         if (kind.isNotEmpty) _kv(ctx, 'kind', kind),
         if (optionId.isNotEmpty) _kv(ctx, 'option_id', optionId),
-        if (body.isNotEmpty) _kv(ctx, 'reply', body),
+        if (body.isNotEmpty && rendered != body) _kv(ctx, 'reply', body),
         if (reason.isNotEmpty) _kv(ctx, 'reason', reason),
         if (reqId.isNotEmpty) _kv(ctx, 'request_id', reqId),
       ],
     );
   }
+
 
   // Compact renderer for non-init `system` frames. claude-code emits
   // these for sub-agent state (task_started / task_updated /

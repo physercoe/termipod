@@ -869,3 +869,139 @@ func TestStdioDriver_StopIsIdempotent(t *testing.T) {
 	drv.Stop()
 	drv.Stop() // must not panic or double-emit stopped
 }
+
+
+// TestFormatAttentionReplyText pins the cross-language contract with
+// lib/widgets/agent_feed.dart's renderAttentionReplyText. Mobile shows
+// this exact string in the input.attention_reply transcript card so
+// the user sees what was sent on the wire — drift between the two
+// would lie about the engine's view of the user turn.
+func TestFormatAttentionReplyText(t *testing.T) {
+	cases := []struct {
+		name string
+		in   map[string]any
+		want string
+	}{
+		{
+			"approval_request approve no reason",
+			map[string]any{
+				"kind":       "approval_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "approve",
+			},
+			"[reply to approval_request 01KR5CT6] Approved.",
+		},
+		{
+			"approval_request approve with reason",
+			map[string]any{
+				"kind":       "approval_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "approve",
+				"reason":     "looks safe",
+			},
+			"[reply to approval_request 01KR5CT6] Approved. Reason: looks safe",
+		},
+		{
+			"approval_request reject",
+			map[string]any{
+				"kind":       "approval_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reject",
+			},
+			"[reply to approval_request 01KR5CT6] Rejected.",
+		},
+		{
+			"select with option",
+			map[string]any{
+				"kind":       "select",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "select",
+				"option_id":  "option-b",
+			},
+			"[reply to select 01KR5CT6] Selected: option-b",
+		},
+		{
+			"select reject with reason",
+			map[string]any{
+				"kind":       "select",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reject",
+				"reason":     "none fit",
+			},
+			"[reply to select 01KR5CT6] No option chosen. Reason: none fit",
+		},
+		{
+			"help_request reply with body",
+			map[string]any{
+				"kind":       "help_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reply",
+				"body":       "Use python 3.11.",
+			},
+			"[reply to help_request 01KR5CT6] Use python 3.11.",
+		},
+		{
+			"help_request reject",
+			map[string]any{
+				"kind":       "help_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reject",
+			},
+			"[reply to help_request 01KR5CT6] Dismissed without reply.",
+		},
+		{
+			"help_request reply empty body",
+			map[string]any{
+				"kind":       "help_request",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reply",
+				"body":       "",
+			},
+			"[reply to help_request 01KR5CT6] (empty reply)",
+		},
+		{
+			"short request_id keeps full prefix",
+			map[string]any{
+				"kind":       "approval_request",
+				"request_id": "abc",
+				"decision":   "approve",
+			},
+			"[reply to approval_request abc] Approved.",
+		},
+		{
+			"unknown kind falls back to body",
+			map[string]any{
+				"kind":       "novel_kind",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reply",
+				"body":       "hello",
+			},
+			"[reply to novel_kind 01KR5CT6] hello",
+		},
+		{
+			"unknown kind without body falls back to decision",
+			map[string]any{
+				"kind":       "novel_kind",
+				"request_id": "01KR5CT645A7KTWVZDXDWT6Y8D",
+				"decision":   "reply",
+			},
+			"[reply to novel_kind 01KR5CT6] reply",
+		},
+		{
+			"no request_id skips prefix",
+			map[string]any{
+				"kind":     "approval_request",
+				"decision": "approve",
+			},
+			"Approved.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := formatAttentionReplyText(c.in)
+			if got != c.want {
+				t.Errorf("formatAttentionReplyText:\n  got  %q\n  want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -442,11 +442,17 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       if (!mounted) return;
       // Server returns DESC; flip to ASC so the prepend keeps the
       // chat's "older-above" invariant. Filter dupes by id (session
-      // pagination over ts can produce overlap on equal-ts rows).
+      // pagination over ts can produce overlap on equal-ts rows) and
+      // drop replay-tagged text/thought (see _ingestSnapshot for the
+      // duplicate-card rationale).
       final ascending = <Map<String, dynamic>>[];
       for (final e in older.reversed) {
         final id = (e['id'] ?? '').toString();
         if (id.isNotEmpty && !_ids.add(id)) continue;
+        if (agentEventIsReplay(e)) {
+          final kind = (e['kind'] ?? '').toString();
+          if (kind == 'text' || kind == 'thought') continue;
+        }
         ascending.add(e);
       }
       setState(() {
@@ -496,9 +502,26 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   // for seq tracking.
   void _ingestSnapshot(List<Map<String, dynamic>> snapshot) {
     final ascending = snapshot.reversed.toList();
+    // Filter out replay-tagged text/thought events at snapshot time.
+    // The hub persists every agent_event, including the replay frames
+    // gemini-cli streams during session/load — and the cumulative text
+    // for those replays drifts from the live cumulative text (different
+    // whitespace, different chunk count), so the content-based replay
+    // dedup misses and the user sees double thought cards. The live
+    // (non-replay) text/thought entries are the authoritative copy.
+    // Stable-ID kinds (tool_call / approval_request) keep their replay
+    // entries; their dedup-by-id is robust.
+    final filtered = <Map<String, dynamic>>[];
+    for (final e in ascending) {
+      if (agentEventIsReplay(e)) {
+        final kind = (e['kind'] ?? '').toString();
+        if (kind == 'text' || kind == 'thought') continue;
+      }
+      filtered.add(e);
+    }
     _events
       ..clear()
-      ..addAll(ascending);
+      ..addAll(filtered);
     _ids.clear();
     _replayKeys.clear();
     _maxSeq = 0;
@@ -672,10 +695,20 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
       // content; live duplicates are fine to render and are already
       // rare given the id-dedup.
       final replayKey = agentEventReplayKey(evt);
-      if (agentEventIsReplay(evt) &&
-          replayKey != null &&
-          _replayKeys.contains(replayKey)) {
-        return;
+      if (agentEventIsReplay(evt)) {
+        // text/thought replay frames carry slightly different
+        // formatting from the live cumulative chunks (gemini-cli's
+        // session/load reflows whitespace; the trailing chunk that
+        // contained tool-call JSON is absent), so the content-based
+        // replayKey doesn't match what's in _replayKeys and the dedup
+        // misses. The session-scoped snapshot already pulled the live
+        // versions, so any text/thought arriving with replay:true is
+        // redundant by construction — drop unconditionally.
+        final kind = (evt['kind'] ?? '').toString();
+        if (kind == 'text' || kind == 'thought') return;
+        // tool_call / approval_request have stable IDs across replay
+        // and live, so the exact-key dedup still works.
+        if (replayKey != null && _replayKeys.contains(replayKey)) return;
       }
       if (replayKey != null) _replayKeys.add(replayKey);
       final seq = (evt['seq'] as num?)?.toInt() ?? 0;

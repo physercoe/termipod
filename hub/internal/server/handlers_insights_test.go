@@ -354,8 +354,10 @@ func TestInsights_Concurrency_ActiveAgentsAndOpenSessions(t *testing.T) {
 }
 
 // TestInsights_RequiresProjectID rejects calls missing the scope.
-// Phase 2 will gain team / agent / engine scopes; Phase 1 only honors
-// project_id, and the absence is a 400 not a silent empty response.
+// Phase 2 W1 lifted /v1/insights to all scopes (project / team / agent
+// / engine / host) — but the basic-shape contract is unchanged: no
+// scope → 400, never a silent empty response. The richer "exactly one"
+// case (zero AND multiple) lives in TestInsights_RequiresExactlyOneScope.
 func TestInsights_RequiresProjectID(t *testing.T) {
 	srv, tok, _, _, _, _ := insightsSetup(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/insights", nil)

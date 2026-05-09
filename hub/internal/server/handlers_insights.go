@@ -12,12 +12,15 @@ import (
 	"time"
 )
 
-// /v1/insights project-scoped aggregator (ADR-022 D3, insights-phase-1 W2).
-// Returns the Tier-1 dimensions — spend / latency / errors / concurrency —
-// summed across `agent_events` filtered by project_id and the optional
-// time range. Caches the response with a 30s TTL keyed on the request
-// triple so a Project Detail screen refreshing on tab-switch doesn't
-// re-scan agent_events every time.
+// /v1/insights scope-parameterized aggregator (ADR-022 D3,
+// insights-phase-1 W2 + insights-phase-2 W1). Returns the Tier-1
+// dimensions — spend / latency / errors / concurrency — summed across
+// `agent_events` filtered by the requested scope (project / team /
+// agent / engine / host) and the optional time range. Caches the
+// response with a 30s TTL keyed on the (scope_kind, scope_id, since,
+// until) tuple so a Project Detail screen refreshing on tab-switch
+// doesn't re-scan agent_events every time. The scope filter SQL lives
+// in insights_scope.go.
 
 type insightsCacheEntry struct {
 	taken time.Time
@@ -39,9 +42,9 @@ var hubInsightsCache = &insightsCache{entries: map[string]insightsCacheEntry{}}
 
 func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	projectID := strings.TrimSpace(q.Get("project_id"))
-	if projectID == "" {
-		writeErr(w, http.StatusBadRequest, "project_id required")
+	scope, err := parseInsightsScope(q)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -68,7 +71,10 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKey := projectID + "|" + since.Format(time.RFC3339Nano) + "|" + until.Format(time.RFC3339Nano)
+	// Cache key folds the scope kind into the prefix so a
+	// project-scoped read never collides with an agent-scoped read that
+	// happens to share an id space.
+	cacheKey := scope.Kind + ":" + scope.ID + "|" + since.Format(time.RFC3339Nano) + "|" + until.Format(time.RFC3339Nano)
 
 	hubInsightsCache.mu.Lock()
 	if entry, ok := hubInsightsCache.entries[cacheKey]; ok && time.Since(entry.taken) < insightsTTL {
@@ -81,7 +87,7 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	}
 	hubInsightsCache.mu.Unlock()
 
-	out, err := buildInsightsResponse(r.Context(), s.db, projectID, since, until)
+	out, err := buildInsightsResponse(r.Context(), s.db, scope, since, until)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -154,11 +160,11 @@ type insightsAgg struct {
 	Turns       int64 `json:"turns"`
 }
 
-func buildInsightsResponse(ctx context.Context, db *sql.DB, projectID string, since, until time.Time) (*insightsResponse, error) {
+func buildInsightsResponse(ctx context.Context, db *sql.DB, scope *scopeFilter, since, until time.Time) (*insightsResponse, error) {
 	out := &insightsResponse{
 		Scope: insightsScope{
-			Kind:  "project",
-			ID:    projectID,
+			Kind:  scope.Kind,
+			ID:    scope.ID,
 			Since: since.Format(time.RFC3339),
 			Until: until.Format(time.RFC3339),
 		},
@@ -166,13 +172,13 @@ func buildInsightsResponse(ctx context.Context, db *sql.DB, projectID string, si
 		ByModel:  map[string]insightsAgg{},
 	}
 
-	if err := readInsightsSpendAndLatency(ctx, db, projectID, since, until, out); err != nil {
+	if err := readInsightsSpendAndLatency(ctx, db, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsErrors(ctx, db, projectID, since, until, out); err != nil {
+	if err := readInsightsErrors(ctx, db, scope, since, until, out); err != nil {
 		return nil, err
 	}
-	if err := readInsightsConcurrency(ctx, db, projectID, since, until, out); err != nil {
+	if err := readInsightsConcurrency(ctx, db, scope, since, until, out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -191,16 +197,18 @@ func buildInsightsResponse(ctx context.Context, db *sql.DB, projectID string, si
 // the in-process fold is faster than scaffolding both.
 func readInsightsSpendAndLatency(
 	ctx context.Context, db *sql.DB,
-	projectID string, since, until time.Time,
+	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
+	args := append([]any{}, scope.EventsArgs...)
+	args = append(args, since.Format(time.RFC3339), until.Format(time.RFC3339))
 	rows, err := db.QueryContext(ctx, `
 		SELECT kind, payload_json, agent_id
 		  FROM agent_events
-		 WHERE project_id = ?
+		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
 		   AND kind IN ('usage','turn.result')`,
-		projectID, since.Format(time.RFC3339), until.Format(time.RFC3339),
+		args...,
 	)
 	if err != nil {
 		return err
@@ -331,17 +339,19 @@ func readInsightsSpendAndLatency(
 
 func readInsightsErrors(
 	ctx context.Context, db *sql.DB,
-	projectID string, since, until time.Time,
+	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
 	// Failed turns: kind=turn.result with status != 'success'.
+	failedArgs := append([]any{}, scope.EventsArgs...)
+	failedArgs = append(failedArgs, since.Format(time.RFC3339), until.Format(time.RFC3339))
 	if err := db.QueryRowContext(ctx, `
 		SELECT count(*) FROM agent_events
-		 WHERE project_id = ?
+		 WHERE `+scope.EventsClause+`
 		   AND ts >= ? AND ts < ?
 		   AND kind = 'turn.result'
 		   AND COALESCE(json_extract(payload_json, '$.status'), 'success') <> 'success'`,
-		projectID, since.Format(time.RFC3339), until.Format(time.RFC3339),
+		failedArgs...,
 	).Scan(&out.Errors.FailedTurns); err != nil {
 		return err
 	}
@@ -353,15 +363,17 @@ func readInsightsErrors(
 	// crash-typed phase before recording it here.
 	out.Errors.DriverDisconnects = 0
 
-	// Open attention items scoped by joining sessions(scope_kind='project').
-	// attention_items.session_id was added in 0026; its project linkage
-	// rides through that table.
+	// Open attention items reach the scope through their session row;
+	// scope.SessionsClause covers each scope kind's path (project via
+	// scope_kind/scope_id, team via team_id, agent via current_agent_id,
+	// engine/host via the agents subquery).
+	attArgs := append([]any{}, scope.SessionsArgs...)
 	if err := db.QueryRowContext(ctx, `
 		SELECT count(*) FROM attention_items ai
 		 JOIN sessions s ON s.id = ai.session_id
-		 WHERE s.scope_kind = 'project' AND s.scope_id = ?
+		 WHERE `+scope.SessionsClause+`
 		   AND ai.status = 'open'`,
-		projectID,
+		attArgs...,
 	).Scan(&out.Errors.OpenAttention); err != nil {
 		return err
 	}
@@ -370,30 +382,33 @@ func readInsightsErrors(
 
 func readInsightsConcurrency(
 	ctx context.Context, db *sql.DB,
-	projectID string, since, until time.Time,
+	scope *scopeFilter, since, until time.Time,
 	out *insightsResponse,
 ) error {
-	// Active agents = distinct agents with at least one event in the
-	// window. Open sessions = sessions(scope_kind='project') still in
-	// status 'active'.
+	// Open sessions in the scope. scope.SessionsClause already matches
+	// the right column set per scope kind (see insights_scope.go).
 	_ = since
 	_ = until
 	if err := db.QueryRowContext(ctx, `
-		SELECT count(*) FROM sessions
-		 WHERE scope_kind = 'project' AND scope_id = ?
-		   AND status = 'active'`,
-		projectID,
+		SELECT count(*) FROM sessions s
+		 WHERE `+scope.SessionsClause+`
+		   AND s.status = 'active'`,
+		append([]any{}, scope.SessionsArgs...)...,
 	).Scan(&out.Concurrency.OpenSessions); err != nil {
 		return err
 	}
+	// Active agents: agents currently driving a session in the scope.
+	// The two subqueries do double duty — the inner SELECT finds the
+	// scoped sessions, the outer JOIN on agents.id picks the running
+	// ones. For agent-scope this is degenerate (one or zero rows).
 	if err := db.QueryRowContext(ctx, `
 		SELECT count(*) FROM agents
 		 WHERE id IN (
-		   SELECT current_agent_id FROM sessions
-		    WHERE scope_kind = 'project' AND scope_id = ?
-		      AND status = 'active' AND current_agent_id IS NOT NULL)
+		   SELECT s.current_agent_id FROM sessions s
+		    WHERE `+scope.SessionsClause+`
+		      AND s.status = 'active' AND s.current_agent_id IS NOT NULL)
 		   AND status = 'running'`,
-		projectID,
+		append([]any{}, scope.SessionsArgs...)...,
 	).Scan(&out.Concurrency.ActiveAgents); err != nil {
 		return err
 	}

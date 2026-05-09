@@ -1,9 +1,9 @@
 # Insights Phase 2 — multi-scope expansion + Tier-2 dimensions
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-09)
+> **Status:** In flight (W1 shipped 2026-05-09)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.443
+> **Last verified vs code:** v1.0.457
 
 **TL;DR.** [ADR-022](../decisions/022-observability-surfaces.md)
 Phase 2 graduates the Insights surface from project-scoped (Phase 1)
@@ -45,14 +45,45 @@ only. Phase 2 fills four gaps:
 Phase 2 is **6 wedges** — exact numbering and file paths land when
 Phase 2 enters In flight. This is the architectural sketch.
 
-### W1 — Multi-scope filter chip on Insights view
+### W1 — Multi-scope `/v1/insights` (SHIPPED v1.0.457-alpha)
 
-Lift the `/v1/insights` handler from project-only to all 7 scopes
-(`project_id` / `team_id` / `agent_id` / `engine` / `host_id` /
-`user_id` / `since` / `until`). Mobile gets a scope filter chip at
-the top of the Insights view; chip selection re-fetches and
-re-renders. Endpoint shape doesn't change — only the branches that
-are wired.
+Lifted the handler from project-only to **5 scopes** —
+`project_id` / `team_id` / `agent_id` / `engine` / `host_id`. The
+`user_id` scope is parked: ADR-005's principal/director model has no
+users table at MVP, so per-token attribution doesn't exist; the
+endpoint 400s with the same "exactly one of …" error if you pass it.
+Time-range params (`since`, `until`) are independent of scope and
+unchanged from Phase 1 W2.
+
+**Mobile-side scope chip is deferred** to whichever wedge first lands
+multiple entry points. On Project Detail (the only Phase-1 entry
+point) there's no scope to pick — you're already on a project — so a
+chip would be vestigial. The `InsightsScope` value object +
+`getInsights({projectId, teamId, agentId, engine, hostId})` API are
+ready for W2-W4 callers.
+
+**Files shipped:**
+- `hub/internal/server/insights_scope.go` — query-param parsing +
+  per-table predicate generation. SessionsClause prefixes columns
+  with `s.` so it slots into JOIN-with-attention_items without
+  ambiguity.
+- `hub/internal/server/handlers_insights.go` — refactor: every SQL
+  site swapped from hardcoded `project_id = ?` to
+  `<scope.EventsClause>` / `<scope.SessionsClause>`. Cache key now
+  prefixed with scope kind so cross-scope reads can't shadow.
+- `hub/internal/server/handlers_insights_scope_test.go` — 6 new
+  tests: exactly-one-scope contract, team aggregates across
+  projects, agent isolates, engine filters by agents.kind, host
+  filters by agents.host_id, cache-key isolation.
+- `lib/services/hub/hub_client.dart` — `getInsights` /
+  `getInsightsCached` now take `{projectId?, teamId?, agentId?,
+  engine?, hostId?}`. Throws synchronously if exactly-one rule is
+  violated rather than waiting for the hub 400.
+- `lib/providers/insights_provider.dart` — new `InsightsScope` value
+  object (5 named ctors); family provider keyed by the typed scope.
+- `lib/widgets/insights_panel.dart` — takes `InsightsScope` instead
+  of a raw `projectId`; re-exports `InsightsScope` for callers that
+  already import the panel.
 
 ### W2 — Insights icon on Activity AppBar
 

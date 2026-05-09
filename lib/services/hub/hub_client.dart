@@ -197,18 +197,35 @@ class HubClient {
     return (out as Map).cast<String, dynamic>();
   }
 
-  /// Project-scoped insights aggregator (ADR-022 D3 / insights-phase-1
-  /// W2). Returns the Tier-1 dimensions — spend / latency / errors /
-  /// concurrency — summed across `agent_events` filtered by project_id
-  /// and the optional time range. The hub caches the response with a
-  /// 30s TTL keyed on (project_id, since, until); the panel layers a
+  /// Scope-parameterized insights aggregator (ADR-022 D3,
+  /// insights-phase-1 W2 + insights-phase-2 W1). Returns Tier-1
+  /// dimensions — spend / latency / errors / concurrency — summed
+  /// across `agent_events` filtered by the requested scope (project /
+  /// team / agent / engine / host) and the optional time range. The
+  /// hub caches the response with a 30s TTL keyed on
+  /// (scope_kind, scope_id, since, until); the panel layers a
   /// snapshot cache on top per ADR-006.
+  ///
+  /// Exactly one of the *Id / engine params must be set — the hub
+  /// 400s otherwise. We intentionally don't enumerate `InsightsScope`
+  /// here; Dart-side it's the `InsightsScope` value object in
+  /// providers/insights_provider.dart that builds the q-param.
   Future<Map<String, dynamic>> getInsights({
-    required String projectId,
+    String? projectId,
+    String? teamId,
+    String? agentId,
+    String? engine,
+    String? hostId,
     DateTime? since,
     DateTime? until,
   }) async {
-    final q = <String, String>{'project_id': projectId};
+    final q = _insightsScopeQuery(
+      projectId: projectId,
+      teamId: teamId,
+      agentId: agentId,
+      engine: engine,
+      hostId: hostId,
+    );
     if (since != null) q['since'] = since.toUtc().toIso8601String();
     if (until != null) q['until'] = until.toUtc().toIso8601String();
     final out = await _get('/v1/insights', query: q);
@@ -216,24 +233,66 @@ class HubClient {
   }
 
   /// Read-through variant of [getInsights]; same offline-fallback
-  /// contract as [listHostsCached]. The endpoint key folds project_id
-  /// + since + until into the cache row so a 24h-window read on
-  /// project A doesn't shadow a 7d-window read on the same project.
+  /// contract as [listHostsCached]. The endpoint key folds the scope
+  /// pair + since + until into the cache row so reads at different
+  /// scopes don't shadow each other.
   Future<CachedResponse<Map<String, dynamic>>> getInsightsCached({
-    required String projectId,
+    String? projectId,
+    String? teamId,
+    String? agentId,
+    String? engine,
+    String? hostId,
     DateTime? since,
     DateTime? until,
   }) {
-    final q = <String, String>{'project_id': projectId};
+    final q = _insightsScopeQuery(
+      projectId: projectId,
+      teamId: teamId,
+      agentId: agentId,
+      engine: engine,
+      hostId: hostId,
+    );
     if (since != null) q['since'] = since.toUtc().toIso8601String();
     if (until != null) q['until'] = until.toUtc().toIso8601String();
     return readThrough<Map<String, dynamic>>(
       cache: snapshotCache,
       hubKey: _cacheHubKey,
       endpoint: buildEndpointKey('/v1/insights', q),
-      fetch: () => getInsights(projectId: projectId, since: since, until: until),
+      fetch: () => getInsights(
+        projectId: projectId,
+        teamId: teamId,
+        agentId: agentId,
+        engine: engine,
+        hostId: hostId,
+        since: since,
+        until: until,
+      ),
       decode: _decodeMap,
     );
+  }
+
+  // _insightsScopeQuery builds the {scope_param: id} singleton map.
+  // Exactly one of the params must be non-empty — the hub enforces
+  // this too, but failing fast on the client surfaces caller bugs
+  // synchronously instead of as a 400 round-trip.
+  Map<String, String> _insightsScopeQuery({
+    String? projectId,
+    String? teamId,
+    String? agentId,
+    String? engine,
+    String? hostId,
+  }) {
+    final entries = <String, String>{};
+    if (projectId != null && projectId.isNotEmpty) entries['project_id'] = projectId;
+    if (teamId != null && teamId.isNotEmpty) entries['team_id'] = teamId;
+    if (agentId != null && agentId.isNotEmpty) entries['agent_id'] = agentId;
+    if (engine != null && engine.isNotEmpty) entries['engine'] = engine;
+    if (hostId != null && hostId.isNotEmpty) entries['host_id'] = hostId;
+    if (entries.length != 1) {
+      throw ArgumentError(
+          'getInsights requires exactly one of projectId/teamId/agentId/engine/hostId; got $entries');
+    }
+    return entries;
   }
 
   // ---- collections ----

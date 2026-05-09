@@ -1186,7 +1186,7 @@ class _OverviewView extends ConsumerWidget {
           // Insights — Tier-1 metric tiles (ADR-022 D3 / insights-phase-1
           // W2). Renders silently when the project has no event volume,
           // so legacy / lifecycle-disabled projects don't pay UI cost.
-          InsightsPanel(projectId: projectId),
+          InsightsPanel(scope: InsightsScope.project(projectId)),
           const SizedBox(height: 12),
           const Divider(height: 1),
           const SizedBox(height: 16),

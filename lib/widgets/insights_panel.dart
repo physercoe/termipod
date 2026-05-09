@@ -5,21 +5,31 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/insights_provider.dart';
 import '../theme/design_colors.dart';
 
-/// Five Tier-1 tiles glanced into the Project Detail Overview.
-/// ADR-022 D3 + insights-phase-1.md §3 W2: spend / latency / errors /
-/// concurrency at project scope. Cache-first per ADR-006 — render the
-/// snapshot immediately, fire the live request in the background, swap
-/// when it lands. Stale banner appears when the cached body is the only
-/// thing we have to show.
-class InsightsPanel extends ConsumerWidget {
-  final String projectId;
+// Re-export the scope value object so callers that already imported
+// insights_panel.dart can construct an `InsightsScope.project(...)`
+// without a second import. Keeps the call-site one-liner clean.
+export '../providers/insights_provider.dart' show InsightsScope, InsightsScopeKind;
 
-  const InsightsPanel({super.key, required this.projectId});
+/// Five Tier-1 tiles glanced into a detail screen's Overview.
+/// ADR-022 D3 + insights-phase-1.md §3 W2 + insights-phase-2 W1:
+/// spend / latency / errors / concurrency at the supplied scope.
+/// Cache-first per ADR-006 — render the snapshot immediately, fire
+/// the live request in the background, swap when it lands. Stale
+/// banner appears when the cached body is the only thing we have to
+/// show.
+///
+/// Project Detail passes `InsightsScope.project(...)` today; future
+/// callers (Hosts Detail, Agent Detail per Phase 2 W4) pass their own
+/// scope without the panel needing to know.
+class InsightsPanel extends ConsumerWidget {
+  final InsightsScope scope;
+
+  const InsightsPanel({super.key, required this.scope});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (projectId.isEmpty) return const SizedBox.shrink();
-    final async = ref.watch(insightsProvider(projectId));
+    if (scope.isEmpty) return const SizedBox.shrink();
+    final async = ref.watch(insightsProvider(scope));
     final value = async.value;
     final body = value?.body;
 

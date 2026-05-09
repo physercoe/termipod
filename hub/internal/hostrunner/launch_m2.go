@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/agentfamilies"
@@ -347,6 +348,10 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	}
 
 	closer := func() {
+		// Final notice for the cosmetic tail pane — see launch_m1's
+		// equivalent for rationale.
+		_, _ = fmt.Fprintf(logFile, "\n[host-runner] M2 stopped at %s\n",
+			time.Now().UTC().Format(time.RFC3339))
 		kill()
 		_ = stdin.Close()
 		_ = stdout.Close()

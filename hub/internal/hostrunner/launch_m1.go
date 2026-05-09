@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/termipod/hub/internal/agentfamilies"
 )
@@ -194,6 +195,15 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 	}
 
 	closer := func() {
+		// Final notice for the cosmetic tail pane before we tear
+		// everything down — without this the tmux pane's tail just
+		// stops emitting bytes when the engine exits, leaving the
+		// operator unsure whether the stop succeeded. Written before
+		// kill() so the bytes flush while the process still owns its
+		// stdout fds; potential interleaving with engine output is
+		// harmless because user-initiated stop happens during idle.
+		_, _ = fmt.Fprintf(logFile, "\n[host-runner] M1 stopped at %s\n",
+			time.Now().UTC().Format(time.RFC3339))
 		kill()
 		_ = stdin.Close()
 		_ = stdout.Close()

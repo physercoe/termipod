@@ -190,51 +190,31 @@ class _SessionDetailsSheet extends StatelessWidget {
     // most often comes here to change are reachable in one scroll. The
     // subsequent AGENT/WORKDIR/TOOLS/... sections are read-only state;
     // mode/model is the "do something" surface, hence the prominence.
+    //
+    // Compact pill layout: the previous one-row-per-option list ate
+    // ~50px × N (gemini ships 8 models, so the picker drowned the
+    // sheet). Wrap of ChoiceChip surfaces every option at a glance,
+    // wraps long model names naturally, and is one tap to switch.
+    // Description text is parked in the chip's tooltip so power users
+    // can long-press for the engine's prose without paying the line
+    // cost up front.
     if (modeModel != null && modeModel!.hasMode) {
       section(
         'MODE',
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final opt in modeModel!.availableModes)
-              _ModeModelOptionRow(
-                label: (opt['name'] ?? opt['id'] ?? '').toString(),
-                description: opt['description']?.toString(),
-                selected: opt['id']?.toString() == modeModel!.currentMode,
-                leading: Icons.tune,
-                onTap: () {
-                  final id = opt['id']?.toString() ?? '';
-                  Navigator.of(context).pop();
-                  if (id.isNotEmpty && id != modeModel!.currentMode) {
-                    modeModel!.onPickMode(id);
-                  }
-                },
-              ),
-          ],
+        _ModeModelPicker(
+          options: modeModel!.availableModes,
+          currentId: modeModel!.currentMode,
+          onPick: modeModel!.onPickMode,
         ),
       );
     }
     if (modeModel != null && modeModel!.hasModel) {
       section(
         'MODEL',
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final opt in modeModel!.availableModels)
-              _ModeModelOptionRow(
-                label: (opt['name'] ?? opt['id'] ?? '').toString(),
-                description: opt['description']?.toString(),
-                selected: opt['id']?.toString() == modeModel!.currentModel,
-                leading: Icons.psychology_alt,
-                onTap: () {
-                  final id = opt['id']?.toString() ?? '';
-                  Navigator.of(context).pop();
-                  if (id.isNotEmpty && id != modeModel!.currentModel) {
-                    modeModel!.onPickModel(id);
-                  }
-                },
-              ),
-          ],
+        _ModeModelPicker(
+          options: modeModel!.availableModels,
+          currentId: modeModel!.currentModel,
+          onPick: modeModel!.onPickModel,
         ),
       );
     }
@@ -529,81 +509,47 @@ Future<void> showModeModelPickerSheet(
 ) {
   return showModalBottomSheet<void>(
     context: context,
-    // Without isScrollControlled the sheet's height is capped at half
-    // the screen; a long model list (claude has 6+) overflows and the
-    // bottom rows are unreachable. With it, the SingleChildScrollView
-    // below can grow to fit and the user can scroll.
     isScrollControlled: true,
     showDragHandle: true,
     builder: (sheetCtx) {
       return SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(sheetCtx).size.height * 0.85,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (data.hasMode) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                    child: Text(
-                      'Mode',
-                      style: Theme.of(sheetCtx).textTheme.titleSmall,
-                    ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (data.hasMode) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 6),
+                  child: Text(
+                    'Mode',
+                    style: Theme.of(sheetCtx).textTheme.titleSmall,
                   ),
-                  for (final opt in data.availableModes)
-                    ListTile(
-                      leading: const Icon(Icons.tune, size: 18),
-                      title: Text((opt['name'] ?? opt['id'] ?? '').toString()),
-                      subtitle: opt['description'] != null
-                          ? Text((opt['description']).toString())
-                          : null,
-                      trailing: (opt['id']?.toString() == data.currentMode)
-                          ? const Icon(Icons.check, size: 18)
-                          : null,
-                      onTap: () {
-                        final id = opt['id']?.toString() ?? '';
-                        Navigator.of(sheetCtx).pop();
-                        if (id.isNotEmpty && id != data.currentMode) {
-                          data.onPickMode(id);
-                        }
-                      },
-                    ),
-                ],
-                if (data.hasMode && data.hasModel) const Divider(height: 1),
-                if (data.hasModel) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: Text(
-                      'Model',
-                      style: Theme.of(sheetCtx).textTheme.titleSmall,
-                    ),
-                  ),
-                  for (final opt in data.availableModels)
-                    ListTile(
-                      leading: const Icon(Icons.psychology_alt, size: 18),
-                      title: Text((opt['name'] ?? opt['id'] ?? '').toString()),
-                      subtitle: opt['description'] != null
-                          ? Text((opt['description']).toString())
-                          : null,
-                      trailing: (opt['id']?.toString() == data.currentModel)
-                          ? const Icon(Icons.check, size: 18)
-                          : null,
-                      onTap: () {
-                        final id = opt['id']?.toString() ?? '';
-                        Navigator.of(sheetCtx).pop();
-                        if (id.isNotEmpty && id != data.currentModel) {
-                          data.onPickModel(id);
-                        }
-                      },
-                    ),
-                ],
-                const SizedBox(height: 4),
+                ),
+                _ModeModelPicker(
+                  options: data.availableModes,
+                  currentId: data.currentMode,
+                  onPick: data.onPickMode,
+                ),
               ],
-            ),
+              if (data.hasMode && data.hasModel)
+                const SizedBox(height: 12),
+              if (data.hasModel) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 6),
+                  child: Text(
+                    'Model',
+                    style: Theme.of(sheetCtx).textTheme.titleSmall,
+                  ),
+                ),
+                _ModeModelPicker(
+                  options: data.availableModels,
+                  currentId: data.currentModel,
+                  onPick: data.onPickModel,
+                ),
+              ],
+            ],
           ),
         ),
       );
@@ -611,38 +557,63 @@ Future<void> showModeModelPickerSheet(
   );
 }
 
-/// One row in the consolidated session-details sheet's MODE / MODEL
-/// sections. Shape mirrors a ListTile but with a smaller leading icon
-/// + subtle selected-state ring so the row reads as "tap to switch"
-/// rather than "permanent label." Subtitle is the engine's optional
-/// `description` string; absent means the engine offered an id without
-/// human-friendly prose.
-class _ModeModelOptionRow extends StatelessWidget {
-  final String label;
-  final String? description;
-  final bool selected;
-  final IconData leading;
-  final VoidCallback onTap;
-  const _ModeModelOptionRow({
-    required this.label,
-    required this.description,
-    required this.selected,
-    required this.leading,
-    required this.onTap,
+/// Compact pill picker for ACP availableModes / availableModels.
+/// Renders every option as a ChoiceChip in a Wrap so the selector
+/// stays under ~50-100px even when the engine ships 8+ models.
+/// Selected chip has a filled background; unselected chips are
+/// outlined. Tap dismisses the parent sheet AND fires onPick (only
+/// when the id actually changes — same behavior as the old row).
+/// Long-press / hover surfaces the engine's `description` via the
+/// chip tooltip; the ids that already include human-friendly names
+/// (e.g. "Auto (Gemini 3)") need no extra prose, so the field is
+/// optional in the source data.
+class _ModeModelPicker extends StatelessWidget {
+  final List<Map<String, dynamic>> options;
+  final String? currentId;
+  final ValueChanged<String> onPick;
+  const _ModeModelPicker({
+    required this.options,
+    required this.currentId,
+    required this.onPick,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(leading, size: 18),
-      title: Text(label),
-      subtitle: (description != null && description!.isNotEmpty)
-          ? Text(description!)
-          : null,
-      trailing: selected ? const Icon(Icons.check, size: 18) : null,
-      onTap: onTap,
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      children: [
+        for (final opt in options)
+          _buildChip(context, opt),
+      ],
+    );
+  }
+
+  Widget _buildChip(BuildContext context, Map<String, dynamic> opt) {
+    final id = opt['id']?.toString() ?? '';
+    final label = (opt['name'] ?? opt['id'] ?? '').toString();
+    final desc = opt['description']?.toString() ?? '';
+    final selected = id == currentId;
+    final chip = ChoiceChip(
+      label: Text(label,
+          style: GoogleFonts.jetBrainsMono(fontSize: 12)),
+      selected: selected,
+      onSelected: (_) {
+        Navigator.of(context).pop();
+        if (id.isNotEmpty && id != currentId) {
+          onPick(id);
+        }
+      },
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+    );
+    if (desc.isEmpty) return chip;
+    return Tooltip(
+      message: desc,
+      preferBelow: true,
+      waitDuration: const Duration(milliseconds: 400),
+      child: chip,
     );
   }
 }

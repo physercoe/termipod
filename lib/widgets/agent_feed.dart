@@ -1590,10 +1590,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
   static List<Map<String, dynamic>> _collapseStreamingPartials(
       List<Map<String, dynamic>> events) {
     final out = <Map<String, dynamic>>[];
+    // Chains are namespaced by kind so a `text` and a `thought` event
+    // that happen to share a message_id (e.g. when the engine reuses
+    // turn-local ids across kinds) don't fold into each other.
     final chainIdx = <String, int>{};
     for (final e in events) {
       final kind = (e['kind'] ?? '').toString();
-      if (kind != 'text') {
+      // gemini-cli streams thought chunks the same way it streams
+      // text — incremental session/update frames the driver
+      // accumulates and re-emits with shared message_id + partial:true
+      // (driver_acp.go handleNotification, agent_thought_chunk arm).
+      // Without thought in this allowlist they stack as N redundant
+      // cards each carrying the cumulative text so far.
+      if (kind != 'text' && kind != 'thought') {
         out.add(e);
         continue;
       }
@@ -1610,18 +1619,19 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
         out.add(e);
         continue;
       }
-      final existing = chainIdx[mid];
+      final chainKey = '$kind:$mid';
+      final existing = chainIdx[chainKey];
       if (existing != null) {
-        // We're in a streaming chain for this message_id — every
-        // subsequent text event (partial or final) replaces the entry.
+        // We're in a streaming chain for this kind+message_id — every
+        // subsequent event (partial or final) replaces the entry.
         out[existing] = e;
       } else if (isPartial) {
-        // First partial for this message_id opens a chain.
-        chainIdx[mid] = out.length;
+        // First partial for this kind+message_id opens a chain.
+        chainIdx[chainKey] = out.length;
         out.add(e);
       } else {
-        // Regular text event with no preceding partial — claude's
-        // shape; append without opening a chain.
+        // Regular event with no preceding partial — claude's shape;
+        // append without opening a chain.
         out.add(e);
       }
     }

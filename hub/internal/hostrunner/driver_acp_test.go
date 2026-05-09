@@ -2894,3 +2894,525 @@ func TestACPDriver_SetModeUnsupportedWhenNoList(t *testing.T) {
 		t.Errorf("error = %q; want substring 'did not advertise modes'", err.Error())
 	}
 }
+
+// TestACPDriver_PromptTimeoutPausedDuringPermission pins the
+// permission-aware PromptTimeout. Symptom this regression test guards:
+// gemini's session/prompt was timing out after 2m even though the
+// 2-minute window was actually US holding gemini hostage by not
+// replying to its session/request_permission (the user took ~2m to
+// tap Approve on their phone). The driver must NOT flag the agent as
+// stuck while a permission is parked — extend the deadline until the
+// permission is resolved.
+//
+// Setup: PromptTimeout=200ms; the fake raises session/request_permission
+// immediately. The test then deliberately waits 400ms (2× PromptTimeout)
+// before sending the approval, mimicking the human-on-phone pause.
+// During that window the watchdog must observe pendingPerm and reset
+// itself rather than firing context.DeadlineExceeded.
+func TestACPDriver_PromptTimeoutPausedDuringPermission(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	// Fake agent that:
+	//   1. Handshakes normally.
+	//   2. On session/prompt: immediately raises a session/request_permission
+	//      (id=99) and waits for the host to reply.
+	//   3. Once the permission outcome arrives, replies to the prompt
+	//      promptly (the slow part of this test is the human-on-phone
+	//      delay BEFORE approval, not the tool work after).
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		var promptID any
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			_, hasResult := msg["result"]
+			switch {
+			case method == "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case method == "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-perm-pause"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case method == "session/prompt":
+				promptID = id
+				// Raise a permission request and wait for our reply.
+				perm, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": 99, "method": "session/request_permission",
+					"params": map[string]any{
+						"sessionId": "sess-perm-pause",
+						"options": []map[string]any{
+							{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+							{"optionId": "cancel", "name": "Reject", "kind": "reject_once"},
+						},
+						"toolCall": map[string]any{
+							"toolCallId": "tc-1",
+							"status":     "pending",
+							"title":      "test",
+						},
+					},
+				})
+				_, _ = hostOutW.Write(append(perm, '\n'))
+			case hasResult && id != nil && fmt.Sprint(id) == "99":
+				// Permission outcome received — reply to the prompt.
+				go func(pid any) {
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": pid,
+						"result": map[string]any{"stopReason": "end_turn"},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}(promptID)
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-perm-pause",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    200 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// Drive the prompt. The permission arrives ~immediately; we then
+	// hold on the approval for 400ms (2× PromptTimeout) to ensure the
+	// watchdog has at least one tick where pendingPerm is non-empty —
+	// this is the user-on-their-phone window we're guarding against.
+	done := make(chan error, 1)
+	go func() {
+		done <- drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	var reqID string
+	for time.Now().Before(deadline) {
+		for _, e := range poster.snapshot() {
+			if e.Kind == "approval_request" {
+				if id, ok := e.Payload["request_id"].(string); ok {
+					reqID = id
+					break
+				}
+			}
+		}
+		if reqID != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if reqID == "" {
+		t.Fatal("never saw the permission approval_request — driver didn't surface session/request_permission")
+	}
+
+	// Human-on-phone simulation: hold for 400ms before tapping Allow.
+	// Watchdog's first timer.C fire (at ~200ms) MUST observe pendingPerm
+	// and reset itself; without the fix, Input(text) would have already
+	// returned context.DeadlineExceeded by the time we send approval.
+	time.Sleep(400 * time.Millisecond)
+
+	if err := drv.Input(context.Background(), "approval", map[string]any{
+		"request_id": reqID, "decision": "allow",
+	}); err != nil {
+		t.Fatalf("Input(approval): %v", err)
+	}
+
+	// The original Input must NOT have timed out. The fake replies to
+	// the prompt promptly after our approval lands.
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Input(text): want nil with permission-aware timeout, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Input(text) did not return within 3s — watchdog probably failed to extend")
+	}
+}
+
+// TestACPDriver_OrphanCancelledSuppressedAfterCancel pins issue 3:
+// when Input("cancel") posts an eager turn.result(cancelled), the
+// orphan path's synthetic turn.result for the agent's eventual
+// stopReason=cancelled response must NOT post a duplicate card.
+func TestACPDriver_OrphanCancelledSuppressedAfterCancel(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	releasePrompt := make(chan struct{})
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-cancel-suppress"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				go func(id any) {
+					<-releasePrompt
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": id,
+						"result": map[string]any{"stopReason": "cancelled"},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}(id)
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-cancel-suppress",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    100 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// Fire and forget — Input(text) will time out at 100ms, leaving
+	// the prompt orphaned in deliverResponse's view.
+	go func() {
+		_ = drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	// User taps Cancel — eager turn.result(cancelled) posted, suppress
+	// window opened.
+	if err := drv.Input(context.Background(), "cancel", nil); err != nil {
+		t.Fatalf("Input(cancel): %v", err)
+	}
+
+	// Now release the held prompt response — its stopReason=cancelled
+	// arrives orphaned. The suppress window MUST drop the synthetic
+	// turn.result so mobile sees only ONE cancelled card.
+	close(releasePrompt)
+	time.Sleep(300 * time.Millisecond)
+
+	var cancelledTurns int
+	for _, e := range poster.snapshot() {
+		if e.Kind != "turn.result" {
+			continue
+		}
+		if sr, _ := e.Payload["stop_reason"].(string); sr == "cancelled" {
+			cancelledTurns++
+		}
+	}
+	if cancelledTurns != 1 {
+		t.Fatalf("turn.result(cancelled) cards posted = %d; want exactly 1 (the eager card from Input(cancel))", cancelledTurns)
+	}
+}
+
+// TestACPDriver_OrphanCancelledSuppressedAfterAttentionReply pins
+// the second half of issue 3: Input("attention_reply") sends a fresh
+// session/prompt that cancels gemini's previous prompt; the orphan
+// cancelled response must NOT post a stray turn.result card on top of
+// the live end_turn the new prompt produces.
+func TestACPDriver_OrphanCancelledSuppressedAfterAttentionReply(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	holdFirstPrompt := make(chan struct{})
+	go func() {
+		reader := bufio.NewReader(hostInR)
+		seenPrompts := 0
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var msg map[string]any
+			if err := json.Unmarshal(line, &msg); err != nil {
+				continue
+			}
+			method, _ := msg["method"].(string)
+			id := msg["id"]
+			switch method {
+			case "initialize":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"protocolVersion": 1, "agentCapabilities": map[string]any{}},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/new":
+				b, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0", "id": id,
+					"result": map[string]any{"sessionId": "sess-att-suppress"},
+				})
+				_, _ = hostOutW.Write(append(b, '\n'))
+			case "session/prompt":
+				seenPrompts++
+				if seenPrompts == 1 {
+					// First prompt: hold its response until released,
+					// then reply with cancelled (mimics gemini cancelling
+					// the in-flight turn after a fresh session/prompt).
+					go func(id any) {
+						<-holdFirstPrompt
+						b, _ := json.Marshal(map[string]any{
+							"jsonrpc": "2.0", "id": id,
+							"result": map[string]any{"stopReason": "cancelled"},
+						})
+						_, _ = hostOutW.Write(append(b, '\n'))
+					}(id)
+				} else {
+					// Second prompt (the attention_reply turn): reply
+					// promptly with end_turn.
+					b, _ := json.Marshal(map[string]any{
+						"jsonrpc": "2.0", "id": id,
+						"result": map[string]any{"stopReason": "end_turn"},
+					})
+					_, _ = hostOutW.Write(append(b, '\n'))
+				}
+			}
+		}
+	}()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-att-suppress",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close() },
+		HandshakeTimeout: 2 * time.Second,
+		PromptTimeout:    100 * time.Millisecond,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+
+	// First prompt — orphans after PromptTimeout (held response).
+	go func() {
+		_ = drv.Input(context.Background(), "text", map[string]any{"body": "hi"})
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	// User answers an attention_request. attention_reply sends the
+	// follow-up session/prompt and opens a suppression window.
+	if err := drv.Input(context.Background(), "attention_reply", map[string]any{
+		"request_id": "req-1",
+		"decision":   "allow",
+	}); err != nil {
+		t.Fatalf("Input(attention_reply): %v", err)
+	}
+
+	// Now release the first prompt's cancelled response. It arrives
+	// orphaned. The suppress window MUST drop the synthetic turn.result.
+	close(holdFirstPrompt)
+	time.Sleep(300 * time.Millisecond)
+
+	var cancelled, endTurns int
+	for _, e := range poster.snapshot() {
+		if e.Kind != "turn.result" {
+			continue
+		}
+		switch e.Payload["stop_reason"] {
+		case "cancelled":
+			cancelled++
+		case "end_turn":
+			endTurns++
+		}
+	}
+	if cancelled != 0 {
+		t.Errorf("turn.result(cancelled) cards posted = %d; want 0 — the cancelled orphan was driver-induced", cancelled)
+	}
+	if endTurns != 1 {
+		t.Errorf("turn.result(end_turn) cards posted = %d; want exactly 1 (the live attention_reply turn)", endTurns)
+	}
+}
+
+// TestACPDriver_SynthesizesToolCallFromOrphanUpdate pins the parity
+// fix: gemini-cli@0.41 emits ONLY tool_call_update for MCP tools (no
+// preceding tool_call notification) yet mobile's feed drops orphan
+// tool_call_update events because they're folded into a parent card
+// that would never exist. The driver synthesizes a tool_call event
+// when the first tool_call_update for an id arrives, so live and
+// resume renderings stay consistent.
+func TestACPDriver_SynthesizesToolCallFromOrphanUpdate(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-tc-syn")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-tc-syn",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Orphan tool_call_update — no preceding tool_call.
+	fake.notify("session/update", map[string]any{
+		"sessionId": "sess-tc-syn",
+		"update": map[string]any{
+			"sessionUpdate": "tool_call_update",
+			"toolCallId":    "mcp_request_approval-orphan-1",
+			"title":         "request_approval (termipod MCP Server)",
+			"status":        "completed",
+			"kind":          "other",
+			"content": []map[string]any{{
+				"type": "content",
+				"content": map[string]any{
+					"type": "text",
+					"text": `{"id":"01KR5S7B5VMEYJ01JEXQ1S0SDT","kind":"approval_request"}`,
+				},
+			}},
+		},
+	})
+
+	// Expect both a synthesized tool_call AND the original
+	// tool_call_update — order must be tool_call first so mobile's
+	// folder records the parent before it sees the update.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var sawTC, sawTCU bool
+		var tcIdx, tcuIdx int
+		for i, e := range poster.snapshot() {
+			switch e.Kind {
+			case "tool_call":
+				if id, _ := e.Payload["id"].(string); id == "mcp_request_approval-orphan-1" {
+					sawTC = true
+					tcIdx = i
+				}
+			case "tool_call_update":
+				if id, _ := e.Payload["toolCallId"].(string); id == "mcp_request_approval-orphan-1" {
+					sawTCU = true
+					tcuIdx = i
+				}
+			}
+		}
+		if sawTC && sawTCU {
+			if tcIdx > tcuIdx {
+				t.Fatalf("synthesized tool_call appeared AFTER tool_call_update (idx %d > %d) — folder won't record the parent in time", tcIdx, tcuIdx)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("orphan tool_call_update did not produce a synthesized tool_call event — mobile transcript would silently drop the card")
+}
+
+// TestACPDriver_DoesNotDoubleSynthesizeToolCall confirms the cache
+// stops a follow-up tool_call_update from emitting a second
+// synthesized tool_call for the same id.
+func TestACPDriver_DoesNotDoubleSynthesizeToolCall(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-tc-once")
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-tc-once",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Two updates for the same id.
+	for _, status := range []string{"pending", "completed"} {
+		fake.notify("session/update", map[string]any{
+			"sessionId": "sess-tc-once",
+			"update": map[string]any{
+				"sessionUpdate": "tool_call_update",
+				"toolCallId":    "tc-only-once",
+				"title":         "do_thing",
+				"status":        status,
+				"kind":          "other",
+			},
+		})
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		toolCalls := 0
+		for _, e := range poster.snapshot() {
+			if e.Kind != "tool_call" {
+				continue
+			}
+			if id, _ := e.Payload["id"].(string); id == "tc-only-once" {
+				toolCalls++
+			}
+		}
+		if toolCalls > 1 {
+			t.Fatalf("synthesized tool_call emitted %d times for one id — cache leaked", toolCalls)
+		}
+		// Allow time for at most one to be emitted.
+		if toolCalls == 1 {
+			time.Sleep(200 * time.Millisecond)
+			final := 0
+			for _, e := range poster.snapshot() {
+				if e.Kind == "tool_call" {
+					if id, _ := e.Payload["id"].(string); id == "tc-only-once" {
+						final++
+					}
+				}
+			}
+			if final != 1 {
+				t.Fatalf("tool_call count after settle = %d; want 1", final)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("never saw a synthesized tool_call for the orphan update")
+}

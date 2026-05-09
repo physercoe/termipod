@@ -207,6 +207,34 @@ type ACPDriver struct {
 	turnTextMsgID    string
 	turnThoughtBuf   []byte
 	turnThoughtMsgID string
+
+	// seenToolCallIDs tracks toolCallIds that have already been
+	// surfaced via a `tool_call` agent_event. gemini-cli@0.41 omits
+	// the leading tool_call notification for MCP tools — only a
+	// terminal tool_call_update arrives — and mobile's feed drops
+	// orphan tool_call_updates (they're folded into a parent card
+	// that doesn't exist). The driver synthesizes a tool_call from
+	// the first update whose id we haven't seen so live and resume
+	// renderings match. session/load replay frames bypass this
+	// (replay tag flips on; tool_call frames are already part of the
+	// historical stream the agent emits).
+	seenToolMu      sync.Mutex
+	seenToolCallIDs map[string]struct{}
+
+	// suppressCancelledUntil silences the synthetic turn.result(cancelled)
+	// in the orphan + post-call paths during a brief window after the
+	// driver itself triggers a cancellation. Two callers set it:
+	//   - Input("cancel") — the eager turn.result(cancelled) we emit at
+	//     line ~1233 already covers mobile's busy walker; the agent's
+	//     subsequent stopReason=cancelled response would otherwise post
+	//     a duplicate card.
+	//   - Input("attention_reply") — sending a fresh session/prompt
+	//     cancels gemini's previous in-flight prompt; the cancelled
+	//     orphan that comes back is the SAME logical turn the new
+	//     prompt is replacing. The new prompt's end_turn turn.result is
+	//     the one mobile should display.
+	// Protected by pendingMu.
+	suppressCancelledUntil time.Time
 }
 
 type acpWriteReq struct {
@@ -252,6 +280,7 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	d.pending = make(map[string]chan acpResponse)
 	d.promptIDs = make(map[string]struct{})
 	d.pendingPerm = make(map[string]json.RawMessage)
+	d.seenToolCallIDs = make(map[string]struct{})
 	// Per-spawn nonce so the request_id we surface to mobile doesn't
 	// collide with a previous spawn's id=0 (see permSpawnNonce doc).
 	d.permSpawnNonce = fmt.Sprintf("%d", time.Now().UnixNano())
@@ -563,10 +592,17 @@ func (d *ACPDriver) Stop() {
 // always written as a JSON number; the pending map is keyed by the
 // canonical string form so an agent that echoes the id as a string
 // (gemini-cli@0.41+) still matches.
+//
+// session/prompt has special timeout semantics — the caller is expected
+// to pass a long-lived context; call() applies its own permission-aware
+// deadline so the timer resets while a session/request_permission is
+// parked. The agent is waiting on us during that window, not stuck.
+// Other methods honor the caller's ctx deadline as-is.
 func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	id := d.nextID.Add(1)
 	key := strconv.FormatInt(id, 10)
 	ch := make(chan acpResponse, 1)
+	isPrompt := method == "session/prompt"
 	d.pendingMu.Lock()
 	d.pending[key] = ch
 	// Track session/prompt ids so deliverResponse can recognize an
@@ -574,7 +610,7 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 	// listening) and post a synthetic turn.result. Without this,
 	// gemini's late stopReason=cancelled reply gets dropped and mobile
 	// stays stuck on the cancel button.
-	if method == "session/prompt" {
+	if isPrompt {
 		d.promptIDs[key] = struct{}{}
 	}
 	d.pendingMu.Unlock()
@@ -590,6 +626,55 @@ func (d *ACPDriver) call(ctx context.Context, method string, params any) (json.R
 		delete(d.promptIDs, key)
 		d.pendingMu.Unlock()
 		return nil, err
+	}
+
+	if isPrompt {
+		// Permission-aware watchdog. The 2-minute PromptTimeout was
+		// previously enforced via the caller's context.WithTimeout —
+		// which fired even while the agent was correctly blocked on
+		// a session/request_permission we hadn't replied to yet (user
+		// took too long to tap Allow on mobile). Now we manage the
+		// deadline ourselves and reset it whenever the watchdog wakes
+		// to find a permission still parked. ctx is still honored for
+		// hard cancellation (Stop, host shutdown).
+		timer := time.NewTimer(d.PromptTimeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				d.pendingMu.Lock()
+				delete(d.pending, key)
+				d.pendingMu.Unlock()
+				return nil, ctx.Err()
+			case resp, ok := <-ch:
+				d.pendingMu.Lock()
+				delete(d.promptIDs, key)
+				d.pendingMu.Unlock()
+				if !ok {
+					return nil, fmt.Errorf("transport closed")
+				}
+				if resp.err != nil {
+					return nil, fmt.Errorf("rpc error %d: %s", resp.err.Code, resp.err.Message)
+				}
+				return resp.result, nil
+			case <-timer.C:
+				d.permMu.Lock()
+				parked := len(d.pendingPerm) > 0
+				d.permMu.Unlock()
+				if parked {
+					// Agent is waiting on us, not stuck — extend.
+					timer.Reset(d.PromptTimeout)
+					continue
+				}
+				// Real timeout. Leave promptIDs[key] set so the
+				// orphaned response path still recognizes a late
+				// reply.
+				d.pendingMu.Lock()
+				delete(d.pending, key)
+				d.pendingMu.Unlock()
+				return nil, context.DeadlineExceeded
+			}
+		}
 	}
 
 	select {
@@ -1008,6 +1093,7 @@ func (d *ACPDriver) deliverResponse(msg acpMessage) {
 	if isPrompt {
 		delete(d.promptIDs, key)
 	}
+	suppressCancelled := time.Now().Before(d.suppressCancelledUntil)
 	d.pendingMu.Unlock()
 	if ok {
 		ch <- acpResponse{result: msg.Result, err: msg.Error}
@@ -1020,9 +1106,59 @@ func (d *ACPDriver) deliverResponse(msg acpMessage) {
 	// synthetic turn.result so mobile's busy walker still sees a
 	// terminal kind and clears the cancel button. We use a fresh
 	// background context — the original Input ctx is gone.
+	//
+	// Exception: when the driver itself triggered the cancellation
+	// (Input("cancel") posts an eager cancel turn.result; Input(
+	// "attention_reply") sends a follow-up prompt whose own end_turn
+	// is the one mobile should display), suppress the orphan turn.
+	// result(cancelled) so the user doesn't see a stray cancelled
+	// card on top of the live one.
 	if isPrompt && msg.Result != nil {
+		if suppressCancelled && isCancelledResult(msg.Result) {
+			return
+		}
 		d.postTurnResult(context.Background(), msg.Result)
 	}
+}
+
+// isCancelledResult returns true when a session/prompt result's
+// stopReason is "cancelled". Used by the orphan-turn-result suppression
+// path; benign on parse error (returns false → preserve the existing
+// "post the turn.result" behavior).
+func isCancelledResult(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var r struct {
+		StopReason string `json:"stopReason"`
+	}
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return false
+	}
+	return r.StopReason == "cancelled"
+}
+
+// markDriverInitiatedCancel opens a brief window during which a
+// synthetic turn.result(cancelled) from the post-call or orphan path
+// should be skipped. Called from Input("cancel") and Input(
+// "attention_reply") — the only two paths where the driver itself
+// causes a stopReason=cancelled response and another turn.result is
+// either already posted or about to be posted by the follow-up prompt.
+func (d *ACPDriver) markDriverInitiatedCancel(window time.Duration) {
+	d.pendingMu.Lock()
+	d.suppressCancelledUntil = time.Now().Add(window)
+	d.pendingMu.Unlock()
+}
+
+// shouldSuppressCancelledTurnResult is the post-call mirror of the
+// orphan-path check in deliverResponse. Callers in Input("text"/
+// "attach"/"attention_reply") consult it after call() returns
+// successfully to decide whether to skip postTurnResult for a
+// cancelled response.
+func (d *ACPDriver) shouldSuppressCancelledTurnResult() bool {
+	d.pendingMu.Lock()
+	defer d.pendingMu.Unlock()
+	return time.Now().Before(d.suppressCancelledUntil)
 }
 
 // handleNotification is the translation hot path. session/update carries
@@ -1091,6 +1227,11 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 				"partial":    true,
 			}))
 	case "tool_call":
+		if id, ok := u["toolCallId"].(string); ok && id != "" {
+			d.seenToolMu.Lock()
+			d.seenToolCallIDs[id] = struct{}{}
+			d.seenToolMu.Unlock()
+		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
 			d.tagIfReplay(map[string]any{
 				"id":     u["toolCallId"],
@@ -1100,6 +1241,31 @@ func (d *ACPDriver) handleNotification(ctx context.Context, method string, param
 				"input":  u["rawInput"],
 			}))
 	case "tool_call_update":
+		// gemini-cli@0.41 emits only tool_call_update for MCP tools —
+		// no preceding tool_call. Mobile folds tool_call_update into a
+		// parent tool_call card; without one, the frame is silently
+		// dropped from the live transcript even though session/load
+		// replays do show it (gemini emits a structured tool_call
+		// frame in the historical stream). Synthesize the parent so
+		// live renders match resume.
+		if id, ok := u["toolCallId"].(string); ok && id != "" {
+			d.seenToolMu.Lock()
+			_, seen := d.seenToolCallIDs[id]
+			if !seen {
+				d.seenToolCallIDs[id] = struct{}{}
+			}
+			d.seenToolMu.Unlock()
+			if !seen {
+				_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call", "agent",
+					d.tagIfReplay(map[string]any{
+						"id":     u["toolCallId"],
+						"name":   u["title"],
+						"kind":   u["kind"],
+						"status": u["status"],
+						"input":  u["rawInput"],
+					}))
+			}
+		}
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "tool_call_update", "agent", d.tagIfReplay(u))
 	case "plan":
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "plan", "agent", d.tagIfReplay(u))
@@ -1199,9 +1365,10 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			prompt = append(prompt, map[string]any{"type": "text", "text": body})
 		}
 		d.resetTurn()
-		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
-		defer cancel()
-		res, err := d.call(promptCtx, "session/prompt", map[string]any{
+		// call() applies its own permission-aware PromptTimeout for
+		// session/prompt — passing the raw ctx avoids a hard 2m cap
+		// firing during a parked request_permission round trip.
+		res, err := d.call(ctx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt":    prompt,
 		})
@@ -1211,9 +1378,23 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if err != nil {
 			return err
 		}
+		// Suppress the cancelled turn.result when the cancellation was
+		// driver-initiated (Input("cancel") posted an eager card; a
+		// follow-up attention_reply / text prompt is the live event).
+		if isCancelledResult(res) && d.shouldSuppressCancelledTurnResult() {
+			return nil
+		}
 		d.postTurnResult(ctx, res)
 		return nil
 	case "cancel":
+		// Mark a brief suppression window BEFORE we send the cancel
+		// notification — the eager turn.result(cancelled) below is the
+		// only one we want mobile to see. The agent's own
+		// stopReason=cancelled response (channel-delivered or orphan)
+		// would otherwise post a second card; deliverResponse and the
+		// post-call paths consult shouldSuppressCancelledTurnResult /
+		// suppressCancelledUntil to skip it.
+		d.markDriverInitiatedCancel(10 * time.Second)
 		// session/cancel is a notification (no id) per the ACP spec.
 		err := d.writeMsg(map[string]any{
 			"jsonrpc": "2.0",
@@ -1223,13 +1404,7 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		// Eagerly post a turn.result so mobile's _isAgentBusy()
 		// flips off immediately — the cancel-button → send-button
 		// transition can't wait for the agent's stopReason=cancelled
-		// response to come back. In practice the response often gets
-		// orphaned (the originating session/prompt's call may have
-		// already returned from PromptTimeout, and deliverResponse
-		// then drops the late arrival). If a real response does
-		// arrive afterwards, the driver posts a second turn.result —
-		// harmless; mobile aggregator just counts both for the same
-		// logical turn.
+		// response to come back.
 		_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "turn.result", "agent",
 			map[string]any{
 				"status":      "cancelled",
@@ -1242,9 +1417,9 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			return fmt.Errorf("acp driver: attach missing document_id")
 		}
 		d.resetTurn()
-		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
-		defer cancel()
-		res, err := d.call(promptCtx, "session/prompt", map[string]any{
+		// call() applies its own permission-aware PromptTimeout for
+		// session/prompt — see the "text" branch for rationale.
+		res, err := d.call(ctx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt": []map[string]any{{
 				"type": "text",
@@ -1256,6 +1431,9 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		}
 		if err != nil {
 			return err
+		}
+		if isCancelledResult(res) && d.shouldSuppressCancelledTurnResult() {
+			return nil
 		}
 		d.postTurnResult(ctx, res)
 		return nil
@@ -1348,24 +1526,29 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			return fmt.Errorf("acp driver: attention_reply produced no text")
 		}
 		d.resetTurn()
-		promptCtx, cancel := context.WithTimeout(ctx, d.PromptTimeout)
-		defer cancel()
-		// Mirrors the "text" branch above: post turn.result on success
-		// so mobile's busy walker flips off after the post-attention
-		// turn ends. Without this, the streaming agent_message_chunks
-		// (partial:true) leave the cancel-button overlay stuck on even
-		// though the agent has already replied stopReason=end_turn.
-		// Sending this prompt also cancels the in-flight prompt that
-		// raised the original attention; deliverResponse posts a
-		// synthetic turn.result(cancelled) for the orphan, which is
-		// fine — mobile is newest-first and the live end_turn we post
-		// here arrives strictly after the cancelled one.
-		res, err := d.call(promptCtx, "session/prompt", map[string]any{
+		// Sending this prompt also cancels gemini's in-flight prompt
+		// that raised the original attention. The cancelled response
+		// for that orphan arrives milliseconds later — without this
+		// suppress window, deliverResponse posts a synthetic
+		// turn.result(cancelled) that races with our own end_turn
+		// turn.result and lands in the mobile transcript as a stray
+		// "cancelled" card. The new prompt's end_turn IS the live
+		// event mobile should display.
+		d.markDriverInitiatedCancel(10 * time.Second)
+		// call() applies its own permission-aware PromptTimeout for
+		// session/prompt.
+		res, err := d.call(ctx, "session/prompt", map[string]any{
 			"sessionId": sid,
 			"prompt":    []map[string]any{{"type": "text", "text": body}},
 		})
 		if err != nil {
 			return err
+		}
+		// Defensive: if gemini somehow returned cancelled for our own
+		// follow-up, the suppress window may still skip it. That's
+		// acceptable — the user can retry.
+		if isCancelledResult(res) && d.shouldSuppressCancelledTurnResult() {
+			return nil
 		}
 		d.postTurnResult(ctx, res)
 		return nil

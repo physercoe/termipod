@@ -70,8 +70,9 @@ After this wedge:
   *transcript display surface* — predictive text won't fight the
   programmatically-set value.
 - The `sherpa_onnx` Flutter package is genuinely production-ready
-  (see [`docs/discussions/voice-input-research.md`](../discussions/voice-input-research.md)
-  if drafted; otherwise the principal's research conversation).
+  (per the principal's research conversation; a longer-form
+  `docs/discussions/voice-input-research.md` write-up is deferred
+  until we have hands-on RTF + WER numbers).
   No infrastructure work is required on our side.
 - Andriod-first scoping matches the user base in the demo arc.
   iOS slips one wedge with no protocol cost.

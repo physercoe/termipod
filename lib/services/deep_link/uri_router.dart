@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
-import '../../screens/home_screen.dart';
 import '../../screens/insights/insights_screen.dart';
 import '../../screens/projects/project_detail_screen.dart';
 import '../../screens/projects/projects_screen.dart' show openAgentDetail;
@@ -52,10 +50,16 @@ class NavigateResult {
   static const NavigateResult unknown = NavigateResult(false, '');
 }
 
-/// Top-level dispatcher. Returns `NavigateResult` so the caller can
-/// decide whether to surface the success banner ("steward → X") or
-/// an error toast.
-NavigateResult navigateToUri(BuildContext context, WidgetRef ref, Uri uri) {
+/// Top-level dispatcher. Caller-provided `hub` snapshot + `setTab`
+/// callback keep this function ref-agnostic — works from both
+/// `WidgetRef` (ConsumerWidget) and `Ref` (Notifier) callers
+/// without coupling to either type.
+NavigateResult navigateToUri(
+  BuildContext context,
+  Uri uri, {
+  required HubState? hub,
+  required void Function(int index) setTab,
+}) {
   if (uri.scheme != 'termipod' && uri.scheme != 'muxpod') {
     return NavigateResult.unknown;
   }
@@ -66,52 +70,51 @@ NavigateResult navigateToUri(BuildContext context, WidgetRef ref, Uri uri) {
 
   switch (host) {
     case 'projects':
-      _setTab(ref, 0);
+      setTab(0);
       return const NavigateResult(true, 'Projects');
     case 'activity':
-      _setTab(ref, 1);
+      setTab(1);
       final filter = qp['filter'];
       return NavigateResult(true,
           filter != null ? 'Activity · $filter' : 'Activity');
     case 'me':
-      _setTab(ref, 2);
+      setTab(2);
       return const NavigateResult(true, 'Me');
     case 'hosts':
-      _setTab(ref, 3);
+      setTab(3);
       return const NavigateResult(true, 'Hosts');
     case 'settings':
-      _setTab(ref, 4);
+      setTab(4);
       return const NavigateResult(true, 'Settings');
 
     case 'project':
       // termipod://project/<id>[/...]
       if (segments.isEmpty) return NavigateResult.unknown;
       final projectId = segments[0];
-      return _openProject(context, ref, projectId);
+      return _openProject(context, projectId, hub: hub, setTab: setTab);
 
     case 'session':
       if (segments.isEmpty) return NavigateResult.unknown;
       final sessionId = segments[0];
-      return _openSession(context, ref, sessionId);
+      return _openSession(context, sessionId, hub: hub);
 
     case 'agent':
       if (segments.isEmpty) return NavigateResult.unknown;
       final agentId = segments[0];
-      return _openAgent(context, ref, agentId);
+      return _openAgent(context, agentId, hub: hub);
 
     case 'insights':
-      return _openInsights(context, ref, qp);
+      return _openInsights(context, qp, hub: hub);
   }
   return NavigateResult.unknown;
 }
 
-void _setTab(WidgetRef ref, int index) {
-  ref.read(currentTabProvider.notifier).setTab(index);
-}
-
 NavigateResult _openProject(
-    BuildContext context, WidgetRef ref, String projectId) {
-  final hub = ref.read(hubProvider).value;
+  BuildContext context,
+  String projectId, {
+  required HubState? hub,
+  required void Function(int index) setTab,
+}) {
   if (hub == null) return NavigateResult.unknown;
   // Find the project record so ProjectDetailScreen has the data it
   // needs. If not loaded, surface an unknown — the caller can show
@@ -123,7 +126,7 @@ NavigateResult _openProject(
   if (match.isEmpty) return NavigateResult.unknown;
   // Switch to Projects tab so the back stack reads naturally:
   // Projects tab → Project detail.
-  _setTab(ref, 0);
+  setTab(0);
   Navigator.of(context, rootNavigator: true).push(
     MaterialPageRoute(
       builder: (_) => ProjectDetailScreen(project: match),
@@ -134,19 +137,20 @@ NavigateResult _openProject(
 }
 
 NavigateResult _openSession(
-    BuildContext context, WidgetRef ref, String sessionId) {
-  final hub = ref.read(hubProvider).value;
+  BuildContext context,
+  String sessionId, {
+  required HubState? hub,
+}) {
   if (hub == null) return NavigateResult.unknown;
   // Sessions live in sessionsProvider, but the chat ctor only
-  // requires the ids + a title. We resolve agent_id by walking the
-  // hub state's sessions snapshot if present; otherwise the chat
-  // screen handles missing data on its own.
-  final agentId = _resolveAgentForSession(ref, sessionId);
+  // requires the ids + a title. For the prototype we accept "" as
+  // fallback agent id — SessionChatScreen renders without an
+  // agent id when needed.
   Navigator.of(context, rootNavigator: true).push(
     MaterialPageRoute(
       builder: (_) => SessionChatScreen(
         sessionId: sessionId,
-        agentId: agentId,
+        agentId: '',
         title: 'Session',
       ),
     ),
@@ -154,16 +158,11 @@ NavigateResult _openSession(
   return const NavigateResult(true, 'Session');
 }
 
-String _resolveAgentForSession(WidgetRef ref, String sessionId) {
-  // Walking sessionsProvider would be cleaner but pulls in an extra
-  // provider import; for the prototype we accept "" as fallback —
-  // SessionChatScreen renders without an agent id when needed.
-  return '';
-}
-
 NavigateResult _openAgent(
-    BuildContext context, WidgetRef ref, String agentId) {
-  final hub = ref.read(hubProvider).value;
+  BuildContext context,
+  String agentId, {
+  required HubState? hub,
+}) {
   if (hub == null) return NavigateResult.unknown;
   final agent = hub.agents.firstWhere(
     (a) => (a['id'] ?? '').toString() == agentId,
@@ -176,8 +175,10 @@ NavigateResult _openAgent(
 }
 
 NavigateResult _openInsights(
-    BuildContext context, WidgetRef ref, Map<String, String> qp) {
-  final hub = ref.read(hubProvider).value;
+  BuildContext context,
+  Map<String, String> qp, {
+  required HubState? hub,
+}) {
   final teamId = hub?.config?.teamId ?? '';
   // Default scope: team_stewards if no scope param (matches the
   // common "show me steward insights" intent shape).

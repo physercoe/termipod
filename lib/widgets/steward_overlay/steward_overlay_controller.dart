@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
 import '../../services/steward_handle.dart';
 
@@ -206,7 +207,14 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     final navKey = ref.read(overlayNavigatorKeyProvider);
     final ctx = navKey.currentContext;
     if (ctx == null) return;
-    final result = navigateToUri(ctx, ref, uri);
+    final hub = ref.read(hubProvider).value;
+    final result = navigateToUri(
+      ctx,
+      uri,
+      hub: hub,
+      setTab: (index) =>
+          ref.read(currentTabProvider.notifier).setTab(index),
+    );
     if (result.ok) {
       _appendMessage(OverlayChatMessage(
         role: OverlayChatRole.system,

@@ -87,6 +87,11 @@ class AppSettings {
   final double? stewardOverlayPanelTop;
   final double? stewardOverlayPanelWidth;
   final double? stewardOverlayPanelHeight;
+  /// Panel background opacity (0.5 .. 1.0). Default 0.85 — slight
+  /// translucency lets the user see the underlying page behind the
+  /// chat panel without sacrificing legibility. Below 0.5 the chat
+  /// becomes hard to read; the slider clamps to that floor.
+  final double stewardOverlayPanelOpacity;
 
   const AppSettings({
     this.darkMode = true,
@@ -133,6 +138,7 @@ class AppSettings {
     this.stewardOverlayPanelTop,
     this.stewardOverlayPanelWidth,
     this.stewardOverlayPanelHeight,
+    this.stewardOverlayPanelOpacity = 0.85,
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -184,6 +190,7 @@ class AppSettings {
     double? stewardOverlayPanelTop,
     double? stewardOverlayPanelWidth,
     double? stewardOverlayPanelHeight,
+    double? stewardOverlayPanelOpacity,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -236,6 +243,8 @@ class AppSettings {
           stewardOverlayPanelWidth ?? this.stewardOverlayPanelWidth,
       stewardOverlayPanelHeight:
           stewardOverlayPanelHeight ?? this.stewardOverlayPanelHeight,
+      stewardOverlayPanelOpacity:
+          stewardOverlayPanelOpacity ?? this.stewardOverlayPanelOpacity,
     );
   }
 }
@@ -293,6 +302,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       'settings_steward_overlay_panel_width';
   static const String _stewardOverlayPanelHeightKey =
       'settings_steward_overlay_panel_height';
+  static const String _stewardOverlayPanelOpacityKey =
+      'settings_steward_overlay_panel_opacity';
 
   @override
   AppSettings build() {
@@ -353,6 +364,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
           prefs.getDouble(_stewardOverlayPanelWidthKey),
       stewardOverlayPanelHeight:
           prefs.getDouble(_stewardOverlayPanelHeightKey),
+      stewardOverlayPanelOpacity:
+          prefs.getDouble(_stewardOverlayPanelOpacityKey) ?? 0.85,
     );
   }
 
@@ -627,6 +640,12 @@ class SettingsNotifier extends Notifier<AppSettings> {
     await _saveSetting(_stewardOverlayPanelTopKey, top);
     await _saveSetting(_stewardOverlayPanelWidthKey, width);
     await _saveSetting(_stewardOverlayPanelHeightKey, height);
+  }
+
+  Future<void> setStewardOverlayPanelOpacity(double value) async {
+    final clamped = value.clamp(0.5, 1.0);
+    state = state.copyWith(stewardOverlayPanelOpacity: clamped);
+    await _saveSetting(_stewardOverlayPanelOpacityKey, clamped);
   }
 
   Future<void> reload() async {

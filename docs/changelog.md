@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.467
+> **Last verified vs code:** v1.0.468
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.468-alpha — 2026-05-10
+
+Two QA items from v1.0.467 testing:
+
+### Fixed
+
+- **Spurious steward-bootstrap sheet on app open.** The Projects
+  tab's `_maybeShowBootstrap` listener fires on every hub-state
+  transition. On cold start the first transition is the
+  cache-hydration event with `staleSince != null` — and the cached
+  agents list may not reflect the *current* live steward (the user
+  could have spawned one after the last cache write). Bootstrap
+  spuriously fired before the network refresh landed, popping a
+  "set up your steward" sheet over an already-running steward. The
+  listener now skips while `staleSince != null` and re-evaluates on
+  the next event after refreshAll succeeds (and clears stale).
+
+### Added
+
+- **Panel opacity slider** in Settings → Experimental → Steward
+  overlay. Configurable 50–100% (default 85%); applies to the panel
+  background only so chat text and inputs stay fully readable while
+  the underlying page peeks through. Wrapping in `Opacity()` was
+  rejected — it would fade messages too, wrong for a chat surface.
+  New persisted key:
+  `settings_steward_overlay_panel_opacity` (double 0.5..1.0).
 
 ---
 

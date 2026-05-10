@@ -300,6 +300,27 @@ class SettingsScreen extends ConsumerWidget {
                         .setStewardOverlayEnabled(value);
                   },
                 ),
+                if (settings.stewardOverlayEnabled)
+                  ListTile(
+                    leading: const Icon(Icons.opacity),
+                    title: const Text('Panel opacity'),
+                    subtitle: Slider(
+                      value: settings.stewardOverlayPanelOpacity
+                          .clamp(0.5, 1.0),
+                      min: 0.5,
+                      max: 1.0,
+                      divisions: 10,
+                      label:
+                          '${(settings.stewardOverlayPanelOpacity * 100).round()}%',
+                      onChanged: (v) {
+                        ref
+                            .read(settingsProvider.notifier)
+                            .setStewardOverlayPanelOpacity(v);
+                      },
+                    ),
+                    trailing: Text(
+                        '${(settings.stewardOverlayPanelOpacity * 100).round()}%'),
+                  ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(

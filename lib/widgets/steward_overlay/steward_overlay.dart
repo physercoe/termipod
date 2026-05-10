@@ -161,6 +161,7 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
                 height: pr.height,
                 child: _ExpandedPanel(
                   onClose: _collapse,
+                  panelOpacity: settings.stewardOverlayPanelOpacity,
                   onHeaderDrag: (delta) {
                     setState(() {
                       final next = _panelRect!.translate(delta.dx, delta.dy);
@@ -279,6 +280,7 @@ class _ExpandedPanel extends StatelessWidget {
   final ValueChanged<Offset> onResize;
   final VoidCallback onResizeEnd;
   final double resizeHandleSize;
+  final double panelOpacity;
 
   const _ExpandedPanel({
     required this.onClose,
@@ -287,17 +289,23 @@ class _ExpandedPanel extends StatelessWidget {
     required this.onResize,
     required this.onResizeEnd,
     required this.resizeHandleSize,
+    required this.panelOpacity,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final base = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    // Opacity applies to the BACKGROUND ONLY (not the children) so the
+    // chat text stays fully readable while the underlying page peeks
+    // through the panel surface. Wrapping in Opacity() instead would
+    // fade messages too — wrong for a chat surface.
     return Stack(
       children: [
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
-              color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+              color: base.withValues(alpha: panelOpacity.clamp(0.5, 1.0)),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isDark ? DesignColors.borderDark : DesignColors.borderLight,

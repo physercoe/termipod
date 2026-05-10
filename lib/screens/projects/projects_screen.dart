@@ -71,6 +71,12 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
   Future<void> _maybeShowBootstrap(HubState st) async {
     if (_bootstrapAttempted) return;
     if (!st.configured) return;
+    // Skip while we're still serving stale-cache data — the cached
+    // agents list may not reflect the *current* live steward (the user
+    // could have spawned one after the last cache write). The next
+    // hub-state event after refreshAll succeeds will re-trigger this
+    // listener with fresh data + staleSince cleared.
+    if (st.staleSince != null) return;
     if (stewardPresent(st.agents)) return;
     final hasOnlineHost = st.hosts.any(
       (h) => (h['status']?.toString() ?? '') == 'online',

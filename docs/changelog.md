@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.468
+> **Last verified vs code:** v1.0.469
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,36 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.469-alpha — 2026-05-10
+
+Steward overlay is now **non-modal** — a deliberate UX shift in
+response to v1.0.468 QA. Principal report: tapping the Me bottom-
+nav tab or scrolling the underlying page collapsed the panel
+instead of doing what they wanted. Root cause was the full-screen
+`Positioned.fill` barrier with `onTap: _collapse` and a translucent
+black scrim — that's the *modal sheet* pattern, wrong for a
+floating chat that's meant to coexist with whatever surface the
+user is reading.
+
+### Changed
+
+- **Panel coexists with underlying page.** Removed the tap-to-
+  close barrier and the scrim. Tap → bottom nav switches tabs.
+  Scroll → page scrolls. The panel just floats on top with its
+  border + drop shadow as the elevation cue.
+- **Dismissal is explicit only.** Tap the X button in the panel
+  header, or tap the puck — both still work. There's no longer
+  any "tap outside to close" affordance because there's no
+  outside-to-close concept in non-modal floating chat (Slack /
+  Discord / iOS PiP all behave the same way).
+
+This unblocks the original use case from the discussion doc §2:
+"the steward is *above* the app, sharing the user's context, so
+the user-to-system information loop runs at superfluid efficiency"
+— with the modal barrier the loop was anything but.
 
 ---
 

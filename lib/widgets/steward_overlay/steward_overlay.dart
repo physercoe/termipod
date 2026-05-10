@@ -140,19 +140,14 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
       builder: (ctx, constraints) {
         _ensureInitial(constraints.biggest, settings);
         final pr = _panelRect!;
+        // Non-modal layout — no barrier, no scrim. The panel coexists
+        // with the underlying page so the user can keep tapping bottom
+        // nav, scrolling lists, and reading content while the steward
+        // chat stays visible. Dismissal is explicit: X in panel header,
+        // or tap the puck (which toggles expand/collapse).
         return Stack(
           children: [
             widget.child,
-            if (_expanded)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _collapse,
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.18),
-                  ),
-                ),
-              ),
             if (_expanded)
               Positioned(
                 left: pr.left,

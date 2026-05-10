@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.481
+> **Last verified vs code:** v1.0.482
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,29 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.482-alpha — 2026-05-10
+
+### Changed
+
+- **Edit chip on the overlay no longer auto-collapses the panel.**
+  v1.0.481 made the Edit chip dismiss the panel before pushing the
+  snippets manager. The principal flagged it as inconsistent with
+  ADR-023 D1 (persistent overlay across all routes); `mobile.navigate`-
+  driven pushes don't auto-collapse, so a chip-driven push shouldn't
+  either. The panel is also draggable / resizable / opacity-tunable —
+  user can move it themselves if it covers the destination. Reverted
+  the auto-close + the `onCloseRequested` plumbing through
+  StewardOverlayChips. Note kept on `_ManageChip` documenting that
+  `_openFullSession` (header "Open in new" button) IS the intended
+  exception: it opens the steward's full session transcript = same
+  conversation as the panel, leaving both open is redundant.
+
+  v1.0.481's Scaffold wrapper for `SnippetsScreen` (the actual fix
+  for yellow underlines / can't-scroll / incomplete chrome) stays
+  in place.
 
 ---
 

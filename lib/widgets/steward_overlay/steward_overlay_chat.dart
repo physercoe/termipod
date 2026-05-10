@@ -57,18 +57,16 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
     // TextField subtree at all. (Belt-and-suspenders: the input also
     // disables predictive composition + autocorrect; see
     // `_ChatInputState.build`.)
-    return Column(
+    return const Column(
       children: [
-        const Expanded(child: _MessagesRegion()),
-        const Divider(height: 1),
+        Expanded(child: _MessagesRegion()),
+        Divider(height: 1),
         // Quick-action chip strip — sibling to the input, lives
         // outside the messages-region Consumer so SSE traffic
         // doesn't reach it. Watches snippetsProvider for user-edit
-        // changes only (rare). The Edit chip pushes a full-screen
-        // route, so it needs a way to collapse the panel first;
-        // hand it `onCloseRequested` from our parent.
-        StewardOverlayChips(onCloseRequested: widget.onCloseRequested),
-        const _ChatInputSlot(),
+        // changes only (rare).
+        StewardOverlayChips(),
+        _ChatInputSlot(),
       ],
     );
   }

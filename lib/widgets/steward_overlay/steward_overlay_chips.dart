@@ -29,14 +29,7 @@ import 'steward_overlay_controller.dart';
 /// those happen at user-edit cadence — orders of magnitude rarer
 /// than SSE traffic.
 class StewardOverlayChips extends ConsumerWidget {
-  /// Called when a chip's tap should collapse the panel before
-  /// navigating (e.g. the "Edit" chip pushes a full-screen route
-  /// — leaving the panel expanded would visually cover it). May
-  /// be omitted when the chip strip is hosted somewhere that
-  /// doesn't have a panel to dismiss.
-  final VoidCallback? onCloseRequested;
-
-  const StewardOverlayChips({super.key, this.onCloseRequested});
+  const StewardOverlayChips({super.key});
 
   /// Built-in defaults shown when the user hasn't authored any
   /// steward-tagged snippets, OR appended after their custom ones
@@ -100,10 +93,7 @@ class StewardOverlayChips extends ConsumerWidget {
           // user can add / edit / delete steward-tagged snippets. The
           // built-in defaults are read-only; this is the only path to
           // grow the row beyond the three seeded examples.
-          _ManageChip(
-            isDark: isDark,
-            onCloseRequested: onCloseRequested,
-          ),
+          _ManageChip(isDark: isDark),
         ],
       ),
     );
@@ -133,13 +123,21 @@ class StewardOverlayChips extends ConsumerWidget {
 /// user can view / edit / add steward-tagged snippets. Routed
 /// through the shared overlayNavigatorKeyProvider since the chip
 /// strip lives outside the inner Navigator (same reason as the
-/// panel header's "Open in new" button), and collapses the overlay
-/// panel before pushing — otherwise the panel sits on top of the
-/// destination route and the user sees an apparently-broken page.
+/// panel header's "Open in new" button).
+///
+/// **The panel deliberately stays open across this push.** Per
+/// ADR-023 D1 the overlay is persistent across all routes; the
+/// user can drag/resize/dim the panel themselves, and explicit
+/// dismissal lives on the X / puck. Auto-collapse here would
+/// also surprise the user — `mobile.navigate`-driven pushes
+/// keep the panel open, so a chip-driven push should too.
+/// (The `_openFullSession` header button is the documented
+/// exception: it opens the steward's full session transcript,
+/// which IS the same conversation as the panel — leaving both
+/// open would be redundant.)
 class _ManageChip extends ConsumerWidget {
   final bool isDark;
-  final VoidCallback? onCloseRequested;
-  const _ManageChip({required this.isDark, this.onCloseRequested});
+  const _ManageChip({required this.isDark});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -172,12 +170,6 @@ class _ManageChip extends ConsumerWidget {
         onPressed: () {
           final nav = ref.read(overlayNavigatorKeyProvider).currentState;
           if (nav == null) return;
-          // Collapse the overlay panel BEFORE the push lands so the
-          // destination route renders on a clean canvas. Otherwise
-          // the StewardOverlay's Stack keeps painting the panel on
-          // top of the new route. Plumbed from StewardOverlayChat's
-          // onCloseRequested callback (= _ExpandedPanel.onClose).
-          onCloseRequested?.call();
           nav.push(
             MaterialPageRoute(builder: (_) => const _SnippetsManagePage()),
           );

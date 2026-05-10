@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.476
+> **Last verified vs code:** v1.0.477
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,59 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.477-alpha — 2026-05-10
+
+P1 of `agent-events-shared-provider` plan: shared data layer for
+agent_events flow. Pre-MVP scope; P2 (AgentFeed migration) stays
+post-MVP.
+
+### Added
+- **`agentEventsProvider`** (`lib/providers/agent_events_provider.dart`)
+  — Riverpod `NotifierProvider.autoDispose.family` keyed by
+  `AgentEventsKey(agentId, sessionId?)`. Single source of truth for
+  one agent's event stream. Owns:
+  - Cache-only first paint via `listAgentEventsCacheOnly`
+  - Cache-then-refresh backfill via `listAgentEventsCached`
+  - SSE subscribe via `streamAgentEvents` with `sinceSeq` cursor
+  - Reconnect with exponential backoff (5s → 16s capped)
+  - Idle-drop signature suppression (proxy timeouts, carrier NAT)
+  - 200-event ring buffer + dedup by event id
+  - `staleSince` / `error` state surfaces for offline banners
+  - `loadOlder()` stub for AgentFeed P2 paging
+  - `refresh()` for explicit reload
+  - `autoDispose` — closes when no consumer watches
+- ADR-023 `D11` eager-load gating now flows through this provider.
+
+### Changed
+- **`StewardOverlayController` migrated** to consume the shared
+  provider via `ref.listenManual`. Dropped `~250 LOC` of
+  duplicated SSE / backfill / cursor logic. Keeps only:
+  resolving `(agentId, sessionId)`, demuxing events through
+  `_eventToMessage`, dispatching live `mobile.intent` URIs, and
+  surfacing connection-state transitions as transcript notes.
+- **Overlay finally has cache-only first paint** — capability
+  the provider provides for free. Cold open paints from disk
+  before any network round-trip.
+- **Overlay finally has reconnect-with-backoff** — also free
+  from the provider. Silent SSE drops no longer leave the
+  panel stale until app restart.
+
+### Notes
+- AgentFeed (Sessions chat) still uses its private subscription;
+  P2 migration is post-MVP per the plan.
+- When both surfaces are open simultaneously, they STILL hold
+  separate subscriptions today (each maintains its own provider
+  instance since AgentFeed doesn't read from `agentEventsProvider`
+  yet). Genuine SSE-stream sharing kicks in once AgentFeed
+  migrates in P2.
+- `_processedIds` cap at 300 prevents the dedup set from growing
+  unboundedly across long-lived sessions.
+- The provider's bootstrap is fire-and-forget via
+  `Future.microtask` so initial `build()` returns the loading
+  state synchronously while the data fetch happens off-frame.
 
 ---
 

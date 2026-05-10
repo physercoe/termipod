@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.469
+> **Last verified vs code:** v1.0.472
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,131 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.472-alpha — 2026-05-10
+
+The architectural fix the v1.0.471 IME workaround was masking.
+
+### Changed
+- **Steward overlay chat: rebuild scope tightened to the messages
+  region only.** Before, `_StewardOverlayChatState` was a
+  ConsumerStatefulWidget whose `build()` watched
+  `stewardOverlayControllerProvider` directly, so every SSE event
+  (text chunks, tool calls, system frames) rebuilt the entire
+  Column — including the `_ChatInput` subtree. Even with stable
+  controller + focus node, the rebuild traversal triggered
+  EditableText's `_updateRemoteEditingValueIfNeeded` IME poke,
+  which GBoard interpreted as a composition reset and rebounded
+  by re-pushing its cached predictive word. That was the real
+  root cause of "deleted text returns when retyping."
+  Restructured into three sibling pieces:
+  - `_StewardOverlayChatState.build()` returns a `const Column` —
+    no `ref.watch`, never rebuilds on SSE events.
+  - `_MessagesRegion` (new ConsumerStatefulWidget) is the *only*
+    widget that watches the provider; loading / error / empty /
+    list branches all live here.
+  - `_ChatInputSlot` (new const StatelessWidget) is a pure sibling
+    of `_MessagesRegion` — its subtree is structurally untouched
+    by SSE traffic, so the IME never gets poked outside of actual
+    user input.
+  Net effect: IME state is now genuinely orthogonal to network
+  state, which is how it should have been from the start. The
+  `autocorrect: false` / `enableSuggestions: false` /
+  `autofillHints: const []` flags from v1.0.471 are kept as
+  belt-and-suspenders — they are no longer load-bearing for the
+  bug fix, but they keep the overlay's typing feel consistent
+  with the rest of the app's deterministic-input pattern
+  (compose_bar direct mode, hub_bootstrap, templates).
+  (`lib/widgets/steward_overlay/steward_overlay_chat.dart`)
+
+---
+
+## v1.0.471-alpha — 2026-05-10
+
+Steward overlay text-input bug, finally root-caused. Plus two
+pieces of design work that the principal asked be documented
+rather than implemented inline.
+
+### Fixed
+- **Old / history input no longer reappears in the steward overlay
+  text field as the user retypes.** v1.0.467 extracted the input
+  to its own non-Consumer `_ChatInput` State which fixed the
+  cursor-jump-to-end symptom, but it never disabled the IME's own
+  predictive-restore path — so deleted characters were still
+  re-pushed by GBoard after each IME detach / re-attach (which
+  happens on every SSE event because the chat parent watches a
+  high-frequency Riverpod provider). Mirrors what the rest of the
+  codebase already does for inputs that need deterministic typing
+  (`compose_bar`, `hub_bootstrap`, `templates`):
+  - `autocorrect: false`
+  - `enableSuggestions: false`
+  - `autofillHints: const []`
+  Also moved the `FocusNode` to be owned by the input's State so
+  it isn't re-minted on each parent rebuild — a stable focus node
+  reduces the IME attach/detach churn that was triggering the
+  predictive-restore in the first place.
+  (`lib/widgets/steward_overlay/steward_overlay_chat.dart`)
+
+### Added — design work, not implementation
+- `docs/discussions/agent-driven-mobile-ui.md §13` —
+  floating-surface capacity model. Locks the recommendation that
+  multi-conversation goes through **one shell + multi-conversation
+  list inside** (Pattern B) rather than N independent pucks.
+  Reasons: SSE bandwidth, drag/resize state, attention budget,
+  and clean URI-router fit. Pattern A (N-pucks) is rejected;
+  Pattern C (edge-dock) is a deferred cosmetic. Adds Q15 to the
+  ADR-023 question set.
+- `docs/plans/overlay-history-and-snippets.md` (new) — wedge plan
+  bundling three QA gaps the principal flagged together: (W1)
+  cold-start panel is empty until new SSE events arrive, (W2)
+  user's own prior prompts never render even when steward output
+  does, (W3) no quick-action chip strip above the input. ~250 LOC
+  mobile-only, no hub change. Mirrors `agent_feed.dart`'s
+  `listAgentEvents` + `streamAgentEvents(sinceSeq=...)` pattern
+  for backfill. Hub already publishes user input as `kind =
+  input.text` with `producer = user` (verified at
+  `handlers_agent_input.go:378-407`); the wedge teaches the
+  overlay controller to render that.
+
+---
+
+## v1.0.470-alpha — 2026-05-10
+
+Two QA fixes after v1.0.469.
+
+### Fixed
+- **No more yellow double underlines under text in the steward
+  overlay panel.** The expanded panel was a bare `Container`,
+  with no `Material` ancestor — Flutter's classic "missing Material"
+  debug hint draws yellow underlines under every Text in that
+  scope. The overlay is mounted via `MaterialApp.builder`, which
+  sits OUTSIDE the Navigator's Material/Scaffold scope, so the
+  fix has to be local: wrap the panel column in
+  `Material(type: MaterialType.transparency)` so descendants
+  inherit a DefaultTextStyle without changing any pixel of the
+  panel's appearance.
+  (`lib/widgets/steward_overlay/steward_overlay.dart`)
+- **Steward setup sheet no longer auto-pops.** The W4 first-run
+  experience used to auto-trigger `showSpawnStewardSheet` from
+  `_maybeShowBootstrap` whenever the Projects screen saw a
+  configured team with online hosts and no steward. v1.0.468 added
+  a `staleSince != null` guard but the sheet still popped once the
+  cache hydrated as empty. Principal: stop auto-popping entirely.
+  Removed both auto-trigger paths (initState postFrame +
+  `ref.listen` on `hubProvider`); spawning the steward is now a
+  fully manual gesture (the spawn sheet is still reachable from
+  every previous manual entry point — `Replace steward`,
+  Sessions screen, etc.).
+  (`lib/screens/projects/projects_screen.dart`)
+
+### Removed
+- `_maybeShowBootstrap`, `_bootstrapAttempted` flag, and the
+  `ref.listen<AsyncValue<HubState>>` block in
+  `_ProjectsScreenState`. The `bootstrapDismissedKey` helper
+  itself stays — it's still used by `confirmAndRecreateSteward`
+  to clear the Skip flag on explicit recreate.
 
 ---
 

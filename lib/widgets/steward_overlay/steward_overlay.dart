@@ -313,16 +313,28 @@ class _ExpandedPanel extends StatelessWidget {
                 ),
               ],
             ),
-            child: Column(
-              children: [
-                _PanelHeader(
-                  onClose: onClose,
-                  onDrag: onHeaderDrag,
-                  onDragEnd: onHeaderDragEnd,
-                ),
-                const Divider(height: 1),
-                Expanded(child: StewardOverlayChat(onCloseRequested: onClose)),
-              ],
+            // The Material ancestor here is what stops Flutter from
+            // drawing yellow "missing Material" double underlines under
+            // every Text inside the panel. The overlay is mounted via
+            // `MaterialApp.builder` and lives OUTSIDE the Navigator's
+            // Material/Scaffold scope, so descendant Text widgets would
+            // otherwise have no DefaultTextStyle ancestor. `transparency`
+            // means it doesn't paint anything itself — the parent
+            // Container still owns the colour, border, and shadow.
+            child: Material(
+              type: MaterialType.transparency,
+              child: Column(
+                children: [
+                  _PanelHeader(
+                    onClose: onClose,
+                    onDrag: onHeaderDrag,
+                    onDragEnd: onHeaderDragEnd,
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                      child: StewardOverlayChat(onCloseRequested: onClose)),
+                ],
+              ),
             ),
           ),
         ),

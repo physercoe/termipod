@@ -1005,3 +1005,100 @@ Three locks the ADR will need to make:
 - **Lock the artifact storage contract** — Tier 2's `ui_html` kind
   reuses the existing artifacts primitive (versioning, sharing,
   retention) rather than minting a parallel store.
+
+## 13. Open question — floating-surface capacity
+
+> Added 2026-05-10 in response to a principal question during
+> v1.0.470 QA: "How many overlay/floating widgets does Flutter
+> support? There may be many team stewards and other important
+> pages needing to float in the future."
+
+### 13.1 Framework ceiling vs UX ceiling
+
+Flutter has **no hard cap** on overlays. `Overlay` hosts an
+arbitrary list of `OverlayEntry` instances; our shell is just a
+`Stack` in `MaterialApp.builder` and we can add more `Positioned`
+children whenever we want. The framework cost is roughly linear in
+N — one render pass per overlay, GestureArena entries scale with N,
+hit-testing walks the stack top-down.
+
+The **UX ceiling** is much lower than the framework ceiling and
+that's the one that matters:
+
+- Each persistent floating chat carries its own SSE stream → `N
+  pucks ≈ N concurrent SSE connections + N message lists + N
+  drag/resize state machines`. At N=5 the bandwidth cost alone is
+  significant on cellular.
+- Z-order conflict — who's on top, who steals taps, who can be
+  dragged through whom. Tractable for 1-2; combinatorial mess at
+  ≥3.
+- Visual attention budget — every floating element is a permanent
+  claim on the user's eye. Industry SOTA all converge on **one
+  visible at a time**:
+  - Slack mobile: one floating-DM bubble at a time.
+  - iOS Picture-in-Picture: hard one-at-a-time enforced by OS.
+  - Apple Intelligence floating prompt: singleton.
+  - Discord PiP allows two but immediately docks the rest.
+
+### 13.2 The three patterns we could pick
+
+When the steward count grows (per-project stewards, per-host stewards,
+per-member stewards from F-1) plus other "important pages" (active
+project chat, ongoing approval thread, live metric stream), the
+options are:
+
+**A. N-pucks.** Spawn one puck per floating subject. Naive,
+familiar (Messenger Chat Heads), but multiplies SSE cost and
+turns the screen into a graveyard of icons.
+
+**B. Single shell, multi-conversation list inside.** One puck →
+one expanded panel → list/tab strip of every live conversation
+inside the panel. Tap a row to switch which transcript renders.
+This is what Slack DMs do.
+
+**C. Edge-dock + single panel.** Tiny icon-rail glued to one
+screen edge (left or right). Each icon represents one floating
+subject. Tap any icon to swap which conversation occupies the
+(single) expanded panel. This is what Discord PiP does on
+desktop.
+
+### 13.3 Recommended lock for ADR-023
+
+**Pattern B — single shell, multi-conversation inside.** Reasons:
+
+1. **One SSE stream until expansion** — when collapsed we can keep
+   the global steward stream live and lazy-attach others on first
+   tap. Bandwidth scales with active conversations, not registered
+   subjects.
+2. **One drag/resize state machine** survives — we keep the
+   v1.0.466 layout-persist scaffolding and don't fork it per
+   conversation.
+3. **Maps cleanly to the URI grammar.** The router already knows
+   how to address every entity (`termipod://stewards/<id>`,
+   `termipod://projects/<id>/chat`, `termipod://attentions/<id>`).
+   Each list row is just a URI; the panel body becomes "render
+   transcript for whatever URI the user picked."
+4. **Composes with the agent-driven mode** — the steward can
+   `mobile.navigate("termipod://overlay/<uri>")` to set the
+   panel's current conversation, the same way it navigates the
+   page underneath.
+
+Pattern C (edge-dock) is a future *cosmetic* upgrade if the
+conversation list outgrows a vertical scroll. We don't need it for
+MVP; defer until N reaches the order where a list view feels heavy
+(probably 5+ pinned conversations).
+
+Pattern A (N-pucks) is rejected — it inverts the "one shell, one
+attention claim" axiom and the SSE cost is a real concern on
+cellular. Documenting the rejection here so we don't drift back.
+
+### 13.4 Q15 for ADR-023
+
+> **Q15 — Floating-surface capacity model.** When floating
+> conversations grow beyond the team-general steward (per-project,
+> per-host, attention threads, multi-steward), do we expose them as
+> N independent pucks, a single multi-conversation panel, or an
+> edge-dock + single panel? Locking the model up front prevents the
+> N-pucks regression once feature pressure mounts.
+
+The recommended answer is Pattern B; ADR-023 ratifies or revises.

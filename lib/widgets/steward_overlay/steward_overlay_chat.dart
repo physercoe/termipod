@@ -27,21 +27,85 @@ class StewardOverlayChat extends ConsumerStatefulWidget {
 }
 
 class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
+  /// Sends user input via the steward controller. Hoisted out of the
+  /// build tree as a stable function reference so `_ChatInput`'s
+  /// State doesn't think the callback identity changed across builds.
+  Future<void> _sendText(String text) async {
+    final controller = ref.read(stewardOverlayControllerProvider.notifier);
+    await controller.sendUserText(text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // **Crucial scoping decision** — there is no `ref.watch` here.
+    // SSE events flow into `stewardOverlayControllerProvider` at high
+    // frequency (every text chunk, every tool_call, every system
+    // event); if this State watched the provider directly the whole
+    // subtree (including `_ChatInput`'s TextField) would be rebuilt
+    // on every event. Even with a stable controller, that triggers
+    // Flutter's `_updateRemoteEditingValueIfNeeded` IME poke, which
+    // GBoard interprets as a composition reset and rebounds with its
+    // cached predictive word — visible bug: deleted text returning.
+    //
+    // Instead, the rebuild scope is narrowed to a single Consumer
+    // around the messages region. The input below sits OUTSIDE that
+    // Consumer's invalidation set, so SSE events never traverse the
+    // TextField subtree at all. (Belt-and-suspenders: the input also
+    // disables predictive composition + autocorrect; see
+    // `_ChatInputState.build`.)
+    return const Column(
+      children: [
+        Expanded(child: _MessagesRegion()),
+        Divider(height: 1),
+        _ChatInputSlot(),
+      ],
+    );
+  }
+}
+
+/// Sibling-isolated slot for the chat input. Lives outside the
+/// messages-region Consumer so SSE-driven rebuilds don't reach the
+/// TextField subtree. Reads `_StewardOverlayChatState._sendText` from
+/// the nearest ancestor of that type via the `context`.
+class _ChatInputSlot extends StatelessWidget {
+  const _ChatInputSlot();
+
+  @override
+  Widget build(BuildContext context) {
+    // Walk up to find the parent State that owns the send callback.
+    // We don't use a Provider/InheritedWidget for this because
+    // `_sendText` is a method tearoff on the parent State — stable
+    // across builds for the same instance — and a const-stable
+    // ValueKey on `_ChatInput` guarantees its own State survives.
+    final parent = context.findAncestorStateOfType<_StewardOverlayChatState>();
+    if (parent == null) {
+      return const SizedBox.shrink();
+    }
+    return _ChatInput(
+      key: const ValueKey('steward-overlay-chat-input'),
+      onSend: parent._sendText,
+    );
+  }
+}
+
+/// Messages region — the only widget in the chat panel that watches
+/// the high-frequency steward provider. Loading / error / empty / list
+/// branches all live here; the input below is unaffected by any of
+/// these transitions.
+class _MessagesRegion extends ConsumerStatefulWidget {
+  const _MessagesRegion();
+
+  @override
+  ConsumerState<_MessagesRegion> createState() => _MessagesRegionState();
+}
+
+class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
   final _scrollCtrl = ScrollController();
 
   @override
   void dispose() {
     _scrollCtrl.dispose();
     super.dispose();
-  }
-
-  /// Sends user input via the steward controller. Hoisted out of the
-  /// build tree as a stable function reference so `_ChatInput`'s
-  /// State doesn't think the callback identity changed across the
-  /// parent's frequent (SSE-driven) rebuilds.
-  Future<void> _sendText(String text) async {
-    final controller = ref.read(stewardOverlayControllerProvider.notifier);
-    await controller.sendUserText(text);
   }
 
   @override
@@ -57,48 +121,34 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
     if (state.agentId == null) {
       return const Center(child: CircularProgressIndicator());
     }
-
-    return Column(
-      children: [
-        Expanded(
-          child: state.messages.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Tell the steward what you want to see.\n'
-                      'Examples:\n'
-                      '  • "Show me the steward insights view"\n'
-                      '  • "Open project X"\n'
-                      '  • "Take me to activity"\n',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 12,
-                        color: muted,
-                      ),
-                    ),
-                  ),
-                )
-              : ListView.separated(
-                  controller: _scrollCtrl,
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-                  itemCount: state.messages.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, i) => _MessageBubble(
-                    msg: state.messages[i],
-                    muted: muted,
-                  ),
-                ),
+    if (state.messages.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Tell the steward what you want to see.\n'
+            'Examples:\n'
+            '  • "Show me the steward insights view"\n'
+            '  • "Open project X"\n'
+            '  • "Take me to activity"\n',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              color: muted,
+            ),
+          ),
         ),
-        const Divider(height: 1),
-        // Stable key keeps the input's State across parent rebuilds —
-        // even if the parent's tree shape changes, this widget's
-        // controller and IME composition state stay intact.
-        _ChatInput(
-          key: const ValueKey('steward-overlay-chat-input'),
-          onSend: _sendText,
-        ),
-      ],
+      );
+    }
+    return ListView.separated(
+      controller: _scrollCtrl,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      itemCount: state.messages.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) => _MessageBubble(
+        msg: state.messages[i],
+        muted: muted,
+      ),
     );
   }
 }
@@ -134,10 +184,17 @@ class _ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<_ChatInput> {
   final _ctrl = TextEditingController();
+  // Owning the focus node here (rather than letting the framework mint
+  // a transient one per build) keeps the IME connection stable across
+  // parent rebuilds — same reasoning as the dedicated controller. A
+  // freshly-minted FocusNode every build can race the IME attach/detach
+  // cycle and exacerbate the predictive-restore bug below.
+  final _focus = FocusNode();
   bool _sending = false;
 
   @override
   void dispose() {
+    _focus.dispose();
     _ctrl.dispose();
     super.dispose();
   }
@@ -176,12 +233,30 @@ class _ChatInputState extends State<_ChatInput> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
+            // `autocorrect: false` + `enableSuggestions: false` +
+            // `autofillHints: const []` matter here: every other input
+            // path in the app that needs deterministic typing
+            // (compose_bar direct input, hub_bootstrap, templates) sets
+            // these. Without them, GBoard's predictive layer caches
+            // composing words and re-pushes them after every IME
+            // detach/re-attach — and the parent above us re-attaches
+            // the IME on every SSE event because `_StewardOverlayChat`
+            // is a ConsumerStatefulWidget watching a high-frequency
+            // provider. The visible symptom: deleted characters come
+            // back when the user retypes, and the field feels "sticky"
+            // against edits. Disabling predictive composition makes
+            // every keystroke a hard commit, which is what we want for
+            // a chat directive box.
             child: TextField(
               controller: _ctrl,
+              focusNode: _focus,
               minLines: 1,
               maxLines: 4,
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
+              autocorrect: false,
+              enableSuggestions: false,
+              autofillHints: const [],
               decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Ask the steward…',

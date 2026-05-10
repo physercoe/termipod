@@ -44,11 +44,6 @@ class ProjectsScreen extends ConsumerStatefulWidget {
 }
 
 class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
-  /// Fires once per screen lifetime so a user who Skips the auto-bootstrap
-  /// sheet doesn't get nagged again as the hub state ticks (e.g. a refresh
-  /// rebuilds with the same "no steward" snapshot).
-  bool _bootstrapAttempted = false;
-
   @override
   void initState() {
     super.initState();
@@ -56,61 +51,14 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
       final st = ref.read(hubProvider).value;
       if (st != null && st.configured) {
         ref.read(hubProvider.notifier).refreshAll();
-        // Cover the cached-state-already-populated case: navigating back to
-        // Projects after the cache has been hydrated produces no provider
-        // transition, so the ref.listen below would never fire.
-        _maybeShowBootstrap(st);
       }
     });
-  }
-
-  /// Auto-presents the steward bootstrap sheet the first time we see a
-  /// configured team that has at least one online host but no steward —
-  /// the W4 first-run UX. Respects a per-team SharedPreferences "dismissed"
-  /// flag so a user who tapped Skip isn't re-prompted on future cold starts.
-  Future<void> _maybeShowBootstrap(HubState st) async {
-    if (_bootstrapAttempted) return;
-    if (!st.configured) return;
-    // Skip while we're still serving stale-cache data — the cached
-    // agents list may not reflect the *current* live steward (the user
-    // could have spawned one after the last cache write). The next
-    // hub-state event after refreshAll succeeds will re-trigger this
-    // listener with fresh data + staleSince cleared.
-    if (st.staleSince != null) return;
-    if (stewardPresent(st.agents)) return;
-    final hasOnlineHost = st.hosts.any(
-      (h) => (h['status']?.toString() ?? '') == 'online',
-    );
-    if (!hasOnlineHost) return;
-    final teamId = st.config?.teamId ?? '';
-    if (teamId.isEmpty) return;
-    // Mark attempted before the await so a fast re-build can't double-fire.
-    _bootstrapAttempted = true;
-    final prefs = await SharedPreferences.getInstance();
-    final dismissed = prefs.getString(bootstrapDismissedKey(teamId));
-    if (dismissed != null && dismissed.isNotEmpty) return;
-    if (!mounted) return;
-    await showSpawnStewardSheet(
-      context,
-      hosts: st.hosts,
-      autoTriggered: true,
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(hubProvider);
     final colorScheme = Theme.of(context).colorScheme;
-
-    // React to hub-state transitions rather than reading once in initState —
-    // hosts/agents are populated by refreshAll (an async fetch), so the
-    // first build often has empty lists and the bootstrap conditions only
-    // become true a few frames later.
-    ref.listen<AsyncValue<HubState>>(hubProvider, (_, next) {
-      final st = next.value;
-      if (st == null) return;
-      _maybeShowBootstrap(st);
-    });
 
     return Scaffold(
       appBar: AppBar(

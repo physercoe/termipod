@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.464
+> **Last verified vs code:** v1.0.465
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,41 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.465-alpha — 2026-05-10
+
+Agent-driven mobile UI prototype — first round of QA fixes from the
+v1.0.464 test run. The principal reported that asking the steward
+"take me to insights" produced no visible response or navigation in
+the overlay — only a tool_call card in the session transcript.
+Two root causes plus diagnostic improvements so the next test
+surfaces what's happening directly in the panel.
+
+### Fixed
+
+- **Overlay chat now renders steward text replies.** `_extractText`
+  in `steward_overlay_controller.dart` was reading `evt['body']` —
+  but the hub's agent-events bus envelope publishes the assistant
+  payload under `evt['payload']` (claude-sdk text frames carry
+  `{"text": "...", "message_id": "..."}`). The body field never
+  existed; every text reply was being silently dropped.
+- **`mobile.intent` failure modes are now visible.** Every silent
+  `return` in `_dispatchIntent` (empty URI, unparseable URI,
+  navigator-not-ready) now appends a system message to the chat
+  panel so the user can tell *which* path dropped the intent
+  instead of seeing nothing.
+- **SSE stream death is visible.** `onError` and `onDone` on the
+  steward stream subscription now append a system message so a
+  silent disconnect doesn't look like the steward simply not
+  responding.
+
+### Added
+
+- `kDebugMode` console print of every incoming SSE frame
+  (`[steward-overlay] evt kind=… keys=…`) so logcat reveals which
+  events the overlay sees during diagnosis.
 
 ---
 

@@ -145,13 +145,28 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       // 3. Subscribe to the steward's SSE stream. We listen to the
       //    full agent stream (no session filter) so mobile.intent
       //    events — which the hub publishes on the agent bus key
-      //    regardless of session — reach us.
+      //    regardless of session — reach us. onError + onDone surface
+      //    a silent disconnect in the chat panel; without that signal
+      //    the prototype looks broken when the stream dies.
       _sub?.cancel();
-      _sub = client
-          .streamAgentEvents(agentId, sessionId: null)
-          .listen(_handleEvent, onError: (e) {
-        state = state.copyWith(error: 'Stream error: $e');
-      });
+      _sub = client.streamAgentEvents(agentId, sessionId: null).listen(
+        _handleEvent,
+        onError: (Object e) {
+          _appendMessage(OverlayChatMessage(
+            role: OverlayChatRole.system,
+            text: 'Steward stream errored: $e',
+            ts: DateTime.now(),
+          ));
+          state = state.copyWith(error: 'Stream error: $e');
+        },
+        onDone: () {
+          _appendMessage(OverlayChatMessage(
+            role: OverlayChatRole.system,
+            text: 'Steward stream closed',
+            ts: DateTime.now(),
+          ));
+        },
+      );
     } catch (e) {
       state = state.copyWith(error: 'Bootstrap failed: $e');
     }
@@ -160,12 +175,14 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// Demultiplex one incoming SSE frame.
   void _handleEvent(Map<String, dynamic> evt) {
     final kind = (evt['kind'] ?? '').toString();
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[steward-overlay] evt kind=$kind keys=${evt.keys.toList()}');
+    }
     if (kind == 'mobile.intent') {
       _dispatchIntent(evt);
       return;
     }
-    // Plain text from steward (claude-sdk text frames). The exact
-    // wire shape varies by engine; we look at common payload paths.
     final maybeText = _extractText(evt);
     if (maybeText != null && maybeText.isNotEmpty) {
       _appendMessage(OverlayChatMessage(
@@ -176,15 +193,21 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     }
   }
 
+  /// Extracts surface text from an agent_events frame so it can render
+  /// in the overlay chat. Hub publishes the assistant text under
+  /// `evt['payload']` (not `evt['body']` — that earlier shape never
+  /// existed); for claude-sdk text frames the payload is
+  /// `{"text": "...", "message_id": "..."}`. We only render `text`
+  /// kinds — thoughts/tool_calls/usage frames are background noise
+  /// for the overlay's compact chat.
   String? _extractText(Map<String, dynamic> evt) {
-    // claude-sdk emits kind=text with body as a plain string.
-    if ((evt['kind'] ?? '') == 'text') {
-      final body = evt['body'];
-      if (body is String) return body;
+    if ((evt['kind'] ?? '').toString() != 'text') return null;
+    final payload = evt['payload'];
+    if (payload is String) return payload;
+    if (payload is Map) {
+      final t = payload['text'];
+      if (t is String) return t;
     }
-    // turn.result events carry no useful surface text for the chat —
-    // skip. Tool-call frames likewise don't render here (the user
-    // sees the navigation toast instead).
     return null;
   }
 
@@ -201,12 +224,34 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
 
   void _dispatchIntent(Map<String, dynamic> evt) {
     final uriStr = (evt['uri'] ?? '').toString();
-    if (uriStr.isEmpty) return;
+    if (uriStr.isEmpty) {
+      _appendMessage(OverlayChatMessage(
+        role: OverlayChatRole.system,
+        text: 'mobile.intent received with empty uri',
+        ts: DateTime.now(),
+      ));
+      return;
+    }
     final uri = Uri.tryParse(uriStr);
-    if (uri == null) return;
+    if (uri == null) {
+      _appendMessage(OverlayChatMessage(
+        role: OverlayChatRole.system,
+        text: 'mobile.intent uri unparseable: $uriStr',
+        ts: DateTime.now(),
+      ));
+      return;
+    }
     final navKey = ref.read(overlayNavigatorKeyProvider);
     final ctx = navKey.currentContext;
-    if (ctx == null) return;
+    if (ctx == null) {
+      _appendMessage(OverlayChatMessage(
+        role: OverlayChatRole.system,
+        text: 'Navigator not ready; intent dropped',
+        note: uriStr,
+        ts: DateTime.now(),
+      ));
+      return;
+    }
     final hub = ref.read(hubProvider).value;
     final result = navigateToUri(
       ctx,

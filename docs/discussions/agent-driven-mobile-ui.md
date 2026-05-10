@@ -636,7 +636,170 @@ context.
 
 ---
 
-## 10. References
+## 10. SOTA landscape and design axioms (2026 research)
+
+Compiled from a sweep of 2026 sources (linked in §11) just before
+shipping the v1.0.464-alpha prototype, to validate the architecture
+choices in §2–§4 against what's actually working (and what's
+visibly failing) elsewhere. Treat this as the "what does the
+industry know that we should bake in" snapshot — refresh before
+ADR-023.
+
+### 10.1 The SOTA pattern table
+
+| Approach | Who | Pattern | Termipod relationship |
+|---|---|---|---|
+| **OS-level system agent** | Apple Intelligence + App Intents | Apps expose `@IntentParameter` schemas → Siri/AI orchestrates. On-screen content awareness; cross-app context. *"Apps that don't expose intents will feel invisible in an AI-first OS."* | Schema-first declaration. Our URI grammar (§4.3) is the embryo. |
+| **OS-level system agent** | Google Gemini Agent + Project Astra (Android) | Replaces Google Assistant 2026. Navigates Android apps directly. **Security caveat:** malware now exploits Gemini for device control. | Confirms capability gating + audit are load-bearing, not optional. |
+| **Phone-as-dispatcher** | Anthropic Claude Computer Use + Dispatch | Phone delegates a task → Claude executes on the user's Mac → result returns. Always requests permission for new apps. | **Structurally identical to termipod's hub model.** Phone directs, hosts execute. Lean into this pattern in framing. |
+| **Browser-as-superapp** | ChatGPT Atlas (macOS, Windows soon) | Sidebar assistant + agent mode + persistent cross-tab/cross-session memory. OpenAI merging Atlas + ChatGPT + Codex into one desktop app. | Persistent context is the differentiator: *"Atlas remembers prior sessions while Chrome does not."* Maps to our shared-state model in §2.4. |
+| **Hardware AI agents — FAILED** | Rabbit R1 + Humane AI Pin | "Hand intent to LAM, agent manipulates APIs instead of UI." Rabbit sold 100k → mass returns; Humane sold to HP for ~half what they raised. ~$5B combined value lost. | Critical cautionary tales — see §10.4 below. |
+| **Persistent floating co-pilot** | Industry standard (Zendesk, Intercom, ChatGPT mobile, etc.) | Bottom-right puck, always-visible, collapse-to-button. Evolved from "always there" → "persistent but **optional**". | Validates termipod's overlay design choice; surfaces the dismiss-toggle gap (§10.5). |
+
+### 10.2 The big shift 2024–2026
+
+Industry consensus, multiple sources: 2024–2025 was *"AI does it
+for you"* (full autonomy). 2026 has **rejected** this model.
+Users felt out of control with autonomous flows. Convergence on
+the **persistent + optional + reviewable** pattern — agent as
+co-pilot, not driver. Ratifies our prototype's read-only-first
+constraint and the ADR's confirmation gate policy (§5 Q2).
+
+### 10.3 The IAA framework — Intent → Action → Audit
+
+Smashing Magazine's *"Designing for Agentic AI"* (Feb 2026)
+formalized the 3-pillar pattern that almost every shipping
+agentic UX follows:
+
+1. **Intent Preview** — agent restates the user's goal + proposed
+   plan **before** acting. Earns trust before consuming attention.
+2. **Autonomous Action** — agent executes in the background.
+3. **Audit & Verification** — clear log of what was done; **undo
+   or override** affordance.
+
+Our v1.0.464 prototype already does **A** (audit_events row +
+steward-did-this banner) but is partial on **I** (steward should
+restate goal before navigating; today the prompt encourages this
+weakly) and missing **U** (no undo affordance). ADR-023 should
+lock all three.
+
+### 10.4 Lessons from Rabbit R1 / Humane Pin failures
+
+The most useful research finding. ~$5B lost between Rabbit R1
+(LAM-driven AI gadget) + Humane AI Pin (wearable AI) in 12
+months. Failure modes that map directly to risks in this wedge:
+
+- **Demo-grade ≠ ship-grade.** "Ship based on what works today,
+  not what you plan to build." The gap between demo capability
+  and shipped capability is the single most destructive force in
+  consumer agent products. → Our prototype's small-but-real verb
+  set respects this.
+- **The phone is fierce competition.** "Modern smartphones are
+  incredibly powerful and versatile — tough to beat." Users
+  evaluate against their existing tap workflow, not against the
+  agent's roadmap. → Our test plan's manual-vs-agent baseline
+  measurement is the right ship-or-not gate.
+- **Capability honesty.** Don't promise what isn't shipped.
+  Rabbit's LAM was a demo that didn't translate to production. →
+  Our explicit "read-only verbs only at this stage" scope is the
+  right move.
+- **Substitution beats addition only when net-add is clear.**
+  Rabbit tried to *replace* the smartphone with the R1; users
+  rejected the substitution. → Our agent-driven UX must be a
+  net-add to the existing app, not a replacement for it. The
+  overlay coexists with the manual UI.
+
+### 10.5 Twelve axioms (validated against 2026 SOTA)
+
+The principal originally named three (multiplexing, context-
+sharing, intention/purpose-first). Research lets us confirm those
+and add nine more. Ranked by load-bearing weight:
+
+#### Architectural
+
+1. **Intent over procedure.** User states the goal; system
+   determines the steps. Source: Tentackles, Cobeisfresh,
+   UXTigers (2026).
+2. **Director not operator.** Already in
+   [ADR-005](../decisions/005-owner-authority-model.md). The
+   user directs; the agent operates. Validated by Apple's
+   *"no navigation required"* framing for Siri 2026.
+3. **One state, two writers.** §2.4 above. Validated by Atlas's
+   persistent cross-tab state and Apple's on-screen content
+   awareness — both are concrete instances of the same idea.
+4. **URIs as the public API.** §4.3 above. Apple's App Intents
+   are typed enums (less general); URIs are LLM-native and
+   survive serialization. We've made the more agent-friendly
+   choice.
+
+#### Cognitive
+
+5. **Multiplexing.** Principal's framing. Single attention
+   pointer + many parallel backend threads. Steward routes the
+   right thread to the foreground. Confirmed across all 2026
+   sources reviewed — design has rejected "show user everything
+   at once."
+6. **Context-sharing.** Principal's framing. The state the user
+   sees IS the state the agent sees. Atlas's "remembers prior
+   sessions" is the canonical instance.
+7. **Persistent but optional.** Industry-wide 2026 axiom. Always
+   reachable, never imposing. The user can banish the AI at any
+   time. Source: UXDesign.cc, Bricxlabs, all reviewed chatbot
+   surveys.
+
+#### Trust
+
+8. **Audit as first-class.** Every agent action is reviewable,
+   undoable. Smashing's IAA framework + Salesforce's pivot to
+   "agentic experience design" both lean on this hard.
+9. **Trust through transparency.** *"When people know why a
+   system acted, they feel control even when they don't click."*
+   (Smashing Mag, 2026.) Validates that the steward's text-first
+   responses + system-row footnotes matter more than the
+   navigation animation itself.
+10. **Capability honesty.** Don't promise what isn't shipped.
+    Rabbit/Humane lost $5B claiming demo capability they couldn't
+    deliver.
+
+#### Pragmatic
+
+11. **The phone is fierce competition.** Smartphones are *already*
+    powerful — AI must add net value, not substitute for what's
+    there. Manual mode is the benchmark.
+12. **Demo-grade ≠ ship-grade.** Rabbit R1's lesson. The thing on
+    stage is not the thing that works for a real user on day 1.
+    Always test against real workflows.
+
+#### Coverage check
+
+Termipod's prototype already implements 1–6 + 8 + 9 + 10. Missing
+or partial: **7** (no dismiss-to-hide toggle yet — only
+expand/collapse), **11** (test plan calls for it, unmeasured
+until QA timing data lands), and **12** is always work in progress.
+
+### 10.6 Three new locks ADR-023 should add
+
+Beyond the 13 open questions in §5, the SOTA research adds three
+specific locks that aren't currently captured:
+
+- **Lock IAA explicitly.** Intent Preview + Autonomous Action +
+  Audit/Undo as the three pillars, not just Audit alone. Steward
+  must restate goal before navigating; user must be able to undo.
+  Currently only Audit is wired.
+- **Lock dismissal model.** Three states for the overlay, not
+  two: **Hidden / Puck / Panel**. Add a Settings toggle. The
+  "persistent but optional" axiom is non-negotiable in 2026 UX.
+- **Lock the comparison benchmark.** *"Beat manual-mode tap
+  count + total time on the demo arc by ≥40%."* The Rabbit
+  lesson: if you can't quantify the win, you don't ship. Should
+  appear in the test plan + the ADR's "Consequences" section as
+  the explicit ship-or-not gate.
+
+---
+
+## 11. References
+
+### Internal
 
 - ADR-005 — UX principal/director model (steward operates the
   system; user directs).
@@ -648,7 +811,56 @@ context.
   overlay must respect.
 - `reference/permission-model.md` — confirmation gating that the
   write-intent policy mirrors.
-- Apple App Intents (iOS 16+) — OS-level prior art for the
-  whitelisted-verb pattern.
-- Android App Actions / Gemini extensions — comparable Android
-  prior art.
+- `how-to/test-agent-driven-prototype.md` — 10-scenario QA plan
+  for the v1.0.464-alpha prototype.
+
+### External — feeds §10 SOTA research
+
+**Apple Intelligence + App Intents (iOS):**
+- [App Intents — Apple Developer documentation](https://developer.apple.com/documentation/appintents)
+- [Integrating actions with Siri and Apple Intelligence](https://developer.apple.com/documentation/appintents/integrating-actions-with-siri-and-apple-intelligence)
+- [Get to know App Intents — WWDC25](https://developer.apple.com/videos/play/wwdc2025/244/)
+- [Apple Intelligence & Siri in 2026 (Medium)](https://medium.com/@taoufiq.moutaouakil/apple-intelligence-siri-in-2026-fe509d8813fd)
+
+**Google Gemini Agent + Project Astra (Android):**
+- [Google preps 'Gemini Agent' as your '24/7 digital partner' (9to5Google)](https://9to5google.com/2026/05/06/gemini-agent-planner-upgrade/)
+- [Gemini AI may soon navigate Android apps (Sammy Fans)](https://www.sammyfans.com/2026/02/04/gemini-ai-may-soon-navigate-android-apps-for-users/)
+- [Android malware taps Gemini to navigate infected devices (The Register)](https://www.theregister.com/security/2026/02/19/android-malware-taps-gemini-to-navigate-infected-devices/4397008)
+- [Google I/O 2026 — Android 17, Gemini AI & Smart Glasses (Eastern Herald)](https://easternherald.com/2026/05/09/google-io-2026-android-17-gemini-smart-glasses/)
+
+**Anthropic Claude Computer Use + Dispatch:**
+- [Anthropic's Claude Computer Use Agent (Tech Insider)](https://tech-insider.org/anthropic-claude-computer-use-agent-2026/)
+- [Anthropic says Claude can now use your computer (CNBC)](https://www.cnbc.com/2026/03/24/anthropic-claude-ai-agent-use-computer-finish-tasks.html)
+- [Anthropic gives Claude computer access from a mobile device (CIO Dive)](https://www.ciodive.com/news/anthropic-claude-computer-access-AI/815730/)
+- [Claude API computer use tool docs](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool)
+
+**ChatGPT Atlas (browser-as-superapp):**
+- [ChatGPT Atlas — OpenAI](https://chatgpt.com/atlas/)
+- [ChatGPT Atlas vs Perplexity vs Microsoft Edge (Genesys Growth)](https://genesysgrowth.com/blog/chatgpt-atlas-vs-perplexity-vs-microsoft-edge-(copilot-mode))
+- [OpenAI's Desktop Superapp: ChatGPT, Codex, and Atlas Merging (ALM Corp)](https://almcorp.com/blog/openai-desktop-superapp-chatgpt-codex-atlas-browser/)
+
+**Rabbit R1 / Humane AI Pin failures (cautionary):**
+- [The UX Fails of AI Tech: Rabbit R1 & Humane AI Pin (VAExperience)](https://blog.vaexperience.com/the-ux-fails-of-ai-tech-rabbit-r1-humane-ai-pin/)
+- [AI Product Failures 2026: Sora, Humane & Rabbit R1 (Digital Applied)](https://www.digitalapplied.com/blog/ai-product-failures-2026-sora-humane-rabbit-lessons)
+- [The Rabbit R1 flop (Medium / Julien Pate)](https://medium.com/@julien_pate/the-rabbit-r1-flop-a-commercial-disaster-or-a-rough-draft-of-our-ux-less-future-9202df67a9e4)
+- [With the Humane AI Pin now dead, what does the Rabbit R1 need to do to survive? (TechRadar)](https://www.techradar.com/computing/artificial-intelligence/with-the-humane-ai-pin-now-dead-what-does-the-rabbit-r1-need-to-do-to-survive)
+
+**Agentic UX patterns + the IAA framework:**
+- [Designing for Agentic AI: Practical UX Patterns (Smashing Magazine)](https://www.smashingmagazine.com/2026/02/designing-agentic-ai-practical-ux-patterns/)
+- [State of Design 2026: When Interfaces Become Agents (Tejj on Medium)](https://tejjj.medium.com/state-of-design-2026-when-interfaces-become-agents-fc967be10cba)
+- [How to Embrace the Great UX Paradigm Shift to Agentic Experience Design (Salesforce)](https://www.salesforce.com/blog/ux-shift-to-agentic-experience-design/)
+- [Designing User Interfaces for Agentic AI (Codewave)](https://codewave.com/insights/designing-agentic-ai-ui/)
+- [Next-Gen Agentic AI in UX Design: Evolving the Double-Diamond Process (UXmatters)](https://www.uxmatters.com/mt/archives/2026/03/next-gen-agentic-ai-in-ux-design-evolving-the-double-diamond-process.php)
+
+**AI-native UX principles:**
+- [Intent by Discovery: Designing the AI User Experience (UXTigers)](https://www.uxtigers.com/post/intent-ux)
+- [AI Native Interfaces: Designing Beyond Prompts and Workflows (Cobeisfresh)](https://www.cobeisfresh.com/blog/ai-native-interfaces-designing-beyond-prompts-and-workflows)
+- [AI-First UI UX Design Principles for zero-click web (Tentackles)](https://tentackles.com/blog/ai-first-ux-ui-principles-zero-click)
+- [7 New Rules of AI in UX Design for 2026 (Millipixels)](https://millipixels.com/blog/ai-in-ux-design)
+- [UX principles — Apps SDK (OpenAI Developers)](https://developers.openai.com/apps-sdk/concepts/ux-principles)
+
+**Floating overlay / persistent chatbot patterns:**
+- [Where should AI sit in your UI? (UX Collective)](https://uxdesign.cc/where-should-ai-sit-in-your-ui-1710a258390e)
+- [16 Chat UI Design Patterns That Work in 2026 (Bricxlabs)](https://bricxlabs.com/blogs/message-screen-ui-deisgn)
+- [Chatbot Interface Design: A Practical Guide for 2026 (Fuselab)](https://fuselabcreative.com/chatbot-interface-design-guide/)
+- [What's Changing in Mobile App Design? UI Patterns That Matter in 2026 (Muzli)](https://muz.li/blog/whats-changing-in-mobile-app-design-ui-patterns-that-matter-in-2026/)

@@ -17,6 +17,12 @@ import '../../services/steward_handle.dart';
 /// usage.
 const int _backfillLimit = 50;
 
+/// Max in-memory message rolling window for the overlay's compact
+/// chat. The Sessions screen owns the full transcript; the overlay's
+/// purpose is the recent directive context, not the entire log.
+/// 20 messages ≈ 10 turns of user-prompt → steward-response.
+const int _overlayMessageCap = 20;
+
 /// steward_overlay_controller.dart — owns the lifecycle of the overlay's
 /// connection to the team's general steward.
 ///
@@ -39,17 +45,42 @@ const int _backfillLimit = 50;
 
 enum OverlayChatRole { user, steward, system }
 
+/// Records what the steward DID via a `mobile.intent` event. Distinct
+/// from a free-form steward text reply: this is a structured action
+/// the bubble renders as a compact past-tense pill with tap-through.
+///
+/// `verb` is the action label ("navigated to", "created", "edited",
+/// "wrote") so future intent kinds beyond navigation render with the
+/// right grammar. v1 only exercises navigation; the field exists so
+/// new actions don't require a model migration.
+@immutable
+class OverlayIntentAction {
+  final String verb;
+  final String target;
+  final String uri;
+  const OverlayIntentAction({
+    required this.verb,
+    required this.target,
+    required this.uri,
+  });
+}
+
 @immutable
 class OverlayChatMessage {
   final OverlayChatRole role;
   final String text;
-  final String? note; // small footnote (e.g. "navigated to X")
+  final String? note; // small footnote (e.g. URI for intent)
   final DateTime ts;
+  /// Non-null when this message represents a `mobile.intent` event.
+  /// Renders as a compact pill with tap-through to re-fire the URI
+  /// rather than a generic text bubble.
+  final OverlayIntentAction? intentAction;
   const OverlayChatMessage({
     required this.role,
     required this.text,
     this.note,
     required this.ts,
+    this.intentAction,
   });
 }
 
@@ -253,16 +284,14 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// Demuxes a list of agent_events into `OverlayChatMessage`s via
   /// the same `_eventToMessage` folder as the live `_handleEvent`
   /// path — guarantees backfill and live render produce the same
-  /// bubble shapes. EXCEPT we skip `mobile.intent` here (B5 —
-  /// replay would feel like the steward is navigating *now*;
-  /// navigation notes are transient logs, not durable transcript).
+  /// bubble shapes, including past `mobile.intent` events as
+  /// past-tense pills (W4 reverse-of-B5: intents are the most
+  /// informative directive signal and should appear on replay).
   List<OverlayChatMessage> _hydrateFromEvents(
     List<Map<String, dynamic>> events,
   ) {
     final out = <OverlayChatMessage>[];
     for (final evt in events) {
-      final kind = (evt['kind'] ?? '').toString();
-      if (kind == 'mobile.intent') continue; // B5
       final msg = _eventToMessage(evt);
       if (msg != null) out.add(msg);
     }
@@ -299,7 +328,15 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       print('[steward-overlay] evt kind=$kind keys=${evt.keys.toList()}');
     }
     if (kind == 'mobile.intent') {
-      _dispatchIntent(evt);
+      // Two paths for live intents: render the message via
+      // `_eventToMessage` (so live + replay produce the same bubble
+      // shape — this is the W4 reverse-of-B5 decision: past intents
+      // ARE the most informative directive signal and should appear
+      // on cold-open backfill too) AND fire the live navigation +
+      // snackbar via `_dispatchIntentLive`.
+      final msg = _eventToMessage(evt);
+      if (msg != null) _appendMessage(msg);
+      _dispatchIntentLive(evt);
       return;
     }
     final msg = _eventToMessage(evt);
@@ -343,7 +380,91 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       );
     }
 
+    if (kind == 'mobile.intent') {
+      return _intentToMessage(evt, ts);
+    }
+
     return null;
+  }
+
+  /// Builds a chat message representing a `mobile.intent` event —
+  /// distinct from a free-form steward text reply because the bubble
+  /// renders as a compact past-tense pill ("Steward → Insights ·
+  /// 14:32") with tap-through to re-fire the URI.
+  ///
+  /// The verb is currently "→" (arrow-style) because v1 intents are
+  /// navigation-only. As the steward gains write capabilities (create,
+  /// edit, write artifacts) the event payload will carry an `action`
+  /// field; this method should switch on it to emit the right verb.
+  /// For now `verb` defaults to "→" so the bubble shape doesn't
+  /// require model changes when new actions land.
+  OverlayChatMessage? _intentToMessage(
+    Map<String, dynamic> evt,
+    DateTime ts,
+  ) {
+    final uriStr = (evt['uri'] ?? '').toString();
+    if (uriStr.isEmpty) return null;
+    final uri = Uri.tryParse(uriStr);
+    if (uri == null) return null;
+    final hub = ref.read(hubProvider).value;
+    final target = _describeIntentTarget(uri, hub);
+    return OverlayChatMessage(
+      role: OverlayChatRole.system,
+      text: 'Steward → $target',
+      note: uriStr,
+      ts: ts,
+      intentAction: OverlayIntentAction(
+        verb: '→',
+        target: target,
+        uri: uriStr,
+      ),
+    );
+  }
+
+  /// Best-effort human label for a `mobile.intent` URI on replay.
+  /// Live intents use `navigateToUri`'s richer `NavigateResult.label`
+  /// (which can include filter parameters etc.); on replay we don't
+  /// re-evaluate the route since side effects mustn't fire, so we
+  /// reconstruct a coarser label from the URI structure. The exact
+  /// label can drift if the destination was renamed/deleted between
+  /// the event and now — acceptable for a recent-history view.
+  String _describeIntentTarget(Uri uri, HubState? hub) {
+    final host = uri.host.toLowerCase();
+    final segs = uri.pathSegments;
+    switch (host) {
+      case 'projects':
+        return 'Projects';
+      case 'activity':
+        final filter = uri.queryParameters['filter'];
+        return filter == null ? 'Activity' : 'Activity · $filter';
+      case 'me':
+        return 'Me';
+      case 'hosts':
+        return 'Hosts';
+      case 'settings':
+        return 'Settings';
+      case 'insights':
+        return 'Insights';
+      case 'project':
+        if (segs.isEmpty) return 'a project';
+        // If the hub snapshot has the name, use it; otherwise the id.
+        final id = segs[0];
+        if (hub != null) {
+          for (final p in hub.projects) {
+            if ((p['id'] ?? '').toString() == id) {
+              final name = (p['name'] ?? '').toString();
+              if (name.isNotEmpty) return name;
+            }
+          }
+        }
+        return 'project $id';
+      case 'session':
+        return segs.isEmpty ? 'a session' : 'session ${segs[0]}';
+      case 'agent':
+        return segs.isEmpty ? 'an agent' : 'agent ${segs[0]}';
+      default:
+        return uri.toString();
+    }
   }
 
   /// Extracts surface text from a `kind == 'text'` agent_events
@@ -385,25 +506,21 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
 
   void _appendMessage(OverlayChatMessage msg) {
     final next = List<OverlayChatMessage>.from(state.messages)..add(msg);
-    // Keep the rolling window bounded so the overlay doesn't balloon
-    // memory in long sessions; the full transcript lives in Sessions.
-    const maxKeep = 100;
-    if (next.length > maxKeep) {
-      next.removeRange(0, next.length - maxKeep);
+    if (next.length > _overlayMessageCap) {
+      next.removeRange(0, next.length - _overlayMessageCap);
     }
     state = state.copyWith(messages: next);
   }
 
-  void _dispatchIntent(Map<String, dynamic> evt) {
+  /// Live-only side effects for a `mobile.intent` event: navigate +
+  /// snackbar. The chat-message append is the responsibility of
+  /// `_eventToMessage` / `_handleEvent` — this method is purely
+  /// about the UI dispatch that happens AS the intent fires. On
+  /// replay (cold-open backfill) this method is never called; on
+  /// live SSE it runs alongside the message append.
+  void _dispatchIntentLive(Map<String, dynamic> evt) {
     final uriStr = (evt['uri'] ?? '').toString();
-    if (uriStr.isEmpty) {
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.system,
-        text: 'mobile.intent received with empty uri',
-        ts: DateTime.now(),
-      ));
-      return;
-    }
+    if (uriStr.isEmpty) return;
     final uri = Uri.tryParse(uriStr);
     if (uri == null) {
       _appendMessage(OverlayChatMessage(
@@ -432,31 +549,26 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       setTab: (index) =>
           ref.read(currentTabProvider.notifier).setTab(index),
     );
-    if (result.ok) {
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.system,
-        text: 'Steward → ${result.label}',
-        note: uriStr,
-        ts: DateTime.now(),
-      ));
-      // Also surface a brief snackbar so the user sees the navigation
-      // even when the chat panel is collapsed.
-      final messenger = ScaffoldMessenger.maybeOf(ctx);
-      messenger?.hideCurrentSnackBar();
-      messenger?.showSnackBar(
-        SnackBar(
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          content: Text('Steward → ${result.label}'),
-        ),
-      );
-    } else {
+    if (!result.ok) {
       _appendMessage(OverlayChatMessage(
         role: OverlayChatRole.system,
         text: 'Steward could not navigate to $uriStr',
         ts: DateTime.now(),
       ));
+      return;
     }
+    // Snackbar surfaces the nav even when the chat panel is
+    // collapsed. The chat bubble is already appended by
+    // `_handleEvent` via `_eventToMessage` — no double-append here.
+    final messenger = ScaffoldMessenger.maybeOf(ctx);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        content: Text('Steward → ${result.label}'),
+      ),
+    );
   }
 
   /// Send the user's text to the general steward.

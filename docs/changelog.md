@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.475
+> **Last verified vs code:** v1.0.476
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,61 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.476-alpha — 2026-05-10
+
+Compact-mode rework of the steward overlay (Option A from the
+"compact vs duplicate" architectural review). The overlay was
+rendering essentially the same content as the Sessions screen —
+just with chat-bubble styling instead of full-fidelity cards.
+This reframes it as the recent-directive-context surface: shorter
+window, action-aware rendering, and a clear pivot to the full
+session for everything else.
+
+### Changed
+- **Rolling message cap dropped from 100 → 20** (`_overlayMessageCap`).
+  The Sessions screen owns the full transcript; the overlay's job
+  is the last ~10 turns of recent directive context, not a parallel
+  log.
+- **`mobile.intent` events now render on cold-open replay** as
+  past-tense pills ("Steward → Insights · 14:32"). Reverses the
+  v1.0.474 B5 decision — those are the most informative directive
+  signal and skipping them on replay was the wrong call. The pill
+  shape uses `OverlayIntentAction{verb, target, uri}` which is
+  action-aware (defaults to navigation `→` for v1; future create /
+  edit / write actions get the right verb without a model change).
+  Tap a pill to re-fire the URI.
+- **Long steward replies truncate at 240 chars** with a "open full
+  session for the rest" italic suffix. Keeps the overlay's
+  directive purpose obvious — it's not a transcript.
+- **Live-vs-replay split for `mobile.intent`** clarified in the
+  controller. `_eventToMessage` produces the chat bubble for both
+  live and replay paths (single source of truth for shape);
+  `_dispatchIntentLive` runs ONLY on live SSE — handles the actual
+  navigation + snackbar without re-appending a message.
+
+### Added
+- **"Open full session" icon** in the panel header. Pushes
+  `SessionChatScreen` for the steward's current session, then
+  collapses the overlay so the user can scroll the full transcript
+  unobstructed. Disabled (greyed) until backfill resolves agentId
+  + sessionId.
+- **Pending-attention badge** in the panel header. Counts attention
+  items where `agent_id == steward_agent_id` and status is `open`
+  / `pending`. Tap jumps to the Me tab + collapses the overlay.
+  Hidden when 0. Sourced directly from `hubProvider.attention`,
+  not duplicated.
+
+### Notes
+- The full transcript / attention-detail / approval-decide flows
+  remain on their dedicated screens. The overlay only links into
+  them — no data duplication.
+- The agent_events SSE subscription is still owned independently
+  by the overlay controller (Option B from the review — sharing
+  the data source with `agent_feed.dart` — is a cleanup wedge for
+  later, not bundled here).
 
 ---
 

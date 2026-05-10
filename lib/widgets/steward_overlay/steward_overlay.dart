@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../screens/home_screen.dart';
+import '../../screens/sessions/sessions_screen.dart';
 import '../../theme/design_colors.dart';
 import 'steward_overlay_chat.dart';
+import 'steward_overlay_controller.dart';
 
 /// Steward overlay shell — a persistent, draggable chat surface that
 /// stays visible across all routes (Projects / Activity / Me /
@@ -377,7 +381,7 @@ class _ExpandedPanel extends StatelessWidget {
   }
 }
 
-class _PanelHeader extends StatelessWidget {
+class _PanelHeader extends ConsumerWidget {
   final VoidCallback onClose;
   final ValueChanged<Offset> onDrag;
   final VoidCallback onDragEnd;
@@ -387,8 +391,58 @@ class _PanelHeader extends StatelessWidget {
     required this.onDragEnd,
   });
 
+  /// Counts pending attention items raised by the steward agent.
+  /// Filters by `agent_id` matching the steward's current agentId
+  /// AND status either 'open' or 'pending' (the hub uses both
+  /// across kinds). Empty list when no steward yet, when there are
+  /// no pending items, or before hub bootstrap.
+  int _stewardAttentionCount(WidgetRef ref) {
+    final overlay = ref.watch(stewardOverlayControllerProvider);
+    final agentId = overlay.agentId;
+    if (agentId == null) return 0;
+    final hub = ref.watch(hubProvider).value;
+    if (hub == null) return 0;
+    var n = 0;
+    for (final a in hub.attention) {
+      if ((a['agent_id'] ?? '').toString() != agentId) continue;
+      final s = (a['status'] ?? '').toString();
+      if (s == 'open' || s == 'pending') n++;
+    }
+    return n;
+  }
+
+  void _openFullSession(BuildContext context, WidgetRef ref) {
+    final overlay = ref.read(stewardOverlayControllerProvider);
+    final agentId = overlay.agentId;
+    final sessionId = overlay.sessionId;
+    if (agentId == null || sessionId.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionChatScreen(
+          sessionId: sessionId,
+          agentId: agentId,
+          title: 'Steward',
+        ),
+      ),
+    );
+    onClose();
+  }
+
+  void _openAttention(BuildContext context, WidgetRef ref) {
+    // Switch to the Me tab where attention items live, then collapse
+    // the overlay so the user can see them. Doesn't filter to the
+    // steward — keeps the navigation predictable; the user can scan
+    // the list themselves.
+    ref.read(currentTabProvider.notifier).setTab(2);
+    onClose();
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final attentionN = _stewardAttentionCount(ref);
+    final overlayState = ref.watch(stewardOverlayControllerProvider);
+    final canOpenFullSession = overlayState.agentId != null &&
+        overlayState.sessionId.isNotEmpty;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onPanUpdate: (d) => onDrag(d.delta),
@@ -420,6 +474,21 @@ class _PanelHeader extends StatelessWidget {
                   ),
                 ),
               ),
+              if (attentionN > 0)
+                _AttentionBadge(
+                  count: attentionN,
+                  onTap: () => _openAttention(context, ref),
+                ),
+              IconButton(
+                tooltip: canOpenFullSession
+                    ? 'Open full session'
+                    : 'Steward not ready',
+                iconSize: 18,
+                icon: const Icon(Icons.open_in_new),
+                onPressed: canOpenFullSession
+                    ? () => _openFullSession(context, ref)
+                    : null,
+              ),
               IconButton(
                 tooltip: 'Close',
                 iconSize: 20,
@@ -427,6 +496,61 @@ class _PanelHeader extends StatelessWidget {
                 onPressed: onClose,
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact attention pill in the panel header. Shows when the
+/// steward has raised one or more pending attention items; tap
+/// jumps to the Me tab so the user can see them in context.
+/// Stays out of the main chat surface (W4 — overlay is the recent
+/// directive context, NOT a notification queue).
+class _AttentionBadge extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+  const _AttentionBadge({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: DesignColors.error.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: DesignColors.error.withValues(alpha: 0.45),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.notifications_active_outlined,
+                  size: 12,
+                  color: DesignColors.error,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '$count',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: DesignColors.error,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

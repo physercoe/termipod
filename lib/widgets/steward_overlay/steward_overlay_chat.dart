@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/hub_provider.dart';
+import '../../screens/home_screen.dart';
+import '../../services/deep_link/uri_router.dart';
 import '../../theme/design_colors.dart';
 import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
@@ -290,6 +293,12 @@ class _ChatInputState extends State<_ChatInput> {
   }
 }
 
+/// Hard-truncate threshold for steward text bubbles. Beyond this we
+/// show a leading slice with a "… see full session" suffix; the full
+/// text lives in the Sessions screen. Keeps the overlay's directive
+/// purpose clear — it's a recent-context view, not a transcript.
+const int _bubbleTruncateAt = 240;
+
 class _MessageBubble extends StatelessWidget {
   final OverlayChatMessage msg;
   final Color muted;
@@ -297,6 +306,13 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Intent events render as a compact past-tense pill with
+    // tap-through, NOT a regular chat bubble — it's the durable
+    // record of what the steward DID, not what it said.
+    if (msg.intentAction != null) {
+      return _IntentPill(action: msg.intentAction!, muted: muted, ts: msg.ts);
+    }
+
     final fromUser = msg.role == OverlayChatRole.user;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = fromUser
@@ -304,6 +320,16 @@ class _MessageBubble extends StatelessWidget {
         : (isDark
             ? DesignColors.backgroundDark.withValues(alpha: 0.5)
             : DesignColors.backgroundLight);
+
+    // Compact-mode truncation (W4). Steward replies can run long;
+    // the overlay only needs the gist for recent context. Users who
+    // want the full reply tap "Open full session" in the header.
+    final raw = msg.text;
+    final shown = raw.length > _bubbleTruncateAt
+        ? '${raw.substring(0, _bubbleTruncateAt)}… '
+        : raw;
+    final truncated = raw.length > _bubbleTruncateAt;
+
     return Align(
       alignment: fromUser ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
@@ -320,12 +346,23 @@ class _MessageBubble extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                msg.text,
+                shown,
                 style: GoogleFonts.spaceGrotesk(
                   fontSize: 13,
                   color: isDark ? Colors.white : DesignColors.textPrimary,
                 ),
               ),
+              if (truncated) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '… open full session for the rest',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    color: muted,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
               if (msg.note != null && msg.note!.isNotEmpty) ...[
                 const SizedBox(height: 4),
                 Text(
@@ -340,6 +377,106 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Renders a `mobile.intent` event as a compact past-tense pill —
+/// "Steward → Insights · 14:32" with an arrow icon and tap-through
+/// to re-fire the URI. Distinct from a free-form chat bubble because
+/// it represents what the steward DID, not what it said. v1 only
+/// exercises navigation; future actions (create / edit / write) will
+/// use the same pill shape with different verbs/icons via
+/// `OverlayIntentAction.verb`.
+class _IntentPill extends ConsumerWidget {
+  final OverlayIntentAction action;
+  final DateTime ts;
+  final Color muted;
+  const _IntentPill({
+    required this.action,
+    required this.ts,
+    required this.muted,
+  });
+
+  String _hhmm(DateTime t) {
+    final local = t.toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.86,
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _refire(context, ref),
+          child: Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: DesignColors.primary.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: DesignColors.primary.withValues(alpha: 0.30),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.alt_route,
+                  size: 14,
+                  color: DesignColors.primary.withValues(alpha: 0.85),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    'Steward ${action.verb} ${action.target}',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.9)
+                          : DesignColors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '· ${_hhmm(ts)}',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    color: muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Re-fires the URI via the same router used by live intents. Lets
+  /// the user tap a past pill to revisit where the steward sent them.
+  void _refire(BuildContext context, WidgetRef ref) {
+    final uri = Uri.tryParse(action.uri);
+    if (uri == null) return;
+    final hub = ref.read(hubProvider).value;
+    navigateToUri(
+      context,
+      uri,
+      hub: hub,
+      setTab: (i) => ref.read(currentTabProvider.notifier).setTab(i),
     );
   }
 }

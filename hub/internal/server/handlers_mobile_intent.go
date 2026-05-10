@@ -98,13 +98,20 @@ func (s *Server) handleMobileIntent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	channel := agentBusKey(stewardID)
+	// Stamp session_id so the mobile overlay's session-filtered SSE
+	// subscription doesn't drop us. handleStreamAgentEvents filters
+	// `eventSessionID(evt) != sessionFilter`; without this lookup the
+	// event has no session_id and the subscriber sees nothing — the
+	// pill never appears, navigation never fires (v1.0.479 fix).
+	sessionID := s.lookupSessionForAgent(ctx, stewardID)
 	evt := map[string]any{
-		"kind":      "mobile.intent",
-		"intent":    "navigate",
-		"uri":       body.URI,
-		"agent_id":  stewardID,
-		"team_id":   team,
-		"ts":        time.Now().UTC().Format(time.RFC3339Nano),
+		"kind":       "mobile.intent",
+		"intent":     "navigate",
+		"uri":        body.URI,
+		"agent_id":   stewardID,
+		"team_id":    team,
+		"session_id": sessionID,
+		"ts":         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	s.bus.Publish(channel, evt)
 

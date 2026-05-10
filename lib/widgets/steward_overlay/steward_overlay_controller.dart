@@ -128,10 +128,20 @@ final overlayNavigatorKeyProvider =
 class StewardOverlayController extends Notifier<StewardOverlayState> {
   StreamSubscription<Map<String, dynamic>>? _sub;
   bool _initStarted = false;
+  bool _disposed = false;
+  Timer? _reconnectTimer;
+  /// Backoff on consecutive reconnect attempts: 1s, 2s, 4s, 8s, 16s,
+  /// then capped. Resets on the next successful event.
+  int _reconnectAttempts = 0;
+  /// Highest seq we've seen — used to resume the SSE without
+  /// replaying the entire backfill on reconnect.
+  int? _lastSeq;
 
   @override
   StewardOverlayState build() {
     ref.onDispose(() {
+      _disposed = true;
+      _reconnectTimer?.cancel();
       _sub?.cancel();
     });
     return const StewardOverlayState();
@@ -207,37 +217,72 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       // 5. Subscribe to the steward's SSE stream. Both the backfill
       //    (above) and the live stream are filtered to the SAME
       //    session (B3) so the panel doesn't mix current and prior
-      //    sessions. mobile.intent events still reach us because
-      //    the hub publishes them on the agent bus key with the
-      //    current session id.
-      _sub?.cancel();
-      _sub = client
-          .streamAgentEvents(
-            agentId,
-            sinceSeq: sinceCursor,
-            sessionId: sessionId.isEmpty ? null : sessionId,
-          )
-          .listen(
-        _handleEvent,
-        onError: (Object e) {
-          _appendMessage(OverlayChatMessage(
-            role: OverlayChatRole.system,
-            text: 'Steward stream errored: $e',
-            ts: DateTime.now(),
-          ));
-          state = state.copyWith(error: 'Stream error: $e');
-        },
-        onDone: () {
-          _appendMessage(OverlayChatMessage(
-            role: OverlayChatRole.system,
-            text: 'Steward stream closed',
-            ts: DateTime.now(),
-          ));
-        },
-      );
+      //    sessions. mobile.intent events ALSO carry session_id (the
+      //    hub stamps it via lookupSessionForAgent) so the
+      //    server-side filter passes them through.
+      _lastSeq = sinceCursor;
+      _attachStream(client, agentId, sessionId);
     } catch (e) {
       state = state.copyWith(error: 'Bootstrap failed: $e');
     }
+  }
+
+  /// (Re)attaches the SSE listener and wires reconnect-on-close /
+  /// reconnect-on-error. Idempotent — cancels any existing
+  /// subscription / pending timer before opening a fresh one.
+  void _attachStream(HubClient client, String agentId, String sessionId) {
+    if (_disposed) return;
+    _reconnectTimer?.cancel();
+    _sub?.cancel();
+    final since = _lastSeq;
+    _sub = client
+        .streamAgentEvents(
+          agentId,
+          sinceSeq: since,
+          sessionId: sessionId.isEmpty ? null : sessionId,
+        )
+        .listen(
+      (evt) {
+        _reconnectAttempts = 0;
+        final s = (evt['seq'] as num?)?.toInt();
+        if (s != null && (_lastSeq == null || s > _lastSeq!)) {
+          _lastSeq = s;
+        }
+        _handleEvent(evt);
+      },
+      onError: (Object e) => _scheduleReconnect(client, agentId, sessionId,
+          reason: 'errored: $e'),
+      onDone: () => _scheduleReconnect(client, agentId, sessionId,
+          reason: 'closed'),
+    );
+  }
+
+  /// Schedules a reconnect with exponential backoff (1s..16s capped).
+  /// One system note per ladder-rung is appended so the user sees we
+  /// haven't given up; we don't spam every retry.
+  void _scheduleReconnect(
+    HubClient client,
+    String agentId,
+    String sessionId, {
+    required String reason,
+  }) {
+    if (_disposed) return;
+    _sub?.cancel();
+    _sub = null;
+    final attempt = _reconnectAttempts;
+    final delay = Duration(seconds: 1 << (attempt > 4 ? 4 : attempt));
+    if (attempt == 0) {
+      _appendMessage(OverlayChatMessage(
+        role: OverlayChatRole.system,
+        text: 'Steward stream $reason — reconnecting…',
+        ts: DateTime.now(),
+      ));
+    }
+    _reconnectAttempts = attempt + 1;
+    _reconnectTimer = Timer(delay, () {
+      if (_disposed) return;
+      _attachStream(client, agentId, sessionId);
+    });
   }
 
   /// W1 backfill — read the recent agent_events history through the

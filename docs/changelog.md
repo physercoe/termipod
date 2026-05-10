@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-09)
+> **Status:** Current (2026-05-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.478
+> **Last verified vs code:** v1.0.479
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,73 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.479-alpha — 2026-05-10
+
+Four-issue QA fix on top of v1.0.478. Each was an independently
+visible regression once the user exercised the overlay end-to-end.
+
+### Fixed
+
+- **`mobile.intent` events stamped with `session_id`.** v1.0.474's
+  W1 backfill added a session-filtered SSE subscription (`?session=`)
+  to scope the overlay to the steward's current session. The hub's
+  `handleStreamAgentEvents` filter drops any event whose
+  `session_id` doesn't match. `handleMobileIntent` published the
+  event with `agent_id` + `team_id` but never `session_id`, so the
+  filter dropped every navigation intent → the past-tense pill
+  never rendered, the URI never dispatched, the user only saw the
+  steward's text reply ("done — opened your projects") with no
+  side effect. Fix: `lookupSessionForAgent(stewardID)` and stamp
+  the result on the bus envelope, matching the pattern
+  `handlePostAgentEvent` already uses for text frames. New test
+  `TestMobileIntent_StampsSessionID` locks the contract.
+- **SSE auto-reconnect on stream close/error.** The controller used
+  to attach the SSE subscription once at bootstrap and append a
+  system message on `onError` / `onDone`, leaving the panel dead
+  until the user manually reopened it. New behaviour:
+  exponential backoff (1s → 16s capped) reconnect with the last
+  observed seq as the resume cursor, single user-visible system
+  note per reconnect cycle, full reset of the backoff once a
+  fresh frame arrives. Resolves the QA report "stream errored
+  saying connection closed while the turn is ended."
+- **"Open in new" header button now opens the full session.** The
+  panel's BuildContext sits OUTSIDE the inner Navigator (overlay
+  is mounted via `MaterialApp.builder`, which wraps the Navigator
+  widget). `Navigator.of(context)` from there couldn't resolve
+  the inner Navigator. Switched to the shared
+  `overlayNavigatorKeyProvider` — same pattern the live
+  `_dispatchIntentLive` path already uses — which IS the
+  `MaterialApp.navigatorKey` override.
+- **Snippet "Edit" entry-point added to the chip strip.** Trailing
+  pencil chip pushes `SnippetsScreen` via the same overlay
+  navigator key. Without this, users could not see / add / edit
+  steward-tagged snippets — the chip strip only ever showed the
+  three built-in defaults.
+- **System IME now appears when tapping the chat input.** Two
+  fixes layered:
+  - **Puck hidden while panel expanded.** The puck (56×56)
+    floated at a Stack position that overlapped the bottom-right
+    chat surface (chips + input + send). Stack paints later
+    children on top → puck ate taps on the input region → tap
+    collapsed the panel via the puck's `onTap` instead of
+    focusing the TextField → IME never attached. Hide the puck
+    when expanded so the panel owns its own hit-testing surface.
+  - **Keyboard-aware panel shift.** When `MediaQuery.viewInsets.
+    bottom > 0` and the panel bottom would go behind the
+    keyboard, shift the rect up by the overlap (+12px breathing
+    room). Non-persistent — snaps back to the saved rect when
+    IME closes. The overlay isn't inside a Scaffold so
+    `resizeToAvoidBottomInset` doesn't apply; this is the manual
+    equivalent.
+
+### Test
+
+- New `TestMobileIntent_StampsSessionID` asserts the bus envelope
+  carries `session_id` so the SSE filter passes the event.
+  All five existing mobile-intent tests still pass.
 
 ---
 

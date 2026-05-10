@@ -93,6 +93,44 @@ func TestMobileIntent_PublishesToStewardChannel(t *testing.T) {
 	}
 }
 
+// TestMobileIntent_StampsSessionID: a navigate intent published while
+// the steward has an active session must carry the session_id in the
+// event envelope. The mobile overlay subscribes with `?session=<id>`,
+// and `handleStreamAgentEvents` filters out events whose session_id
+// doesn't match. Without this stamp the overlay never sees the event;
+// pill never renders, navigation never fires (v1.0.479 regression fix).
+func TestMobileIntent_StampsSessionID(t *testing.T) {
+	srv, tok, team, stewardID := mobileIntentSetup(t)
+
+	sessionID := NewID()
+	now := NowUTC()
+	if _, err := srv.db.Exec(`
+		INSERT INTO sessions (id, team_id, title, scope_kind, current_agent_id, status, opened_at, last_active_at)
+		VALUES (?, ?, 'general', 'team', ?, 'active', ?, ?)`,
+		sessionID, team, stewardID, now, now,
+	); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+
+	sub := srv.bus.Subscribe(agentBusKey(stewardID))
+	defer srv.bus.Unsubscribe(agentBusKey(stewardID), sub)
+
+	status, body := postMobileIntent(t, srv, tok, team,
+		map[string]any{"uri": "termipod://projects"})
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+
+	select {
+	case evt := <-sub:
+		if got := evt["session_id"]; got != sessionID {
+			t.Errorf("evt.session_id=%v, want %s", got, sessionID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event published within 2s")
+	}
+}
+
 // TestMobileIntent_RecordsAuditEvent: every navigate lands an
 // audit row so the user (and future audit feed UI) can review
 // what the steward did.

@@ -140,10 +140,25 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
     // Watch the layout fields so a settings reset (e.g. via a future
     // "Reset overlay layout" button) re-applies without restart.
     final settings = ref.watch(settingsProvider);
+    // Keyboard inset — when the IME is up we shift the panel up so the
+    // chat input stays visible. Non-persistent (snaps back when IME
+    // closes); we don't write to settings or _panelRect.
+    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     return LayoutBuilder(
       builder: (ctx, constraints) {
         _ensureInitial(constraints.biggest, settings);
-        final pr = _panelRect!;
+        var pr = _panelRect!;
+        // Shift up if the IME would cover the panel bottom. We don't
+        // squeeze the height — keeping the saved height stable means
+        // the chat surface doesn't reflow on every IME open/close.
+        if (keyboardInset > 0) {
+          final visibleBottom = constraints.maxHeight - keyboardInset;
+          if (pr.bottom > visibleBottom) {
+            final shift = pr.bottom - visibleBottom + 12;
+            final newTop = (pr.top - shift).clamp(0.0, double.infinity);
+            pr = Rect.fromLTWH(pr.left, newTop, pr.width, pr.height);
+          }
+        }
         // Non-modal layout — no barrier, no scrim. The panel coexists
         // with the underlying page so the user can keep tapping bottom
         // nav, scrolling lists, and reading content while the steward
@@ -192,31 +207,43 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
                   resizeHandleSize: _resizeHandle,
                 ),
               ),
-            Positioned(
-              left: _puckOffset!.dx,
-              top: _puckOffset!.dy,
-              child: _Puck(
-                size: _puckSize,
-                onTap: () {
-                  if (!_draggedThisGesture) _toggleExpanded();
-                  _draggedThisGesture = false;
-                },
-                onPanStart: () => _draggedThisGesture = false,
-                onPanUpdate: (delta) {
-                  setState(() {
-                    _draggedThisGesture = true;
-                    final next = (_puckOffset ?? Offset.zero) + delta;
-                    final maxX = constraints.maxWidth - _puckSize;
-                    final maxY = constraints.maxHeight - _puckSize;
-                    _puckOffset = Offset(
-                      next.dx.clamp(0.0, maxX),
-                      next.dy.clamp(0.0, maxY),
-                    );
-                  });
-                },
-                onPanEnd: _persistPuck,
+            // Puck is HIDDEN while the panel is expanded. Two reasons:
+            //   (1) Hit-testing — the persistent puck floats above the
+            //       panel and can overlap chat surface (chips, input,
+            //       send button). Stack paints later children on top,
+            //       so taps on the input area get eaten by the puck →
+            //       panel collapses instead of focusing the TextField,
+            //       and IME never attaches. (Root cause for the
+            //       v1.0.478 "no system IME" QA report.)
+            //   (2) Redundancy — the panel header has its own close X;
+            //       the puck adds nothing while expanded.
+            // The puck reappears when the panel closes via _collapse().
+            if (!_expanded)
+              Positioned(
+                left: _puckOffset!.dx,
+                top: _puckOffset!.dy,
+                child: _Puck(
+                  size: _puckSize,
+                  onTap: () {
+                    if (!_draggedThisGesture) _toggleExpanded();
+                    _draggedThisGesture = false;
+                  },
+                  onPanStart: () => _draggedThisGesture = false,
+                  onPanUpdate: (delta) {
+                    setState(() {
+                      _draggedThisGesture = true;
+                      final next = (_puckOffset ?? Offset.zero) + delta;
+                      final maxX = constraints.maxWidth - _puckSize;
+                      final maxY = constraints.maxHeight - _puckSize;
+                      _puckOffset = Offset(
+                        next.dx.clamp(0.0, maxX),
+                        next.dy.clamp(0.0, maxY),
+                      );
+                    });
+                  },
+                  onPanEnd: _persistPuck,
+                ),
               ),
-            ),
           ],
         );
       },
@@ -416,7 +443,16 @@ class _PanelHeader extends ConsumerWidget {
     final agentId = overlay.agentId;
     final sessionId = overlay.sessionId;
     if (agentId == null || sessionId.isEmpty) return;
-    Navigator.of(context).push(
+    // The panel's BuildContext sits OUTSIDE the inner Navigator
+    // (overlay is mounted via MaterialApp.builder, which wraps the
+    // Navigator widget). Navigator.of(context) from here either
+    // misses the inner Navigator entirely or resolves to the wrong
+    // one. Use the shared overlayNavigatorKeyProvider — same key
+    // MaterialApp.navigatorKey was overridden with — which is the
+    // pattern the live mobile.intent dispatch path already uses.
+    final navState = ref.read(overlayNavigatorKeyProvider).currentState;
+    if (navState == null) return;
+    navState.push(
       MaterialPageRoute(
         builder: (_) => SessionChatScreen(
           sessionId: sessionId,

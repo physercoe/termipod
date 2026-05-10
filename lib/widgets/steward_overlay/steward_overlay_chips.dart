@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/snippet_provider.dart';
+import '../../screens/vault/snippets_screen.dart';
 import '../../theme/design_colors.dart';
 import 'steward_overlay_controller.dart';
 
@@ -88,6 +89,11 @@ class StewardOverlayChips extends ConsumerWidget {
             ),
             const SizedBox(width: 6),
           ],
+          // Manage chip — opens the existing Snippets screen so the
+          // user can add / edit / delete steward-tagged snippets. The
+          // built-in defaults are read-only; this is the only path to
+          // grow the row beyond the three seeded examples.
+          _ManageChip(isDark: isDark),
         ],
       ),
     );
@@ -109,6 +115,56 @@ class StewardOverlayChips extends ConsumerWidget {
       // may have errored — both already surface their own system
       // notes in the transcript.
     }
+  }
+}
+
+/// Compact "manage" chip — pencil icon at the trailing edge of the
+/// chip strip. Tapped, it pushes the SnippetsScreen so the user can
+/// view / edit / add steward-tagged snippets. Routed through the
+/// shared overlayNavigatorKeyProvider since the chip strip lives
+/// outside the inner Navigator (same reason as the panel header's
+/// "Open in new" button).
+class _ManageChip extends ConsumerWidget {
+  final bool isDark;
+  const _ManageChip({required this.isDark});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Tooltip(
+      message: 'Manage snippets',
+      waitDuration: const Duration(milliseconds: 600),
+      child: ActionChip(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        backgroundColor: Colors.transparent,
+        side: BorderSide(
+          color: DesignColors.primary.withValues(alpha: 0.45),
+          width: 1,
+        ),
+        avatar: Icon(
+          Icons.edit_outlined,
+          size: 14,
+          color: DesignColors.primary.withValues(alpha: 0.85),
+        ),
+        label: Text(
+          'Edit',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.85)
+                : DesignColors.textPrimary,
+          ),
+        ),
+        onPressed: () {
+          final nav = ref.read(overlayNavigatorKeyProvider).currentState;
+          if (nav == null) return;
+          nav.push(
+            MaterialPageRoute(builder: (_) => const SnippetsScreen()),
+          );
+        },
+      ),
+    );
   }
 }
 

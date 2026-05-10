@@ -3,7 +3,7 @@
 > **Type:** discussion
 > **Status:** Open
 > **Audience:** principal · contributors · reviewers
-> **Last verified vs code:** v1.0.463
+> **Last verified vs code:** v1.0.466
 
 **TL;DR.** Today the mobile app is operated by tap. The principal
 asked: can a [steward](../reference/glossary.md#steward) instead
@@ -864,3 +864,144 @@ specific locks that aren't currently captured:
 - [16 Chat UI Design Patterns That Work in 2026 (Bricxlabs)](https://bricxlabs.com/blogs/message-screen-ui-deisgn)
 - [Chatbot Interface Design: A Practical Guide for 2026 (Fuselab)](https://fuselabcreative.com/chatbot-interface-design-guide/)
 - [What's Changing in Mobile App Design? UI Patterns That Matter in 2026 (Muzli)](https://muz.li/blog/whats-changing-in-mobile-app-design-ui-patterns-that-matter-in-2026/)
+
+---
+
+## 12. Open question — agent-conjured surfaces (Tier 1 / 2 / 3)
+
+**Status: Open** — added 2026-05-10 from principal Q during the
+v1.0.466 build. Frames a missing axis from §5: the prototype lets
+the steward *navigate to* surfaces that already exist in the APK
+but not *conjure* new ones. The natural extension matches what
+Claude.ai artifacts and ChatGPT Canvas do — let the agent emit the
+surface, let the client render it.
+
+### 12.1 The framing
+
+Today's URI dispatch (`mobile.navigate`) routes to hand-coded
+screens. If the steward wants to show a custom diagram, an
+experiment-config form, or a chart that doesn't have a written
+screen, it falls back to a transcript text bubble. That ceiling
+caps how far the agent-driven mode can go without an APK rebuild.
+
+Three classes of remedy, in order of cost:
+
+### 12.2 The three tiers
+
+**Tier 1 — fenced code blocks rendered visually in transcripts.**
+Cheapest. Today the agent's markdown output is rendered via
+`flutter_markdown` and ` ``` ` fences appear as code text. Tier 1
+intercepts specific languages — `svg`, `html`, future `mermaid` —
+and renders them as widgets via the existing
+`MarkdownElementBuilder` extension point. No new MCP tools, no
+protocol change, security model is per-renderer.
+
+**Tier 2 — WebView artifacts.** Same model as Claude.ai/ChatGPT
+Canvas. Agent emits an HTML+CSS+JS document via a new
+`artifact.html` MCP tool; hub stores it (extending the existing
+artifacts primitive — `project_artifacts_wedge`); mobile opens the
+artifact in a `webview_flutter` view inside a `sandbox=""` iframe.
+Agents already speak HTML+CSS+JS fluently from training, so prompt
+cost is near zero. The hard work is the sandbox: no native bridge,
+isolated origin, strict CSP.
+
+**Tier 3 — server-driven UI (SDUI).** A typed JSON schema
+describing native widgets — `{type: "form", fields: [...]}` —
+parsed at runtime into real Flutter widgets from a fixed
+vocabulary (label, button, input, list, chart, image, …). Native
+feel, no security holes, but the agent has to learn the schema
+and the vocab is forever bound to the APK version. References:
+Stac, Mirai, Airbnb's epoxy, Lyft's protobuf-driven UI.
+
+### 12.3 Tradeoff matrix
+
+|  | Tier 1 (fenced code) | Tier 2 (HTML artifact) | Tier 3 (SDUI) |
+|---|---|---|---|
+| Vocab ceiling | Bounded by chosen renderers | Unlimited | Finite, app-version-bound |
+| New surfaces require APK rebuild | Per renderer (rarely) | Never | When primitive added |
+| Native feel | Inline (good) | Breaks (web inside app) | Preserved |
+| Security model | Per-renderer constrain | Sandbox required | Trivial |
+| Agent learning cost | ~0 (ubiquitous code fences) | ~0 (HTML in training corpus) | Has to learn schema |
+| Time to "looks like a real app screen" | N/A — inline only | Long (CSS work) | Instant |
+| Storage on mobile | Inline-only, ephemeral | Cacheable as sandboxed asset | N/A |
+| Agent state across renders | None | Per artifact (localStorage) | Driven by hub |
+
+### 12.4 Cost analysis
+
+APK size delta over the v1.0.466 baseline (~40–50 MB):
+
+|  | Plugin / code | Big optional deps | Realistic total |
+|---|---|---|---|
+| Tier 1 | +0 (markdown already in) | flutter_svg ~100 KB, flutter_html ~150 KB | **+100–300 KB** |
+| Tier 2 | webview_flutter ~250 KB (engine OS-shared) | flutter_inappwebview ~1–2 MB if chosen | **+250 KB – 2 MB** |
+| Tier 3 | Renderer ~50–150 KB for ~30 primitives | fl_chart ~500 KB, google_maps ~1 MB | **+200 KB – 3 MB** |
+
+Runtime cost per surface:
+
+|  | First-render | Memory | CPU / battery |
+|---|---|---|---|
+| Tier 1 | <50 ms | trivial | trivial |
+| Tier 2 | 200–500 ms first WebView (engine warm-up); ~50 ms after | 30–80 MB per WebView instance | ~1.5–3× native when JS runs |
+| Tier 3 | <50 ms | trivial — same as hand-written | identical to native |
+
+**Where the costs actually hurt.** Tier 2's real cost is memory +
+warm-up, not APK; mitigation = single shared WebView swapping
+content via `loadHtmlString`. Tier 3's real cost is the libraries
+brought in *for* primitives; mitigation = lazy-load big libs only
+when first needed. Tier 1 has effectively no runtime cost — it
+rides the markdown pipeline that already runs every transcript
+paint.
+
+### 12.5 Storage on mobile
+
+For Tier 2 specifically: Flutter's `path_provider` gives the app
+sandbox dirs (documents + cache); `dart:io` writes any file at
+runtime; `webview_flutter` loads from `file://` paths or in-memory
+strings via `loadHtmlString()`. So an agent-emitted HTML artifact
+becomes a *reusable app asset* — written once to the sandbox, read
+back on subsequent opens, deleted via the artifacts CRUD. Versioning
++ archive + share + "delete if unused for 90 days" all become
+standard work on the existing artifacts table; the new artifact
+kind is `ui_html` whose payload is the document body.
+
+This is a small architectural win over Claude.ai web: the browser
+keeps artifacts in IndexedDB scoped to one conversation; we get
+team-scoped, app-sandboxed, network-shareable durability.
+
+### 12.6 Recommended progression
+
+1. **Ship Tier 1 first.** Cheapest, fastest, learns what artifact
+   shapes the steward actually wants to produce. Plan:
+   [`../plans/agent-artifact-rendering-tier-1.md`](../plans/agent-artifact-rendering-tier-1.md).
+2. **Tier 2 if Tier 1 hits expressiveness limits** — e.g. the
+   steward keeps wanting to emit interactive previews that
+   inline rendering can't carry.
+3. **Tier 3 only if Tier 2's web-in-app feel breaks the demo arc.**
+   Most teams never need it; the only forcing function is "this
+   *must* feel like a real app screen and Tier 2 doesn't."
+
+The picks are different per use case: occasional rich artifact =
+Tier 2, everyday native screens that don't yet exist = Tier 3.
+
+### 12.7 ADR-023 implications
+
+Add as a new question alongside the existing 12 (§5):
+
+> **Q14 — Agent-conjured surfaces.** Should the steward be able to
+> emit content that the client renders as a visual artifact, beyond
+> URI navigation to existing screens? If yes — at which tier (1 / 2
+> / 3)? The MVP claim ("steward operates the app for the user")
+> implies *some* level; locking the tier is an ADR-023 input.
+
+Three locks the ADR will need to make:
+
+- **Lock the renderer-registry shape** — language string ↔ renderer
+  mapping, lazy-loaded, fail-closed (unknown language renders as
+  code). Keeps Tier 1 extensible without regressions.
+- **Lock the HTML allowlist** — explicit tag whitelist for the
+  Tier 1 HTML fence; no `<script>`, `<iframe>`, `<object>`,
+  `<embed>`, `<style>`, or `javascript:` URLs. Tier 2 gets a
+  separate sandbox decision when it lands.
+- **Lock the artifact storage contract** — Tier 2's `ui_html` kind
+  reuses the existing artifacts primitive (versioning, sharing,
+  retention) rather than minting a parallel store.

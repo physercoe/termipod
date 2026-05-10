@@ -250,11 +250,12 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     }
   }
 
-  /// Demuxes a list of agent_events into `OverlayChatMessage`s,
-  /// applying the same kind-filtering as the live `_handleEvent`
-  /// path EXCEPT for `mobile.intent` (B5 — replay would feel like
-  /// the steward is navigating *now*; navigation notes are
-  /// transient logs, not durable transcript).
+  /// Demuxes a list of agent_events into `OverlayChatMessage`s via
+  /// the same `_eventToMessage` folder as the live `_handleEvent`
+  /// path — guarantees backfill and live render produce the same
+  /// bubble shapes. EXCEPT we skip `mobile.intent` here (B5 —
+  /// replay would feel like the steward is navigating *now*;
+  /// navigation notes are transient logs, not durable transcript).
   List<OverlayChatMessage> _hydrateFromEvents(
     List<Map<String, dynamic>> events,
   ) {
@@ -262,14 +263,8 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     for (final evt in events) {
       final kind = (evt['kind'] ?? '').toString();
       if (kind == 'mobile.intent') continue; // B5
-      final text = _extractText(evt);
-      if (text == null || text.isEmpty) continue;
-      final ts = _parseEventTs(evt) ?? DateTime.now();
-      out.add(OverlayChatMessage(
-        role: OverlayChatRole.steward,
-        text: text,
-        ts: ts,
-      ));
+      final msg = _eventToMessage(evt);
+      if (msg != null) out.add(msg);
     }
     return out;
   }
@@ -307,23 +302,57 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       _dispatchIntent(evt);
       return;
     }
-    final maybeText = _extractText(evt);
-    if (maybeText != null && maybeText.isNotEmpty) {
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.steward,
-        text: maybeText,
-        ts: DateTime.now(),
-      ));
-    }
+    final msg = _eventToMessage(evt);
+    if (msg != null) _appendMessage(msg);
   }
 
-  /// Extracts surface text from an agent_events frame so it can render
-  /// in the overlay chat. Hub publishes the assistant text under
-  /// `evt['payload']` (not `evt['body']` — that earlier shape never
-  /// existed); for claude-sdk text frames the payload is
+  /// Folds a single agent_events frame into a chat message, or null
+  /// if the kind/producer combination shouldn't render.
+  ///
+  /// Shared between the live `_handleEvent` path and the W1 cold-open
+  /// `_hydrateFromEvents` backfill path so both render the panel
+  /// consistently — typing a message during live use and re-opening
+  /// the app after a restart produce the same bubble shape.
+  ///
+  /// W2: `kind == 'input.text'` with `producer == 'user'` renders as
+  /// a user bubble (own input). Other producers (a2a, system) are
+  /// skipped — the overlay is a directive UI, not a full transcript
+  /// (compact-chat axiom).
+  OverlayChatMessage? _eventToMessage(Map<String, dynamic> evt) {
+    final kind = (evt['kind'] ?? '').toString();
+    final producer = (evt['producer'] ?? '').toString();
+    final ts = _parseEventTs(evt) ?? DateTime.now();
+
+    if (kind == 'text') {
+      final text = _extractText(evt);
+      if (text == null || text.isEmpty) return null;
+      return OverlayChatMessage(
+        role: OverlayChatRole.steward,
+        text: text,
+        ts: ts,
+      );
+    }
+
+    if (kind == 'input.text' && producer == 'user') {
+      final text = _extractInputText(evt);
+      if (text == null || text.isEmpty) return null;
+      return OverlayChatMessage(
+        role: OverlayChatRole.user,
+        text: text,
+        ts: ts,
+      );
+    }
+
+    return null;
+  }
+
+  /// Extracts surface text from a `kind == 'text'` agent_events
+  /// frame. Hub publishes the assistant text under `evt['payload']`
+  /// (not `evt['body']` — that earlier shape never existed); for
+  /// claude-sdk text frames the payload is
   /// `{"text": "...", "message_id": "..."}`. We only render `text`
-  /// kinds — thoughts/tool_calls/usage frames are background noise
-  /// for the overlay's compact chat.
+  /// kinds for the steward role — thoughts/tool_calls/usage frames
+  /// are background noise for the overlay's compact chat.
   String? _extractText(Map<String, dynamic> evt) {
     if ((evt['kind'] ?? '').toString() != 'text') return null;
     final payload = evt['payload'];
@@ -331,6 +360,25 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     if (payload is Map) {
       final t = payload['text'];
       if (t is String) return t;
+    }
+    return null;
+  }
+
+  /// Extracts the user's typed text from a `kind == 'input.text'`
+  /// agent_events frame. The hub's `postAgentInput` handler stores
+  /// the body under `payload['body']` (see `handlers_agent_input.go`
+  /// — it serializes the request `{kind, body}` into the events
+  /// table's `payload_json`). Some older code paths used
+  /// `payload['text']` — accept either for forward-compat.
+  String? _extractInputText(Map<String, dynamic> evt) {
+    if ((evt['kind'] ?? '').toString() != 'input.text') return null;
+    final payload = evt['payload'];
+    if (payload is String) return payload;
+    if (payload is Map) {
+      final body = payload['body'];
+      if (body is String && body.isNotEmpty) return body;
+      final text = payload['text'];
+      if (text is String && text.isNotEmpty) return text;
     }
     return null;
   }
@@ -412,6 +460,18 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   }
 
   /// Send the user's text to the general steward.
+  ///
+  /// **Note (W2 — Option A):** we deliberately do NOT pre-echo the
+  /// user's text into the local message list. The hub publishes the
+  /// `kind == 'input.text' producer == 'user'` event back to us via
+  /// SSE, and `_handleEvent` renders it through the same
+  /// `_eventToMessage` folder used for cold-open backfill. Going
+  /// through one path means typing during live use vs reopening the
+  /// app after a restart produce identical bubble shapes — no
+  /// dedup needed, no risk of "live render diverged from replay."
+  /// Cost: one SSE round-trip latency before the user's bubble
+  /// appears (~100-300 ms typical). If QA flags that as laggy we
+  /// can switch to id-based dedup (Option B in the wedge plan).
   Future<void> sendUserText(String text) async {
     final agentId = state.agentId;
     if (agentId == null) {
@@ -421,11 +481,6 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     if (client == null) {
       throw StateError('Hub not configured');
     }
-    _appendMessage(OverlayChatMessage(
-      role: OverlayChatRole.user,
-      text: text,
-      ts: DateTime.now(),
-    ));
     await client.postAgentInput(
       agentId,
       kind: 'text',

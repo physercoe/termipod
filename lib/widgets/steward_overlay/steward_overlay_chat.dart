@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../theme/design_colors.dart';
+import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
 
 /// Compact chat surface that lives inside the expanded
@@ -57,6 +58,11 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
       children: [
         Expanded(child: _MessagesRegion()),
         Divider(height: 1),
+        // Quick-action chip strip — sibling to the input, lives
+        // outside the messages-region Consumer so SSE traffic
+        // doesn't reach it. Watches snippetsProvider for user-edit
+        // changes only (rare).
+        StewardOverlayChips(),
         _ChatInputSlot(),
       ],
     );

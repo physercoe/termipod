@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.474
+> **Last verified vs code:** v1.0.475
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,51 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.475-alpha — 2026-05-10
+
+W2 + W3 of the overlay-history-and-snippets plan. Closes the
+plan's three-workband bundle.
+
+### Added
+- **Quick-action chip strip above the chat input** (W3). User
+  snippets with `category == 'steward'` (B1) render first in
+  insertion order, followed by three built-in defaults so the
+  row is non-empty on cold install: "Show insights", "What's
+  blocked?", "Open my projects". Tap fires the snippet body
+  through the same `sendUserText` path the input uses; the bubble
+  appears via the SSE round-trip (W2 path). Defaults are visually
+  muted so users can tell which they can replace by editing
+  their snippets.
+  (`lib/widgets/steward_overlay/steward_overlay_chips.dart`,
+  `lib/widgets/steward_overlay/steward_overlay_chat.dart`)
+
+### Changed
+- **User input renders as user bubbles via SSE round-trip** (W2 —
+  Option A). The hub already publishes user input as `kind ==
+  'input.text'` with `producer == 'user'` on the same agent bus
+  the steward output flows through; we now demux those frames in
+  `_handleEvent` and `_hydrateFromEvents` (cold-open backfill)
+  via a single `_eventToMessage` folder. Live and replay paths
+  produce identical bubble shapes — no dedup, no risk of
+  divergence between cold-open render and live typing.
+- **Local pre-echo dropped from `sendUserText`.** The user's bubble
+  no longer appears synchronously on tap-send; instead it arrives
+  ~100-300 ms later when the SSE echo lands. Trade-off documented
+  in the controller (Option A vs Option B in the plan). The send
+  button's existing spinner state covers the latency window. If
+  QA flags the lag, swap to id-based dedup (~30 LOC).
+
+### Notes
+- The chip strip is a sibling of the input + messages region —
+  watches `snippetsProvider` only, so SSE events don't trigger
+  rebuilds on the chip subtree.
+- Built-in default snippet ids are prefixed `_overlay_default_*`
+  to prevent collision with user snippets.
+- W4 polish (visual / accessibility / haptics) from the plan is
+  optional and not bundled here.
 
 ---
 

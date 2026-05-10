@@ -223,6 +223,13 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		// running instance.
 		r.Post("/steward.general/ensure", s.handleEnsureGeneralSteward)
 
+		// Agent-driven mobile UI prototype (v1.0.464+). The steward's
+		// `mobile.navigate` MCP tool POSTs here to fan a URI out to
+		// mobile clients via the general steward's existing SSE
+		// channel. Read-only verbs only at this stage; write intents
+		// are post-prototype per docs/discussions/agent-driven-mobile-ui.md.
+		r.Post("/mobile/intent", s.handleMobileIntent)
+
 		r.Route("/agents", func(r chi.Router) {
 			r.Post("/", s.handleCreateAgent)
 			r.Get("/", s.handleListAgents)

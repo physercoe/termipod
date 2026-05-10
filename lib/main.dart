@@ -8,6 +8,7 @@ import 'package:media_store_plus/media_store_plus.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:termipod/providers/connection_provider.dart';
+import 'package:termipod/providers/hub_provider.dart';
 import 'package:termipod/providers/settings_provider.dart';
 import 'package:termipod/screens/home_screen.dart';
 import 'package:termipod/screens/terminal/terminal_screen.dart';
@@ -16,6 +17,8 @@ import 'package:termipod/services/license_service.dart';
 import 'package:termipod/services/notifications/local_notifications.dart';
 import 'package:termipod/services/public_file_store.dart';
 import 'package:termipod/theme/app_theme.dart';
+import 'package:termipod/widgets/steward_overlay/steward_overlay.dart';
+import 'package:termipod/widgets/steward_overlay/steward_overlay_controller.dart';
 
 // Used by the local notification tap handler (Phase 1.5a) to switch
 // the bottom-nav to the Me tab when the user taps a notification.
@@ -45,22 +48,32 @@ Future<void> main() async {
     statusBarIconBrightness: Brightness.light,
   ));
 
+  // Shared navigator key — used by both MyApp's MaterialApp and the
+  // steward overlay's intent dispatcher. The overlay's controller
+  // reads this provider to push routes from outside the widget tree
+  // (the SSE listener may fire while the chat panel is collapsed).
+  final navigatorKey = GlobalKey<NavigatorState>();
+
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    ProviderScope(
+      overrides: [
+        overlayNavigatorKeyProvider.overrideWithValue(navigatorKey),
+      ],
+      child: MyApp(navigatorKey: navigatorKey),
     ),
   );
 }
 
 class MyApp extends ConsumerStatefulWidget {
-  const MyApp({super.key});
+  final GlobalKey<NavigatorState> navigatorKey;
+  const MyApp({super.key, required this.navigatorKey});
 
   @override
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends ConsumerState<MyApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
+  GlobalKey<NavigatorState> get _navigatorKey => widget.navigatorKey;
   final _deepLinkService = DeepLinkService();
   StreamSubscription<DeepLinkData>? _linkSubscription;
   bool _initialLinkHandled = false;
@@ -194,7 +207,52 @@ class _MyAppState extends ConsumerState<MyApp> {
       supportedLocales: AppLocalizations.supportedLocales,
       locale: localeOverride,
       home: const HomeScreen(),
+      // Wrap every route in the steward overlay so the chat puck
+      // persists across Navigator.push/pop. ADR-022's persistent
+      // overlay (agent-driven mobile UI prototype, v1.0.464+).
+      builder: (ctx, child) {
+        if (child == null) return const SizedBox.shrink();
+        return _StewardOverlayHost(child: child);
+      },
       debugShowCheckedModeBanner: false,
     );
+  }
+}
+
+/// Tiny wrapper that ensures the overlay controller has called
+/// `ensureStarted()` once the hub config is loaded. Doing this here
+/// (rather than in StewardOverlay's State) means the controller is
+/// alive across MaterialApp rebuilds.
+class _StewardOverlayHost extends ConsumerStatefulWidget {
+  final Widget child;
+  const _StewardOverlayHost({required this.child});
+
+  @override
+  ConsumerState<_StewardOverlayHost> createState() =>
+      _StewardOverlayHostState();
+}
+
+class _StewardOverlayHostState extends ConsumerState<_StewardOverlayHost> {
+  bool _ensured = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hub = ref.watch(hubProvider).value;
+    final hasConfig = hub?.config != null;
+    // Lazy-start the controller once the hub config is available —
+    // before that, ensureGeneralSteward would 401 and we'd burn
+    // retry budget on a known-not-yet-configured hub.
+    if (!_ensured && hasConfig) {
+      _ensured = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(stewardOverlayControllerProvider.notifier).ensureStarted();
+      });
+    }
+    if (!hasConfig) {
+      // Hub not configured — render the page without the overlay.
+      // Settings → first connect flow is unaffected.
+      return widget.child;
+    }
+    return StewardOverlay(child: widget.child);
   }
 }

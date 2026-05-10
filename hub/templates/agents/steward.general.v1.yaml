@@ -106,6 +106,10 @@ default_capabilities:
   - request_select
   - request_help
   - decision.vote: significant
+  # Agent-driven mobile UI prototype (v1.0.464+) — read-only navigate.
+  # Edits / approvals / ratifications are still director-tap only at
+  # this stage.
+  - mobile.navigate
   # Self.
   - journal_append
   - journal_read

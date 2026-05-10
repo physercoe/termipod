@@ -781,6 +781,37 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name: "mobile.navigate",
+			Description: "Navigate the user's mobile app to a `termipod://` URI " +
+				"(read-only — no edits, no taps that mutate state). The URI " +
+				"addresses an in-app destination such as " +
+				"`termipod://project/<id>`, " +
+				"`termipod://project/<id>/documents/<docId>/sections/<sectionId>`, " +
+				"`termipod://project/<id>/deliverables/<delId>/criteria/<critId>`, " +
+				"`termipod://activity?filter=stuck`, " +
+				"`termipod://attention/<id>`, " +
+				"`termipod://agent/<id>/transcript`, " +
+				"`termipod://session/<id>`, or " +
+				"`termipod://insights?scope=team_stewards`. " +
+				"Use this when the user asks to view or open something — the app " +
+				"will animate to the destination and surface a brief banner showing " +
+				"the navigation. The mobile floating overlay must be open (the user " +
+				"is interacting with you) for the intent to land.",
+			InputSchema: schema(`{"type":"object","required":["uri"],"properties":{"uri":{"type":"string","description":"termipod:// URI naming the in-app destination"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				uri, ok := args["uri"].(string)
+				if !ok || uri == "" {
+					return nil, fmt.Errorf("uri is required")
+				}
+				body := map[string]any{"uri": uri}
+				var out json.RawMessage
+				if err := c.do("POST", c.teamPath("/mobile/intent"), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "audit.read",
 			Description: "List audit events for the team. Supports optional `limit` and `since` query params.",
 			InputSchema: schema(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":1000},"since":{"type":"string","description":"RFC3339 timestamp"}}}`),

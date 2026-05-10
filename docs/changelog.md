@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.463
+> **Last verified vs code:** v1.0.464
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,79 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.464-alpha — 2026-05-10
+
+Agent-driven mobile UI prototype — first-stage spike. The steward
+can now navigate the user's app to any v1 destination via a
+persistent floating overlay; user talks (text + system-IME voice),
+steward listens + responds + navigates. Read-only verbs only —
+edits, approvals, ratifications still require manual taps. Validates
+the architectural calls in
+[`discussions/agent-driven-mobile-ui.md`](discussions/agent-driven-mobile-ui.md):
+URI-shaped public API, shared-state model, the multiplex-screen
+metaphor.
+
+### Added
+
+- **Persistent floating overlay** (`lib/widgets/steward_overlay/`).
+  Draggable steward puck mounted at the app root via
+  `MaterialApp.builder`; expands to half-height chat panel on tap.
+  Survives Navigator pushes/pops + tab switches. Hides itself when
+  the hub isn't configured.
+- **`mobile.navigate(uri)` MCP tool** — new `mobile.*` tool family.
+  Steward emits `termipod://...` URIs; hub publishes
+  `mobile.intent` events on the general steward's bus channel;
+  mobile dispatches via `navigateToUri`.
+- **`POST /v1/teams/{team}/mobile/intent`** endpoint — validates
+  URI scheme (`termipod://` / `muxpod://`), publishes the SSE
+  event, records an `audit_events` row so steward-driven
+  navigations are reviewable. 5 hub tests cover publish + audit
+  + bad scheme + no-steward + missing-uri paths.
+- **URI router** (`lib/services/deep_link/uri_router.dart`) —
+  single dispatcher for both legacy `DeepLinkService` cold/warm
+  links and the new steward intents. v1 grammar: top-level tabs
+  (projects/activity/me/hosts/settings), project detail, session
+  chat, agent detail, insights with scope qualifier.
+- **Steward chat embedded in overlay**
+  (`steward_overlay_chat.dart` + `steward_overlay_controller.dart`).
+  Lazily ensures the general steward, subscribes to its SSE
+  stream, demultiplexes text frames vs `mobile.intent` events.
+  System-row + snackbar feedback ("Steward → \<label>") on every
+  navigation; visible even when the chat panel is collapsed
+  (puck-only).
+- **`steward.general.v1` template** updated — exposes
+  `mobile.navigate` in `default_capabilities`; bundled prompt
+  gains a "Driving the mobile app" section listing the URI
+  grammar + when to invoke navigate.
+- **How-to test doc** —
+  [`docs/how-to/test-agent-driven-prototype.md`](how-to/test-agent-driven-prototype.md).
+  10 numbered scenarios with expected behaviour + failure-mode
+  signatures so QA can report issues precisely.
+
+### Changed
+
+- `MyApp` accepts the navigator key as a constructor param; main
+  exposes it via `overlayNavigatorKeyProvider` so the overlay
+  controller can dispatch routes from the SSE listener
+  (independent of widget-tree context).
+
+### Documents
+
+- New how-to: [test-agent-driven-prototype.md](how-to/test-agent-driven-prototype.md).
+- The discussion doc at
+  [`discussions/agent-driven-mobile-ui.md`](discussions/agent-driven-mobile-ui.md)
+  is referenced by the prototype but stays Open — ADR-023 will
+  resolve once the prototype findings come in.
+
+### Lessons
+
+- The package-level navigator key + provider override pattern
+  cleanly hands a stable key to both `MaterialApp` and any
+  controller that needs to push routes from outside the widget
+  tree. Beats per-widget GlobalKeys juggled through callbacks.
 
 ---
 

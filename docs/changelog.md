@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.473
+> **Last verified vs code:** v1.0.474
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,43 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.474-alpha — 2026-05-10
+
+W1 of the overlay-history-and-snippets plan.
+
+### Added
+- **Overlay chat backfills the last 50 events on cold open.** Per
+  the plan's W1 + B1–B6 decisions: pull through
+  `listAgentEventsCached` (mirrors `agent_feed.dart`'s pattern),
+  filter both the backfill AND the live `streamAgentEvents` to
+  the resolved session id (B3), reverse from seq DESC tail order
+  to ASC for chat display, render `kind=='text'` frames as
+  steward bubbles. The `agentId` field stays null — the panel's
+  spinner stays up — until backfill completes (B6), so users
+  don't see an empty chat flash before content appears.
+  (`lib/widgets/steward_overlay/steward_overlay_controller.dart`)
+
+### Changed
+- **`mobile.intent` events skipped on backfill replay** (B5).
+  Live navigation events still render the snackbar + system note
+  + dispatch the route, but historical ones are dropped — they're
+  transient logs and re-rendering them as if the steward is
+  navigating *now* would be confusing.
+- **`streamAgentEvents` now subscribes with `sinceSeq` cursor
+  derived from the backfill** so the hub doesn't replay frames
+  the panel already shows.
+
+### Notes
+- Backfill failure is non-fatal: if both network and cache miss,
+  the panel proceeds with empty messages + a system note ("Could
+  not load history: …") so the user can still chat live.
+- Cache stale fallback also surfaces as a system note ("Showing
+  cached history (offline)").
+- W2 (user-input rendering) and W3 (snippet chips) are still
+  upcoming in the same wedge.
 
 ---
 

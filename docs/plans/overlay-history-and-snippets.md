@@ -1,9 +1,9 @@
 # Steward overlay — history backfill + snippet chips + user-input rendering
 
 > **Type:** plan
-> **Status:** Open
+> **Status:** Open (B1–B6 settled 2026-05-10; W1 in flight)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.471
+> **Last verified vs code:** v1.0.473
 
 **TL;DR.** Three QA gaps in the steward overlay (v1.0.464–471
 prototype line) bundled into one wedge: cold-start panels are empty
@@ -58,16 +58,53 @@ After this wedge:
   + more reliable than typing it. Reduces voice-IME failure modes
   when filming.
 
+## Decisions settled before kickoff (2026-05-10)
+
+- **B1 — Snippet filter.** `Snippet` already has `category`
+  ('general' / 'tmux' / 'cli-agent' / etc.); no generic tag
+  system. Add `'steward'` as a recognized category and filter
+  the chip strip on `category == 'steward'`. ~5 LOC of model
+  acknowledgment, no shape change.
+- **B2 — Backfill window.** `limit = 50` events. Covers ~8–15
+  turns in practice; tune after demo.
+- **B3 — Session filter.** Filter BOTH the backfill call AND
+  the existing live `streamAgentEvents` to the resolved
+  `sessionId` so the panel doesn't mix current and historical
+  sessions. The existing call passes `sessionId: null`; tighten
+  to `sessionId.isEmpty ? null : sessionId`.
+- **B4 — Cache strategy.** Use `listAgentEventsCached` (mirror
+  `agent_feed.dart`). Cache-first render, fresh refresh under
+  the standard staleness pattern.
+- **B5 — `mobile.intent` on replay.** Skip. Live navigation
+  notes are transient logs, not durable transcript; re-rendering
+  them as if the steward just navigated would be confusing. Live
+  path keeps the existing snackbar + system message.
+- **B6 — Loading state during backfill.** Existing
+  `agentId == null → CircularProgressIndicator` covers it. Set
+  `agentId` AFTER backfill populates `messages`, not before.
+
+Settle-during-implementation (not blockers):
+- Echo-dedup: ship Option A; swap to Option B in-wedge if QA
+  flags latency.
+- Snippet ordering: user-categorized first (insertion order),
+  then 3 built-in defaults at the end.
+- Default snippet bodies: "Show me the insights view",
+  "What's blocked?", "Open my projects" (zh equivalents land
+  when localisation pass happens).
+- Tool calls on replay: skip (compact-chat axiom).
+- Chip strip visibility: always visible, single-row horizontal
+  scroll, regardless of input field state.
+
 ## Workband layout
 
 ### W1 — History backfill
 
 **What.** On overlay bootstrap, after ensuring the steward agent
-and resolving its session id, fetch the last N events via
-`HubClient.listAgentEvents` and pre-populate `state.messages`.
-Then start `streamAgentEvents` from that `seq` cursor (using the
-existing `sinceSeq` parameter, which `agent_feed.dart` already
-exercises).
+and resolving its session id, fetch the last 50 events via
+`HubClient.listAgentEventsCached` and pre-populate
+`state.messages`. Then start `streamAgentEvents` from that `seq`
+cursor with the same session filter (using the existing
+`sinceSeq` parameter, which `agent_feed.dart` already exercises).
 
 **Files.**
 - `lib/widgets/steward_overlay/steward_overlay_controller.dart` —
@@ -76,21 +113,26 @@ exercises).
 - (No new client methods. `listAgentEvents` already exists at
   `lib/services/hub/hub_client.dart:1519`.)
 
-**Shape.**
+**Shape (post-B1–B6).**
 
 ```dart
-final events = await client.listAgentEvents(
+final cached = await client.listAgentEventsCached(
   agentId,
-  limit: 30,        // last ~30 turns; tune after demo
-  sessionId: sessionId.isEmpty ? null : sessionId,
+  limit: 50,                                            // B2
+  sessionId: sessionId.isEmpty ? null : sessionId,      // B3
 );
-final hydrated = _hydrateFromEvents(events); // same demuxer as live
-final lastSeq = events.isEmpty ? null : events.last['seq'] as int?;
-state = state.copyWith(messages: hydrated);
+final hydrated = _hydrateFromEvents(cached.value);      // demuxer skips mobile.intent (B5)
+final lastSeq = hydrated.isEmpty ? null : _maxSeq(cached.value);
+state = state.copyWith(
+  agentId: agentId,                                     // B6: set AFTER hydration
+  sessionId: sessionId,
+  messages: hydrated,
+  clearError: true,
+);
 _sub = client.streamAgentEvents(
   agentId,
   sinceSeq: lastSeq,
-  sessionId: null,
+  sessionId: sessionId.isEmpty ? null : sessionId,      // B3: match backfill scope
 ).listen(_handleEvent, ...);
 ```
 

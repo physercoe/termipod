@@ -1,7 +1,17 @@
 # Voice input for the steward overlay — v1 (push-to-talk, Android)
 
 > **Type:** plan
-> **Status:** Open
+> **Status:** Deferred (2026-05-10) — pre-empted by
+> [`steward-lifecycle-walkthrough.md`](steward-lifecycle-walkthrough.md).
+> Voice input is a *modality* improvement on top of an action surface
+> the steward doesn't yet exercise end-to-end. We have ADR-023's
+> persistent floating overlay (v1.0.464+) and `mobile.navigate`
+> (read-only verb), but no walkthrough that proves the steward can
+> *create / edit / write* across a project lifecycle and that the
+> A2A path actually delegates. Until that walkthrough is green —
+> using typed input — adding voice is a layer on shaky foundations.
+> Resume this plan after the lifecycle walkthrough's done-criteria
+> are met.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.472
 

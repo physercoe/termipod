@@ -1,9 +1,9 @@
 # Agent-driven mobile UI — overlay steward + intent channel
 
 > **Type:** discussion
-> **Status:** Open
+> **Status:** Resolved (load-bearing decisions locked in [ADR-023](../decisions/023-agent-driven-mobile-ui.md) on 2026-05-10; doc retained as design rationale + open-questions register)
 > **Audience:** principal · contributors · reviewers
-> **Last verified vs code:** v1.0.466
+> **Last verified vs code:** v1.0.476
 
 **TL;DR.** Today the mobile app is operated by tap. The principal
 asked: can a [steward](../reference/glossary.md#steward) instead

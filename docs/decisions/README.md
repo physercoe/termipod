@@ -40,6 +40,8 @@ next sequential number — don't reserve, don't skip.
 | [019](019-channels-as-event-log.md) | Channels = append-only event logs with task_id/correlation_id | Accepted 2026-04-19 (back-dated) | — |
 | [020](020-director-action-surface.md) | Director-action surface on typed documents and deliverables | Accepted 2026-05-06 | — |
 | [021](021-acp-capability-surface.md) | ACP capability surface — resume, auth, mode/model, image inputs | Accepted 2026-05-08 | — |
+| [022](022-observability-surfaces.md) | Observability surfaces — insights aggregator + hub stats | Accepted 2026-05-09 | — |
+| [023](023-agent-driven-mobile-ui.md) | Agent-driven mobile UI — overlay + URI intents + compact mode | Accepted 2026-05-10 | [005](005-owner-authority-model.md) |
 
 ---
 

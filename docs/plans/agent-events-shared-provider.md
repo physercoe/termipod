@@ -1,21 +1,26 @@
 # Shared agent_events data layer (Option B from compact-vs-duplicate review)
 
 > **Type:** plan
-> **Status:** Open
+> **Status:** P1 partially shipped (provider infrastructure landed v1.0.477→fixed v1.0.478; overlay migration deferred); P2 bundles overlay + AgentFeed migration as a single post-MVP wedge
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.476
+> **Last verified vs code:** v1.0.478
 
-**TL;DR.** Today, two surfaces (`agent_feed.dart` for Sessions
-chat, `steward_overlay_controller.dart` for the floating panel)
+**TL;DR.** Two surfaces (`agent_feed.dart` for Sessions chat,
+`steward_overlay_controller.dart` for the floating panel)
 maintain independent SSE subscriptions, backfill HTTP calls,
 in-memory event lists, and reconnect logic for the **same**
 `(agentId, sessionId)` keys. This plan extracts that lifecycle
 into a single Riverpod-family provider (`agentEventsProvider`)
-that both surfaces consume, plus future ones. Phased: **P1
-builds the provider + migrates the overlay only** (low-risk);
-**P2 migrates `agent_feed.dart`** (high-risk, primary-surface,
-genuinely optional pre-MVP); **P3 onboards future consumers**.
-Each phase is independently shippable.
+that both surfaces consume, plus future ones. **Status update
+2026-05-10**: P1's provider infrastructure shipped in v1.0.478
+(after a v1.0.477 build failure documented below). The overlay
+migration that was originally bundled into P1 has been pulled
+out and folded into P2 because Riverpod 3.x's lifecycle for
+Notifier-side `ref.listen` against an async-resolved family
+key needs a split-provider refactor that's the same shape as
+the AgentFeed migration. Both deferred to post-MVP — there's
+no demo-critical reason to do them under MVP pressure, and
+bundling cuts the test-pass amortisation in half.
 
 ## Why now (and why phased)
 
@@ -227,63 +232,120 @@ narrow risk.
 
 ## Workband layout
 
-### P1 — Build provider + migrate overlay (~400 + ~150 LOC, 3-5 days)
+### P1 — Provider infrastructure only (✅ shipped v1.0.478)
 
-#### W1.1 — `agentEventsProvider` skeleton
+What landed:
 
-- `AgentEventsKey`, `AgentEventsState`, `AgentEventsNotifier`
-- `_bootstrap`: cache-only first paint → cache-then-refresh →
-  subscribe with `sinceSeq`
-- Reconnect with backoff (5s → 10s → 30s capped)
-- Dedup by event id
-- `staleSince` from `CachedResponse`
-- `loadOlder` stub (returns immediately for P1; AgentFeed needs
-  it in P2)
-- `refresh` clears `staleSince` and re-fetches
+- `lib/providers/agent_events_provider.dart` —
+  `NotifierProvider.autoDispose.family<AgentEventsNotifier,
+  AgentEventsState, AgentEventsKey>` with all the lifecycle
+  primitives the plan specified:
+  - `_bootstrap`: cache-only first paint → cache-then-refresh →
+    subscribe with `sinceSeq`
+  - Reconnect with exponential backoff (1s → 16s capped)
+  - Idle-drop signature suppression matching `agent_feed.dart`'s
+    pattern
+  - Dedup by event id with bounded ring buffer (200)
+  - `staleSince` / `error` state surfaces
+  - `loadOlder()` stub (post-MVP P2 needs it for AgentFeed paging)
+  - `refresh()` for explicit reload
+  - `autoDispose` semantics
 
-Tests: provider state transitions in isolation (no UI). Stub
-HubClient with a fake stream + fake cached responses.
+The provider has **no callers in v1.0.478** — it sits as
+infrastructure ready for P2's consumers. This is intentional;
+see "v1.0.477 lesson" below.
 
-#### W1.2 — Overlay migration
+### v1.0.477 lesson — overlay migration pulled into P2
 
-- `StewardOverlayController._bootstrap` → ensures steward agent
-  + session, then waits one frame and starts watching
-  `agentEventsProvider(AgentEventsKey(agentId, sessionId))`
-- Drop `_sub`, `_initStarted` is the only init flag still needed
-- `_handleEvent` / `_dispatchIntentLive` become reactions to
-  new events from the provider listener
-- Backfill logic deleted — the provider does it
-- Reconnect logic deleted — the provider does it (overlay
-  finally gets reconnect for free)
+The original P1 W1.2 migrated the steward overlay controller to
+consume the shared provider via `ref.listenManual`. v1.0.477
+shipped this and the Android release build failed
+`flutter analyze` with:
 
-Tests: overlay still displays the right messages on cold open
-+ live updates. Run the same QA matrix that v1.0.476 passes.
+> error • The method 'listenManual' isn't defined for the type
+> 'Ref' • lib/widgets/steward_overlay/steward_overlay_controller.dart
 
-#### W1.3 — Acceptance for P1
+**Root cause.** Riverpod 3.x's Notifier-side `Ref` does not
+expose `listenManual` — that method only exists on `WidgetRef`
+(used inside `ConsumerStatefulWidget`). Calling `ref.listen`
+inside `Notifier.build()` is fine, but the overlay's family key
+is async-resolved (`(agentId, sessionId)` come from
+`ensureGeneralSteward()` + sessions refresh), so build-time
+listening with a stable key isn't possible without a
+split-provider refactor:
 
-- Overlay cold-open paints from cache instantly (something it
-  *didn't* do before — this is a P1 net-add, not just a refactor)
-- Overlay survives an SSE reconnect (today it doesn't, silently)
-- AgentFeed and overlay open simultaneously share ONE SSE
-  stream (verifiable via hub logs: only one bus subscriber per
-  agent)
-- Closing both surfaces closes the subscription (autoDispose)
+- Provider A — `FutureProvider.autoDispose` resolving
+  `(agentId, sessionId)` for the team-general steward.
+- Provider B — `Notifier.autoDispose.family<AgentEventsKey>`
+  that takes the resolved key as its family arg, watches
+  `agentEventsProvider(key)` in build via `ref.watch`, and
+  exposes the demuxed messages as state.
 
-P1 ships as a minor (`v1.0.NNN`) when complete.
+That's a different shape than v1.0.477 attempted. It's also
+the **same shape** AgentFeed needs in P2 (its `(agentId,
+sessionId)` are already provided synchronously by its
+constructor, but the watch-via-build pattern is identical).
+Bundling overlay + AgentFeed migrations under one wedge
+amortises the test pass and keeps the split-provider design
+consistent across both consumers.
 
-### P2 — Migrate AgentFeed (~600 LOC modified, 1-2 weeks)
+v1.0.478 reverted the overlay migration. Overlay continues to
+own its own SSE subscription + backfill + reconnect logic
+(unchanged from v1.0.476). Provider sits ready for P2.
+
+### P2 — Bundled overlay + AgentFeed migration (~750 LOC modified, ~10–15 days, post-MVP)
 
 This phase is genuinely optional pre-MVP. Only commit to it
-once P1 has bedded in for at least a week of demo use.
+once the demo arc is settled and there's bandwidth for primary-
+surface refactor risk.
 
-#### W2.1 — Add `loadOlder` to provider
+#### W2.1 — Split-provider scaffolding
+
+Foundational shape both consumers will use:
+
+- **`stewardSubjectProvider`** — `FutureProvider.autoDispose`
+  resolving `(agentId, sessionId)` for the team-general
+  steward via `ensureGeneralSteward()` + sessions refresh.
+  Replaces the overlay's `_bootstrap` async resolution.
+- **`agentEventsMessagesProvider`** —
+  `Notifier.autoDispose.family<AgentEventsKey>` that takes the
+  resolved key as family arg, watches
+  `agentEventsProvider(key)` in build via `ref.watch`, and
+  exposes the demuxed messages as state. The overlay's
+  `_eventToMessage` / `_intentToMessage` move here as the
+  demuxer.
+
+Building this split first proves the lifecycle shape on the
+overlay (the lower-risk consumer) before touching AgentFeed.
+
+#### W2.2 — Migrate overlay to the split-provider shape
+
+- `StewardOverlayController` becomes a thin Notifier that
+  - reads `stewardSubjectProvider`
+  - watches `agentEventsMessagesProvider(key)` once subject
+    resolves
+  - keeps only `sendUserText` + the live-`mobile.intent`
+    dispatch (which still fires snackbar + navigation as a
+    side effect)
+- All SSE / backfill / reconnect / dedup code deleted (the
+  shared `agentEventsProvider` already does it).
+- `StewardOverlayChat` UI continues to consume the overlay
+  controller's state; no UI surface changes.
+
+Net code drop in overlay: ~250 LOC. **Net win for the overlay
+even before AgentFeed migrates**: cache-only first paint and
+reconnect-with-backoff (capabilities the overlay currently
+lacks).
+
+#### W2.3 — Add `loadOlder` to provider
 
 - Implements the older-history pagination AgentFeed needs
 - Page size = 200 (matches AgentFeed's `_pageSize`)
 - Sets `atHead = true` when fewer rows than requested return
 - Prepends to `events` list, recomputes `maxSeq`
+- Test in isolation (no UI) before W2.4 lands.
 
-#### W2.2 — Replace AgentFeed lifecycle with provider consumption
+#### W2.4 — Replace AgentFeed lifecycle with provider consumption
 
 - Delete `_events`, `_ids`, `_maxSeq`, `_reconnectTimer`,
   `_staleSince`, `_atHead`, `_loading`, `_error` State fields
@@ -296,7 +358,7 @@ once P1 has bedded in for at least a week of demo use.
 - Preserve agent-id-filtered seq cursor (this gets folded into
   the provider's `loadOlder` cursor handling)
 
-#### W2.3 — Test coverage before merge
+#### W2.5 — Test coverage before merge
 
 This is the gating risk. AgentFeed has subtle behaviors that
 QA needs to verify post-refactor:
@@ -314,9 +376,19 @@ QA needs to verify post-refactor:
   prior agent's higher seqs
 - session.init backfill fires when in-scope feed lacks one
 
+Plus the overlay-specific QA from the original W1.3:
+
+- Overlay cold-open paints from cache instantly (something it
+  doesn't do today)
+- Overlay survives an SSE reconnect (today silent disconnects
+  leave the panel stale until app restart)
+- Overlay + AgentFeed open simultaneously share ONE SSE stream
+  (verifiable via hub logs: only one bus subscriber per agent)
+- Closing both surfaces closes the subscription (autoDispose)
+
 Each item gets a manual QA pass + ideally a widget test.
 
-#### W2.4 — Ship P2
+#### W2.6 — Ship P2
 
 - One bundled commit + tag once all QA cases pass
 - Roll back path: revert single commit; the provider stays in
@@ -389,9 +461,13 @@ P2 is high-risk for demo-critical code. Three timing options:
   provider until a forcing function arrives (e.g. a new feature
   needs deeper integration)
 
-**Recommended B.** P1 is justified on its own merits (overlay
-gets reconnect + cache-paint for free, plus shared subscription).
-P2 is a cleanup pass that doesn't affect demo capability.
+**Locked B (2026-05-10).** P1's provider infrastructure shipped
+in v1.0.478. P2 (overlay + AgentFeed migration bundle) is
+explicitly post-MVP. The principal pulled the overlay migration
+out of P1 after the v1.0.477 build failure since the
+split-provider refactor needed for the overlay is the same
+shape AgentFeed needs — bundling them under one wedge cuts the
+test pass in half.
 
 ### Q5 — Split into multiple files?
 
@@ -437,41 +513,47 @@ local convention.
 
 ## Sizing
 
-| Phase | LOC delta | Risk | Days | Pre-MVP? |
+Updated 2026-05-10 to reflect the v1.0.477 lesson: the original
+P1 W1.2 overlay-migration LOC moves into P2 (now W2.2) since it
+needs the same split-provider shape AgentFeed needs in W2.4.
+
+| Phase | LOC delta | Risk | Days | Status |
 |---|---|---|---|---|
-| P1 W1.1 provider skeleton | +400 | low | 2 | yes |
-| P1 W1.2 overlay migration | -250 / +150 | low | 1 | yes |
-| P1 W1.3 acceptance | 0 | low | 0.5 | yes |
-| **P1 total** | **~+300 net** | **low** | **~3-5** | **yes** |
-| P2 W2.1 loadOlder | +100 | low | 1 | optional |
-| P2 W2.2 agent_feed migration | -400 / +200 | high | 5-8 | optional |
-| P2 W2.3 QA | 0 | high | 3-5 | optional |
-| **P2 total** | **~-100 net** | **high** | **~10-15** | **optional** |
+| P1 provider skeleton | +463 | low | shipped | ✅ v1.0.478 |
+| P2 W2.1 split-provider scaffolding | +200 | medium | 2 | post-MVP |
+| P2 W2.2 overlay migration | -250 / +120 | medium | 2 | post-MVP |
+| P2 W2.3 loadOlder on provider | +100 | low | 1 | post-MVP |
+| P2 W2.4 agent_feed migration | -400 / +200 | high | 5-8 | post-MVP |
+| P2 W2.5 widget tests + QA | +200 | high | 3-5 | post-MVP |
+| P2 W2.6 ship | 0 | low | 0.5 | post-MVP |
+| **P2 total** | **~+170 net** | **high** | **~13-18** | **post-MVP** |
 | P3 per consumer | +30-80 | low | 0.5 each | n/a |
 
-Gross numbers favor P1 on its own — net code shrinks slightly
-(provider adds; overlay sheds), the overlay gains capabilities it
-didn't have (cache-paint + reconnect), and the shared
-infrastructure is in place for any future consumer. P2 is a
-real refactor with real risk; only worth doing once the
-provider has been proven by P1 and the demo arc has cleared.
+P1's net code add (+463 LOC for the provider, no callers in
+v1.0.478) is the cost of doing the infrastructure first. P2
+amortizes both consumer migrations against one test pass and
+one design lock; building it at the same time is cheaper than
+shipping the overlay migration alone now and AgentFeed later.
 
 ## Recommended path
 
-1. **Pre-MVP:** ship P1 only. Net win: shared SSE subscription
-   when both surfaces open, overlay gets reconnect + cache-paint,
-   future consumers have a clean home. Ships in ~3-5 days.
-2. **Post-MVP:** decide on P2 based on whether the duplication
-   has become an actual maintenance pain point (event-shape
-   change requiring two edits, divergence between surfaces, etc.).
-3. **As-needed:** add P3 consumers when they show up.
-
-If P2 ever happens, build widget tests first — the chat surface
-is too important to refactor without coverage.
+1. **Pre-MVP:** ✅ done — P1 provider infrastructure shipped in
+   v1.0.478. Sits ready for consumers; no caller yet.
+2. **Post-MVP:** P2 bundles the overlay + AgentFeed migrations
+   under one wedge with the split-provider refactor. Build
+   widget tests for AgentFeed FIRST — the chat surface is too
+   important to refactor without coverage. Then W2.1 → W2.2 in
+   series (overlay migrates first, lower-risk consumer); then
+   W2.3 → W2.4 (loadOlder + AgentFeed) in series; then W2.5
+   QA; then W2.6 ship.
+3. **As-needed:** P3 consumers (project-detail recent-activity,
+   attention-detail context, session-list previews) plug in
+   incrementally once P2 lands.
 
 ## Concrete next step
 
-Open the question with the principal: "Does the P1-only path
-match your intent for 'plan Option B carefully'? Or should I
-plan for P1 + P2 immediately?" The plan answers either way; the
-phasing decision is yours.
+Resolved 2026-05-10. P1 shipped in v1.0.478. P2 deferred to
+post-MVP per the principal. Next concrete action when P2
+begins: scaffold the split-provider pair (`stewardSubjectProvider`
++ `agentEventsMessagesProvider.family`) — that's W2.1 — and
+prove the lifecycle on the overlay before touching AgentFeed.

@@ -1,7 +1,7 @@
 # 023. Agent-driven mobile UI — overlay + URI intents + compact-mode framing
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-10; prototype shipped v1.0.464–v1.0.476; W1–W3 of overlay-history-and-snippets done; agent-events-shared-provider P1 scheduled for MVP, P2 deferred post-MVP)
+> **Status:** Accepted (2026-05-10; prototype shipped v1.0.464–v1.0.478; W1–W3 of overlay-history-and-snippets done; agent-events-shared-provider P1 infrastructure shipped v1.0.478, overlay+AgentFeed consumer migrations bundled into P2 post-MVP)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.476
 
@@ -324,11 +324,18 @@ post-frame. The first time the user interacts with the puck,
 backfill is already in flight (or done) — first interaction
 feels instant.
 
-When the agent-events shared provider lands (Option B / ADR-022
-of plans, see references), the eager-start contract flips: the
-overlay's ConsumerState merely watches `agentEventsProvider`
-which auto-disposes when no consumer subscribes. The toggle
-gates the whole overlay subtree.
+The agent-events shared provider's infrastructure layer landed
+in v1.0.478 (`lib/providers/agent_events_provider.dart`) but the
+overlay does NOT yet consume it — the overlay-migration attempt
+in v1.0.477 hit a Riverpod 3.x lifecycle limitation (`Ref` does
+not expose `listenManual`) that requires a split-provider
+refactor (separate `FutureProvider` for async-resolved
+`(agentId, sessionId)` + family-keyed Notifier for the events
+listener). That refactor is bundled with the AgentFeed migration
+into a single post-MVP wedge (P2 in the plan); both consumers
+need the same shape, and bundling cuts the test pass in half.
+Until P2 lands, the overlay continues to own its own SSE
+subscription; the eager-load contract is unchanged from v1.0.476.
 
 ## Consequences
 
@@ -356,7 +363,9 @@ gates the whole overlay subtree.
 
 - **Two SSE subscriptions to the steward agent** when both
   Sessions chat and overlay are open simultaneously. Resolved
-  by `agent-events-shared-provider` plan (P1 in MVP).
+  by `agent-events-shared-provider` plan. P1's infrastructure
+  layer shipped in v1.0.478; the consumer migrations
+  (overlay + AgentFeed) are bundled into P2 post-MVP.
 - **Empty backfill flash** before the cache-only first paint
   lands — unavoidable on absolute first install. Resolved by
   P1 of the same plan.
@@ -394,8 +403,10 @@ gates the whole overlay subtree.
   implementation plan (Open).
 - `docs/plans/overlay-history-and-snippets.md` — W1–W3 of the
   history + snippet wedge (Done as of v1.0.476).
-- `docs/plans/agent-events-shared-provider.md` — P1 (MVP) /
-  P2 (post-MVP) phasing for unifying the event-data layer.
+- `docs/plans/agent-events-shared-provider.md` — P1 provider
+  infrastructure shipped v1.0.478; P2 (overlay + AgentFeed
+  consumer migrations bundled, split-provider shape) deferred
+  post-MVP.
 - `docs/plans/voice-input-overlay-v1.md` — push-to-talk Android
   voice plan (Open).
 - ADR-005 (UX principal/director).

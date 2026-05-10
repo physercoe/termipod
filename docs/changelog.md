@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.479
+> **Last verified vs code:** v1.0.480
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,34 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.480-alpha — 2026-05-10
+
+Follow-up to v1.0.479. The QA report on issue 4 was sharper than
+v1.0.479 read it: "there is keyboard for input but not my input
+method." A keyboard DID attach — it just wasn't the user's CJK
+IME. v1.0.479's puck-hide + keyboard-shift work address tap
+hit-testing and IME-covered-panel layout, but neither addresses
+the IME-mode bug.
+
+### Fixed
+
+- **CJK / non-Latin IMEs now engage on the overlay chat input.**
+  The TextField was setting `autocorrect: false` and
+  `enableSuggestions: false` (added in v1.0.471 as belt-and-
+  suspenders for the deleted-text-returning bug; v1.0.472 fixed
+  that bug architecturally via rebuild-scope isolation, so the
+  flags were no longer load-bearing). Android maps them to
+  `TYPE_TEXT_FLAG_NO_AUTO_CORRECT` / `TYPE_TEXT_FLAG_NO_SUGGESTIONS`;
+  CJK IMEs (Sogou, Gboard-CN, Baidu, Mozc, native Japanese /
+  Korean stacks) treat no-suggestions as a hard signal to fall
+  back to Latin-only mode because the suggestion strip IS their
+  candidate display. The user's selected IME would attach but
+  refuse to engage its composition pipeline. Both flags are now
+  removed; the v1.0.472 isolation continues to keep the input
+  subtree out of the SSE rebuild scope.
 
 ---
 

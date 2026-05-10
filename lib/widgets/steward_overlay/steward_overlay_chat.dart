@@ -242,20 +242,29 @@ class _ChatInputState extends State<_ChatInput> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            // Predictive-typing flags match the rest of the codebase's
-            // deterministic-input pattern (compose_bar direct mode,
-            // hub_bootstrap, templates). They're kept as belt-and-
-            // suspenders alongside the v1.0.472 rebuild-scope fix.
+            // **IME-friendly defaults.** Earlier revisions set
+            // `autocorrect: false` + `enableSuggestions: false` as
+            // belt-and-suspenders for the v1.0.466 deleted-text-
+            // returning bug. v1.0.472 fixed that bug architecturally
+            // via rebuild-scope isolation (see `_StewardOverlayChatState`
+            // doc), so the defensive flags are no longer load-bearing —
+            // and they actively break CJK input. Android maps them to
+            // `TYPE_TEXT_FLAG_NO_AUTO_CORRECT` /
+            // `TYPE_TEXT_FLAG_NO_SUGGESTIONS`; Chinese / Japanese /
+            // Korean IMEs (Sogou, Gboard-CN, Baidu, Mozc, etc.)
+            // interpret no-suggestions as a hard signal to fall back
+            // to Latin-only mode because their candidate display IS
+            // the suggestion surface. Result: a system keyboard
+            // appears, but the user's selected IME refuses to engage
+            // its CJK composition pipeline. v1.0.479 QA: "there is
+            // keyboard but not my input method." Drop both flags.
             //
             // **Do not add `autofillHints: const []`.** An empty
             // autofillHints list is poisoned: on some Android+Gboard
             // combinations it signals AutofillManager that the field
             // is managed by autofill but has no hints, and the IME
-            // fails to attach — visible bug in v1.0.472 was "no system
-            // keyboard pops up when tapping the input." `null`
-            // (the default, achieved by omitting the line entirely) is
-            // the correct shape. None of the other inputs in this
-            // codebase set autofillHints; we shouldn't either.
+            // fails to attach. `null` (the default, achieved by
+            // omitting the line entirely) is the correct shape.
             child: TextField(
               controller: _ctrl,
               focusNode: _focus,
@@ -263,8 +272,6 @@ class _ChatInputState extends State<_ChatInput> {
               maxLines: 4,
               keyboardType: TextInputType.multiline,
               textInputAction: TextInputAction.newline,
-              autocorrect: false,
-              enableSuggestions: false,
               decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Ask the steward…',

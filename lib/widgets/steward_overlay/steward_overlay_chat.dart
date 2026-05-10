@@ -27,34 +27,21 @@ class StewardOverlayChat extends ConsumerStatefulWidget {
 }
 
 class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
-  final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
-  bool _sending = false;
 
   @override
   void dispose() {
-    _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _send() async {
-    final text = _inputCtrl.text.trim();
-    if (text.isEmpty) return;
+  /// Sends user input via the steward controller. Hoisted out of the
+  /// build tree as a stable function reference so `_ChatInput`'s
+  /// State doesn't think the callback identity changed across the
+  /// parent's frequent (SSE-driven) rebuilds.
+  Future<void> _sendText(String text) async {
     final controller = ref.read(stewardOverlayControllerProvider.notifier);
-    setState(() => _sending = true);
-    try {
-      await controller.sendUserText(text);
-      _inputCtrl.clear();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    await controller.sendUserText(text);
   }
 
   @override
@@ -104,12 +91,121 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
                 ),
         ),
         const Divider(height: 1),
-        _Composer(
-          controller: _inputCtrl,
-          sending: _sending,
-          onSend: _send,
+        // Stable key keeps the input's State across parent rebuilds —
+        // even if the parent's tree shape changes, this widget's
+        // controller and IME composition state stay intact.
+        _ChatInput(
+          key: const ValueKey('steward-overlay-chat-input'),
+          onSend: _sendText,
         ),
       ],
+    );
+  }
+}
+
+/// Isolated input box for the overlay chat. Owns its own
+/// [TextEditingController] + sending flag so that frequent parent
+/// rebuilds (driven by SSE events into `stewardOverlayControllerProvider`)
+/// don't reach the TextField subtree.
+///
+/// Two QA bugs from v1.0.466 motivated the extraction:
+///   (a) deleting some text and retyping caused the deleted text
+///       to come back — symptomatic of the controller being
+///       reset/repainted with stale value across rapid rebuilds.
+///   (b) tapping a new cursor position then typing made the cursor
+///       jump to the end — same root cause: external value
+///       reapplication resets selection.
+/// Hoisting the controller into a non-Consumer State (no
+/// `ref.watch`) breaks the rebuild path; the input only rebuilds
+/// when its OWN setState fires.
+class _ChatInput extends StatefulWidget {
+  /// Called with the trimmed text when the user submits. Should
+  /// throw on failure so the input can restore the text for retry.
+  final Future<void> Function(String text) onSend;
+
+  const _ChatInput({
+    super.key,
+    required this.onSend,
+  });
+
+  @override
+  State<_ChatInput> createState() => _ChatInputState();
+}
+
+class _ChatInputState extends State<_ChatInput> {
+  final _ctrl = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    // Clear BEFORE the await so anything the user types during the
+    // network round-trip isn't wiped when the future resolves. On
+    // failure we restore the original text so the user can retry.
+    _ctrl.clear();
+    setState(() => _sending = true);
+    try {
+      await widget.onSend(text);
+    } catch (e) {
+      if (mounted) {
+        // Only restore if the user hasn't started typing something
+        // new — preserving their fresh input is the higher priority.
+        if (_ctrl.text.isEmpty) {
+          _ctrl.text = text;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Send failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              minLines: 1,
+              maxLines: 4,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Ask the steward…',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            icon: _sending
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.send, color: DesignColors.primary),
+            onPressed: _sending ? null : _send,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -163,57 +259,6 @@ class _MessageBubble extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Composer extends StatelessWidget {
-  final TextEditingController controller;
-  final bool sending;
-  final VoidCallback onSend;
-  const _Composer({
-    required this.controller,
-    required this.sending,
-    required this.onSend,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 4,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Ask the steward…',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
-              ),
-              onSubmitted: (_) => onSend(),
-            ),
-          ),
-          const SizedBox(width: 6),
-          IconButton(
-            icon: sending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.send, color: DesignColors.primary),
-            onPressed: sending ? null : onSend,
-          ),
-        ],
       ),
     );
   }

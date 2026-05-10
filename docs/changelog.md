@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.466
+> **Last verified vs code:** v1.0.467
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,50 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.467-alpha — 2026-05-10
+
+Steward overlay input-box fixes from v1.0.466 QA. Two symptoms,
+same root cause:
+
+1. Deleting some text and retyping caused the deleted text to
+   come back automatically.
+2. Tapping a new cursor location and then typing made the cursor
+   jump to the end.
+
+Both are signatures of the `TextEditingController` being reset by
+parent rebuilds. The chat widget watches
+`stewardOverlayControllerProvider` (which emits on every SSE
+event), and the controller previously lived in that watching
+State — every steward event reached down through the TextField
+subtree, occasionally re-applying a stale value.
+
+### Fixed
+
+- **TextField subtree is now isolated.** The input box moved out
+  of `_StewardOverlayChatState` (which watches Riverpod) into its
+  own `_ChatInput` `StatefulWidget` with its own
+  `TextEditingController`. The chat parent's rebuilds no longer
+  cascade into the input — only the input's own `setState` calls
+  rebuild it.
+- **Stable widget key** (`ValueKey('steward-overlay-chat-input')`)
+  on `_ChatInput` so its State survives even if the parent's tree
+  shape ever changes.
+- **Send-clear timing.** Previously the controller was cleared
+  AFTER the network round-trip, which wiped any text the user
+  typed during the send. Now the controller clears immediately,
+  and on send-failure the original text is restored only if the
+  user hasn't started typing something new.
+- **Multiline keyboard hints.** Added `keyboardType:
+  TextInputType.multiline` and `textInputAction:
+  TextInputAction.newline` so the IME treats the field as a
+  multi-line composer instead of single-line text.
+
+### Removed
+
+- `_Composer` StatelessWidget (folded into `_ChatInput`).
 
 ---
 

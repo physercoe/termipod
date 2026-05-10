@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-10)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.480
+> **Last verified vs code:** v1.0.481
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,37 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.481-alpha — 2026-05-10
+
+### Fixed
+
+- **Snippets manager renders correctly when opened from the
+  overlay's Edit chip.** v1.0.479 added a trailing "Edit" chip on
+  the steward-overlay chip strip that pushed `SnippetsScreen` as
+  a `MaterialPageRoute`. `SnippetsScreen` was authored as an
+  *embedded* widget for the Vault page (`vault_screen.dart`):
+  it returns a bare `Column`, no Material ancestor, no scroll
+  view, no AppBar / system-inset padding. Pushed directly as a
+  route, the user saw yellow "missing Material" double-underlines
+  on every Text, no ability to scroll past the visible viewport,
+  and an incomplete page chrome. Compounded by the overlay panel
+  staying expanded on top, since the chip's onTap didn't dismiss
+  the panel — the destination route rendered behind the panel.
+  Fix layered:
+  - New `_SnippetsManagePage` wrapper inside
+    `steward_overlay_chips.dart` provides the missing Scaffold +
+    AppBar + `SafeArea` + `SingleChildScrollView` so the
+    embedded `SnippetsScreen` body has a real route chrome to
+    sit in.
+  - `StewardOverlayChips` accepts an optional
+    `onCloseRequested` callback; the chat surface plumbs its
+    own `onCloseRequested` (= `_ExpandedPanel.onClose`)
+    through, and the Edit chip calls it before pushing so the
+    panel collapses first.
+  No new MCP tools, no new screens — purely a hosting fix.
 
 ---
 

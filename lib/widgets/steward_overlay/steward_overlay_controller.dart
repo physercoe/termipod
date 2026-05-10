@@ -1,25 +1,27 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../providers/agent_events_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
+import '../../services/hub/hub_client.dart';
 import '../../services/steward_handle.dart';
+
+/// Number of recent events to pre-load into the overlay chat on
+/// cold open (W1 — overlay-history-and-snippets plan, B2). 50 events
+/// covers ~8–15 conversational turns in practice; tune after demo
+/// usage.
+const int _backfillLimit = 50;
 
 /// Max in-memory message rolling window for the overlay's compact
 /// chat. The Sessions screen owns the full transcript; the overlay's
 /// purpose is the recent directive context, not the entire log.
 /// 20 messages ≈ 10 turns of user-prompt → steward-response.
 const int _overlayMessageCap = 20;
-
-/// Cap on `_processedIds` so the overlay's dedup set doesn't grow
-/// unboundedly across long-lived sessions. The agent_events shared
-/// provider trims its window at 200; once an event is trimmed there
-/// it will never come back to us, so 300 is a comfortable cushion.
-const int _processedIdsCap = 300;
 
 /// steward_overlay_controller.dart — owns the lifecycle of the overlay's
 /// connection to the team's general steward.
@@ -124,43 +126,18 @@ final overlayNavigatorKeyProvider =
     Provider<GlobalKey<NavigatorState>>((_) => GlobalKey<NavigatorState>());
 
 class StewardOverlayController extends Notifier<StewardOverlayState> {
-  /// Manual subscription handle for the shared agent_events provider.
-  /// Set up by `ensureStarted` after the steward agent + session
-  /// resolve; closed in dispose.
-  ProviderSubscription<AgentEventsState>? _eventsSub;
+  StreamSubscription<Map<String, dynamic>>? _sub;
   bool _initStarted = false;
-
-  /// Event ids we've already folded into `state.messages`. The shared
-  /// provider may re-emit its full events list on each state change
-  /// (after a reconnect, for example); the dedup set ensures we
-  /// process each event exactly once.
-  final _processedIds = <String>{};
-
-  /// True after the FIRST non-empty events arrival has been folded.
-  /// Used to gate live side effects (snackbar + URI navigation) so
-  /// past `mobile.intent` events from the cache-paint don't fire
-  /// "as if the steward is navigating now."
-  bool _liveDispatchArmed = false;
-
-  /// Last `staleSince` value we surfaced as a system note, so we
-  /// don't spam the transcript on every state change while the
-  /// connection is unhealthy.
-  DateTime? _lastSurfacedStaleSince;
-
-  /// Last error string we surfaced as a system note, with the same
-  /// suppression goal as `_lastSurfacedStaleSince`.
-  String? _lastSurfacedError;
 
   @override
   StewardOverlayState build() {
     ref.onDispose(() {
-      _eventsSub?.close();
+      _sub?.cancel();
     });
     return const StewardOverlayState();
   }
 
-  /// Lazily ensures the general steward + attaches to the shared
-  /// agent_events provider (P1 of agent-events-shared-provider plan).
+  /// Lazily ensures the general steward + opens its event stream.
   /// Safe to call repeatedly; only the first call does the work.
   Future<void> ensureStarted() async {
     if (_initStarted) return;
@@ -197,108 +174,142 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
         }
       }
 
-      // 3. Commit agent + session ids. UI's loading spinner uses
-      //    `agentId == null` as the "still resolving" gate (B6 from
-      //    the original plan); once we set it, the chat surface
-      //    transitions to live render. Messages will populate via
-      //    the events listener below.
+      // 3. History backfill (W1 — overlay-history-and-snippets plan).
+      //    Pull the last `_backfillLimit` events for this agent +
+      //    session via the read-through cache so cold-open paints
+      //    instantly from disk, then refreshes from the network.
+      //    Events are returned newest-first (tail: true / seq DESC);
+      //    reverse to ASC so the chat reads oldest→newest. Failures
+      //    surface as `messages` empty + `error` set; we still set
+      //    agentId so the user can chat live.
+      final hydrated = await _backfillMessages(client, agentId, sessionId);
+      final sinceCursor = _maxSeq(hydrated.events);
+
+      // 4. Commit ready-state (B6 — agentId set AFTER hydration so
+      //    the spinner stays up until the panel has something to
+      //    show). The error from a failed backfill is non-fatal —
+      //    we attach it as a system note so the user sees why the
+      //    panel is empty, but proceed with live streaming anyway.
       state = state.copyWith(
         agentId: agentId,
         sessionId: sessionId,
+        messages: hydrated.messages,
         clearError: true,
       );
+      if (hydrated.warning != null) {
+        _appendMessage(OverlayChatMessage(
+          role: OverlayChatRole.system,
+          text: hydrated.warning!,
+          ts: DateTime.now(),
+        ));
+      }
 
-      // 4. Attach to the shared agent_events provider for this
-      //    (agentId, sessionId). The provider does the cache-only
-      //    first paint, the cache-then-refresh backfill, the SSE
-      //    subscribe with sinceSeq cursor, and the
-      //    reconnect-with-backoff. The overlay is now a pure
-      //    consumer — no SSE handling, no backfill HTTP, no
-      //    reconnect logic of its own.
-      _eventsSub?.close();
-      final key = AgentEventsKey(
-        agentId,
-        sessionId.isEmpty ? null : sessionId,
-      );
-      _eventsSub = ref.listenManual<AgentEventsState>(
-        agentEventsProvider(key),
-        _onEventsState,
-        fireImmediately: true,
+      // 5. Subscribe to the steward's SSE stream. Both the backfill
+      //    (above) and the live stream are filtered to the SAME
+      //    session (B3) so the panel doesn't mix current and prior
+      //    sessions. mobile.intent events still reach us because
+      //    the hub publishes them on the agent bus key with the
+      //    current session id.
+      _sub?.cancel();
+      _sub = client
+          .streamAgentEvents(
+            agentId,
+            sinceSeq: sinceCursor,
+            sessionId: sessionId.isEmpty ? null : sessionId,
+          )
+          .listen(
+        _handleEvent,
+        onError: (Object e) {
+          _appendMessage(OverlayChatMessage(
+            role: OverlayChatRole.system,
+            text: 'Steward stream errored: $e',
+            ts: DateTime.now(),
+          ));
+          state = state.copyWith(error: 'Stream error: $e');
+        },
+        onDone: () {
+          _appendMessage(OverlayChatMessage(
+            role: OverlayChatRole.system,
+            text: 'Steward stream closed',
+            ts: DateTime.now(),
+          ));
+        },
       );
     } catch (e) {
       state = state.copyWith(error: 'Bootstrap failed: $e');
     }
   }
 
-  /// Fold the shared provider's state into the overlay's messages.
-  /// Process new events (those not yet in `_processedIds`) through
-  /// the same `_eventToMessage` folder used by the cold-open
-  /// backfill, append to messages, fire live URI dispatch for new
-  /// `mobile.intent` events ONLY after the first event-set has
-  /// been processed (so cache-paint replay doesn't navigate as if
-  /// the steward is acting right now).
-  void _onEventsState(
-    AgentEventsState? prev,
-    AgentEventsState next,
-  ) {
-    // Surface provider-level connection issues as transcript notes
-    // (matches v1.0.474 behaviour where stream errors and stale
-    // cache produced visible system messages — now sourced from
-    // the provider's `staleSince` / `error` fields, not duplicated
-    // here).
-    _surfaceConnectionState(next);
-
-    // Process new events. The shared provider may emit its full
-    // events list on each state change; `_processedIds` is the
-    // dedup boundary.
-    for (final evt in next.events) {
-      final id = (evt['id'] ?? '').toString();
-      if (id.isEmpty || !_processedIds.add(id)) continue;
-      if (_processedIds.length > _processedIdsCap) {
-        // Trim oldest — Set has insertion-order in Dart; remove the
-        // first entry. Cheap; fires only at the cap boundary.
-        _processedIds.remove(_processedIds.first);
-      }
-      final msg = _eventToMessage(evt);
-      if (msg != null) _appendMessage(msg);
-      if (_liveDispatchArmed &&
-          (evt['kind'] ?? '').toString() == 'mobile.intent') {
-        _dispatchIntentLive(evt);
-      }
-    }
-    if (!_liveDispatchArmed && next.events.isNotEmpty) {
-      _liveDispatchArmed = true;
+  /// W1 backfill — read the recent agent_events history through the
+  /// read-through cache (B4) and fold it into `OverlayChatMessage`s.
+  /// Returns the messages, the source events (for sinceSeq cursor
+  /// computation), and a non-fatal warning if the network fetch
+  /// failed so the caller can surface it.
+  Future<_BackfillResult> _backfillMessages(
+    HubClient client,
+    String agentId,
+    String sessionId,
+  ) async {
+    try {
+      final cached = await client.listAgentEventsCached(
+        agentId,
+        tail: true,
+        limit: _backfillLimit,
+        sessionId: sessionId.isEmpty ? null : sessionId,
+      );
+      // Tail mode returns seq DESC (newest first). Chat reads
+      // oldest → newest, so reverse before hydrating.
+      final asc = cached.body.reversed.toList(growable: false);
+      final messages = _hydrateFromEvents(asc);
+      final warning = cached.staleSince != null
+          ? 'Showing cached history (offline)'
+          : null;
+      return _BackfillResult(
+        messages: messages,
+        events: asc,
+        warning: warning,
+      );
+    } catch (e) {
+      // Network + cache both unavailable; not fatal — let the user
+      // chat with live state. The warning line in the transcript
+      // explains the empty backfill.
+      return _BackfillResult(
+        messages: const [],
+        events: const [],
+        warning: 'Could not load history: $e',
+      );
     }
   }
 
-  void _surfaceConnectionState(AgentEventsState s) {
-    // staleSince — surface once per transition into stale. Do not
-    // re-surface on every state change while still stale.
-    if (s.staleSince != null && s.staleSince != _lastSurfacedStaleSince) {
-      _lastSurfacedStaleSince = s.staleSince;
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.system,
-        text: 'Showing cached history (offline)',
-        ts: DateTime.now(),
-      ));
+  /// Demuxes a list of agent_events into `OverlayChatMessage`s via
+  /// the same `_eventToMessage` folder as the live `_handleEvent`
+  /// path — guarantees backfill and live render produce the same
+  /// bubble shapes, including past `mobile.intent` events as
+  /// past-tense pills (W4 reverse-of-B5: intents are the most
+  /// informative directive signal and should appear on replay).
+  List<OverlayChatMessage> _hydrateFromEvents(
+    List<Map<String, dynamic>> events,
+  ) {
+    final out = <OverlayChatMessage>[];
+    for (final evt in events) {
+      final msg = _eventToMessage(evt);
+      if (msg != null) out.add(msg);
     }
-    if (s.staleSince == null && _lastSurfacedStaleSince != null) {
-      // Connection recovered; reset the latch so a future drop
-      // re-surfaces.
-      _lastSurfacedStaleSince = null;
+    return out;
+  }
+
+  /// Returns the maximum `seq` across the given events, or null when
+  /// the list is empty. Used as the `sinceSeq` cursor for the live
+  /// SSE subscription so the hub doesn't replay frames we already
+  /// hydrated from cache.
+  int? _maxSeq(List<Map<String, dynamic>> events) {
+    int? maxSeq;
+    for (final e in events) {
+      final s = (e['seq'] as num?)?.toInt();
+      if (s == null) continue;
+      if (maxSeq == null || s > maxSeq) maxSeq = s;
     }
-    // error — same single-surface contract.
-    if (s.error != null && s.error != _lastSurfacedError) {
-      _lastSurfacedError = s.error;
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.system,
-        text: 'Steward stream: ${s.error}',
-        ts: DateTime.now(),
-      ));
-    }
-    if (s.error == null && _lastSurfacedError != null) {
-      _lastSurfacedError = null;
-    }
+    return maxSeq;
   }
 
   DateTime? _parseEventTs(Map<String, dynamic> evt) {
@@ -309,13 +320,36 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     return null;
   }
 
+  /// Demultiplex one incoming SSE frame.
+  void _handleEvent(Map<String, dynamic> evt) {
+    final kind = (evt['kind'] ?? '').toString();
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print('[steward-overlay] evt kind=$kind keys=${evt.keys.toList()}');
+    }
+    if (kind == 'mobile.intent') {
+      // Two paths for live intents: render the message via
+      // `_eventToMessage` (so live + replay produce the same bubble
+      // shape — this is the W4 reverse-of-B5 decision: past intents
+      // ARE the most informative directive signal and should appear
+      // on cold-open backfill too) AND fire the live navigation +
+      // snackbar via `_dispatchIntentLive`.
+      final msg = _eventToMessage(evt);
+      if (msg != null) _appendMessage(msg);
+      _dispatchIntentLive(evt);
+      return;
+    }
+    final msg = _eventToMessage(evt);
+    if (msg != null) _appendMessage(msg);
+  }
+
   /// Folds a single agent_events frame into a chat message, or null
   /// if the kind/producer combination shouldn't render.
   ///
-  /// Called from `_onEventsState` (the shared agent_events provider
-  /// listener) for each new event. Live and cold-open replay use
-  /// the same folder so cold-open and live-typing produce identical
-  /// bubble shapes.
+  /// Shared between the live `_handleEvent` path and the W1 cold-open
+  /// `_hydrateFromEvents` backfill path so both render the panel
+  /// consistently — typing a message during live use and re-opening
+  /// the app after a restart produce the same bubble shape.
   ///
   /// W2: `kind == 'input.text'` with `producer == 'user'` renders as
   /// a user bubble (own input). Other producers (a2a, system) are
@@ -480,11 +514,10 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
 
   /// Live-only side effects for a `mobile.intent` event: navigate +
   /// snackbar. The chat-message append is the responsibility of
-  /// `_eventToMessage` (called by `_onEventsState` for both cold-open
-  /// replay and live ingestion). This method is purely about the UI
-  /// dispatch that happens AS the intent fires; gated by
-  /// `_liveDispatchArmed` so cold-open replay doesn't navigate as
-  /// if the steward is acting now.
+  /// `_eventToMessage` / `_handleEvent` — this method is purely
+  /// about the UI dispatch that happens AS the intent fires. On
+  /// replay (cold-open backfill) this method is never called; on
+  /// live SSE it runs alongside the message append.
   void _dispatchIntentLive(Map<String, dynamic> evt) {
     final uriStr = (evt['uri'] ?? '').toString();
     if (uriStr.isEmpty) return;
@@ -526,7 +559,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     }
     // Snackbar surfaces the nav even when the chat panel is
     // collapsed. The chat bubble is already appended by
-    // `_onEventsState` via `_eventToMessage` — no double-append here.
+    // `_handleEvent` via `_eventToMessage` — no double-append here.
     final messenger = ScaffoldMessenger.maybeOf(ctx);
     messenger?.hideCurrentSnackBar();
     messenger?.showSnackBar(
@@ -543,14 +576,14 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// **Note (W2 — Option A):** we deliberately do NOT pre-echo the
   /// user's text into the local message list. The hub publishes the
   /// `kind == 'input.text' producer == 'user'` event back to us via
-  /// SSE; `_onEventsState` ingests it from the shared agent_events
-  /// provider through the same `_eventToMessage` folder used for
-  /// cold-open backfill. Going through one path means typing during
-  /// live use vs reopening the app after a restart produce identical
-  /// bubble shapes — no dedup needed, no risk of "live render
-  /// diverged from replay." Cost: one SSE round-trip latency before
-  /// the user's bubble appears (~100-300 ms typical). If QA flags
-  /// that as laggy we can switch to id-based dedup (Option B).
+  /// SSE, and `_handleEvent` renders it through the same
+  /// `_eventToMessage` folder used for cold-open backfill. Going
+  /// through one path means typing during live use vs reopening the
+  /// app after a restart produce identical bubble shapes — no
+  /// dedup needed, no risk of "live render diverged from replay."
+  /// Cost: one SSE round-trip latency before the user's bubble
+  /// appears (~100-300 ms typical). If QA flags that as laggy we
+  /// can switch to id-based dedup (Option B in the wedge plan).
   Future<void> sendUserText(String text) async {
     final agentId = state.agentId;
     if (agentId == null) {
@@ -577,3 +610,17 @@ final stewardOverlayControllerProvider =
 /// overlay being mounted at the root navigator. Keeps the wiring
 /// out of HomeScreen.
 String describeStewardHandle(String? handle) => stewardLabel(handle);
+
+/// Internal value type for `_backfillMessages` — bundles the hydrated
+/// chat messages with the source events (so the caller can derive
+/// the `sinceSeq` cursor) and an optional warning to surface.
+class _BackfillResult {
+  final List<OverlayChatMessage> messages;
+  final List<Map<String, dynamic>> events;
+  final String? warning;
+  const _BackfillResult({
+    required this.messages,
+    required this.events,
+    this.warning,
+  });
+}

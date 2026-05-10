@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.477
+> **Last verified vs code:** v1.0.478
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -23,56 +23,55 @@ binding). Seed entries prior to that are in
 
 ---
 
-## v1.0.477-alpha — 2026-05-10
+## v1.0.478-alpha — 2026-05-10
 
-P1 of `agent-events-shared-provider` plan: shared data layer for
-agent_events flow. Pre-MVP scope; P2 (AgentFeed migration) stays
-post-MVP.
+CI fix on top of v1.0.477 — the v1.0.477 tag's Android build
+failed `flutter analyze` because the overlay migration used
+`ref.listenManual`, which doesn't exist on Riverpod 3.x's `Ref`
+(only on `WidgetRef`). The Notifier-side equivalent doesn't
+compose cleanly with the async-resolved-key pattern this
+overlay needs without a non-trivial restructure (split-provider
+shape: separate FutureProvider for `(agentId, sessionId)`
+resolution + family-keyed Notifier for the events listener).
 
-### Added
-- **`agentEventsProvider`** (`lib/providers/agent_events_provider.dart`)
-  — Riverpod `NotifierProvider.autoDispose.family` keyed by
-  `AgentEventsKey(agentId, sessionId?)`. Single source of truth for
-  one agent's event stream. Owns:
-  - Cache-only first paint via `listAgentEventsCacheOnly`
-  - Cache-then-refresh backfill via `listAgentEventsCached`
-  - SSE subscribe via `streamAgentEvents` with `sinceSeq` cursor
-  - Reconnect with exponential backoff (5s → 16s capped)
-  - Idle-drop signature suppression (proxy timeouts, carrier NAT)
-  - 200-event ring buffer + dedup by event id
-  - `staleSince` / `error` state surfaces for offline banners
-  - `loadOlder()` stub for AgentFeed P2 paging
-  - `refresh()` for explicit reload
-  - `autoDispose` — closes when no consumer watches
-- ADR-023 `D11` eager-load gating now flows through this provider.
+This release ships v1.0.477's WORKING parts (the
+`agentEventsProvider` infrastructure file) and reverts the
+broken overlay migration. v1.0.476's overlay controller code
+is restored verbatim.
 
-### Changed
-- **`StewardOverlayController` migrated** to consume the shared
-  provider via `ref.listenManual`. Dropped `~250 LOC` of
-  duplicated SSE / backfill / cursor logic. Keeps only:
-  resolving `(agentId, sessionId)`, demuxing events through
-  `_eventToMessage`, dispatching live `mobile.intent` URIs, and
-  surfacing connection-state transitions as transcript notes.
-- **Overlay finally has cache-only first paint** — capability
-  the provider provides for free. Cold open paints from disk
-  before any network round-trip.
-- **Overlay finally has reconnect-with-backoff** — also free
-  from the provider. Silent SSE drops no longer leave the
-  panel stale until app restart.
+### Reverted from v1.0.477
+- `StewardOverlayController` migration to the shared provider.
+  Overlay continues to own its own SSE subscription + backfill
+  + reconnect logic for now.
+
+### Retained from v1.0.477 (still good)
+- `lib/providers/agent_events_provider.dart` — the
+  `NotifierProvider.autoDispose.family<AgentEventsKey>` shared
+  data layer. Sits in the codebase ready for consumers; today
+  has no callers but P2 (AgentFeed migration, post-MVP) and
+  future surfaces will plug in.
 
 ### Notes
-- AgentFeed (Sessions chat) still uses its private subscription;
-  P2 migration is post-MVP per the plan.
-- When both surfaces are open simultaneously, they STILL hold
-  separate subscriptions today (each maintains its own provider
-  instance since AgentFeed doesn't read from `agentEventsProvider`
-  yet). Genuine SSE-stream sharing kicks in once AgentFeed
-  migrates in P2.
-- `_processedIds` cap at 300 prevents the dedup set from growing
-  unboundedly across long-lived sessions.
-- The provider's bootstrap is fire-and-forget via
-  `Future.microtask` so initial `build()` returns the loading
-  state synchronously while the data fetch happens off-frame.
+- Tag v1.0.477-alpha exists in the repo but its release build
+  did not produce an APK. v1.0.478 is the canonical successor.
+- The overlay's pre-existing capabilities (no cache-only first
+  paint; no reconnect-with-backoff) remain pre-existing —
+  they'd have come along for free via the migration if the
+  Riverpod 3.x lifecycle had cooperated. Migrating the overlay
+  cleanly needs a split-provider refactor that is out of scope
+  for the CI fix; tracked as a follow-up under the same plan
+  doc.
+- The provider file itself adds to `flutter analyze`'s noise as
+  defines-but-no-callers, but Dart doesn't error on unused
+  public symbols.
+
+---
+
+## v1.0.477-alpha — 2026-05-10 (broken — see v1.0.478)
+
+Build of v1.0.477's tag failed `flutter analyze`; no APK
+produced. See v1.0.478 above for the corrected release shape
+and the retained / reverted breakdown.
 
 ---
 

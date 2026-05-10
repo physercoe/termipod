@@ -233,20 +233,20 @@ class _ChatInputState extends State<_ChatInput> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            // `autocorrect: false` + `enableSuggestions: false` +
-            // `autofillHints: const []` matter here: every other input
-            // path in the app that needs deterministic typing
-            // (compose_bar direct input, hub_bootstrap, templates) sets
-            // these. Without them, GBoard's predictive layer caches
-            // composing words and re-pushes them after every IME
-            // detach/re-attach — and the parent above us re-attaches
-            // the IME on every SSE event because `_StewardOverlayChat`
-            // is a ConsumerStatefulWidget watching a high-frequency
-            // provider. The visible symptom: deleted characters come
-            // back when the user retypes, and the field feels "sticky"
-            // against edits. Disabling predictive composition makes
-            // every keystroke a hard commit, which is what we want for
-            // a chat directive box.
+            // Predictive-typing flags match the rest of the codebase's
+            // deterministic-input pattern (compose_bar direct mode,
+            // hub_bootstrap, templates). They're kept as belt-and-
+            // suspenders alongside the v1.0.472 rebuild-scope fix.
+            //
+            // **Do not add `autofillHints: const []`.** An empty
+            // autofillHints list is poisoned: on some Android+Gboard
+            // combinations it signals AutofillManager that the field
+            // is managed by autofill but has no hints, and the IME
+            // fails to attach — visible bug in v1.0.472 was "no system
+            // keyboard pops up when tapping the input." `null`
+            // (the default, achieved by omitting the line entirely) is
+            // the correct shape. None of the other inputs in this
+            // codebase set autofillHints; we shouldn't either.
             child: TextField(
               controller: _ctrl,
               focusNode: _focus,
@@ -256,7 +256,6 @@ class _ChatInputState extends State<_ChatInput> {
               textInputAction: TextInputAction.newline,
               autocorrect: false,
               enableSuggestions: false,
-              autofillHints: const [],
               decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Ask the steward…',

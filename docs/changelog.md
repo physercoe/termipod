@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.472
+> **Last verified vs code:** v1.0.473
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.473-alpha — 2026-05-10
+
+### Fixed
+- **System IME (Gboard) now attaches to the steward overlay text
+  field.** v1.0.471 added `autofillHints: const []` as one of three
+  belt-and-suspenders flags meant to harden the input against
+  predictive-restore. The empty list (rather than `null`, the
+  default) signals Android's `AutofillManager` that this field is
+  *managed by autofill but has no hints* — which on some
+  Android+Gboard combinations causes the IME to refuse to attach.
+  Visible bug in v1.0.472: tapping the input did nothing; no
+  keyboard appeared. Audit shows none of the other deterministic-
+  typing inputs in the codebase (`compose_bar` direct mode,
+  `hub_bootstrap`, `templates`) set `autofillHints`; we shouldn't
+  either. Dropped the line and added a do-not-restore comment.
+  `autocorrect: false` and `enableSuggestions: false` stay — they
+  match the rest of the codebase and don't suppress IME attach.
+  (`lib/widgets/steward_overlay/steward_overlay_chat.dart`)
+
+The rebuild-scope fix from v1.0.472 (split `_MessagesRegion` /
+`_ChatInputSlot` siblings) remains the primary correctness
+mechanism; the IME flags now serve only as cosmetic alignment with
+the rest of the app.
 
 ---
 

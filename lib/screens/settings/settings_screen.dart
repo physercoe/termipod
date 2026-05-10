@@ -286,6 +286,20 @@ class SettingsScreen extends ConsumerWidget {
                     onTap: () => _showFloatingPadCenterKeyPicker(context, ref, settings),
                   ),
                 ],
+                SwitchListTile(
+                  secondary: const Icon(Icons.support_agent_outlined),
+                  title: const Text('Steward overlay'),
+                  subtitle: const Text(
+                      'Floating chat puck for agent-driven navigation. '
+                      'Drag the puck or panel header; resize from the '
+                      'bottom-right corner. Disable to hide entirely.'),
+                  value: settings.stewardOverlayEnabled,
+                  onChanged: (value) {
+                    ref
+                        .read(settingsProvider.notifier)
+                        .setStewardOverlayEnabled(value);
+                  },
+                ),
                 const Divider(),
                 _SectionHeader(title: l10n.sectionToolbar),
                 Consumer(

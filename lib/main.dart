@@ -239,18 +239,19 @@ class _StewardOverlayHostState extends ConsumerState<_StewardOverlayHost> {
   Widget build(BuildContext context) {
     final hub = ref.watch(hubProvider).value;
     final hasConfig = hub?.config != null;
-    // Lazy-start the controller once the hub config is available —
-    // before that, ensureGeneralSteward would 401 and we'd burn
-    // retry budget on a known-not-yet-configured hub.
-    if (!_ensured && hasConfig) {
+    final overlayEnabled =
+        ref.watch(settingsProvider.select((s) => s.stewardOverlayEnabled));
+    // Lazy-start the controller once the hub config is available
+    // AND the user hasn't disabled the overlay. Before config land
+    // ensureGeneralSteward would 401; if the user has the toggle
+    // off there's no surface to render events into.
+    if (!_ensured && hasConfig && overlayEnabled) {
       _ensured = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ref.read(stewardOverlayControllerProvider.notifier).ensureStarted();
       });
     }
-    if (!hasConfig) {
-      // Hub not configured — render the page without the overlay.
-      // Settings → first connect flow is unaffected.
+    if (!hasConfig || !overlayEnabled) {
       return widget.child;
     }
     return StewardOverlay(child: widget.child);

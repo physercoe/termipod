@@ -2,23 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/settings_provider.dart';
 import '../../theme/design_colors.dart';
 import 'steward_overlay_chat.dart';
 
-/// SteWard overlay shell — a persistent, draggable chat surface that
+/// Steward overlay shell — a persistent, draggable chat surface that
 /// stays visible across all routes (Projects / Activity / Me /
 /// Hosts / Settings + pushed routes), per
 /// `discussions/agent-driven-mobile-ui.md` §4.1.
 ///
 /// Two visual states:
-///   - **Puck** (collapsed): a small steward avatar. Tap → expand.
-///   - **Panel** (expanded): a half-height chat panel with the
-///     general steward's transcript + input. Tap close → collapse.
-///
-/// The puck is draggable; its position is stored in this widget's
-/// State so it survives route pushes/pops. Across app restarts the
-/// position resets to the bottom-right corner — persistence to
-/// shared_preferences is a follow-up if users complain.
+///   - **Puck** (collapsed): a small steward avatar. Tap → expand,
+///     drag → reposition.
+///   - **Panel** (expanded): a free-floating chat panel. Header is
+///     the drag handle (move it anywhere on screen). Bottom-right
+///     corner has a resize grip. Both position + size persist via
+///     `settings_provider` so the layout survives app restarts.
 ///
 /// Mounted ONCE at the app root via `MaterialApp.builder`. There is
 /// only ever one overlay instance regardless of which route is on
@@ -36,27 +35,78 @@ class StewardOverlay extends ConsumerStatefulWidget {
 }
 
 class _StewardOverlayState extends ConsumerState<StewardOverlay> {
-  /// Puck position in screen coordinates. Initialised lazily on
-  /// first build once we know the screen size — defaults to the
-  /// bottom-right with a comfortable margin.
+  /// Puck position in screen coordinates. Initialised from settings
+  /// (if persisted) or computed defaults on first build.
   Offset? _puckOffset;
+
+  /// Free-floating panel rect (left/top/width/height). Same lifecycle
+  /// as `_puckOffset` — null until hydrated from settings or defaults.
+  Rect? _panelRect;
+
+  /// True when the user is actively dragging the puck — debounces
+  /// the tap-to-expand so a drag-end doesn't accidentally toggle.
+  bool _draggedThisGesture = false;
 
   /// Expanded vs collapsed.
   bool _expanded = false;
 
-  /// Drag tracking — when the user drags the puck we update
-  /// `_puckOffset` continuously. Tapping (no drag) toggles expand.
-  bool _draggedThisGesture = false;
-
   static const double _puckSize = 56;
   static const double _margin = 16;
+  static const double _minPanelW = 260;
+  static const double _minPanelH = 200;
+  static const double _resizeHandle = 28;
 
-  void _ensureInitialPosition(Size screen) {
-    if (_puckOffset != null) return;
+  /// Compute the default puck offset (bottom-right, above the bottom
+  /// nav). Used the first time the overlay mounts on a fresh install.
+  Offset _defaultPuckOffset(Size screen) => Offset(
+        screen.width - _puckSize - _margin,
+        screen.height - _puckSize - _margin - 80,
+      );
+
+  /// Compute the default panel rect (anchored bottom, ~55% height,
+  /// 12 px side margins) — matches the v1.0.464 prototype layout.
+  Rect _defaultPanelRect(Size screen) {
+    final width = screen.width - 24;
+    final height = (screen.height * 0.55).clamp(_minPanelH, screen.height - 40);
+    final left = 12.0;
+    final top = screen.height - height - 12 - 24; // small bottom safe margin
+    return Rect.fromLTWH(left, top, width, height);
+  }
+
+  /// Lazy hydrate from settings (or defaults) the first time we have
+  /// real screen constraints. Settings load is async, so the very
+  /// first frame may use defaults; once settings populate the
+  /// SwitchListTile + Riverpod-watch above will rebuild this widget
+  /// and we re-evaluate.
+  void _ensureInitial(Size screen, AppSettings settings) {
+    if (_puckOffset == null) {
+      final px = settings.stewardOverlayPuckX;
+      final py = settings.stewardOverlayPuckY;
+      _puckOffset = (px != null && py != null)
+          ? Offset(px, py)
+          : _defaultPuckOffset(screen);
+    }
+    if (_panelRect == null) {
+      final l = settings.stewardOverlayPanelLeft;
+      final t = settings.stewardOverlayPanelTop;
+      final w = settings.stewardOverlayPanelWidth;
+      final h = settings.stewardOverlayPanelHeight;
+      _panelRect = (l != null && t != null && w != null && h != null)
+          ? Rect.fromLTWH(l, t, w, h)
+          : _defaultPanelRect(screen);
+    }
+    // Clamp to current viewport in case the user rotated or the
+    // foldable was unfolded since last save.
     _puckOffset = Offset(
-      screen.width - _puckSize - _margin,
-      screen.height - _puckSize - _margin - 80, // above the bottom nav
+      _puckOffset!.dx.clamp(0.0, (screen.width - _puckSize).clamp(0.0, double.infinity)),
+      _puckOffset!.dy.clamp(0.0, (screen.height - _puckSize).clamp(0.0, double.infinity)),
     );
+    final pr = _panelRect!;
+    final clampedW = pr.width.clamp(_minPanelW, screen.width);
+    final clampedH = pr.height.clamp(_minPanelH, screen.height);
+    final clampedL = pr.left.clamp(0.0, (screen.width - clampedW).clamp(0.0, double.infinity));
+    final clampedT = pr.top.clamp(0.0, (screen.height - clampedH).clamp(0.0, double.infinity));
+    _panelRect = Rect.fromLTWH(clampedL, clampedT, clampedW, clampedH);
   }
 
   void _toggleExpanded() {
@@ -67,11 +117,29 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
     if (_expanded) setState(() => _expanded = false);
   }
 
+  void _persistPuck() {
+    final off = _puckOffset;
+    if (off == null) return;
+    ref.read(settingsProvider.notifier)
+        .setStewardOverlayPuckPosition(off.dx, off.dy);
+  }
+
+  void _persistPanel() {
+    final r = _panelRect;
+    if (r == null) return;
+    ref.read(settingsProvider.notifier)
+        .setStewardOverlayPanelRect(r.left, r.top, r.width, r.height);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Watch the layout fields so a settings reset (e.g. via a future
+    // "Reset overlay layout" button) re-applies without restart.
+    final settings = ref.watch(settingsProvider);
     return LayoutBuilder(
       builder: (ctx, constraints) {
-        _ensureInitialPosition(constraints.biggest);
+        _ensureInitial(constraints.biggest, settings);
+        final pr = _panelRect!;
         return Stack(
           children: [
             widget.child,
@@ -87,11 +155,41 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
               ),
             if (_expanded)
               Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: SafeArea(
-                  child: _ExpandedPanel(onClose: _collapse),
+                left: pr.left,
+                top: pr.top,
+                width: pr.width,
+                height: pr.height,
+                child: _ExpandedPanel(
+                  onClose: _collapse,
+                  onHeaderDrag: (delta) {
+                    setState(() {
+                      final next = _panelRect!.translate(delta.dx, delta.dy);
+                      final maxL = (constraints.maxWidth - next.width)
+                          .clamp(0.0, double.infinity);
+                      final maxT = (constraints.maxHeight - next.height)
+                          .clamp(0.0, double.infinity);
+                      _panelRect = Rect.fromLTWH(
+                        next.left.clamp(0.0, maxL),
+                        next.top.clamp(0.0, maxT),
+                        next.width,
+                        next.height,
+                      );
+                    });
+                  },
+                  onHeaderDragEnd: _persistPanel,
+                  onResize: (delta) {
+                    setState(() {
+                      final cur = _panelRect!;
+                      final nw = (cur.width + delta.dx)
+                          .clamp(_minPanelW, constraints.maxWidth - cur.left);
+                      final nh = (cur.height + delta.dy).clamp(
+                          _minPanelH, constraints.maxHeight - cur.top);
+                      _panelRect =
+                          Rect.fromLTWH(cur.left, cur.top, nw, nh);
+                    });
+                  },
+                  onResizeEnd: _persistPanel,
+                  resizeHandleSize: _resizeHandle,
                 ),
               ),
             Positioned(
@@ -116,6 +214,7 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
                     );
                   });
                 },
+                onPanEnd: _persistPuck,
               ),
             ),
           ],
@@ -132,12 +231,14 @@ class _Puck extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onPanStart;
   final ValueChanged<Offset> onPanUpdate;
+  final VoidCallback onPanEnd;
 
   const _Puck({
     required this.size,
     required this.onTap,
     required this.onPanStart,
     required this.onPanUpdate,
+    required this.onPanEnd,
   });
 
   @override
@@ -148,6 +249,7 @@ class _Puck extends StatelessWidget {
       onTap: onTap,
       onPanStart: (_) => onPanStart(),
       onPanUpdate: (d) => onPanUpdate(d.delta),
+      onPanEnd: (_) => onPanEnd(),
       child: Material(
         elevation: 6,
         shape: const CircleBorder(),
@@ -168,76 +270,150 @@ class _Puck extends StatelessWidget {
   }
 }
 
-/// The expanded panel — half-height chat surface anchored at the
-/// bottom of the screen. Holds the transcript + input.
+/// The expanded panel — free-floating chat surface. Header is the
+/// drag handle, bottom-right corner is the resize grip.
 class _ExpandedPanel extends StatelessWidget {
   final VoidCallback onClose;
-  const _ExpandedPanel({required this.onClose});
+  final ValueChanged<Offset> onHeaderDrag;
+  final VoidCallback onHeaderDragEnd;
+  final ValueChanged<Offset> onResize;
+  final VoidCallback onResizeEnd;
+  final double resizeHandleSize;
+
+  const _ExpandedPanel({
+    required this.onClose,
+    required this.onHeaderDrag,
+    required this.onHeaderDragEnd,
+    required this.onResize,
+    required this.onResizeEnd,
+    required this.resizeHandleSize,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final media = MediaQuery.of(context);
-    final maxHeight = media.size.height * 0.55;
-    return Container(
-      height: maxHeight,
-      decoration: BoxDecoration(
-        color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              color: isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDark ? DesignColors.borderDark : DesignColors.borderLight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 18,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                _PanelHeader(
+                  onClose: onClose,
+                  onDrag: onHeaderDrag,
+                  onDragEnd: onHeaderDragEnd,
+                ),
+                const Divider(height: 1),
+                Expanded(child: StewardOverlayChat(onCloseRequested: onClose)),
+              ],
+            ),
           ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _PanelHeader(onClose: onClose),
-          const Divider(height: 1),
-          Expanded(child: StewardOverlayChat(onCloseRequested: onClose)),
-        ],
-      ),
+        ),
+        // Bottom-right resize grip — overlaid above the panel border
+        // so it's visible regardless of the header / chat content.
+        Positioned(
+          right: 0,
+          bottom: 0,
+          width: resizeHandleSize,
+          height: resizeHandleSize,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanUpdate: (d) => onResize(d.delta),
+            onPanEnd: (_) => onResizeEnd(),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.resizeDownRight,
+              child: Container(
+                margin: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: (isDark ? Colors.white : Colors.black)
+                      .withValues(alpha: 0.08),
+                  borderRadius: const BorderRadius.only(
+                    bottomRight: Radius.circular(14),
+                    topLeft: Radius.circular(8),
+                  ),
+                ),
+                child: Icon(
+                  Icons.south_east,
+                  size: 16,
+                  color: isDark
+                      ? Colors.white70
+                      : DesignColors.textPrimary.withValues(alpha: 0.6),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _PanelHeader extends StatelessWidget {
   final VoidCallback onClose;
-  const _PanelHeader({required this.onClose});
+  final ValueChanged<Offset> onDrag;
+  final VoidCallback onDragEnd;
+  const _PanelHeader({
+    required this.onClose,
+    required this.onDrag,
+    required this.onDragEnd,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.support_agent_outlined,
-            size: 18,
-            color: DesignColors.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Steward',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onPanUpdate: (d) => onDrag(d.delta),
+      onPanEnd: (_) => onDragEnd(),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.move,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+          child: Row(
+            children: [
+              Icon(
+                Icons.drag_indicator,
+                size: 16,
+                color: DesignColors.primary.withValues(alpha: 0.7),
               ),
-            ),
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.support_agent_outlined,
+                size: 18,
+                color: DesignColors.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Steward',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Close',
+                iconSize: 20,
+                icon: const Icon(Icons.close),
+                onPressed: onClose,
+              ),
+            ],
           ),
-          IconButton(
-            tooltip: 'Close',
-            iconSize: 20,
-            icon: const Icon(Icons.close),
-            onPressed: onClose,
-          ),
-        ],
+        ),
       ),
     );
   }

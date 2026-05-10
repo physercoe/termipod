@@ -74,6 +74,20 @@ class AppSettings {
   /// Tmux key name sent when the joystick center is tapped (default 'Enter')
   final String floatingPadCenterKey;
 
+  /// Agent-driven mobile UI prototype (v1.0.464+). When true the
+  /// steward chat puck mounts at app root and persists across routes.
+  /// Default ON during the prototype QA window; disable to hide.
+  final bool stewardOverlayEnabled;
+  /// Persisted puck position. Null until the user first drags it.
+  final double? stewardOverlayPuckX;
+  final double? stewardOverlayPuckY;
+  /// Persisted expanded-panel rect. Null fields use computed defaults
+  /// (anchored bottom, ~55% height, side margins of 12).
+  final double? stewardOverlayPanelLeft;
+  final double? stewardOverlayPanelTop;
+  final double? stewardOverlayPanelWidth;
+  final double? stewardOverlayPanelHeight;
+
   const AppSettings({
     this.darkMode = true,
     this.fontSize = 14.0,
@@ -112,6 +126,13 @@ class AppSettings {
     this.floatingPadEnabled = false,
     this.floatingPadSize = 64.0,
     this.floatingPadCenterKey = 'Enter',
+    this.stewardOverlayEnabled = true,
+    this.stewardOverlayPuckX,
+    this.stewardOverlayPuckY,
+    this.stewardOverlayPanelLeft,
+    this.stewardOverlayPanelTop,
+    this.stewardOverlayPanelWidth,
+    this.stewardOverlayPanelHeight,
   });
 
   bool get isAutoFit => adjustMode == 'autoFit';
@@ -156,6 +177,13 @@ class AppSettings {
     bool? floatingPadEnabled,
     double? floatingPadSize,
     String? floatingPadCenterKey,
+    bool? stewardOverlayEnabled,
+    double? stewardOverlayPuckX,
+    double? stewardOverlayPuckY,
+    double? stewardOverlayPanelLeft,
+    double? stewardOverlayPanelTop,
+    double? stewardOverlayPanelWidth,
+    double? stewardOverlayPanelHeight,
   }) {
     return AppSettings(
       darkMode: darkMode ?? this.darkMode,
@@ -196,6 +224,18 @@ class AppSettings {
       floatingPadEnabled: floatingPadEnabled ?? this.floatingPadEnabled,
       floatingPadSize: floatingPadSize ?? this.floatingPadSize,
       floatingPadCenterKey: floatingPadCenterKey ?? this.floatingPadCenterKey,
+      stewardOverlayEnabled:
+          stewardOverlayEnabled ?? this.stewardOverlayEnabled,
+      stewardOverlayPuckX: stewardOverlayPuckX ?? this.stewardOverlayPuckX,
+      stewardOverlayPuckY: stewardOverlayPuckY ?? this.stewardOverlayPuckY,
+      stewardOverlayPanelLeft:
+          stewardOverlayPanelLeft ?? this.stewardOverlayPanelLeft,
+      stewardOverlayPanelTop:
+          stewardOverlayPanelTop ?? this.stewardOverlayPanelTop,
+      stewardOverlayPanelWidth:
+          stewardOverlayPanelWidth ?? this.stewardOverlayPanelWidth,
+      stewardOverlayPanelHeight:
+          stewardOverlayPanelHeight ?? this.stewardOverlayPanelHeight,
     );
   }
 }
@@ -239,6 +279,20 @@ class SettingsNotifier extends Notifier<AppSettings> {
   static const String _floatingPadEnabledKey = 'settings_floating_pad_enabled';
   static const String _floatingPadSizeKey = 'settings_floating_pad_size';
   static const String _floatingPadCenterKeyKey = 'settings_floating_pad_center_key';
+  static const String _stewardOverlayEnabledKey =
+      'settings_steward_overlay_enabled';
+  static const String _stewardOverlayPuckXKey =
+      'settings_steward_overlay_puck_x';
+  static const String _stewardOverlayPuckYKey =
+      'settings_steward_overlay_puck_y';
+  static const String _stewardOverlayPanelLeftKey =
+      'settings_steward_overlay_panel_left';
+  static const String _stewardOverlayPanelTopKey =
+      'settings_steward_overlay_panel_top';
+  static const String _stewardOverlayPanelWidthKey =
+      'settings_steward_overlay_panel_width';
+  static const String _stewardOverlayPanelHeightKey =
+      'settings_steward_overlay_panel_height';
 
   @override
   AppSettings build() {
@@ -288,6 +342,17 @@ class SettingsNotifier extends Notifier<AppSettings> {
       floatingPadEnabled: prefs.getBool(_floatingPadEnabledKey) ?? false,
       floatingPadSize: prefs.getDouble(_floatingPadSizeKey) ?? 64.0,
       floatingPadCenterKey: prefs.getString(_floatingPadCenterKeyKey) ?? 'Enter',
+      stewardOverlayEnabled:
+          prefs.getBool(_stewardOverlayEnabledKey) ?? true,
+      stewardOverlayPuckX: prefs.getDouble(_stewardOverlayPuckXKey),
+      stewardOverlayPuckY: prefs.getDouble(_stewardOverlayPuckYKey),
+      stewardOverlayPanelLeft:
+          prefs.getDouble(_stewardOverlayPanelLeftKey),
+      stewardOverlayPanelTop: prefs.getDouble(_stewardOverlayPanelTopKey),
+      stewardOverlayPanelWidth:
+          prefs.getDouble(_stewardOverlayPanelWidthKey),
+      stewardOverlayPanelHeight:
+          prefs.getDouble(_stewardOverlayPanelHeightKey),
     );
   }
 
@@ -532,6 +597,36 @@ class SettingsNotifier extends Notifier<AppSettings> {
   Future<void> setFloatingPadCenterKey(String value) async {
     state = state.copyWith(floatingPadCenterKey: value);
     await _saveSetting(_floatingPadCenterKeyKey, value);
+  }
+
+  // --- Steward overlay (agent-driven UI prototype) ---
+  Future<void> setStewardOverlayEnabled(bool value) async {
+    state = state.copyWith(stewardOverlayEnabled: value);
+    await _saveSetting(_stewardOverlayEnabledKey, value);
+  }
+
+  Future<void> setStewardOverlayPuckPosition(double x, double y) async {
+    state = state.copyWith(stewardOverlayPuckX: x, stewardOverlayPuckY: y);
+    await _saveSetting(_stewardOverlayPuckXKey, x);
+    await _saveSetting(_stewardOverlayPuckYKey, y);
+  }
+
+  Future<void> setStewardOverlayPanelRect(
+    double left,
+    double top,
+    double width,
+    double height,
+  ) async {
+    state = state.copyWith(
+      stewardOverlayPanelLeft: left,
+      stewardOverlayPanelTop: top,
+      stewardOverlayPanelWidth: width,
+      stewardOverlayPanelHeight: height,
+    );
+    await _saveSetting(_stewardOverlayPanelLeftKey, left);
+    await _saveSetting(_stewardOverlayPanelTopKey, top);
+    await _saveSetting(_stewardOverlayPanelWidthKey, width);
+    await _saveSetting(_stewardOverlayPanelHeightKey, height);
   }
 
   Future<void> reload() async {

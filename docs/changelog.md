@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-09)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.465
+> **Last verified vs code:** v1.0.466
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,40 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.466-alpha — 2026-05-10
+
+Steward overlay layout customisation. Principal QA: the prototype's
+fixed-size, bottom-anchored panel covers content the user is trying
+to read while talking to the steward. The whole point of the
+overlay is "see related info while directing the steward" — a
+non-movable panel breaks that.
+
+### Added
+
+- **Drag the panel.** Panel header is now a drag handle (drag
+  indicator icon + grab cursor on web). Drag from anywhere on the
+  header bar except the close button to reposition the panel.
+- **Resize the panel.** Bottom-right corner resize grip with a
+  diagonal arrow icon. Drag to resize width + height; clamped to
+  260×200 minimum and the viewport size.
+- **Layout persists across app restarts.** Puck position + panel
+  rect now survive via `shared_preferences`; previously the
+  position reset to the bottom-right corner every cold start. New
+  keys: `settings_steward_overlay_{puck_x,puck_y,panel_left,
+  panel_top,panel_width,panel_height}` (all double, all null until
+  first user customisation).
+- **Settings → Experimental → Steward overlay toggle** (default
+  on). Disable to hide the puck entirely; the controller no longer
+  starts when disabled, freeing the SSE subscription too.
+
+### Changed
+
+- `_StewardOverlayHost` (in `main.dart`) now gates overlay mount on
+  the new `stewardOverlayEnabled` setting in addition to hub config
+  presence.
 
 ---
 

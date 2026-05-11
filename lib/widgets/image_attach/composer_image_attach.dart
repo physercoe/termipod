@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../services/image/image_converter.dart';
@@ -78,9 +77,9 @@ class ComposerImageAttachError implements Exception {
 
 /// Resolves the agent-side capability flag for inline image input.
 /// Joins `agent.kind` + `agent.driving_mode` against the family
-/// registry's `prompt_image[mode]` flag (ADR-021 D5 / W4.6). Exposed
-/// so widget tests can pin the gate without spinning up a fake hub.
-@visibleForTesting
+/// registry's `prompt_image[mode]` flag (ADR-021 D5 / W4.6). Public
+/// so both production composers (AgentCompose + steward overlay
+/// chat input) and widget tests share the same gate.
 bool resolveCanAttachImages({
   required String? kind,
   required String? drivingMode,

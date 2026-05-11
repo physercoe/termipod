@@ -344,12 +344,11 @@ class _CustomizeTilesRow extends ConsumerWidget {
   }
 
   Future<void> _open(BuildContext context, WidgetRef ref) async {
-    if (phase.isEmpty) {
-      // Lifecycle-disabled projects have no per-phase overrides. The
-      // affordance is hidden in practice via the Customize row only
-      // appearing alongside tiles; defensive guard for unexpected reads.
-      return;
-    }
+    // Phaseless projects (manual create, no template) store their
+    // tile + hero overrides under the empty-string phase key. The
+    // hub's `resolveOverviewWidget` and the resolver below both honor
+    // that key, so customization is the same shape as for phased
+    // projects.
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     await showModalBottomSheet<void>(
@@ -444,7 +443,12 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
     return tileOver || heroOver;
   }
 
-  bool get _showHeroPicker => widget.currentOverviewWidget.isNotEmpty;
+  // Always show the hero picker: even phaseless projects (manual
+  // create, no template) resolve to a default overview widget on the
+  // hub, so there's always *something* to swap. Empty
+  // `currentOverviewWidget` was the legacy "lifecycle disabled" gate;
+  // it no longer applies now that overrides can target the empty phase.
+  bool get _showHeroPicker => true;
 
   String get _templateHero =>
       widget.overviewWidgetTemplate?[widget.phase] ?? '';

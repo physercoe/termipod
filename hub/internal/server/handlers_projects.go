@@ -109,7 +109,11 @@ type projectOut struct {
 // (< 20 docs in practice) and the bulk handlers (list/get) are low-QPS
 // compared to run metrics — caching is not worth the staleness risk.
 func (s *Server) resolveOverviewWidget(templateID, phase string, overrides map[string]string) string {
-	if phase != "" && len(overrides) > 0 {
+	// Per-project hero overrides win first. Phaseless projects (manual
+	// create, no template) store their override under the empty-phase
+	// key — same shape as the mobile customize sheet uses, so the two
+	// sides agree on the wire.
+	if len(overrides) > 0 {
 		if w, ok := overrides[phase]; ok && w != "" && validOverviewWidgets[w] {
 			return w
 		}

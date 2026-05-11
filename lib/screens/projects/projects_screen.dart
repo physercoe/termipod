@@ -1136,14 +1136,12 @@ class _InfoTile extends StatelessWidget {
   final String subtitle;
   final String? trailing;
   final Widget? trailingWidget;
-  final Widget? leading;
   final VoidCallback? onTap;
   const _InfoTile({
     required this.title,
     required this.subtitle,
     this.trailing,
     this.trailingWidget,
-    this.leading,
     this.onTap,
   });
   @override
@@ -1160,10 +1158,6 @@ class _InfoTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 10),
-          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

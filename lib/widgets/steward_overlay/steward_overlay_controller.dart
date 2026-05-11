@@ -688,6 +688,11 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   Future<void> sendUserMessage(
     String text, {
     List<Map<String, String>>? images,
+    // artifact-type-registry W7.2 — per-modality attachments. Each is
+    // optional; the hub accepts at most one of each modality per turn.
+    Map<String, String>? pdf,
+    Map<String, String>? audio,
+    Map<String, String>? video,
   }) async {
     final agentId = state.agentId;
     if (agentId == null) {
@@ -703,6 +708,9 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       kind: 'text',
       body: text.isEmpty ? null : text,
       images: hasImages ? images : null,
+      pdfs: pdf == null ? null : [pdf],
+      audios: audio == null ? null : [audio],
+      videos: video == null ? null : [video],
     );
   }
 

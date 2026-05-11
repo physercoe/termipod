@@ -101,6 +101,16 @@ type Family struct {
 	// depending on UI). Per-mode keying because gemini-cli supports
 	// images on M1 (--acp) but strips on M2 (exec-per-turn).
 	PromptImage map[string]bool `yaml:"prompt_image,omitempty" json:"prompt_image,omitempty"`
+
+	// PromptPDF / PromptAudio / PromptVideo mirror PromptImage for the
+	// other three multimodal modalities (artifact-type-registry W7.2).
+	// PDF is cross-engine (Claude document block, Gemini inline_data,
+	// Codex file_data); audio/video are Gemini-only today. As with
+	// PromptImage these maps gate the composer's per-modality
+	// affordance; the hub validates MIME+caps regardless.
+	PromptPDF   map[string]bool `yaml:"prompt_pdf,omitempty" json:"prompt_pdf,omitempty"`
+	PromptAudio map[string]bool `yaml:"prompt_audio,omitempty" json:"prompt_audio,omitempty"`
+	PromptVideo map[string]bool `yaml:"prompt_video,omitempty" json:"prompt_video,omitempty"`
 }
 
 // FrameProfile is the per-engine declarative translator for stream-json

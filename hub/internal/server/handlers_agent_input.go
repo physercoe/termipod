@@ -26,6 +26,21 @@ import (
 const (
 	maxImagesPerInput = 3
 	maxImageSizeBytes = 5 * 1024 * 1024
+
+	// artifact-type-registry W7.2 — per-modality caps for the three
+	// non-image attachment kinds. Counts are conservative (1 each per
+	// turn) because their byte payloads dwarf images; sizes are lower
+	// bounds across the engines that accept the modality. PDF: Claude
+	// allows 32 MB and 600 pages, Gemini allows 50 MB and 1000 pages —
+	// we pick 32 MB so the same upload works on both. Audio/video:
+	// Gemini-only today, capped well below the engine ceiling so the
+	// base64 envelope doesn't blow up our agent_events payload sizes.
+	maxPdfsPerInput   = 1
+	maxPdfSizeBytes   = 32 * 1024 * 1024
+	maxAudiosPerInput = 1
+	maxAudioSizeBytes = 20 * 1024 * 1024
+	maxVideosPerInput = 1
+	maxVideoSizeBytes = 20 * 1024 * 1024
 )
 
 var allowedImageMimes = map[string]struct{}{
@@ -35,6 +50,30 @@ var allowedImageMimes = map[string]struct{}{
 	"image/gif":  {},
 }
 
+// MIME allowlists per non-image modality (W7.2). Kept narrow on
+// purpose — agents that need broader format support (HEIC, AVIF, OGG,
+// AVI) can fall back to the artifact-upload path, where conversion +
+// transcoding happen out-of-band rather than blocking the prompt.
+var allowedPdfMimes = map[string]struct{}{
+	"application/pdf": {},
+}
+
+var allowedAudioMimes = map[string]struct{}{
+	"audio/mpeg": {}, // mp3
+	"audio/mp4":  {}, // m4a
+	"audio/wav":  {},
+	"audio/webm": {},
+	"audio/ogg":  {},
+	"audio/aac":  {},
+	"audio/flac": {},
+}
+
+var allowedVideoMimes = map[string]struct{}{
+	"video/mp4":       {},
+	"video/webm":      {},
+	"video/quicktime": {}, // .mov
+}
+
 // imageInput is the wire shape carried on POST /agents/{id}/input
 // alongside body. We persist it as-is into payload_json["images"]; each
 // driver's Input handler reshapes it to engine-native blocks (Phase 4
@@ -42,6 +81,17 @@ var allowedImageMimes = map[string]struct{}{
 type imageInput struct {
 	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
+}
+
+// attachmentInput is the wire shape for non-image multimodal
+// attachments (W7.2). Same {mime_type, data} pair as imageInput plus an
+// optional `filename` — engines that surface a document-style block
+// (Claude `document`, Codex `file_data`) want a display name so the
+// agent can address the file by name in its reply.
+type attachmentInput struct {
+	MimeType string `json:"mime_type"`
+	Data     string `json:"data"`
+	Filename string `json:"filename,omitempty"`
 }
 
 func validateImages(images []imageInput) error {
@@ -63,6 +113,41 @@ func validateImages(images []imageInput) error {
 		if len(decoded) > maxImageSizeBytes {
 			return fmt.Errorf("image[%d]: %d bytes exceeds %d byte cap",
 				i, len(decoded), maxImageSizeBytes)
+		}
+	}
+	return nil
+}
+
+// validateAttachments validates a non-image attachment slice (W7.2) —
+// generic over modality so the three slices share one code path.
+// `label` ends up in the error message and is also used to pick the
+// allowlist's hint string; `mimes` is the modality's allowlist;
+// `maxN` and `maxSize` are the per-modality caps.
+func validateAttachments(
+	label string,
+	atts []attachmentInput,
+	mimes map[string]struct{},
+	maxN int,
+	maxSize int,
+) error {
+	if len(atts) > maxN {
+		return fmt.Errorf("at most %d %s per input", maxN, label)
+	}
+	for i, a := range atts {
+		if _, ok := mimes[a.MimeType]; !ok {
+			return fmt.Errorf("%s[%d]: mime_type %q not allowed",
+				label, i, a.MimeType)
+		}
+		if a.Data == "" {
+			return fmt.Errorf("%s[%d]: data required", label, i)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(a.Data)
+		if err != nil {
+			return fmt.Errorf("%s[%d]: malformed base64", label, i)
+		}
+		if len(decoded) > maxSize {
+			return fmt.Errorf("%s[%d]: %d bytes exceeds %d byte cap",
+				label, i, len(decoded), maxSize)
 		}
 	}
 	return nil
@@ -143,6 +228,14 @@ type agentInputIn struct {
 	// don't know about images ignore the field — text turns stay
 	// backward-compatible.
 	Images []imageInput `json:"images,omitempty"`
+	// artifact-type-registry W7.2 — non-image multimodal attachments.
+	// PDFs are cross-engine (Claude document / Gemini inline_data /
+	// Codex file_data). Audio/video are Gemini-only; drivers that
+	// don't support a modality drop it on the floor and warn (mirrors
+	// W4.5 strip-and-warn for image-incapable engines).
+	Pdfs   []attachmentInput `json:"pdfs,omitempty"`
+	Audios []attachmentInput `json:"audios,omitempty"`
+	Videos []attachmentInput `json:"videos,omitempty"`
 }
 
 func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
@@ -161,11 +254,28 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	payloadMap := map[string]any{}
 	switch in.Kind {
 	case "text":
-		if in.Body == "" && len(in.Images) == 0 {
-			writeErr(w, http.StatusBadRequest, "body or images required")
+		hasAttachments := len(in.Images) > 0 || len(in.Pdfs) > 0 ||
+			len(in.Audios) > 0 || len(in.Videos) > 0
+		if in.Body == "" && !hasAttachments {
+			writeErr(w, http.StatusBadRequest, "body or attachments required")
 			return
 		}
 		if err := validateImages(in.Images); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := validateAttachments("pdfs", in.Pdfs,
+			allowedPdfMimes, maxPdfsPerInput, maxPdfSizeBytes); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := validateAttachments("audios", in.Audios,
+			allowedAudioMimes, maxAudiosPerInput, maxAudioSizeBytes); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := validateAttachments("videos", in.Videos,
+			allowedVideoMimes, maxVideosPerInput, maxVideoSizeBytes); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -174,6 +284,15 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(in.Images) > 0 {
 			payloadMap["images"] = in.Images
+		}
+		if len(in.Pdfs) > 0 {
+			payloadMap["pdfs"] = in.Pdfs
+		}
+		if len(in.Audios) > 0 {
+			payloadMap["audios"] = in.Audios
+		}
+		if len(in.Videos) > 0 {
+			payloadMap["videos"] = in.Videos
 		}
 	case "approval":
 		// Valid decisions: approve/allow/deny map to "selected" on the

@@ -84,12 +84,61 @@ bool resolveCanAttachImages({
   required String? kind,
   required String? drivingMode,
   required List<Map<String, dynamic>> families,
+}) =>
+    _resolvePromptFlag(
+        kind: kind,
+        drivingMode: drivingMode,
+        families: families,
+        flagKey: 'prompt_image');
+
+/// artifact-type-registry W7.2 — per-modality capability resolvers.
+/// Same family/mode join as [resolveCanAttachImages], keyed on the
+/// new `prompt_pdf[mode]` / `prompt_audio[mode]` / `prompt_video[mode]`
+/// flags. PDF is cross-engine; audio/video are Gemini M1 only.
+bool resolveCanAttachPdfs({
+  required String? kind,
+  required String? drivingMode,
+  required List<Map<String, dynamic>> families,
+}) =>
+    _resolvePromptFlag(
+        kind: kind,
+        drivingMode: drivingMode,
+        families: families,
+        flagKey: 'prompt_pdf');
+
+bool resolveCanAttachAudio({
+  required String? kind,
+  required String? drivingMode,
+  required List<Map<String, dynamic>> families,
+}) =>
+    _resolvePromptFlag(
+        kind: kind,
+        drivingMode: drivingMode,
+        families: families,
+        flagKey: 'prompt_audio');
+
+bool resolveCanAttachVideo({
+  required String? kind,
+  required String? drivingMode,
+  required List<Map<String, dynamic>> families,
+}) =>
+    _resolvePromptFlag(
+        kind: kind,
+        drivingMode: drivingMode,
+        families: families,
+        flagKey: 'prompt_video');
+
+bool _resolvePromptFlag({
+  required String? kind,
+  required String? drivingMode,
+  required List<Map<String, dynamic>> families,
+  required String flagKey,
 }) {
   if (kind == null || kind.isEmpty) return false;
   final mode = (drivingMode == null || drivingMode.isEmpty) ? 'M4' : drivingMode;
   for (final f in families) {
     if (f['family'] == kind) {
-      final pi = f['prompt_image'];
+      final pi = f[flagKey];
       if (pi is Map && pi[mode] == true) return true;
       return false;
     }

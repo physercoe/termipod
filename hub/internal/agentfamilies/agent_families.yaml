@@ -49,6 +49,15 @@ families:
       M1: true
       M2: true
       M4: false
+    # artifact-type-registry W7.2 — PDF document block support. Claude
+    # accepts a `document` content block with base64 PDF data on the
+    # stream-json input array; same modes as image. Audio/video are
+    # not supported on Claude's input today (chat API doesn't accept
+    # them) so those flags stay false / unset.
+    prompt_pdf:
+      M1: true
+      M2: true
+      M4: false
     incompatibilities:
       - mode: M1
         billing: subscription
@@ -281,6 +290,22 @@ families:
       M1: true
       M2: false
       M4: false
+    # artifact-type-registry W7.2 — Gemini accepts PDF, audio, and
+    # video as `inline_data` content blocks on M1 (--acp). Same M2/M4
+    # gating as image. Gemini is the only engine today that accepts
+    # audio/video input.
+    prompt_pdf:
+      M1: true
+      M2: false
+      M4: false
+    prompt_audio:
+      M1: true
+      M2: false
+      M4: false
+    prompt_video:
+      M1: true
+      M2: false
+      M4: false
     # Gemini, like codex, uses the profile translator authoritatively:
     # there is no legacy hardcoded path for the exec-per-turn-with-resume
     # driver (ADR-013). Dispatch is on the top-level `type` field, the
@@ -426,6 +451,13 @@ families:
     # accepts content blocks including `{type:"input_image",
     # image_url:"data:..."}`. Driver wire shape lands in W4.3.
     prompt_image:
+      M1: true
+      M2: true
+      M4: false
+    # artifact-type-registry W7.2 — codex accepts PDF as `file_data`
+    # content block; audio/video aren't supported on OpenAI chat
+    # input today.
+    prompt_pdf:
       M1: true
       M2: true
       M4: false

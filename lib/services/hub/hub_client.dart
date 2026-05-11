@@ -1508,6 +1508,13 @@ class HubClient {
     // payload_json["images"]; per-driver shape mapping lands in
     // W4.2-W4.5. UI surface (composer attach branch) lands in W4.6.
     List<Map<String, String>>? images,
+    // artifact-type-registry W7.2 — non-image multimodal attachments.
+    // PDFs are cross-engine (Claude document, Codex file_data, Gemini
+    // inline_data); audio/video are Gemini-only. Each entry is
+    // `{mime_type, data, filename}` with data base64.
+    List<Map<String, String>>? pdfs,
+    List<Map<String, String>>? audios,
+    List<Map<String, String>>? videos,
   }) async {
     final req = <String, dynamic>{'kind': kind};
     if (body != null) req['body'] = body;
@@ -1520,6 +1527,9 @@ class HubClient {
     if (modeId != null) req['mode_id'] = modeId;
     if (modelId != null) req['model_id'] = modelId;
     if (images != null && images.isNotEmpty) req['images'] = images;
+    if (pdfs != null && pdfs.isNotEmpty) req['pdfs'] = pdfs;
+    if (audios != null && audios.isNotEmpty) req['audios'] = audios;
+    if (videos != null && videos.isNotEmpty) req['videos'] = videos;
     final out =
         await _post('/v1/teams/${cfg.teamId}/agents/$agentId/input', req);
     return (out as Map).cast<String, dynamic>();

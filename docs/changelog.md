@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.496
+> **Last verified vs code:** v1.0.497
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,83 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.497-alpha — 2026-05-11
+
+Wave 2 W7.2 of artifact-type-registry: true multimodal attach for PDF /
+audio / video. Closes the artifact-type-registry plan (W1-W7 all
+shipped). PDF is cross-engine (Claude `document`, Codex `file_data`,
+Gemini ACP `resource`); audio/video are Gemini-only.
+
+### Added
+
+- **Hub validator** (`handlers_agent_input.go`) — per-modality MIME
+  allowlists + size caps mirroring image:
+  PDF ≤32 MB / ≤1 per turn (`application/pdf` only);
+  audio ≤20 MB / ≤1 per turn (mp3/m4a/wav/webm/ogg/aac/flac);
+  video ≤20 MB / ≤1 per turn (mp4/webm/quicktime). New
+  `attachmentInput` shape carries `{mime_type, data, filename}`;
+  `validateAttachments` generalises image validation across the
+  three modalities. Payload persists to `payload_json["pdfs"]` etc.
+- **Family registry** (`agent_families.yaml` + `families.go`) —
+  `PromptPDF` / `PromptAudio` / `PromptVideo` flag maps mirror
+  `PromptImage`. Claude + Codex declare `prompt_pdf` on M1+M2;
+  Gemini declares all four (`prompt_image` / `pdf` / `audio` /
+  `video`) on M1 only.
+- **Driver wire mapping** (`driver_stdio.go` / `driver_appserver.go`
+  / `driver_acp.go` / `driver_exec_resume.go`) — each driver lowers
+  the canonical attachment list into its engine's content-block
+  shape:
+  - Claude `document` block (`type: document, source: {type:
+    base64, media_type, data}, title: filename`).
+  - Codex `input_file` block (`type: input_file, file_data:
+    data:application/pdf;base64,..., filename`).
+  - Gemini ACP `resource` block (`type: resource, resource: {uri:
+    data:<mime>;base64,..., mimeType}`) for PDF and video; `audio`
+    block (`type: audio, mimeType, data`) for audio.
+  - gemini exec-per-turn (M2) strips all four modalities and emits
+    a `kind=system` warning matching the existing image strip path.
+- **Mobile composer** (`agent_compose.dart` +
+  `steward_overlay/steward_overlay_chat.dart`) — new `_pickMultimodal`
+  flow with kind picker when the family supports >1 modality.
+  `_canAttachPdfs` / `_canAttachAudio` / `_canAttachVideo` flags
+  resolved alongside `_canAttachImages` from the family registry.
+  Pending attachments render as `InputChip`s above the input
+  toolbar; per-modality caps mirror the hub-side caps so the
+  composer clamps before send.
+- **`HubClient.postAgentInput`** — new optional `pdfs` / `audios` /
+  `videos` named parameters carry the attachment maps to the hub.
+- **`composer_multimodal_attach.dart`** — shared
+  `pickMultimodalFile(MultimodalKind)` helper plus
+  `MultimodalAttachment`, `MultimodalAttachError`, MIME allowlists,
+  extension allowlists. Pulled into a parallel module to
+  `composer_image_attach.dart` since the modalities are
+  pass-through (no compression) and the picker filters by
+  extension.
+
+### Test
+
+- **`hub/internal/server/handlers_agent_input_test.go`** —
+  `TestPostAgentInput_PdfHappyPath`,
+  `TestPostAgentInput_AudioVideoHappyPath`,
+  `TestPostAgentInput_MultimodalValidation` covering MIME, empty
+  data, and count caps per modality.
+- **`test/widgets/multimodal_attach_test.dart`** —
+  `mimeForExtension` per-kind disambiguation (esp. `.webm` audio
+  vs video); MultimodalKindX extension wiring.
+- **`test/widgets/agent_compose_image_gate_test.dart`** — extended
+  with `resolveCanAttach{Pdfs,Audio,Video}` cases for the three
+  new flags.
+- Driver-side wire shapes verified by the existing hostrunner
+  tests (image strip warning updated to "no inline multimodal
+  support" matches the new copy).
+
+### References
+
+- Plan: `docs/plans/artifact-type-registry.md` (wave 2 W7.2 —
+  status now Done overall).
 
 ---
 

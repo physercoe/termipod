@@ -255,12 +255,21 @@ func (d *ExecResumeDriver) Input(ctx context.Context, kind string, payload map[s
 		// their attachment didn't reach the model. Switching to M1
 		// (--acp) is the path forward for multimodal turns; the
 		// warning text says so.
-		if images := extractImageInputs(payload); len(images) > 0 {
+		//
+		// artifact-type-registry W7.2 — PDF/audio/video share the same
+		// strip-and-warn path; gemini exec-per-turn argv accepts no
+		// multimodal attachments at all.
+		dropped := 0
+		dropped += len(extractImageInputs(payload))
+		dropped += len(extractAttachmentInputs(payload, "pdfs"))
+		dropped += len(extractAttachmentInputs(payload, "audios"))
+		dropped += len(extractAttachmentInputs(payload, "videos"))
+		if dropped > 0 {
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
 				map[string]any{
-					"reason":  "gemini exec-per-turn has no inline image support — switch to gemini --acp (M1) for multimodal turns",
+					"reason":  "gemini exec-per-turn has no inline multimodal support — switch to gemini --acp (M1) for multimodal turns",
 					"engine":  "gemini-exec",
-					"dropped": len(images),
+					"dropped": dropped,
 				})
 		}
 		if body == "" {

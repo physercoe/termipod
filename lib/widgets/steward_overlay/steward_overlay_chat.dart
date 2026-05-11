@@ -7,6 +7,7 @@ import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
 import '../../theme/design_colors.dart';
 import '../image_attach/composer_image_attach.dart';
+import '../multimodal_attach/composer_multimodal_attach.dart';
 import '../text_attach/composer_text_attach.dart';
 import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
@@ -39,6 +40,11 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
   // the input subtree off the rebuild path that triggered the
   // v1.0.466 IME bugs.
   bool _canAttachImages = false;
+  // W7.2 — per-modality capability flags. Same family/mode join as
+  // _canAttachImages; resolved once per bound agent.
+  bool _canAttachPdfs = false;
+  bool _canAttachAudio = false;
+  bool _canAttachVideo = false;
   String? _resolvedForAgentId;
 
   /// Sends user input via the steward controller. Hoisted out of the
@@ -46,10 +52,19 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
   /// State doesn't think the callback identity changed across builds.
   Future<void> _sendMessage(
     String text,
-    List<Map<String, String>>? images,
-  ) async {
+    List<Map<String, String>>? images, {
+    Map<String, String>? pdf,
+    Map<String, String>? audio,
+    Map<String, String>? video,
+  }) async {
     final controller = ref.read(stewardOverlayControllerProvider.notifier);
-    await controller.sendUserMessage(text, images: images);
+    await controller.sendUserMessage(
+      text,
+      images: images,
+      pdf: pdf,
+      audio: audio,
+      video: video,
+    );
   }
 
   Future<void> _resolveCapabilityIfNeeded(String? agentId) async {
@@ -66,14 +81,30 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
           .toList();
       final drivingMode =
           (agent['mode'] ?? agent['driving_mode'])?.toString();
-      final ok = resolveCanAttachImages(
-        kind: agent['kind']?.toString(),
-        drivingMode: drivingMode,
-        families: families,
+      final kind = agent['kind']?.toString();
+      final canImg = resolveCanAttachImages(
+        kind: kind, drivingMode: drivingMode, families: families,
+      );
+      final canPdf = resolveCanAttachPdfs(
+        kind: kind, drivingMode: drivingMode, families: families,
+      );
+      final canAud = resolveCanAttachAudio(
+        kind: kind, drivingMode: drivingMode, families: families,
+      );
+      final canVid = resolveCanAttachVideo(
+        kind: kind, drivingMode: drivingMode, families: families,
       );
       if (!mounted) return;
-      if (ok != _canAttachImages) {
-        setState(() => _canAttachImages = ok);
+      if (canImg != _canAttachImages ||
+          canPdf != _canAttachPdfs ||
+          canAud != _canAttachAudio ||
+          canVid != _canAttachVideo) {
+        setState(() {
+          _canAttachImages = canImg;
+          _canAttachPdfs = canPdf;
+          _canAttachAudio = canAud;
+          _canAttachVideo = canVid;
+        });
       }
     } catch (_) {
       // Swallow — affordance stays hidden on transient lookup
@@ -145,6 +176,9 @@ class _ChatInputSlot extends ConsumerWidget {
       key: const ValueKey('steward-overlay-chat-input'),
       onSend: parent._sendMessage,
       canAttachImages: parent._canAttachImages,
+      canAttachPdfs: parent._canAttachPdfs,
+      canAttachAudio: parent._canAttachAudio,
+      canAttachVideo: parent._canAttachVideo,
     );
   }
 }
@@ -230,20 +264,33 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
 /// `ref.watch`) breaks the rebuild path; the input only rebuilds
 /// when its OWN setState fires.
 class _ChatInput extends StatefulWidget {
-  /// Called with the trimmed text + optional image attachments when
-  /// the user submits. Should throw on failure so the input can
-  /// restore the text for retry.
-  final Future<void> Function(String text, List<Map<String, String>>? images)
-      onSend;
+  /// Called with the trimmed text + optional image + per-modality
+  /// attachments when the user submits. Should throw on failure so the
+  /// input can restore the text for retry.
+  final Future<void> Function(
+    String text,
+    List<Map<String, String>>? images, {
+    Map<String, String>? pdf,
+    Map<String, String>? audio,
+    Map<String, String>? video,
+  }) onSend;
 
   /// Whether the active agent's family declares `prompt_image[mode]`
   /// true. Controls visibility of the paperclip affordance.
   final bool canAttachImages;
 
+  /// W7.2 — per-modality capability flags (PDF / audio / video).
+  final bool canAttachPdfs;
+  final bool canAttachAudio;
+  final bool canAttachVideo;
+
   const _ChatInput({
     super.key,
     required this.onSend,
     this.canAttachImages = false,
+    this.canAttachPdfs = false,
+    this.canAttachAudio = false,
+    this.canAttachVideo = false,
   });
 
   @override
@@ -264,8 +311,10 @@ class _ChatInputState extends State<_ChatInput> {
   // alongside the text body in postAgentInput's images param (W4.1).
   bool _attaching = false;
   bool _attachingText = false;
+  bool _attachingMultimodal = false;
   String? _attachError;
   final List<Map<String, String>> _pendingImages = [];
+  final Map<MultimodalKind, Map<String, String>> _pendingMultimodal = {};
 
   @override
   void dispose() {
@@ -341,23 +390,105 @@ class _ChatInputState extends State<_ChatInput> {
     }
   }
 
+  /// W7.2 — pick a PDF / audio / video file and queue it as a
+  /// multimodal attachment. If the family supports >1 modality the
+  /// picker shows a kind sheet first.
+  Future<void> _pickMultimodal() async {
+    if (_attachingMultimodal || _sending) return;
+    final kinds = <MultimodalKind>[
+      if (widget.canAttachPdfs) MultimodalKind.pdf,
+      if (widget.canAttachAudio) MultimodalKind.audio,
+      if (widget.canAttachVideo) MultimodalKind.video,
+    ];
+    if (kinds.isEmpty) return;
+    MultimodalKind? chosen;
+    if (kinds.length == 1) {
+      chosen = kinds.first;
+    } else {
+      chosen = await showModalBottomSheet<MultimodalKind>(
+        context: context,
+        builder: (sheetCtx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final k in kinds)
+                ListTile(
+                  leading: Icon(_iconForMultimodal(k)),
+                  title: Text('Attach ${k.label}'),
+                  onTap: () => Navigator.pop(sheetCtx, k),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (chosen == null) return;
+    setState(() {
+      _attachingMultimodal = true;
+      _attachError = null;
+    });
+    try {
+      final att = await pickMultimodalFile(chosen);
+      if (att == null) return;
+      if (!mounted) return;
+      setState(() => _pendingMultimodal[chosen!] = att.toJson());
+    } on MultimodalAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attachingMultimodal = false);
+    }
+  }
+
+  IconData _iconForMultimodal(MultimodalKind k) {
+    switch (k) {
+      case MultimodalKind.pdf:
+        return Icons.picture_as_pdf_outlined;
+      case MultimodalKind.audio:
+        return Icons.audiotrack;
+      case MultimodalKind.video:
+        return Icons.movie_outlined;
+    }
+  }
+
+  void _removePendingMultimodal(MultimodalKind k) {
+    if (!_pendingMultimodal.containsKey(k)) return;
+    setState(() => _pendingMultimodal.remove(k));
+  }
+
   Future<void> _send() async {
     final text = _ctrl.text.trim();
     final hasImages = _pendingImages.isNotEmpty;
-    if (text.isEmpty && !hasImages) return;
+    final pdf = _pendingMultimodal[MultimodalKind.pdf];
+    final audio = _pendingMultimodal[MultimodalKind.audio];
+    final video = _pendingMultimodal[MultimodalKind.video];
+    final hasMultimodal = pdf != null || audio != null || video != null;
+    if (text.isEmpty && !hasImages && !hasMultimodal) return;
     // Clear BEFORE the await so anything the user types during the
     // network round-trip isn't wiped when the future resolves. On
     // failure we restore the original text so the user can retry.
     final stagedImages = hasImages
         ? List<Map<String, String>>.from(_pendingImages)
         : null;
+    final stagedMultimodal =
+        Map<MultimodalKind, Map<String, String>>.from(_pendingMultimodal);
     _ctrl.clear();
     setState(() {
       _sending = true;
       _pendingImages.clear();
+      _pendingMultimodal.clear();
     });
     try {
-      await widget.onSend(text, stagedImages);
+      await widget.onSend(
+        text,
+        stagedImages,
+        pdf: stagedMultimodal[MultimodalKind.pdf],
+        audio: stagedMultimodal[MultimodalKind.audio],
+        video: stagedMultimodal[MultimodalKind.video],
+      );
     } catch (e) {
       if (mounted) {
         // Only restore if the user hasn't started typing something
@@ -367,6 +498,9 @@ class _ChatInputState extends State<_ChatInput> {
         }
         if (stagedImages != null) {
           setState(() => _pendingImages.addAll(stagedImages));
+        }
+        if (stagedMultimodal.isNotEmpty) {
+          setState(() => _pendingMultimodal.addAll(stagedMultimodal));
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Send failed: $e')),
@@ -380,6 +514,9 @@ class _ChatInputState extends State<_ChatInput> {
   @override
   Widget build(BuildContext context) {
     final canAttach = widget.canAttachImages;
+    final canAttachMulti = widget.canAttachPdfs ||
+        widget.canAttachAudio ||
+        widget.canAttachVideo;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: Column(
@@ -390,6 +527,26 @@ class _ChatInputState extends State<_ChatInput> {
             ComposerImageThumbnailStrip(
               images: _pendingImages,
               onRemove: _removePendingImage,
+            ),
+          if (_pendingMultimodal.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final entry in _pendingMultimodal.entries)
+                    InputChip(
+                      avatar: Icon(_iconForMultimodal(entry.key), size: 14),
+                      label: Text(
+                        entry.value['filename'] ?? entry.key.label,
+                        style: const TextStyle(fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onDeleted: () => _removePendingMultimodal(entry.key),
+                    ),
+                ],
+              ),
             ),
           if (_attachError != null)
             Padding(
@@ -442,6 +599,27 @@ class _ChatInputState extends State<_ChatInput> {
                 constraints:
                     const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
+              // W7.2 — PDF / audio / video attach. Visible when the
+              // family declares at least one of the prompt_pdf /
+              // prompt_audio / prompt_video flags.
+              if (canAttachMulti)
+                IconButton(
+                  tooltip: 'Attach PDF, audio, or video',
+                  onPressed: (_sending || _attachingMultimodal)
+                      ? null
+                      : _pickMultimodal,
+                  icon: _attachingMultimodal
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload_file_outlined, size: 22),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
               Expanded(
             // **IME-friendly defaults.** Earlier revisions set
             // `autocorrect: false` + `enableSuggestions: false` as

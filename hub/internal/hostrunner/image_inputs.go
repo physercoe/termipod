@@ -42,3 +42,42 @@ func extractImageInputs(payload map[string]any) []imageInput {
 	}
 	return out
 }
+
+// attachmentInput is the decoded form for non-image multimodal
+// attachments (artifact-type-registry W7.2). Same {mime, data} pair as
+// imageInput plus an optional `filename` — Claude/Codex want a display
+// name on their document/file_data block. Per-modality kinds (pdf,
+// audio, video) all share this shape; the hub validator enforces MIME
+// allowlists per modality so we don't need a `kind` field here.
+type attachmentInput struct {
+	mime     string
+	data     string
+	filename string
+}
+
+// extractAttachmentInputs is the generic version of extractImageInputs
+// for the W7.2 modalities. `key` is the payload field (`"pdfs"`,
+// `"audios"`, `"videos"`).
+func extractAttachmentInputs(payload map[string]any, key string) []attachmentInput {
+	raw, ok := payload[key].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]attachmentInput, 0, len(raw))
+	for _, entry := range raw {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		mime, _ := m["mime_type"].(string)
+		data, _ := m["data"].(string)
+		filename, _ := m["filename"].(string)
+		if mime == "" || data == "" {
+			continue
+		}
+		out = append(out, attachmentInput{
+			mime: mime, data: data, filename: filename,
+		})
+	}
+	return out
+}

@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3+W4+W5+W6 of 7 shipped, W7.1 done (W7.2 remaining) (2026-05-11, v1.0.489–496-alpha)
+> **Status:** Done — all 7 wedges shipped (2026-05-11, v1.0.489–497-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.496
+> **Last verified vs code:** v1.0.497
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -451,7 +451,7 @@ or driver work.
 
 **LOC estimate:** ~250 mobile (landed close — single shared module).
 
-#### W7.2 — True multimodal PDF + audio/video attach (larger)
+#### W7.2 — True multimodal PDF + audio/video attach (larger) — ✅ SHIPPED v1.0.497-alpha
 
 PDF cross-engine + audio/video Gemini-only. Each modality gets a
 separate content-block shape on the wire; hub validates per-MIME

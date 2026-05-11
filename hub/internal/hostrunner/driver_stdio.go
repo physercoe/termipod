@@ -525,7 +525,13 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 	case "text":
 		body, _ := payload["body"].(string)
 		images := extractImageInputs(payload)
-		if body == "" && len(images) == 0 {
+		pdfs := extractAttachmentInputs(payload, "pdfs")
+		// audios/videos are silently dropped — Claude's chat input
+		// doesn't accept those modalities. The composer's gate
+		// already hides the affordance for claude-code; this is the
+		// belt-and-braces drop for forwarded A2A payloads.
+		hasAtt := len(images) > 0 || len(pdfs) > 0
+		if body == "" && !hasAtt {
 			return nil, fmt.Errorf("stdio driver: text input missing body")
 		}
 		// ADR-021 W4.2 — image content blocks. Anthropic's stream-json
@@ -533,7 +539,7 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 		// text. Source shape is `{type:"base64", media_type, data}`.
 		// Hub-side validation (W4.1) already enforced mime/size/count
 		// caps; the driver trusts the payload to be well-formed.
-		content = make([]map[string]any, 0, len(images)+1)
+		content = make([]map[string]any, 0, len(images)+len(pdfs)+1)
 		for _, img := range images {
 			content = append(content, map[string]any{
 				"type": "image",
@@ -543,6 +549,24 @@ func buildStreamJSONInputFrame(kind string, payload map[string]any) ([]byte, err
 					"data":       img.data,
 				},
 			})
+		}
+		// artifact-type-registry W7.2 — PDF document blocks.
+		// Anthropic accepts `{type:"document", source:{type:"base64",
+		// media_type:"application/pdf", data: ...}}` on input. Same
+		// envelope shape as image; only the wrapper type differs.
+		for _, p := range pdfs {
+			block := map[string]any{
+				"type": "document",
+				"source": map[string]any{
+					"type":       "base64",
+					"media_type": p.mime,
+					"data":       p.data,
+				},
+			}
+			if p.filename != "" {
+				block["title"] = p.filename
+			}
+			content = append(content, block)
 		}
 		if body != "" {
 			content = append(content, map[string]any{"type": "text", "text": body})

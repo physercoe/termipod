@@ -618,6 +618,128 @@ func TestPostAgentInput_ImagesValidation(t *testing.T) {
 	}
 }
 
+// TestPostAgentInput_PdfHappyPath — W7.2: PDF attachments plumb
+// through to payload_json["pdfs"] verbatim, including the optional
+// filename. Drivers that map to engine-native document blocks read
+// this in driver_stdio.go (Claude), driver_appserver.go (Codex),
+// driver_acp.go (Gemini).
+func TestPostAgentInput_PdfHappyPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	body := map[string]any{
+		"kind": "text",
+		"body": "summarise this paper",
+		"pdfs": []map[string]string{
+			{"mime_type": "application/pdf", "data": b64bytes(2048), "filename": "paper.pdf"},
+		},
+	}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(raw, &out)
+	var payloadRaw string
+	if err := s.db.QueryRow(
+		`SELECT payload_json FROM agent_events WHERE id = ?`,
+		out["id"]).Scan(&payloadRaw); err != nil {
+		t.Fatalf("select payload: %v", err)
+	}
+	if !strings.Contains(payloadRaw, `"pdfs"`) {
+		t.Errorf("payload missing pdfs: %s", payloadRaw)
+	}
+	if !strings.Contains(payloadRaw, `"filename":"paper.pdf"`) {
+		t.Errorf("payload missing pdf filename: %s", payloadRaw)
+	}
+}
+
+// TestPostAgentInput_AudioVideoHappyPath — W7.2: audio + video plumb
+// through (Gemini-only at the driver level; the hub accepts them
+// regardless of the agent's family — the driver does the gating).
+func TestPostAgentInput_AudioVideoHappyPath(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	body := map[string]any{
+		"kind":   "text",
+		"body":   "describe both",
+		"audios": []map[string]string{{"mime_type": "audio/mpeg", "data": b64bytes(64), "filename": "memo.mp3"}},
+		"videos": []map[string]string{{"mime_type": "video/mp4", "data": b64bytes(128), "filename": "clip.mp4"}},
+	}
+	status, raw := postInput(t, h, defaultTeamID, agentID, body)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", status, raw)
+	}
+}
+
+// TestPostAgentInput_MultimodalValidation — W7.2: per-modality MIME
+// allowlist + size caps. Each subtest pokes one validator hole.
+func TestPostAgentInput_MultimodalValidation(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := newInputRouter(s)
+	agentID := seedAgentForInput(t, s)
+
+	cases := []struct {
+		name    string
+		body    map[string]any
+		wantMsg string
+	}{
+		{
+			name: "pdf unknown mime",
+			body: map[string]any{
+				"kind": "text",
+				"body": "x",
+				"pdfs": []map[string]string{{"mime_type": "application/zip", "data": "QQ=="}},
+			},
+			wantMsg: "mime_type",
+		},
+		{
+			name: "audio empty data",
+			body: map[string]any{
+				"kind":   "text",
+				"body":   "x",
+				"audios": []map[string]string{{"mime_type": "audio/mpeg", "data": ""}},
+			},
+			wantMsg: "data required",
+		},
+		{
+			name: "video unknown mime",
+			body: map[string]any{
+				"kind":   "text",
+				"body":   "x",
+				"videos": []map[string]string{{"mime_type": "video/avi", "data": "QQ=="}},
+			},
+			wantMsg: "mime_type",
+		},
+		{
+			name: "too many pdfs",
+			body: map[string]any{
+				"kind": "text",
+				"body": "x",
+				"pdfs": []map[string]string{
+					{"mime_type": "application/pdf", "data": "QQ=="},
+					{"mime_type": "application/pdf", "data": "QQ=="},
+				},
+			},
+			wantMsg: "at most",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			status, raw := postInput(t, h, defaultTeamID, agentID, tc.body)
+			if status != http.StatusBadRequest {
+				t.Fatalf("status = %d want 400, body=%s", status, raw)
+			}
+			if !strings.Contains(string(raw), tc.wantMsg) {
+				t.Errorf("body missing %q: %s", tc.wantMsg, raw)
+			}
+		})
+	}
+}
+
 // TestPostAgentInput_ImagesIgnoredOnNonText — images on a non-text kind
 // is forward-compat noise: validation only fires on text. Sending a
 // malformed image alongside cancel kind still succeeds. (Drivers that

@@ -17,6 +17,7 @@ import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
 import 'image_attach/composer_image_attach.dart';
+import 'multimodal_attach/composer_multimodal_attach.dart';
 import 'text_attach/composer_text_attach.dart';
 
 // ADR-021 W4.1 / D5 — image-content-block contract caps. Mirrors the
@@ -76,9 +77,20 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   // with data already base64-encoded; on send they ride alongside
   // the text body in postAgentInput's images param (W4.1).
   bool _canAttachImages = false;
+  // artifact-type-registry W7.2 — per-modality capability + queued
+  // attachment state. Like _canAttachImages, these resolve once at
+  // mount from the family registry and stay stable for the agent's
+  // lifetime. `_pendingMultimodal` holds at most one entry per
+  // modality kind (caps enforced server-side); the composer sends
+  // them alongside the text body in `_send`.
+  bool _canAttachPdfs = false;
+  bool _canAttachAudio = false;
+  bool _canAttachVideo = false;
   bool _attaching = false;
   bool _attachingText = false;
+  bool _attachingMultimodal = false;
   final List<Map<String, String>> _pendingImages = [];
+  final Map<MultimodalKind, Map<String, String>> _pendingMultimodal = {};
 
   @override
   void initState() {
@@ -104,14 +116,26 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       // Older clients/payloads may still surface it as `driving_mode`,
       // so accept both — `mode` wins when present.
       final drivingMode = (agent['mode'] ?? agent['driving_mode'])?.toString();
-      final ok = resolveCanAttachImages(
-        kind: agent['kind']?.toString(),
-        drivingMode: drivingMode,
-        families: families,
-      );
+      final kind = agent['kind']?.toString();
+      final canImg = resolveCanAttachImages(
+          kind: kind, drivingMode: drivingMode, families: families);
+      final canPdf = resolveCanAttachPdfs(
+          kind: kind, drivingMode: drivingMode, families: families);
+      final canAud = resolveCanAttachAudio(
+          kind: kind, drivingMode: drivingMode, families: families);
+      final canVid = resolveCanAttachVideo(
+          kind: kind, drivingMode: drivingMode, families: families);
       if (!mounted) return;
-      if (ok != _canAttachImages) {
-        setState(() => _canAttachImages = ok);
+      if (canImg != _canAttachImages ||
+          canPdf != _canAttachPdfs ||
+          canAud != _canAttachAudio ||
+          canVid != _canAttachVideo) {
+        setState(() {
+          _canAttachImages = canImg;
+          _canAttachPdfs = canPdf;
+          _canAttachAudio = canAud;
+          _canAttachVideo = canVid;
+        });
       }
     } catch (_) {
       // Swallow — a transient lookup failure leaves the affordance
@@ -182,7 +206,11 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   Future<void> _send() async {
     final body = _ctrl.text.trimRight();
     final hasImages = _pendingImages.isNotEmpty;
-    if ((body.isEmpty && !hasImages) || _sending) return;
+    final pdf = _pendingMultimodal[MultimodalKind.pdf];
+    final audio = _pendingMultimodal[MultimodalKind.audio];
+    final video = _pendingMultimodal[MultimodalKind.video];
+    final hasMultimodal = pdf != null || audio != null || video != null;
+    if ((body.isEmpty && !hasImages && !hasMultimodal) || _sending) return;
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) {
       setState(() => _error = 'Not connected');
@@ -198,6 +226,9 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
         kind: 'text',
         body: body.isEmpty ? null : body,
         images: hasImages ? List<Map<String, String>>.from(_pendingImages) : null,
+        pdfs: pdf == null ? null : [pdf],
+        audios: audio == null ? null : [audio],
+        videos: video == null ? null : [video],
       );
       if (body.isNotEmpty) {
         unawaited(ref.read(inputHistoryProvider.notifier).add(body));
@@ -205,6 +236,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       if (!mounted) return;
       _ctrl.clear();
       _pendingImages.clear();
+      _pendingMultimodal.clear();
       _focus.requestFocus();
     } on HubApiError catch (e) {
       if (!mounted) return;
@@ -246,6 +278,76 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   void _removePendingImage(int index) {
     if (index < 0 || index >= _pendingImages.length) return;
     setState(() => _pendingImages.removeAt(index));
+  }
+
+  /// W7.2 — pick a PDF / audio / video file and queue it as a
+  /// multimodal attachment alongside the next message. If the agent's
+  /// family supports more than one modality the picker shows a kind
+  /// sheet first; single-modality families pick directly.
+  Future<void> _pickMultimodal() async {
+    if (_attachingMultimodal || _sending) return;
+    final kinds = <MultimodalKind>[
+      if (_canAttachPdfs) MultimodalKind.pdf,
+      if (_canAttachAudio) MultimodalKind.audio,
+      if (_canAttachVideo) MultimodalKind.video,
+    ];
+    if (kinds.isEmpty) return;
+    MultimodalKind? chosen;
+    if (kinds.length == 1) {
+      chosen = kinds.first;
+    } else {
+      chosen = await showModalBottomSheet<MultimodalKind>(
+        context: context,
+        builder: (sheetCtx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final k in kinds)
+                ListTile(
+                  leading: Icon(_iconForMultimodal(k)),
+                  title: Text('Attach ${k.label}'),
+                  onTap: () => Navigator.pop(sheetCtx, k),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (chosen == null) return;
+    setState(() {
+      _attachingMultimodal = true;
+      _error = null;
+    });
+    try {
+      final att = await pickMultimodalFile(chosen);
+      if (att == null) return;
+      if (!mounted) return;
+      setState(() => _pendingMultimodal[chosen!] = att.toJson());
+    } on MultimodalAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attachingMultimodal = false);
+    }
+  }
+
+  IconData _iconForMultimodal(MultimodalKind k) {
+    switch (k) {
+      case MultimodalKind.pdf:
+        return Icons.picture_as_pdf_outlined;
+      case MultimodalKind.audio:
+        return Icons.audiotrack;
+      case MultimodalKind.video:
+        return Icons.movie_outlined;
+    }
+  }
+
+  void _removePendingMultimodal(MultimodalKind k) {
+    if (!_pendingMultimodal.containsKey(k)) return;
+    setState(() => _pendingMultimodal.remove(k));
   }
 
   /// W7.1 — pick a `.md`/`.py`/`.txt`/etc. file and inline its bytes
@@ -437,6 +539,27 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               images: _pendingImages,
               onRemove: _removePendingImage,
             ),
+          if (_pendingMultimodal.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final entry in _pendingMultimodal.entries)
+                    InputChip(
+                      avatar: Icon(_iconForMultimodal(entry.key),
+                          size: 14, color: muted),
+                      label: Text(
+                        entry.value['filename'] ?? entry.key.label,
+                        style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onDeleted: () => _removePendingMultimodal(entry.key),
+                    ),
+                ],
+              ),
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 4),
@@ -524,6 +647,31 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                 constraints:
                     const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
+              // W7.2 — PDF / audio / video multimodal attach. Surfaced
+              // only when the active agent's family declares at least
+              // one of `prompt_pdf[mode]` / `prompt_audio[mode]` /
+              // `prompt_video[mode]`. Tapping opens a kind picker when
+              // >1 modality is supported, picks directly otherwise.
+              if (_canAttachPdfs || _canAttachAudio || _canAttachVideo)
+                IconButton(
+                  tooltip: 'Attach PDF, audio, or video',
+                  onPressed: (_sending || _attachingMultimodal)
+                      ? null
+                      : _pickMultimodal,
+                  icon: _attachingMultimodal
+                      ? SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: muted),
+                        )
+                      : Icon(Icons.upload_file_outlined,
+                          size: 22, color: muted),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
               // Field metrics matched to action_bar/compose_bar.dart so
               // the steward composer feels the same as the tmux one:
               // unbounded line count up to a 120px ceiling, fontSize 14,

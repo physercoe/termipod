@@ -152,4 +152,76 @@ void main() {
       );
     });
   });
+
+  // W7.2 — per-modality gates (prompt_pdf / prompt_audio / prompt_video)
+  // share the same family/mode join. PDF is cross-engine; audio/video
+  // are Gemini-only.
+  group('resolveCanAttach{Pdfs,Audio,Video}', () {
+    final w72Families = [
+      {
+        'family': 'claude-code',
+        'prompt_pdf': {'M1': true, 'M2': true, 'M4': false},
+      },
+      {
+        'family': 'codex',
+        'prompt_pdf': {'M1': true, 'M2': true, 'M4': false},
+      },
+      {
+        'family': 'gemini-cli',
+        'prompt_pdf': {'M1': true, 'M2': false, 'M4': false},
+        'prompt_audio': {'M1': true, 'M2': false, 'M4': false},
+        'prompt_video': {'M1': true, 'M2': false, 'M4': false},
+      },
+    ];
+
+    test('PDF is cross-engine on supported modes', () {
+      for (final kind in ['claude-code', 'codex', 'gemini-cli']) {
+        expect(
+          resolveCanAttachPdfs(
+              kind: kind, drivingMode: 'M1', families: w72Families),
+          isTrue,
+          reason: '$kind/M1 should accept PDF',
+        );
+      }
+    });
+
+    test('PDF gemini M2 → false (exec-per-turn has no inline path)', () {
+      expect(
+        resolveCanAttachPdfs(
+            kind: 'gemini-cli', drivingMode: 'M2', families: w72Families),
+        isFalse,
+      );
+    });
+
+    test('audio is gemini-only', () {
+      expect(
+        resolveCanAttachAudio(
+            kind: 'gemini-cli', drivingMode: 'M1', families: w72Families),
+        isTrue,
+      );
+      expect(
+        resolveCanAttachAudio(
+            kind: 'claude-code', drivingMode: 'M2', families: w72Families),
+        isFalse,
+      );
+      expect(
+        resolveCanAttachAudio(
+            kind: 'codex', drivingMode: 'M2', families: w72Families),
+        isFalse,
+      );
+    });
+
+    test('video is gemini-only', () {
+      expect(
+        resolveCanAttachVideo(
+            kind: 'gemini-cli', drivingMode: 'M1', families: w72Families),
+        isTrue,
+      );
+      expect(
+        resolveCanAttachVideo(
+            kind: 'claude-code', drivingMode: 'M2', families: w72Families),
+        isFalse,
+      );
+    });
+  });
 }

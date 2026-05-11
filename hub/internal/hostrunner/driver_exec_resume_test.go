@@ -878,7 +878,7 @@ func TestExecResumeDriver_TextStripsImagesAndWarns(t *testing.T) {
 		}
 		reason, _ := e.Payload["reason"].(string)
 		engine, _ := e.Payload["engine"].(string)
-		if engine == "gemini-exec" && reason != "" && strings.Contains(strings.ToLower(reason), "no inline image support") {
+		if engine == "gemini-exec" && reason != "" && strings.Contains(strings.ToLower(reason), "no inline multimodal support") {
 			found = true
 			break
 		}

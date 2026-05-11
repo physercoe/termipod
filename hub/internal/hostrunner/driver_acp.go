@@ -1349,7 +1349,11 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 	case "text":
 		body, _ := payload["body"].(string)
 		images := extractImageInputs(payload)
-		if body == "" && len(images) == 0 {
+		pdfs := extractAttachmentInputs(payload, "pdfs")
+		audios := extractAttachmentInputs(payload, "audios")
+		videos := extractAttachmentInputs(payload, "videos")
+		hasAtt := len(images)+len(pdfs)+len(audios)+len(videos) > 0
+		if body == "" && !hasAtt {
 			return fmt.Errorf("acp driver: text input missing body")
 		}
 		// ADR-021 W4.4 — image content blocks lower to ACP shape
@@ -1364,22 +1368,55 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		if len(images) > 0 && !d.promptCapImage() {
 			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "agent",
 				map[string]any{
-					"reason":       "agent did not advertise image input support — attached images dropped",
-					"dropped":      len(images),
-					"engine":       "acp",
-					"capability":   "promptCapabilities.image",
+					"reason":     "agent did not advertise image input support — attached images dropped",
+					"dropped":    len(images),
+					"engine":     "acp",
+					"capability": "promptCapabilities.image",
 				})
 			images = nil
-			if body == "" {
+			if body == "" && len(pdfs)+len(audios)+len(videos) == 0 {
 				return fmt.Errorf("acp driver: text input has no body and image attachments were dropped (agent rejected promptCapabilities.image)")
 			}
 		}
-		prompt := make([]map[string]any, 0, len(images)+1)
+		prompt := make([]map[string]any, 0, len(images)+len(pdfs)+len(audios)+len(videos)+1)
 		for _, img := range images {
 			prompt = append(prompt, map[string]any{
 				"type":     "image",
 				"mimeType": img.mime,
 				"data":     img.data,
+			})
+		}
+		// artifact-type-registry W7.2 — PDF and video lower to ACP
+		// EmbeddedResource (`type:"resource"`) with a `data:` URI so
+		// engines that lift to Gemini's inline_data have everything in
+		// one block. Audio uses the ACP AudioContent shape (same
+		// `mimeType + data` envelope as image). No promptCapability
+		// gating yet for these — ACP doesn't define explicit caps for
+		// pdf/video, and audio's caps aren't yet advertised widely;
+		// when peers start declaring them we'll mirror the image gate.
+		for _, p := range pdfs {
+			prompt = append(prompt, map[string]any{
+				"type": "resource",
+				"resource": map[string]any{
+					"uri":      "data:" + p.mime + ";base64," + p.data,
+					"mimeType": p.mime,
+				},
+			})
+		}
+		for _, a := range audios {
+			prompt = append(prompt, map[string]any{
+				"type":     "audio",
+				"mimeType": a.mime,
+				"data":     a.data,
+			})
+		}
+		for _, v := range videos {
+			prompt = append(prompt, map[string]any{
+				"type": "resource",
+				"resource": map[string]any{
+					"uri":      "data:" + v.mime + ";base64," + v.data,
+					"mimeType": v.mime,
+				},
 			})
 		}
 		if body != "" {

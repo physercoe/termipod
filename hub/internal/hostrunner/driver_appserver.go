@@ -396,10 +396,15 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 	case "text":
 		body, _ := payload["body"].(string)
 		images := extractImageInputs(payload)
-		if body == "" && len(images) == 0 {
+		pdfs := extractAttachmentInputs(payload, "pdfs")
+		// audios/videos: silently dropped — OpenAI chat API doesn't
+		// accept audio/video input. The composer's family gate already
+		// hides the affordance; this is the backstop for A2A or other
+		// out-of-band injection paths.
+		if body == "" && len(images) == 0 && len(pdfs) == 0 {
 			return fmt.Errorf("appserver driver: text input missing body")
 		}
-		return d.startTurn(ctx, body, images)
+		return d.startTurn(ctx, body, images, pdfs)
 	case "attention_reply":
 		// Three paths depending on attention kind:
 		//  - kind=permission_prompt → we have a parked codex JSON-RPC
@@ -426,7 +431,7 @@ func (d *AppServerDriver) Input(ctx context.Context, kind string, payload map[st
 		if body == "" {
 			return fmt.Errorf("appserver driver: attention_reply produced no text")
 		}
-		return d.startTurn(ctx, body, nil)
+		return d.startTurn(ctx, body, nil, nil)
 	case "cancel":
 		// codex requires both `threadId` and `turnId` on turn/interrupt.
 		// Without either the server replies -32600 "missing field …".
@@ -704,17 +709,36 @@ func elicitationContentFromBody(body string) map[string]any {
 // and lead the input array; the text block (if any) comes last so
 // the model sees the imagery before the question. Image-only inputs
 // (no body text) are accepted at this layer.
-func (d *AppServerDriver) startTurn(ctx context.Context, text string, images []imageInput) error {
+//
+// artifact-type-registry W7.2 — PDFs lower to
+// `{type:"input_file", filename, file_data:"data:application/pdf;base64,..."}`
+// the OpenAI responses-API shape for inline document input.
+func (d *AppServerDriver) startTurn(
+	ctx context.Context,
+	text string,
+	images []imageInput,
+	pdfs []attachmentInput,
+) error {
 	tid := d.ThreadID()
 	if tid == "" {
 		return fmt.Errorf("appserver driver: no active thread (handshake didn't complete?)")
 	}
-	input := make([]map[string]any, 0, len(images)+1)
+	input := make([]map[string]any, 0, len(images)+len(pdfs)+1)
 	for _, img := range images {
 		input = append(input, map[string]any{
 			"type":      "input_image",
 			"image_url": "data:" + img.mime + ";base64," + img.data,
 		})
+	}
+	for _, p := range pdfs {
+		block := map[string]any{
+			"type":      "input_file",
+			"file_data": "data:" + p.mime + ";base64," + p.data,
+		}
+		if p.filename != "" {
+			block["filename"] = p.filename
+		}
+		input = append(input, block)
 	}
 	if text != "" {
 		input = append(input, map[string]any{"type": "text", "text": text})

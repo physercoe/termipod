@@ -5,7 +5,6 @@ import '../../../theme/design_colors.dart';
 import 'children_status.dart';
 import 'recent_artifacts.dart';
 import 'research_phase_heroes.dart';
-import 'sweep_compare.dart';
 import 'task_milestone_list.dart';
 import 'workspace_overview.dart';
 
@@ -34,7 +33,6 @@ class OverviewContext {
 /// not a null render, so a stray enum value stays obvious in-app.
 const Set<String> kKnownOverviewWidgets = {
   'task_milestone_list',
-  'sweep_compare',
   'recent_artifacts',
   'children_status',
   'recent_firings_list',
@@ -43,6 +41,9 @@ const Set<String> kKnownOverviewWidgets = {
   // pointer that pointed at the chassis-A header already rendered
   // above. Templates that used it as the project-level default now
   // fall through to `task_milestone_list` (the chassis fallback).
+  // `sweep_compare` was retired in v1.0.506: the multi-series
+  // metric-chart embedded by `experiment_dash` subsumes the
+  // cross-run scatter use case. See plans/multi-run-experiment-phase.md.
   'idea_conversation',
   'deliverable_focus',
   'experiment_dash',
@@ -67,10 +68,6 @@ const Map<String, OverviewWidgetSpec> kOverviewWidgetSpecs = {
   'task_milestone_list': OverviewWidgetSpec(
     label: 'Tasks + milestones',
     subtitle: 'Default goal-project hero · task list with progress',
-  ),
-  'sweep_compare': OverviewWidgetSpec(
-    label: 'Sweep compare',
-    subtitle: 'Cross-run scatter for ablation-style sweeps',
   ),
   'recent_artifacts': OverviewWidgetSpec(
     label: 'Recent artifacts',
@@ -126,8 +123,6 @@ Widget buildOverviewWidget(String? kind, OverviewContext ctx) {
   switch (resolved) {
     case 'task_milestone_list':
       return TaskMilestoneListHero(ctx: ctx);
-    case 'sweep_compare':
-      return SweepCompareHero(ctx: ctx);
     case 'recent_artifacts':
       return RecentArtifactsHero(ctx: ctx);
     case 'children_status':

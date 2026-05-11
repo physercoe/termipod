@@ -1173,8 +1173,8 @@ class _AgentsView extends ConsumerWidget {
 // Two chassis live here, one per kind:
 //   - goal ("Project"):   W4 A+B — fixed PortfolioHeader + a pluggable
 //                         hero declared by template.overview_widget
-//                         (task_milestone_list / sweep_compare /
-//                         recent_artifacts / children_status).
+//                         (task_milestone_list / recent_artifacts /
+//                         children_status / experiment_dash / …).
 //   - standing ("Workspace"): W6 — WorkspaceHeader (cadence + last
 //                         firing) + RecentFiringsList hero. No task
 //                         progress % and no close state, since

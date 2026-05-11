@@ -29,10 +29,18 @@ void main() {
           kDefaultOverviewWidget);
     });
 
+    test('retired sweep_compare slug normalises to default', () {
+      // Regression guard: kept out after v1.0.506 retirement (the
+      // multi-series metric-chart embedded by experiment_dash now
+      // subsumes the cross-run scatter use case).
+      expect(kKnownOverviewWidgets.contains('sweep_compare'), isFalse);
+      expect(normalizeOverviewWidget('sweep_compare'),
+          kDefaultOverviewWidget);
+    });
+
     test('legacy slugs still recognised', () {
       const legacy = [
         'task_milestone_list',
-        'sweep_compare',
         'recent_artifacts',
         'children_status',
         'recent_firings_list',

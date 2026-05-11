@@ -134,7 +134,6 @@ const overviewWidgetDefault = "task_milestone_list"
 // enum on render.
 var validOverviewWidgets = map[string]bool{
 	"task_milestone_list": true,
-	"sweep_compare":       true,
 	"recent_artifacts":    true,
 	"children_status":     true,
 	"recent_firings_list": true,
@@ -143,10 +142,13 @@ var validOverviewWidgets = map[string]bool{
 	// pointer at the chassis-A header above. Templates that named
 	// it as project-level default now fall through to
 	// overviewWidgetDefault here, which the mobile mirrors.
-	"idea_conversation":   true,
-	"deliverable_focus":   true,
-	"experiment_dash":     true,
-	"paper_acceptance":    true,
+	// `sweep_compare` was retired in v1.0.506 — the multi-series
+	// metric-chart embedded by experiment_dash subsumes the
+	// cross-run scatter use case. See plans/multi-run-experiment-phase.md.
+	"idea_conversation": true,
+	"deliverable_focus": true,
+	"experiment_dash":   true,
+	"paper_acceptance":  true,
 }
 
 // normalizeOverviewWidget returns the widget name to expose on the wire.

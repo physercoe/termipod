@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.505
+> **Last verified vs code:** v1.0.506
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,34 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.506-alpha — 2026-05-11
+
+W3 of [`multi-run-experiment-phase`](plans/multi-run-experiment-phase.md):
+drop `sweep_compare`. The 3-series metric-chart `experiment_dash`
+embeds (v1.0.503+) subsumes the cross-run scatter use case, so the
+extra hero was redundant.
+
+### Removed
+
+- `lib/screens/projects/overview_widgets/sweep_compare.dart` —
+  hero file deleted.
+- `lib/widgets/sweep_scatter.dart` — sole caller was sweep_compare;
+  deleted with it.
+- `sweep_compare` slug from `kKnownOverviewWidgets`,
+  `kOverviewWidgetSpecs`, mobile dispatch, and the hub-side
+  `validOverviewWidgets` enum. Templates that still declare
+  `overview_widget: sweep_compare` (ablation-sweep,
+  benchmark-comparison) degrade to `task_milestone_list` until W4
+  retires those templates entirely.
+
+### Added
+
+- Mobile + hub regression tests for the retired slug, mirroring the
+  v1.0.501 `portfolio_header` guard. Both layers fail loudly if
+  `sweep_compare` returns to the closed set.
 
 ---
 

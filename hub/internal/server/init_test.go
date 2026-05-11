@@ -295,9 +295,12 @@ on_create_template_id: agents.steward
 	}
 
 	// Built-in templates ship with the expected hero kinds.
+	// `sweep_compare` retired in v1.0.506; templates that still
+	// declare it (ablation-sweep, benchmark-comparison) degrade to
+	// overviewWidgetDefault until their YAML is rewritten in W4.
 	wantBuiltin := map[string]string{
-		"ablation-sweep":       "sweep_compare",
-		"benchmark-comparison": "sweep_compare",
+		"ablation-sweep":       overviewWidgetDefault,
+		"benchmark-comparison": overviewWidgetDefault,
 		"reproduce-paper":      "recent_artifacts",
 		"write-memo":           "task_milestone_list",
 	}
@@ -315,12 +318,15 @@ func TestNormalizeOverviewWidget_Fallback(t *testing.T) {
 	cases := map[string]string{
 		"":                    overviewWidgetDefault,
 		"task_milestone_list": "task_milestone_list",
-		"sweep_compare":       "sweep_compare",
 		"recent_artifacts":    "recent_artifacts",
 		"children_status":     "children_status",
 		"recent_firings_list": "recent_firings_list",
-		"not_a_widget":        overviewWidgetDefault,
-		"SWEEP_COMPARE":       overviewWidgetDefault, // case-sensitive by design
+		// `sweep_compare` retired in v1.0.506 — degrades like any other
+		// unknown slug. Kept as an explicit regression case so it can't
+		// silently come back.
+		"sweep_compare":  overviewWidgetDefault,
+		"not_a_widget":   overviewWidgetDefault,
+		"SWEEP_COMPARE":  overviewWidgetDefault, // case-sensitive by design
 	}
 	for in, want := range cases {
 		if got := normalizeOverviewWidget(in); got != want {

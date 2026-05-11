@@ -1,9 +1,9 @@
 # Test the steward-driven project lifecycle (write + A2A)
 
 > **Type:** how-to
-> **Status:** Current (2026-05-10)
+> **Status:** Current (2026-05-11)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.480
+> **Last verified vs code:** v1.0.500
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -27,9 +27,13 @@ realistic experiment run.
 The principal's stipulation is *"assume the hub and hosts has
 configured."* That implies the rest:
 
-1. **Hub running**, ≥ v1.0.480-alpha.
-2. **Mobile build** ≥ v1.0.480-alpha installed; Settings →
-   Experimental → **Steward overlay** is ON.
+1. **Hub running**, ≥ v1.0.500-alpha (chassis floor: D10 hero
+   overrides, AFM-V1 artifact body schema, phaseless override key).
+2. **Mobile build** ≥ v1.0.500-alpha installed; Settings →
+   Experimental → **Steward overlay** is ON. (Overlay backfill is
+   5-turn-targeted from v1.0.499; the compact `PhaseBadge` replaces
+   the inline ribbon from v1.0.500. Several scenarios below check
+   those.)
 3. **At least one host** in `connected` state. Two hosts ideal
    for the honest A2A test (worker on a different host than the
    steward).
@@ -97,8 +101,10 @@ former path works.
   the underlying screen flips to the new project's Overview.
 - The new project's name is intelligible (`sparse-vs-dense-attention`
   or similar — exact slug doesn't matter; the steward picks).
-- The project is parked at the `idea` phase. The phase ribbon shows
-  `Idea` highlighted; the chassis-hydrated `scope-ratified`
+- The project is parked at the `idea` phase. The `PhaseBadge` above
+  the pill bar reads `Idea · 1/5 ›`; tap to expand the underlying
+  ribbon and confirm the four upcoming phases (v1.0.500 — was a
+  full inline ribbon before). The chassis-hydrated `scope-ratified`
   acceptance criterion is visible.
 - The Documents tile (v1.0.483) is present on the idea-phase
   Overview even with no documents yet.
@@ -300,7 +306,7 @@ the project root.
 
 **Steps:**
 
-1. Type: `Log a run on research-experiment-demo with seed=42, then attach an eval_curve artifact named "demo-curve" pointing at file:///tmp/curve.json.`
+1. Type: `Log a run on research-experiment-demo with seed=42, then attach a metric-chart artifact named "demo-curve" pointing at file:///tmp/curve.json.`
 2. Wait for the steward reply + navigate to the project's runs
    tab.
 
@@ -308,11 +314,20 @@ the project root.
 
 - Runs tab shows a new row with seed=42.
 - Tapping the run reveals one attached artifact named
-  "demo-curve" of kind `eval_curve` whose URI is
-  `file:///tmp/curve.json`.
+  "demo-curve" of kind `metric-chart` whose URI is
+  `file:///tmp/curve.json`. The kind chip renders as `chart`
+  (the closed-set label — wave 2 W1, v1.0.489). Legacy
+  `eval_curve` is still accepted by the hub but silently remaps
+  to `metric-chart`; prefer the new slug when prompting.
 - The artifact row exists even though the file does not — by
   design (per Q2 in the wedge plan). Bytes-on-disk is a
   follow-up wedge.
+- Optional: if the artifact's URI were a real `blob:sha256/…`
+  served by the hub (not the case here), tapping the row would
+  open a kind-specific viewer (PDF / tabular / image / code-bundle
+  / audio / video / canvas-app). Wave 2 W2–W6 + canvas-viewer
+  shipped these viewers through v1.0.498; the `file://` URI here
+  surfaces "unsupported scheme" instead, which is also correct.
 
 **Failure modes:**
 
@@ -341,10 +356,14 @@ surfaces it back in the overlay chat as a steward bubble.
 
 **Steps:**
 
-1. Type: `Spawn a worker on host <host-id> called "summarizer-1", give it the goal "summarize a project goal in one line", and have it write a one-line title for research-method-demo.`
-2. Wait. This scenario is allowed up to **90 s** — spawn +
+1. Pick the worker's `<host-id>` from the Hosts tab → **HUB**
+   section (the indented children under the HubTile, v1.0.499
+   grouping). Personal-only bookmarks won't carry an A2A relay
+   target — only HUB-registered hosts can host workers.
+2. Type: `Spawn a worker on host <host-id> called "summarizer-1", give it the goal "summarize a project goal in one line", and have it write a one-line title for research-method-demo.`
+3. Wait. This scenario is allowed up to **90 s** — spawn +
    engine warm + A2A round-trip.
-3. Read the steward's reply in the overlay chat.
+4. Read the steward's reply in the overlay chat.
 
 **Expected:**
 
@@ -430,7 +449,108 @@ surfaces it back in the overlay chat as a steward bubble.
 
 ---
 
-## Scenario 9 — fault injection (the failure-mode validations)
+## Scenario 9 — overlay turn-count backfill (v1.0.499)
+
+**Goal:** prove the overlay panel restores **the last 5 user turns**
+of chat after the app is closed and re-opened, regardless of how
+tool-heavy the recent turns were. Catches the regression class the
+v1.0.499 fix addressed: the prior event-budget rule could surface 1–2
+turns on chats with heavy tool calls.
+
+**Steps:**
+
+1. Continuing from Scenario 0 / 1 (or any session with ≥ 5 prior
+   user turns), background the app or force-stop it from the
+   launcher.
+2. Re-open the app. The puck is visible immediately; tap to expand.
+3. Scroll the overlay chat history up.
+
+**Expected:**
+
+- The overlay shows **at least 5** of your prior user messages
+  (and the steward's replies + any `mobile.intent` pills) — not
+  one, not two, not the whole transcript. Tool-call frames are
+  collapsed out of the display, so what you see is the
+  conversational shape only.
+- The newest message is at the bottom; the chat reads
+  oldest → newest. The system note "Showing cached history
+  (offline)" may appear if the device was offline; otherwise the
+  hub re-sync is silent.
+- Sending a new message appends below the restored history.
+  Older messages may be evicted as the rolling window
+  (`_overlayMessageCap = 15`) fills.
+
+**Failure modes:**
+
+- Only 1–2 turns visible after restart → tool-heavy conversation
+  is hitting the event-budget cap. Either the upstream raised the
+  ceiling and you're on a stale build (verify mobile version), or
+  `_backfillTurnTarget` regressed. Check
+  `lib/widgets/steward_overlay/steward_overlay_controller.dart`
+  constants.
+- Chat is blank → backfill RPC failed silently. The first frame
+  on the live SSE will populate it; sending a message confirms.
+- More than ~15 messages visible → the message cap regressed.
+  Acceptable to leave as Pinned-bug for follow-up if it's only
+  cosmetic.
+
+---
+
+## Scenario 10 — director composes tiles + hero on a phaseless project (v1.0.499)
+
+**Goal:** prove the Customize affordance works for manually-created
+projects (no template, no phase). The v1.0.499 fix landed two paths
+that this exercises:
+
+- Mobile: the Customize row's `phase.isEmpty` early-return is gone;
+  the sheet opens.
+- Hub: `resolveOverviewWidget` honors `overrides[""]` (empty-string
+  phase key); the picked hero actually renders.
+- Sheet save: `PhaseTileEditorSheet._save` pops with the updated
+  body and the chain bubbles it back so the strip rebuilds
+  immediately (the customize-save callback fix).
+
+**Steps:**
+
+1. From the Projects tab, tap **+ New project** (NOT through the
+   steward). Enter just a name — leave the steward template and
+   on-create template blank. Tap Save.
+2. Open the new project. The `PhaseBadge` is NOT visible (no
+   phases). The Overview body shows the chassis default
+   `task_milestone_list` hero + the `[Outputs, Documents]` tile
+   strip + a "Customize shortcuts" row at the bottom of the strip.
+3. Tap **Customize shortcuts**. The phase-tile editor sheet opens.
+4. Toggle a tile off (e.g. drop `Documents`). Pick a different
+   hero from the picker chips (e.g. `recent_artifacts`). Tap
+   **Save**.
+
+**Expected:**
+
+- Sheet closes. The Overview body re-renders **without a manual
+  refresh**: the tile you dropped is gone, the new hero is
+  visible.
+- Re-opening the project (or pulling down to refresh) shows the
+  same state — the override persisted, not just optimistically
+  reflected.
+- The Activity tab on the new project shows a `project.update`
+  audit row attributed to the user (not the steward) listing
+  `phase_tile_overrides_json` and `overview_widget_overrides_json`
+  in the changed-fields list.
+
+**Failure modes:**
+
+- Tapping Customize does nothing → v1.0.499 mobile fix regressed
+  (`_CustomizeTilesRow._open` early-returns on empty phase).
+- Sheet saves but the strip rebuilds with the same tiles → the
+  callback plumb broke (`onProjectChanged` not firing). The hub
+  PATCH still landed; reload the project to confirm.
+- Sheet saves but the new hero never appears, even after reload →
+  hub `resolveOverviewWidget` no longer consults `overrides[""]`.
+  Check `handlers_projects.go`.
+
+---
+
+## Scenario 11 — fault injection (the failure-mode validations)
 
 The walkthrough's value is its failure modes. Before declaring
 this wedge done, deliberately break **three** subsystems and
@@ -496,6 +616,16 @@ guide.
 - **W8 composed** — ensures the verbs compose under one
   freeform user request, the way the principal will actually
   use it.
-- **W9 fault injection** — protects this doc from rotting. The
+- **W9 overlay turn-count backfill** — protects the v1.0.499 fix.
+  The overlay's "rolling 5 turns" only matters under restart
+  pressure with a tool-heavy chat history; without an explicit
+  scenario, regressions in `_backfillTurnTarget` or
+  `_overlayMessageCap` would be invisible to a green run-through.
+- **W10 director composes tiles + hero (phaseless)** — protects
+  the v1.0.499 phaseless-customize fix end-to-end (mobile open
+  guard + hub empty-phase override lookup + save-callback plumb).
+  The customize-sheet path bypasses the steward, so it's the one
+  surface the steward-driven scenarios can't catch by themselves.
+- **W11 fault injection** — protects this doc from rotting. The
   failure modes ARE the value of the walkthrough; verify them
   empirically.

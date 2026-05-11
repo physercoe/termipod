@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:termipod/widgets/shortcut_tile_strip.dart';
 
 void main() {
-  group('resolveTilesForPhase — research-template hardcoded mapping (W4)', () {
+  group('resolveTilesForPhase — research-template hardcoded safety-net map', () {
     test('lit-review phase → [References, Documents]', () {
       expect(
         resolveTilesForPhase(templateId: 'research', phase: 'lit-review'),
@@ -31,20 +31,24 @@ void main() {
       );
     });
 
-    test('idea phase → [] (conversation-first)', () {
+    test('idea phase → [Documents] (v1.0.483 — director needs path to memos)', () {
       expect(
         resolveTilesForPhase(templateId: 'research', phase: 'idea'),
-        isEmpty,
+        [TileSlug.documents],
       );
     });
 
     test('Reviews is never in any default tile set (gap #4)', () {
-      // Template-yaml-schema §11 closed enum has no Reviews slug; the
-      // hardcoded research map must not surface one for any phase.
-      for (final phase in const ['idea', 'lit-review', 'method', 'experiment', 'paper']) {
+      for (final phase in const [
+        'idea',
+        'lit-review',
+        'method',
+        'experiment',
+        'paper'
+      ]) {
         final tiles = resolveTilesForPhase(templateId: 'research', phase: phase);
-        // Loose check: TileSlug enum has no `reviews` value at all.
-        expect(tiles.toSet().intersection(TileSlug.values.toSet()), tiles.toSet());
+        expect(tiles.toSet().intersection(TileSlug.values.toSet()),
+            tiles.toSet());
       }
       expect(TileSlug.values.any((s) => s.name == 'reviews'), isFalse);
     });
@@ -66,27 +70,96 @@ void main() {
     });
   });
 
-  group('resolveTilesForPhase — phaseTilesYaml override (W7 hook)', () {
-    test('YAML mapping wins over hardcoded research map', () {
+  group('resolveTilesForPhase — W5 resolution chain (override > template > safety-net)',
+      () {
+    test('phaseTileOverrides wins over phaseTilesTemplate', () {
       final out = resolveTilesForPhase(
         templateId: 'research',
-        phase: 'experiment',
-        phaseTilesYaml: const {
-          'experiment': ['Risks', 'Discussion'],
+        phase: 'method',
+        phaseTileOverrides: const {
+          'method': ['Outputs'],
+        },
+        phaseTilesTemplate: const {
+          'method': ['References', 'Documents'],
+        },
+      );
+      expect(out, [TileSlug.outputs]);
+    });
+
+    test('phaseTilesTemplate wins over hardcoded safety-net map', () {
+      final out = resolveTilesForPhase(
+        templateId: 'research',
+        phase: 'method',
+        phaseTilesTemplate: const {
+          'method': ['Risks', 'Discussion'],
         },
       );
       expect(out, [TileSlug.risks, TileSlug.discussion]);
     });
 
-    test('unknown YAML slug is silently dropped (closed registry)', () {
+    test('unknown override slug is silently dropped (closed registry)', () {
       final out = resolveTilesForPhase(
         templateId: 'research',
         phase: 'method',
-        phaseTilesYaml: const {
+        phaseTileOverrides: const {
           'method': ['Outputs', 'Bogus'],
         },
       );
       expect(out, [TileSlug.outputs]);
+    });
+
+    test('phaseTilesYaml deprecated alias still works as template tier', () {
+      // ignore: deprecated_member_use_from_same_package
+      final out = resolveTilesForPhase(
+        templateId: 'research',
+        phase: 'method',
+        phaseTilesYaml: const {
+          'method': ['Plans'],
+        },
+      );
+      expect(out, [TileSlug.plans]);
+    });
+  });
+
+  group('parsePhaseTilesMap', () {
+    test('parses well-formed map', () {
+      final out = parsePhaseTilesMap({
+        'idea': ['Documents'],
+        'lit-review': ['References', 'Documents'],
+      });
+      expect(out, {
+        'idea': ['Documents'],
+        'lit-review': ['References', 'Documents'],
+      });
+    });
+
+    test('returns null for null / non-map inputs', () {
+      expect(parsePhaseTilesMap(null), isNull);
+      expect(parsePhaseTilesMap('not-a-map'), isNull);
+      expect(parsePhaseTilesMap(42), isNull);
+    });
+
+    test('returns null for empty map', () {
+      expect(parsePhaseTilesMap(<String, dynamic>{}), isNull);
+    });
+
+    test('drops non-string slugs', () {
+      final out = parsePhaseTilesMap({
+        'idea': ['Documents', 42, null],
+      });
+      expect(out, {
+        'idea': ['Documents'],
+      });
+    });
+
+    test('drops phases whose list parses to empty', () {
+      final out = parsePhaseTilesMap({
+        'idea': [42, null],
+        'lit-review': ['References'],
+      });
+      expect(out, {
+        'lit-review': ['References'],
+      });
     });
   });
 

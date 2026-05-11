@@ -31,7 +31,42 @@ type phaseSpecsHead struct {
 	PhaseSpecs map[string]struct {
 		OverviewWidget string               `yaml:"overview_widget"`
 		Criteria       []phaseCriterionSpec `yaml:"criteria"`
+		Tiles          []string             `yaml:"tiles"`
 	} `yaml:"phase_specs"`
+}
+
+// phaseTemplateTiles returns the per-phase tile slugs declared in the
+// template YAML's `phase_specs:` block. Returned shape:
+// `{"<phase>": ["documents", "outputs", ...]}`. Missing template /
+// missing `tiles:` field → nil (mobile then falls through to the Dart
+// chassis default). Read on each call (template set is small, low-QPS
+// reads — same caching tradeoff as phaseOverviewWidget).
+func (s *Server) phaseTemplateTiles(templateID string) map[string][]string {
+	if templateID == "" {
+		return nil
+	}
+	body := s.readProjectTemplateYAML(templateID)
+	if body == "" {
+		return nil
+	}
+	var head phaseSpecsHead
+	if err := yaml.Unmarshal([]byte(body), &head); err != nil {
+		return nil
+	}
+	out := make(map[string][]string)
+	for phase, spec := range head.PhaseSpecs {
+		if len(spec.Tiles) == 0 {
+			continue
+		}
+		// Pass slugs through verbatim; mobile-side `_slugFromString`
+		// drops unknowns. The chassis (Go) doesn't care about the
+		// vocab, only the composition.
+		out[phase] = append([]string(nil), spec.Tiles...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // phaseOverviewWidget returns the phase-scoped overview_widget declared

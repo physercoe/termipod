@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.483
+> **Last verified vs code:** v1.0.484
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,81 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.484-alpha — 2026-05-11
+
+Lifecycle-walkthrough follow-ups batch (W1–W6). Plan:
+[`docs/plans/lifecycle-walkthrough-followups.md`](plans/lifecycle-walkthrough-followups.md).
+
+### Fixed
+
+- **Plans / Schedules tiles now scope to the current project.** Tapping
+  Plans from `research-method-demo` was dumping the team-wide list (5
+  plans, one per seeded project) because `shortcut_tile_strip.dart`
+  pushed `const PlansScreen()` with no project context. Both screens
+  now accept a `projectId` constructor arg; the tile entry passes it.
+  Filter sheets still let the user broaden to team-wide.
+  `lib/screens/projects/plans_screen.dart`,
+  `lib/screens/projects/schedules_screen.dart`,
+  `lib/widgets/shortcut_tile_strip.dart`.
+
+### Changed
+
+- **Seed-demo `--shape lifecycle` plan_steps now use schema-valid kinds**
+  (`agent_spawn` / `llm_call` / `shell` / `human_decision`) instead of
+  the placeholder `agent_driven` that mirrored the phase ribbon. Each
+  project now seeds realistic per-phase work — research-method-demo,
+  for instance, has step kinds spanning `human_decision` (scope
+  ratification), `agent_spawn` (lit-reviewer + critic), `llm_call`
+  (draft method), and ends with a pending human_decision for
+  ratification. Test coverage in `seed_demo_lifecycle_test.go` asserts
+  every seeded kind is in `planStepKinds`. Phase progression itself
+  still lives on `projects.phase` + `phase_history`, where it belongs.
+- **Seed-demo `--shape lifecycle` now seeds project-scoped tasks too.**
+  Each of the five demo projects gets 2–5 kanban tasks in mixed
+  states (`todo` / `in_progress` / `done`), some with subtasks via
+  `parent_task_id`. The Tasks tab on project detail is no longer
+  empty during walkthrough QA.
+
+### Added
+
+- **`docs/reference/glossary.md` §10b — Project lifecycle entities.**
+  Canonical entries + relationship arrows for project / phase / plan /
+  plan-step / task / document / deliverable / acceptance criterion.
+  Resolves the plan-vs-phase confusion the v1.0.482 walkthrough QA
+  surfaced.
+- **`steward-lifecycle-walkthrough.md` Scenario 0 — project conjuration.**
+  New head-of-arc scenario where the steward creates the project from
+  template via `projects.create` + `mobile.navigate`. Mirrors §11 of
+  the agent-driven-mobile-ui discussion doc. Companion how-to also
+  updated.
+- **Configurable per-phase tile composition.** New column
+  `projects.phase_tile_overrides_json` (migration 0037) holds a
+  `{phase: [slug...]}` map. The hub also serves the template's YAML
+  default at `phase_tiles_template` on the project payload. Mobile's
+  `resolveTilesForPhase` resolves project override → template YAML →
+  hardcoded safety-net → chassis default. No APK rebuild needed to
+  change which tiles surface on which phase; the closed `TileSlug`
+  vocabulary stays APK-bound, only the *composition* is data.
+  `lib/widgets/shortcut_tile_strip.dart`,
+  `hub/internal/server/handlers_projects.go`,
+  `hub/internal/server/template_hydration.go`,
+  `hub/migrations/0037_*.sql`.
+- **On-device tile editor.** Trailing "Customize shortcuts for this
+  phase" row on the tile strip opens a modal sheet — checkbox + drag
+  reorder over the full `TileSlug` vocabulary; saves via PATCH
+  `phase_tile_overrides`. A "Reset" button clears the per-project
+  override and falls back to the template default. Both the steward
+  (`projects.update` MCP tool) and the user (this sheet) write to the
+  same `phase_tile_overrides_json` field.
+  `lib/widgets/shortcut_tile_strip.dart` (PhaseTileEditorSheet).
+- **Research template `phase_specs[idea].tiles = [Documents]`.** Idea
+  phase is conversation-first by spec, but the steward routinely
+  creates idea memos there; the Documents tile gives the director a
+  path to find them. Replaces v1.0.483's hardcoded-in-Dart workaround
+  with a template-driven override.
 
 ---
 

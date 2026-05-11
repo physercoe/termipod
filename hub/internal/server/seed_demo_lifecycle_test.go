@@ -301,6 +301,46 @@ func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 	if delivRatified == 0 {
 		t.Error("expected deliverable.ratified audit rows, got 0")
 	}
+
+	// W2: every seeded plan_step.kind must be in planStepKinds.
+	// The old seed wrote `agent_driven`, which isn't in the validator
+	// set and silently slipped in because there's no DB-level check.
+	stepRows, err := db.QueryContext(ctx, `
+		SELECT DISTINCT kind FROM plan_steps
+		WHERE plan_id IN (SELECT id FROM plans WHERE project_id IN (?, ?, ?, ?, ?))`,
+		res.IdeaProjectID, res.LitReviewProjectID, res.MethodProjectID,
+		res.ExperimentProjectID, res.PaperProjectID)
+	if err != nil {
+		t.Fatalf("plan_steps kind query: %v", err)
+	}
+	defer stepRows.Close()
+	for stepRows.Next() {
+		var kind string
+		if err := stepRows.Scan(&kind); err != nil {
+			t.Fatalf("scan kind: %v", err)
+		}
+		if !planStepKinds[kind] {
+			t.Errorf("plan_step kind %q not in planStepKinds %v", kind, planStepKinds)
+		}
+	}
+
+	// W2: every project must seed ≥ 1 task. Tasks are project-scoped
+	// (no phase column) and exercise the Tasks tab on project detail.
+	if res.TaskCount < 5 {
+		t.Errorf("task count = %d; want ≥ 5 (≥ 1 per project across 5 projects)",
+			res.TaskCount)
+	}
+	for _, p := range wantProjects {
+		var n int
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(1) FROM tasks WHERE project_id = ?`, p.id).
+			Scan(&n); err != nil {
+			t.Fatalf("task count for %s: %v", p.phase, err)
+		}
+		if n == 0 {
+			t.Errorf("phase %s: 0 tasks seeded; want ≥ 1", p.phase)
+		}
+	}
 }
 
 func TestSeedLifecycleDemo_Idempotent(t *testing.T) {

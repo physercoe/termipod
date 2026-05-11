@@ -70,6 +70,66 @@ before any writes happen — fix the precondition and retry.
 
 ---
 
+## Scenario 0 — conjure a project (`projects.create` + `mobile.navigate`)
+
+**Goal:** prove the steward can spin up a new lifecycle project on
+director demand — the load-bearing first turn of the
+"Agent-driven mode" demo script (see
+[`discussions/agent-driven-mobile-ui.md`](../discussions/agent-driven-mobile-ui.md)
+§11). Every later scenario can run against this conjured project OR
+against the lifecycle-seed portfolio; this scenario guarantees the
+former path works.
+
+**Steps:**
+
+1. Open the overlay puck → tap to expand.
+2. Type: `Set up a research project to compare sparse vs dense
+   attention on long-context retrieval. Use the research template,
+   start at the idea phase, and take me to it.`
+
+**Expected:**
+
+- Within ~15 s, the steward replies in chat with a confirmation
+  ("Created research project … taking you there now"). The reply
+  may be a single bubble or a brief chain of bubbles + a
+  `mobile.intent` pill.
+- The overlay emits `mobile.navigate(uri="termipod://project/<new_id>")`;
+  the underlying screen flips to the new project's Overview.
+- The new project's name is intelligible (`sparse-vs-dense-attention`
+  or similar — exact slug doesn't matter; the steward picks).
+- The project is parked at the `idea` phase. The phase ribbon shows
+  `Idea` highlighted; the chassis-hydrated `scope-ratified`
+  acceptance criterion is visible.
+- The Documents tile (v1.0.483) is present on the idea-phase
+  Overview even with no documents yet.
+
+**Verify across surfaces:**
+
+- Projects tab (top-level) lists the new project alongside the
+  lifecycle seed.
+- Activity tab on the project shows a `project.create` audit row
+  attributed to the steward.
+
+**Failure modes:**
+
+- Steward replies "I don't have permission" → policy gate on
+  `projects.create`; verify with `policy.list` against the test
+  team config.
+- Steward replies but the UI doesn't navigate → `mobile.intent` SSE
+  was dropped. Check `lookupSessionForAgent` is populated (the
+  v1.0.479 fix). Pull-to-refresh and re-issue.
+- Project appears in the list but with a strange name or wrong
+  template → the steward picked the wrong tool. File the chat
+  transcript + the MCP tool call sequence so the `projects.create`
+  description in `tools.go` can be tightened.
+- Documents tile missing on Overview → v1.0.483 regression; check
+  `shortcut_tile_strip.dart`'s idea-phase tile list.
+
+**Wall-time target:** ≤ 20 s end-to-end (create → navigate → screen
+paints). Mostly steward turn time.
+
+---
+
 ## Scenario 1 — read smoke (`projects.list`)
 
 **Goal:** confirm the steward can introspect the lifecycle seed

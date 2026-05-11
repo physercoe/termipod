@@ -10,7 +10,12 @@ import 'schedule_edit_sheet.dart';
 /// Full-screen list of team cron schedules. Each tile toggles enabled,
 /// runs-now, edits cron/parameters in place, duplicates, or deletes.
 class SchedulesScreen extends ConsumerStatefulWidget {
-  const SchedulesScreen({super.key});
+  /// When non-null, the screen lists only this project's schedules.
+  /// Tile-entry call sites should pass the current project; team-wide
+  /// entry points pass null.
+  final String? projectId;
+
+  const SchedulesScreen({super.key, this.projectId});
 
   @override
   ConsumerState<SchedulesScreen> createState() => _SchedulesScreenState();
@@ -34,7 +39,10 @@ class _SchedulesScreenState extends ConsumerState<SchedulesScreen> {
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
     try {
-      final resp = await client.listSchedulesCached();
+      final pid = widget.projectId;
+      final resp = await client.listSchedulesCached(
+        projectId: pid != null && pid.isNotEmpty ? pid : null,
+      );
       if (!mounted) return;
       setState(() {
         _rows = resp.body;

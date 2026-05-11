@@ -1181,6 +1181,10 @@ class _OverviewView extends ConsumerWidget {
             projectName: (project['name'] ?? '').toString(),
             templateId: (project['template_id'] ?? '').toString(),
             phase: (project['phase'] ?? '').toString(),
+            phaseTileOverrides:
+                parsePhaseTilesMap(project['phase_tile_overrides']),
+            phaseTilesTemplate:
+                parsePhaseTilesMap(project['phase_tiles_template']),
           ),
           const SizedBox(height: 16),
           // Insights — Tier-1 metric tiles (ADR-022 D3 / insights-phase-1

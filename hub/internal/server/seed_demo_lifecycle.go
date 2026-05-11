@@ -57,6 +57,7 @@ type SeedLifecycleResult struct {
 	ArtifactCount      int
 	RunCount           int
 	AnnotationCount    int // ADR-020 W1 — director annotations on typed docs
+	TaskCount          int // kanban tasks (project-scoped, not phase-scoped)
 	AttentionItemCount int
 	AuditCount         int
 
@@ -141,6 +142,7 @@ func ResetLifecycleDemo(ctx context.Context, db *sql.DB) (deleted bool, err erro
 		`DELETE FROM plan_steps
 		 WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?)`,
 		`DELETE FROM plans WHERE project_id = ?`,
+		`DELETE FROM tasks WHERE project_id = ?`,
 		`DELETE FROM projects WHERE id = ?`,
 	}
 	for _, pid := range projectIDs {
@@ -245,6 +247,7 @@ func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, e
 		res.ArtifactCount += ctxRes.artifacts
 		res.RunCount += ctxRes.runs
 		res.AnnotationCount += ctxRes.annotations
+		res.TaskCount += ctxRes.tasks
 		res.AttentionItemCount += ctxRes.attentionItems
 		res.AuditCount += ctxRes.audits
 	}
@@ -275,6 +278,7 @@ type lifecycleSpec struct {
 	criteria     func(*seedProjectCtx, []seededDeliverable) ([]seededCriterion, error)
 	attention    func(*seedProjectCtx) lifecycleAttention
 	planSteps    []lifecyclePlanStep
+	tasks        []lifecycleTaskSeed
 }
 
 // lifecycleAttention is the per-spec payload for the seeded attention
@@ -287,9 +291,44 @@ type lifecycleAttention struct {
 	payload map[string]any
 }
 
+// lifecyclePlanStep describes one real work unit inside the project's
+// plan. `phase` resolves to a phase_idx via lifecyclePhaseIdx; the step
+// kind MUST be one of planStepKinds (agent_spawn | llm_call | shell |
+// mcp_call | human_decision) — chassis validators reject anything else,
+// and the seed has to model what real plans look like, not a phase
+// mirror. step_idx within a phase is assigned by insertion order.
 type lifecyclePlanStep struct {
 	phase  string
-	status string // pending | in_progress | completed
+	kind   string         // schema-valid; in planStepKinds
+	spec   map[string]any // becomes spec_json
+	status string         // pending | in_progress | completed
+}
+
+// lifecyclePhaseOrder is the canonical phase order for the research
+// template — matches the spec_json `phases` slice the plan row stores.
+var lifecyclePhaseOrder = []string{"idea", "lit-review", "method", "experiment", "paper"}
+
+// lifecyclePhaseIdx maps a phase name to its phase_idx for the
+// plan_steps insert. Unknown phases yield -1; the seed treats that as
+// a hard error (we're not interpreting user input here).
+func lifecyclePhaseIdx(phase string) int {
+	for i, p := range lifecyclePhaseOrder {
+		if p == phase {
+			return i
+		}
+	}
+	return -1
+}
+
+// lifecycleTaskSeed is a kanban task seeded against the demo project.
+// No phase column (tasks are project-scoped, not phase-scoped — see
+// docs/reference/glossary.md). `parentIdx` is the index of the parent
+// in the same slice, or -1 for top-level tasks.
+type lifecycleTaskSeed struct {
+	title     string
+	body      string
+	status    string // todo | in_progress | done
+	parentIdx int
 }
 
 type seedProjectCtx struct {
@@ -346,11 +385,36 @@ func lifecycleSpecs() []lifecycleSpec {
 			stewardKind: "steward.research.v1",
 			workerKinds: nil,
 			planSteps: []lifecyclePlanStep{
-				{"idea", "in_progress"},
-				{"lit-review", "pending"},
-				{"method", "pending"},
-				{"experiment", "pending"},
-				{"paper", "pending"},
+				// Idea phase = conversation-first. One real step in flight
+				// (steward framing the question), one pending decision.
+				{"idea", "llm_call",
+					map[string]any{"prompt": "Frame the question and propose a scoped hypothesis"},
+					"in_progress"},
+				{"idea", "human_decision",
+					map[string]any{"prompt": "Director ratifies the scope and direction"},
+					"pending"},
+				// Future-phase scaffolding — pending until the project
+				// advances. Each is one canonical opener; the steward
+				// will expand these via plans.steps.create as it goes.
+				{"lit-review", "agent_spawn",
+					map[string]any{"handle": "lit-reviewer", "template": "lit-reviewer.v1"},
+					"pending"},
+				{"method", "llm_call",
+					map[string]any{"prompt": "Draft an experimental method proposal"},
+					"pending"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "ml-worker", "template": "ml-worker.v1"},
+					"pending"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "paper-writer", "template": "paper-writer.v1"},
+					"pending"},
+			},
+			tasks: []lifecycleTaskSeed{
+				{title: "Sketch out the question on the whiteboard",
+					body: "Capture the framing before the steward formalises it.",
+					status: "in_progress", parentIdx: -1},
+				{title: "Decide whether to compare Lion vs AdamW only or include Sophia",
+					status: "todo", parentIdx: -1},
 			},
 			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
 				return nil, nil // idea phase declares no deliverables
@@ -381,11 +445,36 @@ func lifecycleSpecs() []lifecycleSpec {
 			stewardKind: "steward.research.v1",
 			workerKinds: []string{"lit-reviewer.v1"},
 			planSteps: []lifecyclePlanStep{
-				{"idea", "completed"},
-				{"lit-review", "in_progress"},
-				{"method", "pending"},
-				{"experiment", "pending"},
-				{"paper", "pending"},
+				{"idea", "human_decision",
+					map[string]any{"prompt": "Director ratified scope and direction"},
+					"completed"},
+				{"lit-review", "agent_spawn",
+					map[string]any{"handle": "lit-reviewer", "template": "lit-reviewer.v1"},
+					"completed"},
+				{"lit-review", "llm_call",
+					map[string]any{"prompt": "Summarise prior work and identify research gaps"},
+					"in_progress"},
+				{"lit-review", "human_decision",
+					map[string]any{"prompt": "Director ratifies the literature review document"},
+					"pending"},
+				{"method", "llm_call",
+					map[string]any{"prompt": "Draft a method proposal informed by the lit-review gaps"},
+					"pending"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "ml-worker", "template": "ml-worker.v1"},
+					"pending"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "paper-writer", "template": "paper-writer.v1"},
+					"pending"},
+			},
+			tasks: []lifecycleTaskSeed{
+				{title: "Triage open redlines on the lit-review draft",
+					body: "Two annotations are open on the `gaps` section; resolve before ratifying.",
+					status: "in_progress", parentIdx: -1},
+				{title: "Confirm Lin et al. 2025 §3.2 is the right citation",
+					status: "todo", parentIdx: 0},
+				{title: "Verify lit-reviewer covered MoD routing strategies",
+					status: "done", parentIdx: -1},
 			},
 			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
 				doc, err := seedTypedDocument(c,
@@ -488,11 +577,46 @@ func lifecycleSpecs() []lifecycleSpec {
 			stewardKind: "steward.research.v1",
 			workerKinds: []string{"critic.v1"},
 			planSteps: []lifecyclePlanStep{
-				{"idea", "completed"},
-				{"lit-review", "completed"},
-				{"method", "in_progress"},
-				{"experiment", "pending"},
-				{"paper", "pending"},
+				{"idea", "human_decision",
+					map[string]any{"prompt": "Director ratified scope"},
+					"completed"},
+				{"lit-review", "agent_spawn",
+					map[string]any{"handle": "lit-reviewer", "template": "lit-reviewer.v1"},
+					"completed"},
+				{"lit-review", "human_decision",
+					map[string]any{"prompt": "Director ratified literature review"},
+					"completed"},
+				{"method", "llm_call",
+					map[string]any{"prompt": "Draft the experimental method document"},
+					"completed"},
+				{"method", "agent_spawn",
+					map[string]any{"handle": "critic", "template": "critic.v1",
+						"task": "Red-team the method proposal"},
+					"in_progress"},
+				{"method", "human_decision",
+					map[string]any{"prompt": "Director ratifies the method document"},
+					"pending"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "ml-worker", "template": "ml-worker.v1"},
+					"pending"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "coder", "template": "coder.v1",
+						"task": "Prepare data + eval harness"},
+					"pending"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "paper-writer", "template": "paper-writer.v1"},
+					"pending"},
+			},
+			tasks: []lifecycleTaskSeed{
+				{title: "Address critic.v1's red-team findings on the method doc",
+					body: "Critic flagged two assumptions; reconcile before ratification.",
+					status: "in_progress", parentIdx: -1},
+				{title: "Lock the eval metric set (loss + accuracy + token-count)",
+					status: "todo", parentIdx: -1},
+				{title: "Pre-register the experiment with the team's MLflow",
+					status: "todo", parentIdx: -1},
+				{title: "Confirm budget cap with director",
+					status: "done", parentIdx: -1},
 			},
 			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
 				// Carry-over: a ratified lit-review doc from the prior phase.
@@ -613,11 +737,56 @@ func lifecycleSpecs() []lifecycleSpec {
 			stewardKind: "steward.research.v1",
 			workerKinds: []string{"ml-worker.v1", "coder.v1", "critic.v1"},
 			planSteps: []lifecyclePlanStep{
-				{"idea", "completed"},
-				{"lit-review", "completed"},
-				{"method", "completed"},
-				{"experiment", "in_progress"},
-				{"paper", "pending"},
+				{"idea", "human_decision",
+					map[string]any{"prompt": "Director ratified scope"},
+					"completed"},
+				{"lit-review", "agent_spawn",
+					map[string]any{"handle": "lit-reviewer", "template": "lit-reviewer.v1"},
+					"completed"},
+				{"lit-review", "human_decision",
+					map[string]any{"prompt": "Director ratified literature review"},
+					"completed"},
+				{"method", "llm_call",
+					map[string]any{"prompt": "Draft method document"},
+					"completed"},
+				{"method", "agent_spawn",
+					map[string]any{"handle": "critic", "template": "critic.v1"},
+					"completed"},
+				{"method", "human_decision",
+					map[string]any{"prompt": "Director ratified method"},
+					"completed"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "ml-worker", "template": "ml-worker.v1",
+						"task": "Sweep optimizers across three model sizes"},
+					"in_progress"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "coder", "template": "coder.v1",
+						"task": "Wire eval harness + post-processing"},
+					"in_progress"},
+				{"experiment", "shell",
+					map[string]any{"cmd": "python train.py --config sweep-384-lion --iters 1000"},
+					"in_progress"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "critic", "template": "critic.v1",
+						"task": "Interpret anomalies in the loss trajectory"},
+					"pending"},
+				{"experiment", "human_decision",
+					map[string]any{"prompt": "Director reviews results and ratifies or requests revisions"},
+					"pending"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "paper-writer", "template": "paper-writer.v1"},
+					"pending"},
+			},
+			tasks: []lifecycleTaskSeed{
+				{title: "Babysit the 384/Lion sweep — abort if loss diverges past iter 500",
+					body: "Director set the abort threshold; watch the eval curve.",
+					status: "in_progress", parentIdx: -1},
+				{title: "Tag the training revision once the run lands",
+					status: "todo", parentIdx: -1},
+				{title: "Decide whether the 768-d sweep needs a separate budget",
+					status: "todo", parentIdx: -1},
+				{title: "Cleanup checkpoint storage from the 256-d preliminary run",
+					status: "done", parentIdx: -1},
 			},
 			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
 				litDoc, err := seedTypedDocument(c, "Literature review",
@@ -730,11 +899,62 @@ func lifecycleSpecs() []lifecycleSpec {
 			stewardKind: "steward.research.v1",
 			workerKinds: []string{"paper-writer.v1", "critic.v1"},
 			planSteps: []lifecyclePlanStep{
-				{"idea", "completed"},
-				{"lit-review", "completed"},
-				{"method", "completed"},
-				{"experiment", "completed"},
-				{"paper", "in_progress"},
+				{"idea", "human_decision",
+					map[string]any{"prompt": "Director ratified scope"},
+					"completed"},
+				{"lit-review", "agent_spawn",
+					map[string]any{"handle": "lit-reviewer", "template": "lit-reviewer.v1"},
+					"completed"},
+				{"lit-review", "human_decision",
+					map[string]any{"prompt": "Director ratified literature review"},
+					"completed"},
+				{"method", "llm_call",
+					map[string]any{"prompt": "Draft method"},
+					"completed"},
+				{"method", "agent_spawn",
+					map[string]any{"handle": "critic", "template": "critic.v1"},
+					"completed"},
+				{"method", "human_decision",
+					map[string]any{"prompt": "Director ratified method"},
+					"completed"},
+				{"experiment", "agent_spawn",
+					map[string]any{"handle": "ml-worker", "template": "ml-worker.v1"},
+					"completed"},
+				{"experiment", "shell",
+					map[string]any{"cmd": "python train.py --config sweep-384-lion --iters 1000"},
+					"completed"},
+				{"experiment", "human_decision",
+					map[string]any{"prompt": "Director ratified experiment results"},
+					"completed"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "paper-writer", "template": "paper-writer.v1"},
+					"completed"},
+				{"paper", "llm_call",
+					map[string]any{"prompt": "Draft introduction + related work sections"},
+					"completed"},
+				{"paper", "llm_call",
+					map[string]any{"prompt": "Draft results + analysis sections"},
+					"in_progress"},
+				{"paper", "agent_spawn",
+					map[string]any{"handle": "critic", "template": "critic.v1",
+						"task": "Review the draft for over-claims and missing citations"},
+					"pending"},
+				{"paper", "human_decision",
+					map[string]any{"prompt": "Director ratifies the final paper draft"},
+					"pending"},
+			},
+			tasks: []lifecycleTaskSeed{
+				{title: "Pick figure 3 caption — keep both candidates?",
+					body: "Paper-writer surfaced two variants; pick one before critic reviews.",
+					status: "in_progress", parentIdx: -1},
+				{title: "Confirm the abstract's headline numbers match the eval JSON",
+					status: "todo", parentIdx: -1},
+				{title: "Schedule the critic review window",
+					status: "todo", parentIdx: -1},
+				{title: "Export the bib for the camera-ready format",
+					status: "todo", parentIdx: -1},
+				{title: "Reserve the venue submission slot",
+					status: "done", parentIdx: -1},
 			},
 			deliverables: func(c *seedProjectCtx) ([]seededDeliverable, error) {
 				litDoc, err := seedTypedDocument(c, "Literature review",
@@ -858,6 +1078,7 @@ type lifecycleProjectResult struct {
 	artifacts      int
 	runs           int
 	annotations    int
+	tasks          int
 	attentionItems int
 	audits         int
 }
@@ -909,13 +1130,30 @@ func seedLifecycleProject(
 		string(planSpecJSON), now, now); err != nil {
 		return res, fmt.Errorf("insert plan: %w", err)
 	}
+	// Insert real plan_steps: each carries a schema-valid `kind`
+	// (agent_spawn | llm_call | shell | human_decision) and a spec
+	// describing the actual work. step_idx is assigned per-phase by
+	// insertion order so the (phase_idx, step_idx) composite stays
+	// unique within each phase.
+	stepIdxByPhase := make(map[int]int)
 	for i, st := range spec.planSteps {
-		stepSpec, _ := json.Marshal(map[string]any{"phase": st.phase})
+		phaseIdx := lifecyclePhaseIdx(st.phase)
+		if phaseIdx < 0 {
+			return res, fmt.Errorf("plan step %d: unknown phase %q", i, st.phase)
+		}
+		if !planStepKinds[st.kind] {
+			return res, fmt.Errorf("plan step %d: invalid kind %q (must be in %v)",
+				i, st.kind, planStepKinds)
+		}
+		stepIdx := stepIdxByPhase[phaseIdx]
+		stepIdxByPhase[phaseIdx] = stepIdx + 1
+		stepSpec, _ := json.Marshal(st.spec)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO plan_steps
 				(id, plan_id, phase_idx, step_idx, kind, spec_json, status)
-			VALUES (?, ?, ?, 0, 'agent_driven', ?, ?)`,
-			NewID(), planID, i, string(stepSpec), st.status); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			NewID(), planID, phaseIdx, stepIdx, st.kind,
+			string(stepSpec), st.status); err != nil {
 			return res, fmt.Errorf("insert plan_step %d: %w", i, err)
 		}
 	}
@@ -1038,6 +1276,30 @@ func seedLifecycleProject(
 				map[string]any{"project_id": res.projectID, "kind": cr.kind}, now)
 		}
 	}
+
+	// 6. Tasks — project-scoped kanban entities, independent of plans
+	// and phases. Some tasks reference earlier ones as subtasks via
+	// parent_task_id so the demo exercises the subtask hierarchy.
+	taskIDs := make([]string, len(spec.tasks))
+	for i := range spec.tasks {
+		taskIDs[i] = NewID()
+	}
+	for i, t := range spec.tasks {
+		var parentID any
+		if t.parentIdx >= 0 && t.parentIdx < i {
+			parentID = taskIDs[t.parentIdx]
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO tasks
+				(id, project_id, parent_task_id, title, body_md,
+				 status, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			taskIDs[i], res.projectID, parentID,
+			t.title, t.body, t.status, now, now); err != nil {
+			return res, fmt.Errorf("insert task %d: %w", i, err)
+		}
+	}
+	res.tasks = len(spec.tasks)
 
 	// Report side-effect doc/artifact/run counts. The builder closures
 	// recorded these on the seedProjectCtx via the helper functions.

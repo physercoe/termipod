@@ -1,9 +1,9 @@
 # Glossary
 
 > **Type:** reference
-> **Status:** Current (2026-05-09)
+> **Status:** Current (2026-05-11)
 > **Audience:** contributors (humans + AI)
-> **Last verified vs code:** v1.0.462
+> **Last verified vs code:** v1.0.483
 
 **TL;DR.** Canonical definitions for every project-specific term that
 has more than one possible meaning, or whose meaning is non-obvious
@@ -708,7 +708,122 @@ post-MVP (governance, security, knowledge curves).
 
 ---
 
-## 11. Process / project meta
+## 10b. Project lifecycle entities
+
+Six entities cluster around a project's execution. The relationship
+arrows are non-obvious from the schema alone, and the words are easy
+to misuse — this section is the canonical map.
+
+```
+Project
+ ├── phase (one TEXT column on the project + phase_history JSON)
+ │     ├── Deliverables  (per-phase, ratifiable)
+ │     │     └── Components  (refs to documents / artifacts / runs / commits)
+ │     └── Acceptance criteria  (per-phase, optionally per-deliverable)
+ ├── Plan  (one per project in practice)
+ │     └── Plan-steps  (phase-bucketed via phase_idx)
+ └── Tasks  (project-scoped, no phase column)
+```
+
+### project
+A top-level work container. Owns phases, plans, tasks, deliverables,
+acceptance criteria, channels, schedules, artifacts, runs.
+- *Distinguish from:* **template** — projects are instances; templates
+  are blueprints stored on disk under `team/templates/projects/`.
+- *Canonical:* migration `0001_initial.up.sql` + `0034_project_lifecycle`.
+
+### phase
+A string column on `projects` (e.g. `idea`, `lit-review`, `method`,
+`experiment`, `paper` for the research template). Templates declare
+the phase set + ordering; progression is logged on
+`projects.phase_history` (JSON, append-only). **Phases are not
+separate rows** — there's no `phases` table. The phase is a *state*
+on the project, not an entity.
+- *Distinguish from:* **plan-step**'s `phase_idx` (a numeric pointer
+  into the phase ordering, not the phase itself).
+- *Canonical:* migration 0034, `docs/reference/research-template-spec.md` §3.
+
+### plan
+One execution-spec row per project (in practice — the schema doesn't
+enforce uniqueness; the seed + UI assume it). Carries `template_id`,
+`spec_json` (the recipe), `version`, and a lifecycle `status`
+(draft / ready / running / completed / failed / cancelled). **Not
+per-phase** — one plan spans all of a project's phases. The
+seed-demo `--shape lifecycle` seeds one plan per project, partitioned
+into per-phase work via `plan_steps`.
+- *Distinguish from:* **phase** — phases live on `projects.phase`,
+  plans live in the `plans` table. A plan covers all of a project's
+  phases; phases live on the project, not on the plan.
+- *Distinguish from:* **task** — plans describe execution units
+  (`agent_spawn` / `llm_call` / `shell` / `mcp_call` /
+  `human_decision`); tasks describe kanban work items.
+- *Canonical:* migration 0009, blueprint §6.2.
+
+### plan-step
+A work unit inside a plan. Bucketed by `phase_idx` (which phase the
+step belongs to) and ordered within a phase by `step_idx`. `kind`
+must be one of `agent_spawn` / `llm_call` / `shell` / `mcp_call` /
+`human_decision` — these are the only execution kinds the chassis
+understands. Carries `spec_json` (kind-specific payload),
+`input_refs_json` / `output_refs_json` (data flow), and an optional
+`agent_id` (which agent is running this step). Phase-scoped via
+`phase_idx`, but the *owning plan* spans all phases.
+- *Distinguish from:* **task** — plan-steps belong to a plan;
+  tasks are independent kanban entities.
+- *Canonical:* migration 0009 + `handlers_plans.go:27` (the closed
+  `planStepKinds` set).
+
+### task
+A project-scoped kanban entity. No phase column. Has a `parent_task_id`
+(subtasks), optional `milestone_id`, `assignee_id` (agent), `status`
+(`todo` / `in_progress` / `done`), and `body_md`. **Independent of
+plan** — tasks don't share rows or schemas with `plan_steps`. Tasks
+exist for human-tracked work; plan-steps exist for chassis-driven
+execution.
+- *Distinguish from:* **plan-step** — different table, different
+  purpose, different schema. They can coexist on the same project
+  (e.g. plan-step "spawn critic.v1" + task "babysit the 384-d sweep").
+- *Canonical:* migration `0001_initial.up.sql` (`CREATE TABLE tasks`).
+
+### document
+A single body of prose (markdown) attached to a project. Carries a
+`kind` (`memo` / `draft` / `report` / `review` / typed-document
+slugs like `proposal` / `method` / `paper`), an optional `schema_id`
+that flips it from "plain markdown body" to "structured typed
+document with named sections," and the section rows that hold the
+content. Documents are addressable on their own and are often used
+as the body of a deliverable component.
+- *Distinguish from:* **deliverable** — a deliverable is a *bundle*
+  with a ratification state and optional components; a document is
+  one body of prose that might be a component of a deliverable.
+- *Canonical:* migration `0007_documents` + `0034_project_lifecycle`
+  (schema_id column) + ADR-A1.
+
+### deliverable
+A per-(project, phase) ratifiable artifact. Carries `kind` (free-form,
+e.g. `lit-review` / `method` / `experiment-results`),
+`ratification_state` (`draft` / `in-review` / `ratified`), and one
+or more `deliverable_components` (refs to documents / artifacts /
+runs / commits). Ratification is the phase-advance gate.
+- *Distinguish from:* **document** — a document is a single body of
+  prose (markdown); a deliverable is a *ratifiable bundle* that
+  often contains one or more documents alongside artifacts / runs /
+  commits.
+- *Canonical:* migration 0034.
+
+### acceptance criterion (AC)
+A per-(project, phase, optional deliverable) checkable condition.
+`kind` ∈ {`text`, `metric`, `gate`}; `state` ∈ {`pending`, `met`,
+`failed`, `waived`}. Gate kinds reference another runtime fact
+(e.g. `deliverable.ratified`); metric kinds reference a measurement;
+text kinds are director-attested prose. ACs gate phase advancement.
+- *Distinguish from:* **deliverable** — deliverables are *what* the
+  phase produces; ACs are *whether what was produced is good enough*.
+- *Canonical:* migration 0034.
+
+---
+
+
 
 ### wedge
 A feature-sized increment shipped as one PR (or one tagged
@@ -770,6 +885,13 @@ A flat list of the high-traffic confusion points, for grep:
   chronological; ADR-022 D1.
 - **hub stats** vs **host capabilities** — hub-self capacity
   endpoint vs per-worker capability blob; ADR-022 D2.
+- **plan** vs **plan-step** vs **phase** vs **task** — plan is the
+  per-project execution spec, plan-step is one work unit inside it,
+  phase is a TEXT column on the project (not a row), task is an
+  independent kanban entity. See §10b.
+- **deliverable** vs **document** — deliverables are ratifiable
+  bundles (often containing documents); documents are single bodies
+  of prose. §10b.
 
 If you find a confusion not in this list, add an entry above and
 extend this index in the same change.

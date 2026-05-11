@@ -178,3 +178,132 @@ func TestResearchTemplate_LegacyTemplateUnaffected(t *testing.T) {
 			p.Phase)
 	}
 }
+
+// TestPhaseTemplateTiles_ServesYamlTilesPerPhase verifies the W5
+// (lifecycle-walkthrough-followups) resolution-chain layer 2: the hub
+// reads `phase_specs[<phase>].tiles` from the research template YAML
+// and exposes it as a map on the project payload. Mobile reads this
+// when no per-project override is set.
+func TestPhaseTemplateTiles_ServesYamlTilesPerPhase(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	if _, err := Init(dir, dbPath); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	srv, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	tiles := srv.phaseTemplateTiles("research")
+	if tiles == nil {
+		t.Fatalf("phaseTemplateTiles(research) returned nil; expected ≥ 4 phases with tiles")
+	}
+	if got := tiles["idea"]; len(got) == 0 {
+		t.Errorf("idea phase tiles empty; want Documents at minimum (per v1.0.483)")
+	} else {
+		// W5 inlined "Documents" into the idea-phase tiles so the
+		// director can find the steward's idea memos.
+		found := false
+		for _, s := range got {
+			if s == "Documents" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("idea phase tiles=%v missing 'Documents'", got)
+		}
+	}
+	// lit-review keeps References + Documents per the template spec §3.
+	if got := tiles["lit-review"]; len(got) < 2 {
+		t.Errorf("lit-review tiles=%v want References + Documents", got)
+	}
+	// Unknown template → nil (no panics, no half-loaded state).
+	if got := srv.phaseTemplateTiles("does-not-exist"); got != nil {
+		t.Errorf("unknown template returned %v; want nil", got)
+	}
+	// Empty template id → nil (defensive default).
+	if got := srv.phaseTemplateTiles(""); got != nil {
+		t.Errorf("empty template returned %v; want nil", got)
+	}
+}
+
+// TestProjectPatch_PhaseTileOverridesRoundTrip verifies the W5
+// resolution-chain layer 1: the per-project override stored on
+// `projects.phase_tile_overrides_json`. PATCH writes; GET reads it
+// back as `phase_tile_overrides` in the response payload.
+func TestProjectPatch_PhaseTileOverridesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	tok, err := Init(dir, dbPath)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	srv, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	const team = "default-team"
+	now := NowUTC()
+	_, _ = srv.db.Exec(`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		team, team, now)
+
+	// Create a research project.
+	body, _ := json.Marshal(map[string]any{
+		"name": "tile-override-test", "kind": "goal", "template_id": "research",
+	})
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/teams/"+team+"/projects", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var p projectOut
+	_ = json.Unmarshal(rr.Body.Bytes(), &p)
+	if p.ID == "" {
+		t.Fatal("create returned empty id")
+	}
+	// Fresh project has no override; payload also carries the YAML
+	// template tiles so the resolver has fallback data.
+	if len(p.PhaseTileOverrides) != 0 {
+		t.Errorf("fresh project carries override %q; want empty", p.PhaseTileOverrides)
+	}
+	if p.PhaseTilesTemplate == nil {
+		t.Error("fresh project payload missing phase_tiles_template")
+	}
+
+	// PATCH a per-project override: just Outputs on idea.
+	patch, _ := json.Marshal(map[string]any{
+		"phase_tile_overrides": map[string]any{
+			"idea": []string{"Outputs"},
+		},
+	})
+	preq := httptest.NewRequest(http.MethodPatch,
+		"/v1/teams/"+team+"/projects/"+p.ID, bytes.NewReader(patch))
+	preq.Header.Set("Authorization", "Bearer "+tok)
+	preq.Header.Set("Content-Type", "application/json")
+	prr := httptest.NewRecorder()
+	srv.router.ServeHTTP(prr, preq)
+	if prr.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", prr.Code, prr.Body.String())
+	}
+	var p2 projectOut
+	_ = json.Unmarshal(prr.Body.Bytes(), &p2)
+	if len(p2.PhaseTileOverrides) == 0 {
+		t.Fatalf("post-patch override empty; want {\"idea\":[\"Outputs\"]}")
+	}
+	var got map[string][]string
+	if err := json.Unmarshal(p2.PhaseTileOverrides, &got); err != nil {
+		t.Fatalf("unmarshal override: %v (raw=%s)", err, p2.PhaseTileOverrides)
+	}
+	if v := got["idea"]; len(v) != 1 || v[0] != "Outputs" {
+		t.Errorf("idea override=%v; want [Outputs]", v)
+	}
+}

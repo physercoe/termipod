@@ -35,7 +35,12 @@ phase_specs:
     display_name: "Idea"
     abbrev: "Idea"
     overview_widget: idea_conversation
-    tiles: []
+    # Idea phase is conversation-first by design, but steward routinely
+    # creates idea memos here (lifecycle-walkthrough scenario 3) — the
+    # Documents tile gives the director a path to find what just got
+    # written. Per-project overrides (PATCH /projects/<id>
+    # phase_tile_overrides) can shrink this further if needed.
+    tiles: [Documents]
     steward_spawn: eager
     deliverables: []
     criteria:

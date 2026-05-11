@@ -998,6 +998,11 @@ class HubClient {
     String? onCreateTemplateId,
     Map<String, dynamic>? policyOverrides,
     String? docsRoot,
+    /// Per-phase tile composition override. Shape:
+    /// `{"<phase>": ["documents", "outputs", ...]}`. Pass an empty map
+    /// to clear the override (falls back to template YAML + chassis
+    /// default). Pass null to leave the existing value untouched.
+    Map<String, List<String>>? phaseTileOverrides,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
@@ -1014,6 +1019,12 @@ class HubClient {
       body['policy_overrides_json'] = policyOverrides;
     }
     if (docsRoot != null) body['docs_root'] = docsRoot;
+    if (phaseTileOverrides != null) {
+      // Pass empty map through as null on the wire so the server
+      // clears the column (consistent with nullRawJSON semantics).
+      body['phase_tile_overrides'] =
+          phaseTileOverrides.isEmpty ? null : phaseTileOverrides;
+    }
     final out = await _patch(
       '/v1/teams/${cfg.teamId}/projects/$projectId',
       body,

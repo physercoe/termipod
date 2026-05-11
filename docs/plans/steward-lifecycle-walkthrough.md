@@ -65,20 +65,29 @@ After this wedge:
 
 ---
 
-## Scope (the seven wedges)
+## Scope (the eight wedges)
 
 Sized to be runnable in a single QA pass; each wedge is a single
 overlay-chat directive + verification.
 
 | # | Verb / surface | Steward action | Verify in UI |
 |---|---|---|---|
-| W1 | **read** — `projects.list` | `What projects do I have?` | Steward replies with 5 names from the lifecycle seed |
+| W0 | **conjure** — `projects.create` + `mobile.navigate` | `Set up a research project to compare sparse vs dense attention on long-context retrieval.` | New project appears in projects list, parked at `idea` phase; overlay navigates to its Overview; the chassis-seeded `scope-ratified` AC is visible |
+| W1 | **read** — `projects.list` | `What projects do I have?` | Steward replies with the lifecycle-seed names + the project from W0 |
 | W2 | **edit** — `projects.update` | `Set the goal of the idea project to 'evaluate sparse attention for sub-1B LMs'.` | Project Detail header shows new goal after the steward navigates there |
-| W3 | **create** — `documents.create` | `Add an idea memo to the idea project: 'Hypothesis — sparse attention beats dense @ <250M params on long-context retrieval.'` | Documents tab on project shows new entry |
-| W4 | **create** — `plans.create` + `plans.steps.create` | `Draft a method plan for the method project with three steps: literature scan, ablation table, scaling sweep.` | Plan widget on project shows 3 steps |
+| W3 | **create** — `documents.create` | `Add an idea memo to the idea project: 'Hypothesis — sparse attention beats dense @ <250M params on long-context retrieval.'` | Documents tile (added v1.0.483) on idea phase Overview lists the new memo |
+| W4 | **create** — `plans.create` + `plans.steps.create` | `Draft a method plan for the method project with three steps: literature scan, ablation table, scaling sweep.` | Plan widget on project shows 3 steps; tile is project-scoped (post-W1 of lifecycle-walkthrough-followups) so only this project's plan appears |
 | W5 | **edit** — `plans.steps.update` | `Mark step 1 of the method plan as done.` | Step 1 status pill flips to ✓ |
 | W6 | **create** — `runs.create` + `runs.attach_artifact` | `Log a run on the experiment project, seed=42, then attach a fake eval_curve artifact pointing at /tmp/curve.json.` | Runs tab on project shows new row + artifact link |
 | W7 | **A2A** — `agents.spawn` + `a2a.invoke` | `Spawn a worker agent on host <host-id>, ask it to give me a one-line title for the method project.` | Worker reply appears in overlay chat as a steward bubble; A2A audit row visible in Activity |
+
+W0 is the head of the arc because it mirrors the
+"Agent-driven mode (the demo)" script in
+[`discussions/agent-driven-mobile-ui.md`](../discussions/agent-driven-mobile-ui.md)
+§11 — the steward CONJURES a project, then everything that follows
+(W1–W7) builds on it. The lifecycle-seed projects stay as a fallback
+for the read-heavy scenarios; the conjured project from W0 is what
+W2–W7 mutate, so a fresh seed isn't required to re-run the writes.
 
 Each wedge ends with the steward navigating the user to the result
 via `mobile.navigate` — exercising the read-only verb we already
@@ -134,7 +143,7 @@ scenario surfaces it before the writes start.
 
 ## Done criteria
 
-- [ ] All 7 scenarios in the test doc pass on a fresh seed.
+- [ ] All 8 scenarios (W0–W7) in the test doc pass on a fresh seed.
 - [ ] The A2A worker reply renders as a steward bubble in the
       overlay chat (no need to dig in hub logs).
 - [ ] Every scenario completes in ≤ 90s wall-time on a typical

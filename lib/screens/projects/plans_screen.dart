@@ -13,7 +13,13 @@ import 'plan_viewer_screen.dart';
 /// viewer screen handles the per-plan detail; this screen is just the
 /// index. Rows come from `GET /v1/teams/{team}/plans`.
 class PlansScreen extends ConsumerStatefulWidget {
-  const PlansScreen({super.key});
+  /// When non-null, the screen opens pre-scoped to this project's
+  /// plans (the filter sheet still offers cross-project broadening).
+  /// Tile-entry call sites should pass the current project; team-wide
+  /// entry points (AppBar Search → Plans) pass null.
+  final String? projectId;
+
+  const PlansScreen({super.key, this.projectId});
 
   @override
   ConsumerState<PlansScreen> createState() => _PlansScreenState();
@@ -57,6 +63,13 @@ class _PlansScreenState extends ConsumerState<PlansScreen> {
   @override
   void initState() {
     super.initState();
+    // Pre-scope when entered from a project-detail tile. Empty string
+    // is treated like null (= no filter) so callers can pass an
+    // unresolved project id without forcing a false 0-row state.
+    final pid = widget.projectId;
+    if (pid != null && pid.isNotEmpty) {
+      _projectFilter = pid;
+    }
     _load();
   }
 

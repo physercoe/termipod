@@ -62,6 +62,20 @@ type projectOut struct {
 	Phase        string            `json:"phase,omitempty"`
 	Phases       []string          `json:"phases,omitempty"`
 	PhaseHistory []phaseTransition `json:"phase_history,omitempty"`
+
+	// PhaseTileOverrides — per-phase shortcut tile composition (W5
+	// of lifecycle-walkthrough-followups). Shape:
+	// `{"<phase>": ["documents", "outputs", ...]}`. Slugs only,
+	// from the closed TileSlug vocabulary; unknown slugs are dropped
+	// at parse time on mobile. Empty/missing → mobile falls through
+	// to PhaseTilesTemplate (template YAML) → chassis default.
+	PhaseTileOverrides json.RawMessage `json:"phase_tile_overrides,omitempty"`
+
+	// PhaseTilesTemplate — per-phase tile sets declared in the
+	// template YAML's `phase_specs[<phase>].tiles`. Read-only on the
+	// wire (PATCH writes go to PhaseTileOverrides). Mobile consults
+	// this second in the resolution chain.
+	PhaseTilesTemplate map[string][]string `json:"phase_tiles_template,omitempty"`
 }
 
 // resolveOverviewWidget returns the hero widget kind to surface on the
@@ -254,9 +268,10 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
-		OverviewWidget: s.resolveOverviewWidget(in.TemplateID, initPhase),
-		Phase:          initPhase,
-		Phases:         s.templatePhases(in.TemplateID),
+		OverviewWidget:     s.resolveOverviewWidget(in.TemplateID, initPhase),
+		Phase:              initPhase,
+		Phases:             s.templatePhases(in.TemplateID),
+		PhaseTilesTemplate: s.phaseTemplateTiles(in.TemplateID),
 	}
 	if initPhase != "" {
 		out.PhaseHistory = []phaseTransition{{
@@ -273,7 +288,7 @@ func scanProjectRow(sc interface {
 }, p *projectOut) error {
 	var archived, goal, parentID, tplID, paramsJSON sql.NullString
 	var policyJSON, stewardID, onCreateTplID, kind sql.NullString
-	var phase, phaseHistory sql.NullString
+	var phase, phaseHistory, phaseTileOverrides sql.NullString
 	var budget sql.NullInt64
 	var isTpl int64
 	if err := sc.Scan(
@@ -281,7 +296,7 @@ func scanProjectRow(sc interface {
 		&p.DocsRoot, &p.ConfigYAML, &p.CreatedAt, &archived,
 		&goal, &kind, &parentID, &tplID, &paramsJSON,
 		&isTpl, &budget, &policyJSON, &stewardID, &onCreateTplID,
-		&phase, &phaseHistory,
+		&phase, &phaseHistory, &phaseTileOverrides,
 	); err != nil {
 		return err
 	}
@@ -318,6 +333,9 @@ func scanProjectRow(sc interface {
 			p.PhaseHistory = doc.Transitions
 		}
 	}
+	if phaseTileOverrides.Valid && phaseTileOverrides.String != "" {
+		p.PhaseTileOverrides = json.RawMessage(phaseTileOverrides.String)
+	}
 	return nil
 }
 
@@ -328,7 +346,7 @@ const projectSelectCols = `
 	goal, kind, parent_project_id, template_id, parameters_json,
 	is_template, budget_cents, policy_overrides_json,
 	steward_agent_id, on_create_template_id,
-	phase, phase_history`
+	phase, phase_history, phase_tile_overrides_json`
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
@@ -365,6 +383,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
 		p.Phases = s.templatePhases(p.TemplateID)
+		p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -387,6 +406,7 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	}
 	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
 	p.Phases = s.templatePhases(p.TemplateID)
+	p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -421,6 +441,12 @@ type projectPatch struct {
 	PolicyOverridesJSON *json.RawMessage `json:"policy_overrides_json,omitempty"`
 	StewardAgentID      *string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  *string          `json:"on_create_template_id,omitempty"`
+	// PhaseTileOverrides: per-phase shortcut tile composition. Pointer
+	// to RawMessage so a `null` payload clears the override; a missing
+	// field leaves it untouched. Shape validated only as JSON parse —
+	// content vocab is the closed TileSlug enum on mobile, which drops
+	// unknown slugs at parse rather than 400'ing here.
+	PhaseTileOverrides *json.RawMessage `json:"phase_tile_overrides,omitempty"`
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -457,6 +483,10 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if in.OnCreateTemplateID != nil {
 		sets = append(sets, "on_create_template_id = ?")
 		args = append(args, nullStringIfEmpty(*in.OnCreateTemplateID))
+	}
+	if in.PhaseTileOverrides != nil {
+		sets = append(sets, "phase_tile_overrides_json = ?")
+		args = append(args, nullRawJSON(*in.PhaseTileOverrides))
 	}
 	if len(sets) == 0 {
 		// Nothing to update — fall through to returning the current row so

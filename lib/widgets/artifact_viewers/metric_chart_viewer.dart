@@ -114,40 +114,70 @@ class _ArtifactMetricChartViewerState
         uri: widget.uri,
       );
     }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: MetricChartInline(chart: chart, expand: true, showTitle: true),
+    );
+  }
+}
+
+/// Pure-paint metric-chart widget: no fetch, no error UI. Accepts an
+/// already-parsed [MetricChartBody] and draws axes + polylines + legend.
+/// Used both by the fullscreen [ArtifactMetricChartViewer] and by hero
+/// widgets that want an inline preview of the same artifact (e.g.
+/// `experiment_dash`).
+///
+/// [expand] = true asks the chart to fill its parent (typical when given
+/// a fixed-height SizedBox in a hero); [expand] = false sizes the painter
+/// to a default 140 px height so it can sit naturally inside a Column.
+class MetricChartInline extends StatelessWidget {
+  final MetricChartBody chart;
+  final bool expand;
+  final bool showTitle;
+  final double collapsedHeight;
+  const MetricChartInline({
+    super.key,
+    required this.chart,
+    this.expand = false,
+    this.showTitle = false,
+    this.collapsedHeight = 140,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (chart.title.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                chart.title,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
+    final painter = CustomPaint(
+      painter: MetricChartPainter(
+        chart: chart,
+        axisColor: muted,
+        gridColor: muted.withValues(alpha: 0.18),
+        labelColor: muted,
+      ),
+      child: const SizedBox.expand(),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showTitle && chart.title.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              chart.title,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
               ),
-            ),
-          Expanded(
-            child: CustomPaint(
-              painter: _MetricChartPainter(
-                chart: chart,
-                axisColor: muted,
-                gridColor: muted.withValues(alpha: 0.18),
-                labelColor: muted,
-              ),
-              child: const SizedBox.expand(),
             ),
           ),
-          const SizedBox(height: 8),
-          _LegendRow(chart: chart, muted: muted),
-        ],
-      ),
+        if (expand)
+          Expanded(child: painter)
+        else
+          SizedBox(height: collapsedHeight, child: painter),
+        const SizedBox(height: 8),
+        _LegendRow(chart: chart, muted: muted),
+      ],
     );
   }
 }
@@ -219,9 +249,9 @@ class MetricChartBody {
 
 /// Parse a decoded JSON value into a [MetricChartBody]. Tolerant of
 /// trivial shape drift (missing labels, extra fields). Returns null
-/// when the input is not a Map or the version is unknown. Public for
-/// unit testing.
-@visibleForTesting
+/// when the input is not a Map or the version is unknown. Public so
+/// heroes embedding a metric-chart inline can reuse the same parser as
+/// the fullscreen viewer.
 MetricChartBody? parseMetricChart(dynamic decoded) {
   if (decoded is! Map) return null;
   final version = decoded['version'];
@@ -287,12 +317,12 @@ Color _seriesColor(MetricChartSeries s, int index) {
   return s.color ?? _kSeriesPalette[index % _kSeriesPalette.length];
 }
 
-class _MetricChartPainter extends CustomPainter {
+class MetricChartPainter extends CustomPainter {
   final MetricChartBody chart;
   final Color axisColor;
   final Color gridColor;
   final Color labelColor;
-  _MetricChartPainter({
+  MetricChartPainter({
     required this.chart,
     required this.axisColor,
     required this.gridColor,
@@ -438,7 +468,7 @@ class _MetricChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _MetricChartPainter old) =>
+  bool shouldRepaint(covariant MetricChartPainter old) =>
       old.chart != chart ||
       old.axisColor != axisColor ||
       old.gridColor != gridColor ||

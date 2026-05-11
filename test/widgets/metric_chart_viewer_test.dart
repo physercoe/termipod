@@ -157,4 +157,72 @@ void main() {
       expect(find.text('Eval accuracy'), findsOneWidget);
     });
   });
+
+  group('MetricChartInline', () {
+    testWidgets('renders title + legend with collapsedHeight painter',
+        (tester) async {
+      final chart = parseMetricChart({
+        'title': 'Eval accuracy',
+        'series': [
+          {
+            'name': 'eval_accuracy',
+            'points': [
+              [0, 0.50],
+              [100, 0.62],
+              [200, 0.78],
+            ],
+          },
+        ],
+      });
+      expect(chart, isNotNull);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MetricChartInline(
+              chart: chart!,
+              showTitle: true,
+              collapsedHeight: 120,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      // Title rendered (showTitle: true).
+      expect(find.text('Eval accuracy'), findsOneWidget);
+      // Legend renders the series name.
+      expect(find.text('eval_accuracy'), findsOneWidget);
+      // Painter occupies a non-zero box at the requested height.
+      final paint = find.byType(CustomPaint).evaluate().any((e) {
+        final cp = e.widget as CustomPaint;
+        return cp.painter is MetricChartPainter;
+      });
+      expect(paint, isTrue);
+    });
+
+    testWidgets('hides title when showTitle is false', (tester) async {
+      final chart = parseMetricChart({
+        'title': 'Should not appear',
+        'series': [
+          {
+            'name': 's',
+            'points': [
+              [0, 1],
+              [1, 2],
+            ],
+          },
+        ],
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MetricChartInline(chart: chart!),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Should not appear'), findsNothing);
+      // Legend still renders.
+      expect(find.text('s'), findsOneWidget);
+    });
+  });
 }

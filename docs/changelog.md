@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.502
+> **Last verified vs code:** v1.0.503
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.503-alpha — 2026-05-11
+
+First in-hero typed-artifact embed: the `experiment_dash` hero now
+shows the project's metric-chart inline below its deliverables list,
+tap-through to the fullscreen viewer. Removes the "open Outputs,
+find the chart, tap it" round-trip that the v1.0.502 review surfaced
+as the most visible chassis-vs-content gap on the demo's eval-results
+moment.
+
+### Added
+
+- **`MetricChartInline` + public `MetricChartPainter`**
+  (`lib/widgets/artifact_viewers/metric_chart_viewer.dart`) — pure-paint
+  widget that draws axes + polylines + legend from an already-parsed
+  `MetricChartBody`. Accepts `expand: true` for fullscreen use or a
+  `collapsedHeight` for inline use. The fullscreen viewer now composes
+  this widget instead of inlining the painter.
+- **`_PhaseHero.extras` slot**
+  (`lib/screens/projects/overview_widgets/research_phase_heroes.dart`)
+  — optional widget rendered below the deliverable list, owned by
+  the hero variant. Keeps the loading/scaffold logic centralised
+  while letting individual phase heroes hang typed previews.
+- **`ExperimentDashHero` metric-chart embed** — fetches the newest
+  `kind=metric-chart` artifact for the project via
+  `listArtifactsCached`, downloads the blob, parses through the shared
+  `parseMetricChart`, and renders `MetricChartInline` inside a tap-
+  enabled card. Tap → `ArtifactMetricChartViewerScreen`. Silent when
+  no chart exists yet, so phases that haven't produced one show
+  nothing rather than an empty card.
+
+### Changed
+
+- `parseMetricChart` is now a fully public function (was
+  `@visibleForTesting`); heroes embedding charts inline use the same
+  parser as the fullscreen viewer.
+- `_MetricChartPainter` renamed to `MetricChartPainter`. No
+  behavioural change; required for reuse from the inline widget.
+
+### Tests
+
+- `test/widgets/metric_chart_viewer_test.dart`: two new tests cover
+  `MetricChartInline` — title visibility toggling, painter presence,
+  legend rendering.
 
 ---
 

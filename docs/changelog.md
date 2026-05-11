@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.493
+> **Last verified vs code:** v1.0.494
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,54 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.494-alpha — 2026-05-11
+
+Wave 2 W5 of artifact-type-registry: read-only code-bundle viewer.
+
+### Added
+
+- **`lib/widgets/artifact_viewers/code_bundle_viewer.dart`** —
+  `ArtifactCodeBundleViewer` (Riverpod consumer; resolves
+  `blob:sha256/<sha>` via `HubClient.downloadBlobCached`) +
+  `ArtifactCodeBundleViewerScreen` (fullscreen route). Parses three
+  JSON manifest shapes: `{files: [{path, content}, …]}`, flat
+  list-of-objects, and the single-file `{path, content}` degenerate
+  form — picked because agents and human-typed bundles emit both.
+  Syntax highlighting runs through `flutter_highlight` (the same
+  dep the transcript fenced-code blocks already use); language is
+  resolved from the file extension via the in-file
+  `languageForPath` map. Unknown extensions fall back to
+  `plaintext` (still themed/padded, just uncoloured). File picker
+  is a horizontally-scrollable chip bar above the highlighted
+  content; tapping a chip swaps the viewer to that file.
+- **`_ArtifactViewerLauncher`** gains a `code-bundle` branch, so
+  any `code-bundle`-kind artifact in the detail sheet surfaces an
+  "Open code" outlined button matching the pdf/tabular/image
+  launchers.
+- **Hub seed** — `demoRunBundle()` returns a 3-file python
+  scaffold (`train.py` + `config.py` + `README.md`) so the wave-2
+  demo arc has a real round-trip target. `seedCodeBundleArtifact`
+  follows the citation-artifact pattern: real bytes written
+  through `insertDemoBlob` when `dataRoot` is set, mock URI
+  otherwise. Attached to the ratified experiment-results
+  deliverable in both the experiment-phase and paper-phase demo
+  projects.
+
+### Test
+
+- **`test/widgets/code_bundle_viewer_test.dart`** — `parseCodeBundle`
+  round-trips all three shapes, drops malformed entries, returns
+  empty on unsupported shapes. `languageForPath` covers common
+  extensions + fallback. Widget tests assert the unsupported-uri
+  error path + screen title rendering, mirroring the pdf/tabular
+  test patterns.
+
+### References
+
+- Plan: `docs/plans/artifact-type-registry.md` (wave 2 W5).
 
 ---
 

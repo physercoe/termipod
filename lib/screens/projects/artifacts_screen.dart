@@ -6,6 +6,7 @@ import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/artifact_viewers/code_bundle_viewer.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
 import '../../widgets/artifact_viewers/tabular_viewer.dart';
@@ -578,7 +579,18 @@ class _ArtifactViewerLauncher extends StatelessWidget {
             ),
           ),
         );
-      // Remaining MVP kinds get their launchers as W5–W6 ship.
+      case ArtifactKind.codeBundle:
+        return _LauncherButton(
+          icon: Icons.code,
+          label: 'Open code',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ArtifactCodeBundleViewerScreen(uri: uri, title: name),
+            ),
+          ),
+        );
+      // Remaining MVP kinds get their launchers as W6 ships.
       // ignore: no_default_cases
       default:
         return const SizedBox.shrink();

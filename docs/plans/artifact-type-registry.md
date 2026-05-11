@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3+W4 of 7 shipped (2026-05-11, v1.0.489–493-alpha)
+> **Status:** In progress — W1+W2+W3+W4+W5 of 7 shipped (2026-05-11, v1.0.489–494-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.493
+> **Last verified vs code:** v1.0.494
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -332,13 +332,36 @@ markdown/code as inline-as-text shortcuts) is now W7 below.
 
 **LOC estimate:** ~400 mobile + ~250 hub + per-driver wiring.
 
-### W5 — Code-bundle viewer (read-only)
+### W5 — Code-bundle viewer (read-only) — ✅ SHIPPED v1.0.494-alpha
 
 **Scope.** Renders a `code-bundle` artifact as a syntax-highlighted
 file tree. Read-only; editing is deferred. Useful for agent-emitted
 scaffolds, ML run-script snapshots, paper LaTeX sources.
 
-**LOC estimate:** ~300 mobile.
+**Implementation:**
+
+- **`lib/widgets/artifact_viewers/code_bundle_viewer.dart`** —
+  `ArtifactCodeBundleViewer` (Riverpod consumer) +
+  `ArtifactCodeBundleViewerScreen` (fullscreen route). Resolves
+  `blob:sha256/<sha>` via `HubClient.downloadBlobCached`. Parses
+  three JSON manifest shapes: `{files: [{path, content}, …]}`,
+  flat list-of-objects, and the single-file `{path, content}`
+  degenerate form. Syntax highlighting via the existing
+  `flutter_highlight` dep; `languageForPath` maps file extension
+  to highlight.js language id with `plaintext` fallback. File
+  picker is a horizontally-scrollable chip bar.
+- **`_ArtifactViewerLauncher`** in `artifacts_screen.dart` gains
+  a `code-bundle` branch surfacing an "Open code" button.
+- **Hub seed** — `demoRunBundle()` + `seedCodeBundleArtifact()`
+  attach a 3-file python scaffold (`train.py` + `config.py` +
+  `README.md`) to the ratified experiment-results deliverable in
+  both demo projects. Real bytes when `dataRoot` is set, mock URI
+  otherwise (same pattern as `seedCitationArtifact`).
+- **Test** — `test/widgets/code_bundle_viewer_test.dart` covers
+  parser shape handling, language detection, and the
+  unsupported-uri error path.
+
+**LOC estimate:** ~300 mobile (came in close).
 
 ### W6 — Audio + video viewers
 

@@ -840,6 +840,15 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// W5 run-bundle: 3-file python scaffold (train.py +
+				// config.py + README.md) attached to the experiment-
+				// results deliverable. Gives reviewers something to read
+				// alongside the commit URL + checkpoint blob.
+				bundleArt, err := seedCodeBundleArtifact(c, demoRunBundle(),
+					"run-bundle.json")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -862,11 +871,12 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "document", refID: expDoc.id, ord: 0},
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
-							{kind: "run", refID: run.id, ord: 3},
+							{kind: "artifact", refID: bundleArt.id, ord: 3},
+							{kind: "run", refID: run.id, ord: 4},
 							// The exact training revision that produced
 							// this run — paired with the run config so
 							// reviewers can rebuild the experiment.
-							{kind: "commit", ord: 4,
+							{kind: "commit", ord: 5,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 				})
@@ -1013,6 +1023,15 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// W5 run-bundle on the ratified experiment-results (paper
+				// phase variant). Same shape as the experiment-phase
+				// variant above so the W5 viewer renders the same scaffold
+				// regardless of which demo project the tester opens.
+				bundleArt, err := seedCodeBundleArtifact(c, demoRunBundle(),
+					"run-bundle.json")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -1035,8 +1054,9 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "document", refID: expDoc.id, ord: 0},
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
-							{kind: "run", refID: run.id, ord: 3},
-							{kind: "commit", ord: 4,
+							{kind: "artifact", refID: bundleArt.id, ord: 3},
+							{kind: "run", refID: run.id, ord: 4},
+							{kind: "commit", ord: 5,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
@@ -1612,6 +1632,128 @@ func seedCitationArtifact(
 		id, c.projectID, name, uri, int64(len(data)), mime,
 		c.stewardID, c.now); err != nil {
 		return seededArtifact{}, fmt.Errorf("insert citation artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
+
+// demoRunBundle returns the three-file training scaffold attached to
+// the ratified experiment-results deliverable as a `code-bundle`
+// artifact. Kept short + deterministic so blob dedup keeps the seed
+// idempotent; mirrors the shape Cursor and Claude Artifacts emit for
+// multi-file scaffolds.
+func demoRunBundle() map[string]any {
+	return map[string]any{
+		"files": []map[string]any{
+			{
+				"path":    "train.py",
+				"content": "" + `"""Single-file training loop used by the ablation sweep."""
+import torch
+from torch.optim import AdamW
+from config import RunConfig
+from data import build_loader
+
+
+def train(cfg: RunConfig) -> dict:
+    model = cfg.build_model()
+    opt = AdamW(model.parameters(), lr=cfg.lr)
+    loader = build_loader(cfg.batch_size)
+    for step, batch in enumerate(loader):
+        loss = model(batch).loss
+        loss.backward()
+        opt.step()
+        opt.zero_grad()
+        if step >= cfg.iters:
+            break
+    return {"final_loss": float(loss)}
+
+
+if __name__ == "__main__":
+    train(RunConfig.from_cli())
+`,
+			},
+			{
+				"path":    "config.py",
+				"content": "" + `from dataclasses import dataclass
+
+
+@dataclass
+class RunConfig:
+    n_embd: int = 384
+    optimizer: str = "lion"
+    iters: int = 1000
+    lr: float = 3e-4
+    batch_size: int = 32
+
+    def build_model(self):
+        from model import build
+        return build(n_embd=self.n_embd)
+
+    @classmethod
+    def from_cli(cls) -> "RunConfig":
+        import argparse
+        p = argparse.ArgumentParser()
+        p.add_argument("--n_embd", type=int, default=384)
+        p.add_argument("--optimizer", default="lion")
+        p.add_argument("--iters", type=int, default=1000)
+        args = p.parse_args()
+        return cls(**vars(args))
+`,
+			},
+			{
+				"path":    "README.md",
+				"content": "" + `# Optimizer ablation — run bundle
+
+Reference implementation that produced the eval curves on the
+ratified experiment-results deliverable.
+
+## Files
+
+- ` + "`train.py`" + ` — single-file training loop
+- ` + "`config.py`" + ` — RunConfig + CLI parser
+
+## Reproducibility
+
+Reproduce the headline run with:
+
+` + "```bash\npython train.py --n_embd 384 --optimizer lion --iters 1000\n```" + `
+
+Eval is split out to keep the bundle inspectable on mobile.
+`,
+			},
+		},
+	}
+}
+
+// seedCodeBundleArtifact materialises a `code-bundle`-kind artifact
+// (wave 2 W5) for the demo run-bundle. Mirrors seedCitationArtifact's
+// "real bytes when dataRoot present, mock URI otherwise" pattern so the
+// mobile CodeBundleViewer round-trips through the blob endpoint.
+func seedCodeBundleArtifact(
+	c *seedProjectCtx, bundle map[string]any, name string,
+) (seededArtifact, error) {
+	data, err := json.Marshal(bundle)
+	if err != nil {
+		return seededArtifact{}, fmt.Errorf("marshal bundle: %w", err)
+	}
+	mime := "application/vnd.termipod.code+json"
+	uri := fmt.Sprintf("blob:mock/lifecycle/bundle-%s-%s", c.projectID, name)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write bundle blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'code-bundle', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert code bundle artifact: %w", err)
 	}
 	c.artifactsSeeded++
 	return seededArtifact{id: id, name: name}, nil

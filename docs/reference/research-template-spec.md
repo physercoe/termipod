@@ -144,7 +144,7 @@ chooses.
   display_name: "Idea"
   abbrev: "Idea"
   overview_widget: idea_conversation
-  tiles: []                          # no shortcut tiles; conversation-only
+  tiles: [Documents]                 # idea memos land here; director needs a tile to find them
   steward_spawn: eager
   deliverables: []                   # no formal deliverable
   criteria:

@@ -340,7 +340,10 @@ func (s *Server) handleStreamAgentEvents(w http.ResponseWriter, r *http.Request)
 	sessionFilter := strings.TrimSpace(r.URL.Query().Get("session"))
 	s.backfillAgentEvents(r, w, flusher, agent, since, sessionFilter)
 
-	ping := time.NewTicker(15 * time.Second)
+	// 5s ping cadence (was 15s) — keeps mobile carrier NATs / reverse
+	// proxies happy. Idle reaps on quiet streams (after a turn ends)
+	// were triggering visible reconnect noise on the mobile client.
+	ping := time.NewTicker(5 * time.Second)
 	defer ping.Stop()
 	for {
 		select {

@@ -494,6 +494,12 @@ class SnippetEditDialog extends ConsumerStatefulWidget {
   /// if [snippet] is non-null).
   final String? initialContent;
 
+  /// Optional initial category for new-snippet creation (ignored if
+  /// [snippet] is non-null). Lets callers like the steward overlay's
+  /// "Add steward snippet" affordance seed the category dropdown so the
+  /// new entry shows up on the overlay chip strip immediately.
+  final String? initialCategory;
+
   final SnippetEditSaveCallback onSave;
 
   const SnippetEditDialog({
@@ -501,6 +507,7 @@ class SnippetEditDialog extends ConsumerStatefulWidget {
     this.snippet,
     this.initialName,
     this.initialContent,
+    this.initialCategory,
     required this.onSave,
   });
 
@@ -660,7 +667,7 @@ class _SnippetEditDialogState extends ConsumerState<SnippetEditDialog> {
     _contentController = TextEditingController(
       text: widget.snippet?.content ?? widget.initialContent ?? '',
     );
-    _category = widget.snippet?.category ?? 'general';
+    _category = widget.snippet?.category ?? widget.initialCategory ?? 'general';
     _variables = [...?widget.snippet?.variables];
     _rebuildControllers();
     _contentController.addListener(_syncVariables);

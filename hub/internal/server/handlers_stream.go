@@ -39,7 +39,9 @@ func (s *Server) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 		s.backfill(r, w, flusher, ch, since)
 	}
 
-	ping := time.NewTicker(15 * time.Second)
+	// Match handleStreamAgentEvents' 5s cadence so channel-stream
+	// subscribers don't get reaped by carrier NATs / proxies either.
+	ping := time.NewTicker(5 * time.Second)
 	defer ping.Stop()
 
 	for {

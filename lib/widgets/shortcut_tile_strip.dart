@@ -58,7 +58,10 @@ TileSlug? _slugFromString(String raw) {
 /// the mobile rendering ahead of W7 so the demo path validates the
 /// chassis cut without waiting on the template-loader work.
 const Map<String, List<TileSlug>> _researchPhaseTiles = {
-  'idea': [],
+  // Idea phase is "conversation-first" by spec, but the steward routinely
+  // creates idea memos here (lifecycle-walkthrough scenario 3) — the
+  // Documents tile gives the director a way to find what just got written.
+  'idea': [TileSlug.documents],
   'lit-review': [TileSlug.references, TileSlug.documents],
   'method': [
     TileSlug.references,

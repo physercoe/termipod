@@ -193,6 +193,35 @@ class SnippetPresets {
     ],
 
     // -----------------------------------------------------------------------
+    // Steward overlay — starter chips for the always-on team concierge.
+    // Surface as preset snippets so the user can edit-in-place via
+    // `SnippetsScreen` (override stored in `presetOverrides`) and
+    // restore the built-in via swipe-to-reset. Shown on the overlay
+    // chip strip (steward_overlay_chips.dart) alongside any user
+    // snippets tagged `category: 'steward'`.
+    // -----------------------------------------------------------------------
+    'steward': const [
+      Snippet(
+        id: 'preset-stw-insights',
+        name: 'Show insights',
+        content: 'Show me the insights view',
+        category: 'steward',
+      ),
+      Snippet(
+        id: 'preset-stw-blocked',
+        name: "What's blocked?",
+        content: "What's blocked right now?",
+        category: 'steward',
+      ),
+      Snippet(
+        id: 'preset-stw-projects',
+        name: 'My projects',
+        content: 'Open my projects',
+        category: 'steward',
+      ),
+    ],
+
+    // -----------------------------------------------------------------------
     // Codex — reference: developers.openai.com/codex/guides/slash-commands
     // -----------------------------------------------------------------------
     ActionBarPresets.codexId: const [
@@ -317,6 +346,7 @@ class SnippetPresets {
     return switch (category) {
       'claude-code' => 'Claude Code',
       'codex' => 'Codex',
+      'steward' => 'Steward',
       'general' => 'General',
       'tmux' => 'Tmux',
       'drafts' => 'Drafts',

@@ -125,11 +125,21 @@ class StewardOverlayState {
 final overlayNavigatorKeyProvider =
     Provider<GlobalKey<NavigatorState>>((_) => GlobalKey<NavigatorState>());
 
+/// Grace window before posting a "stream errored — reconnecting…"
+/// system note. Most reconnects (carrier NAT reaps, proxy idle limits)
+/// heal within a second; surfacing them as transcript noise is worse
+/// than the underlying close. If reconnect succeeds before this fires
+/// the timer is cancelled and the user sees nothing.
+const Duration _reconnectNoteGrace = Duration(seconds: 3);
+
 class StewardOverlayController extends Notifier<StewardOverlayState> {
   StreamSubscription<Map<String, dynamic>>? _sub;
   bool _initStarted = false;
   bool _disposed = false;
   Timer? _reconnectTimer;
+  /// Defers the "stream — reconnecting…" system note so a healthy
+  /// reconnect within `_reconnectNoteGrace` stays invisible.
+  Timer? _noteGraceTimer;
   /// Backoff on consecutive reconnect attempts: 1s, 2s, 4s, 8s, 16s,
   /// then capped. Resets on the next successful event.
   int _reconnectAttempts = 0;
@@ -137,11 +147,30 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// replaying the entire backfill on reconnect.
   int? _lastSeq;
 
+  /// Idle-drop heuristic: matches the patterns mobile carriers /
+  /// reverse proxies typically surface when they reap a quiet TCP
+  /// connection. These aren't real errors — reconnect handles them
+  /// — and posting "errored" to the chat transcript every time is
+  /// pure noise. Same signature set as `agent_events_provider`
+  /// (`_isIdleDropSignature`) and `agent_feed.dart`.
+  static bool _isIdleDropSignature(String reason) {
+    final lc = reason.toLowerCase();
+    return lc.contains('connection closed') ||
+        lc.contains('connection reset') ||
+        lc.contains('connection abort') ||
+        lc.contains('connection terminated') ||
+        lc.contains('http2streamlimit') ||
+        lc.contains('stream closed') ||
+        lc.contains('before full body received') ||
+        lc.contains('before full header was received');
+  }
+
   @override
   StewardOverlayState build() {
     ref.onDispose(() {
       _disposed = true;
       _reconnectTimer?.cancel();
+      _noteGraceTimer?.cancel();
       _sub?.cancel();
     });
     return const StewardOverlayState();
@@ -243,6 +272,10 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
         )
         .listen(
       (evt) {
+        // First live frame after a reconnect — cancel any deferred
+        // note so a healthy heal stays invisible.
+        _noteGraceTimer?.cancel();
+        _noteGraceTimer = null;
         _reconnectAttempts = 0;
         final s = (evt['seq'] as num?)?.toInt();
         if (s != null && (_lastSeq == null || s > _lastSeq!)) {
@@ -251,32 +284,48 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
         _handleEvent(evt);
       },
       onError: (Object e) => _scheduleReconnect(client, agentId, sessionId,
-          reason: 'errored: $e'),
+          reason: 'errored: $e', isError: true),
       onDone: () => _scheduleReconnect(client, agentId, sessionId,
-          reason: 'closed'),
+          reason: 'closed', isError: false),
     );
   }
 
   /// Schedules a reconnect with exponential backoff (1s..16s capped).
-  /// One system note per ladder-rung is appended so the user sees we
-  /// haven't given up; we don't spam every retry.
+  ///
+  /// Two rules govern the user-visible system note:
+  ///
+  ///   1. Idle-drop signatures (carrier NAT reaps, proxy idle limits)
+  ///      are silent. The reconnect handles them; "errored" in the
+  ///      transcript after a quiet turn is pure noise.
+  ///   2. Real errors get a deferred note: `_noteGraceTimer` posts it
+  ///      after `_reconnectNoteGrace` IF reconnect hasn't already
+  ///      delivered a live frame. The grace timer is cancelled in
+  ///      `_attachStream`'s success handler.
   void _scheduleReconnect(
     HubClient client,
     String agentId,
     String sessionId, {
     required String reason,
+    required bool isError,
   }) {
     if (_disposed) return;
     _sub?.cancel();
     _sub = null;
     final attempt = _reconnectAttempts;
     final delay = Duration(seconds: 1 << (attempt > 4 ? 4 : attempt));
-    if (attempt == 0) {
-      _appendMessage(OverlayChatMessage(
-        role: OverlayChatRole.system,
-        text: 'Steward stream $reason — reconnecting…',
-        ts: DateTime.now(),
-      ));
+
+    final shouldSurface =
+        isError && attempt == 0 && !_isIdleDropSignature(reason);
+    if (shouldSurface) {
+      _noteGraceTimer?.cancel();
+      _noteGraceTimer = Timer(_reconnectNoteGrace, () {
+        if (_disposed) return;
+        _appendMessage(OverlayChatMessage(
+          role: OverlayChatRole.system,
+          text: 'Steward stream $reason — reconnecting…',
+          ts: DateTime.now(),
+        ));
+      });
     }
     _reconnectAttempts = attempt + 1;
     _reconnectTimer = Timer(delay, () {

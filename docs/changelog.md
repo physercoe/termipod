@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-10)
+> **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.482
+> **Last verified vs code:** v1.0.483
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,56 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.483-alpha — 2026-05-11
+
+### Fixed
+
+- **General steward sessions no longer bucket under "Detached".**
+  `isStewardHandle()` deliberately excludes `@steward` so spawn /
+  collision-check sites treat the team concierge as separate; the
+  Sessions screen reused that predicate when building `liveStewardIds`,
+  which caused any session whose `current_agent_id` pointed at the
+  general steward to fall through to the orphan branch. The Sessions
+  screen now widens its check to `isStewardHandle(h) ||
+  isGeneralStewardHandle(h)` — the predicate's other call sites are
+  unchanged. `lib/screens/sessions/sessions_screen.dart`.
+- **Documents tile now shows on the idea phase Overview.** The research
+  template marked idea as "conversation-first" with `tiles: []`, but
+  scenario 3 of the lifecycle walkthrough creates idea memos via
+  `documents.create` — the document landed in the DB and the director
+  had no UI path to find it. Added `TileSlug.documents` to the idea
+  phase in both the spec (`docs/reference/research-template-spec.md`
+  §3) and the renderer (`lib/widgets/shortcut_tile_strip.dart`).
+- **Steward overlay no longer spams "stream errored: connection closed".**
+  After a turn ends, the SSE goes idle and mobile carriers / reverse
+  proxies typically reap the TCP socket within ~60–90s. The overlay
+  controller used to post a system note on every reconnect cycle; now
+  it (a) suppresses notes for known idle-drop signatures (matching the
+  heuristic `agent_events_provider` / `agent_feed` already use) and
+  (b) defers real-error notes by 3s so a fast reconnect heals
+  invisibly. Server-side ping cadence also dropped from 15s → 5s
+  on both agent-events and channel-events streams to give NATs /
+  proxies more frequent activity to count.
+- **Snippets manage page now has an Add action + the 3 starter chips
+  are editable.** The page wraps `SnippetsScreen` (a Vault embedded
+  body widget without its own Add button), so pushing it as a route
+  from the overlay's Edit chip surfaced a read-only-looking list. The
+  3 chip-strip defaults were also in-memory constants that never
+  entered the snippet store. Both are fixed: the manage page AppBar
+  carries an Add action that opens `SnippetEditDialog` pre-filled
+  with `category=steward`, and the 3 starter chips moved into
+  `SnippetPresets` as a `steward` profile — they now render in the
+  manage page with the existing preset-tile machinery (tap to edit,
+  swipe to delete, restore-chip to revert overrides).
+
+### Changed
+
+- **Server SSE ping cadence: 15s → 5s** (`handlers_agent_events.go`,
+  `handlers_stream.go`). Shorter cadence keeps mobile carrier NATs /
+  reverse proxies from reaping quiet streams between turns.
 
 ---
 

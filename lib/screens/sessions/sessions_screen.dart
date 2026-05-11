@@ -484,7 +484,11 @@ List<_StewardGroup> _groupByStateward(
   final groups = <_StewardGroup>[];
   for (final a in agents) {
     final handle = (a['handle'] ?? '').toString();
-    if (!isStewardHandle(handle)) continue;
+    // Include the team-scoped general steward (`@steward`, which
+    // isStewardHandle deliberately excludes for spawn / collision
+    // semantics) so its sessions get a proper group instead of
+    // falling through to "Detached".
+    if (!isStewardHandle(handle) && !isGeneralStewardHandle(handle)) continue;
     final status = (a['status'] ?? '').toString();
     if (status != 'running' &&
         status != 'pending' &&

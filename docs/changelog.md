@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.503
+> **Last verified vs code:** v1.0.504
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,42 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.504-alpha — 2026-05-11
+
+Three more in-hero typed embeds, completing the wave-3 first pass:
+every research-phase hero now surfaces its load-bearing content
+inline instead of pointing the operator to dig for it.
+
+### Added
+
+- **`paper_acceptance` PDF embed** — `PaperAcceptanceHero` fetches the
+  newest `kind=pdf` artifact for the project and renders page 1 in a
+  220 px constrained `PdfViewer.data` (gestures locked via
+  `IgnorePointer`). Tap → `ArtifactPdfViewerScreen`. Silent when no
+  PDF exists yet.
+- **`deliverable_focus` next-section embed** — `DeliverableFocusHero`
+  walks the loaded overview's `deliverables[0].components` for a
+  `document` ref, fetches the document, parses its sections, and
+  surfaces the first non-ratified section as a card: title + 3-line
+  preview + ratified/total count. Tap → `SectionDetailScreen` so the
+  director can read + ratify without first opening the structured
+  viewer.
+- **`idea_conversation` scope criterion embed** — `IdeaConversationHero`
+  fetches `listProjectCriteria(phase: 'idea')`, picks the first pending
+  criterion (falls back to most-recent for context), and renders it
+  inline with the same Mark met / Mark failed / Waive sheet the full
+  deliverable viewer uses.
+
+### Changed
+
+- `_PhaseHero.extras` (added in v1.0.503) replaced with
+  `extrasBuilder: Widget Function(BuildContext, Map<String,dynamic>? overview)?`.
+  Builders receive the already-loaded overview map so deliverable-aware
+  embeds skip a second fetch; the metric-chart embed continues to
+  ignore the param.
 
 ---
 

@@ -11,17 +11,30 @@ import '../../services/deep_link/uri_router.dart';
 import '../../services/hub/hub_client.dart';
 import '../../services/steward_handle.dart';
 
-/// Number of recent events to pre-load into the overlay chat on
-/// cold open (W1 — overlay-history-and-snippets plan, B2). 50 events
-/// covers ~8–15 conversational turns in practice; tune after demo
-/// usage.
-const int _backfillLimit = 50;
+/// Upper bound on the events we ask the hub for at cold open. Tool-
+/// heavy turns can fan out to 30+ events apiece (a single steward
+/// response with five tool calls + their updates), so the original
+/// 50-event budget routinely truncated the rendered chat to 1–2 turns.
+/// We pull a larger window and then trim to a turn-count target
+/// ([_backfillTurnTarget]) post-hydration so the user sees a
+/// consistent "last N exchanges" view regardless of how chatty the
+/// engine was.
+const int _backfillEventCeiling = 500;
+
+/// Target number of user-input turns to surface after cold open. A
+/// turn boundary is each `kind == 'input.text'` event from the user.
+/// The overlay is a "recent directive context" surface, not a full
+/// transcript — 5 turns is the panel-vs-Sessions-screen tradeoff
+/// point ("if you need more, open Sessions").
+const int _backfillTurnTarget = 5;
 
 /// Max in-memory message rolling window for the overlay's compact
 /// chat. The Sessions screen owns the full transcript; the overlay's
 /// purpose is the recent directive context, not the entire log.
-/// 20 messages ≈ 10 turns of user-prompt → steward-response.
-const int _overlayMessageCap = 20;
+/// 15 messages ≈ 5 turns of user-prompt → steward-response with room
+/// for a few `mobile.intent` pills — sized to hold the
+/// [_backfillTurnTarget] view without immediate eviction.
+const int _overlayMessageCap = 15;
 
 /// steward_overlay_controller.dart — owns the lifecycle of the overlay's
 /// connection to the team's general steward.
@@ -214,11 +227,14 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       }
 
       // 3. History backfill (W1 — overlay-history-and-snippets plan).
-      //    Pull the last `_backfillLimit` events for this agent +
-      //    session via the read-through cache so cold-open paints
-      //    instantly from disk, then refreshes from the network.
-      //    Events are returned newest-first (tail: true / seq DESC);
-      //    reverse to ASC so the chat reads oldest→newest. Failures
+      //    Pull the most recent events for this agent + session via
+      //    the read-through cache so cold-open paints instantly from
+      //    disk, then refreshes from the network. Events are returned
+      //    newest-first (tail: true / seq DESC); `_backfillMessages`
+      //    trims to the last `_backfillTurnTarget` user-input turns
+      //    (tool-heavy chats can fan out 30+ events per turn — the
+      //    old fixed event budget surfaced 1–2 turns there) and
+      //    reverses to ASC so the chat reads oldest→newest. Failures
       //    surface as `messages` empty + `error` set; we still set
       //    agentId so the user can chat live.
       final hydrated = await _backfillMessages(client, agentId, sessionId);
@@ -339,6 +355,13 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// Returns the messages, the source events (for sinceSeq cursor
   /// computation), and a non-fatal warning if the network fetch
   /// failed so the caller can surface it.
+  ///
+  /// Turn-trimming: tail-mode returns events newest-first. We pull up
+  /// to [_backfillEventCeiling] (well past the visible turn target so
+  /// tool-heavy chats still recover the requested turn count), walk
+  /// newest→oldest counting `kind == 'input.text'` user events as turn
+  /// boundaries, and cut once we cross [_backfillTurnTarget]. The
+  /// trimmed slice is reversed to oldest→newest for hydration.
   Future<_BackfillResult> _backfillMessages(
     HubClient client,
     String agentId,
@@ -348,12 +371,11 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       final cached = await client.listAgentEventsCached(
         agentId,
         tail: true,
-        limit: _backfillLimit,
+        limit: _backfillEventCeiling,
         sessionId: sessionId.isEmpty ? null : sessionId,
       );
-      // Tail mode returns seq DESC (newest first). Chat reads
-      // oldest → newest, so reverse before hydrating.
-      final asc = cached.body.reversed.toList(growable: false);
+      final trimmed = _trimToTurnTarget(cached.body, _backfillTurnTarget);
+      final asc = trimmed.reversed.toList(growable: false);
       final messages = _hydrateFromEvents(asc);
       final warning = cached.staleSince != null
           ? 'Showing cached history (offline)'
@@ -373,6 +395,29 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
         warning: 'Could not load history: $e',
       );
     }
+  }
+
+  /// Trims a newest-first event list to the last [turnTarget] user-
+  /// input turns. The cut is inclusive of the boundary event itself —
+  /// when we find the (turnTarget+1)th user input, we stop and return
+  /// everything before it (the older events). With fewer than
+  /// turnTarget turns in the buffer, returns the input unchanged.
+  static List<Map<String, dynamic>> _trimToTurnTarget(
+    List<Map<String, dynamic>> desc,
+    int turnTarget,
+  ) {
+    var turnsSeen = 0;
+    for (var i = 0; i < desc.length; i++) {
+      final e = desc[i];
+      if ((e['kind'] ?? '').toString() == 'input.text' &&
+          (e['producer'] ?? '').toString() == 'user') {
+        turnsSeen++;
+        if (turnsSeen > turnTarget) {
+          return desc.sublist(0, i);
+        }
+      }
+    }
+    return desc;
   }
 
   /// Demuxes a list of agent_events into `OverlayChatMessage`s via

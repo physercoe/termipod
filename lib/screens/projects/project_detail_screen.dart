@@ -16,7 +16,7 @@ import '../../widgets/activity_snippet.dart'
         shortRelativeTs;
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
-import '../../widgets/phase_ribbon.dart';
+import '../../widgets/phase_badge.dart';
 import '../../widgets/shortcut_tile_strip.dart';
 import '../../widgets/team_switcher.dart';
 import '../../widgets/template_yaml_sheet.dart';
@@ -183,54 +183,81 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         ),
         actions: [
           const TeamSwitcher(),
-          if (((_project['template_id'] ?? '').toString()).isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.info_outline),
-              tooltip: 'View template YAML',
-              onPressed: () => TemplateYamlSheet.show(
-                context,
-                (_project['template_id'] ?? '').toString(),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: isWorkspace
-                ? l10n.workspaceDetailEditTooltip
-                : l10n.projectDetailEditTooltip,
-            onPressed: _edit,
-          ),
+          // Edit + View template YAML moved into the overflow menu so
+          // the title row has room for the kind chip + (long) project
+          // name on narrow phones. The overflow now collects all the
+          // single-project actions — keeps `more_vert` honest about
+          // what it offers.
           PopupMenuButton<String>(
             tooltip: 'More actions',
             icon: const Icon(Icons.more_vert),
             onSelected: (v) {
-              if (v == 'new_sub' && !atMaxDepth) {
-                _createSubProject();
-              } else if (v == 'new_sub' && atMaxDepth) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Max sub-project depth is 2 — this project is already nested.',
-                    ),
-                    duration: Duration(seconds: 3),
-                  ),
-                );
+              switch (v) {
+                case 'edit':
+                  _edit();
+                case 'template_yaml':
+                  TemplateYamlSheet.show(
+                    context,
+                    (_project['template_id'] ?? '').toString(),
+                  );
+                case 'new_sub':
+                  if (atMaxDepth) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Max sub-project depth is 2 — this project '
+                          'is already nested.',
+                        ),
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                  } else {
+                    _createSubProject();
+                  }
               }
             },
-            itemBuilder: (ctx) => [
-              PopupMenuItem(
-                value: 'new_sub',
-                enabled: !atMaxDepth,
-                child: Row(
-                  children: [
-                    const Icon(Icons.account_tree_outlined, size: 16),
-                    const SizedBox(width: 8),
-                    Text(isWorkspace
-                        ? 'New sub-Workspace'
-                        : 'New sub-project'),
-                  ],
+            itemBuilder: (ctx) {
+              final hasTemplate =
+                  (_project['template_id'] ?? '').toString().isNotEmpty;
+              return [
+                PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.edit_outlined, size: 16),
+                      const SizedBox(width: 8),
+                      Text(isWorkspace
+                          ? l10n.workspaceDetailEditTooltip
+                          : l10n.projectDetailEditTooltip),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                if (hasTemplate)
+                  const PopupMenuItem(
+                    value: 'template_yaml',
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16),
+                        SizedBox(width: 8),
+                        Text('View template YAML'),
+                      ],
+                    ),
+                  ),
+                PopupMenuItem(
+                  value: 'new_sub',
+                  enabled: !atMaxDepth,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.account_tree_outlined, size: 16),
+                      const SizedBox(width: 8),
+                      Text(isWorkspace
+                          ? 'New sub-Workspace'
+                          : 'New sub-project'),
+                    ],
+                  ),
+                ),
+              ];
+            },
           ),
         ],
       ),
@@ -239,7 +266,7 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
           if (parentId.isNotEmpty)
             _ParentBreadcrumb(parentProjectId: parentId),
           if (_phases.isNotEmpty)
-            PhaseRibbon(
+            PhaseBadge(
               phases: _phases,
               currentPhase: _phase,
               onTap: (p) => _openPhaseSummary(p),

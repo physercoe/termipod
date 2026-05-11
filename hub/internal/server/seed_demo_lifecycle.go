@@ -849,6 +849,15 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// canvas-viewer plan W3: interactive SVG line chart over
+				// the same eval data the metric-chart artifact carries.
+				// Lets testers exercise the WebView sandbox + tap-to-
+				// inspect interaction without an agent emitting one.
+				canvasArt, err := seedCanvasArtifact(c, demoCanvasBundle(),
+					"eval-curve.html")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -872,11 +881,12 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "artifact", refID: bundleArt.id, ord: 3},
-							{kind: "run", refID: run.id, ord: 4},
+							{kind: "artifact", refID: canvasArt.id, ord: 4},
+							{kind: "run", refID: run.id, ord: 5},
 							// The exact training revision that produced
 							// this run — paired with the run config so
 							// reviewers can rebuild the experiment.
-							{kind: "commit", ord: 5,
+							{kind: "commit", ord: 6,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 				})
@@ -1032,6 +1042,14 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// canvas-viewer plan W3 — same interactive chart as the
+				// experiment-phase variant. Identical bundle so the
+				// content-addressed blob dedups across both demo projects.
+				canvasArt, err := seedCanvasArtifact(c, demoCanvasBundle(),
+					"eval-curve.html")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -1055,8 +1073,9 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: ckptArt.id, ord: 1},
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "artifact", refID: bundleArt.id, ord: 3},
-							{kind: "run", refID: run.id, ord: 4},
-							{kind: "commit", ord: 5,
+							{kind: "artifact", refID: canvasArt.id, ord: 4},
+							{kind: "run", refID: run.id, ord: 5},
+							{kind: "commit", ord: 6,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
@@ -1726,6 +1745,122 @@ Eval is split out to keep the bundle inspectable on mobile.
 			},
 		},
 	}
+}
+
+// demoCanvasBundle returns the 3-file AFM-V1 manifest the canvas
+// viewer (canvas-viewer plan W2) renders on the ratified
+// experiment-results deliverable. Three files
+// (`index.html` + `chart.js` + `style.css`) draw an interactive SVG
+// line chart over the same synthetic eval data the metric-chart
+// artifact carries, so testers can exercise the viewer without
+// waiting for an agent to emit one. Tapping a point updates the
+// label — confirms JS executes inside the sandboxed WebView.
+func demoCanvasBundle() map[string]any {
+	const indexHTML = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Eval curve</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg id="chart" width="320" height="200"></svg>
+<div id="label">tap a point</div>
+<script src="chart.js"></script>
+</body>
+</html>`
+	const chartJS = `const points = [
+  [0, 4.20], [100, 3.60], [200, 3.10], [300, 2.80],
+  [400, 2.60], [500, 2.40], [600, 2.30], [700, 2.20],
+  [800, 2.10], [900, 2.05], [1000, 2.00]
+];
+const svg = document.getElementById('chart');
+const NS = 'http://www.w3.org/2000/svg';
+const W = 320, H = 200, P = 28;
+const xs = points.map(p => p[0]);
+const ys = points.map(p => p[1]);
+const xMax = Math.max(...xs);
+const yMin = Math.min(...ys), yMax = Math.max(...ys);
+const x = v => P + (W - 2*P) * (v / xMax);
+const y = v => H - P - (H - 2*P) * (v - yMin) / (yMax - yMin);
+const d = points.map((p, i) =>
+  (i === 0 ? 'M' : 'L') + x(p[0]) + ',' + y(p[1])).join(' ');
+const path = document.createElementNS(NS, 'path');
+path.setAttribute('d', d);
+path.setAttribute('fill', 'none');
+path.setAttribute('stroke', '#e94e8a');
+path.setAttribute('stroke-width', '2');
+svg.appendChild(path);
+const label = document.getElementById('label');
+for (const p of points) {
+  const c = document.createElementNS(NS, 'circle');
+  c.setAttribute('cx', x(p[0]));
+  c.setAttribute('cy', y(p[1]));
+  c.setAttribute('r', 4);
+  c.setAttribute('fill', '#e94e8a');
+  c.style.cursor = 'pointer';
+  c.addEventListener('click', () => {
+    label.textContent = 'step=' + p[0] + ', loss=' + p[1].toFixed(2);
+  });
+  svg.appendChild(c);
+}`
+	const styleCSS = `body {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #111;
+  color: #eee;
+  margin: 12px;
+}
+#chart { background: #1a1a1a; border-radius: 6px; display: block; }
+#label {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #ccc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}`
+	return map[string]any{
+		"version": 1,
+		"entry":   "index.html",
+		"files": []map[string]any{
+			{"path": "index.html", "content": indexHTML},
+			{"path": "chart.js", "content": chartJS},
+			{"path": "style.css", "content": styleCSS},
+		},
+	}
+}
+
+// seedCanvasArtifact materialises a `canvas-app`-kind artifact for the
+// demo canvas bundle. Mirrors seedCodeBundleArtifact's
+// blob-or-mock-uri pattern so the mobile CanvasViewer round-trips
+// through the same HubClient.downloadBlobCached path as the rest of
+// the wave-2 viewers.
+func seedCanvasArtifact(
+	c *seedProjectCtx, bundle map[string]any, name string,
+) (seededArtifact, error) {
+	data, err := json.Marshal(bundle)
+	if err != nil {
+		return seededArtifact{}, fmt.Errorf("marshal canvas bundle: %w", err)
+	}
+	mime := "application/vnd.termipod.canvas+json"
+	uri := fmt.Sprintf("blob:mock/lifecycle/canvas-%s-%s", c.projectID, name)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write canvas blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'canvas-app', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert canvas artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
 }
 
 // seedCodeBundleArtifact materialises a `code-bundle`-kind artifact

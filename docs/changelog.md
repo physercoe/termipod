@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.497
+> **Last verified vs code:** v1.0.498
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,53 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.498-alpha — 2026-05-11
+
+Canvas-viewer plan W2+W3+W4: sandboxed WebView for `canvas-app`
+artifacts. The 11th and final closed-set kind from
+artifact-type-registry W1 now has a viewer. Trust-the-agent
+read-only interaction model (clicks/plays stay WebView-local; no
+agent bridge). AFM-V1 (shipped W1 the same day) is the body schema;
+canvas is its second user after code-bundle.
+
+### Added
+
+- **Canvas viewer** (`lib/widgets/artifact_viewers/canvas_viewer.dart`)
+  — `ArtifactCanvasViewer` + `ArtifactCanvasViewerScreen`. Downloads
+  the AFM-V1 blob, parses via the shared
+  `parseArtifactFileManifest`, then merges sub-files into a single
+  self-contained HTML document by rewriting `<script src>`,
+  `<link rel="stylesheet" href>`, and `<img src>` against the
+  manifest (Q13 resolution rules: strip `./`, exact match, reject
+  `..`/leading-`/`/scheme). Loaded via
+  `WebViewController.loadHtmlString(html, baseUrl: 'about:blank')`.
+- **Navigation delegate** (W4) — `decideCanvasNavigation` permits
+  `about:blank`, `data:` URIs, and HTTPS against a fixed CDN
+  allowlist (`cdn.jsdelivr.net`, `unpkg.com`,
+  `cdnjs.cloudflare.com`, `esm.sh`); everything else returns
+  `NavigationDecision.prevent`. No CSP injection (Q8 locked).
+- **Launcher + filter pill** (`artifacts_screen.dart`) — `Open
+  canvas` button on `canvas-app` rows; `canvas-app` joins the
+  closed-set filter pill row.
+- **Demo seed** (`hub/internal/server/seed_demo_lifecycle.go`) —
+  `demoCanvasBundle()` returns a 3-file AFM-V1 (index.html +
+  chart.js + style.css) rendering an interactive SVG line chart over
+  the synthetic eval data. `seedCanvasArtifact()` materialises it on
+  the ratified experiment-results deliverable in both demo projects;
+  blob dedups across them.
+- **Refresh affordance** — fullscreen route's AppBar carries a
+  `Reload canvas` icon button that remounts the viewer (lazy
+  re-download); auto-detection via `listArtifactsCached` deferred
+  per Q5.
+
+### Changed
+
+- **`webview_flutter`** added to `pubspec.yaml` (`^4.10.0`). ~2 MB
+  APK cost on Android — re-examine under
+  artifact-type-registry Q10 if APK split lands.
 
 ---
 

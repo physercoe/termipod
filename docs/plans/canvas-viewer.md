@@ -6,9 +6,10 @@ description: Sandboxed WebView for `canvas-app` artifacts — agent writes HTML/
 # Canvas viewer
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-11)
+> **Status:** Done (2026-05-11) — W1 shipped v1.0.497 (refactor, no
+> bump), W2+W3+W4 shipped v1.0.498-alpha
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.497
+> **Last verified vs code:** v1.0.498
 
 **TL;DR.** `canvas-app` is the only one of the 11 closed-set
 artifact kinds without a viewer ([artifact-type-registry](artifact-type-registry.md)

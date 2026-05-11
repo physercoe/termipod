@@ -7,6 +7,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/artifact_viewers/audio_viewer.dart';
+import '../../widgets/artifact_viewers/canvas_viewer.dart';
 import '../../widgets/artifact_viewers/code_bundle_viewer.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
@@ -53,6 +54,7 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
     'pdf',
     'metric-chart',
     'code-bundle',
+    'canvas-app',
     'audio',
     'video',
     'external-blob',
@@ -616,7 +618,18 @@ class _ArtifactViewerLauncher extends StatelessWidget {
             ),
           ),
         );
-      // Remaining MVP kinds (diagram, canvas-app, prose-document, metric-chart,
+      case ArtifactKind.canvasApp:
+        return _LauncherButton(
+          icon: Icons.web_asset_outlined,
+          label: 'Open canvas',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ArtifactCanvasViewerScreen(uri: uri, title: name),
+            ),
+          ),
+        );
+      // Remaining MVP kinds (diagram, prose-document, metric-chart,
       // external-blob) deliberately have no inline launcher today.
       // ignore: no_default_cases
       default:

@@ -823,7 +823,78 @@ text kinds are director-attested prose. ACs gate phase advancement.
 
 ---
 
+## 10c. Project detail surface vocabulary
 
+Four words that all describe "the type of something on a project
+page" and routinely get confused. Added 2026-05-11 after the
+References-vs-Documents tile overlap surfaced as a UX bug. Each is
+on a different axis; the four together compose what the user sees.
+
+| Term | Axis | Where typed | Closed set? |
+|---|---|---|---|
+| **tile** | UI affordance — which folder icon appears on project detail | `TileSlug` enum (mobile) + `phase_specs[<phase>].tiles` YAML + `phase_tile_overrides` per-project | Yes — 9 today |
+| **artifact-kind** | Content type — what the blob *is* (image, pdf, tabular, code-bundle, …) | `artifacts.kind` (hub, **schemaless today** — see `artifact-type-registry` plan) | No — currently free-form |
+| **document-kind** | Prose-document type — kind of authored writeup (memo, draft, report, …) | `documents.kind` (hub, handler whitelist) | Yes — 5: `memo`, `draft`, `report`, `review`, `sample` |
+| **deliverable-component-kind** | How a deliverable composes its parts (document / artifact / run / commit) | `deliverable_components.kind` (hub, CHECK constraint) | Yes — 4 |
+
+### tile
+A UI slot on the project detail page. *A navigation affordance, not
+content.* The closed `TileSlug` mobile enum + phase-specific overrides
+chain determine which tiles appear for a given (template, phase,
+per-project-override) triple. Tapping a tile routes to a screen that
+*lists items*; the items themselves have artifact-kind / document-kind.
+- *Distinguish from:* **artifact-kind** — tiles don't have content;
+  they're entry points. One tile can list items of multiple kinds.
+- *Canonical:* `lib/widgets/shortcut_tile_strip.dart` (TileSlug enum)
+  + research template YAML `phase_specs[*].tiles`.
+
+### artifact-kind
+The *type* of a content blob stored under `artifacts` (URI + MIME +
+size). Today schemaless — the column accepts any string; comment-only
+examples are `checkpoint`, `eval_curve`, `log`, `dataset`, `report`.
+Plan [`../plans/artifact-type-registry.md`](../plans/artifact-type-registry.md)
+locks this into a closed set grounded in adopted industry taxonomies
+(Claude Artifacts, ChatGPT Canvas, MCP resource types, Notion blocks,
+Jupyter MIME bundles).
+- *Distinguish from:* **document-kind** — documents have an editable
+  prose body (single markdown text); artifacts have an opaque blob
+  behind a URI.
+- *Distinguish from:* **tile** — artifact-kind says *what* the blob
+  is; tile says *where* to find it on the project page.
+- *Canonical:* migration 0019 (`artifacts.kind`).
+
+### document-kind
+The type of an *authored prose* entity in the `documents` table.
+Closed set of five validated by the create handler: `memo`, `draft`,
+`report`, `review`, `sample`. All five share a single editable
+markdown body + optional `sections` array; the kind drives UI labels
+and validates against template hydration.
+- *Distinguish from:* **artifact-kind** — see above.
+- *Canonical:* migration 0007 + `hub/internal/server/handlers_documents.go`.
+
+### deliverable-component-kind
+How a `deliverable_component` row points at its underlying entity:
+exactly one of `document`, `artifact`, `run`, `commit`. *A typed
+foreign-key discriminator, not a content type.* A deliverable
+bundles N components; ratification gates phase advancement.
+- *Distinguish from:* **artifact-kind** / **document-kind** —
+  component-kind says "which table the ref points to"; the other
+  two say "what kind of thing that row IS."
+- *Canonical:* migration 0034 `deliverable_components.kind`.
+
+**Which to use when:**
+
+- *"Where does the user navigate to?"* → **tile**.
+- *"What MIME / schema is this blob?"* → **artifact-kind**.
+- *"Is this a memo or a draft?"* → **document-kind**.
+- *"What table does this deliverable reference?"* → **deliverable-component-kind**.
+
+If a feature crosses two axes (e.g. "the References tile should
+list tabular artifacts of kind `citation`"), say both explicitly:
+*"tile=References, artifact-kind=citation"*. Don't let one word
+stand in for two axes.
+
+---
 
 ### wedge
 A feature-sized increment shipped as one PR (or one tagged
@@ -892,6 +963,10 @@ A flat list of the high-traffic confusion points, for grep:
 - **deliverable** vs **document** — deliverables are ratifiable
   bundles (often containing documents); documents are single bodies
   of prose. §10b.
+- **tile** vs **artifact-kind** vs **document-kind** vs
+  **deliverable-component-kind** — four orthogonal "type of thing
+  on a project page" axes. UI slot vs content blob type vs prose
+  entity type vs FK discriminator. §10c.
 
 If you find a confusion not in this list, add an entry above and
 extend this index in the same change.

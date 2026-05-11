@@ -152,6 +152,13 @@ escaped — the caller should never see the source on the page).
 
 - None blocking. Builds on the existing
   `flutter_markdown` integration shipped pre-rebrand.
+- **Adjacent:** [`artifact-type-registry.md`](artifact-type-registry.md)
+  locks the typed artifact-kind set (tabular / image / pdf /
+  canvas-app / …). Orthogonal axis: Tier 1 renders *inline agent
+  text*; the registry types *stored project entities*. Either
+  can ship first; they don't share code paths. The §12.8
+  surface-separation rule in the discussion doc explains the
+  split.
 
 ## Rollout
 
@@ -247,17 +254,20 @@ parent constraint. Doesn't cap height. A 5000px-tall SVG would
 dominate the transcript. Propose: cap at 1.5× viewport height;
 overflow scrolls inside an `InteractiveViewer`-or-tap-to-expand.
 
-**Q8 — Surface scope.** W1 wires `agent_feed.dart` and
+**Q8 — Surface scope.** ~~W1 wires `agent_feed.dart` and
 `doc_viewer_screen.dart`. The **steward overlay chat** renders
 raw `Text` widgets, not `MarkdownBody`. If the agent emits an
 SVG fence in an overlay session, it lands as literal
-`<svg>...</svg>` text. Either:
-- **(a)** Overlay chat adopts the registry too (one extra wire-up
-  in W1).
-- **(b)** Plan explicitly excludes the overlay; steward template
-  must avoid fences in overlay sessions (which the agent can't
-  easily distinguish from non-overlay sessions).
-Pick before W1's "files touched" list is final.
+`<svg>...</svg>` text. Either: (a) overlay adopts registry too;
+(b) plan excludes overlay.~~ **Resolved 2026-05-11 (a):** the
+surface-separation rule added at
+[`discussions/agent-driven-mobile-ui.md` §12.8](../discussions/agent-driven-mobile-ui.md)
+locks Tier 1 fences as the *non-interactive inline* layer that
+applies to every transcript surface, including overlay chat. W1's
+"files touched" list adds `lib/widgets/steward_overlay/steward_overlay_panel.dart`
+(or the message-region widget; pick the smallest hook). Tier 2
+canvas-style artifacts get a separate tile/route per §12.8 and
+are out of scope for this plan.
 
 ### Nice-to-have (not blocking)
 

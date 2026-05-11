@@ -1006,6 +1006,39 @@ Three locks the ADR will need to make:
   reuses the existing artifacts primitive (versioning, sharing,
   retention) rather than minting a parallel store.
 
+### 12.8 Surface separation — transcript ≠ canvas
+
+Added 2026-05-11 after principal review of the v1.0.484 lifecycle
+arc. The three tiers are about *rendering capability*, but they
+also imply different *landing surfaces* on mobile, and conflating
+those produced two real bugs (References tile duplicating
+Documents; overlay chat showing literal `<svg>…</svg>` text). The
+clarifying rule:
+
+| Tier | Where it renders | Why |
+|---|---|---|
+| Tier 1 (svg / html fences) | Inline in transcript (overlay chat + Sessions chat + document viewer) | Small, declarative, non-interactive; the artifact IS part of the conversational reply. Cost is bounded (no JS, ~250 KB APK). |
+| Tier 2 (WebView canvas) | Dedicated project tile / full-screen route | Interactive, scriptable, memory-heavy (30–80 MB per WebView). Lives parallel to chat the way Claude Artifacts / ChatGPT Canvas open a sibling pane on desktop. Non-modal overlay (D4) means chat + canvas coexist. |
+| Tier 3 (SDUI) | Dedicated project tile / phase-specific layout | Domain-specific app screens. Already partially shipped as the closed `TileSlug` enum + phase-overrides chain. |
+
+**Boundary rule.** The transcript is *non-interactive*. Anything
+the user must click, drag, edit-in-place, or scroll inside is *not*
+a Tier 1 fence; it's a Tier 2 canvas page reachable from a tile.
+This also resolves the Tier-1 plan's open Q8: overlay chat adopts
+the registry for Tier 1 fences only; Tier 2 artifacts open a route
+via the overlay navigator key.
+
+**Why this matters now.** It also re-frames "artifact-kind"
+(what *type* of content) as an axis orthogonal to "tier" (how it
+renders) and to "tile" (where it surfaces). A `tabular` artifact
+might render Tier 1 (inline HTML table fence) in chat AND have a
+Tier 2 canvas page for editing AND appear under the Outputs tile.
+Three independent axes that today are tangled. The follow-up plan
+[`../plans/artifact-type-registry.md`](../plans/artifact-type-registry.md)
+locks the artifact-kind set; this section locks the tier ↔ surface
+mapping; the closed `TileSlug` enum + per-phase override chain
+already locks the tile set.
+
 ## 13. Open question — floating-surface capacity
 
 > Added 2026-05-10 in response to a principal question during

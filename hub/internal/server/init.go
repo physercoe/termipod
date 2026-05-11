@@ -139,11 +139,10 @@ var validOverviewWidgets = map[string]bool{
 	"children_status":     true,
 	"recent_firings_list": true,
 	// W7 — research-template heroes (A6 §2 + §3-§7).
-	// `portfolio_header` is the project-level default; the four phase-
-	// scoped heroes will be swap-targets once template hydration on
-	// phase entry lands (W7 follow-up). Registering them here keeps
-	// the YAML clean of warnings even before per-phase swap-in.
-	"portfolio_header":    true,
+	// `portfolio_header` was retired in v1.0.501 — it was a no-op
+	// pointer at the chassis-A header above. Templates that named
+	// it as project-level default now fall through to
+	// overviewWidgetDefault here, which the mobile mirrors.
 	"idea_conversation":   true,
 	"deliverable_focus":   true,
 	"experiment_dash":     true,

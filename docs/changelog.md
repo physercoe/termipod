@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.500
+> **Last verified vs code:** v1.0.501
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,56 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.501-alpha — 2026-05-11
+
+First-pass hero consolidation + lifecycle seed reaches PDF + image
+viewer coverage. Sets up Wave 3 hero redesign without changing the
+research demo's surface layout.
+
+### Removed
+
+- **`portfolio_header` hero slug** — retired both sides. It was a
+  no-op pointer rendering an explanatory paragraph in front of the
+  chassis-A header that already sat directly above it. ADR-024 D2
+  noted the boundary confusion; v1.0.501 drops the slug from both
+  mobile `kKnownOverviewWidgets` and hub `validOverviewWidgets`.
+  Templates that named it as `default_overview_widget` (only
+  `research.v1.yaml` in tree) now fall through to the chassis
+  default (`task_milestone_list`); per-phase heroes are unaffected.
+  `PortfolioHeaderHero` class deleted from
+  `research_phase_heroes.dart`. `sweep_compare` stays for now —
+  `benchmark-comparison.yaml` and `seed-demo --shape ablation`
+  depend on it; consolidation is a follow-up wedge.
+
+### Added
+
+- **Lifecycle seed: PDF + PNG artifacts on the experiment-results
+  deliverable.** New helpers `seedPdfArtifact` (builds a small valid
+  PDF at runtime via `fmt.Sprintf` so xref offsets stay accurate)
+  and `seedImageArtifact` (encodes a 128×64 magenta/cyan PNG via
+  `image/png`) attach to both demo project variants. Testers can
+  now exercise the wave 2 W2 (pdfrx) and W4 (image) viewers via
+  `seed-demo --shape lifecycle` instead of uploading their own
+  bytes. Audio + video stay manual-upload by design; diagram is
+  post-MVP (no viewer exists yet).
+  - Closed-set artifact-kind coverage in the lifecycle seed:
+    `code-bundle`, `canvas-app`, `tabular`, `metric-chart`,
+    `external-blob`, `pdf`, `image` — **7 of 11**. Remaining four
+    (`audio`, `video`, `diagram`, `prose-document` as artifact) are
+    not seeded; `prose-document` is intentional (the demo uses the
+    typed `documents` table instead).
+
+### Docs
+
+- `docs/reference/template-yaml-schema.md` and
+  `docs/reference/research-template-spec.md` examples switched
+  `default_overview_widget: portfolio_header` →
+  `default_overview_widget: task_milestone_list`.
+- `docs/reference/project-detail-chassis.md` §2 footnote updated
+  to record the v1.0.501 removal.
 
 ---
 

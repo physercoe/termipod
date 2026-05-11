@@ -13,7 +13,10 @@ parameters:
   metric_path: experiment.eval_accuracy
   metric_threshold: 0.85
 on_create_template_id: agents.steward
-overview_widget: portfolio_header
+# No project-level overview_widget — each phase_spec below declares its
+# own hero. Without a phase, the chassis falls through to the default
+# (task_milestone_list), which is appropriate for the rare pre-phase
+# state. `portfolio_header` was retired in v1.0.501.
 phases:
   - idea
   - lit-review

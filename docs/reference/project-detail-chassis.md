@@ -64,7 +64,8 @@ Closed enum: `kKnownOverviewWidgets` in `overview_widgets/registry.dart`.
 The previously-defined `portfolio_header` slug is **NOT in this
 list** — `PortfolioHeader` is the chassis-A header, not a hero.
 Reusing the name as a hero slug confused the boundary; dropped in
-ADR-024 D2.
+ADR-024 D2 and removed from both the mobile registry and the hub
+`validOverviewWidgets` enum in v1.0.501.
 
 > **Hero redesign moratorium until artifact-type-registry W1 lands.**
 > Per ADR-024 follow-up sequencing, hero consolidation /

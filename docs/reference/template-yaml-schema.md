@@ -141,7 +141,7 @@ kind: goal                               # required; goal | standing
 parameters_schema: { ... }               # optional; JSON Schema for parameters_json
 on_create_steward_template: steward.research.v1
                                          # optional; agent template id
-default_overview_widget: portfolio_header
+default_overview_widget: task_milestone_list
                                          # optional; chassis fallback if no
                                          # phase-specific widget declared
 
@@ -494,11 +494,11 @@ phases:
 Plus a template-level fallback:
 
 ```yaml
-default_overview_widget: portfolio_header
+default_overview_widget: task_milestone_list
 ```
 
 Resolution at runtime: phase-specific binding wins; otherwise template
-default; otherwise chassis default (`portfolio_header` for goal-kind,
+default; otherwise chassis default (`task_milestone_list` for goal-kind,
 `workspace_overview` for standing-kind). Unknown slug → log warning,
 fall back.
 
@@ -709,7 +709,7 @@ display_name: "Research project"
 description: "AI-for-science research lifecycle: idea → lit-review → method → experiment → paper."
 kind: goal
 
-default_overview_widget: portfolio_header
+default_overview_widget: task_milestone_list
 on_create_steward_template: steward.research.v1
 
 phases:

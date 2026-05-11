@@ -39,7 +39,10 @@ const Set<String> kKnownOverviewWidgets = {
   'children_status',
   'recent_firings_list',
   // W7 — research-template heroes (A6 §2 + §3-§7).
-  'portfolio_header',
+  // `portfolio_header` was retired in v1.0.501: it was a no-op
+  // pointer that pointed at the chassis-A header already rendered
+  // above. Templates that used it as the project-level default now
+  // fall through to `task_milestone_list` (the chassis fallback).
   'idea_conversation',
   'deliverable_focus',
   'experiment_dash',
@@ -80,10 +83,6 @@ const Map<String, OverviewWidgetSpec> kOverviewWidgetSpecs = {
   'recent_firings_list': OverviewWidgetSpec(
     label: 'Recent firings',
     subtitle: 'Standing-project default · last schedule firings',
-  ),
-  'portfolio_header': OverviewWidgetSpec(
-    label: 'Portfolio header',
-    subtitle: 'Minimal pointer hero · phase ribbon does the work',
   ),
   'idea_conversation': OverviewWidgetSpec(
     label: 'Idea conversation',
@@ -138,8 +137,6 @@ Widget buildOverviewWidget(String? kind, OverviewContext ctx) {
       // for goal projects too, though Workspace Overview is its primary
       // surface.
       return RecentFiringsList(ctx: ctx);
-    case 'portfolio_header':
-      return PortfolioHeaderHero(ctx: ctx);
     case 'idea_conversation':
       return IdeaConversationHero(ctx: ctx);
     case 'deliverable_focus':

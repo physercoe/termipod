@@ -28,11 +28,15 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"math/rand"
 )
 
@@ -858,6 +862,18 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// Wave 2 W2 + W4 viewer coverage: tiny PDF + tiny PNG
+				// attached so testers can exercise pdfrx + the image
+				// viewer via the demo path. Audio + video are
+				// upload-only by design; diagram has no viewer yet.
+				pdfArt, err := seedPdfArtifact(c, "experiment-summary.pdf")
+				if err != nil {
+					return nil, err
+				}
+				imageArt, err := seedImageArtifact(c, "loss-curve.png")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -882,11 +898,13 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "artifact", refID: bundleArt.id, ord: 3},
 							{kind: "artifact", refID: canvasArt.id, ord: 4},
-							{kind: "run", refID: run.id, ord: 5},
+							{kind: "artifact", refID: pdfArt.id, ord: 5},
+							{kind: "artifact", refID: imageArt.id, ord: 6},
+							{kind: "run", refID: run.id, ord: 7},
 							// The exact training revision that produced
 							// this run — paired with the run config so
 							// reviewers can rebuild the experiment.
-							{kind: "commit", ord: 6,
+							{kind: "commit", ord: 8,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 				})
@@ -1050,6 +1068,17 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
+				// Same PDF + PNG seeds as the experiment-phase variant.
+				// Bytes are deterministic so the content-addressed blob
+				// dedups across both demo projects.
+				pdfArt, err := seedPdfArtifact(c, "experiment-summary.pdf")
+				if err != nil {
+					return nil, err
+				}
+				imageArt, err := seedImageArtifact(c, "loss-curve.png")
+				if err != nil {
+					return nil, err
+				}
 				run, err := seedRun(c, "completed",
 					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
 				if err != nil {
@@ -1074,8 +1103,10 @@ func lifecycleSpecs() []lifecycleSpec {
 							{kind: "artifact", refID: evalArt.id, ord: 2},
 							{kind: "artifact", refID: bundleArt.id, ord: 3},
 							{kind: "artifact", refID: canvasArt.id, ord: 4},
-							{kind: "run", refID: run.id, ord: 5},
-							{kind: "commit", ord: 6,
+							{kind: "artifact", refID: pdfArt.id, ord: 5},
+							{kind: "artifact", refID: imageArt.id, ord: 6},
+							{kind: "run", refID: run.id, ord: 7},
+							{kind: "commit", ord: 8,
 								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
 						}},
 					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
@@ -1892,6 +1923,136 @@ func seedCodeBundleArtifact(
 		id, c.projectID, name, uri, int64(len(data)), mime,
 		c.stewardID, c.now); err != nil {
 		return seededArtifact{}, fmt.Errorf("insert code bundle artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
+
+// buildDemoPdfBytes returns a small, syntactically-valid PDF (~600
+// bytes) whose single page reads "Lifecycle demo PDF". Used by the
+// lifecycle seed so testers can exercise the wave 2 W2 pdfrx viewer
+// without uploading a real document. Built at runtime via fmt.Sprintf
+// so the xref offsets stay accurate without hand-counting.
+func buildDemoPdfBytes() []byte {
+	var buf bytes.Buffer
+	write := func(s string) int {
+		off := buf.Len()
+		buf.WriteString(s)
+		return off
+	}
+	write("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+	o1 := write("1 0 obj <</Type/Catalog/Pages 2 0 R>> endobj\n")
+	o2 := write("2 0 obj <</Type/Pages/Kids[3 0 R]/Count 1>> endobj\n")
+	o3 := write(
+		"3 0 obj <</Type/Page/Parent 2 0 R" +
+			"/MediaBox[0 0 300 80]" +
+			"/Resources<</Font<</F1 4 0 R>>>>" +
+			"/Contents 5 0 R>> endobj\n")
+	o4 := write(
+		"4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica>> endobj\n")
+	const content = "BT /F1 18 Tf 50 40 Td (Lifecycle demo PDF) Tj ET"
+	o5 := write(fmt.Sprintf(
+		"5 0 obj <</Length %d>>\nstream\n%s\nendstream\nendobj\n",
+		len(content), content))
+	xrefStart := buf.Len()
+	fmt.Fprintf(&buf,
+		"xref\n0 6\n"+
+			"0000000000 65535 f \n"+
+			"%010d 00000 n \n"+
+			"%010d 00000 n \n"+
+			"%010d 00000 n \n"+
+			"%010d 00000 n \n"+
+			"%010d 00000 n \n"+
+			"trailer <</Size 6/Root 1 0 R>>\n"+
+			"startxref\n%d\n%%%%EOF\n",
+		o1, o2, o3, o4, o5, xrefStart)
+	return buf.Bytes()
+}
+
+// seedPdfArtifact materialises a tiny but valid PDF artifact so
+// testers can exercise the wave 2 W2 PDF viewer via the demo path
+// without bringing their own file. Mirrors seedCanvasArtifact's
+// blob-or-mock-uri pattern.
+func seedPdfArtifact(
+	c *seedProjectCtx, name string,
+) (seededArtifact, error) {
+	data := buildDemoPdfBytes()
+	mime := "application/pdf"
+	uri := fmt.Sprintf("blob:mock/lifecycle/pdf-%s-%s", c.projectID, name)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write pdf blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'pdf', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert pdf artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
+
+// buildDemoPngBytes returns a 128x64 PNG with a magenta-to-cyan
+// diagonal gradient. Pure-stdlib (image/png) so the bytes are valid
+// and tiny (~250 bytes after PNG's zlib pass). Renders as a visibly
+// non-test-pattern band in the wave 2 W4 image viewer.
+func buildDemoPngBytes() ([]byte, error) {
+	const w, h = 128, 64
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for x := 0; x < w; x++ {
+		for y := 0; y < h; y++ {
+			// Termipod brand magenta → cyan gradient. Deterministic
+			// per pixel so blob dedup keeps the seed idempotent.
+			t := float64(x+y) / float64(w+h)
+			r := uint8(233.0 * (1.0 - t))
+			g := uint8(78.0 + 100.0*t)
+			b := uint8(138.0 + 90.0*t)
+			img.SetRGBA(x, y, color.RGBA{R: r, G: g, B: b, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, fmt.Errorf("png encode: %w", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// seedImageArtifact materialises a tiny PNG so testers can exercise
+// the wave 2 W4 image viewer via the demo path. Same blob-or-mock
+// pattern as seedPdfArtifact / seedCanvasArtifact.
+func seedImageArtifact(
+	c *seedProjectCtx, name string,
+) (seededArtifact, error) {
+	data, err := buildDemoPngBytes()
+	if err != nil {
+		return seededArtifact{}, err
+	}
+	mime := "image/png"
+	uri := fmt.Sprintf("blob:mock/lifecycle/image-%s-%s", c.projectID, name)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write image blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'image', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert image artifact: %w", err)
 	}
 	c.artifactsSeeded++
 	return seededArtifact{id: id, name: name}, nil

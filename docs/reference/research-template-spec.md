@@ -71,7 +71,7 @@ description: |
 
 kind: goal
 
-default_overview_widget: portfolio_header
+default_overview_widget: task_milestone_list
 on_create_steward_template: steward.research.v1
 
 # Phases (5)

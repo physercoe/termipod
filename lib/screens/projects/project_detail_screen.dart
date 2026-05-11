@@ -254,7 +254,13 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
               controller: _pager,
               onPageChanged: (i) => setState(() => _index = i),
               children: [
-                _OverviewView(project: _project),
+                _OverviewView(
+                  project: _project,
+                  onProjectChanged: (updated) {
+                    if (!mounted) return;
+                    setState(() => _project = updated);
+                  },
+                ),
                 _ActivityView(projectId: projectId),
                 _AgentsView(projectId: projectId),
                 _TasksView(projectId: projectId),
@@ -1152,7 +1158,15 @@ class _AgentsView extends ConsumerWidget {
 
 class _OverviewView extends ConsumerWidget {
   final Map<String, dynamic> project;
-  const _OverviewView({required this.project});
+  /// Plumbed down to [ShortcutTileStrip] so the Customize sheet can
+  /// hand back the freshly-saved project body. Without this hook the
+  /// PATCH succeeds but the parent screen keeps its stale `_project`
+  /// snapshot and the strip never re-renders.
+  final ValueChanged<Map<String, dynamic>>? onProjectChanged;
+  const _OverviewView({
+    required this.project,
+    this.onProjectChanged,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1232,6 +1246,7 @@ class _OverviewView extends ConsumerWidget {
                 parsePhaseStringMap(project['overview_widget_template']),
             currentOverviewWidget:
                 (project['overview_widget'] ?? '').toString(),
+            onProjectChanged: onProjectChanged,
           ),
           const SizedBox(height: 16),
           // Insights — Tier-1 metric tiles (ADR-022 D3 / insights-phase-1

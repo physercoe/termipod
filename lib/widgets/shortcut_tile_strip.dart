@@ -183,6 +183,13 @@ class ShortcutTileStrip extends ConsumerWidget {
   final String projectName;
   final String templateId;
   final String phase;
+  /// Fires with the updated project body after the Customize sheet
+  /// saves. The strip itself only renders props, so the caller (the
+  /// project-detail screen that owns `_project`) is responsible for
+  /// refreshing local state. Without this, the sheet appears to "do
+  /// nothing" — the PATCH succeeds but the strip rebuilds with the
+  /// same stale props.
+  final ValueChanged<Map<String, dynamic>>? onProjectChanged;
   /// Per-project override sourced from
   /// `projects.phase_tile_overrides_json`. Steward or user
   /// edits land here. Wins over [phaseTilesTemplate].
@@ -217,6 +224,7 @@ class ShortcutTileStrip extends ConsumerWidget {
     this.overviewWidgetOverrides,
     this.overviewWidgetTemplate,
     this.currentOverviewWidget = '',
+    this.onProjectChanged,
   });
 
   @override
@@ -241,6 +249,7 @@ class ShortcutTileStrip extends ConsumerWidget {
             overviewWidgetOverrides: overviewWidgetOverrides,
             overviewWidgetTemplate: overviewWidgetTemplate,
             currentOverviewWidget: currentOverviewWidget,
+            onProjectChanged: onProjectChanged,
           ),
         ],
       );
@@ -283,6 +292,7 @@ class _CustomizeTilesRow extends ConsumerWidget {
   final Map<String, String>? overviewWidgetOverrides;
   final Map<String, String>? overviewWidgetTemplate;
   final String currentOverviewWidget;
+  final ValueChanged<Map<String, dynamic>>? onProjectChanged;
 
   const _CustomizeTilesRow({
     required this.projectId,
@@ -293,6 +303,7 @@ class _CustomizeTilesRow extends ConsumerWidget {
     required this.overviewWidgetOverrides,
     required this.overviewWidgetTemplate,
     required this.currentOverviewWidget,
+    this.onProjectChanged,
   });
 
   @override
@@ -351,7 +362,7 @@ class _CustomizeTilesRow extends ConsumerWidget {
     // projects.
     final client = ref.read(hubProvider.notifier).client;
     if (client == null) return;
-    await showModalBottomSheet<void>(
+    final updated = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => PhaseTileEditorSheet(
@@ -366,9 +377,15 @@ class _CustomizeTilesRow extends ConsumerWidget {
         currentOverviewWidget: currentOverviewWidget,
       ),
     );
-    // The hub refresh fires from inside the sheet on save; the calling
-    // surface (project_detail_screen) watches hubProvider and rebuilds
-    // when the project payload's `phase_tile_overrides` changes.
+    if (updated == null) return;
+    // Bubble the fresh project body up so the project-detail screen
+    // can refresh its `_project` snapshot — without this, the strip
+    // rebuilds with the same stale props and the user sees no change.
+    onProjectChanged?.call(updated);
+    // Also nudge the hub snapshot so the projects-list cache (used by
+    // siblings like the Projects screen) doesn't render stale tile
+    // overrides on the next visit.
+    await ref.read(hubProvider.notifier).refreshAll();
   }
 }
 
@@ -484,13 +501,13 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
       nextHeroes.remove(widget.phase);
     }
     try {
-      await widget.client.updateProject(
+      final updated = await widget.client.updateProject(
         widget.projectId,
         phaseTileOverrides: nextTiles,
         overviewWidgetOverrides: nextHeroes,
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(updated);
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -511,13 +528,13 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
     };
     nextHeroes.remove(widget.phase);
     try {
-      await widget.client.updateProject(
+      final updated = await widget.client.updateProject(
         widget.projectId,
         phaseTileOverrides: nextTiles,
         overviewWidgetOverrides: nextHeroes,
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(updated);
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);

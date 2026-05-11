@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.486
+> **Last verified vs code:** v1.0.487
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,42 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.487-alpha — 2026-05-11
+
+UI polish pass on project surfaces before wave 2. No new schema, no new
+endpoints — re-shape what the existing `/v1/insights?team_id=X`
+payload renders into.
+
+### Changed
+
+- **Project list rows: drop redundant kind chip.** The `[PROJECT]` /
+  `[WORKSPACE]` leading chip on each row was redundant — the section
+  header above each list (`PROJECTS` / `WORKSPACES`) already declares
+  it. `ProjectKindChip` retained for project-detail use; only the
+  list-row leading is gone.
+- **Project list rows: 3-line card for goal projects.** Sources
+  current phase, progress, open-AC count from
+  `/v1/insights?team_id=X`'s `by_project[]` (no extra round-trip;
+  same data the Insights icon already pulls).
+  - Line 1: name · status dot · attention badge
+  - Line 2: phase pill · "N open AC" chip (or "no open AC")
+  - Line 3: progress bar + percentage
+  - Parent-with-children rows append "N sub-projects" below the bar.
+  - Workspaces, lifecycle-disabled projects, and goal projects that
+    haven't been seen by Insights yet fall back to the existing
+    two-line tile (no kind chip).
+- **Team Insights page redesigned.** Pivoted from per-project card
+  list (now redundant with the inline list rows) to a team-level
+  aggregate dashboard:
+  - **Summary tiles**: Active / Open AC / Open attention / Live <24h
+  - **Phase distribution**: horizontal bar chart by current_phase
+  - **Activity recency buckets**: <24h / <7d / >7d / idle
+  - **Most recent · top 5**: tap → project detail
+  - **Top agents · by event volume**: leaderboard from existing
+    `by_agent[]` (sorted by `tokens_in`, fallback to event/tool counts)
 
 ---
 

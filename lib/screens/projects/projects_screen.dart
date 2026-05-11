@@ -9,6 +9,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
+import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
@@ -479,13 +480,24 @@ class _ProjectsTab extends ConsumerWidget {
     // list (HubNotifier.refreshAll → listAttention status=open), so this
     // is free: no extra fetch.
     final l10n = AppLocalizations.of(context)!;
-    final attention = ref.watch(hubProvider).value?.attention ?? const [];
+    final hub = ref.watch(hubProvider).value;
+    final attention = hub?.attention ?? const [];
     final openByProject = <String, int>{};
     for (final a in attention) {
       final pid = (a['project_id'] ?? '').toString();
       if (pid.isEmpty) continue;
       openByProject[pid] = (openByProject[pid] ?? 0) + 1;
     }
+    // Pull per-project progress + open-AC + phase off `/v1/insights?team_id=X`
+    // (`by_project[]`). The row layout below uses these to render the 3-line
+    // card directly inline so the user doesn't need to open a separate
+    // insights screen to see what's progressing. Map keyed by project_id so
+    // each row can do an O(1) lookup. Workspaces are filtered out
+    // server-side; their rows fall back to the 2-line tile.
+    final teamId = hub?.config?.teamId ?? '';
+    final byProject = teamId.isEmpty
+        ? const <String, _ProjectInsight>{}
+        : _readProjectInsights(ref, teamId);
     // Partition on `kind` per blueprint §6.1: goal vs. standing. The
     // schema is one table; the mobile IA splits them into two named
     // sections (Projects vs. Workspaces) since the mental models differ
@@ -528,6 +540,7 @@ class _ProjectsTab extends ConsumerWidget {
                         context,
                         goalRows[i],
                         openByProject,
+                        byProject,
                       ),
                     ),
                   ),
@@ -545,6 +558,7 @@ class _ProjectsTab extends ConsumerWidget {
                         context,
                         standingRows[i],
                         openByProject,
+                        byProject,
                       ),
                     ),
                   ),
@@ -615,6 +629,7 @@ class _ProjectsTab extends ConsumerWidget {
     BuildContext context,
     _ProjectNode node,
     Map<String, int> openByProject,
+    Map<String, _ProjectInsight> byProject,
   ) {
     final p = node.project;
     final kind = (p['kind'] ?? 'goal').toString();
@@ -630,39 +645,63 @@ class _ProjectsTab extends ConsumerWidget {
         rolled += openByProject[(p2['id'] ?? '').toString()] ?? 0;
       }
     }
-    // Parent aggregate subtitle: "N sub-projects · M attention". The
-    // %-done figure is intentionally omitted — it would require fetching
-    // tasks per child and the parent row is a summary, not a dashboard.
-    // Children's own rows carry their status, which is the authoritative
-    // per-child progress signal.
-    String subtitle;
-    if (node.depth == 0 && node.childCount > 0) {
-      final childLabel = kind == 'standing'
-          ? (node.childCount == 1 ? 'sub-Workspace' : 'sub-Workspaces')
-          : (node.childCount == 1 ? 'sub-project' : 'sub-projects');
-      final parts = <String>[
-        '${node.childCount} $childLabel',
-      ];
-      final status = (p['status'] ?? '').toString();
-      if (status.isNotEmpty) parts.add(status);
-      subtitle = parts.join(' · ');
+    // Goal projects with insights data → 3-line card (name+icons / phase+ACs
+    // / progress). Workspaces (kind='standing') aren't in by_project[] so
+    // they fall back to the existing 2-line tile. Goals with no insights
+    // yet (fresh project, hub round-trip pending) also use the fallback.
+    final stats = byProject[pid];
+    Widget tile;
+    if (kind == 'goal' && stats != null && stats.currentPhase.isNotEmpty) {
+      tile = _ProjectListCard(
+        name: p['name']?.toString() ?? '?',
+        status: (p['status'] ?? '').toString(),
+        phase: stats.currentPhase,
+        openAttention: rolled,
+        openCriteria: stats.openCriteria,
+        progress: stats.progress,
+        subProjectsSuffix: node.depth == 0 && node.childCount > 0
+            ? (node.childCount == 1
+                ? '1 sub-project'
+                : '${node.childCount} sub-projects')
+            : null,
+        onTap: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ProjectDetailScreen(project: p),
+          ));
+        },
+      );
     } else {
-      subtitle = (p['status'] ?? '').toString();
+      // Fallback two-line tile — workspaces, fresh projects, lifecycle-
+      // disabled projects. No leading kind chip: section header already
+      // labels these as Projects vs. Workspaces.
+      String subtitle;
+      if (node.depth == 0 && node.childCount > 0) {
+        final childLabel = kind == 'standing'
+            ? (node.childCount == 1 ? 'sub-Workspace' : 'sub-Workspaces')
+            : (node.childCount == 1 ? 'sub-project' : 'sub-projects');
+        final parts = <String>[
+          '${node.childCount} $childLabel',
+        ];
+        final status = (p['status'] ?? '').toString();
+        if (status.isNotEmpty) parts.add(status);
+        subtitle = parts.join(' · ');
+      } else {
+        subtitle = (p['status'] ?? '').toString();
+      }
+      tile = _InfoTile(
+        title: p['name']?.toString() ?? '?',
+        subtitle: subtitle,
+        trailingWidget:
+            rolled > 0 ? _AttentionBadge(count: rolled) : null,
+        trailing:
+            rolled > 0 ? null : _shortTs((p['created_at'] ?? '') as String),
+        onTap: () {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ProjectDetailScreen(project: p),
+          ));
+        },
+      );
     }
-    final tile = _InfoTile(
-      title: p['name']?.toString() ?? '?',
-      subtitle: subtitle,
-      leading: ProjectKindChip(kind: kind),
-      trailingWidget:
-          rolled > 0 ? _AttentionBadge(count: rolled) : null,
-      trailing:
-          rolled > 0 ? null : _shortTs((p['created_at'] ?? '') as String),
-      onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => ProjectDetailScreen(project: p),
-        ));
-      },
-    );
     if (node.depth == 0) return tile;
     // Child row: 12px indent + a thin 1px left rail in the gutter. The
     // rail is drawn as a separate child in an IntrinsicHeight row so it
@@ -767,6 +806,296 @@ class _EmptyText extends StatelessWidget {
                 : DesignColors.textMutedLight,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Per-project Insights row condensed for the projects list. Sourced
+/// from `/v1/insights?team_id=X`'s `by_project[]`. The projects list
+/// pulls this in parallel with the hub project list so each row can
+/// render the 3-line card without a per-project round-trip.
+class _ProjectInsight {
+  final String currentPhase;
+  final double progress;
+  final int openCriteria;
+  final int openAttention;
+  final String lastActivity;
+  const _ProjectInsight({
+    required this.currentPhase,
+    required this.progress,
+    required this.openCriteria,
+    required this.openAttention,
+    required this.lastActivity,
+  });
+}
+
+/// Watches the team-scope insights provider and folds `by_project[]`
+/// into a project_id-keyed map. Returns an empty map while the provider
+/// is loading or errored — the projects list falls through to the
+/// 2-line tile in that case, so no UI freeze on first paint.
+Map<String, _ProjectInsight> _readProjectInsights(WidgetRef ref, String teamId) {
+  final async = ref.watch(insightsProvider(InsightsScope.team(teamId)));
+  final body = async.value?.body;
+  if (body == null) return const {};
+  final raw = body['by_project'];
+  if (raw is! List) return const {};
+  final out = <String, _ProjectInsight>{};
+  for (final e in raw) {
+    if (e is! Map) continue;
+    final m = e.cast<String, dynamic>();
+    final id = (m['project_id'] ?? '').toString();
+    if (id.isEmpty) continue;
+    out[id] = _ProjectInsight(
+      currentPhase: (m['current_phase'] ?? '').toString(),
+      progress: _asDouble(m['progress']),
+      openCriteria: _asInt(m['open_criteria']),
+      openAttention: _asInt(m['open_attention']),
+      lastActivity: (m['last_activity'] ?? '').toString(),
+    );
+  }
+  return out;
+}
+
+int _asInt(dynamic v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? 0;
+  return 0;
+}
+
+double _asDouble(dynamic v) {
+  if (v is double) return v;
+  if (v is num) return v.toDouble();
+  if (v is String) return double.tryParse(v) ?? 0;
+  return 0;
+}
+
+/// Three-line project list card (polish wedge pre-wave-2). Goal projects
+/// with insights data render in this shape; workspaces and pending-fetch
+/// fall through to [_InfoTile].
+///
+/// Line 1: project name (truncating) · status pip · attention badge.
+/// Line 2: phase pill · open-AC count.
+/// Line 3: progress bar with % label.
+class _ProjectListCard extends StatelessWidget {
+  final String name;
+  final String status;
+  final String phase;
+  final int openAttention;
+  final int openCriteria;
+  final double progress;
+  /// Suffix line appended below line 3 when this is a parent with
+  /// child rows (preserves the "N sub-projects" affordance from the
+  /// 2-line tile so the parent row still reads as a roll-up).
+  final String? subProjectsSuffix;
+  final VoidCallback? onTap;
+
+  const _ProjectListCard({
+    required this.name,
+    required this.status,
+    required this.phase,
+    required this.openAttention,
+    required this.openCriteria,
+    required this.progress,
+    required this.subProjectsSuffix,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    final p = progress.clamp(0.0, 1.0).toDouble();
+    final pct = (p * 100).round();
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _StatusDot(status: status),
+              if (openAttention > 0) ...[
+                const SizedBox(width: 8),
+                _AttentionBadge(count: openAttention),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _PhasePill(phase: phase),
+              const SizedBox(width: 8),
+              if (openCriteria > 0)
+                _OpenAcChip(count: openCriteria)
+              else
+                Text(
+                  'no open AC',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 10,
+                    color: muted,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                    value: p,
+                    minHeight: 4,
+                    backgroundColor: border,
+                    valueColor:
+                        const AlwaysStoppedAnimation(DesignColors.primary),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$pct%',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: muted,
+                ),
+              ),
+            ],
+          ),
+          if (subProjectsSuffix != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              subProjectsSuffix!,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                color: muted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return card;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: card,
+    );
+  }
+}
+
+/// Tiny colored dot used as the per-row status icon. Stays minimal —
+/// active is green, archived/other is muted. Most projects are active
+/// so this is mostly a "yes, this is live" cue rather than a heavy chip.
+class _StatusDot extends StatelessWidget {
+  final String status;
+  const _StatusDot({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'active' || '' => DesignColors.terminalGreen,
+      'archived' => DesignColors.textMuted,
+      _ => DesignColors.primary,
+    };
+    return Tooltip(
+      message: status.isEmpty ? 'active' : status,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+/// Phase pill — matches the InsightsScreen's pill styling so a project
+/// row and an Insights row use the same visual vocabulary for "phase".
+class _PhasePill extends StatelessWidget {
+  final String phase;
+  const _PhasePill({required this.phase});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: DesignColors.primary.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(4),
+        border:
+            Border.all(color: DesignColors.primary.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        phase,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: DesignColors.primary,
+        ),
+      ),
+    );
+  }
+}
+
+/// "N open AC" badge with muted-warning palette. Distinct from the
+/// attention badge above so the eye can separate "decisions for me"
+/// from "ratification gates I haven't met yet."
+class _OpenAcChip extends StatelessWidget {
+  final int count;
+  const _OpenAcChip({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: DesignColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border:
+            Border.all(color: DesignColors.warning.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle_outline,
+              size: 10, color: DesignColors.warning),
+          const SizedBox(width: 3),
+          Text(
+            '$count open AC',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.warning,
+            ),
+          ),
+        ],
       ),
     );
   }

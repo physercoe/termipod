@@ -311,29 +311,49 @@ References-vs-Documents tile overlap.
 ### W4 — Image + multimodal user input ✅ SHIPPED v1.0.492-alpha (2026-05-11) + image view-on-tap
 
 **Follow-up — non-image multimodal input (deferred).** The three
-engines we ship today accept more than just images:
+engines we ship today accept far more than images. The matrix below
+is fact-checked against vendor docs 2026-05-11:
 
-| Engine | Image | PDF | Audio | Video | Notes |
-|---|---|---|---|---|---|
-| Claude Code (Claude API) | ✅ JPEG/PNG/GIF/WebP | ✅ `document` blocks, ≤32 MB / 600 pp | ❌ | ❌ | Other office formats (csv/docx/xlsx) via file-upload tool. |
-| Gemini CLI (Gemini API) | ✅ | ✅ native, ≤50 MB / 1000 pp | ✅ mp3/wav | ✅ mp4 | Widest modality coverage of the three. |
-| Codex CLI (OpenAI) | ✅ | ✅ via file_data blocks | ❌ | ❌ | Image is the primary multimodal axis today. |
+| Modality | Claude Code (Claude API) | Gemini CLI (Gemini API) | Codex CLI (OpenAI) |
+|---|---|---|---|
+| **Images** — jpeg/png/gif/webp | ✅ `image` block | ✅ `inline_data` | ✅ `image_url` |
+| **PDF** | ✅ `document` block, text+vision, ≤32 MB / 600 pp | ✅ `inline_data`, text+vision, ≤50 MB / 1000 pp | ✅ `file_data` block |
+| **Plain text** (.txt) | ✅ `document` block OR inline-as-text | ✅ text extraction only (no vision) | (inline-as-text) |
+| **Markdown** (.md) | (inline-as-text; no vision either engine) | (inline-as-text; no vision) | (inline-as-text) |
+| **Code files** (.py/.js/.go/…) | (inline-as-text) | (inline-as-text) | (inline-as-text) |
+| **CSV / DOCX / XLSX** | convert→text/PDF (Claude docs explicitly route here) | convert→PDF or text | convert→PDF |
+| **Audio** (mp3/wav) | ❌ | ✅ `inline_data` | ❌ |
+| **Video** (mp4) | ❌ | ✅ `inline_data` | ❌ |
 
-Extending the composer attach affordance to PDF (cross-engine) +
-audio/video (Gemini-only) is its own wedge. Scope sketch:
+**Key insight.** Most "doc types" — markdown, code, plain text,
+csv — don't need a true multimodal attachment block on any engine.
+The practical path is **inline the file's text content directly
+into the message body**. Only images / PDF / audio / video need
+a separate content-block shape on the wire.
 
-1. **Hub validator** — gain MIME allowlists per modality, family-
-   registry flags `prompt_pdf[mode]` / `prompt_audio[mode]` /
-   `prompt_video[mode]` mirroring the existing `prompt_image[mode]`.
-2. **Composer** — capability lookup branches per-modality so the
-   paperclip surfaces a kind picker when the active family accepts
-   multiple; on single-axis families it stays single-purpose.
-3. **Driver wire mapping** — each driver picks the right multimodal
-   content-block shape per modality (Claude: `document`/`image`;
-   Gemini: inline blob/file API; codex: `file_data`/`image_url`).
-4. **MIME plumbing** — already mostly covered by the closed-set
-   artifact kinds: `pdf` / `audio` / `video` viewers ship in W5–W6
-   anyway, so the receive-side renderers are reused.
+That splits the follow-up wedge into two distinct user-facing
+features with very different cost profiles:
+
+1. **Quick "attach text file as code-fenced inline content"** —
+   small wedge. Picker reads bytes, infers language from extension,
+   appends a fenced code block to the composer text. No hub/driver
+   work; just a UX shortcut for what users do via paste today.
+   Works identically across all three engines because it's just
+   text in the prompt body.
+
+2. **True multimodal attachment for PDF/audio/video** — larger
+   wedge:
+   - **Hub validator** gains MIME allowlists per modality, family-
+     registry flags `prompt_pdf[mode]` / `prompt_audio[mode]` /
+     `prompt_video[mode]` mirroring `prompt_image[mode]`.
+   - **Composer** capability gate branches per-modality so the
+     paperclip surfaces a kind picker when the active family
+     accepts multiple; single-axis families stay single-purpose.
+   - **Driver wire mapping** per modality (Claude `document`/
+     `image`; Gemini inline blob; codex `file_data`/`image_url`).
+   - **MIME plumbing** mostly free — the closed-set artifact kinds
+     already include `pdf` / `audio` / `video` viewers (W2 done,
+     W6 pending), so receive-side renderers are already in flight.
 
 Tracking issue: file separately as
 `docs/plans/cross-engine-multimodal-input.md` when the wedge slot

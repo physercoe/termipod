@@ -1,7 +1,7 @@
 # 024. Project detail chassis — A+B+C layered Overview, closed hero/tile registries, per-project overrides
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism shipped wave 1)
+> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism shipped wave 1; D4 ribbon → compact PhaseBadge v1.0.500)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.486
 
@@ -24,8 +24,8 @@ addition, so the lock matters.
 Five surfaces stack on a project detail screen:
 
 ```
-┌─ AppBar: ← Project Name · Template-YAML · ⋮ ───────┐
-│ PhaseRibbon  idea ─ lit-review ─ [method] ─ exp …  │ chassis-level
+┌─ AppBar: ← Project Name · ⋮ ────────────────────────┐
+│ PhaseBadge  [Method · 3/5 ›]                       │ chassis-level (v1.0.500)
 │ PillBar  Overview · Activity · Agents · Tasks · Files │ tabs
 ├── tab body: Overview ──────────────────────────────┤
 │  [AttentionBanner if any]                          │
@@ -40,9 +40,12 @@ Five surfaces stack on a project detail screen:
 └────────────────────────────────────────────────────┘
 ```
 
-PhaseRibbon and PillBar sit at the Scaffold body level — visible
+PhaseBadge and PillBar sit at the Scaffold body level — visible
 across all five tabs. PortfolioHeader / Hero / TileStrip / metadata
-expander live only on the Overview tab.
+expander live only on the Overview tab. The AppBar's title row holds
+`name + ProjectKindChip`; Edit, Template-YAML, and New-sub-project
+all live in the `⋮` overflow (v1.0.500 consolidation — was three
+separate IconButtons before).
 
 ### What was missing in docs before this ADR
 
@@ -141,17 +144,27 @@ Same closure rule as heroes. Adding a tile = APK change.
 All slugs stay in the closed enum even when unused-by-default.
 Removing one would break users who added it via `PhaseTileEditorSheet`.
 
-### D4. PhaseRibbon is chassis-level, not part of Overview body.
+### D4. Phase indicator is chassis-level, not part of Overview body.
 
-`PhaseRibbon` sits above the `PillBar` in `project_detail_screen.dart:258`.
-Visible across all 5 tabs. Past-phase tap routes through
-`_openPhaseSummary(phase)` to the per-phase deliverable + AC
-summary — this is the canonical past-history affordance; heroes
-don't carry history themselves.
+A compact `PhaseBadge` sits above the `PillBar` in
+`project_detail_screen.dart` (`lib/widgets/phase_badge.dart`).
+Visible across all 5 tabs. Renders as `[current_phase · n/total ›]`
+— a single pill instead of the original full-row ribbon. Tap
+expands a bottom sheet that hosts the underlying `PhaseRibbon`, so
+per-phase navigation (past-phase summary via `_openPhaseSummary`)
+is still one extra tap away.
 
-Reversibility: easy (relocate ribbon into Overview only) but loses
-the always-visible orientation cue that's load-bearing for the
-"where am I in the lifecycle?" question across tabs.
+History: original chassis (v1.0.358) used `PhaseRibbon` inline at
+~56px height. v1.0.500 swapped it for the compact badge after
+testers reported the ribbon ate too much vertical chrome for a
+metadata cue. The ribbon widget survives, reused inside the sheet
+so the navigation flow is identical — only the resting-state size
+changed. Pattern reference: Linear / Jira / Notion status badge.
+
+Reversibility: easy (swap `PhaseBadge` back to inline `PhaseRibbon`
+in `_ProjectDetailScreenState.build`). The bottom sheet pattern is
+the more reversible variant of "compact metadata, expand-on-tap"
+which gets ubiquitous use across the app's chrome.
 
 ### D5. Hero contract: takes `OverviewContext`, fetches own data.
 
@@ -261,8 +274,10 @@ handles empty state when phases haven't produced data yet.
 - **Hero contract (D5) keeps heroes uncoupled** from data shape —
   heroes can be developed in parallel without sharing data schemas
   across the constructor boundary.
-- **`PhaseRibbon` always-visible (D4)** keeps "where am I?" answered
-  on every tab; past-phase summary is one tap.
+- **`PhaseBadge` always-visible (D4)** keeps "where am I?" answered
+  on every tab in a single line of chrome; past-phase summary is
+  two taps (expand sheet → tap phase chip) instead of one. Net win
+  on small phones where the ribbon ate too much above-fold space.
 
 ### Negative / costs
 
@@ -285,7 +300,7 @@ handles empty state when phases haven't produced data yet.
 | D1 three-layer body | Yes | Re-collapse hero into header; mostly a UI shuffle |
 | D2 closed hero enum | Yes; tighter than open registry | Loosen to runtime registry — risks unknown slugs |
 | D3 closed tile enum | Yes | Same — closure is the safer default |
-| D4 chassis-level PhaseRibbon | Yes | Move into Overview tab; loses orientation on other tabs |
+| D4 chassis-level PhaseBadge | Yes | Swap back to inline `PhaseRibbon` or relocate to Overview only; loses compact-orientation cue on other tabs |
 | D5 hero contract | Yes if no hero takes data via constructor yet | Allowed pattern would proliferate; reverse early |
 | D6 per-project tile override | Hard once users have edits saved | Migration drops the column; users lose their compositions |
 | D7 resolution chain | Yes; chain is internal to one function | Reorder by editing `resolveTilesForPhase` |
@@ -346,12 +361,15 @@ here; the wedges below sit on top of it.
    `AcceptanceCriteriaScreen` plus slug additions to the closed
    `TileSlug` enum (`deliverables`, `acceptanceCriteria`). 11-slug
    set now locked.
-3. **artifact-type-registry W1–W6** — second wave. Required as
-   the predecessor to hero consolidation: when new artifact
-   kinds land (`tabular`, `image`, `pdf`, `code-bundle`,
-   `canvas-app`, …), several heroes will need to render them
-   inline. Until W1's closed-set chassis ships, heroes can't
-   safely depend on typed-artifact kinds.
+3. **artifact-type-registry W1–W7** — ✅ shipped second wave
+   (v1.0.489–497, 2026-05-11). 11-kind closed set + per-kind
+   viewers (pdf, tabular, image, code-bundle, audio, video)
+   + cross-engine multimodal input (W7 — pdf cross-engine,
+   audio/video Gemini-only). The eleventh kind (`canvas-app`)
+   gained its sandboxed WebView viewer via the **canvas-viewer
+   plan** (v1.0.498, AFM-V1 shared multi-file body schema).
+   `docs/plans/artifact-type-registry.md` and
+   `docs/plans/canvas-viewer.md` both `Status: Done`.
 4. **Hero consolidation / redesign** — third wave, driven by
    wave 2. New artifact kinds will push hero design: e.g.
    `idea_conversation` may absorb `canvas-app` artifacts for
@@ -359,8 +377,9 @@ here; the wedges below sit on top of it.
    schema from `metric-chart`. Whether `recent_artifacts` and
    `recent_firings_list` collapse, whether a new
    `artifact_workbench` hero is warranted — both questions only
-   answerable after wave 2's registry lands. **Don't redesign
-   heroes before kinds.**
+   answerable now that wave 2's registry has landed. **Don't
+   redesign heroes before kinds.** (Wave 2 now landed, so this
+   wedge is unblocked.)
 5. **`outputs` vs `assets` rename** — post-MVP per principal
    2026-05-11. Naming overlap noted but no churn justified at
    MVP scale; revisit if a third blob-tile candidate appears.

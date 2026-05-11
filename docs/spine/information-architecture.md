@@ -375,8 +375,10 @@ At-a-glance, Project Detail nests rather than sprawls:
 
 - **5 tab pills** (chassis-level): Overview · Activity · Agents ·
   Tasks · Files
-- **PhaseRibbon** above the pills, always visible across all 5 tabs;
-  past-phase tap opens the phase summary
+- **PhaseBadge** above the pills, always visible across all 5 tabs;
+  compact pill (`phase · n/total ›`) → tap expands a sheet hosting
+  the full `PhaseRibbon` for per-phase navigation (v1.0.500 swap;
+  see ADR-024 D4)
 - **Overview tab** body uses the A+B+C chassis (see reference §1);
   the Insights icon on the Projects-list AppBar opens the
   per-team cross-project rollup (`/v1/insights?team_id=…` + the

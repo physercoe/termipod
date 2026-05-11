@@ -21,7 +21,7 @@ how-to (adding a new one). The design rationale is locked in
 parent Scaffold body
 ├── AttentionBanner (conditional — open attention items)
 ├── ParentBreadcrumb (conditional — sub-projects)
-├── PhaseRibbon  ← chassis-level, tap a past phase to see its summary
+├── PhaseBadge   ← chassis-level, compact [phase · n/total ›], tap → ribbon sheet (v1.0.500)
 ├── PillBar      ← Overview · Activity · Agents · Tasks · Files
 └── PageView (the 5 tab bodies)
     └── Overview tab body
@@ -38,11 +38,12 @@ Files:
 | Layer | File |
 |---|---|
 | Chassis | `lib/screens/projects/project_detail_screen.dart` (`_OverviewView`) |
+| Phase badge | `lib/widgets/phase_badge.dart` (chassis-level pill above PillBar) · `lib/widgets/phase_ribbon.dart` (reused inside the badge's expand-on-tap sheet) |
 | Header A | `lib/screens/projects/overview_widgets/portfolio_header.dart` (goal-kind) · `lib/screens/projects/overview_widgets/workspace_overview.dart` (standing-kind) |
 | Hero B (dispatch) | `lib/screens/projects/overview_widgets/registry.dart` (`buildOverviewWidget`) |
 | Hero B (widgets) | `lib/screens/projects/overview_widgets/research_phase_heroes.dart`, `task_milestone_list.dart`, `sweep_compare.dart`, `recent_artifacts.dart`, `children_status.dart` |
 | Tile strip C | `lib/widgets/shortcut_tile_strip.dart` |
-| Tile editor | `PhaseTileEditorSheet` in `lib/widgets/shortcut_tile_strip.dart` |
+| Tile editor | `PhaseTileEditorSheet` in `lib/widgets/shortcut_tile_strip.dart` (phaseless projects store overrides under the empty-phase key; v1.0.499) |
 
 ## 2. Hero registry — catalog
 
@@ -247,7 +248,7 @@ Checklist:
 | Hero widget | ✓ via `overview_widget_overrides_json` (D10, wave 1) | ✓ via `phase_specs.overview_widget` | `task_milestone_list` (goal) / `recent_firings_list` (standing) |
 | Header A type | n/a — by `kind` only | n/a | `PortfolioHeader` (goal) / `WorkspaceHeader` (standing) |
 | Metadata rows visibility | n/a — always collapsed | n/a | collapsed |
-| Phase ribbon | always-on | n/a | always-on |
+| Phase indicator | always-on | n/a | `PhaseBadge` (compact pill, ribbon-on-tap; v1.0.500) |
 | Tab pills | always-5 fixed | n/a | Overview · Activity · Agents · Tasks · Files |
 
 ## 9. Follow-up wedges — ordered
@@ -259,8 +260,8 @@ ADR's full text.
 |---|---|---|---|---|
 | 1 | first | D10 mechanism: `projects.overview_widget_overrides_json` + hero picker in `PhaseTileEditorSheet` + steward MCP path | ADR-024 chassis lock (this doc) | ✅ shipped wave 1 |
 | 2 | first | `DeliverablesScreen` + `AcceptanceCriteriaScreen` → then add `deliverables` + `acceptance_criteria` slugs to `TileSlug` enum | screens land before slugs (don't ship stubs) | ✅ shipped wave 1 |
-| 3 | second | artifact-type-registry W1–W6 — typed kind chassis + viewers (tabular / pdf / image / code-bundle / canvas-app / …) | wave 1 done so heroes are stable while kinds land | pending |
-| 4 | third | Hero consolidation / redesign — driven by wave 2 (e.g. `idea_conversation` absorbing canvas-app; `experiment_dash` rendering histograms) | wave 2 typed kinds locked | pending |
+| 3 | second | artifact-type-registry W1–W7 (typed kind chassis + 6 viewers + cross-engine multimodal input) + canvas-viewer plan (sandboxed WebView, AFM-V1 body schema) | wave 1 done so heroes are stable while kinds land | ✅ shipped wave 2 (v1.0.489–498) |
+| 4 | third | Hero consolidation / redesign — driven by wave 2 (e.g. `idea_conversation` absorbing canvas-app; `experiment_dash` rendering histograms) | wave 2 typed kinds locked | unblocked (next) |
 | 5 | post-MVP | `outputs` vs `assets` naming resolution | deferred indefinitely | post-MVP |
 | 6 | post-MVP | Workspace cross-project Insights | deferred — standing-kind today filtered out | post-MVP |
 

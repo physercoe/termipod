@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.498
+> **Last verified vs code:** v1.0.500
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,105 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.500-alpha — 2026-05-11
+
+Project detail chrome cleanup. Compact phase indicator + collapsed
+AppBar actions reclaim ~24px of vertical space and make narrow-phone
+titles legible. ADR-024 D4 updated to reflect the swap.
+
+### Changed
+
+- **Phase indicator → compact badge.** Inline `PhaseRibbon` (56px,
+  scrollable) replaced by `PhaseBadge` (~32px pill, e.g.
+  `Method · 3/5 ›`) in
+  `lib/screens/projects/project_detail_screen.dart`. Tap opens a
+  bottom sheet that hosts the existing `PhaseRibbon` so per-phase
+  navigation stays one extra tap away.
+  `PhaseRibbon` retained verbatim (own tests + sheet caller); new
+  widget at `lib/widgets/phase_badge.dart`. Pattern reference:
+  Linear / Jira / Notion status badge.
+- **AppBar actions consolidated.** Edit pencil and View-template-YAML
+  IconButtons folded into the existing `more_vert` overflow which
+  previously held only `New sub-project`. Title row (project name +
+  kind chip) now has headroom on narrow phones; the overflow menu
+  finally lives up to its tooltip.
+
+### Internal
+
+- ADR-024 D4 status, ASCII diagram, consequences, and reversibility
+  row updated to reflect `PhaseBadge` (was `PhaseRibbon`). Follow-up
+  wedges section marked wave 2 (artifact-type-registry W1–W7) and
+  canvas-viewer plan as ✅ shipped.
+- `docs/reference/project-detail-chassis.md` layout diagram +
+  file table updated to list `phase_badge.dart` alongside
+  `phase_ribbon.dart`.
+- `docs/spine/information-architecture.md` §6.2 phase-indicator
+  bullet updated.
+
+---
+
+## v1.0.499-alpha — 2026-05-11
+
+Four small UX corrections + a save-refresh wiring fix. All four
+were direct feedback from device testing.
+
+### Changed
+
+- **Overlay backfill targets 5 user turns, not 50 events.** Tool-
+  heavy steward turns fan out to 30+ events apiece, so the original
+  50-event budget surfaced 1–2 visible turns on chats with frequent
+  tool calls. `_backfillEventCeiling` raised to 500, new
+  `_backfillTurnTarget = 5` walks the newest-first event list and
+  cuts at the (target+1)th user input. `_overlayMessageCap` raised
+  to 15 to hold the initial backfill view without immediate
+  eviction. Mobile-only change — no hub work.
+  (`lib/widgets/steward_overlay/steward_overlay_controller.dart`)
+- **Phaseless projects can now customize tiles + hero.** Manually-
+  created projects (no template) had a Customize affordance that
+  bailed silently because the open-handler checked
+  `phase.isEmpty`. Empty string is now a valid phase key for both
+  `phase_tile_overrides_json` and `overview_widget_overrides_json`;
+  hub `resolveOverviewWidget` consults `overrides[""]` when the
+  project has no phase. `_showHeroPicker` always-true now (manual
+  projects resolve to the default hero, so there's always
+  something to swap). Mobile + hub.
+- **Hosts page grouped into HUB + Personal.** Single "Hosts" list
+  split into two sections: HUB section now nests the hub-registered
+  hosts as 32px-indented children under the existing HubTile;
+  Personal section holds local-only bookmarks. Each section has its
+  own collapsible header + inline empty-state hint; full
+  `_EmptyState` only fires when both are empty.
+  (`lib/screens/hosts/hosts_screen.dart`)
+- **Tasks tab — one filter row, group by status.** Two filter rows
+  (status pills + priority pills) collapsed into one
+  (`_TaskFilterBar`): status pills on the left, priority as a
+  compact `Icon(filter_list)` popup tinted by the active selection
+  on the right. When no status filter is active, the list groups by
+  status with section headers (`todo` → `in_progress` → `blocked` →
+  `done`) — Linear / Asana mobile pattern. Per-row
+  `_StatusDot` and trailing status text removed (status is implied
+  by the section header or active pill); `TaskPriorityDot` is the
+  sole color cue per row. Dead-code: `_StatusDot` class +
+  `_TaskFilterPill.leadingDot` field deleted.
+  (`lib/screens/projects/project_detail_screen.dart`)
+
+### Fixed
+
+- **Customize sheet → Save now refreshes the project detail.** The
+  PATCH succeeded but `PhaseTileEditorSheet._save` popped without a
+  body, so `_ProjectDetailScreenState._project` stayed stale and
+  the strip rebuilt with the same props (from the user's POV: the
+  sheet closed and nothing changed). Plumbed a single
+  `ValueChanged<Map<String, dynamic>>? onProjectChanged` callback:
+  `PhaseTileEditorSheet._save` / `_reset` pop the updated body →
+  `_CustomizeTilesRow._open` fires `onProjectChanged` and triggers
+  `hubProvider.refreshAll()` → `ShortcutTileStrip` →
+  `_OverviewView` → `_ProjectDetailScreenState` updates `_project`
+  with `setState`. Mirrors the pattern the project Edit sheet
+  already used.
 
 ---
 

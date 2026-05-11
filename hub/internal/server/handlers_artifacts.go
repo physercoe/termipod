@@ -9,18 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Artifact kinds accepted at create time. Open set — we validate only that
-// the string is non-empty — but the common vocabulary is documented here so
-// the UI and MCP surface agree on filter/display values.
-//
-//   checkpoint   — model weights / training state
-//   eval_curve   — scalar series produced by eval (loss/acc curves)
-//   log          — run logs, stdout captures
-//   dataset      — data snapshot used or produced
-//   report       — rendered report (pdf/html)
-//   figure       — single plot/image
-//   sample       — generated sample (text/image/audio)
-//   other        — fallback
+// Artifact kinds — closed set defined in artifact_kinds.go (W1 of the
+// artifact-type-registry plan). See `validArtifactKinds` for the live
+// vocabulary and `backfillLegacyArtifactKind` for the pre-W1 mapping.
 
 type artifactIn struct {
 	ProjectID       string          `json:"project_id"`
@@ -60,6 +51,19 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	if in.ProjectID == "" || in.Kind == "" || in.Name == "" || in.URI == "" {
 		writeErr(w, http.StatusBadRequest, "project_id, kind, name, uri required")
 		return
+	}
+
+	// Closed-set validation. Legacy kinds are silently remapped so
+	// in-flight MCP clients keep working through one tester cycle; new
+	// callers should send a value from `validArtifactKinds` directly.
+	if !validArtifactKinds[in.Kind] {
+		if mapped, ok := backfillLegacyArtifactKind(in.Kind); ok {
+			in.Kind = mapped
+		} else {
+			writeErr(w, http.StatusBadRequest,
+				"unknown artifact kind (see docs/plans/artifact-type-registry.md)")
+			return
+		}
 	}
 
 	// Project must exist in this team.

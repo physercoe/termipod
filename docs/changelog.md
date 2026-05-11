@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.488
+> **Last verified vs code:** v1.0.489
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,67 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.489-alpha — 2026-05-11
+
+Wave 2 W1 — artifact-type-registry closed-set chassis. Lifts
+`artifacts.kind` from a free-form string into the 11-entry MVP
+vocabulary defined in
+`docs/plans/artifact-type-registry.md`. No new viewers yet; this
+wedge is the chassis the W2–W6 viewers will dispatch on.
+
+### Added
+
+- **`hub/internal/server/artifact_kinds.go`** — closed-set registry.
+  `validArtifactKinds` (11 entries: `prose-document`, `code-bundle`,
+  `tabular`, `image`, `audio`, `video`, `pdf`, `diagram`,
+  `canvas-app`, `external-blob`, `metric-chart`) is the wire
+  vocabulary; `backfillLegacyArtifactKind` maps the pre-W1
+  free-form values (`checkpoint`/`dataset`/`other`/`eval_curve`/
+  `log`/`report`/`figure`/`sample`) onto the new set so MCP clients
+  still in flight survive a tester cycle.
+- **`hub/migrations/0039_artifacts_kind_check.{up,down}.sql`** —
+  documentation + backfill `UPDATE` pass. No CHECK constraint
+  (Q3 resolved in plan against DB-level enforcement so new kinds
+  don't require a forward migration each time); the down migration
+  is a documented no-op because the remap is lossy.
+- **`lib/models/artifact_kinds.dart`** — Dart enum mirroring the hub
+  registry, plus `ArtifactKindSpec` (label / icon / mime hint /
+  colour role) and `artifactKindSpecFor(slug)` with legacy-alias
+  remapping and `externalBlob` fallback so the UI always has
+  something to render.
+- **`test/models/artifact_kinds_test.dart`** — round-trip + alias
+  + fallback test coverage.
+- **`hub/internal/server/handlers_artifacts_test.go`** —
+  `TestCreateArtifact_ClosedKindSet` covers every MVP kind (201),
+  a bogus kind (400), and every legacy alias round-tripping to the
+  remapped MVP kind.
+
+### Changed
+
+- `handleCreateArtifact` now rejects unknown kinds with 400 unless
+  they live in `validArtifactKinds` or the legacy alias map; legacy
+  values are silently remapped + the artifact stores the new slug.
+- `seed_demo_lifecycle.go` emits `external-blob` (was `checkpoint`)
+  and `metric-chart` (was `eval_curve`) so demo data ships under
+  the closed set.
+- `ArtifactKindChip` (artifacts_screen.dart) now dispatches through
+  `artifactKindSpecFor`, so legacy cached rows render with the
+  remapped label/colour and new kinds (pdf, tabular, image, code…)
+  pick up sensible defaults instead of the muted `?` fallback.
+- Filter pills on the Artifacts screen swap to the closed MVP set
+  (`prose-document`, `tabular`, `image`, `pdf`, `metric-chart`,
+  `code-bundle`, `external-blob`) — what new agents will emit.
+
+### Deprecated
+
+- The free-form `checkpoint`/`eval_curve`/`log`/`dataset`/`report`/
+  `figure`/`sample`/`other` kind strings are accepted only as
+  legacy aliases. Migrate emitters to the MVP set; the alias bridge
+  will be removed in a later wedge once the next tester cycle
+  confirms no live emitter relies on it.
 
 ---
 

@@ -804,13 +804,13 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				ckptArt, err := seedArtifact(c, "checkpoint",
+				ckptArt, err := seedArtifact(c, "external-blob",
 					"best-checkpoint-step1000.pt", "application/octet-stream",
 					int64(384*4*1024*1024))
 				if err != nil {
 					return nil, err
 				}
-				evalArt, err := seedArtifact(c, "eval_curve",
+				evalArt, err := seedArtifact(c, "metric-chart",
 					"eval-results.json", "application/json", int64(8*1024))
 				if err != nil {
 					return nil, err
@@ -977,13 +977,13 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				ckptArt, err := seedArtifact(c, "checkpoint",
+				ckptArt, err := seedArtifact(c, "external-blob",
 					"best-checkpoint-step1000.pt", "application/octet-stream",
 					int64(384*4*1024*1024))
 				if err != nil {
 					return nil, err
 				}
-				evalArt, err := seedArtifact(c, "eval_curve",
+				evalArt, err := seedArtifact(c, "metric-chart",
 					"eval-results.json", "application/json", int64(8*1024))
 				if err != nil {
 					return nil, err

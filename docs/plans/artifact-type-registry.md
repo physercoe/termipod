@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** Open (2026-05-11)
+> **Status:** In progress — W1 shipped v1.0.489-alpha (2026-05-11)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.484
+> **Last verified vs code:** v1.0.489
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -203,14 +203,15 @@ cross-axis querying.
 
 ## Wedges
 
-### W1 — Closed-set chassis
+### W1 — Closed-set chassis ✅ SHIPPED v1.0.489-alpha (2026-05-11)
 
 **Scope.** Lock the kind set in hub:
 
 - Pick the validation mechanism (CHECK constraint vs Go-side
   whitelist — open question Q3).
-- Migration `0038_artifacts_kind_check.up.sql` adds the
-  constraint (or backfill ALTER).
+- Migration `0039_artifacts_kind_check.up.sql` documents the
+  closed set + runs an `UPDATE` backfill pass over existing rows
+  (no CHECK constraint per Q3).
 - `hub/internal/server/handlers_artifacts.go` rejects unknown
   kinds at create time with `400`.
 - Backfill existing rows: comment-listed values (`checkpoint`,
@@ -226,10 +227,17 @@ cross-axis querying.
   the hub list (closed enum + label/icon table per kind).
 
 **Files touched:**
-- `hub/migrations/0038_artifacts_kind_check.{up,down}.sql` — new.
+- `hub/migrations/0039_artifacts_kind_check.{up,down}.sql` — new.
+- `hub/internal/server/artifact_kinds.go` — new. Closed set +
+  legacy-alias remap.
 - `hub/internal/server/handlers_artifacts.go` — handler whitelist + 400 on miss.
-- `hub/internal/server/handlers_artifacts_test.go` — happy + reject cases.
+- `hub/internal/server/handlers_artifacts_test.go` — closed-set
+  coverage (`TestCreateArtifact_ClosedKindSet`) + legacy aliases.
+- `hub/internal/server/seed_demo_lifecycle.go` — emit closed-set
+  slugs (`external-blob`, `metric-chart`).
 - `lib/models/artifact_kinds.dart` — new. Enum + spec table.
+- `lib/screens/projects/artifacts_screen.dart` — chip + filter
+  pills route through the new registry.
 - `test/models/artifact_kinds_test.dart` — new.
 
 **Test plan:**
@@ -480,7 +488,8 @@ the first place a split makes real sense.
 
 ## Status
 
-Open — drafted 2026-05-11 alongside the surface-separation rule
+In progress 2026-05-11. W1 (closed-set chassis) shipped v1.0.489-alpha.
+W2–W6 remain. Drafted 2026-05-11 alongside the surface-separation rule
 in [discussion §12.8](../discussions/agent-driven-mobile-ui.md).
 Open questions Q1–Q10 + Q-new resolved 2026-05-11 (recommended
 answers locked, principal-signed at the same review session).

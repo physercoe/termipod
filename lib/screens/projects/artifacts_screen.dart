@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
@@ -34,17 +35,19 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
   String? _error;
   DateTime? _staleSince;
 
-  // Common kinds (per §6.6 + mock-trainer output vocabulary). The filter
-  // still honors any kind found in the data; these are just the pills.
+  // Filter pills cover the closed MVP set (W1 of artifact-type-registry).
+  // The filter still honors any legacy kind the cache holds — the row
+  // chip remaps via `artifactKindSpecFor` — but the pills only surface
+  // the kinds new agents/uploads will emit.
   static const _kinds = <String?>[
     null,
-    'checkpoint',
-    'eval_curve',
-    'report',
-    'log',
-    'dataset',
-    'figure',
-    'sample',
+    'prose-document',
+    'tabular',
+    'image',
+    'pdf',
+    'metric-chart',
+    'code-bundle',
+    'external-blob',
   ];
 
   @override
@@ -364,17 +367,8 @@ class ArtifactKindChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final k = kind.toLowerCase();
-    final color = switch (k) {
-      'checkpoint' => DesignColors.terminalBlue,
-      'eval_curve' => DesignColors.terminalCyan,
-      'report' => DesignColors.primary,
-      'log' => DesignColors.textMuted,
-      'dataset' => DesignColors.terminalGreen,
-      'figure' => DesignColors.terminalMagenta,
-      'sample' => DesignColors.warning,
-      _ => DesignColors.textMuted,
-    };
+    final spec = artifactKindSpecFor(kind.toLowerCase());
+    final color = _colorForRole(spec.colorRole);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -383,7 +377,7 @@ class ArtifactKindChip extends StatelessWidget {
         border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
-        k.isEmpty ? '?' : k,
+        spec.label,
         style: GoogleFonts.jetBrainsMono(
           fontSize: 10,
           fontWeight: FontWeight.w700,
@@ -391,6 +385,19 @@ class ArtifactKindChip extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static Color _colorForRole(String role) {
+    return switch (role) {
+      'primary' => DesignColors.primary,
+      'cyan' => DesignColors.terminalCyan,
+      'green' => DesignColors.terminalGreen,
+      'magenta' => DesignColors.terminalMagenta,
+      'orange' => DesignColors.warning,
+      'red' => DesignColors.terminalRed,
+      'muted' => DesignColors.textMuted,
+      _ => DesignColors.textMuted,
+    };
   }
 }
 

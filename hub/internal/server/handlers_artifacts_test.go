@@ -43,7 +43,8 @@ func TestCreateArtifact_ProjectScope(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.ID == "" || out.Kind != "checkpoint" || out.URI == "" {
+	// `checkpoint` is a legacy kind name; W1 remaps it to `external-blob`.
+	if out.ID == "" || out.Kind != "external-blob" || out.URI == "" {
 		t.Errorf("unexpected out=%+v", out)
 	}
 	if out.Size == nil || *out.Size != 1024 {
@@ -248,5 +249,79 @@ func TestGetArtifact_NotFound(t *testing.T) {
 		"/v1/teams/"+defaultTeamID+"/artifacts/does-not-exist", nil)
 	if status != http.StatusNotFound {
 		t.Errorf("status=%d want 404", status)
+	}
+}
+
+// W1 — closed-set kind validation. Accepts every entry in
+// validArtifactKinds, rewrites legacy names via
+// backfillLegacyArtifactKind, and rejects anything else with 400.
+func TestCreateArtifact_ClosedKindSet(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	projID := seedTestProject(t, s, defaultTeamID)
+	base := "/v1/teams/" + defaultTeamID + "/artifacts"
+
+	// Every MVP kind round-trips.
+	for kind := range validArtifactKinds {
+		status, body := doReq(t, s, token, http.MethodPost, base, map[string]any{
+			"project_id": projID,
+			"kind":       kind,
+			"name":       "a-" + kind,
+			"uri":        "blob:sha256/cafef00d",
+		})
+		if status != http.StatusCreated {
+			t.Errorf("create kind=%s: status=%d body=%s", kind, status, body)
+			continue
+		}
+		var out artifactOut
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Errorf("decode kind=%s: %v", kind, err)
+			continue
+		}
+		if out.Kind != kind {
+			t.Errorf("create kind=%s: out.Kind=%s", kind, out.Kind)
+		}
+	}
+
+	// Bogus kind rejected.
+	status, _ := doReq(t, s, token, http.MethodPost, base, map[string]any{
+		"project_id": projID,
+		"kind":       "freeform-stuff",
+		"name":       "x",
+		"uri":        "blob:sha256/cafef00d",
+	})
+	if status != http.StatusBadRequest {
+		t.Errorf("unknown kind: status=%d want 400", status)
+	}
+
+	// Legacy kinds remap. Each must produce 201 with the mapped kind.
+	legacy := map[string]string{
+		"checkpoint": "external-blob",
+		"dataset":    "external-blob",
+		"other":      "external-blob",
+		"eval_curve": "metric-chart",
+		"log":        "prose-document",
+		"report":     "prose-document",
+		"figure":     "image",
+		"sample":     "image",
+	}
+	for legacyKind, want := range legacy {
+		status, body := doReq(t, s, token, http.MethodPost, base, map[string]any{
+			"project_id": projID,
+			"kind":       legacyKind,
+			"name":       "legacy-" + legacyKind,
+			"uri":        "blob:sha256/cafef00d",
+		})
+		if status != http.StatusCreated {
+			t.Errorf("legacy kind=%s: status=%d body=%s", legacyKind, status, body)
+			continue
+		}
+		var out artifactOut
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Errorf("decode legacy=%s: %v", legacyKind, err)
+			continue
+		}
+		if out.Kind != want {
+			t.Errorf("legacy %s remap: got %s want %s", legacyKind, out.Kind, want)
+		}
 	}
 }

@@ -363,20 +363,26 @@ invariant in the user's mental model.
 ### 6.2 Projects
 
 Tier-1. List of projects, filterable by status, kind, role. Each project
-row opens the Project Detail screen (unchanged as a concept, improved in
-density). Project Detail nests, not sprawls:
+row opens the Project Detail screen, which has its own internal layout
+contract — the **A+B+C chassis** (header / phase hero / tile strip) —
+locked in [ADR-024](../decisions/024-project-detail-chassis.md) and
+catalogued at
+[`reference/project-detail-chassis.md`](../reference/project-detail-chassis.md).
+That reference is the single source of truth for the hero registry,
+tile slug enum, resolution chains, and how to add either.
 
-- Overview (goal, status, recent runs, attention summary)
-- Runs → run detail → metrics, artifacts, logs
-- Reviews → review detail
-- Documents → doc viewer
-- Agents (scoped to this project)
-- Channel (scoped to this project)
-- Schedules / plans / tasks (scoped to this project)
-- Templates link (read-only pointer to the one home under Projects)
+At-a-glance, Project Detail nests rather than sprawls:
 
-A single **Templates / Blueprints** screen lives here too — one home.
-Any other "templates" surface in the app is a pointer into it.
+- **5 tab pills** (chassis-level): Overview · Activity · Agents ·
+  Tasks · Files
+- **PhaseRibbon** above the pills, always visible across all 5 tabs;
+  past-phase tap opens the phase summary
+- **Overview tab** body uses the A+B+C chassis (see reference §1);
+  the Insights icon on the Projects-list AppBar opens the
+  per-team cross-project rollup (`/v1/insights?team_id=…` + the
+  `by_project[]` dimension, ADR-022 + v1.0.485 W3)
+- **Templates / Blueprints** screen lives here as a single home —
+  any other "templates" surface in the app is a pointer into it
 
 ### 6.3 Activity
 

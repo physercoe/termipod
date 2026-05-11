@@ -90,10 +90,10 @@ table above.
 | 4 | `image` | `image/png`, `image/jpeg`, `image/svg+xml`, `image/webp` | `Image.network` / `flutter_svg` (already in tree) | crop / annotate deferred | yes | yes (multimodal) |
 | 5 | `audio` | `audio/mp3`, `audio/wav`, `audio/m4a` | new `AudioPlayer` widget (just_audio) | trim deferred | future | yes (multimodal STT) |
 | 6 | `video` | `video/mp4`, `video/webm` | new `VideoPlayer` widget (video_player) | trim deferred | future | yes (multimodal) |
-| 7 | `pdf` | `application/pdf` | new `PdfViewer` widget (pdfx or flutter_pdfview) | n/a (render-only) | yes | yes |
+| 7 | `pdf` | `application/pdf` | new `PdfViewer` widget (pdfrx) | n/a (render-only) | yes | yes |
 | 8 | `diagram` | `image/svg+xml` (mermaid → svg server-side) | `flutter_svg` | n/a (regen via agent) | yes | no |
 | 9 | `canvas-app` | `text/html` (sandboxed bundle) | `webview_flutter` in sandboxed page route (Tier 2 plan) | edit-html deferred | yes (Tier 2 only) | no |
-| 10 | `dataset-ref` | URI-only metadata, no upload | label + click-to-open chip | n/a (registration only) | yes | yes |
+| 10 | `external-blob` | URI-only metadata, no upload (any MIME via `subtype` or `mime` field) | label + click-to-open chip | n/a (registration only) | yes | yes |
 | 11 | `metric-chart` | `application/vnd.termipod.metrics+json` (with `schema` discriminator) | dispatch viewer: line / histogram / scatter / heatmap / roc / pr / calibration | n/a | yes | yes |
 
 **Notes on the set:**
@@ -118,6 +118,36 @@ table above.
   to guess intent from MIME.
 - **`metric-chart` is for snapshots; live training metrics are NOT
   artifacts.** See "Live-vs-artifact two-layer split" below.
+- **`external-blob` (rename from `dataset-ref`).** The renamed kind
+  intentionally covers every opaque file mobile won't ingest —
+  model weights (`.pt` / `.ckpt` / `.safetensors`), datasets
+  (URI to S3), long-form raw logs that overflow inline caps,
+  compiled binaries. "External" = we don't fetch the bytes;
+  "blob" = opaque to the renderer. Discrimination by MIME or a
+  `subtype` field. `dataset-ref` was misleading — read narrowly
+  as "tabular CSVs," collided with model weights.
+
+## Common content types → which kind
+
+Quick lookup for "I have *X*, where does it land?" Avoids the
+'where do plain text files go' confusion that surfaced after the
+initial table.
+
+| Content shape | Kind | Notes |
+|---|---|---|
+| Editable markdown with sections (memo, draft, report, review, sample) | `documents` row (NOT an artifact) | Sections array is optional. Editor: `markdown_section_editor`. |
+| No-section markdown (single body) | `documents` row | Same kind set; `sections=null` is the simple shape. |
+| Plain text file (`.txt`) / raw log dump / non-prose README | `prose-document` artifact, MIME `text/plain` | Viewer dispatches on MIME — `text/markdown` gets full rendering; `text/plain` gets monospace. No separate `plain-text` kind. |
+| Snapshot of a `documents` row at phase ratification | `prose-document` artifact, MIME `text/markdown` | `origin_document_id` back-points to the live row. Immutable. |
+| Single code file (`.py`, `.go`, `.ts`) | `code-bundle` with `file_count=1` | Same kind as multi-file; viewer renders a one-entry tree. No `code-file` kind — collapsing 1 and N is one less axis. |
+| Multi-file code bundle | `code-bundle` with `file_count=N` | Same kind, file-tree viewer. |
+| Citation list | `tabular` with `schema=citation` | Per Q1 — no `citation` kind. |
+| Ablation / dataset / run-results table | `tabular` with `schema=<domain>` | Schema-on-MIME. |
+| Model weights file | `external-blob`, MIME `application/x-pytorch-checkpoint` or similar | URI-only — mobile doesn't ingest the weights. |
+| Big dataset (S3, GCS) | `external-blob`, MIME varies | Same — URI-only metadata. |
+
+The implication: the 11 MVP kinds cover the doc-types question
+end-to-end. No 12th kind needed.
 - **`canvas-app` is reserved.** Lands as the type slot in W1
   (registry entry + storage path); the actual Tier 2 viewer is a
   separate plan that depends on this one.
@@ -185,13 +215,13 @@ cross-axis querying.
   kinds at create time with `400`.
 - Backfill existing rows: comment-listed values (`checkpoint`,
   `eval_curve`, `log`, `dataset`, `report`) map to MVP kinds:
-  - `checkpoint` → `code-bundle` (model weights are a bundle,
-    arguably need a new `binary-blob` kind — see Q4)
-  - `eval_curve` → `metric-series`
-  - `log` → `prose-document`
-  - `dataset` → `dataset-ref` (assume URI; if uploaded, →
-    `tabular`)
-  - `report` → `prose-document`
+  - `checkpoint` → `external-blob` (URI-only; weights live on
+    object storage — Q4 resolved against a separate weights kind)
+  - `eval_curve` → `metric-chart` (schema=line)
+  - `log` → `prose-document` (MIME `text/plain`)
+  - `dataset` → `external-blob` (assume URI; if uploaded as a
+    table, → `tabular`)
+  - `report` → `prose-document` (MIME `text/markdown`)
 - New mobile constant `lib/models/artifact_kinds.dart` mirrors
   the hub list (closed enum + label/icon table per kind).
 
@@ -214,15 +244,21 @@ cross-axis querying.
 
 ### W2 — PDF viewer
 
-**Scope.** First new-kind viewer. Adds `pdfx` (or
-`flutter_pdfview`) to `pubspec.yaml`; new `PdfViewer` widget;
-artifact-detail page routes `pdf` kind to it. Picked first because
-research-paper phase needs it AND no existing viewer covers it.
+**Scope.** First new-kind viewer. Adds `pdfrx` to `pubspec.yaml`;
+new `PdfViewer` widget; artifact-detail page routes `pdf` kind to
+it. Picked first because the research-paper phase needs it AND no
+existing viewer covers it.
 
-**Open question Q5:** which lib. `pdfx` is pure Dart + Skia
-(consistent across iOS/Android, ~2 MB). `flutter_pdfview` wraps
-native (smaller bundle, platform-divergent behavior). Pick before
-scaffold.
+**Q5 resolved 2026-05-11:** `pdfrx`, not `pdfx` or
+`flutter_pdfview`. pdfrx is PDFium-backed, actively maintained
+(weekly releases), supports Android / iOS / Windows / macOS /
+Linux / Web, ships text search + selection + outline + password
+support out of the box. `pdfx` is built on the older
+AndroidPdfViewer backend (fewer features, less active).
+`flutter_pdfview` is native-wrapped — smallest bundle but lacks
+annotations / search / consistency. ~280k downloads, 160 pub
+points at lock time. Bundle cost roughly the same as the earlier
+`pdfx` estimate (~2 MB).
 
 **Files touched:**
 - `pubspec.yaml` — add dep.
@@ -384,18 +420,27 @@ Recommend Go whitelist + a unit test that exercises every kind
 through the create handler, with the migration adding only a
 documenting comment. Lock in W1.
 
-**Q4 — `binary-blob` for model weights?** Backfill maps
-`checkpoint` to `code-bundle`, but weights aren't code. Either
-add a 12th kind (`binary-blob` with size + mime) or accept that
-weights are a `dataset-ref` (URI-only — they live on object
-storage). Recommend `dataset-ref`. Lock in W1.
+**Q4 resolved 2026-05-11 — rename `dataset-ref` → `external-blob`.**
+The original name read narrowly as "tabular CSVs," collided with
+model weights and any other opaque file. `external-blob` is
+intent-neutral: "external" = mobile doesn't fetch the bytes;
+"blob" = opaque to renderer. Covers model weights (`.pt` /
+`.ckpt`), datasets at URI, large logs beyond inline cap,
+compiled binaries. Discrimination via MIME or a `subtype` field.
+Backfill: existing `checkpoint` rows map to `external-blob`.
 
 ### Blocking W2
 
-**Q5 — `pdfx` vs `flutter_pdfview`.** Pure-Dart vs native-wrap.
-Native is ~5x smaller bundle but platform-divergent. Pure-Dart is
-~2 MB but consistent. Recommend `pdfx` for the demo (consistency
-> bundle size at this stage).
+**Q5 resolved 2026-05-11 — `pdfrx`.** Confirmed by web research
+2026-05-11: pdfrx is the actively-maintained PDFium-backed Flutter
+PDF lib with the broadest platform coverage (Android, iOS,
+Windows, macOS, Linux, Web), built-in text search + selection +
+outline + password support, ~280k pub.dev downloads, 160 pub
+points. `pdfx` (the original recommendation) uses an older
+AndroidPdfViewer backend with fewer features and slower release
+cadence. `flutter_pdfview` is native-wrapped — smallest bundle
+but no annotation/search and platform-divergent. Bundle cost
+roughly same as `pdfx` (~2 MB).
 
 ### Blocking W3
 
@@ -437,6 +482,6 @@ the first place a split makes real sense.
 
 Open — drafted 2026-05-11 alongside the surface-separation rule
 in [discussion §12.8](../discussions/agent-driven-mobile-ui.md).
-Depends on principal review of the kind list + the eleven open
-questions above. No commits yet; W1 starts after principal
-sign-off.
+Open questions Q1–Q10 + Q-new resolved 2026-05-11 (recommended
+answers locked, principal-signed at the same review session).
+Plan is ready for W1 implementation; awaiting workband slot.

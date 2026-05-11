@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:termipod/screens/projects/overview_widgets/registry.dart';
 import 'package:termipod/widgets/shortcut_tile_strip.dart';
 
 void main() {
@@ -170,6 +171,54 @@ void main() {
         expect(spec.label, isNotEmpty, reason: 'slug=$s');
         expect(spec.subtitle, isNotEmpty, reason: 'slug=$s');
       }
+    });
+  });
+
+  group('parsePhaseStringMap (D10 hero overrides)', () {
+    test('parses well-formed map', () {
+      final out = parsePhaseStringMap({
+        'idea': 'idea_conversation',
+        'experiment': 'experiment_dash',
+      });
+      expect(out, {
+        'idea': 'idea_conversation',
+        'experiment': 'experiment_dash',
+      });
+    });
+
+    test('returns null for null / non-map inputs', () {
+      expect(parsePhaseStringMap(null), isNull);
+      expect(parsePhaseStringMap('not-a-map'), isNull);
+      expect(parsePhaseStringMap(42), isNull);
+    });
+
+    test('returns null for empty map', () {
+      expect(parsePhaseStringMap(<String, dynamic>{}), isNull);
+    });
+
+    test('drops non-string / empty values', () {
+      final out = parsePhaseStringMap({
+        'idea': '',
+        'method': 42,
+        'experiment': 'experiment_dash',
+      });
+      expect(out, {'experiment': 'experiment_dash'});
+    });
+  });
+
+  group('overviewWidgetSpecFor (D10 hero picker labels)', () {
+    test('every known hero slug has a non-empty label + subtitle', () {
+      for (final slug in kKnownOverviewWidgets) {
+        final spec = overviewWidgetSpecFor(slug);
+        expect(spec.label, isNotEmpty, reason: 'slug=$slug');
+        expect(spec.subtitle, isNotEmpty, reason: 'slug=$slug');
+      }
+    });
+
+    test('unknown slug falls back to a usable label', () {
+      final spec = overviewWidgetSpecFor('unheard-of');
+      expect(spec.label, isNotEmpty);
+      expect(spec.subtitle, isNotEmpty);
     });
   });
 }

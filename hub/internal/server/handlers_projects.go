@@ -76,20 +76,44 @@ type projectOut struct {
 	// wire (PATCH writes go to PhaseTileOverrides). Mobile consults
 	// this second in the resolution chain.
 	PhaseTilesTemplate map[string][]string `json:"phase_tiles_template,omitempty"`
+
+	// OverviewWidgetOverrides — per-phase hero-widget overrides
+	// (chassis-followup wave 1, ADR-024 D10). Mirrors
+	// PhaseTileOverrides exactly: `{"<phase>": "<hero_slug>"}`.
+	// PATCH-writable via projectPatch.OverviewWidgetOverrides. When
+	// the current phase has an entry here, resolveOverviewWidget
+	// returns that slug instead of consulting the template.
+	OverviewWidgetOverrides json.RawMessage `json:"overview_widget_overrides,omitempty"`
+
+	// OverviewWidgetTemplate — per-phase hero slugs declared in the
+	// template YAML's `phase_specs[<phase>].overview_widget`. Read-
+	// only on the wire (PATCH writes go to OverviewWidgetOverrides).
+	// Mobile uses this to compute "what would this phase render
+	// without the override" for the picker's Reset affordance.
+	OverviewWidgetTemplate map[string]string `json:"overview_widget_template,omitempty"`
 }
 
 // resolveOverviewWidget returns the hero widget kind to surface on the
-// project read payload. Resolution order:
-//  1. phase_specs[<phase>].overview_widget — phase-scoped swap-in (W7)
-//  2. project-level overview_widget on the template doc
-//  3. overviewWidgetDefault.
-// Projects with no template_id always get the default. Unknown values
-// are normalized away by loadProjectTemplates / phaseOverviewWidget.
+// project read payload. Resolution order (most-specific wins):
+//  1. overrides[<phase>] — per-project override (ADR-024 D10)
+//  2. phase_specs[<phase>].overview_widget — phase-scoped swap-in (W7)
+//  3. project-level overview_widget on the template doc
+//  4. overviewWidgetDefault.
+//
+// `overrides` is the parsed projects.overview_widget_overrides_json
+// map; nil is fine (no overrides). Projects with no template_id and no
+// matching override get the default. Unknown override values are
+// normalized away via validOverviewWidgets check.
 //
 // Reads the template set off disk on each call. Cardinality is small
 // (< 20 docs in practice) and the bulk handlers (list/get) are low-QPS
 // compared to run metrics — caching is not worth the staleness risk.
-func (s *Server) resolveOverviewWidget(templateID, phase string) string {
+func (s *Server) resolveOverviewWidget(templateID, phase string, overrides map[string]string) string {
+	if phase != "" && len(overrides) > 0 {
+		if w, ok := overrides[phase]; ok && w != "" && validOverviewWidgets[w] {
+			return w
+		}
+	}
 	if templateID == "" {
 		return overviewWidgetDefault
 	}
@@ -112,6 +136,23 @@ func (s *Server) resolveOverviewWidget(templateID, phase string) string {
 		}
 	}
 	return overviewWidgetDefault
+}
+
+// parseOverviewWidgetOverrides unmarshals the raw JSON column into a
+// flat `{<phase>: <slug>}` map. Returns nil on null/empty/malformed —
+// callers fall through to template-side resolution.
+func parseOverviewWidgetOverrides(raw json.RawMessage) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // validKind returns the normalized project kind or empty string if invalid.
@@ -268,10 +309,11 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		ParametersJSON: in.ParametersJSON, IsTemplate: in.IsTemplate,
 		BudgetCents: in.BudgetCents, PolicyOverridesJSON: in.PolicyOverridesJSON,
 		StewardAgentID: in.StewardAgentID, OnCreateTemplateID: in.OnCreateTemplateID,
-		OverviewWidget:     s.resolveOverviewWidget(in.TemplateID, initPhase),
-		Phase:              initPhase,
-		Phases:             s.templatePhases(in.TemplateID),
-		PhaseTilesTemplate: s.phaseTemplateTiles(in.TemplateID),
+		OverviewWidget:         s.resolveOverviewWidget(in.TemplateID, initPhase, nil),
+		Phase:                  initPhase,
+		Phases:                 s.templatePhases(in.TemplateID),
+		PhaseTilesTemplate:     s.phaseTemplateTiles(in.TemplateID),
+		OverviewWidgetTemplate: s.phaseTemplateOverviewWidgets(in.TemplateID),
 	}
 	if initPhase != "" {
 		out.PhaseHistory = []phaseTransition{{
@@ -289,6 +331,7 @@ func scanProjectRow(sc interface {
 	var archived, goal, parentID, tplID, paramsJSON sql.NullString
 	var policyJSON, stewardID, onCreateTplID, kind sql.NullString
 	var phase, phaseHistory, phaseTileOverrides sql.NullString
+	var overviewWidgetOverrides sql.NullString
 	var budget sql.NullInt64
 	var isTpl int64
 	if err := sc.Scan(
@@ -297,6 +340,7 @@ func scanProjectRow(sc interface {
 		&goal, &kind, &parentID, &tplID, &paramsJSON,
 		&isTpl, &budget, &policyJSON, &stewardID, &onCreateTplID,
 		&phase, &phaseHistory, &phaseTileOverrides,
+		&overviewWidgetOverrides,
 	); err != nil {
 		return err
 	}
@@ -336,6 +380,9 @@ func scanProjectRow(sc interface {
 	if phaseTileOverrides.Valid && phaseTileOverrides.String != "" {
 		p.PhaseTileOverrides = json.RawMessage(phaseTileOverrides.String)
 	}
+	if overviewWidgetOverrides.Valid && overviewWidgetOverrides.String != "" {
+		p.OverviewWidgetOverrides = json.RawMessage(overviewWidgetOverrides.String)
+	}
 	return nil
 }
 
@@ -346,7 +393,8 @@ const projectSelectCols = `
 	goal, kind, parent_project_id, template_id, parameters_json,
 	is_template, budget_cents, policy_overrides_json,
 	steward_agent_id, on_create_template_id,
-	phase, phase_history, phase_tile_overrides_json`
+	phase, phase_history, phase_tile_overrides_json,
+	overview_widget_overrides_json`
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 	team := chi.URLParam(r, "team")
@@ -381,9 +429,11 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
+		overrides := parseOverviewWidgetOverrides(p.OverviewWidgetOverrides)
+		p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase, overrides)
 		p.Phases = s.templatePhases(p.TemplateID)
 		p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
+		p.OverviewWidgetTemplate = s.phaseTemplateOverviewWidgets(p.TemplateID)
 		out = append(out, p)
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -404,9 +454,11 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase)
+	overrides := parseOverviewWidgetOverrides(p.OverviewWidgetOverrides)
+	p.OverviewWidget = s.resolveOverviewWidget(p.TemplateID, p.Phase, overrides)
 	p.Phases = s.templatePhases(p.TemplateID)
 	p.PhaseTilesTemplate = s.phaseTemplateTiles(p.TemplateID)
+	p.OverviewWidgetTemplate = s.phaseTemplateOverviewWidgets(p.TemplateID)
 	writeJSON(w, http.StatusOK, p)
 }
 
@@ -447,6 +499,14 @@ type projectPatch struct {
 	// content vocab is the closed TileSlug enum on mobile, which drops
 	// unknown slugs at parse rather than 400'ing here.
 	PhaseTileOverrides *json.RawMessage `json:"phase_tile_overrides,omitempty"`
+
+	// OverviewWidgetOverrides: per-phase hero-widget overrides
+	// (chassis-followup wave 1, ADR-024 D10). Same pointer-to-RawMessage
+	// idiom as PhaseTileOverrides. Shape: `{"<phase>": "<slug>"}`.
+	// resolveOverviewWidget enforces vocab via validOverviewWidgets;
+	// unknown slugs fall through to the template-side default rather
+	// than 400'ing here.
+	OverviewWidgetOverrides *json.RawMessage `json:"overview_widget_overrides,omitempty"`
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -487,6 +547,10 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	if in.PhaseTileOverrides != nil {
 		sets = append(sets, "phase_tile_overrides_json = ?")
 		args = append(args, nullRawJSON(*in.PhaseTileOverrides))
+	}
+	if in.OverviewWidgetOverrides != nil {
+		sets = append(sets, "overview_widget_overrides_json = ?")
+		args = append(args, nullRawJSON(*in.OverviewWidgetOverrides))
 	}
 	if len(sets) == 0 {
 		// Nothing to update — fall through to returning the current row so

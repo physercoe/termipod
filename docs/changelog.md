@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.484
+> **Last verified vs code:** v1.0.486
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,63 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.486-alpha — 2026-05-11
+
+Chassis follow-up wave 1 — D10 hero override mechanism + deliverables +
+acceptance-criteria tiles. Per ADR-024 follow-up ordering:
+[`docs/decisions/024-project-detail-chassis.md`](decisions/024-project-detail-chassis.md)
+§Follow-up wedges (ordered).
+
+### Added
+
+- **Hero overrideability per-phase per-project (D10).** New migration
+  `0038_project_overview_widget_overrides` adds
+  `projects.overview_widget_overrides_json` (mirrors the v1.0.484
+  tile-override column). `Server.resolveOverviewWidget` consults the
+  override map first, then per-phase template YAML, then template
+  default, then chassis default. Wire payload gains
+  `overview_widget_overrides` (raw user map) and
+  `overview_widget_template` (per-phase template-side map for the
+  picker's Reset affordance). PATCH `projects` accepts
+  `overview_widget_overrides`. Closes the ADR-023 inconsistency where
+  the steward could swap tiles but not heroes.
+- **Hero picker in `PhaseTileEditorSheet`.** ChoiceChip Wrap above
+  the tile-composition section. Picks from the closed
+  `kKnownOverviewWidgets` set with `overviewWidgetSpecFor` labels.
+  Save bundles the tile + hero override into one PATCH; Reset
+  clears both per-phase overrides.
+- **`deliverables` tile slug** + `DeliverablesScreen`. Project-scoped
+  flat list grouped by phase; tap → existing
+  `StructuredDeliverableViewer`. Unblocks lifecycle-walkthrough W7-W8
+  by making deliverables reachable without going through a phase
+  chip.
+- **`acceptance_criteria` tile slug** + `AcceptanceCriteriaScreen`.
+  Project-scoped flat list grouped by phase with state filter
+  (all/pending/met/failed/waived); tap → parent deliverable viewer.
+
+### Changed
+
+- **Closed `TileSlug` enum now 11 slugs** (was 9 at ADR-024 lock).
+  Added `deliverables` + `acceptanceCriteria`. Wire format accepts
+  `deliverables`, `acceptance_criteria`, `acceptance-criteria`,
+  `criteria` as aliases for the AC slug.
+- **`resolveOverviewWidget` signature** now takes an `overrides
+  map[string]string` parameter. Empty/nil falls through to the
+  prior template-side resolution. All three call sites
+  (`handleListProjects`, `handleGetProject`, `handleCreateProject`)
+  updated.
+
+### Documentation
+
+- ADR-024 D10 + Follow-up Wedges sections updated: wave 1 marked
+  shipped, 11-slug locked set. Status block bumped to v1.0.486.
+- `reference/project-detail-chassis.md` resolution chain rewritten
+  (override → template phase → template default → chassis default),
+  §8 per-project-vs-per-template matrix updated, §9 ordering table
+  gains Status column.
 
 ---
 

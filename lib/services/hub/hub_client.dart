@@ -1003,6 +1003,12 @@ class HubClient {
     /// to clear the override (falls back to template YAML + chassis
     /// default). Pass null to leave the existing value untouched.
     Map<String, List<String>>? phaseTileOverrides,
+    /// Per-phase hero (overview-widget) override (ADR-024 D10). Shape:
+    /// `{"<phase>": "<hero_slug>"}`. Empty map → clear. Null → leave
+    /// untouched. Vocab is the closed `kKnownOverviewWidgets` set;
+    /// unknown slugs are accepted by the hub but fall back to the
+    /// template-side resolution.
+    Map<String, String>? overviewWidgetOverrides,
   }) async {
     final body = <String, dynamic>{};
     if (name != null) body['name'] = name;
@@ -1024,6 +1030,10 @@ class HubClient {
       // clears the column (consistent with nullRawJSON semantics).
       body['phase_tile_overrides'] =
           phaseTileOverrides.isEmpty ? null : phaseTileOverrides;
+    }
+    if (overviewWidgetOverrides != null) {
+      body['overview_widget_overrides'] =
+          overviewWidgetOverrides.isEmpty ? null : overviewWidgetOverrides;
     }
     final out = await _patch(
       '/v1/teams/${cfg.teamId}/projects/$projectId',

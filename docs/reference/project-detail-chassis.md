@@ -105,6 +105,8 @@ Closed enum: `TileSlug` in `shortcut_tile_strip.dart:20`.
 | `schedules` | `SchedulesScreen` | `schedules` table | no — user-addable |
 | `assets` | `_AssetsHostScreen` (BlobsSection) | `blobs` table | no — user-addable |
 | `discussion` | `ProjectChannelsListScreen` | `channels` table | no — user-addable (via editor since v1.0.485 dropped AppBar icon) |
+| `deliverables` | `DeliverablesScreen` | `deliverables` table | no — user-addable (wave 1, ADR-024) |
+| `acceptance_criteria` | `AcceptanceCriteriaScreen` | `acceptance_criteria` table | no — user-addable (wave 1, ADR-024) |
 | `risks` | `_StubScreen` | none (post-MVP per principal 2026-05-11) | no — post-MVP |
 
 **Routes from tap — gotchas:**
@@ -153,7 +155,7 @@ data** via Riverpod providers, keyed off `projectId`. Reasons:
 ### Hero resolution
 
 ```
-projects.overview_widget                                    ← per-project (D10 mechanism deferred)
+projects.overview_widget_overrides_json[<phase>]            ← per-project per-phase override (D10, wave 1)
   → template_yaml.phase_specs[<phase>].overview_widget      ← per-phase template selection
     → template_yaml.default_overview_widget                 ← template-level default
       → chassis default:
@@ -161,15 +163,16 @@ projects.overview_widget                                    ← per-project (D10
           kind=goal     → 'task_milestone_list'
 ```
 
+The resolved value lands on the wire as `projects.overview_widget`.
+The raw override map lands as `overview_widget_overrides`; the
+template-side per-phase map lands as `overview_widget_template`
+(used by the picker's Reset affordance).
+
 Function: `buildOverviewWidget(kind, ctx)` in
 `overview_widgets/registry.dart`. Unknown wire values render an
 `_UnknownOverviewHero` placeholder — visible-failure preferred
 over silent-degrade-to-default so the user gets a "update the app"
 hint.
-
-Per-project hero override (D10) is deferred. When the wedge ships,
-this chain inserts a 1st step reading
-`projects.overview_widget_overrides_json[<phase>]`.
 
 ### Tile resolution
 
@@ -241,7 +244,7 @@ Checklist:
 | Phase | ✓ via `projects.phase` + `phase_history` | n/a — phases are template-defined | n/a |
 | Status | ✓ via `projects.status` | n/a | `active` |
 | Tile composition | ✓ via `phase_tile_overrides_json` (D6) | ✓ via `phase_specs.tiles` | `[outputs, documents]` |
-| Hero widget | ⚠ D10 — principle locked, mechanism deferred | ✓ via `phase_specs.overview_widget` | `task_milestone_list` (goal) / `recent_firings_list` (standing) |
+| Hero widget | ✓ via `overview_widget_overrides_json` (D10, wave 1) | ✓ via `phase_specs.overview_widget` | `task_milestone_list` (goal) / `recent_firings_list` (standing) |
 | Header A type | n/a — by `kind` only | n/a | `PortfolioHeader` (goal) / `WorkspaceHeader` (standing) |
 | Metadata rows visibility | n/a — always collapsed | n/a | collapsed |
 | Phase ribbon | always-on | n/a | always-on |
@@ -252,14 +255,14 @@ Checklist:
 Per ADR-024 sequencing locked 2026-05-11. Read together with the
 ADR's full text.
 
-| # | Wave | Wedge | Depends on |
-|---|---|---|---|
-| 1 | first | D10 mechanism: `projects.overview_widget_overrides_json` + hero picker in `PhaseTileEditorSheet` + steward MCP path | ADR-024 chassis lock (this doc) |
-| 2 | first | `DeliverablesScreen` + `AcceptanceCriteriaScreen` → then add `deliverables` + `acceptance_criteria` slugs to `TileSlug` enum | screens land before slugs (don't ship stubs) |
-| 3 | second | artifact-type-registry W1–W6 — typed kind chassis + viewers (tabular / pdf / image / code-bundle / canvas-app / …) | wave 1 done so heroes are stable while kinds land |
-| 4 | third | Hero consolidation / redesign — driven by wave 2 (e.g. `idea_conversation` absorbing canvas-app; `experiment_dash` rendering histograms) | wave 2 typed kinds locked |
-| 5 | post-MVP | `outputs` vs `assets` naming resolution | deferred indefinitely |
-| 6 | post-MVP | Workspace cross-project Insights | deferred — standing-kind today filtered out |
+| # | Wave | Wedge | Depends on | Status |
+|---|---|---|---|---|
+| 1 | first | D10 mechanism: `projects.overview_widget_overrides_json` + hero picker in `PhaseTileEditorSheet` + steward MCP path | ADR-024 chassis lock (this doc) | ✅ shipped wave 1 |
+| 2 | first | `DeliverablesScreen` + `AcceptanceCriteriaScreen` → then add `deliverables` + `acceptance_criteria` slugs to `TileSlug` enum | screens land before slugs (don't ship stubs) | ✅ shipped wave 1 |
+| 3 | second | artifact-type-registry W1–W6 — typed kind chassis + viewers (tabular / pdf / image / code-bundle / canvas-app / …) | wave 1 done so heroes are stable while kinds land | pending |
+| 4 | third | Hero consolidation / redesign — driven by wave 2 (e.g. `idea_conversation` absorbing canvas-app; `experiment_dash` rendering histograms) | wave 2 typed kinds locked | pending |
+| 5 | post-MVP | `outputs` vs `assets` naming resolution | deferred indefinitely | post-MVP |
+| 6 | post-MVP | Workspace cross-project Insights | deferred — standing-kind today filtered out | post-MVP |
 
 **Don't redesign heroes before kinds.** Doing so means each hero
 update happens against free-form `artifacts.kind` strings, pre-empts

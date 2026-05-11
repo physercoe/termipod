@@ -307,3 +307,119 @@ func TestProjectPatch_PhaseTileOverridesRoundTrip(t *testing.T) {
 		t.Errorf("idea override=%v; want [Outputs]", v)
 	}
 }
+
+// TestProjectPatch_OverviewWidgetOverridesRoundTrip verifies the D10
+// hero-override resolution-chain layer 1 (chassis-followup wave 1,
+// ADR-024): per-project override stored on
+// `projects.overview_widget_overrides_json`. PATCH writes; GET reads it
+// back as `overview_widget_overrides`; and the resolved `overview_widget`
+// field reflects the override when the project's current phase is in
+// the override map.
+func TestProjectPatch_OverviewWidgetOverridesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "hub.db")
+	tok, err := Init(dir, dbPath)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	srv, err := New(Config{Listen: "127.0.0.1:0", DBPath: dbPath, DataRoot: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	const team = "default-team"
+	now := NowUTC()
+	_, _ = srv.db.Exec(`INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)`,
+		team, team, now)
+
+	// Create a research project (starts in 'idea' phase).
+	body, _ := json.Marshal(map[string]any{
+		"name": "hero-override-test", "kind": "goal", "template_id": "research",
+	})
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/teams/"+team+"/projects", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.router.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rr.Code, rr.Body.String())
+	}
+	var p projectOut
+	_ = json.Unmarshal(rr.Body.Bytes(), &p)
+	if p.ID == "" {
+		t.Fatal("create returned empty id")
+	}
+	if len(p.OverviewWidgetOverrides) != 0 {
+		t.Errorf("fresh project carries override %q; want empty",
+			p.OverviewWidgetOverrides)
+	}
+	// Fresh research project resolves to its template's idea hero
+	// (idea_conversation per research.v1.yaml). Capture for the
+	// override-clears-fallback assertion below.
+	templateHero := p.OverviewWidget
+	if templateHero == "" {
+		t.Fatal("fresh research project missing resolved overview_widget")
+	}
+
+	// PATCH a per-project override pointing the idea phase at
+	// `task_milestone_list` (a hero the research template wouldn't
+	// pick at idea phase) to prove the override wins.
+	patch, _ := json.Marshal(map[string]any{
+		"overview_widget_overrides": map[string]any{
+			"idea": "task_milestone_list",
+		},
+	})
+	preq := httptest.NewRequest(http.MethodPatch,
+		"/v1/teams/"+team+"/projects/"+p.ID, bytes.NewReader(patch))
+	preq.Header.Set("Authorization", "Bearer "+tok)
+	preq.Header.Set("Content-Type", "application/json")
+	prr := httptest.NewRecorder()
+	srv.router.ServeHTTP(prr, preq)
+	if prr.Code != http.StatusOK {
+		t.Fatalf("patch: %d %s", prr.Code, prr.Body.String())
+	}
+	var p2 projectOut
+	_ = json.Unmarshal(prr.Body.Bytes(), &p2)
+	if len(p2.OverviewWidgetOverrides) == 0 {
+		t.Fatalf("post-patch override empty; want {\"idea\":\"task_milestone_list\"}")
+	}
+	var got map[string]string
+	if err := json.Unmarshal(p2.OverviewWidgetOverrides, &got); err != nil {
+		t.Fatalf("unmarshal override: %v (raw=%s)",
+			err, p2.OverviewWidgetOverrides)
+	}
+	if got["idea"] != "task_milestone_list" {
+		t.Errorf("idea override=%q; want task_milestone_list", got["idea"])
+	}
+	// Resolution chain layer 1 wins: resolved overview_widget on the
+	// payload must reflect the override now.
+	if p2.OverviewWidget != "task_milestone_list" {
+		t.Errorf("resolved overview_widget=%q after override; want task_milestone_list",
+			p2.OverviewWidget)
+	}
+
+	// Unknown slug in the override map is silently rejected by the
+	// resolver — falls back to the template-side value.
+	patch2, _ := json.Marshal(map[string]any{
+		"overview_widget_overrides": map[string]any{
+			"idea": "does-not-exist",
+		},
+	})
+	preq2 := httptest.NewRequest(http.MethodPatch,
+		"/v1/teams/"+team+"/projects/"+p.ID, bytes.NewReader(patch2))
+	preq2.Header.Set("Authorization", "Bearer "+tok)
+	preq2.Header.Set("Content-Type", "application/json")
+	prr2 := httptest.NewRecorder()
+	srv.router.ServeHTTP(prr2, preq2)
+	if prr2.Code != http.StatusOK {
+		t.Fatalf("patch2: %d %s", prr2.Code, prr2.Body.String())
+	}
+	var p3 projectOut
+	_ = json.Unmarshal(prr2.Body.Bytes(), &p3)
+	if p3.OverviewWidget != templateHero {
+		t.Errorf("unknown-slug override produced %q; want fall-through to template %q",
+			p3.OverviewWidget, templateHero)
+	}
+}

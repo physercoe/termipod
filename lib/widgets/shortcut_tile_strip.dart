@@ -4,9 +4,12 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
 import '../screens/deliverables/structured_deliverable_viewer.dart';
+import '../screens/projects/acceptance_criteria_screen.dart';
 import '../screens/projects/artifacts_screen.dart';
 import '../screens/projects/blobs_section.dart';
+import '../screens/projects/deliverables_screen.dart';
 import '../screens/projects/documents_screen.dart';
+import '../screens/projects/overview_widgets/registry.dart';
 import '../screens/projects/plans_screen.dart';
 import '../screens/projects/project_channels_list_screen.dart';
 import '../screens/projects/runs_screen.dart';
@@ -27,6 +30,12 @@ enum TileSlug {
   references,
   risks,
   discussion,
+  // Chassis-followup wave 1 (ADR-024) — back deliverables + AC with
+  // first-class list screens so templates can surface them as their
+  // own shortcut tiles instead of forcing the user through a phase
+  // chip every time.
+  deliverables,
+  acceptanceCriteria,
 }
 
 TileSlug? _slugFromString(String raw) {
@@ -49,6 +58,13 @@ TileSlug? _slugFromString(String raw) {
       return TileSlug.risks;
     case 'discussion':
       return TileSlug.discussion;
+    case 'deliverables':
+      return TileSlug.deliverables;
+    case 'acceptance_criteria':
+    case 'acceptance-criteria':
+    case 'acceptancecriteria':
+    case 'criteria':
+      return TileSlug.acceptanceCriteria;
   }
   return null;
 }
@@ -143,6 +159,18 @@ Map<String, List<String>>? parsePhaseTilesMap(Object? raw) {
   return out.isEmpty ? null : out;
 }
 
+/// Parses a `{phase: "<slug>"}` map from a project payload field
+/// (`overview_widget_overrides` / `overview_widget_template`). Returns
+/// null on null/non-map/empty so callers can fall through cleanly.
+Map<String, String>? parsePhaseStringMap(Object? raw) {
+  if (raw is! Map) return null;
+  final out = <String, String>{};
+  raw.forEach((k, v) {
+    if (k is String && v is String && v.isNotEmpty) out[k] = v;
+  });
+  return out.isEmpty ? null : out;
+}
+
 /// Renders the template-declared shortcut tiles for the project's
 /// current phase (W4 — IA §6.2 / template-yaml-schema §11). Replaces
 /// the prior 7-hard-coded-tile strip on Overview with a phase-filtered
@@ -161,6 +189,20 @@ class ShortcutTileStrip extends ConsumerWidget {
   /// `template.phase_specs[<phase>].tiles` (the hub serves this on
   /// the project payload as `phase_tiles_template`).
   final Map<String, List<String>>? phaseTilesTemplate;
+  /// Per-phase hero (overview-widget) override sourced from
+  /// `projects.overview_widget_overrides_json` (ADR-024 D10). Plumbed
+  /// through so the customize sheet can show the picker's current
+  /// state. Wins over [overviewWidgetTemplate] in the picker.
+  final Map<String, String>? overviewWidgetOverrides;
+  /// Per-phase template-side hero declaration sourced from
+  /// `template.phase_specs[<phase>].overview_widget`. Used by the
+  /// picker's Reset affordance to show "what would this phase render
+  /// without the override."
+  final Map<String, String>? overviewWidgetTemplate;
+  /// Currently-resolved hero slug for the project's current phase (the
+  /// `overview_widget` field on the project payload). Used as the
+  /// initial picker value when no per-phase override exists.
+  final String currentOverviewWidget;
 
   const ShortcutTileStrip({
     super.key,
@@ -170,6 +212,9 @@ class ShortcutTileStrip extends ConsumerWidget {
     required this.phase,
     this.phaseTileOverrides,
     this.phaseTilesTemplate,
+    this.overviewWidgetOverrides,
+    this.overviewWidgetTemplate,
+    this.currentOverviewWidget = '',
   });
 
   @override
@@ -181,7 +226,22 @@ class ShortcutTileStrip extends ConsumerWidget {
       phaseTilesTemplate: phaseTilesTemplate,
     );
     if (tiles.isEmpty) {
-      return _NoTilesPlaceholder(phase: phase);
+      return Column(
+        children: [
+          _NoTilesPlaceholder(phase: phase),
+          const SizedBox(height: 8),
+          _CustomizeTilesRow(
+            projectId: projectId,
+            phase: phase,
+            currentTiles: tiles,
+            phaseTileOverrides: phaseTileOverrides,
+            phaseTilesTemplate: phaseTilesTemplate,
+            overviewWidgetOverrides: overviewWidgetOverrides,
+            overviewWidgetTemplate: overviewWidgetTemplate,
+            currentOverviewWidget: currentOverviewWidget,
+          ),
+        ],
+      );
     }
     return Column(
       children: [
@@ -199,6 +259,9 @@ class ShortcutTileStrip extends ConsumerWidget {
           currentTiles: tiles,
           phaseTileOverrides: phaseTileOverrides,
           phaseTilesTemplate: phaseTilesTemplate,
+          overviewWidgetOverrides: overviewWidgetOverrides,
+          overviewWidgetTemplate: overviewWidgetTemplate,
+          currentOverviewWidget: currentOverviewWidget,
         ),
       ],
     );
@@ -215,6 +278,9 @@ class _CustomizeTilesRow extends ConsumerWidget {
   final List<TileSlug> currentTiles;
   final Map<String, List<String>>? phaseTileOverrides;
   final Map<String, List<String>>? phaseTilesTemplate;
+  final Map<String, String>? overviewWidgetOverrides;
+  final Map<String, String>? overviewWidgetTemplate;
+  final String currentOverviewWidget;
 
   const _CustomizeTilesRow({
     required this.projectId,
@@ -222,6 +288,9 @@ class _CustomizeTilesRow extends ConsumerWidget {
     required this.currentTiles,
     required this.phaseTileOverrides,
     required this.phaseTilesTemplate,
+    required this.overviewWidgetOverrides,
+    required this.overviewWidgetTemplate,
+    required this.currentOverviewWidget,
   });
 
   @override
@@ -291,6 +360,9 @@ class _CustomizeTilesRow extends ConsumerWidget {
         currentTiles: currentTiles,
         phaseTileOverrides: phaseTileOverrides,
         phaseTilesTemplate: phaseTilesTemplate,
+        overviewWidgetOverrides: overviewWidgetOverrides,
+        overviewWidgetTemplate: overviewWidgetTemplate,
+        currentOverviewWidget: currentOverviewWidget,
       ),
     );
     // The hub refresh fires from inside the sheet on save; the calling
@@ -311,6 +383,9 @@ class PhaseTileEditorSheet extends StatefulWidget {
   final List<TileSlug> currentTiles;
   final Map<String, List<String>>? phaseTileOverrides;
   final Map<String, List<String>>? phaseTilesTemplate;
+  final Map<String, String>? overviewWidgetOverrides;
+  final Map<String, String>? overviewWidgetTemplate;
+  final String currentOverviewWidget;
 
   const PhaseTileEditorSheet({
     super.key,
@@ -320,6 +395,9 @@ class PhaseTileEditorSheet extends StatefulWidget {
     required this.currentTiles,
     required this.phaseTileOverrides,
     required this.phaseTilesTemplate,
+    this.overviewWidgetOverrides,
+    this.overviewWidgetTemplate,
+    this.currentOverviewWidget = '',
   });
 
   @override
@@ -333,6 +411,11 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
   /// Remaining (unselected) slugs, rendered below the selected list so
   /// the user can pick from the full closed vocabulary in one place.
   late List<TileSlug> _available;
+  /// Currently-picked hero slug for this phase (ADR-024 D10). Defaults
+  /// to the per-phase override if set, else the resolved widget on the
+  /// project payload. Empty when neither is known (lifecycle-disabled
+  /// projects); picker section hidden in that case.
+  late String _selectedHero;
   bool _busy = false;
 
   @override
@@ -343,12 +426,26 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
       for (final t in TileSlug.values)
         if (!_selected.contains(t)) t,
     ];
+    final override = widget.overviewWidgetOverrides?[widget.phase];
+    if (override != null && override.isNotEmpty) {
+      _selectedHero = override;
+    } else {
+      _selectedHero = widget.currentOverviewWidget;
+    }
   }
 
   bool get _isOverridden {
     final o = widget.phaseTileOverrides;
-    return o != null && o.containsKey(widget.phase);
+    final h = widget.overviewWidgetOverrides;
+    final tileOver = o != null && o.containsKey(widget.phase);
+    final heroOver = h != null && h.containsKey(widget.phase);
+    return tileOver || heroOver;
   }
+
+  bool get _showHeroPicker => widget.currentOverviewWidget.isNotEmpty;
+
+  String get _templateHero =>
+      widget.overviewWidgetTemplate?[widget.phase] ?? '';
 
   String _slugFor(TileSlug t) {
     // The TileSlug enum's name is the lowercase slug already (e.g.
@@ -362,14 +459,29 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
 
   Future<void> _save() async {
     setState(() => _busy = true);
-    final next = <String, List<String>>{
+    final nextTiles = <String, List<String>>{
       ...?widget.phaseTileOverrides,
       widget.phase: [for (final t in _selected) _slugFor(t)],
     };
+    // Build the hero map (D10). Only include an override when the user's
+    // pick differs from the template-side hero for this phase; matching
+    // the template = no override needed, keeps the map sparse.
+    final nextHeroes = <String, String>{
+      ...?widget.overviewWidgetOverrides,
+    };
+    final templateHero = _templateHero;
+    if (_showHeroPicker &&
+        _selectedHero.isNotEmpty &&
+        _selectedHero != templateHero) {
+      nextHeroes[widget.phase] = _selectedHero;
+    } else {
+      nextHeroes.remove(widget.phase);
+    }
     try {
       await widget.client.updateProject(
         widget.projectId,
-        phaseTileOverrides: next,
+        phaseTileOverrides: nextTiles,
+        overviewWidgetOverrides: nextHeroes,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -384,14 +496,19 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
 
   Future<void> _reset() async {
     setState(() => _busy = true);
-    final next = <String, List<String>>{
+    final nextTiles = <String, List<String>>{
       ...?widget.phaseTileOverrides,
     };
-    next.remove(widget.phase);
+    nextTiles.remove(widget.phase);
+    final nextHeroes = <String, String>{
+      ...?widget.overviewWidgetOverrides,
+    };
+    nextHeroes.remove(widget.phase);
     try {
       await widget.client.updateProject(
         widget.projectId,
-        phaseTileOverrides: next,
+        phaseTileOverrides: nextTiles,
+        overviewWidgetOverrides: nextHeroes,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -491,6 +608,61 @@ class _PhaseTileEditorSheetState extends State<PhaseTileEditorSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_showHeroPicker) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+                        child: Text(
+                          'Phase hero',
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 11,
+                            color: DesignColors.textMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                        child: Text(
+                          overviewWidgetSpecFor(_selectedHero).label,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+                        child: Text(
+                          overviewWidgetSpecFor(_selectedHero).subtitle,
+                          style: GoogleFonts.spaceGrotesk(
+                            fontSize: 11,
+                            color: DesignColors.textMuted,
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final slug in kKnownOverviewWidgets)
+                              ChoiceChip(
+                                label: Text(
+                                  overviewWidgetSpecFor(slug).label,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                selected: _selectedHero == slug,
+                                onSelected: (_) => setState(
+                                    () => _selectedHero = slug),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      const Divider(height: 1),
+                      const SizedBox(height: 8),
+                    ],
                     if (_selected.isNotEmpty) ...[
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
@@ -778,6 +950,10 @@ class _TileRow extends ConsumerWidget {
           projectId: projectId,
           projectName: projectName,
         );
+      case TileSlug.deliverables:
+        page = DeliverablesScreen(projectId: projectId);
+      case TileSlug.acceptanceCriteria:
+        page = AcceptanceCriteriaScreen(projectId: projectId);
     }
     if (!context.mounted) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -899,6 +1075,18 @@ TileSpec tileSpecFor(TileSlug slug) {
         label: 'Discussion',
         subtitle: 'Channels · steward thread',
         icon: Icons.chat_outlined,
+      );
+    case TileSlug.deliverables:
+      return const TileSpec(
+        label: 'Deliverables',
+        subtitle: 'Phase deliverables · documents + components',
+        icon: Icons.description_outlined,
+      );
+    case TileSlug.acceptanceCriteria:
+      return const TileSpec(
+        label: 'Acceptance',
+        subtitle: 'Open criteria · gates · ratification checklist',
+        icon: Icons.checklist_outlined,
       );
   }
 }

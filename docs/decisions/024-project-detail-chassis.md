@@ -1,9 +1,9 @@
 # 024. Project detail chassis — A+B+C layered Overview, closed hero/tile registries, per-project overrides
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism deferred to follow-up wedge)
+> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism shipped wave 1)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.485
+> **Last verified vs code:** v1.0.486
 
 **TL;DR.** The project detail page's Overview tab has been an A+B+C
 chassis since lifecycle W4 — fixed `PortfolioHeader`, a phase-swapped
@@ -122,7 +122,7 @@ separate while distinct callers exist).
 
 Same closure rule as heroes. Adding a tile = APK change.
 
-**Locked 9-tile MVP set:**
+**Locked 11-tile MVP set** (9 at lock + 2 added wave 1):
 
 | Slug | Backing entity | Surfaced by default in research template? |
 |---|---|---|
@@ -134,17 +134,12 @@ Same closure rule as heroes. Adding a tile = APK change.
 | `assets` | `blobs` table | no — user-addable via editor |
 | `schedules` | `schedules` table | no — user-addable |
 | `discussion` | `channels` table | no — user-addable |
+| `deliverables` | `deliverables` table | no — user-addable (wave 1, ADR-024 follow-up) |
+| `acceptance_criteria` | `acceptance_criteria` table | no — user-addable (wave 1, ADR-024 follow-up) |
 | `risks` | none (stub) | no — post-MVP per principal 2026-05-11 |
 
-All 9 slugs stay in the closed enum even when unused-by-default.
+All slugs stay in the closed enum even when unused-by-default.
 Removing one would break users who added it via `PhaseTileEditorSheet`.
-
-Future tile candidates (not in MVP enum):
-- `deliverables` — list view across phases
-- `acceptance_criteria` — "open ACs across project"
-
-Adding requires the list-screen to land first, then a chassis-extension
-wedge (closed enum + spec + tests) before the slug is reachable.
 
 ### D4. PhaseRibbon is chassis-level, not part of Overview body.
 
@@ -224,25 +219,27 @@ The "above-fold focus chain" is: AttentionBanner → PortfolioHeader →
 Hero → TileStrip → InsightsPanel. "Details" is exploration-tier;
 out of the F-pattern.
 
-### D10. Heroes are overrideable per-phase per-project (principle).
+### D10. Heroes are overrideable per-phase per-project (shipped wave 1).
 
 Mirrors D6 for symmetry. Tiles being overrideable but heroes not
 is an inconsistency that cuts against ADR-023's steward-drives-UI
 principle (the steward should be able to swap a hero just as it
 swaps tiles).
 
-**Mechanism deferred to follow-up wedge.** Expected shape:
+**Mechanism shipped wave 1** (chassis-followup, migration 0038):
 
-- New column `projects.overview_widget_overrides_json` mirroring
+- Column `projects.overview_widget_overrides_json` mirrors
   `phase_tile_overrides_json`. Map `{phase: slug}`.
-- New resolution chain: per-project override → template YAML
+- Resolution chain: per-project override → template YAML
   `phase_specs[<phase>].overview_widget` → template
   `default_overview_widget` → chassis default
   (`task_milestone_list` for goal, `recent_firings_list` for
-  standing).
-- Hero picker chip added to `PhaseTileEditorSheet`; same on-device
-  editing UX as tile composition.
-- Steward MCP path: `projects.update(phase_overview_widget_overrides=...)`.
+  standing). Implemented in
+  `Server.resolveOverviewWidget(templateID, phase, overrides)`.
+- Hero picker (ChoiceChip Wrap) added to `PhaseTileEditorSheet`
+  alongside the tile composition editor; same Save/Reset bundle.
+- Steward MCP path: `projects.update(overview_widget_overrides=...)`
+  via the existing project PATCH handler.
 
 Override risk: a hero may show empty/misleading state if its
 data assumption doesn't match the phase (e.g., `experiment_dash`
@@ -276,10 +273,10 @@ handles empty state when phases haven't produced data yet.
   YAML that named it explicitly. Mitigation: the chassis falls
   through to the chassis default; no template currently uses the
   slug as primary anyway.
-- **D10 mechanism deferred** — heroes still template-bound at
-  shipping time. Override mechanism is a follow-up wedge; until it
-  lands, the steward can't swap heroes through `mobile.navigate`
-  for non-template-defined cases.
+- **Hero picker exposes the closed `kKnownOverviewWidgets` set** to
+  the director. Some slugs may render misleadingly when picked
+  outside their canonical phase (e.g. `experiment_dash` on idea).
+  Reset to template default restores the canonical hero.
 
 ### Reversibility
 
@@ -339,20 +336,16 @@ handles empty state when phases haven't produced data yet.
 Principal-directed sequencing 2026-05-11. The chassis is locked
 here; the wedges below sit on top of it.
 
-1. **D10 hero overrideability mechanism** — first wave. Mirrors
-   the v1.0.484 tile-override shape: new column
-   `projects.overview_widget_overrides_json`, parallel resolution
-   chain (per-project → template → chassis default), hero picker
-   chip added to `PhaseTileEditorSheet`, steward MCP path via
-   `projects.update`. Closes the ADR-023 inconsistency where the
-   steward can swap tiles but not heroes.
-2. **`deliverables` tile + `acceptance_criteria` tile** — first
-   wave, alongside D10. Backing entities already first-class
-   (migration 0034); the list-screens need to land before the
-   slugs can be added to the closed `TileSlug` enum. Don't ship
-   a stub slug — the `risks` precedent burned that path. Build
-   `DeliverablesScreen` + `AcceptanceCriteriaScreen` first, then
-   one extension wedge adds both slugs + their routes.
+1. **D10 hero overrideability mechanism** — ✅ shipped wave 1.
+   Migration `0038_project_overview_widget_overrides`, parallel
+   resolution chain in `resolveOverviewWidget(_, _, overrides)`,
+   hero picker (ChoiceChip Wrap) added to `PhaseTileEditorSheet`,
+   steward MCP path via existing `projects.update` PATCH.
+2. **`deliverables` tile + `acceptance_criteria` tile** — ✅
+   shipped wave 1. `DeliverablesScreen` +
+   `AcceptanceCriteriaScreen` plus slug additions to the closed
+   `TileSlug` enum (`deliverables`, `acceptanceCriteria`). 11-slug
+   set now locked.
 3. **artifact-type-registry W1–W6** — second wave. Required as
    the predecessor to hero consolidation: when new artifact
    kinds land (`tabular`, `image`, `pdf`, `code-bundle`,

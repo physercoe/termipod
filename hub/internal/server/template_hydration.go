@@ -69,6 +69,43 @@ func (s *Server) phaseTemplateTiles(templateID string) map[string][]string {
 	return out
 }
 
+// phaseTemplateOverviewWidgets returns the per-phase hero slugs declared
+// in the template YAML's `phase_specs[<phase>].overview_widget`. Mirrors
+// phaseTemplateTiles. Returned shape: `{"<phase>": "<slug>"}`. Missing
+// template / no per-phase entries → nil (mobile picker shows the global
+// template default instead).
+//
+// Used by the projectOut.OverviewWidgetTemplate field so the mobile hero
+// picker can show "what would this phase render without the override"
+// alongside the live override value.
+func (s *Server) phaseTemplateOverviewWidgets(templateID string) map[string]string {
+	if templateID == "" {
+		return nil
+	}
+	body := s.readProjectTemplateYAML(templateID)
+	if body == "" {
+		return nil
+	}
+	var head phaseSpecsHead
+	if err := yaml.Unmarshal([]byte(body), &head); err != nil {
+		return nil
+	}
+	out := make(map[string]string)
+	for phase, spec := range head.PhaseSpecs {
+		if spec.OverviewWidget == "" {
+			continue
+		}
+		if !validOverviewWidgets[spec.OverviewWidget] {
+			continue
+		}
+		out[phase] = spec.OverviewWidget
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // phaseOverviewWidget returns the phase-scoped overview_widget declared
 // at phase_specs[<phase>].overview_widget, or "" when the template
 // doesn't declare one for that phase. Empty result means "fall back to

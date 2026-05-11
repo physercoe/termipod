@@ -50,6 +50,67 @@ const Set<String> kKnownOverviewWidgets = {
 /// declare an overview_widget. Mirrors the hub's overviewWidgetDefault.
 const String kDefaultOverviewWidget = 'task_milestone_list';
 
+/// Human-readable label + short description for each hero slug, used by
+/// the hero picker on `PhaseTileEditorSheet` (ADR-024 D10). Unknown
+/// slugs fall through to a generic "Custom widget" label so the picker
+/// stays useful across version drift.
+class OverviewWidgetSpec {
+  final String label;
+  final String subtitle;
+  const OverviewWidgetSpec({required this.label, required this.subtitle});
+}
+
+const Map<String, OverviewWidgetSpec> kOverviewWidgetSpecs = {
+  'task_milestone_list': OverviewWidgetSpec(
+    label: 'Tasks + milestones',
+    subtitle: 'Default goal-project hero · task list with progress',
+  ),
+  'sweep_compare': OverviewWidgetSpec(
+    label: 'Sweep compare',
+    subtitle: 'Cross-run scatter for ablation-style sweeps',
+  ),
+  'recent_artifacts': OverviewWidgetSpec(
+    label: 'Recent artifacts',
+    subtitle: 'Latest outputs across the project · checkpoints + reports',
+  ),
+  'children_status': OverviewWidgetSpec(
+    label: 'Children status',
+    subtitle: 'Tree of sub-projects · phase + status per child',
+  ),
+  'recent_firings_list': OverviewWidgetSpec(
+    label: 'Recent firings',
+    subtitle: 'Standing-project default · last schedule firings',
+  ),
+  'portfolio_header': OverviewWidgetSpec(
+    label: 'Portfolio header',
+    subtitle: 'Minimal pointer hero · phase ribbon does the work',
+  ),
+  'idea_conversation': OverviewWidgetSpec(
+    label: 'Idea conversation',
+    subtitle: 'Conversation-first; nudge to ratify scope criterion',
+  ),
+  'deliverable_focus': OverviewWidgetSpec(
+    label: 'Deliverable focus',
+    subtitle: 'Single active deliverable · tap to ratify / send back',
+  ),
+  'experiment_dash': OverviewWidgetSpec(
+    label: 'Experiment dashboard',
+    subtitle: 'Mixed deliverable: report + artifacts + runs',
+  ),
+  'paper_acceptance': OverviewWidgetSpec(
+    label: 'Paper draft',
+    subtitle: 'Paper synthesis · ratify draft to close the project',
+  ),
+};
+
+OverviewWidgetSpec overviewWidgetSpecFor(String slug) {
+  return kOverviewWidgetSpecs[slug] ??
+      OverviewWidgetSpec(
+        label: slug.isEmpty ? 'Default widget' : slug,
+        subtitle: 'Custom widget',
+      );
+}
+
 /// Resolve a wire value to the widget kind to actually render. Empty /
 /// unknown → the default. Caller is free to pass the raw wire string.
 String normalizeOverviewWidget(String? raw) {

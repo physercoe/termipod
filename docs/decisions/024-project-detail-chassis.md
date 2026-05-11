@@ -334,8 +334,49 @@ handles empty state when phases haven't produced data yet.
 - `hub/internal/server/template_hydration.go` — `phaseTemplateTiles`,
   `phaseOverviewWidget`
 
-### Open questions
+### Follow-up wedges (ordered)
 
-None blocking. D10 mechanism is the only deferred item; ships as a
-named follow-up wedge `heroes-overrideable-per-project` when the
-demo arc requires it.
+Principal-directed sequencing 2026-05-11. The chassis is locked
+here; the wedges below sit on top of it.
+
+1. **D10 hero overrideability mechanism** — first wave. Mirrors
+   the v1.0.484 tile-override shape: new column
+   `projects.overview_widget_overrides_json`, parallel resolution
+   chain (per-project → template → chassis default), hero picker
+   chip added to `PhaseTileEditorSheet`, steward MCP path via
+   `projects.update`. Closes the ADR-023 inconsistency where the
+   steward can swap tiles but not heroes.
+2. **`deliverables` tile + `acceptance_criteria` tile** — first
+   wave, alongside D10. Backing entities already first-class
+   (migration 0034); the list-screens need to land before the
+   slugs can be added to the closed `TileSlug` enum. Don't ship
+   a stub slug — the `risks` precedent burned that path. Build
+   `DeliverablesScreen` + `AcceptanceCriteriaScreen` first, then
+   one extension wedge adds both slugs + their routes.
+3. **artifact-type-registry W1–W6** — second wave. Required as
+   the predecessor to hero consolidation: when new artifact
+   kinds land (`tabular`, `image`, `pdf`, `code-bundle`,
+   `canvas-app`, …), several heroes will need to render them
+   inline. Until W1's closed-set chassis ships, heroes can't
+   safely depend on typed-artifact kinds.
+4. **Hero consolidation / redesign** — third wave, driven by
+   wave 2. New artifact kinds will push hero design: e.g.
+   `idea_conversation` may absorb `canvas-app` artifacts for
+   richer ideation; `experiment_dash` may need the histogram
+   schema from `metric-chart`. Whether `recent_artifacts` and
+   `recent_firings_list` collapse, whether a new
+   `artifact_workbench` hero is warranted — both questions only
+   answerable after wave 2's registry lands. **Don't redesign
+   heroes before kinds.**
+5. **`outputs` vs `assets` rename** — post-MVP per principal
+   2026-05-11. Naming overlap noted but no churn justified at
+   MVP scale; revisit if a third blob-tile candidate appears.
+6. **Workspace cross-project Insights** — post-MVP. Today
+   `kind=standing` is filtered out of `by_project[]` (W3 of
+   project-overview-attention-redesign); workspaces need their
+   own rollup surface eventually.
+
+The ordering matters: trying to redesign heroes before the kind
+registry exists means each hero redesign happens against
+free-form `artifacts.kind` strings — pre-empts the closed-set
+benefit and forces breaking changes once kinds are locked.

@@ -65,6 +65,14 @@ list** — `PortfolioHeader` is the chassis-A header, not a hero.
 Reusing the name as a hero slug confused the boundary; dropped in
 ADR-024 D2.
 
+> **Hero redesign moratorium until artifact-type-registry W1 lands.**
+> Per ADR-024 follow-up sequencing, hero consolidation /
+> redesign waits on the typed-artifact registry. New artifact
+> kinds (`canvas-app`, `tabular`, `pdf`, `code-bundle`, …) will
+> drive what existing heroes need to absorb. Redesigning heroes
+> against today's free-form `artifacts.kind` would force a second
+> rewrite once kinds lock.
+
 **Hero archetype taxonomy** (for thinking about whether a new hero is
 needed):
 
@@ -97,7 +105,7 @@ Closed enum: `TileSlug` in `shortcut_tile_strip.dart:20`.
 | `schedules` | `SchedulesScreen` | `schedules` table | no — user-addable |
 | `assets` | `_AssetsHostScreen` (BlobsSection) | `blobs` table | no — user-addable |
 | `discussion` | `ProjectChannelsListScreen` | `channels` table | no — user-addable (via editor since v1.0.485 dropped AppBar icon) |
-| `risks` | `_StubScreen` | none (post-MVP per principal) | no — post-MVP |
+| `risks` | `_StubScreen` | none (post-MVP per principal 2026-05-11) | no — post-MVP |
 
 **Routes from tap — gotchas:**
 
@@ -109,7 +117,8 @@ Closed enum: `TileSlug` in `shortcut_tile_strip.dart:20`.
   filtered to `kind=tabular, schema=citation`.
 - `outputs` vs `assets` — both list blob-like things but from
   different tables (`artifacts` vs `blobs`). Naming overlap is
-  noted in ADR-024; resolution deferred.
+  **post-MVP** per principal 2026-05-11 — no churn justified at
+  MVP scale.
 
 ## 4. `OverviewContext` contract
 
@@ -238,7 +247,25 @@ Checklist:
 | Phase ribbon | always-on | n/a | always-on |
 | Tab pills | always-5 fixed | n/a | Overview · Activity · Agents · Tasks · Files |
 
-## 9. Related docs
+## 9. Follow-up wedges — ordered
+
+Per ADR-024 sequencing locked 2026-05-11. Read together with the
+ADR's full text.
+
+| # | Wave | Wedge | Depends on |
+|---|---|---|---|
+| 1 | first | D10 mechanism: `projects.overview_widget_overrides_json` + hero picker in `PhaseTileEditorSheet` + steward MCP path | ADR-024 chassis lock (this doc) |
+| 2 | first | `DeliverablesScreen` + `AcceptanceCriteriaScreen` → then add `deliverables` + `acceptance_criteria` slugs to `TileSlug` enum | screens land before slugs (don't ship stubs) |
+| 3 | second | artifact-type-registry W1–W6 — typed kind chassis + viewers (tabular / pdf / image / code-bundle / canvas-app / …) | wave 1 done so heroes are stable while kinds land |
+| 4 | third | Hero consolidation / redesign — driven by wave 2 (e.g. `idea_conversation` absorbing canvas-app; `experiment_dash` rendering histograms) | wave 2 typed kinds locked |
+| 5 | post-MVP | `outputs` vs `assets` naming resolution | deferred indefinitely |
+| 6 | post-MVP | Workspace cross-project Insights | deferred — standing-kind today filtered out |
+
+**Don't redesign heroes before kinds.** Doing so means each hero
+update happens against free-form `artifacts.kind` strings, pre-empts
+the closed-set benefit, and forces a second rewrite once kinds lock.
+
+## 10. Related docs
 
 - **Design rationale:** [ADR-024](../decisions/024-project-detail-chassis.md)
 - **Template-side schema:** [template-yaml-schema.md](template-yaml-schema.md) §9, §10

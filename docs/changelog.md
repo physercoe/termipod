@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.489
+> **Last verified vs code:** v1.0.490
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,38 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.490-alpha — 2026-05-11
+
+Wave 2 W2 — PDF viewer for `pdf`-kind artifacts. First user-visible
+viewer on the wave 2 closed-set chassis.
+
+### Added
+
+- **`pdfrx ^2.3.3`** dep — PDFium-backed Flutter PDF lib (Q5 in plan).
+  Built-in pinch zoom, text search/selection, outline, password
+  support. ~2 MB APK cost.
+- **`lib/widgets/artifact_viewers/pdf_viewer.dart`** — `ArtifactPdfViewer`
+  (Riverpod consumer; resolves `blob:sha256/<sha>` URIs via
+  `HubClient.downloadBlobCached`, then renders via `PdfViewer.data`)
+  + `ArtifactPdfViewerScreen` (fullscreen route — keeps the pinch-zoom
+  gesture from fighting the artifact detail sheet's vertical drag).
+- **`_ArtifactViewerLauncher`** in `artifacts_screen.dart` — dispatches
+  on `artifactKindSpecFor(row['kind']).kind`; for `ArtifactKind.pdf`
+  surfaces an "Open PDF" outlined button below the title. Other kinds
+  render no launcher today (W3+ extends the dispatcher).
+
+### Notes
+
+- Non-`blob:sha256/` URI schemes (seed mock data, external HTTPS,
+  raw filesystem paths) show an explicit "unsupported uri scheme"
+  card rather than crashing. The hub blob endpoint is the only
+  load-bearing path today.
+- Down-stack: `HubClient.downloadBlobCached` already handles auth +
+  on-disk content-addressed caching; the viewer is a thin wrapper
+  over existing infrastructure.
 
 ---
 

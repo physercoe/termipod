@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.489-alpha+10489
+version: 1.0.490-alpha+10490
 
 environment:
   sdk: ^3.10.7
@@ -90,6 +90,11 @@ dependencies:
   # "mutable server content" storage tier; SharedPreferences is reserved
   # for stable config/metadata.
   sqflite: ^2.4.0
+  # PDF viewer for `pdf`-kind artifacts (wave 2 W2 of the
+  # artifact-type-registry plan). PDFium-backed; pinch zoom, text
+  # search/selection, outline, password support built-in. ~2 MB APK
+  # cost — see open-question Q10 if APK split lands.
+  pdfrx: ^2.3.3
 
 dev_dependencies:
   flutter_test:

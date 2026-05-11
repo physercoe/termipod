@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1 shipped v1.0.489-alpha (2026-05-11)
+> **Status:** In progress — W1+W2 shipped (2026-05-11, v1.0.489/490-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.489
+> **Last verified vs code:** v1.0.490
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -250,7 +250,7 @@ cross-axis querying.
 
 **LOC estimate:** ~250 mobile + ~150 hub + ~120 migration.
 
-### W2 — PDF viewer
+### W2 — PDF viewer ✅ SHIPPED v1.0.490-alpha (2026-05-11)
 
 **Scope.** First new-kind viewer. Adds `pdfrx` to `pubspec.yaml`;
 new `PdfViewer` widget; artifact-detail page routes `pdf` kind to

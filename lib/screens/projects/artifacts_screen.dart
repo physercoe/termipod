@@ -6,6 +6,7 @@ import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/artifact_viewers/pdf_viewer.dart';
 import '../../widgets/hub_offline_banner.dart';
 
 /// Artifacts browser (blueprint §6.6).
@@ -488,6 +489,7 @@ class _ArtifactDetailSheet extends ConsumerWidget {
                 ),
               ],
             ),
+            _ArtifactViewerLauncher(row: row),
             const SizedBox(height: 12),
             for (final e in entries)
               Padding(
@@ -513,6 +515,49 @@ class _ArtifactDetailSheet extends ConsumerWidget {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Routes a loaded artifact row to its kind-specific viewer when one
+/// exists. Wave 2 lands viewers wedge-by-wedge — currently `pdf` only;
+/// W3 adds `tabular`, W4 lands image multimodal, etc. Other kinds
+/// silently render no launcher (the detail sheet's metadata + uri
+/// chip remain the only surface).
+class _ArtifactViewerLauncher extends StatelessWidget {
+  final Map<String, dynamic> row;
+  const _ArtifactViewerLauncher({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    final rawKind = (row['kind'] ?? '').toString();
+    final spec = artifactKindSpecFor(rawKind);
+    final name = (row['name'] ?? '(unnamed)').toString();
+    final uri = (row['uri'] ?? '').toString();
+    if (spec.kind != ArtifactKind.pdf || uri.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+          label: Text(
+            'Open PDF',
+            style: GoogleFonts.spaceGrotesk(
+                fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) =>
+                    ArtifactPdfViewerScreen(uri: uri, title: name),
+              ),
+            );
+          },
         ),
       ),
     );

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.495
+> **Last verified vs code:** v1.0.496
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,52 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.496-alpha — 2026-05-11
+
+Wave 2 W7.1 of artifact-type-registry: inline-as-text file picker for
+composers. The small half of W7 — no hub/driver work, works on every
+engine because the file bytes splice into the prompt body as a fenced
+code block rather than riding on the wire as a separate content block.
+
+### Added
+
+- **`lib/widgets/text_attach/composer_text_attach.dart`** —
+  shared helper module. `pickAndInlineTextFile()` opens the system
+  picker via `file_picker`, enforces the 256 KiB cap, decodes as
+  UTF-8 (`allowMalformed: false`), and returns a `TextAttachment`
+  whose `markdown` field is a fenced code block ready to splice
+  into the composer text. `fenceLanguageForExtension` maps a file
+  extension to a markdown fence tag (`py` → `python`, `tsx` →
+  `tsx`, `md` → `markdown`, etc.); unknown extensions return an
+  empty tag (still a valid fence, just uncoloured downstream).
+  `buildFencedBlock` escalates fence length when the input contains
+  triple-backtick runs so the closing fence is always longer than
+  any internal run — CommonMark behaviour. `kTextAttachExtensions`
+  is the conservative allowlist (~45 entries) used by the picker
+  to reject obvious binaries before the UTF-8 step.
+- **`agent_compose.dart`** and
+  **`steward_overlay/steward_overlay_chat.dart`** — paperclip
+  affordance now sits next to the image-attach button. Always
+  visible (engine-agnostic); tapping picks a file, surfaces a
+  banner on cap/format errors, and splices the fenced markdown at
+  the cursor (existing selection is replaced; cursor lands at the
+  end of the inserted block). Wave 2 W4's image attach stays gated
+  on `prompt_image[mode]`; the two affordances coexist.
+
+### Test
+
+- **`test/widgets/text_attach_test.dart`** — `fenceLanguageForExtension`
+  covers common code/text/unknown cases. `buildFencedBlock` covers
+  default fence length, untagged fence for plain text, escalation
+  when the input has triple-backticks (and 4-backtick runs), and
+  trailing-whitespace trimming.
+
+### References
+
+- Plan: `docs/plans/artifact-type-registry.md` (wave 2 W7.1).
 
 ---
 

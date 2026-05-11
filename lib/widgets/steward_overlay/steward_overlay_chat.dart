@@ -7,6 +7,7 @@ import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
 import '../../theme/design_colors.dart';
 import '../image_attach/composer_image_attach.dart';
+import '../text_attach/composer_text_attach.dart';
 import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
 
@@ -262,6 +263,7 @@ class _ChatInputState extends State<_ChatInput> {
   // Each entry is `{mime_type, data}` with data base64-encoded; rides
   // alongside the text body in postAgentInput's images param (W4.1).
   bool _attaching = false;
+  bool _attachingText = false;
   String? _attachError;
   final List<Map<String, String>> _pendingImages = [];
 
@@ -301,6 +303,42 @@ class _ChatInputState extends State<_ChatInput> {
   void _removePendingImage(int index) {
     if (index < 0 || index >= _pendingImages.length) return;
     setState(() => _pendingImages.removeAt(index));
+  }
+
+  /// W7.1 — pick a code/text file and splice its bytes into the
+  /// composer text as a fenced code block. Engine-agnostic (works on
+  /// every driver because the inline path stays inside the prompt
+  /// body) so no capability gate.
+  Future<void> _pickTextFile() async {
+    if (_attachingText || _sending) return;
+    setState(() {
+      _attachingText = true;
+      _attachError = null;
+    });
+    try {
+      final att = await pickAndInlineTextFile();
+      if (att == null) return;
+      if (!mounted) return;
+      final value = _ctrl.value;
+      final sel = value.selection.isValid
+          ? value.selection
+          : TextSelection.collapsed(offset: value.text.length);
+      final next = value.text.replaceRange(sel.start, sel.end, att.markdown);
+      final cursor = sel.start + att.markdown.length;
+      _ctrl.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: cursor),
+      );
+      _focus.requestFocus();
+    } on TextAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attachingText = false);
+    }
   }
 
   Future<void> _send() async {
@@ -387,6 +425,23 @@ class _ChatInputState extends State<_ChatInput> {
                   constraints:
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
+              // W7.1 — code/text inline attach. Always rendered;
+              // engine-agnostic.
+              IconButton(
+                tooltip: 'Attach code or text file',
+                onPressed: (_sending || _attachingText) ? null : _pickTextFile,
+                icon: _attachingText
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.attach_file, size: 22),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
               Expanded(
             // **IME-friendly defaults.** Earlier revisions set
             // `autocorrect: false` + `enableSuggestions: false` as

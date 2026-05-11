@@ -17,6 +17,7 @@ import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
 import 'image_attach/composer_image_attach.dart';
+import 'text_attach/composer_text_attach.dart';
 
 // ADR-021 W4.1 / D5 — image-content-block contract caps. Mirrors the
 // hub-side validator so the composer can clamp before sending instead
@@ -76,6 +77,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   // the text body in postAgentInput's images param (W4.1).
   bool _canAttachImages = false;
   bool _attaching = false;
+  bool _attachingText = false;
   final List<Map<String, String>> _pendingImages = [];
 
   @override
@@ -244,6 +246,32 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   void _removePendingImage(int index) {
     if (index < 0 || index >= _pendingImages.length) return;
     setState(() => _pendingImages.removeAt(index));
+  }
+
+  /// W7.1 — pick a `.md`/`.py`/`.txt`/etc. file and inline its bytes
+  /// into the composer text field as a fenced code block. Works on
+  /// every engine because the wire format is just text in the user
+  /// message — no driver/hub work needed.
+  Future<void> _pickTextFile() async {
+    if (_attachingText || _sending) return;
+    setState(() {
+      _attachingText = true;
+      _error = null;
+    });
+    try {
+      final att = await pickAndInlineTextFile();
+      if (att == null) return;
+      if (!mounted) return;
+      _insertSnippet(att.markdown);
+    } on TextAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attachingText = false);
+    }
   }
 
   /// Insert snippet content at the current cursor position. Mirrors how
@@ -475,6 +503,27 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
                   constraints:
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
+              // W7.1 — code/text inline attach. Always rendered because
+              // the inline-as-text path works on every engine (no
+              // capability gate). Bytes splice into the composer text
+              // as a fenced code block; nothing rides on the wire as a
+              // multimodal content block.
+              IconButton(
+                tooltip: 'Attach code or text file',
+                onPressed: (_sending || _attachingText) ? null : _pickTextFile,
+                icon: _attachingText
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: muted),
+                      )
+                    : Icon(Icons.attach_file, size: 22, color: muted),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
               // Field metrics matched to action_bar/compose_bar.dart so
               // the steward composer feels the same as the tmux one:
               // unbounded line count up to a 120px ceiling, fontSize 14,

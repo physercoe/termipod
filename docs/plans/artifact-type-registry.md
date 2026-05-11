@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3+W4+W5+W6 of 7 shipped (2026-05-11, v1.0.489–495-alpha)
+> **Status:** In progress — W1+W2+W3+W4+W5+W6 of 7 shipped, W7.1 done (W7.2 remaining) (2026-05-11, v1.0.489–496-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.495
+> **Last verified vs code:** v1.0.496
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -423,7 +423,7 @@ body*. Only images / PDF / audio / video need a separate
 content-block shape on the wire. W7 therefore lands in two slices
 with very different cost profiles.
 
-#### W7.1 — Inline-as-text file picker (small)
+#### W7.1 — Inline-as-text file picker (small) — ✅ SHIPPED v1.0.496-alpha
 
 User picks `.md` / `.txt` / `.py` / `.js` / `.go` / `.json` / etc.
 from the system file picker; mobile reads bytes (≤256 KiB cap),
@@ -432,17 +432,24 @@ to the composer's text field. The bytes never leave the prompt
 body — every engine sees it as text in the user message. No hub
 or driver work.
 
-**Files touched:**
-- `lib/widgets/image_attach/composer_image_attach.dart` — gain
-  `pickAndInlineTextFile()` helper alongside `pickAndCompressImage`.
-- `lib/widgets/agent_compose.dart` + `steward_overlay_chat.dart` —
-  attach picker grows a second action (paperclip menu: "Image" /
-  "Code/Text"). Capability gate stays per-modality.
-- `lib/services/text_attach/extension_to_language.dart` — new.
-  Maps `.py` → `python`, `.tsx` → `tsx`, `.rs` → `rust`, etc.;
-  fallback to no language tag.
+**Implementation:**
 
-**LOC estimate:** ~250 mobile.
+- `lib/widgets/text_attach/composer_text_attach.dart` — new module
+  (parallel to `image_attach/composer_image_attach.dart`). Exports
+  `pickAndInlineTextFile()`, `fenceLanguageForExtension`,
+  `buildFencedBlock`, `kMaxTextAttachBytes=256KiB`,
+  `kTextAttachExtensions` (allowlist).
+- `lib/widgets/agent_compose.dart` +
+  `lib/widgets/steward_overlay/steward_overlay_chat.dart` — added
+  a second `IconButton` (`Icons.attach_file`) next to the existing
+  image-attach button. Discrete buttons (not a popup menu) since
+  the two affordances have asymmetric capability gates and
+  side-by-side icons matched the existing visual language.
+- Fence length escalates when input contains triple-backtick runs
+  (CommonMark requirement); leading `// <filename>` marker line so
+  the agent can address files by name.
+
+**LOC estimate:** ~250 mobile (landed close — single shared module).
 
 #### W7.2 — True multimodal PDF + audio/video attach (larger)
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.504
+> **Last verified vs code:** v1.0.505
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,44 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.505-alpha — 2026-05-11
+
+W1+W2 of [`multi-run-experiment-phase`](plans/multi-run-experiment-phase.md):
+the research lifecycle's experiment phase now embodies the multi-run
+shape it always implied. One `experiment-results` deliverable, three
+runs (n_embd ∈ {128, 256, 384} × lion), three per-run metric-charts,
+three per-run checkpoints, plus one aggregate metric-chart that
+overlays all series. The mobile `experiment_dash` embed picks the
+aggregate via its newest-first picker and renders the 3-series
+comparison inline. Wedges W3 (drop `sweep_compare`), W4 (retire
+ablation shape + templates), and W5 (ADR-024 amendment + docs)
+follow.
+
+### Changed
+
+- **Template `research.v1` experiment phase** — `experiment-results`
+  components grow to: `document, eval-aggregated, best-checkpoint,
+  eval-per-run, ablation-sweep-run`. The criterion comment notes
+  threshold applies to max-across-runs from the aggregate chart.
+- **Seed `seed-demo --shape lifecycle`** — both demo sites (mid-
+  lifecycle draft, late-lifecycle ratified) now loop over
+  `defaultSweepConfigs` (3 entries) producing per-run runs +
+  per-run charts + per-run checkpoints; one aggregate chart is
+  seeded last with a strictly-later `created_at` (via `timeAfter`)
+  so the mobile newest-first picker lands on it.
+- **`seedMetricChartArtifact` signature** — now accepts an explicit
+  body + `createdAt`, so callers can vary per-run shapes and
+  assign a strictly-later timestamp to the aggregate.
+
+### Added
+
+- `sweepRunConfig`, `defaultSweepConfigs`, `sweepRunLabel`,
+  `generateSweepPoints`, `demoPerRunMetricChartBody`,
+  `demoAggregateMetricChartBody`, `timeAfter` helpers in
+  `seed_demo_lifecycle.go`.
 
 ---
 

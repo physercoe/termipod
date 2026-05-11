@@ -37,7 +37,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"math/rand"
+	"time"
 )
 
 // SeedLifecycleResult summarises the lifecycle seed insert. Keys carry
@@ -833,13 +835,45 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				ckptArt, err := seedArtifact(c, "external-blob",
-					"best-checkpoint-step1000.pt", "application/octet-stream",
-					int64(384*4*1024*1024))
-				if err != nil {
-					return nil, err
+				// Multi-run experiment phase (plans/multi-run-experiment-phase.md).
+				// Each sweep config produces one run + one checkpoint +
+				// one per-run metric-chart; the aggregate chart goes in
+				// last with a bumped timestamp so the mobile embed's
+				// newest-first picker lands on it.
+				perRunCharts := make([]seededArtifact, 0, len(defaultSweepConfigs))
+				perRunCkpts := make([]seededArtifact, 0, len(defaultSweepConfigs))
+				perRuns := make([]seededRun, 0, len(defaultSweepConfigs))
+				for _, cfg := range defaultSweepConfigs {
+					label := sweepRunLabel(cfg)
+					chart, err := seedMetricChartArtifact(c,
+						fmt.Sprintf("eval-results-%s.json", label),
+						demoPerRunMetricChartBody(cfg), c.now)
+					if err != nil {
+						return nil, err
+					}
+					perRunCharts = append(perRunCharts, chart)
+					ckpt, err := seedArtifact(c, "external-blob",
+						fmt.Sprintf("best-checkpoint-step1000-%s.pt", label),
+						"application/octet-stream",
+						int64(cfg.nEmbd*4*1024*1024))
+					if err != nil {
+						return nil, err
+					}
+					perRunCkpts = append(perRunCkpts, ckpt)
+					run, err := seedRun(c, "completed", map[string]any{
+						"n_embd":    cfg.nEmbd,
+						"optimizer": cfg.optimizer,
+						"iters":     1000,
+					})
+					if err != nil {
+						return nil, err
+					}
+					perRuns = append(perRuns, run)
 				}
-				evalArt, err := seedMetricChartArtifact(c, "eval-results.json")
+				aggArt, err := seedMetricChartArtifact(c,
+					"eval-results-aggregated.json",
+					demoAggregateMetricChartBody(defaultSweepConfigs),
+					timeAfter(c.now, 1))
 				if err != nil {
 					return nil, err
 				}
@@ -873,11 +907,47 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				run, err := seedRun(c, "completed",
-					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
-				if err != nil {
-					return nil, err
+				expComponents := []componentSpec{
+					{kind: "document", refID: expDoc.id, ord: 0},
+					// Aggregate chart first in display order — it's the
+					// headline view of the sweep.
+					{kind: "artifact", refID: aggArt.id, ord: 1},
 				}
+				ord := 2
+				for _, art := range perRunCharts {
+					expComponents = append(expComponents,
+						componentSpec{kind: "artifact", refID: art.id, ord: ord})
+					ord++
+				}
+				for _, art := range perRunCkpts {
+					expComponents = append(expComponents,
+						componentSpec{kind: "artifact", refID: art.id, ord: ord})
+					ord++
+				}
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: bundleArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: canvasArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: pdfArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: imageArt.id, ord: ord})
+				ord++
+				for _, r := range perRuns {
+					expComponents = append(expComponents,
+						componentSpec{kind: "run", refID: r.id, ord: ord})
+					ord++
+				}
+				expComponents = append(expComponents, componentSpec{
+					kind: "commit", ord: ord,
+					// The training revision that produced these runs —
+					// paired with the run configs so reviewers can
+					// rebuild any sweep entry from source.
+					refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d",
+				})
 				return seedDeliverables(c, []deliverableSpec{
 					{logID: "lit-review-doc", phase: "lit-review", kind: "lit-review",
 						state:      "ratified",
@@ -890,22 +960,8 @@ func lifecycleSpecs() []lifecycleSpec {
 								refID: "https://github.com/example-org/optimizer-research/commit/9a2bf1c0d3e4f0a7b2c5d8e9f1a3b4c5d6e7f8a9"},
 						}},
 					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
-						state: "draft",
-						components: []componentSpec{
-							{kind: "document", refID: expDoc.id, ord: 0},
-							{kind: "artifact", refID: ckptArt.id, ord: 1},
-							{kind: "artifact", refID: evalArt.id, ord: 2},
-							{kind: "artifact", refID: bundleArt.id, ord: 3},
-							{kind: "artifact", refID: canvasArt.id, ord: 4},
-							{kind: "artifact", refID: pdfArt.id, ord: 5},
-							{kind: "artifact", refID: imageArt.id, ord: 6},
-							{kind: "run", refID: run.id, ord: 7},
-							// The exact training revision that produced
-							// this run — paired with the run config so
-							// reviewers can rebuild the experiment.
-							{kind: "commit", ord: 8,
-								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
-						}},
+						state:      "draft",
+						components: expComponents},
 				})
 			},
 			criteria: func(c *seedProjectCtx, dls []seededDeliverable) ([]seededCriterion, error) {
@@ -1039,13 +1095,47 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				ckptArt, err := seedArtifact(c, "external-blob",
-					"best-checkpoint-step1000.pt", "application/octet-stream",
-					int64(384*4*1024*1024))
-				if err != nil {
-					return nil, err
+				// Multi-run experiment phase — paper-phase variant.
+				// Identical to the experiment-phase site: 3-config sweep
+				// + aggregate chart. The deliverable lands in
+				// `ratified` state here (paper writing already started)
+				// rather than `draft`, but the component shape matches
+				// so the structured viewer renders the same scaffold in
+				// both demo projects.
+				perRunCharts := make([]seededArtifact, 0, len(defaultSweepConfigs))
+				perRunCkpts := make([]seededArtifact, 0, len(defaultSweepConfigs))
+				perRuns := make([]seededRun, 0, len(defaultSweepConfigs))
+				for _, cfg := range defaultSweepConfigs {
+					label := sweepRunLabel(cfg)
+					chart, err := seedMetricChartArtifact(c,
+						fmt.Sprintf("eval-results-%s.json", label),
+						demoPerRunMetricChartBody(cfg), c.now)
+					if err != nil {
+						return nil, err
+					}
+					perRunCharts = append(perRunCharts, chart)
+					ckpt, err := seedArtifact(c, "external-blob",
+						fmt.Sprintf("best-checkpoint-step1000-%s.pt", label),
+						"application/octet-stream",
+						int64(cfg.nEmbd*4*1024*1024))
+					if err != nil {
+						return nil, err
+					}
+					perRunCkpts = append(perRunCkpts, ckpt)
+					run, err := seedRun(c, "completed", map[string]any{
+						"n_embd":    cfg.nEmbd,
+						"optimizer": cfg.optimizer,
+						"iters":     1000,
+					})
+					if err != nil {
+						return nil, err
+					}
+					perRuns = append(perRuns, run)
 				}
-				evalArt, err := seedMetricChartArtifact(c, "eval-results.json")
+				aggArt, err := seedMetricChartArtifact(c,
+					"eval-results-aggregated.json",
+					demoAggregateMetricChartBody(defaultSweepConfigs),
+					timeAfter(c.now, 1))
 				if err != nil {
 					return nil, err
 				}
@@ -1077,11 +1167,42 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				run, err := seedRun(c, "completed",
-					map[string]any{"n_embd": 384, "optimizer": "lion", "iters": 1000})
-				if err != nil {
-					return nil, err
+				expComponents := []componentSpec{
+					{kind: "document", refID: expDoc.id, ord: 0},
+					{kind: "artifact", refID: aggArt.id, ord: 1},
 				}
+				ord := 2
+				for _, art := range perRunCharts {
+					expComponents = append(expComponents,
+						componentSpec{kind: "artifact", refID: art.id, ord: ord})
+					ord++
+				}
+				for _, art := range perRunCkpts {
+					expComponents = append(expComponents,
+						componentSpec{kind: "artifact", refID: art.id, ord: ord})
+					ord++
+				}
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: bundleArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: canvasArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: pdfArt.id, ord: ord})
+				ord++
+				expComponents = append(expComponents,
+					componentSpec{kind: "artifact", refID: imageArt.id, ord: ord})
+				ord++
+				for _, r := range perRuns {
+					expComponents = append(expComponents,
+						componentSpec{kind: "run", refID: r.id, ord: ord})
+					ord++
+				}
+				expComponents = append(expComponents, componentSpec{
+					kind: "commit", ord: ord,
+					refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d",
+				})
 				return seedDeliverables(c, []deliverableSpec{
 					{logID: "lit-review-doc", phase: "lit-review", kind: "lit-review",
 						state:      "ratified",
@@ -1094,19 +1215,8 @@ func lifecycleSpecs() []lifecycleSpec {
 								refID: "https://github.com/example-org/optimizer-research/commit/9a2bf1c0d3e4f0a7b2c5d8e9f1a3b4c5d6e7f8a9"},
 						}},
 					{logID: "experiment-results", phase: "experiment", kind: "experiment-results",
-						state: "ratified",
-						components: []componentSpec{
-							{kind: "document", refID: expDoc.id, ord: 0},
-							{kind: "artifact", refID: ckptArt.id, ord: 1},
-							{kind: "artifact", refID: evalArt.id, ord: 2},
-							{kind: "artifact", refID: bundleArt.id, ord: 3},
-							{kind: "artifact", refID: canvasArt.id, ord: 4},
-							{kind: "artifact", refID: pdfArt.id, ord: 5},
-							{kind: "artifact", refID: imageArt.id, ord: 6},
-							{kind: "run", refID: run.id, ord: 7},
-							{kind: "commit", ord: 8,
-								refID: "https://github.com/example-org/optimizer-research/commit/c4d5e6f78a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"},
-						}},
+						state:      "ratified",
+						components: expComponents},
 					{logID: "paper-draft", phase: "paper", kind: "paper-draft",
 						state:      "in-review",
 						components: []componentSpec{{kind: "document", refID: paperDoc.id}}},
@@ -1926,38 +2036,96 @@ func seedCodeBundleArtifact(
 	return seededArtifact{id: id, name: name}, nil
 }
 
-// demoMetricChartBody returns the JSON payload backing the
-// `metric-chart` artifact attached to the experiment-results
-// deliverable. Schema mirrors the wire shape consumed by
-// `ArtifactMetricChartViewer` on mobile (version=1, series-of-points).
-// Eleven points span step=0→1000; accuracy rises smoothly to 0.88 so
-// the rendered line chart is visibly different from the canvas-app
-// artifact (which shows the falling loss curve over the same run).
-func demoMetricChartBody() map[string]any {
+// sweepRunConfig captures one run inside the demo's multi-run
+// experiment phase. The plateau field controls where the synthesised
+// accuracy curve flattens out — smaller models plateau lower so the
+// aggregate metric-chart shows a clean ranking across configs.
+type sweepRunConfig struct {
+	nEmbd     int
+	optimizer string
+	plateau   float64
+}
+
+// defaultSweepConfigs is the 3-run sweep used by the lifecycle demo.
+// Three model sizes × the same optimizer; plateau levels stagger so
+// the aggregate chart's three series visibly separate. Kept
+// deterministic for blob dedup + reproducible test output.
+var defaultSweepConfigs = []sweepRunConfig{
+	{nEmbd: 128, optimizer: "lion", plateau: 0.78},
+	{nEmbd: 256, optimizer: "lion", plateau: 0.84},
+	{nEmbd: 384, optimizer: "lion", plateau: 0.88},
+}
+
+func sweepRunLabel(cfg sweepRunConfig) string {
+	return fmt.Sprintf("n%d-%s", cfg.nEmbd, cfg.optimizer)
+}
+
+// generateSweepPoints synthesises a 0→1000 step eval-accuracy curve
+// that ramps smoothly from 0.50 toward the supplied plateau via a
+// 1-exp ramp. Eleven points so the rendered line is recognisably
+// curved without overrunning the artifact body cap.
+func generateSweepPoints(plateau float64) [][]float64 {
+	points := make([][]float64, 0, 11)
+	for i := 0; i <= 10; i++ {
+		x := float64(i * 100)
+		t := float64(i) / 10.0
+		y := 0.50 + (plateau-0.50)*(1-math.Exp(-3*t))
+		y = math.Round(y*100) / 100
+		points = append(points, []float64{x, y})
+	}
+	return points
+}
+
+// demoPerRunMetricChartBody returns a single-series `metric-chart`
+// body for one sweep run. Used by the seed to produce per-run eval
+// curves attached to the experiment-results deliverable.
+func demoPerRunMetricChartBody(cfg sweepRunConfig) map[string]any {
 	return map[string]any{
 		"version": 1,
-		"title":   "Eval accuracy",
+		"title":   fmt.Sprintf("Eval accuracy · %s", sweepRunLabel(cfg)),
 		"x_label": "Step",
 		"y_label": "Accuracy",
 		"series": []map[string]any{
 			{
-				"name": "eval_accuracy",
-				"points": [][]float64{
-					{0, 0.50},
-					{100, 0.58},
-					{200, 0.66},
-					{300, 0.73},
-					{400, 0.78},
-					{500, 0.82},
-					{600, 0.84},
-					{700, 0.86},
-					{800, 0.87},
-					{900, 0.88},
-					{1000, 0.88},
-				},
+				"name":   "eval_accuracy",
+				"points": generateSweepPoints(cfg.plateau),
 			},
 		},
 	}
+}
+
+// demoAggregateMetricChartBody returns the multi-series body that
+// overlays one curve per sweep run. The mobile `experiment_dash`
+// embed picks this artifact (newest by created_at, ensured via the
+// timeAfter() bump in the seed) and renders all series inline.
+func demoAggregateMetricChartBody(cfgs []sweepRunConfig) map[string]any {
+	series := make([]map[string]any, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		series = append(series, map[string]any{
+			"name":   sweepRunLabel(cfg),
+			"points": generateSweepPoints(cfg.plateau),
+		})
+	}
+	return map[string]any{
+		"version": 1,
+		"title":   "Eval accuracy — sweep",
+		"x_label": "Step",
+		"y_label": "Accuracy",
+		"series":  series,
+	}
+}
+
+// timeAfter returns `now` (RFC3339Nano) offset by n seconds, used to
+// give the aggregate metric-chart a strictly-later created_at than
+// its per-run siblings. On parse failure returns `now` unchanged —
+// the embed's newest picker still works against per-row insertion
+// order in that case.
+func timeAfter(now string, secs int) string {
+	t, err := time.Parse(time.RFC3339Nano, now)
+	if err != nil {
+		return now
+	}
+	return t.Add(time.Duration(secs) * time.Second).Format(time.RFC3339Nano)
 }
 
 // seedMetricChartArtifact materialises a `metric-chart` artifact with
@@ -1965,17 +2133,22 @@ func demoMetricChartBody() map[string]any {
 // (the prior `seedArtifact` shortcut only inserted a mock URI row,
 // which left the viewer showing "unsupported uri scheme"). Mirrors
 // seedCanvasArtifact's blob-or-mock-uri pattern.
+//
+// Accepts an explicit body + createdAt so callers can vary per-run
+// shapes and assign a strictly-later timestamp to the aggregate
+// chart in a multi-run sweep.
 func seedMetricChartArtifact(
 	c *seedProjectCtx, name string,
+	body map[string]any, createdAt string,
 ) (seededArtifact, error) {
-	data, err := json.Marshal(demoMetricChartBody())
+	data, err := json.Marshal(body)
 	if err != nil {
 		return seededArtifact{}, fmt.Errorf("marshal metric chart: %w", err)
 	}
 	mime := "application/vnd.termipod.metrics+json"
 	uri := fmt.Sprintf("blob:mock/lifecycle/metric-%s-%s", c.projectID, name)
 	if c.dataRoot != "" {
-		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, createdAt)
 		if berr != nil {
 			return seededArtifact{}, fmt.Errorf("write metric blob: %w", berr)
 		}
@@ -1988,7 +2161,7 @@ func seedMetricChartArtifact(
 			 producer_agent_id, lineage_json, created_at)
 		VALUES (?, ?, 'metric-chart', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
 		id, c.projectID, name, uri, int64(len(data)), mime,
-		c.stewardID, c.now); err != nil {
+		c.stewardID, createdAt); err != nil {
 		return seededArtifact{}, fmt.Errorf("insert metric chart artifact: %w", err)
 	}
 	c.artifactsSeeded++

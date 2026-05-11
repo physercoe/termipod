@@ -130,6 +130,12 @@ phase_specs:
     tiles: [Outputs, Documents, Experiments]
     steward_spawn: eager
     deliverables:
+      # Multi-run shape: one experiment-results deliverable carries N
+      # runs + N per-run charts + N per-run checkpoints + ONE aggregate
+      # metric-chart overlaying every series. The aggregate is the
+      # artifact `experiment_dash` embeds inline on the overview; the
+      # per-run artifacts give reviewers per-config evidence. See
+      # plans/multi-run-experiment-phase.md.
       - id: experiment-results
         kind: experiment-results
         display_name: "Experiment results"
@@ -141,21 +147,28 @@ phase_specs:
             required: true
             ord: 0
           - kind: artifact
-            ref: best-checkpoint
+            ref: eval-results-aggregated
             required: true
             ord: 1
           - kind: artifact
-            ref: eval-results-json
+            ref: best-checkpoint
             required: true
             ord: 2
+          - kind: artifact
+            ref: eval-results-per-run
+            required: true
+            ord: 3
           - kind: run
             ref: ablation-sweep-run
             required: true
-            ord: 3
+            ord: 4
     criteria:
       - id: best-metric-threshold
         kind: metric
         body:
+          # Threshold applies to max(eval_accuracy) across all runs in
+          # the sweep. Sourced from the aggregate metric-chart's
+          # series.
           metric: experiment.eval_accuracy
           operator: ">="
           threshold: 0.85

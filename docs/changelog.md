@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.494
+> **Last verified vs code:** v1.0.495
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,58 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.495-alpha — 2026-05-11
+
+Wave 2 W6 of artifact-type-registry: audio + video viewers. Closes the
+multimodal-IO slot on the closed artifact-kind set.
+
+### Added
+
+- **`lib/widgets/artifact_viewers/audio_viewer.dart`** —
+  `ArtifactAudioViewer` (Riverpod consumer; `just_audio` under the
+  hood) + `ArtifactAudioViewerScreen` fullscreen route. Resolves
+  `blob:sha256/<sha>` via `HubClient.downloadBlobCached`, stages
+  bytes into the app's temp dir via `path_provider`, then hands the
+  file path to `AudioPlayer.setFilePath`. just_audio cannot ingest
+  raw bytes — the temp-file dance is the supported path. UI is a
+  large play/pause toggle, a scrub slider, and `m:ss` /
+  `h:mm:ss` position+duration labels via the exported
+  `formatAudioDuration` helper. Temp file is best-effort deleted
+  on dispose.
+- **`lib/widgets/artifact_viewers/video_viewer.dart`** —
+  `ArtifactVideoViewer` + `ArtifactVideoViewerScreen`. Same temp-
+  file staging pattern (`video_player` also wants a path, not
+  bytes). Renders the video at its native aspect ratio with a
+  `VideoProgressIndicator` scrubber and a centered play/pause
+  overlay that subscribes to the controller's `ValueListenable`.
+  Screen uses a black backdrop so the player isn't fighting the
+  app's surface colour.
+- **`_ArtifactViewerLauncher`** in `artifacts_screen.dart` gains
+  `audio` ("Play audio") and `video` ("Play video") branches; the
+  filter pill bar gains `audio` + `video` entries so users can
+  scope by modality.
+
+### Changed
+
+- **`pubspec.yaml`** — adds `just_audio: ^0.10.4` and
+  `video_player: ^2.10.0`. Both packages bring native platform
+  channels (~1–2 MB APK each); acceptable cost for closing the
+  multimodal slot. APK-split discussion stays under Q10.
+
+### Test
+
+- **`test/widgets/audio_viewer_test.dart`** — `formatAudioDuration`
+  covers `m:ss` and `h:mm:ss` ranges; widget tests assert the
+  unsupported-uri error path + screen title rendering.
+- **`test/widgets/video_viewer_test.dart`** — mirror tests for the
+  video viewer.
+
+### References
+
+- Plan: `docs/plans/artifact-type-registry.md` (wave 2 W6).
 
 ---
 

@@ -6,10 +6,12 @@ import '../../models/artifact_kinds.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/artifact_viewers/audio_viewer.dart';
 import '../../widgets/artifact_viewers/code_bundle_viewer.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
 import '../../widgets/artifact_viewers/tabular_viewer.dart';
+import '../../widgets/artifact_viewers/video_viewer.dart';
 import '../../widgets/hub_offline_banner.dart';
 
 /// Artifacts browser (blueprint §6.6).
@@ -51,6 +53,8 @@ class _ArtifactsScreenState extends ConsumerState<ArtifactsScreen> {
     'pdf',
     'metric-chart',
     'code-bundle',
+    'audio',
+    'video',
     'external-blob',
   ];
 
@@ -590,7 +594,30 @@ class _ArtifactViewerLauncher extends StatelessWidget {
             ),
           ),
         );
-      // Remaining MVP kinds get their launchers as W6 ships.
+      case ArtifactKind.audio:
+        return _LauncherButton(
+          icon: Icons.audiotrack,
+          label: 'Play audio',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ArtifactAudioViewerScreen(uri: uri, title: name),
+            ),
+          ),
+        );
+      case ArtifactKind.video:
+        return _LauncherButton(
+          icon: Icons.movie_outlined,
+          label: 'Play video',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ArtifactVideoViewerScreen(uri: uri, title: name),
+            ),
+          ),
+        );
+      // Remaining MVP kinds (diagram, canvas-app, prose-document, metric-chart,
+      // external-blob) deliberately have no inline launcher today.
       // ignore: no_default_cases
       default:
         return const SizedBox.shrink();

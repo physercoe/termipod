@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3+W4+W5 of 7 shipped (2026-05-11, v1.0.489–494-alpha)
+> **Status:** In progress — W1+W2+W3+W4+W5+W6 of 7 shipped (2026-05-11, v1.0.489–495-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.494
+> **Last verified vs code:** v1.0.495
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -363,14 +363,39 @@ scaffolds, ML run-script snapshots, paper LaTeX sources.
 
 **LOC estimate:** ~300 mobile (came in close).
 
-### W6 — Audio + video viewers
+### W6 — Audio + video viewers — ✅ SHIPPED v1.0.495-alpha
 
 **Scope.** Adds `just_audio` + `video_player` deps; thin player
 widgets behind the kind-dispatch chassis. Picked last because the
 demo arc doesn't need them yet; they exist so the multimodal IO
 slot has a real landing.
 
-**LOC estimate:** ~250 mobile + 1 dep each.
+**Implementation:**
+
+- **`lib/widgets/artifact_viewers/audio_viewer.dart`** —
+  `ArtifactAudioViewer` + `ArtifactAudioViewerScreen`. Stages
+  `downloadBlobCached` bytes to a temp file via `path_provider`
+  before handing the path to `AudioPlayer.setFilePath` (just_audio
+  doesn't accept raw bytes). UI: large play/pause toggle, scrub
+  slider, position/duration labels via the exported
+  `formatAudioDuration` helper. Temp file best-effort deleted on
+  dispose.
+- **`lib/widgets/artifact_viewers/video_viewer.dart`** —
+  `ArtifactVideoViewer` + `ArtifactVideoViewerScreen`. Same temp-
+  file staging; renders at native aspect ratio with a centered
+  play/pause overlay and `VideoProgressIndicator` scrubber. Screen
+  uses a black backdrop.
+- **Launcher dispatch + filter pills** — `_ArtifactViewerLauncher`
+  in `artifacts_screen.dart` gains `audio` + `video` branches; the
+  filter pill bar adds the same kinds for scoping.
+- **`pubspec.yaml`** — `just_audio: ^0.10.4` +
+  `video_player: ^2.10.0`. Each adds a native platform channel
+  (~1–2 MB APK). Tracked under Q10 if APK split lands.
+- **Tests** — `test/widgets/audio_viewer_test.dart` (duration
+  formatter + unsupported-uri error path + screen title) +
+  `test/widgets/video_viewer_test.dart` (mirror tests).
+
+**LOC estimate:** ~250 mobile + 2 deps (landed close).
 
 ### W7 — Cross-engine multimodal input expansion
 

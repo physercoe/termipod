@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3+W4 shipped (2026-05-11, v1.0.489–492-alpha)
+> **Status:** In progress — W1+W2+W3+W4 of 7 shipped (2026-05-11, v1.0.489–493-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.492
+> **Last verified vs code:** v1.0.493
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -310,62 +310,15 @@ References-vs-Documents tile overlap.
 
 ### W4 — Image + multimodal user input ✅ SHIPPED v1.0.492-alpha (2026-05-11) + image view-on-tap
 
-**Follow-up — non-image multimodal input (deferred).** The three
-engines we ship today accept far more than images. The matrix below
-is fact-checked against vendor docs 2026-05-11:
-
-| Modality | Claude Code (Claude API) | Gemini CLI (Gemini API) | Codex CLI (OpenAI) |
-|---|---|---|---|
-| **Images** — jpeg/png/gif/webp | ✅ `image` block | ✅ `inline_data` | ✅ `image_url` |
-| **PDF** | ✅ `document` block, text+vision, ≤32 MB / 600 pp | ✅ `inline_data`, text+vision, ≤50 MB / 1000 pp | ✅ `file_data` block |
-| **Plain text** (.txt) | ✅ `document` block OR inline-as-text | ✅ text extraction only (no vision) | (inline-as-text) |
-| **Markdown** (.md) | (inline-as-text; no vision either engine) | (inline-as-text; no vision) | (inline-as-text) |
-| **Code files** (.py/.js/.go/…) | (inline-as-text) | (inline-as-text) | (inline-as-text) |
-| **CSV / DOCX / XLSX** | convert→text/PDF (Claude docs explicitly route here) | convert→PDF or text | convert→PDF |
-| **Audio** (mp3/wav) | ❌ | ✅ `inline_data` | ❌ |
-| **Video** (mp4) | ❌ | ✅ `inline_data` | ❌ |
-
-**Key insight.** Most "doc types" — markdown, code, plain text,
-csv — don't need a true multimodal attachment block on any engine.
-The practical path is **inline the file's text content directly
-into the message body**. Only images / PDF / audio / video need
-a separate content-block shape on the wire.
-
-That splits the follow-up wedge into two distinct user-facing
-features with very different cost profiles:
-
-1. **Quick "attach text file as code-fenced inline content"** —
-   small wedge. Picker reads bytes, infers language from extension,
-   appends a fenced code block to the composer text. No hub/driver
-   work; just a UX shortcut for what users do via paste today.
-   Works identically across all three engines because it's just
-   text in the prompt body.
-
-2. **True multimodal attachment for PDF/audio/video** — larger
-   wedge:
-   - **Hub validator** gains MIME allowlists per modality, family-
-     registry flags `prompt_pdf[mode]` / `prompt_audio[mode]` /
-     `prompt_video[mode]` mirroring `prompt_image[mode]`.
-   - **Composer** capability gate branches per-modality so the
-     paperclip surfaces a kind picker when the active family
-     accepts multiple; single-axis families stay single-purpose.
-   - **Driver wire mapping** per modality (Claude `document`/
-     `image`; Gemini inline blob; codex `file_data`/`image_url`).
-   - **MIME plumbing** mostly free — the closed-set artifact kinds
-     already include `pdf` / `audio` / `video` viewers (W2 done,
-     W6 pending), so receive-side renderers are already in flight.
-
-Tracking issue: file separately as
-`docs/plans/cross-engine-multimodal-input.md` when the wedge slot
-opens — not in scope for the current registry plan.
-
-**Scope.** First multimodal landing — user can attach an image
-
 **Scope.** First multimodal landing — user can attach an image
 from the overlay chat composer or via `attach_artifact` MCP
 tool; agent receives it as a multimodal input through the engine
 driver. Pure plumbing wedge; the rendering is `Image.network`
 plus the existing `image_picker`.
+
+**Note.** The original W4 was scoped to image-only. Cross-engine
+expansion (PDF/audio/video as true multimodal attachments; text/
+markdown/code as inline-as-text shortcuts) is now W7 below.
 
 **Files touched:**
 - `lib/widgets/steward_overlay/steward_overlay_panel.dart` —
@@ -396,12 +349,123 @@ slot has a real landing.
 
 **LOC estimate:** ~250 mobile + 1 dep each.
 
+### W7 — Cross-engine multimodal input expansion
+
+**Scope.** W4 shipped image-only attach across both composers.
+The three engines we ship today accept far more — but the practical
+support matrix is uneven, and "more file types" splits into two
+very different kinds of work. Matrix fact-checked against vendor
+docs 2026-05-11:
+
+| Modality | Claude Code (Claude API) | Gemini CLI (Gemini API) | Codex CLI (OpenAI) |
+|---|---|---|---|
+| **Image** — jpeg/png/gif/webp | ✅ `image` block | ✅ `inline_data` | ✅ `image_url` |
+| **PDF** | ✅ `document` block, text+vision, ≤32 MB / 600 pp | ✅ `inline_data`, text+vision, ≤50 MB / 1000 pp | ✅ `file_data` block |
+| **Plain text** (.txt) | ✅ `document` block OR inline-as-text | ✅ text extraction only (no vision) | inline-as-text |
+| **Markdown** (.md) | inline-as-text; no engine adds vision | inline-as-text; no vision | inline-as-text |
+| **Code files** (.py/.js/.go/…) | inline-as-text | inline-as-text | inline-as-text |
+| **CSV / DOCX / XLSX** | convert→text/PDF (Claude docs explicitly route here) | convert→PDF or text | convert→PDF |
+| **Audio** (mp3/wav) | ❌ | ✅ `inline_data` | ❌ |
+| **Video** (mp4) | ❌ | ✅ `inline_data` | ❌ |
+
+**Key insight.** Markdown, code, plain text, csv **don't need a
+true multimodal attachment block on any engine** — the practical
+path is *inline the file's text content directly into the message
+body*. Only images / PDF / audio / video need a separate
+content-block shape on the wire. W7 therefore lands in two slices
+with very different cost profiles.
+
+#### W7.1 — Inline-as-text file picker (small)
+
+User picks `.md` / `.txt` / `.py` / `.js` / `.go` / `.json` / etc.
+from the system file picker; mobile reads bytes (≤256 KiB cap),
+infers language from extension, and appends a fenced code block
+to the composer's text field. The bytes never leave the prompt
+body — every engine sees it as text in the user message. No hub
+or driver work.
+
+**Files touched:**
+- `lib/widgets/image_attach/composer_image_attach.dart` — gain
+  `pickAndInlineTextFile()` helper alongside `pickAndCompressImage`.
+- `lib/widgets/agent_compose.dart` + `steward_overlay_chat.dart` —
+  attach picker grows a second action (paperclip menu: "Image" /
+  "Code/Text"). Capability gate stays per-modality.
+- `lib/services/text_attach/extension_to_language.dart` — new.
+  Maps `.py` → `python`, `.tsx` → `tsx`, `.rs` → `rust`, etc.;
+  fallback to no language tag.
+
+**LOC estimate:** ~250 mobile.
+
+#### W7.2 — True multimodal PDF + audio/video attach (larger)
+
+PDF cross-engine + audio/video Gemini-only. Each modality gets a
+separate content-block shape on the wire; hub validates per-MIME
+and per-family capability.
+
+**Files touched:**
+- **Hub validator** (`hub/internal/server/handlers_agent_input.go`)
+  — MIME allowlists per modality. Family-registry flags
+  `prompt_pdf[mode]` / `prompt_audio[mode]` / `prompt_video[mode]`
+  mirror the existing `prompt_image[mode]`. Per-modality
+  size/count caps (PDF ≤32 MB & ≤600 pp for Claude;
+  ≤50 MB & ≤1000 pp for Gemini; engine-specific clamps).
+- **`hub/agent_families.yaml`** — add the three flags per family
+  and per mode.
+- **Driver wire mapping** — each driver writes the right
+  content-block shape per modality:
+  - Claude `document` block (PDF), `image` (already shipped)
+  - Gemini `inline_data` with explicit `mime_type` (all four)
+  - Codex `file_data` (PDF), `image_url` (image, already shipped)
+- **Composer** — `_canAttachImages` flag joins a per-modality
+  `_canAttachPdf` / `_canAttachAudio` / `_canAttachVideo` set on
+  the same family-registry lookup; picker surfaces a kind sheet
+  when the family supports >1 modality.
+- **MIME plumbing** is mostly free — `pdf`/`audio`/`video`
+  artifact kinds + viewers are already in the W2/W6 plan, so
+  receive-side rendering is shared with the upload-out-of-mobile
+  path.
+
+**LOC estimate:** ~500 mobile + ~400 hub + per-driver wiring.
+
+#### Open questions
+
+**Q11 — Attachment vs auto-convert at composer.** For docx/xlsx,
+should the picker auto-convert to PDF locally before sending, or
+hand off to the agent's MCP tools? Recommend auto-convert via a
+small WASM library so the wire format stays predictable per engine.
+Lock in W7.2.
+
+**Q12 — Codex audio/video stance.** OpenAI's chat API doesn't
+accept audio/video in input today; the affordance must stay
+hidden for codex families even after W7.2 lands. The
+`prompt_audio[mode]` flag already handles this — no code path
+change, just configuration.
+
+### Why W7 sits last
+
+W7 is a feature wedge, not a chassis wedge. It depends on:
+- **W2 receive-side PDF rendering** (done) — covers the symmetric
+  case where an agent emits a PDF artifact.
+- **W6 receive-side audio/video** — same symmetry argument.
+
+Landing W6 before W7.2 means the closed-set artifact kinds already
+have viewers when the upload path opens, so a round-trip
+"user attaches → agent edits → user views" works end-to-end on
+day one. Inverting the order would ship an upload affordance with
+nothing to render the agent's reply against.
+
+W7.1 is independent of W6 (text bytes are inlined, never stored
+as artifacts) so it can land anytime after W4 — including ahead
+of W5/W6 if the demo arc surfaces a need to share code with the
+steward via picker rather than paste.
+
 ## Total budget
 
-- ~1750 LOC mobile + ~480 LOC hub + 1 migration.
+- ~2500 LOC mobile + ~880 LOC hub + 1 migration.
 - +~5 MB APK (pdf lib ~2 MB, audio+video ~1.5 MB, tabular/image
   trivial).
-- ~2–3 working weeks. W1 must land first; W2–W6 parallelisable.
+- ~3–4 working weeks. W1 must land first; W2–W6 parallelisable;
+  W7 sits last (depends on W6 receive-side viewers landing).
 
 ## Dependencies on other plans
 
@@ -426,11 +490,14 @@ slot has a real landing.
 3. **W4 (image upload)** — unlocks multimodal demo arc.
 4. **W5 (code-bundle)** — supports ML run-script + paper-source
    demos.
-5. **W6 (audio + video)** — last; demo doesn't need it, but the
-   IO slot exists.
-6. **Bump alpha tag** once W1+W2+W3+W4 are merged. W5+W6 can ship
-   on the next minor.
-7. **Update steward template prompts** to advertise the new kinds
+5. **W6 (audio + video)** — last receive-side viewer wedge.
+6. **W7.1 (inline-as-text picker)** — small UX wedge; safe to
+   land any time after W4.
+7. **W7.2 (PDF + audio/video upload)** — depends on W6 so the
+   receive-side viewers exist when the upload path opens.
+8. **Bump alpha tag** once W1+W2+W3+W4 are merged. W5/W6/W7 can
+   ship on the next minor.
+9. **Update steward template prompts** to advertise the new kinds
    (so the agent picks `tabular` for citations, not free-text).
 
 ## Test plan (cross-wedge)
@@ -441,6 +508,14 @@ slot has a real landing.
   view inline.
 - Manual: attach image from overlay chat composer → agent receives
   multimodal input → reply references the image.
+- Manual (W7.1): pick a `.py` file via the composer attach menu →
+  fenced code block lands in the prompt body verbatim → agent
+  responds to the code without a separate content block.
+- Manual (W7.2): pick a PDF on a Claude-Code session → agent reads
+  the document; same PDF on a Gemini session → agent reads it
+  (different wire shape, same UX); same PDF on a Codex session →
+  agent reads it. Pick an mp3 on Gemini → agent transcribes;
+  paperclip stays hidden for Claude/Codex sessions.
 - Regression: existing demo data (`eval_curve` artifacts) still
   renders after backfill.
 
@@ -539,9 +614,12 @@ the first place a split makes real sense.
 
 ## Status
 
-In progress 2026-05-11. W1 (closed-set chassis) shipped v1.0.489-alpha.
-W2–W6 remain. Drafted 2026-05-11 alongside the surface-separation rule
-in [discussion §12.8](../discussions/agent-driven-mobile-ui.md).
-Open questions Q1–Q10 + Q-new resolved 2026-05-11 (recommended
-answers locked, principal-signed at the same review session).
-Plan is ready for W1 implementation; awaiting workband slot.
+In progress 2026-05-11. W1+W2+W3+W4 shipped v1.0.489–493-alpha.
+W5+W6 (receive-side viewers) + W7 (cross-engine multimodal input
+expansion — split into W7.1 inline-text picker and W7.2 PDF/audio/
+video true attachments) remain. Drafted 2026-05-11 alongside the
+surface-separation rule in
+[discussion §12.8](../discussions/agent-driven-mobile-ui.md).
+Open questions Q1–Q12 + Q-new resolved or noted in-line
+2026-05-11 (recommended answers locked, principal-signed at the
+same review session).

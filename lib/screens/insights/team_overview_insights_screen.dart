@@ -45,7 +45,7 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
         error: (e, _) => _ErrorView(message: '$e'),
         data: (cached) {
           final body = cached.body;
-          final raw = body['by_project'];
+          final raw = body?['by_project'];
           if (raw is! List || raw.isEmpty) {
             return const _EmptyView();
           }
@@ -75,7 +75,7 @@ class TeamOverviewInsightsScreen extends ConsumerWidget {
             child: ListView.separated(
               padding: const EdgeInsets.all(12),
               itemCount: rows.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
               itemBuilder: (_, i) => _ProjectCard(row: rows[i]),
             ),
           );

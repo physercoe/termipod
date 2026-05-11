@@ -23,6 +23,72 @@ binding). Seed entries prior to that are in
 
 ---
 
+## v1.0.485-alpha — 2026-05-11
+
+Project overview attention redesign — W1+W2+W3. Plan:
+[`docs/plans/project-overview-attention-redesign.md`](plans/project-overview-attention-redesign.md).
+
+### Changed
+
+- **Discussion AppBar icon dropped from project detail.** Was a
+  redundant fourth navigation surface alongside the 5 tab pills, the
+  AppBar Insights icon (deferred), and the in-Overview tile strip.
+  Discussion remains reachable via the `TileSlug.discussion` tile,
+  added to the current phase composition through the v1.0.484
+  per-project `PhaseTileEditorSheet`. The Activity tab continues to
+  cover the "what's been said?" use case for event-level feed.
+  `lib/screens/projects/project_detail_screen.dart`.
+- **Outer metadata rows + Archive action now collapsed by default**
+  behind a "Details" `ExpansionTile` at the bottom of the Overview
+  tab. The PortfolioHeader (goal, status, budget, task progress) and
+  the InsightsPanel above the divider stay inline; only the
+  rarely-accessed Name/Kind/Status/Goal/Steward template/On-create
+  template/ID/Docs root/Created list and the destructive Archive
+  CTA fold under the expander. F-pattern preserved: eye lands on
+  banner → header → hero → tiles → metrics, then "Details" if needed.
+  `lib/screens/projects/project_detail_screen.dart`.
+
+### Added
+
+- **Cross-project Insights surface — `/v1/insights?team_id=X` now
+  returns `by_project[]`.** One row per goal-kind, non-archived
+  project in the team: `{project_id, name, current_phase, status,
+  progress, open_attention, open_criteria, last_activity}`. Sort:
+  `last_activity` desc. Server-side hard cap 100 rows. Workspaces
+  (`kind='standing'`) and archived projects filtered out per Q3 of
+  the plan. `progress` follows the weighted formula
+  `(phases_done + current_phase_AC_ratio) / phases_total` (Q2 (c)),
+  smooth-monotonic across phase advances. Field is omitted from
+  non-team scopes.
+  `hub/internal/server/handlers_insights.go`,
+  `hub/internal/server/handlers_insights_scope_test.go`.
+- **Team overview AppBar icon on Projects list** → new
+  `TeamOverviewInsightsScreen`. Renders one card per project with
+  name, phase chip, status pill, progress bar (% derived from the
+  weighted formula above), attention badge, open-criteria badge,
+  and relative-time last-activity. Tap → opens project detail
+  (looks up the full project map off `hubProvider.projects`).
+  `lib/screens/projects/projects_screen.dart`,
+  `lib/screens/insights/team_overview_insights_screen.dart`.
+
+### Background
+
+The project detail Overview tab had accumulated six vertical
+regions (attention banner / PortfolioHeader / phase hero / tile
+strip / InsightsPanel / metadata+Archive) plus AppBar icons for
+Discussion + Template-YAML plus 5 tab pills plus chassis
+PhaseRibbon — twelve interaction zones competing for above-fold
+attention. Applied the three attention principles from the prior
+design discussion (Orient → Focus → Explore): drop one redundant
+navigation surface (W1), demote rarely-accessed metadata to a
+collapsible footer (W2), and promote the missing cross-project
+surface to its proper home on the Projects list AppBar (W3).
+Risks register stays explicitly post-MVP — the closed `TileSlug`
+enum keeps `risks` but no template surfaces it and no
+implementation work lands here.
+
+---
+
 ## v1.0.484-alpha — 2026-05-11
 
 Lifecycle-walkthrough follow-ups batch (W1–W6). Plan:

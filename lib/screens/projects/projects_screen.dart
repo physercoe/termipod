@@ -25,6 +25,7 @@ import '../hub/hub_bootstrap_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_detail_screen.dart';
 import '../team/spawn_steward_sheet.dart';
+import '../insights/team_overview_insights_screen.dart';
 
 /// "Projects" tab — project inventory. Agents live inside Project detail.
 /// Hosts have their own top-level bottom tab.
@@ -73,6 +74,13 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
         actions: [
           const TeamSwitcher(),
           IconButton(
+            tooltip: 'Team overview',
+            icon: const Icon(Icons.insights_outlined),
+            onPressed: async.value?.configured == true
+                ? () => _openTeamOverview(context, ref)
+                : null,
+          ),
+          IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: async.value?.configured == true
@@ -98,6 +106,21 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  /// Opens the cross-project Insights view scoped to the current team.
+  /// Routed off the AppBar Insights icon — sibling to the existing
+  /// per-project Insights tile inside Overview. Plan:
+  /// `docs/plans/project-overview-attention-redesign.md` W3.
+  void _openTeamOverview(BuildContext context, WidgetRef ref) {
+    final teamId =
+        ref.read(hubProvider).value?.config?.teamId ?? '';
+    if (teamId.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TeamOverviewInsightsScreen(teamId: teamId),
       ),
     );
   }

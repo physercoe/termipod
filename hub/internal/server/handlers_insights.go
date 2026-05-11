@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // /v1/insights scope-parameterized aggregator (ADR-022 D3,
@@ -88,6 +90,14 @@ func (s *Server) handleInsights(w http.ResponseWriter, r *http.Request) {
 	hubInsightsCache.mu.Unlock()
 
 	out, err := buildInsightsResponse(r.Context(), s.db, scope, since, until)
+	if err == nil &&
+		(scope.Kind == "team" || scope.Kind == "team_stewards") {
+		// project-overview-attention-redesign W3 — cross-project rollup
+		// only makes sense on team-scope; bare function in
+		// buildInsightsResponse can't reach the template registry so we
+		// fold this in as a Server-method tail step.
+		err = s.fillInsightsByProject(r.Context(), scope, out)
+	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -130,6 +140,44 @@ type insightsResponse struct {
 	// the breakdown is degenerate. Sorted by tokens_in desc so the
 	// highest-spend row renders first.
 	ByAgent []insightsAgentAgg `json:"by_agent,omitempty"`
+	// ByProject is populated only on team / team_stewards scope. One
+	// row per goal-kind, non-archived project in the team. Sorted by
+	// last_activity desc, hard-capped at 100 rows. Workspaces
+	// (kind='standing') are filtered out — they have no phase or
+	// progress and need their own post-MVP surface.
+	// See plan `project-overview-attention-redesign.md` W3.
+	ByProject []insightsProjectAgg `json:"by_project,omitempty"`
+}
+
+// insightsProjectAgg is one row of the team-scope project breakdown.
+// Powers the cross-project overview surface (Projects-list AppBar
+// Insights icon → TeamOverviewInsightsScreen).
+//
+// `progress` follows the weighted formula resolved 2026-05-11 (plan
+// open-question Q2 (c)):
+//
+//	progress = (phases_done + current_phase_AC_ratio) / phases_total
+//
+// `phases_done` = count of transitions in `projects.phase_history`.
+// `current_phase_AC_ratio` = met / (pending+met+failed+waived) on the
+// current phase only. `phases_total` = count of `phase_specs` entries
+// in the template YAML.
+//
+// `open_criteria` counts ACs in state IN ('pending', 'failed') across
+// *all* phases of the project, not just the current one — the director
+// asked "what's outstanding here" reads project-wide.
+//
+// `last_activity` is the latest `agent_events.created_at` for the
+// project. Empty string when the project has no events yet.
+type insightsProjectAgg struct {
+	ProjectID     string  `json:"project_id"`
+	Name          string  `json:"name"`
+	CurrentPhase  string  `json:"current_phase"`
+	Status        string  `json:"status"`
+	Progress      float64 `json:"progress"`
+	OpenAttention int     `json:"open_attention"`
+	OpenCriteria  int     `json:"open_criteria"`
+	LastActivity  string  `json:"last_activity"`
 }
 
 // insightsAgentAgg is one row of the per-agent breakdown. handle +
@@ -793,4 +841,243 @@ func readNumber(m map[string]any, key string) int64 {
 		}
 	}
 	return 0
+}
+
+// byProjectMaxRows hard-caps the team-scope project rollup. If a team
+// holds more goal-kind projects than this, the trailing tail (oldest
+// activity) is dropped. Pagination would buy more, but at MVP scale a
+// team with >100 projects is itself an open question.
+const byProjectMaxRows = 100
+
+// fillInsightsByProject computes the per-project rollup for team /
+// team_stewards scope. Filters out workspaces (kind='standing') and
+// archived projects so the cross-project overview surface shows live
+// work only. Sort: last_activity DESC.
+//
+// Reads template YAML for phases_total — uses a per-call cache keyed by
+// template_id, since one team typically uses 1–3 distinct templates and
+// reparsing the YAML per project would be wasteful.
+//
+// See plan `project-overview-attention-redesign.md` W3 and the open
+// questions resolved 2026-05-11 (Q2 progress formula, Q3 workspace
+// filter, Q5 open_criteria definition).
+func (s *Server) fillInsightsByProject(
+	ctx context.Context, scope *scopeFilter, out *insightsResponse,
+) error {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, name, COALESCE(phase, ''), COALESCE(status, ''),
+		       COALESCE(phase_history, ''), COALESCE(template_id, '')
+		  FROM projects
+		 WHERE team_id = ?
+		   AND kind = 'goal'
+		   AND status != 'archived'`, scope.ID)
+	if err != nil {
+		return err
+	}
+	type projRow struct {
+		id, name, phase, status, history, templateID string
+	}
+	var projects []projRow
+	for rows.Next() {
+		var p projRow
+		if err := rows.Scan(
+			&p.id, &p.name, &p.phase, &p.status,
+			&p.history, &p.templateID,
+		); err != nil {
+			rows.Close()
+			return err
+		}
+		projects = append(projects, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(projects) == 0 {
+		out.ByProject = []insightsProjectAgg{}
+		return nil
+	}
+
+	ids := make([]any, 0, len(projects))
+	for _, p := range projects {
+		ids = append(ids, p.id)
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+
+	// Aggregate fan-out: three bulk queries indexed by project_id. Cheap
+	// at MVP scale; revisit if a team ever pushes past byProjectMaxRows.
+	lastActivity := map[string]string{}
+	{
+		r, err := s.db.QueryContext(ctx,
+			`SELECT project_id, MAX(ts) FROM agent_events
+			  WHERE project_id IN (`+placeholders+`)
+			  GROUP BY project_id`, ids...)
+		if err != nil {
+			return err
+		}
+		for r.Next() {
+			var pid string
+			var ts sql.NullString
+			if err := r.Scan(&pid, &ts); err != nil {
+				r.Close()
+				return err
+			}
+			if ts.Valid {
+				lastActivity[pid] = ts.String
+			}
+		}
+		r.Close()
+	}
+
+	openAttention := map[string]int{}
+	{
+		r, err := s.db.QueryContext(ctx,
+			`SELECT project_id, COUNT(*) FROM attention_items
+			  WHERE project_id IN (`+placeholders+`) AND status = 'open'
+			  GROUP BY project_id`, ids...)
+		if err != nil {
+			return err
+		}
+		for r.Next() {
+			var pid string
+			var n int
+			if err := r.Scan(&pid, &n); err != nil {
+				r.Close()
+				return err
+			}
+			openAttention[pid] = n
+		}
+		r.Close()
+	}
+
+	// (project_id, phase, state) → count
+	type acKey struct{ pid, phase, state string }
+	acCounts := map[acKey]int{}
+	{
+		r, err := s.db.QueryContext(ctx,
+			`SELECT project_id, phase, state, COUNT(*) FROM acceptance_criteria
+			  WHERE project_id IN (`+placeholders+`)
+			  GROUP BY project_id, phase, state`, ids...)
+		if err != nil {
+			return err
+		}
+		for r.Next() {
+			var pid, phase, state string
+			var n int
+			if err := r.Scan(&pid, &phase, &state, &n); err != nil {
+				r.Close()
+				return err
+			}
+			acCounts[acKey{pid, phase, state}] = n
+		}
+		r.Close()
+	}
+
+	phasesTotalCache := map[string]int{}
+
+	out.ByProject = make([]insightsProjectAgg, 0, len(projects))
+	for _, p := range projects {
+		phasesDone := 0
+		if p.history != "" {
+			var hist phaseHistoryDoc
+			if err := json.Unmarshal([]byte(p.history), &hist); err == nil {
+				phasesDone = len(hist.Transitions)
+			}
+		}
+
+		// Current-phase AC ratio drives the within-phase progress slice.
+		var curTotal, curMet int
+		for _, state := range []string{"pending", "met", "failed", "waived"} {
+			n := acCounts[acKey{p.id, p.phase, state}]
+			curTotal += n
+			if state == "met" {
+				curMet = n
+			}
+		}
+		var acRatio float64
+		if curTotal > 0 {
+			acRatio = float64(curMet) / float64(curTotal)
+		}
+
+		// Project-wide open criteria — sum across all phases, both
+		// pending and failed (Q5). Past-phase pendings can mean
+		// "intentionally waived without state update"; we still surface
+		// them so the director isn't blind to drift.
+		openCriteria := 0
+		for k, n := range acCounts {
+			if k.pid != p.id {
+				continue
+			}
+			if k.state == "pending" || k.state == "failed" {
+				openCriteria += n
+			}
+		}
+
+		phasesTotal, cached := phasesTotalCache[p.templateID]
+		if !cached {
+			phasesTotal = s.templatePhaseCount(p.templateID)
+			phasesTotalCache[p.templateID] = phasesTotal
+		}
+
+		progress := 0.0
+		if phasesTotal > 0 {
+			progress = (float64(phasesDone) + acRatio) / float64(phasesTotal)
+			if progress > 1.0 {
+				progress = 1.0
+			}
+			if progress < 0 {
+				progress = 0
+			}
+		}
+
+		out.ByProject = append(out.ByProject, insightsProjectAgg{
+			ProjectID:     p.id,
+			Name:          p.name,
+			CurrentPhase:  p.phase,
+			Status:        p.status,
+			Progress:      progress,
+			OpenAttention: openAttention[p.id],
+			OpenCriteria:  openCriteria,
+			LastActivity:  lastActivity[p.id],
+		})
+	}
+
+	sort.Slice(out.ByProject, func(i, j int) bool {
+		// Empty strings sort last so projects with no activity sink.
+		a, b := out.ByProject[i].LastActivity, out.ByProject[j].LastActivity
+		if a == "" && b == "" {
+			return out.ByProject[i].Name < out.ByProject[j].Name
+		}
+		if a == "" {
+			return false
+		}
+		if b == "" {
+			return true
+		}
+		return a > b
+	})
+	if len(out.ByProject) > byProjectMaxRows {
+		out.ByProject = out.ByProject[:byProjectMaxRows]
+	}
+	return nil
+}
+
+// templatePhaseCount returns the number of phases declared in a
+// template's `phase_specs` block. 0 means missing template or
+// unparseable YAML — the caller treats that as "progress unknown" and
+// leaves the field at zero.
+func (s *Server) templatePhaseCount(templateID string) int {
+	if templateID == "" {
+		return 0
+	}
+	body := s.readProjectTemplateYAML(templateID)
+	if body == "" {
+		return 0
+	}
+	var head phaseSpecsHead
+	if err := yaml.Unmarshal([]byte(body), &head); err != nil {
+		return 0
+	}
+	return len(head.PhaseSpecs)
 }

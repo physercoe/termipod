@@ -27,7 +27,6 @@ import 'projects_screen.dart' show openAgentDetail;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
 import 'overview_widgets/workspace_overview.dart';
-import 'project_channels_list_screen.dart';
 import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
 import 'project_task_create_sheet.dart';
@@ -184,21 +183,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         ),
         actions: [
           const TeamSwitcher(),
-          // W2 (D10): Channel demoted out of the pill bar; the chat icon
-          // here pushes the channel list as a peer route, keeping the
-          // existing per-channel composer untouched.
-          IconButton(
-            icon: const Icon(Icons.chat_outlined),
-            tooltip: 'Discussion',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ProjectChannelsListScreen(
-                  projectId: projectId,
-                  projectName: name,
-                ),
-              ),
-            ),
-          ),
           if (((_project['template_id'] ?? '').toString()).isNotEmpty)
             IconButton(
               icon: const Icon(Icons.info_outline),
@@ -373,7 +357,8 @@ class _Pill extends StatelessWidget {
 // kinds, project.create/update/archive) and any meta_json carrying this
 // project_id (agent.spawn / run.create / document.create / review.* /
 // attention.decide / artifact.create / session.*). Channel posts are
-// reachable via the AppBar Discussion icon.
+// reachable via the Discussion tile (TileSlug.discussion) — add it to
+// the current phase via the per-project tile editor (v1.0.484 W6).
 class _ActivityView extends ConsumerStatefulWidget {
   final String projectId;
   const _ActivityView({required this.projectId});
@@ -1195,35 +1180,56 @@ class _OverviewView extends ConsumerWidget {
           const Divider(height: 1),
           const SizedBox(height: 16),
         ],
-        for (final r in rows)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(r.key,
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight,
-                    )),
-                const SizedBox(height: 2),
-                Text(r.value.isEmpty ? '—' : r.value,
-                    style: GoogleFonts.spaceGrotesk(fontSize: 13)),
-              ],
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(top: 8, bottom: 4),
+            title: Text(
+              'Details',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
             ),
+            children: [
+              for (final r in rows)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(r.key,
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                            color: isDark
+                                ? DesignColors.textMuted
+                                : DesignColors.textMutedLight,
+                          )),
+                      const SizedBox(height: 2),
+                      Text(r.value.isEmpty ? '—' : r.value,
+                          style: GoogleFonts.spaceGrotesk(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.archive_outlined),
+                label: Text(kind == 'standing'
+                    ? l10n.workspaceArchiveAction
+                    : l10n.projectArchiveAction),
+                style: OutlinedButton.styleFrom(
+                    foregroundColor: DesignColors.error),
+                onPressed: () => _archive(context, ref),
+              ),
+            ],
           ),
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.archive_outlined),
-          label: Text(kind == 'standing'
-              ? l10n.workspaceArchiveAction
-              : l10n.projectArchiveAction),
-          style: OutlinedButton.styleFrom(foregroundColor: DesignColors.error),
-          onPressed: () => _archive(context, ref),
         ),
       ],
     );

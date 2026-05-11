@@ -682,3 +682,125 @@ func TestInsights_ScopeCacheKeysIsolate(t *testing.T) {
 		t.Errorf("scope echo=%+v, want agent (cache may be leaking)", outAgent.Scope)
 	}
 }
+
+// TestInsights_ByProject_TeamScope_FiltersAndSorts locks the
+// project-overview-attention-redesign W3 contract: team scope returns
+// `by_project[]` with one row per goal-kind, non-archived project,
+// sorted by last_activity desc. Standing workspaces and archived
+// projects are filtered out.
+func TestInsights_ByProject_TeamScope_FiltersAndSorts(t *testing.T) {
+	srv, tok, team, projectA, agentA, sessionA := insightsSetup(t)
+
+	now := NowUTC()
+	// Goal project B — fresh activity, should rank first.
+	projectB := NewID()
+	if _, err := srv.db.Exec(`
+		INSERT INTO projects (id, team_id, name, created_at, kind)
+		VALUES (?, ?, 'demo-b', ?, 'goal')`,
+		projectB, team, now); err != nil {
+		t.Fatalf("seed project B: %v", err)
+	}
+	agentB := NewID()
+	if _, err := srv.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, status, created_at)
+		VALUES (?, ?, 'steward-b', 'gemini-cli', 'running', ?)`,
+		agentB, team, now); err != nil {
+		t.Fatalf("seed agent B: %v", err)
+	}
+	sessionB := NewID()
+	if _, err := srv.db.Exec(`
+		INSERT INTO sessions
+			(id, team_id, scope_kind, scope_id, current_agent_id,
+			 status, opened_at, last_active_at)
+		VALUES (?, ?, 'project', ?, ?, 'active', ?, ?)`,
+		sessionB, team, projectB, agentB, now, now); err != nil {
+		t.Fatalf("seed session B: %v", err)
+	}
+	// Workspace W — must be filtered out.
+	projectW := NewID()
+	if _, err := srv.db.Exec(`
+		INSERT INTO projects (id, team_id, name, created_at, kind)
+		VALUES (?, ?, 'demo-workspace', ?, 'standing')`,
+		projectW, team, now); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	// Archived goal project — must be filtered out.
+	projectArch := NewID()
+	if _, err := srv.db.Exec(`
+		INSERT INTO projects (id, team_id, name, created_at, kind, status)
+		VALUES (?, ?, 'demo-archived', ?, 'goal', 'archived')`,
+		projectArch, team, now); err != nil {
+		t.Fatalf("seed archived project: %v", err)
+	}
+
+	// Older event for projectA, newer for projectB → B sorts first by
+	// last_activity. Explicit ts overrides the helper's NowUTC() default.
+	earlier := time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339)
+	later := time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339)
+	if _, err := srv.db.Exec(`
+		INSERT INTO agent_events
+			(id, agent_id, seq, ts, kind, producer, payload_json,
+			 session_id, project_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'usage', 'agent', '{}',
+		       ?, ?
+		  FROM agent_events WHERE agent_id = ?`,
+		NewID(), agentA, earlier, sessionA, projectA, agentA); err != nil {
+		t.Fatalf("seed event A: %v", err)
+	}
+	if _, err := srv.db.Exec(`
+		INSERT INTO agent_events
+			(id, agent_id, seq, ts, kind, producer, payload_json,
+			 session_id, project_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'usage', 'agent', '{}',
+		       ?, ?
+		  FROM agent_events WHERE agent_id = ?`,
+		NewID(), agentB, later, sessionB, projectB, agentB); err != nil {
+		t.Fatalf("seed event B: %v", err)
+	}
+
+	since := time.Now().Add(-1 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+
+	_, out, body := callInsightsScope(t, srv, tok,
+		map[string]string{"team_id": team}, since, until)
+	if out == nil {
+		t.Fatalf("team query failed: %s", body)
+	}
+	if len(out.ByProject) != 2 {
+		t.Fatalf("by_project rows=%d, want 2 (workspace+archived must be filtered) body=%s",
+			len(out.ByProject), body)
+	}
+	if out.ByProject[0].ProjectID != projectB {
+		t.Errorf("first row = %q, want projectB %q (last_activity desc)",
+			out.ByProject[0].ProjectID, projectB)
+	}
+	if out.ByProject[1].ProjectID != projectA {
+		t.Errorf("second row = %q, want projectA %q",
+			out.ByProject[1].ProjectID, projectA)
+	}
+	// Workspace + archived definitely not present.
+	for _, row := range out.ByProject {
+		if row.ProjectID == projectW || row.ProjectID == projectArch {
+			t.Errorf("by_project should not include %q (kind/status filter failed)",
+				row.ProjectID)
+		}
+	}
+}
+
+// TestInsights_ByProject_AbsentOnProjectScope locks the omitempty
+// contract — by_project is only meaningful on team/team_stewards.
+func TestInsights_ByProject_AbsentOnProjectScope(t *testing.T) {
+	srv, tok, _, project, _, _ := insightsSetup(t)
+	since := time.Now().Add(-1 * time.Hour).UTC()
+	until := time.Now().Add(1 * time.Hour).UTC()
+
+	_, out, body := callInsightsScope(t, srv, tok,
+		map[string]string{"project_id": project}, since, until)
+	if out == nil {
+		t.Fatalf("project query failed: %s", body)
+	}
+	if len(out.ByProject) != 0 {
+		t.Errorf("by_project on project scope=%+v, want empty (cross-project view is team-only)",
+			out.ByProject)
+	}
+}

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.491
+> **Last verified vs code:** v1.0.492
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,58 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.492-alpha — 2026-05-11
+
+Wave 2 W4 — image attach on the steward overlay composer.
+Multimodal landing for the floating chat surface. ADR-021's existing
+hub validator + per-driver wire-mapping already handle the bytes;
+this wedge wires the affordance into the smaller composer.
+
+### Added
+
+- **`lib/widgets/image_attach/composer_image_attach.dart`** —
+  shared helpers extracted from `agent_compose.dart`:
+  - `pickAndCompressImage()` returning a `ComposerImageAttachment`
+    (mime + base64-encoded data)
+  - `ComposerImageThumbnailStrip` widget (horizontal × strip)
+  - `resolveCanAttachImages()` capability gate (visible-for-tests)
+  - `kMaxImagesPerTurn` / `kMaxImageBytes` / etc. constants
+- **Paperclip + thumbnails on the steward overlay chat**
+  (`steward_overlay_chat.dart`):
+  - `_ChatInputState` now owns `_pendingImages` + `_attaching` +
+    `_attachError` alongside the existing IME-stable controller.
+  - `_ChatInputSlot` becomes a `ConsumerWidget` and watches
+    `agentId` via `.select` so the slot only rebuilds the once
+    when the overlay binds an agent (SSE traffic doesn't reach it).
+  - Parent state's `_resolveCapabilityIfNeeded(agentId)` joins the
+    family registry to set `_canAttachImages`; the flag flows down
+    to `_ChatInput`.
+- **`sendUserMessage(text, {images})`** on
+  `StewardOverlayController` — new entry point that lifts the text
+  body to nullable and forwards `images` through to
+  `HubClient.postAgentInput`. `sendUserText(text)` retained as a
+  back-compat shim so snippet chips don't break.
+
+### Changed
+
+- `agent_compose.dart` refactored to import the shared helpers
+  instead of carrying its own copies of the pick+compress, mime
+  map, and thumbnail strip. Net diff: ~120 LOC moved, behaviour
+  unchanged.
+
+### Notes
+
+- No hub or engine-driver work was needed — ADR-021 W4.1/W4.2-W4.5
+  already shipped the validator + per-driver mapping. Plan W4 had
+  some scope overlap with that prior wedge; the artifact-creation
+  pathway it proposed was redundant given the existing inline
+  base64 pipeline works.
+- Capability gate still respects `prompt_image[mode]`: gemini M2
+  (exec-per-turn) keeps the affordance hidden because the W4.5
+  strip-and-warn fallback isn't an invitation to send.
 
 ---
 

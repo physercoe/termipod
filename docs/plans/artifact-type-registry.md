@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2+W3 shipped (2026-05-11, v1.0.489–491-alpha)
+> **Status:** In progress — W1+W2+W3+W4 shipped (2026-05-11, v1.0.489–492-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.491
+> **Last verified vs code:** v1.0.492
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -308,7 +308,7 @@ References-vs-Documents tile overlap.
 
 **LOC estimate:** ~350 mobile + ~80 hub.
 
-### W4 — Image + multimodal user input
+### W4 — Image + multimodal user input ✅ SHIPPED v1.0.492-alpha (2026-05-11)
 
 **Scope.** First multimodal landing — user can attach an image
 from the overlay chat composer or via `attach_artifact` MCP

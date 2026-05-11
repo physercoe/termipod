@@ -665,7 +665,8 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     );
   }
 
-  /// Send the user's text to the general steward.
+  /// Send the user's text (and optional image attachments) to the
+  /// general steward.
   ///
   /// **Note (W2 — Option A):** we deliberately do NOT pre-echo the
   /// user's text into the local message list. The hub publishes the
@@ -678,7 +679,16 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// Cost: one SSE round-trip latency before the user's bubble
   /// appears (~100-300 ms typical). If QA flags that as laggy we
   /// can switch to id-based dedup (Option B in the wedge plan).
-  Future<void> sendUserText(String text) async {
+  ///
+  /// `images` (artifact-type-registry W4) is the inline multimodal
+  /// payload from the composer paperclip: each entry is
+  /// `{mime_type, data}` with `data` base64-encoded. The hub
+  /// validates (mime allowlist, ≤5 MiB decoded, ≤3 images) and
+  /// per-driver wire-mapping is unchanged from ADR-021 W4.2-W4.5.
+  Future<void> sendUserMessage(
+    String text, {
+    List<Map<String, String>>? images,
+  }) async {
     final agentId = state.agentId;
     if (agentId == null) {
       throw StateError('Steward not yet ready');
@@ -687,12 +697,18 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     if (client == null) {
       throw StateError('Hub not configured');
     }
+    final hasImages = images != null && images.isNotEmpty;
     await client.postAgentInput(
       agentId,
       kind: 'text',
-      body: text,
+      body: text.isEmpty ? null : text,
+      images: hasImages ? images : null,
     );
   }
+
+  /// Back-compat shim — older call sites (e.g. snippet quick-actions)
+  /// still hand the controller a single text body without images.
+  Future<void> sendUserText(String text) => sendUserMessage(text);
 }
 
 final stewardOverlayControllerProvider =

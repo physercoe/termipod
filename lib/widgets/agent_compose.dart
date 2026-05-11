@@ -3,13 +3,10 @@
 // scaffolded so pending-request UI can hook them up without adding a
 // whole new widget later.
 import 'dart:async';
-import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:image_picker/image_picker.dart';
 
 import 'package:termipod/l10n/app_localizations.dart';
 
@@ -17,40 +14,16 @@ import '../providers/hub_provider.dart';
 import '../providers/input_history_provider.dart';
 import '../providers/snippet_provider.dart';
 import '../services/hub/hub_client.dart';
-import '../services/image/image_converter.dart';
 import '../theme/design_colors.dart';
 import 'action_bar/snippet_picker_sheet.dart';
+import 'image_attach/composer_image_attach.dart';
 
 // ADR-021 W4.1 / D5 — image-content-block contract caps. Mirrors the
 // hub-side validator so the composer can clamp before sending instead
 // of round-tripping a 400. 5 MiB decoded per image, 3 images per turn,
-// 1024px max long edge for compression.
-const int _maxImagesPerTurn = 3;
-const int _maxImageBytes = 5 * 1024 * 1024;
-const int _composeImageMaxEdge = 1024;
-const int _composeImageJpegQuality = 70;
-
-/// resolveCanAttachImages joins an agent's `kind` + `driving_mode`
-/// against the family registry's `prompt_image[mode]` flag (ADR-021
-/// D5 / W4.6). Exported `@visibleForTesting` so widget tests can pin
-/// the gate without spinning up a fake HubClient.
-@visibleForTesting
-bool resolveCanAttachImages({
-  required String? kind,
-  required String? drivingMode,
-  required List<Map<String, dynamic>> families,
-}) {
-  if (kind == null || kind.isEmpty) return false;
-  final mode = (drivingMode == null || drivingMode.isEmpty) ? 'M4' : drivingMode;
-  for (final f in families) {
-    if (f['family'] == kind) {
-      final pi = f['prompt_image'];
-      if (pi is Map && pi[mode] == true) return true;
-      return false;
-    }
-  }
-  return false;
-}
+// 1024px max long edge for compression. Names re-exported from the
+// shared helper so call sites can stay readable.
+const int _maxImagesPerTurn = kMaxImagesPerTurn;
 
 /// Sits under AgentFeed and routes text/cancel inputs to the hub's
 /// /agents/{id}/input endpoint. The hub persists them as producer='user'
@@ -253,40 +226,13 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
       _error = null;
     });
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery);
-      if (picked == null) return;
-      final raw = await picked.readAsBytes();
-      // Compress to JPEG at 1024px max edge / 70% quality (per plan
-      // §W4.6). Hub validator caps decoded bytes at 5 MiB; the
-      // compression target is well under that for typical phone
-      // screenshots so we rarely retry.
-      final converted = await ImageConverter.convert(
-        bytes: raw,
-        format: ImageOutputFormat.jpeg,
-        jpegQuality: _composeImageJpegQuality,
-        autoResize: true,
-        maxWidth: _composeImageMaxEdge,
-        maxHeight: _composeImageMaxEdge,
-      );
-      final bytes = converted.bytes;
-      if (bytes.length > _maxImageBytes) {
-        setState(() => _error =
-            'Image too large after compression (${(bytes.length / 1024 / 1024).toStringAsFixed(1)} MiB > 5 MiB)');
-        return;
-      }
-      final mime = _mimeForExtension(converted.extension);
-      if (mime == null) {
-        setState(() => _error = 'Unsupported image format: ${converted.extension}');
-        return;
-      }
+      final attachment = await pickAndCompressImage();
+      if (attachment == null) return;
       if (!mounted) return;
-      setState(() {
-        _pendingImages.add({
-          'mime_type': mime,
-          'data': base64Encode(bytes),
-        });
-      });
+      setState(() => _pendingImages.add(attachment.toJson()));
+    } on ComposerImageAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Attach failed: $e');
@@ -298,25 +244,6 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
   void _removePendingImage(int index) {
     if (index < 0 || index >= _pendingImages.length) return;
     setState(() => _pendingImages.removeAt(index));
-  }
-
-  // _mimeForExtension maps the ImageConverter's lowercase extension
-  // (jpg/png/gif) to the hub's accepted mime_type vocabulary (W4.1
-  // allowlist). webp/heic aren't produced by the converter's jpeg/png
-  // output paths; if a future format lands here we'd extend the map
-  // and the W4.1 allowlist together.
-  String? _mimeForExtension(String ext) {
-    switch (ext) {
-      case 'jpg':
-      case 'jpeg':
-        return 'image/jpeg';
-      case 'png':
-        return 'image/png';
-      case 'gif':
-        return 'image/gif';
-      default:
-        return null;
-    }
   }
 
   /// Insert snippet content at the current cursor position. Mirrors how
@@ -478,7 +405,7 @@ class _AgentComposeState extends ConsumerState<AgentCompose> {
               muted: muted,
             ),
           if (_pendingImages.isNotEmpty)
-            _ImageThumbnailStrip(
+            ComposerImageThumbnailStrip(
               images: _pendingImages,
               onRemove: _removePendingImage,
             ),
@@ -737,76 +664,3 @@ class _SuggestionStrip extends StatelessWidget {
   }
 }
 
-/// Horizontal thumbnail strip rendered above the text field when the
-/// composer has queued one or more images for the next prompt
-/// (ADR-021 W4.6). Tap × on a thumbnail to remove it before sending.
-/// Bytes are decoded back from the in-memory base64 string, so each
-/// thumbnail render is one decode pass — fine at 1024px max edge but
-/// not appropriate for arbitrary-resolution input.
-class _ImageThumbnailStrip extends StatelessWidget {
-  final List<Map<String, String>> images;
-  final ValueChanged<int> onRemove;
-  const _ImageThumbnailStrip({
-    required this.images,
-    required this.onRemove,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 64,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
-        itemCount: images.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (ctx, i) {
-          final entry = images[i];
-          Uint8List? bytes;
-          try {
-            bytes = base64Decode(entry['data'] ?? '');
-          } catch (_) {
-            bytes = null;
-          }
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  width: 56,
-                  height: 56,
-                  color: DesignColors.surfaceDark,
-                  child: bytes != null
-                      ? Image.memory(bytes,
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true)
-                      : const Icon(Icons.broken_image_outlined),
-                ),
-              ),
-              Positioned(
-                top: -6,
-                right: -6,
-                child: GestureDetector(
-                  onTap: () => onRemove(i),
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: DesignColors.error,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      size: 12,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}

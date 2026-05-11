@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
 import '../../theme/design_colors.dart';
+import '../image_attach/composer_image_attach.dart';
 import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
 
@@ -31,12 +32,52 @@ class StewardOverlayChat extends ConsumerStatefulWidget {
 }
 
 class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
+  // Wave 2 W4 — image-attach capability. Resolved once after the
+  // overlay binds an agentId, then kept stable. Reading it through
+  // a State field (rather than `ref.watch` inside _ChatInput) keeps
+  // the input subtree off the rebuild path that triggered the
+  // v1.0.466 IME bugs.
+  bool _canAttachImages = false;
+  String? _resolvedForAgentId;
+
   /// Sends user input via the steward controller. Hoisted out of the
   /// build tree as a stable function reference so `_ChatInput`'s
   /// State doesn't think the callback identity changed across builds.
-  Future<void> _sendText(String text) async {
+  Future<void> _sendMessage(
+    String text,
+    List<Map<String, String>>? images,
+  ) async {
     final controller = ref.read(stewardOverlayControllerProvider.notifier);
-    await controller.sendUserText(text);
+    await controller.sendUserMessage(text, images: images);
+  }
+
+  Future<void> _resolveCapabilityIfNeeded(String? agentId) async {
+    if (agentId == null || agentId.isEmpty) return;
+    if (_resolvedForAgentId == agentId) return;
+    _resolvedForAgentId = agentId;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final agent = await client.getAgent(agentId);
+      final cached = await client.listAgentFamiliesCached();
+      final families = cached.body
+          .map((e) => e.cast<String, dynamic>())
+          .toList();
+      final drivingMode =
+          (agent['mode'] ?? agent['driving_mode'])?.toString();
+      final ok = resolveCanAttachImages(
+        kind: agent['kind']?.toString(),
+        drivingMode: drivingMode,
+        families: families,
+      );
+      if (!mounted) return;
+      if (ok != _canAttachImages) {
+        setState(() => _canAttachImages = ok);
+      }
+    } catch (_) {
+      // Swallow — affordance stays hidden on transient lookup
+      // failure; same fallback as agent_compose.
+    }
   }
 
   @override
@@ -74,25 +115,35 @@ class _StewardOverlayChatState extends ConsumerState<StewardOverlayChat> {
 
 /// Sibling-isolated slot for the chat input. Lives outside the
 /// messages-region Consumer so SSE-driven rebuilds don't reach the
-/// TextField subtree. Reads `_StewardOverlayChatState._sendText` from
-/// the nearest ancestor of that type via the `context`.
-class _ChatInputSlot extends StatelessWidget {
+/// TextField subtree. Reads `_StewardOverlayChatState._sendMessage`
+/// from the nearest ancestor of that type via the `context`.
+///
+/// `agentId` is watched via `.select` so the slot only rebuilds the
+/// once (null → set) when the overlay binds an agent; SSE traffic
+/// changes other parts of the state and doesn't touch this slot.
+class _ChatInputSlot extends ConsumerWidget {
   const _ChatInputSlot();
 
   @override
-  Widget build(BuildContext context) {
-    // Walk up to find the parent State that owns the send callback.
-    // We don't use a Provider/InheritedWidget for this because
-    // `_sendText` is a method tearoff on the parent State — stable
-    // across builds for the same instance — and a const-stable
-    // ValueKey on `_ChatInput` guarantees its own State survives.
+  Widget build(BuildContext context, WidgetRef ref) {
     final parent = context.findAncestorStateOfType<_StewardOverlayChatState>();
     if (parent == null) {
       return const SizedBox.shrink();
     }
+    final agentId = ref.watch(
+      stewardOverlayControllerProvider.select((s) => s.agentId),
+    );
+    // Trigger the capability resolve once we have an agentId. Guarded
+    // inside the parent so repeat builds are no-ops.
+    if (agentId != null && agentId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        parent._resolveCapabilityIfNeeded(agentId);
+      });
+    }
     return _ChatInput(
       key: const ValueKey('steward-overlay-chat-input'),
-      onSend: parent._sendText,
+      onSend: parent._sendMessage,
+      canAttachImages: parent._canAttachImages,
     );
   }
 }
@@ -178,13 +229,20 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
 /// `ref.watch`) breaks the rebuild path; the input only rebuilds
 /// when its OWN setState fires.
 class _ChatInput extends StatefulWidget {
-  /// Called with the trimmed text when the user submits. Should
-  /// throw on failure so the input can restore the text for retry.
-  final Future<void> Function(String text) onSend;
+  /// Called with the trimmed text + optional image attachments when
+  /// the user submits. Should throw on failure so the input can
+  /// restore the text for retry.
+  final Future<void> Function(String text, List<Map<String, String>>? images)
+      onSend;
+
+  /// Whether the active agent's family declares `prompt_image[mode]`
+  /// true. Controls visibility of the paperclip affordance.
+  final bool canAttachImages;
 
   const _ChatInput({
     super.key,
     required this.onSend,
+    this.canAttachImages = false,
   });
 
   @override
@@ -200,6 +258,12 @@ class _ChatInputState extends State<_ChatInput> {
   // cycle and exacerbate the predictive-restore bug below.
   final _focus = FocusNode();
   bool _sending = false;
+  // Wave 2 W4 — pending image attachments queued for the next send.
+  // Each entry is `{mime_type, data}` with data base64-encoded; rides
+  // alongside the text body in postAgentInput's images param (W4.1).
+  bool _attaching = false;
+  String? _attachError;
+  final List<Map<String, String>> _pendingImages = [];
 
   @override
   void dispose() {
@@ -208,22 +272,63 @@ class _ChatInputState extends State<_ChatInput> {
     super.dispose();
   }
 
+  Future<void> _pickImage() async {
+    if (_attaching || _sending) return;
+    if (_pendingImages.length >= kMaxImagesPerTurn) {
+      setState(() => _attachError = 'Max $kMaxImagesPerTurn images per turn');
+      return;
+    }
+    setState(() {
+      _attaching = true;
+      _attachError = null;
+    });
+    try {
+      final attachment = await pickAndCompressImage();
+      if (attachment == null) return;
+      if (!mounted) return;
+      setState(() => _pendingImages.add(attachment.toJson()));
+    } on ComposerImageAttachError catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _attachError = 'Attach failed: $e');
+    } finally {
+      if (mounted) setState(() => _attaching = false);
+    }
+  }
+
+  void _removePendingImage(int index) {
+    if (index < 0 || index >= _pendingImages.length) return;
+    setState(() => _pendingImages.removeAt(index));
+  }
+
   Future<void> _send() async {
     final text = _ctrl.text.trim();
-    if (text.isEmpty) return;
+    final hasImages = _pendingImages.isNotEmpty;
+    if (text.isEmpty && !hasImages) return;
     // Clear BEFORE the await so anything the user types during the
     // network round-trip isn't wiped when the future resolves. On
     // failure we restore the original text so the user can retry.
+    final stagedImages = hasImages
+        ? List<Map<String, String>>.from(_pendingImages)
+        : null;
     _ctrl.clear();
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _pendingImages.clear();
+    });
     try {
-      await widget.onSend(text);
+      await widget.onSend(text, stagedImages);
     } catch (e) {
       if (mounted) {
         // Only restore if the user hasn't started typing something
         // new — preserving their fresh input is the higher priority.
         if (_ctrl.text.isEmpty) {
           _ctrl.text = text;
+        }
+        if (stagedImages != null) {
+          setState(() => _pendingImages.addAll(stagedImages));
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Send failed: $e')),
@@ -236,12 +341,53 @@ class _ChatInputState extends State<_ChatInput> {
 
   @override
   Widget build(BuildContext context) {
+    final canAttach = widget.canAttachImages;
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
+          if (_pendingImages.isNotEmpty)
+            ComposerImageThumbnailStrip(
+              images: _pendingImages,
+              onRemove: _removePendingImage,
+            ),
+          if (_attachError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4, left: 4),
+              child: Text(
+                _attachError!,
+                style: const TextStyle(
+                    fontSize: 11, color: DesignColors.error),
+              ),
+            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (canAttach)
+                IconButton(
+                  tooltip: _pendingImages.length >= kMaxImagesPerTurn
+                      ? 'Max $kMaxImagesPerTurn images per turn'
+                      : 'Attach image (${_pendingImages.length}/$kMaxImagesPerTurn)',
+                  onPressed: (_sending ||
+                          _attaching ||
+                          _pendingImages.length >= kMaxImagesPerTurn)
+                      ? null
+                      : _pickImage,
+                  icon: _attaching
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.image_outlined, size: 22),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
+              Expanded(
             // **IME-friendly defaults.** Earlier revisions set
             // `autocorrect: false` + `enableSuggestions: false` as
             // belt-and-suspenders for the v1.0.466 deleted-text-
@@ -283,16 +429,18 @@ class _ChatInputState extends State<_ChatInput> {
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          IconButton(
-            icon: _sending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.send, color: DesignColors.primary),
-            onPressed: _sending ? null : _send,
+              const SizedBox(width: 6),
+              IconButton(
+                icon: _sending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send, color: DesignColors.primary),
+                onPressed: _sending ? null : _send,
+              ),
+            ],
           ),
         ],
       ),

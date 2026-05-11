@@ -603,42 +603,22 @@ class _TasksViewState extends ConsumerState<_TasksView> {
         ),
       );
     }
-    final list = _tasks.isEmpty
-        ? _Placeholder(
-            text: _statusFilter == null
-                ? 'No tasks yet — tap + to create'
-                : 'No $_statusFilter tasks.',
-          )
-        : RefreshIndicator(
-            onRefresh: _load,
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-              itemCount: _tasks.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) => _TaskTile(
-                task: _tasks[i],
-                projectId: widget.projectId,
-                onChanged: _load,
-              ),
-            ),
-          );
+    final list = _buildTaskList();
     return Stack(
       children: [
         Positioned.fill(
           child: Column(
             children: [
-              _TaskStatusBar(
+              _TaskFilterBar(
                 statuses: _statusFilters,
-                selected: _statusFilter,
-                onChanged: (v) {
+                selectedStatus: _statusFilter,
+                onStatusChanged: (v) {
                   if (_statusFilter == v) return;
                   setState(() => _statusFilter = v);
                   _load();
                 },
-              ),
-              _TaskPriorityBar(
-                selected: _priorityFilter,
-                onChanged: (v) {
+                selectedPriority: _priorityFilter,
+                onPriorityChanged: (v) {
                   if (_priorityFilter == v) return;
                   setState(() => _priorityFilter = v);
                   _load();
@@ -661,74 +641,207 @@ class _TasksViewState extends ConsumerState<_TasksView> {
       ],
     );
   }
+
+  Widget _buildTaskList() {
+    if (_tasks.isEmpty) {
+      return _Placeholder(
+        text: _statusFilter == null
+            ? 'No tasks yet — tap + to create'
+            : 'No $_statusFilter tasks.',
+      );
+    }
+    // Status-filtered view: flat list — status is implicit, so no
+    // section headers and no per-row status label.
+    if (_statusFilter != null) {
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+          itemCount: _tasks.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
+          itemBuilder: (_, i) => _TaskTile(
+            task: _tasks[i],
+            projectId: widget.projectId,
+            onChanged: _load,
+          ),
+        ),
+      );
+    }
+    // No status filter — group by status (Linear/Asana mobile pattern).
+    // Each section header carries the status; per-row label is dropped.
+    const order = ['todo', 'in_progress', 'blocked', 'done'];
+    final byStatus = <String, List<Map<String, dynamic>>>{};
+    for (final t in _tasks) {
+      final s = (t['status'] ?? 'todo').toString();
+      byStatus.putIfAbsent(s, () => []).add(t);
+    }
+    final children = <Widget>[];
+    for (final st in order) {
+      final group = byStatus[st];
+      if (group == null || group.isEmpty) continue;
+      children.add(_StatusSectionHeader(status: st, count: group.length));
+      for (var i = 0; i < group.length; i++) {
+        children.add(_TaskTile(
+          task: group[i],
+          projectId: widget.projectId,
+          onChanged: _load,
+        ));
+        if (i < group.length - 1) {
+          children.add(const SizedBox(height: 8));
+        }
+      }
+      children.add(const SizedBox(height: 16));
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+        children: children,
+      ),
+    );
+  }
 }
 
-class _TaskStatusBar extends StatelessWidget {
+/// Single-row filter bar — status pills scroll horizontally at left,
+/// priority filter is a compact icon popup at right. Replaces the
+/// earlier two-row layout (status row + priority row) which read as
+/// twice the chrome for what users experience as one filter
+/// operation. Pattern lifted from Linear / Asana mobile.
+class _TaskFilterBar extends StatelessWidget {
   final List<String?> statuses;
-  final String? selected;
-  final ValueChanged<String?> onChanged;
-  const _TaskStatusBar({
+  final String? selectedStatus;
+  final ValueChanged<String?> onStatusChanged;
+  final TaskPriority? selectedPriority;
+  final ValueChanged<TaskPriority?> onPriorityChanged;
+  const _TaskFilterBar({
     required this.statuses,
-    required this.selected,
-    required this.onChanged,
+    required this.selectedStatus,
+    required this.onStatusChanged,
+    required this.selectedPriority,
+    required this.onPriorityChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
       child: Row(
         children: [
-          for (final s in statuses) ...[
-            _TaskFilterPill(
-              label: s ?? 'all',
-              selected: s == selected,
-              onTap: () => onChanged(s),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final s in statuses) ...[
+                    _TaskFilterPill(
+                      label: s ?? 'all',
+                      selected: s == selectedStatus,
+                      onTap: () => onStatusChanged(s),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                ],
+              ),
             ),
-            const SizedBox(width: 6),
-          ],
+          ),
+          _PriorityFilterButton(
+            selected: selectedPriority,
+            onChanged: onPriorityChanged,
+          ),
         ],
       ),
     );
   }
 }
 
-/// Horizontal priority filter beneath the status bar. Null = "any".
-/// Matches the look of `_TaskStatusBar` so the two rows read as a
-/// single compound filter and the extra visual weight is honest about
-/// being optional.
-class _TaskPriorityBar extends StatelessWidget {
+/// PopupMenu-based priority filter. Active priority colors the icon
+/// so the user can read the current filter at a glance without
+/// opening the menu. Compresses the original 5-pill priority row
+/// into a single 20pt icon.
+class _PriorityFilterButton extends StatelessWidget {
   final TaskPriority? selected;
   final ValueChanged<TaskPriority?> onChanged;
-  const _TaskPriorityBar({
+  const _PriorityFilterButton({
     required this.selected,
     required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    const options = <TaskPriority?>[
-      null,
-      TaskPriority.urgent,
-      TaskPriority.high,
-      TaskPriority.med,
-      TaskPriority.low,
-    ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    final tint = selected == null
+        ? DesignColors.textMuted
+        : taskPriorityColor(selected!);
+    return PopupMenuButton<TaskPriority?>(
+      tooltip: selected == null
+          ? 'Filter by priority'
+          : 'Priority: ${selected!.label}',
+      onSelected: onChanged,
+      icon: Icon(Icons.filter_list, size: 20, color: tint),
+      itemBuilder: (_) => [
+        CheckedPopupMenuItem<TaskPriority?>(
+          value: null,
+          checked: selected == null,
+          child: const Text('Any priority'),
+        ),
+        for (final p in TaskPriority.values)
+          CheckedPopupMenuItem<TaskPriority?>(
+            value: p,
+            checked: selected == p,
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: taskPriorityColor(p),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(p.label),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Section divider rendered between status groups when the status
+/// filter is null. The header IS the status — drops the redundant
+/// per-row status label from `_TaskTile`.
+class _StatusSectionHeader extends StatelessWidget {
+  final String status;
+  final int count;
+  const _StatusSectionHeader({required this.status, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
       child: Row(
         children: [
-          for (final p in options) ...[
-            _TaskFilterPill(
-              label: p?.label ?? 'any priority',
-              selected: p == selected,
-              onTap: () => onChanged(p),
-              leadingDot: p == null ? null : taskPriorityColor(p),
+          Text(
+            status.toUpperCase().replaceAll('_', ' '),
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: muted,
             ),
-            const SizedBox(width: 6),
-          ],
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$count',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: muted,
+            ),
+          ),
         ],
       ),
     );
@@ -739,12 +852,10 @@ class _TaskFilterPill extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final Color? leadingDot;
   const _TaskFilterPill({
     required this.label,
     required this.selected,
     required this.onTap,
-    this.leadingDot,
   });
 
   @override
@@ -764,30 +875,13 @@ class _TaskFilterPill extends StatelessWidget {
                 selected ? DesignColors.primary : DesignColors.borderDark,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (leadingDot != null) ...[
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: leadingDot,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 5),
-            ],
-            Text(
-              label,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 10,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color:
-                    selected ? DesignColors.primary : DesignColors.textMuted,
-              ),
-            ),
-          ],
+        child: Text(
+          label,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            color: selected ? DesignColors.primary : DesignColors.textMuted,
+          ),
         ),
       ),
     );
@@ -808,10 +902,14 @@ class _TaskTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final title = (task['title'] ?? '?').toString();
-    final status = (task['status'] ?? '').toString();
     final preview = _previewLine((task['body_md'] ?? '').toString());
     final fromPlan = (task['source'] ?? 'ad_hoc').toString() == 'plan';
     final priority = parseTaskPriority(task['priority']);
+    // Per-row redesign (v1.0.499 issue 4): drop the leading status
+    // dot AND the trailing status text. Status is conveyed by the
+    // section header (no-filter view) or the active filter pill
+    // (filtered view). The only color cue per row is the priority
+    // dot, which is genuinely per-row signal.
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {
@@ -839,9 +937,12 @@ class _TaskTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: _StatusDot(status: status),
+            Tooltip(
+              message: 'Priority: ${priority.label}',
+              child: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: TaskPriorityDot(priority: priority),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -850,11 +951,6 @@ class _TaskTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Tooltip(
-                        message: 'Priority: ${priority.label}',
-                        child: TaskPriorityDot(priority: priority),
-                      ),
-                      const SizedBox(width: 8),
                       Flexible(
                         child: Text(title,
                             style: GoogleFonts.spaceGrotesk(
@@ -893,16 +989,6 @@ class _TaskTile extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            Padding(
-              padding: const EdgeInsets.only(top: 1),
-              child: Text(status,
-                  style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10,
-                      color: isDark
-                          ? DesignColors.textMuted
-                          : DesignColors.textMutedLight)),
-            ),
           ],
         ),
       ),
@@ -925,36 +1011,6 @@ class _TaskTile extends StatelessWidget {
       if (stripped.isNotEmpty) return stripped;
     }
     return '';
-  }
-}
-
-class _StatusDot extends StatelessWidget {
-  final String status;
-  const _StatusDot({required this.status});
-  @override
-  Widget build(BuildContext context) {
-    Color c;
-    switch (status) {
-      case 'done':
-        c = Colors.green;
-        break;
-      case 'in_progress':
-        c = Colors.orange;
-        break;
-      case 'blocked':
-        c = DesignColors.error;
-        break;
-      default:
-        c = DesignColors.primary;
-    }
-    return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(
-        color: c,
-        shape: BoxShape.circle,
-      ),
-    );
   }
 }
 

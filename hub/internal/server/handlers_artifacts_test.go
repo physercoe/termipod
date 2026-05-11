@@ -167,6 +167,53 @@ func TestCreateArtifact_RejectsCrossTeamProject(t *testing.T) {
 	}
 }
 
+func TestCreateArtifact_BodyCap(t *testing.T) {
+	// AFM-V1 per-kind body cap (Q12 of docs/plans/canvas-viewer.md):
+	// `code-bundle` and `canvas-app` reject oversize bodies; other kinds
+	// are unaffected (the global blob cap still applies to upload).
+	s, token := newA2ATestServer(t)
+	projID := seedTestProject(t, s, defaultTeamID)
+	base := "/v1/teams/" + defaultTeamID + "/artifacts"
+	tooBig := int64(ArtifactBodyMaxBytes + 1)
+
+	for _, kind := range []string{"code-bundle", "canvas-app"} {
+		status, _ := doReq(t, s, token, http.MethodPost, base, map[string]any{
+			"project_id": projID,
+			"kind":       kind,
+			"name":       "huge",
+			"uri":        "blob:sha256/deadbeef",
+			"size":       tooBig,
+		})
+		if status != http.StatusBadRequest {
+			t.Errorf("%s oversize: status=%d want 400", kind, status)
+		}
+	}
+
+	// Other kinds aren't capped here.
+	status, _ := doReq(t, s, token, http.MethodPost, base, map[string]any{
+		"project_id": projID,
+		"kind":       "external-blob",
+		"name":       "huge",
+		"uri":        "blob:sha256/deadbeef",
+		"size":       tooBig,
+	})
+	if status != http.StatusCreated {
+		t.Errorf("external-blob oversize: status=%d want 201", status)
+	}
+
+	// At-cap is accepted.
+	status, _ = doReq(t, s, token, http.MethodPost, base, map[string]any{
+		"project_id": projID,
+		"kind":       "code-bundle",
+		"name":       "ok",
+		"uri":        "blob:sha256/cafef00d",
+		"size":       int64(ArtifactBodyMaxBytes),
+	})
+	if status != http.StatusCreated {
+		t.Errorf("at-cap code-bundle: status=%d want 201", status)
+	}
+}
+
 func TestCreateArtifact_RejectsMismatchedRun(t *testing.T) {
 	s, token := newA2ATestServer(t)
 	projA := seedTestProject(t, s, defaultTeamID)

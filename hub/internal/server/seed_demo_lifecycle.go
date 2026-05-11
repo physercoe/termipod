@@ -1641,9 +1641,12 @@ func seedCitationArtifact(
 // the ratified experiment-results deliverable as a `code-bundle`
 // artifact. Kept short + deterministic so blob dedup keeps the seed
 // idempotent; mirrors the shape Cursor and Claude Artifacts emit for
-// multi-file scaffolds.
+// multi-file scaffolds. Emits AFM-V1 (`version: 1`) per
+// `docs/plans/canvas-viewer.md`; the legacy unversioned form still
+// parses, but new seeds adopt the explicit schema.
 func demoRunBundle() map[string]any {
 	return map[string]any{
+		"version": 1,
 		"files": []map[string]any{
 			{
 				"path":    "train.py",

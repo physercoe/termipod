@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/artifact_manifest/artifact_manifest.dart';
 import '../../theme/design_colors.dart';
 
 /// Renders a `code-bundle`-kind artifact (wave 2 W5 of
@@ -174,41 +175,23 @@ class CodeBundleFile {
   });
 }
 
-/// Parse a decoded JSON value into a list of [CodeBundleFile]s. Pulled
-/// out of the State so widget tests can exercise the parsing logic
-/// without the network/blob path. Returns an empty list for shapes the
-/// viewer cannot render rather than throwing — the build() error path
-/// renders "bundle has no files" with the original URI.
+/// Parse a decoded JSON value into a list of [CodeBundleFile]s. Thin
+/// adapter over the shared [parseArtifactFileManifest] (AFM-V1) — the
+/// viewer keeps its own value type because it needs a highlight.js
+/// language id alongside the path, which the shared manifest doesn't
+/// carry. Returns an empty list for shapes the viewer cannot render
+/// rather than throwing — the build() error path renders "bundle has
+/// no files" with the original URI.
 @visibleForTesting
 List<CodeBundleFile> parseCodeBundle(dynamic decoded) {
-  List<Map<String, dynamic>> raw;
-  if (decoded is Map && decoded['files'] is List) {
-    raw = (decoded['files'] as List)
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList(growable: false);
-  } else if (decoded is List) {
-    raw = decoded
-        .whereType<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList(growable: false);
-  } else if (decoded is Map &&
-      decoded['path'] is String &&
-      decoded['content'] is String) {
-    raw = [decoded.cast<String, dynamic>()];
-  } else {
-    return const [];
-  }
-  return raw
-      .where((m) => m['path'] is String && m['content'] is String)
-      .map((m) {
-        final path = m['path'] as String;
-        return CodeBundleFile(
-          path: path,
-          content: m['content'] as String,
-          language: languageForPath(path),
-        );
-      })
+  final manifest = parseArtifactFileManifest(decoded);
+  if (manifest == null) return const [];
+  return manifest.files
+      .map((f) => CodeBundleFile(
+            path: f.path,
+            content: f.content,
+            language: languageForPath(f.path),
+          ))
       .toList(growable: false);
 }
 

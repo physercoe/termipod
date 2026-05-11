@@ -66,6 +66,16 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Per-kind body cap for AFM-V1 artifacts. Applied retroactively to
+	// code-bundle (Q12 of docs/plans/canvas-viewer.md, 2026-05-11) since
+	// no production bundle today comes close. Size is client-reported;
+	// the global blob cap still bounds outright abuse.
+	if artifactBodyCapped(in.Kind) && in.Size != nil &&
+		*in.Size > ArtifactBodyMaxBytes {
+		writeErr(w, http.StatusBadRequest, in.Kind+" body exceeds 10 MB cap")
+		return
+	}
+
 	// Project must exist in this team.
 	var projFound string
 	err := s.db.QueryRowContext(r.Context(),

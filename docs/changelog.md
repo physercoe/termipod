@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.487
+> **Last verified vs code:** v1.0.488
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,41 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.488-alpha — 2026-05-11
+
+Projects list filter / sort AppBar affordance. Common-case default
+(active + recent) plus quick "needs me" toggle and name / created
+alternates.
+
+### Added
+
+- **AppBar filter icon** (`Icons.filter_list`) on the Projects screen,
+  between the team-overview Insights icon and Refresh. Tap opens a
+  modal bottom sheet with three sections:
+  - **Status**: SegmentedButton `Active` (default — hides archived) /
+    `All` / `Archived`
+  - **Needs me**: switch — show only projects with open attention
+    or open AC
+  - **Sort**: SegmentedButton `Recent` (default — uses insights
+    `last_activity` with `created_at` fallback) / `Name A-Z` / `Created`
+- **Active-filter indicator**: small primary-color dot on the icon
+  when the filter is non-default, so a power-user setup is
+  immediately visible at a glance.
+- **Persisted preference**: SharedPreferences key
+  `projects_list_filter_v1` survives app restarts. Reset link in the
+  sheet clears to defaults.
+- **Filter-aware empty state**: the projects-list empty message now
+  differentiates "no projects yet" from "no projects match the
+  current filter" so a filtered user doesn't think the list vanished.
+
+### Changed
+
+- `_ProjectsTab.build` applies the filter before partitioning into
+  goals / workspaces, so the sub-project flatten and the kind split
+  both honor the user's pick.
 
 ---
 

@@ -10,6 +10,7 @@ import '../../providers/connection_provider.dart';
 import '../../providers/host_binding_provider.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
+import '../../providers/project_filter_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
@@ -74,6 +75,9 @@ class _ProjectsScreenState extends ConsumerState<ProjectsScreen> {
         ),
         actions: [
           const TeamSwitcher(),
+          _ProjectsFilterButton(
+            enabled: async.value?.configured == true,
+          ),
           IconButton(
             tooltip: 'Team overview',
             icon: const Icon(Icons.insights_outlined),
@@ -498,6 +502,14 @@ class _ProjectsTab extends ConsumerWidget {
     final byProject = teamId.isEmpty
         ? const <String, _ProjectInsight>{}
         : _readProjectInsights(ref, teamId);
+    // Apply the AppBar filter (status / needs-me / sort) BEFORE the
+    // kind partition so the goal-vs-workspace split + the sub-project
+    // flatten still work over the filtered set. `needs_me` reads from
+    // openByProject + by_project[].open_criteria; `sort` reads from
+    // by_project[].last_activity with a created_at fallback for rows
+    // not yet seen by Insights.
+    final filter = ref.watch(projectFilterProvider);
+    final filteredItems = _applyFilter(items, filter, openByProject, byProject);
     // Partition on `kind` per blueprint §6.1: goal vs. standing. The
     // schema is one table; the mobile IA splits them into two named
     // sections (Projects vs. Workspaces) since the mental models differ
@@ -510,7 +522,7 @@ class _ProjectsTab extends ConsumerWidget {
     // without drilling in.
     final goals = <Map<String, dynamic>>[];
     final standings = <Map<String, dynamic>>[];
-    for (final p in items) {
+    for (final p in filteredItems) {
       final kind = (p['kind'] ?? 'goal').toString();
       if (kind == 'standing') {
         standings.add(p);
@@ -521,8 +533,15 @@ class _ProjectsTab extends ConsumerWidget {
     final goalRows = _flattenWithChildren(goals);
     final standingRows = _flattenWithChildren(standings);
 
-    final body = items.isEmpty
-        ? _EmptyText(text: l10n.projectsEmpty)
+    final body = filteredItems.isEmpty
+        ? _EmptyText(
+            // Differentiate "no projects at all" from "filter hides them" so
+            // a new user doesn't think nothing exists and a filtered user
+            // remembers to clear the filter. items is the unfiltered list.
+            text: items.isEmpty
+                ? l10n.projectsEmpty
+                : 'No projects match the current filter.',
+          )
         : RefreshIndicator(
             onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
             child: CustomScrollView(
@@ -809,6 +828,264 @@ class _EmptyText extends StatelessWidget {
       ),
     );
   }
+}
+
+/// AppBar filter affordance. Shows a tune icon with a small dot when
+/// the user has a non-default filter applied so the filtered state is
+/// visible at a glance. Disabled until the hub is configured.
+class _ProjectsFilterButton extends ConsumerWidget {
+  final bool enabled;
+  const _ProjectsFilterButton({required this.enabled});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final filter = ref.watch(projectFilterProvider);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          tooltip: 'Filter and sort',
+          icon: const Icon(Icons.filter_list),
+          onPressed: enabled
+              ? () => showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (_) => const _ProjectsFilterSheet(),
+                  )
+              : null,
+        ),
+        if (!filter.isDefault)
+          Positioned(
+            right: 8,
+            top: 10,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: DesignColors.primary,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Bottom sheet for filter + sort. Three sections (status / needs-me /
+/// sort) plus a Reset link. Each picker is a SegmentedButton so the
+/// active option is one tap to read; matches the "compact pill picker"
+/// feedback rule from memory.
+class _ProjectsFilterSheet extends ConsumerWidget {
+  const _ProjectsFilterSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final filter = ref.watch(projectFilterProvider);
+    final notifier = ref.read(projectFilterProvider.notifier);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: DesignColors.textMuted.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Filter and sort',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (!filter.isDefault)
+                  TextButton(
+                    onPressed: () async {
+                      await notifier.reset();
+                    },
+                    child: const Text('Reset'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _SectionLabel(text: 'Status'),
+            const SizedBox(height: 6),
+            SegmentedButton<ProjectStatusFilter>(
+              segments: const [
+                ButtonSegment(
+                  value: ProjectStatusFilter.active,
+                  label: Text('Active'),
+                ),
+                ButtonSegment(
+                  value: ProjectStatusFilter.all,
+                  label: Text('All'),
+                ),
+                ButtonSegment(
+                  value: ProjectStatusFilter.archived,
+                  label: Text('Archived'),
+                ),
+              ],
+              selected: {filter.status},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) {
+                notifier.set(filter.copyWith(status: s.first));
+              },
+            ),
+            const SizedBox(height: 14),
+            _SectionLabel(text: 'Needs me'),
+            const SizedBox(height: 6),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              value: filter.needsMeOnly,
+              title: Text(
+                'Only projects with open attention or AC',
+                style: GoogleFonts.spaceGrotesk(fontSize: 13),
+              ),
+              subtitle: Text(
+                'Quick "what\'s parked on me?" shortcut',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+              onChanged: (v) => notifier.set(filter.copyWith(needsMeOnly: v)),
+            ),
+            const SizedBox(height: 14),
+            _SectionLabel(text: 'Sort by'),
+            const SizedBox(height: 6),
+            SegmentedButton<ProjectSortMode>(
+              segments: const [
+                ButtonSegment(
+                  value: ProjectSortMode.recentActivity,
+                  label: Text('Recent'),
+                ),
+                ButtonSegment(
+                  value: ProjectSortMode.name,
+                  label: Text('Name'),
+                ),
+                ButtonSegment(
+                  value: ProjectSortMode.createdDesc,
+                  label: Text('Created'),
+                ),
+              ],
+              selected: {filter.sort},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) {
+                notifier.set(filter.copyWith(sort: s.first));
+              },
+            ),
+            const SizedBox(height: 14),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Done'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text.toUpperCase(),
+      style: GoogleFonts.spaceGrotesk(
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+        color: DesignColors.textMuted,
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
+/// Applies the AppBar filter + sort to the raw project list. Pure —
+/// state lives in `projectFilterProvider`; this only consumes it.
+///
+/// Filter order: status → needs-me. Sort is applied last so the final
+/// flat list lands in the user-picked order.
+///
+/// `openByProject` and `byProject` are the same maps the row renderer
+/// uses, so "needs me" + "recent activity" pull from the data the UI
+/// already has on hand — no extra round-trip.
+List<Map<String, dynamic>> _applyFilter(
+  List<Map<String, dynamic>> items,
+  ProjectListFilter filter,
+  Map<String, int> openByProject,
+  Map<String, _ProjectInsight> byProject,
+) {
+  var rows = items;
+  switch (filter.status) {
+    case ProjectStatusFilter.active:
+      rows = rows
+          .where((p) => (p['status'] ?? '').toString() != 'archived')
+          .toList();
+    case ProjectStatusFilter.archived:
+      rows = rows
+          .where((p) => (p['status'] ?? '').toString() == 'archived')
+          .toList();
+    case ProjectStatusFilter.all:
+      // No-op — include both. Local var avoids mutating the caller list.
+      rows = [...rows];
+  }
+  if (filter.needsMeOnly) {
+    rows = rows.where((p) {
+      final pid = (p['id'] ?? '').toString();
+      final att = openByProject[pid] ?? 0;
+      final ac = byProject[pid]?.openCriteria ?? 0;
+      return att > 0 || ac > 0;
+    }).toList();
+  }
+  switch (filter.sort) {
+    case ProjectSortMode.recentActivity:
+      rows.sort((a, b) {
+        // Prefer insights last_activity; fall back to created_at so
+        // workspaces and not-yet-aggregated projects still sort sanely.
+        String key(Map<String, dynamic> p) {
+          final pid = (p['id'] ?? '').toString();
+          final la = byProject[pid]?.lastActivity ?? '';
+          if (la.isNotEmpty) return la;
+          return (p['created_at'] ?? '').toString();
+        }
+        return key(b).compareTo(key(a));
+      });
+    case ProjectSortMode.name:
+      rows.sort((a, b) {
+        final na = (a['name'] ?? '').toString().toLowerCase();
+        final nb = (b['name'] ?? '').toString().toLowerCase();
+        return na.compareTo(nb);
+      });
+    case ProjectSortMode.createdDesc:
+      rows.sort((a, b) {
+        final ca = (a['created_at'] ?? '').toString();
+        final cb = (b['created_at'] ?? '').toString();
+        return cb.compareTo(ca);
+      });
+  }
+  return rows;
 }
 
 /// Per-project Insights row condensed for the projects list. Sourced

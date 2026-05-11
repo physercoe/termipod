@@ -7,6 +7,7 @@ import '../../providers/hub_provider.dart';
 import '../../services/hub/entity_names.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
+import '../../widgets/artifact_viewers/tabular_viewer.dart';
 import '../../widgets/hub_offline_banner.dart';
 
 /// Artifacts browser (blueprint §6.6).
@@ -522,10 +523,10 @@ class _ArtifactDetailSheet extends ConsumerWidget {
 }
 
 /// Routes a loaded artifact row to its kind-specific viewer when one
-/// exists. Wave 2 lands viewers wedge-by-wedge — currently `pdf` only;
-/// W3 adds `tabular`, W4 lands image multimodal, etc. Other kinds
-/// silently render no launcher (the detail sheet's metadata + uri
-/// chip remain the only surface).
+/// exists. Wave 2 lands viewers wedge-by-wedge — currently `pdf` and
+/// `tabular`. W4 adds image multimodal. Other kinds silently render no
+/// launcher (the detail sheet's metadata + uri chip remain the only
+/// surface).
 class _ArtifactViewerLauncher extends StatelessWidget {
   final Map<String, dynamic> row;
   const _ArtifactViewerLauncher({required this.row});
@@ -536,28 +537,67 @@ class _ArtifactViewerLauncher extends StatelessWidget {
     final spec = artifactKindSpecFor(rawKind);
     final name = (row['name'] ?? '(unnamed)').toString();
     final uri = (row['uri'] ?? '').toString();
-    if (spec.kind != ArtifactKind.pdf || uri.isEmpty) {
-      return const SizedBox.shrink();
+    final mime = (row['mime'] ?? '').toString();
+    if (uri.isEmpty) return const SizedBox.shrink();
+
+    switch (spec.kind) {
+      case ArtifactKind.pdf:
+        return _LauncherButton(
+          icon: Icons.picture_as_pdf_outlined,
+          label: 'Open PDF',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ArtifactPdfViewerScreen(uri: uri, title: name),
+            ),
+          ),
+        );
+      case ArtifactKind.tabular:
+        return _LauncherButton(
+          icon: Icons.table_chart_outlined,
+          label: 'Open table',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ArtifactTabularViewerScreen(
+                uri: uri,
+                title: name,
+                mime: mime.isEmpty ? null : mime,
+              ),
+            ),
+          ),
+        );
+      // Remaining MVP kinds get their launchers as W4–W6 ship.
+      // ignore: no_default_cases
+      default:
+        return const SizedBox.shrink();
     }
+  }
+}
+
+class _LauncherButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  const _LauncherButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: SizedBox(
         width: double.infinity,
         child: OutlinedButton.icon(
-          icon: const Icon(Icons.picture_as_pdf_outlined, size: 16),
+          icon: Icon(icon, size: 16),
           label: Text(
-            'Open PDF',
+            label,
             style: GoogleFonts.spaceGrotesk(
                 fontSize: 13, fontWeight: FontWeight.w600),
           ),
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) =>
-                    ArtifactPdfViewerScreen(uri: uri, title: name),
-              ),
-            );
-          },
+          onPressed: onPressed,
         ),
       ),
     );

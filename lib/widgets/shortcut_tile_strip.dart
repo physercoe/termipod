@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../models/artifact_kinds.dart';
 import '../providers/hub_provider.dart';
+import '../screens/artifacts/artifacts_by_kind_screen.dart';
 import '../screens/deliverables/structured_deliverable_viewer.dart';
 import '../screens/projects/acceptance_criteria_screen.dart';
 import '../screens/projects/artifacts_screen.dart';
@@ -960,30 +962,65 @@ class _TileRow extends ConsumerWidget {
   }
 
   Future<void> _openReferences(BuildContext context, WidgetRef ref) async {
+    // Wave 2 W3 — references resolve to the tabular citation artifact
+    // produced by the lit-review deliverable. If any citation-shaped
+    // artifact exists for the project, route straight to its kind
+    // screen so the table renders. Otherwise fall back to the older
+    // lit-review-deliverable / documents-screen sequence so the tile
+    // is still useful pre-ratification.
     final client = ref.read(hubProvider.notifier).client;
+    bool hasCitation = false;
     Map<String, dynamic>? litReviewDeliverable;
     if (client != null && projectId.isNotEmpty) {
       try {
-        final cached = await client.listDeliverablesCached(
+        final cached = await client.listArtifactsCached(
           projectId: projectId,
-          includeComponents: true,
+          kind: ArtifactKind.tabular.slug,
         );
-        for (final d in cached.body) {
-          if ((d['kind'] ?? '').toString() == 'lit-review') {
-            litReviewDeliverable = d;
+        for (final a in cached.body) {
+          final mime = (a['mime'] ?? '').toString().toLowerCase();
+          if (mime.contains('schema=citation')) {
+            hasCitation = true;
             break;
           }
         }
       } catch (_) {
-        // Swallow — fall through to the Documents screen below.
+        // Swallow — we still try the deliverable route below.
+      }
+      if (!hasCitation) {
+        try {
+          final cached = await client.listDeliverablesCached(
+            projectId: projectId,
+            includeComponents: true,
+          );
+          for (final d in cached.body) {
+            if ((d['kind'] ?? '').toString() == 'lit-review') {
+              litReviewDeliverable = d;
+              break;
+            }
+          }
+        } catch (_) {
+          // Swallow — fall through to the Documents screen below.
+        }
       }
     }
     if (!context.mounted) return;
+    if (hasCitation) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArtifactsByKindScreen(
+          projectId: projectId,
+          kind: ArtifactKind.tabular,
+          schema: 'citation',
+          title: 'References',
+        ),
+      ));
+      return;
+    }
     if (litReviewDeliverable != null) {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => StructuredDeliverableViewer(
           projectId: projectId,
-          deliverableId: (litReviewDeliverable!['id'] ?? '').toString(),
+          deliverableId: (litReviewDeliverable['id'] ?? '').toString(),
           initialDeliverable: litReviewDeliverable,
         ),
       ));

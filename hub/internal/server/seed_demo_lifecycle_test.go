@@ -26,7 +26,7 @@ func TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()
-	res, err := SeedLifecycleDemo(ctx, db)
+	res, err := SeedLifecycleDemo(ctx, db, "")
 	if err != nil {
 		t.Fatalf("SeedLifecycleDemo: %v", err)
 	}
@@ -356,11 +356,11 @@ func TestSeedLifecycleDemo_Idempotent(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	ctx := context.Background()
-	first, err := SeedLifecycleDemo(ctx, db)
+	first, err := SeedLifecycleDemo(ctx, db, "")
 	if err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
-	second, err := SeedLifecycleDemo(ctx, db)
+	second, err := SeedLifecycleDemo(ctx, db, "")
 	if err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 	}
 
 	// Seed, then reset, then verify all five projects gone.
-	first, err := SeedLifecycleDemo(ctx, db)
+	first, err := SeedLifecycleDemo(ctx, db, "")
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestResetLifecycleDemo_RoundTrip(t *testing.T) {
 		}
 	}
 	// Re-seed succeeds (proves reset cleaned thoroughly).
-	if _, err := SeedLifecycleDemo(ctx, db); err != nil {
+	if _, err := SeedLifecycleDemo(ctx, db, ""); err != nil {
 		t.Fatalf("re-seed after reset: %v", err)
 	}
 }

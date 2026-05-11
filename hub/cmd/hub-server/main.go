@@ -367,7 +367,7 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	case "ablation":
 		runSeedAblation(ctx, db, *dataRoot, *reset, log)
 	case "lifecycle":
-		runSeedLifecycle(ctx, db, *reset, log)
+		runSeedLifecycle(ctx, db, *dataRoot, *reset, log)
 	default:
 		log.Error("unknown shape", "shape", *shape)
 		fmt.Fprintf(os.Stderr, "seed-demo: unknown shape %q (valid: ablation, lifecycle)\n", *shape)
@@ -409,7 +409,7 @@ func runSeedAblation(ctx context.Context, db *sql.DB, dataRoot string, reset boo
 		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount, res.ArtifactCount)
 }
 
-func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Logger) {
+func runSeedLifecycle(ctx context.Context, db *sql.DB, dataRoot string, reset bool, log *slog.Logger) {
 	var wasReset bool
 	if reset {
 		deleted, err := server.ResetLifecycleDemo(ctx, db)
@@ -424,7 +424,7 @@ func runSeedLifecycle(ctx context.Context, db *sql.DB, reset bool, log *slog.Log
 			fmt.Println("seed-demo: reset — no prior lifecycle-demo rows to delete.")
 		}
 	}
-	res, err := server.SeedLifecycleDemo(ctx, db)
+	res, err := server.SeedLifecycleDemo(ctx, db, dataRoot)
 	if err != nil {
 		log.Error("seed-demo (lifecycle) failed", "err", err)
 		os.Exit(1)

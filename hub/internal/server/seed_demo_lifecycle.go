@@ -182,7 +182,14 @@ func ResetLifecycleDemo(ctx context.Context, db *sql.DB) (deleted bool, err erro
 // the first-phase project (research-idea-demo) already exists, the
 // whole seed is treated as already-done and Skipped=true is returned;
 // the caller is expected to pass `--reset` for a refresh.
-func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, error) {
+//
+// `dataRoot` is the blob-storage root (matches `Server.cfg.DataRoot`).
+// When non-empty, the seed writes deterministic citation bytes via
+// `insertDemoBlob` so the W3 References tile resolves to a real
+// tabular viewer payload. Tests that don't care about renderable
+// citations may pass an empty string — the seed falls back to mock
+// URIs in that case.
+func SeedLifecycleDemo(ctx context.Context, db *sql.DB, dataRoot string) (*SeedLifecycleResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("SeedLifecycleDemo: nil db")
 	}
@@ -220,7 +227,7 @@ func SeedLifecycleDemo(ctx context.Context, db *sql.DB) (*SeedLifecycleResult, e
 	now := NowUTC()
 
 	for _, spec := range lifecycleSpecs() {
-		ctxRes, err := seedLifecycleProject(ctx, tx, spec, now)
+		ctxRes, err := seedLifecycleProject(ctx, tx, spec, now, dataRoot)
 		if err != nil {
 			return nil, fmt.Errorf("seed %s: %w", spec.name, err)
 		}
@@ -338,6 +345,11 @@ type seedProjectCtx struct {
 	stewardID string
 	now       string
 	phase     string
+
+	// Blob-storage root for the running hub instance. When empty, the
+	// seed must skip helpers that need to write real bytes (citation
+	// tabular artifacts, etc.) and emit mock URIs instead.
+	dataRoot string
 
 	// Side-effect counters: bumped by the typed-document / artifact /
 	// run helpers so the per-project pass can roll them up into the
@@ -656,13 +668,26 @@ func lifecycleSpecs() []lifecycleSpec {
 						return nil, err
 					}
 				}
+				// Wave 2 W3: lit-review deliverables gain a structured
+				// References component (tabular citation artifact) so the
+				// References tile can render a real table instead of
+				// falling back to DocumentsScreen.
+				citationArt, err := seedCitationArtifact(c, demoCitations())
+				if err != nil {
+					return nil, err
+				}
+				litComponents := []componentSpec{{kind: "document", refID: litDoc.id, ord: 0}}
+				if citationArt.id != "" {
+					litComponents = append(litComponents,
+						componentSpec{kind: "artifact", refID: citationArt.id, ord: 1})
+				}
 				return seedDeliverables(c, []deliverableSpec{
 					{
 						logID:      "lit-review-doc",
 						phase:      "lit-review",
 						kind:       "lit-review",
 						state:      "ratified",
-						components: []componentSpec{{kind: "document", refID: litDoc.id}},
+						components: litComponents,
 					},
 					{
 						logID: "method-doc",
@@ -1084,7 +1109,7 @@ type lifecycleProjectResult struct {
 }
 
 func seedLifecycleProject(
-	ctx context.Context, tx *sql.Tx, spec lifecycleSpec, now string,
+	ctx context.Context, tx *sql.Tx, spec lifecycleSpec, now, dataRoot string,
 ) (lifecycleProjectResult, error) {
 	res := lifecycleProjectResult{byState: map[string]int{}}
 
@@ -1188,6 +1213,7 @@ func seedLifecycleProject(
 	c := &seedProjectCtx{
 		tx: tx, ctx: ctx, projectID: res.projectID,
 		stewardID: res.stewardID, now: now, phase: spec.phase,
+		dataRoot: dataRoot,
 	}
 
 	dls, err := spec.deliverables(c)
@@ -1523,6 +1549,69 @@ func seedArtifact(
 		fmt.Sprintf("blob:mock/lifecycle/%s", id),
 		size, mime, c.stewardID, c.now); err != nil {
 		return seededArtifact{}, fmt.Errorf("insert artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
+
+// demoCitations is the fixed citation set surfaced by every ratified
+// lit-review deliverable. Eight rows is enough to exercise the
+// TabularViewer's row count, schema-known column ordering, and a
+// `notes`-style free-text column. Keep the slice deterministic so
+// blob dedup keeps the seed idempotent.
+func demoCitations() []map[string]any {
+	return []map[string]any{
+		{"author": "Lin et al.", "year": 2025, "title": "Routing in sparse MoE under bandwidth caps",
+			"venue": "ICML", "doi": "10.1234/icml.2025.routing", "notes": "Canonical routing axis"},
+		{"author": "Hu et al.", "year": 2024, "title": "Token-level expert balancing",
+			"venue": "NeurIPS", "doi": "10.1234/neurips.2024.balance", "notes": "Adjacent — flagged in review"},
+		{"author": "Park & Singh", "year": 2024, "title": "Lion vs AdamW at small batch",
+			"venue": "TMLR", "doi": "10.1234/tmlr.2024.lion", "notes": "Optimizer prior"},
+		{"author": "Ramesh et al.", "year": 2023, "title": "Curriculum order for nanoGPT",
+			"venue": "Workshop", "doi": "10.1234/ws.2023.curriculum", "notes": ""},
+		{"author": "Zhao & Lee", "year": 2023, "title": "Evaluation harness drift",
+			"venue": "EMNLP", "doi": "10.1234/emnlp.2023.harness", "notes": "Cite if we change eval cadence"},
+		{"author": "Goldberg", "year": 2017, "title": "Neural network methods for NLP",
+			"venue": "Book", "doi": "", "notes": "Textbook reference"},
+		{"author": "Touvron et al.", "year": 2024, "title": "Open-weight scaling limits",
+			"venue": "arXiv", "doi": "10.1234/arxiv.2024.scaling", "notes": ""},
+		{"author": "Vaswani et al.", "year": 2017, "title": "Attention is all you need",
+			"venue": "NeurIPS", "doi": "10.1234/neurips.2017.attention", "notes": "Foundational"},
+	}
+}
+
+// seedCitationArtifact materialises a `tabular`-kind citation artifact
+// for the W3 References tile. When `c.dataRoot` is set, the citation
+// rows are serialised as JSON and written to the content-addressed
+// blob store so the mobile TabularViewer resolves real bytes;
+// otherwise the artifact gets a mock URI (visible-failure path).
+// MIME carries the `schema=citation` discriminator (Q6 option (a)).
+func seedCitationArtifact(
+	c *seedProjectCtx, rows []map[string]any,
+) (seededArtifact, error) {
+	data, err := json.Marshal(rows)
+	if err != nil {
+		return seededArtifact{}, fmt.Errorf("marshal citations: %w", err)
+	}
+	mime := "application/json; schema=citation"
+	uri := fmt.Sprintf("blob:mock/lifecycle/citations-%s", c.projectID)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write citations blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	name := "references.json"
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'tabular', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert citation artifact: %w", err)
 	}
 	c.artifactsSeeded++
 	return seededArtifact{id: id, name: name}, nil

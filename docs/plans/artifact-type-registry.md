@@ -6,9 +6,9 @@ description: Lock the artifact-kind set behind a closed registry — typed conte
 # Artifact type registry
 
 > **Type:** plan
-> **Status:** In progress — W1+W2 shipped (2026-05-11, v1.0.489/490-alpha)
+> **Status:** In progress — W1+W2+W3 shipped (2026-05-11, v1.0.489–491-alpha)
 > **Audience:** principal · contributors
-> **Last verified vs code:** v1.0.490
+> **Last verified vs code:** v1.0.491
 
 **TL;DR.** `artifacts.kind` is schemaless today (migration 0019
 comment lists `checkpoint` / `eval_curve` / `log` / `dataset` /
@@ -278,7 +278,7 @@ points at lock time. Bundle cost roughly the same as the earlier
 
 **LOC estimate:** ~200 mobile.
 
-### W3 — Tabular viewer + References reclassification
+### W3 — Tabular viewer + References reclassification ✅ SHIPPED v1.0.491-alpha (2026-05-11)
 
 **Scope.** Lands the `tabular` kind viewer AND fixes the
 References-vs-Documents tile overlap.

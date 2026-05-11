@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.490
+> **Last verified vs code:** v1.0.491
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,67 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.491-alpha — 2026-05-11
+
+Wave 2 W3 — Tabular viewer + References tile reclassification.
+Second user-visible viewer on the wave 2 closed-set chassis,
+landed alongside the seed change that puts a structured References
+component on every ratified lit-review deliverable.
+
+### Added
+
+- **`lib/widgets/artifact_viewers/tabular_viewer.dart`** —
+  `ArtifactTabularViewer` (Riverpod consumer) +
+  `ArtifactTabularViewerScreen`. Resolves `blob:sha256/<sha>` URIs
+  through `HubClient.downloadBlobCached`, parses JSON (top-level
+  list-of-objects OR `{rows: [...]}`), renders a `DataTable` with
+  empty / error / unsupported-scheme states. Schema discovery via
+  MIME's `schema=` param (Q6 option (a)) — known schemas (today:
+  `citation`) pick a canonical column order, unknown schemas derive
+  from the union of keys in the first 8 rows.
+- **`lib/screens/artifacts/artifacts_by_kind_screen.dart`** —
+  project-scoped artifact list filtered by closed-set kind +
+  optional schema. Used by the References tile; reusable for other
+  kind-targeted views as wave 2 progresses.
+- **Citation seed** — `seed_demo_lifecycle.go` gains
+  `demoCitations()` (8 deterministic rows) +
+  `seedCitationArtifact()` that writes the bytes through
+  `insertDemoBlob` (when `dataRoot` is set) and emits a real
+  `blob:sha256/<sha>` URI with MIME
+  `application/json; schema=citation`. Every ratified lit-review
+  deliverable gains a 2nd component (`{kind: artifact, refID:
+  citationArt.id, ord: 1}`).
+- **`test/widgets/tabular_viewer_test.dart`** — unsupported-uri
+  error path + screen-scaffold smoke test.
+
+### Changed
+
+- **`SeedLifecycleDemo(ctx, db, dataRoot)`** — signature gains
+  `dataRoot string`. Empty string preserves the old mock-URI
+  behaviour for tests that don't care about renderable citations;
+  the `seed-demo --shape lifecycle` CLI passes the real data root
+  so citations resolve through the hub blob endpoint.
+- **`_openReferences` (shortcut_tile_strip.dart)** — now tries
+  `listArtifactsCached(kind=tabular)` first and routes to
+  `ArtifactsByKindScreen(kind=tabular, schema=citation,
+  title=References)` when a citation-shaped row exists. Falls back
+  to the existing StructuredDeliverableViewer / DocumentsScreen
+  ladder when nothing matches.
+- **Artifact detail launcher** — `_ArtifactViewerLauncher` in
+  `artifacts_screen.dart` extracted into a `switch (spec.kind)`;
+  pdf and tabular kinds get distinct launcher buttons; remaining
+  MVP kinds wait for W4–W6.
+
+### Notes
+
+- Schema discovery deliberately stops at MIME params today (Q6
+  option (a)). Escalate to option (c) (a `artifact_schema_id`
+  column) only if domain-specific viewers proliferate.
+- Inline-edit on table cells (Q7) remains out of scope — the
+  viewer is read-only.
 
 ---
 

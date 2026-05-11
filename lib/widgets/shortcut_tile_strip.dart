@@ -1017,11 +1017,12 @@ class _TileRow extends ConsumerWidget {
       return;
     }
     if (litReviewDeliverable != null) {
+      final deliverable = litReviewDeliverable;
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => StructuredDeliverableViewer(
           projectId: projectId,
-          deliverableId: (litReviewDeliverable['id'] ?? '').toString(),
-          initialDeliverable: litReviewDeliverable,
+          deliverableId: (deliverable['id'] ?? '').toString(),
+          initialDeliverable: deliverable,
         ),
       ));
       return;

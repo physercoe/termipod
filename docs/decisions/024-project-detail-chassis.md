@@ -1,9 +1,9 @@
 # 024. Project detail chassis — A+B+C layered Overview, closed hero/tile registries, per-project overrides
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism shipped wave 1; D4 ribbon → compact PhaseBadge v1.0.500)
+> **Status:** Accepted (2026-05-11; chassis live since v1.0.358; tile editor v1.0.484; D10 hero override mechanism shipped wave 1; D4 ribbon → compact PhaseBadge v1.0.500; D2 hero set narrowed by `sweep_compare` retirement v1.0.507)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.486
+> **Last verified vs code:** v1.0.507
 
 **TL;DR.** The project detail page's Overview tab has been an A+B+C
 chassis since lifecycle W4 — fixed `PortfolioHeader`, a phase-swapped
@@ -98,24 +98,41 @@ one is **an APK change** (Dart enum + widget class + registry
 dispatch + tests). The hub doesn't define the set; the template
 YAML can only *select* from existing slugs.
 
-**Locked 9-hero MVP set:**
+**Locked 8-hero MVP set** (was 9 at decision time; `sweep_compare`
+retired in v1.0.507, see "Amended 2026-05-11" below):
 
 | Slug | Archetype | Used for |
 |---|---|---|
 | `idea_conversation` | Memo / chat surface | Research idea phase |
 | `deliverable_focus` | Ratifiable deliverable with components + ACs + ratify CTA | Research lit-review + method phases |
-| `experiment_dash` | Live aggregate dashboard (sparklines / sweep summary) | Research experiment phase |
+| `experiment_dash` | Live aggregate dashboard (multi-series metric-chart inline) | Research experiment phase (covers sweep-compare since v1.0.507) |
 | `paper_acceptance` | Milestone manuscript + AC progress + submit gate | Research paper phase |
 | `recent_artifacts` | Top-N artifacts stream | Artifact-centric goal projects |
 | `recent_firings_list` | Top-N schedule firings | Workspaces (standing kind) |
 | `task_milestone_list` | Mini-kanban over project tasks | Generic goal-projects (chassis default) |
 | `children_status` | Tree of sub-projects with status | Parent-of-children projects |
-| `sweep_compare` | Cross-run scatter / parallel coords | Hyperparam sweep projects |
 
 The previously-listed `portfolio_header` slug is **dropped from
 the hero registry** — `PortfolioHeader` is chassis-A, not a hero;
 reusing the name as a "no-hero fallback" was confusing. A null /
 empty hero is the correct fallback when no slug applies.
+
+#### Amended 2026-05-11 — `sweep_compare` retired (v1.0.507)
+
+The `sweep_compare` slug was removed from the closed hero set when
+the multi-series metric-chart embedded by `experiment_dash`
+(v1.0.503+, then aggregated in v1.0.505 as part of
+[multi-run-experiment-phase](../plans/multi-run-experiment-phase.md))
+subsumed the cross-run scatter use case. One hero now covers both
+"single-run experiment results" and "N-run sweep comparison" —
+both shapes feed an `experiment-results` deliverable that owns a
+multi-series metric-chart artifact.
+
+D2's closure rule still holds: any template that declares
+`overview_widget: sweep_compare` now degrades to
+`task_milestone_list` (the chassis fallback). The mobile +
+hub-side regression tests guard against the slug returning, mirroring
+the v1.0.501 `portfolio_header` retirement.
 
 Hero consolidation candidates noted but not collapsed: `recent_artifacts`
 + `recent_firings_list` (same archetype, different filter — keep

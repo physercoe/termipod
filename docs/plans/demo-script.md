@@ -1,7 +1,7 @@
 # Demo script — research lifecycle walkthrough
 
 > **Type:** plan
-> **Status:** Draft (2026-05-05) — script not yet rehearsed; pending wedge ship
+> **Status:** Draft (2026-05-05) — script not yet rehearsed; pending wedge ship. Needs a sweep through after v1.0.507's `--shape ablation` retirement: the §7.1/§7.2 ablation-grid references should be re-cast as the experiment-phase N-run sweep that `seed-demo --shape lifecycle` now produces natively. The demo arc itself doesn't change — the same multi-series chart story still plays — only the seed flow + project name.
 > **Audience:** contributors · demo operators · narrators
 > **Last verified vs code:** v1.0.351
 

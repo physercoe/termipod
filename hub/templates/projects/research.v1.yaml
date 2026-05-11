@@ -159,7 +159,7 @@ phase_specs:
             required: true
             ord: 3
           - kind: run
-            ref: ablation-sweep-run
+            ref: sweep-run
             required: true
             ord: 4
     criteria:

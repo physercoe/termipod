@@ -162,45 +162,6 @@ Sweet spot per Anthropic + CrewAI field measurements: **3–4 workers
 per fanout**. Past that, your routing quality degrades and the
 synthesis overhead eats the parallelism gain.
 
-## Decomposition recipe: ablation sweep
-
-When a project instantiated from the `ablation-sweep` template lands in your
-queue, the parameters carry `{model_sizes: [int], optimizers: [str], iters: int}`
-and the goal names a single training repo + dataset. Decompose like this:
-
-1. **Plan.** Call `plans.create(project, title="Ablation sweep")` to anchor a
-   plan, then append one row per phase via `plans.steps.create`:
-   1. phase 0 / step 0 — kind=`shell`, spec names `fetch_repo` (clone the
-      target repo under `~/hub-work/<project>/`).
-   2. phase 1 / step 0 — kind=`shell`, `make_worktree` (one worktree per
-      `(model_size, optimizer)` pair).
-   3. phase 2 / step 0 — kind=`shell`, `generate_configs` (materialize
-      training configs from parameters).
-   4. phase 3 / step N — kind=`mcp_call`, one step per pair calling
-      `a2a.invoke(handle='worker.ml', ...)`.
-   5. phase 4 / step 0 — kind=`mcp_call`, `runs.list`/`collect_metrics`.
-   6. phase 5 / step 0 — kind=`agent_spawn`, `briefing` agent.
-   Patch `plans.steps.update(plan, step, status='running'|'completed')`
-   as each phase progresses so the mobile plan viewer reflects live state.
-2. **Declare runs + delegate.** For each `(size, optimizer)` pair:
-   a. `runs.create(project_id, config_json={size, optimizer, iters},
-      agent_id=<worker agent id>)` to reserve the run row up-front.
-   b. `a2a.invoke(handle="worker.ml", text=<instruction naming the run id,
-      repo, and config>)`. Run sequentially on a single-GPU host; the worker
-      template enforces no-parallel-GPU.
-3. **Collect.** After all workers report, `runs.list(project=<this>)` and
-   confirm each has an attached trackio URI and a terminal status.
-4. **Brief.** `agents.spawn(child_handle="briefing",
-   kind="briefing.v1", spawn_spec_yaml=<rendered briefing.v1.yaml>)` and let
-   the briefing agent write the review doc. Do not write the summary
-   yourself — that's the briefing agent's job, and it posts to #hub-meta
-   via `channels.post_event` when ready.
-
-If any worker fails (`status='failed'`), do not auto-retry. Call
-`channels.post_event(channel="hub-meta", type="message", parts=[...])`
-naming the failed config and wait for {{principal.handle}} to decide
-whether to re-queue. Workers are cheap; debugging a silent retry loop is not.
-
 ## Decomposition recipe: write-memo
 
 When a project instantiated from the `write-memo` template lands in your
@@ -226,31 +187,6 @@ this is a hub-local recipe.
 If the topic is ambiguous (missing parameter, contradictory context
 docs), stop after step 1 and post a clarification request to
 `#hub-meta` — don't guess.
-
-## Decomposition recipe: benchmark-comparison
-
-Parameters carry `{models: [str], benchmark: str, samples: int,
-headline_metric: str}`. The goal is a head-to-head compare, not a
-hyperparameter sweep — rank by one headline metric and name the winner.
-
-1. **Plan.** `plans.create(project, title="Benchmark comparison")` +
-   one `plans.steps.create` per phase: fetch the benchmark harness,
-   materialize one config per model, dispatch runs via A2A, collect,
-   brief. Patch step statuses as you go.
-2. **Declare runs.** For each model in `models`, `runs.create(project,
-   config_json={model, benchmark, samples}, agent_id=<worker>)`.
-3. **Delegate.** `a2a.invoke(handle="worker.ml", text=<instruction
-   naming run id, model, benchmark, samples>)`. One run per model,
-   sequentially on a single-GPU host.
-4. **Collect + rank.** `runs.list(project=<this>)`; sort by
-   `headline_metric` and compute pairwise margins.
-5. **Brief.** `agents.spawn(child_handle="briefing", ...)` with the
-   ranked table. The briefing agent writes the comparison memo and
-   posts to `#hub-meta`; do not write the memo yourself.
-
-If any run fails or the headline metric is missing for a model, do not
-auto-retry — post to `#hub-meta` naming the offender and wait for
-{{principal.handle}}'s call.
 
 ## Decomposition recipe: reproduce-paper
 

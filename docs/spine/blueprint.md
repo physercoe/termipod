@@ -389,14 +389,20 @@ Locked to Candidate A (nanoGPT-Shakespeare optimizer × size sweep) per
 [ADR-001](../decisions/001-locked-candidate-a.md). Detail tracker:
 [`../plans/research-demo-gaps.md`](../plans/research-demo-gaps.md).
 
-- P4.1 ✅ Built-in project templates: "ablation-sweep" shipped (`steward.research`,
-  `ml-worker`, `briefing` templates). "reproduce paper" / "write memo" /
-  "benchmark comparison" deferred — Candidate A only needs ablation-sweep.
+- P4.1 ✅ Built-in project templates: `research.v1` (5-phase research
+  lifecycle) is the canonical demo template; `reproduce-paper` and
+  `write-memo` ship as supporting examples. The single-phase
+  `ablation-sweep` + `benchmark-comparison` templates were retired
+  in v1.0.507 — `research.v1`'s experiment phase encodes the N-run
+  sweep shape natively (one `experiment-results` deliverable with
+  per-run runs + aggregate metric-chart). See
+  [`../plans/multi-run-experiment-phase.md`](../plans/multi-run-experiment-phase.md).
 - P4.2 ✅ Steward decomposition recipe (`hub/templates/prompts/steward.research.v1.md`)
   with the SOTA orchestrator-worker pattern from [ADR-008](../decisions/008-orchestrator-worker-slice.md).
 - P4.3 🟡 End-to-end demo: backend complete; dress-rehearsal harness shipped
-  (seed-demo + mock-trainer, no GPU needed). Hardware run of Candidate A
-  remaining — gated on two consecutive walkthrough-clean device tests.
+  (`seed-demo --shape lifecycle` + optional mock-trainer, no GPU needed).
+  Hardware run of Candidate A remaining — gated on two consecutive
+  walkthrough-clean device tests.
 
 ---
 

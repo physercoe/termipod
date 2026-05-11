@@ -30,7 +30,7 @@ func main() {
 	var (
 		vendor     = flag.String("vendor", "trackio", "metrics vendor: trackio|wandb")
 		dir        = flag.String("dir", "", "output directory (trackio root, or wandb root). Required.")
-		project    = flag.String("project", "ablation-sweep-demo", "project name (trackio DB filename, or wandb top-level dir)")
+		project    = flag.String("project", "mock-trainer-demo", "project name (trackio DB filename, or wandb top-level dir)")
 		run        = flag.String("run", "mock-run-1", "run name (trackio run_name, or wandb run-dir)")
 		size       = flag.Int("size", 256, "synthetic model size (shapes the curve)")
 		optimizer  = flag.String("optimizer", "adamw", "synthetic optimizer (shapes the curve): adamw|lion")

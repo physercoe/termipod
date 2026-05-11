@@ -125,16 +125,19 @@ local development; the mobile app rejects self-signed TLS over
 
 ### 3.4 Seed sample data (optional)
 
-The hub ships a demo seeder that populates a complete project
-(ablation sweep) so the mobile UI has something to render without
-running real agents:
+The hub ships a demo seeder that populates a five-project research
+lifecycle portfolio so the mobile UI has something to render
+without running real agents:
 
 ```bash
-/tmp/hub-server seed-demo --data ~/hub-dev
+/tmp/hub-server seed-demo --data ~/hub-dev --shape lifecycle
 ```
 
-Idempotent; pass `-reset` to wipe and re-insert. See
-[`run-the-demo.md`](run-the-demo.md) for what the seed contains.
+Idempotent; pass `-reset` to wipe and re-insert. (The legacy
+`--shape ablation` flow was retired in v1.0.507 in favour of the
+lifecycle portfolio; see
+[`../plans/multi-run-experiment-phase.md`](../plans/multi-run-experiment-phase.md).)
+See [`run-the-demo.md`](run-the-demo.md) for what the seed contains.
 
 ---
 
@@ -270,7 +273,7 @@ tmux new -d -s work "host-runner run \
   --size 384 --optimizer lion --iters 1000 --interval-ms 500
 ```
 
-The full recipe (including `seed-demo`, ablation-sweep loop, and the
+The full recipe (including `seed-demo --shape lifecycle` and the
 wandb variant) is in [`run-the-demo.md`](run-the-demo.md). Use that
 when you need a complete worked example.
 

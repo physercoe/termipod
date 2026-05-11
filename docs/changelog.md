@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.506
+> **Last verified vs code:** v1.0.507
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,84 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.507-alpha — 2026-05-11
+
+W4 + W5 of [`multi-run-experiment-phase`](plans/multi-run-experiment-phase.md):
+retire the legacy ablation seed shape + supporting templates, then
+catch the load-bearing docs up. The `seed-demo --shape lifecycle`
+path (v1.0.505) is now the only supported seed flow; the single-
+project ablation-sweep demo and its two project templates
+(`ablation-sweep`, `benchmark-comparison`) are gone.
+
+### Removed
+
+- **`hub/cmd/hub-server` `--shape ablation` branch** — flag is now
+  `lifecycle`-only. Unknown values report a clear error citing the
+  v1.0.507 retirement.
+- **`hub/internal/server/seed_demo.go`** — slimmed to `insertDemoBlob`
+  only (renamed to `seed_demo_blob.go`). All ablation-specific seed
+  code (`SeedDemo`, `ResetDemo`, `SeedDemoResult`,
+  `drawCheckpointPNG`, etc.) deleted.
+- **`hub/internal/server/seed_demo_test.go`** — exercised the deleted
+  ablation seed; removed.
+- **`hub/templates/projects/ablation-sweep.yaml`,
+  `benchmark-comparison.yaml`** — both retired. `research.v1` covers
+  the same shape natively (one experiment-results deliverable with
+  N runs + aggregate metric-chart).
+- **`hub/templates/prompts/steward.v1.md`** — "Decomposition recipe:
+  ablation sweep" + "Decomposition recipe: benchmark-comparison"
+  sections deleted; the lifecycle template's recipes are in the
+  research.v1 prompt.
+
+### Added
+
+- **`hub/internal/server/seed_demo_run_curves.go`** — carries
+  `synthRunCurves`, `synthLossCurve`, `demoCurve`, `roundTo` out of
+  the retired `seed_demo.go`. The lifecycle seed still uses them
+  for per-run `run_metrics` synthesis.
+- **`hub/internal/server/seed_demo_blob.go`** — single-helper file
+  retaining `insertDemoBlob`. Header comment explains the historic
+  shrink.
+- **Hub regression test** `TestInit_RetiredTemplatesAreGone` —
+  fails loudly if either `ablation-sweep` or `benchmark-comparison`
+  templates re-appear in the init seed.
+
+### Changed
+
+- **`hub/cmd/mock-trainer` default `--project`** — was
+  `ablation-sweep-demo`, now `mock-trainer-demo`. The tool is
+  unchanged otherwise.
+- **`hub/templates/projects/research.v1.yaml`** — the experiment-
+  phase `run` component's `ref` renamed from `ablation-sweep-run`
+  to `sweep-run`. Cosmetic, but the YAML no longer references the
+  retired template name.
+- **Docs updated to v1.0.507 reality:**
+  - `docs/decisions/024-project-detail-chassis.md` — D2 hero list
+    shrinks to 8; "Amended 2026-05-11" block records the
+    `sweep_compare` retirement rationale.
+  - `docs/reference/project-detail-chassis.md` — hero registry
+    table + archetype list updated; `experiment_dash` row notes it
+    now covers single-run + N-run sweeps.
+  - `docs/spine/blueprint.md` P4.1 — names `research.v1` as the
+    canonical demo template; calls out the ablation/benchmark
+    retirement.
+  - `docs/how-to/release-testing.md` §0.1 — replaces the
+    `ablation-sweep-demo` seed example with the lifecycle pointer;
+    mock-trainer example updated.
+  - `docs/how-to/local-dev-environment.md` §3.4 + §6 — same
+    substitution.
+  - `docs/plans/demo-script.md` status line — flagged for an
+    ablation-grid sweep through; arc unchanged.
+
+### Migration note
+
+Existing demo data seeded under the legacy path keeps working — the
+hub doesn't auto-migrate; users with an ablation-sweep-demo project
+in their dev DB can leave it (read-only via mobile) or
+`hub-server seed-demo --shape lifecycle --reset` to swap.
 
 ---
 

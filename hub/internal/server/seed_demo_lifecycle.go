@@ -2316,11 +2316,10 @@ func seedRun(
 	}
 	c.runsSeeded++
 
-	// Emit metric curves so the run-detail screen renders sparklines +
-	// charts the same way the ablation-sweep demo does. Without these
-	// rows the runs tab is empty even though the run itself is recorded.
-	// Non-completed runs (running/queued) skip metrics — there's nothing
-	// meaningful to backfill yet.
+	// Emit metric curves (synthRunCurves, carried over from the retired
+	// legacy seed) so the run-detail screen renders sparklines + charts
+	// for each completed run. Non-completed runs (running/queued) skip
+	// metrics — there's nothing meaningful to backfill yet.
 	if status == "completed" {
 		size := intFromConfig(configBlob, "n_embd", 384)
 		opt := stringFromConfig(configBlob, "optimizer", "lion")

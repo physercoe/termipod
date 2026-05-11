@@ -40,15 +40,11 @@ Two tools let you exercise the research-demo surface without
 running nanoGPT on a real GPU. Use one or both before §3+ hub
 walkthroughs.
 
-- **`hub-server seed-demo`** — writes an `ablation-sweep-demo`
-  project with 6 completed runs, a briefing memo, a pending
-  review, and one open attention item. Idempotent. Good for
-  reviewing the already-finished project UI (Project Detail →
-  Run Detail → Docs → Reviews → Me).
-
-  ```
-  hub-server seed-demo --data <hub-data-root>
-  ```
+- **`hub-server seed-demo`** — see §0.2 below for the canonical
+  lifecycle portfolio (five phase-staged research projects). The
+  legacy `--shape ablation` flow (single ablation-sweep project)
+  was retired in v1.0.507; `--shape lifecycle` is now the only
+  supported shape.
 
 - **`hub/cmd/mock-trainer`** — writes a real trackio SQLite or
   wandb-offline JSONL file with a synthetic training curve. The
@@ -60,7 +56,7 @@ walkthroughs.
 
   ```
   mock-trainer --vendor trackio --dir /tmp/trackio \
-    --project ablation-sweep-demo --run size384-lion \
+    --project mock-trainer-demo --run size384-lion \
     --size 384 --optimizer lion --iters 1000
   ```
 

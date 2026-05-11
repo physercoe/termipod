@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.485
+> **Last verified vs code:** v1.0.507
 
 **TL;DR.** The project detail screen's Overview tab is an A+B+C
 chassis: a kind-pluggable header, a phase-swapped hero widget, and
@@ -41,7 +41,7 @@ Files:
 | Phase badge | `lib/widgets/phase_badge.dart` (chassis-level pill above PillBar) · `lib/widgets/phase_ribbon.dart` (reused inside the badge's expand-on-tap sheet) |
 | Header A | `lib/screens/projects/overview_widgets/portfolio_header.dart` (goal-kind) · `lib/screens/projects/overview_widgets/workspace_overview.dart` (standing-kind) |
 | Hero B (dispatch) | `lib/screens/projects/overview_widgets/registry.dart` (`buildOverviewWidget`) |
-| Hero B (widgets) | `lib/screens/projects/overview_widgets/research_phase_heroes.dart`, `task_milestone_list.dart`, `sweep_compare.dart`, `recent_artifacts.dart`, `children_status.dart` |
+| Hero B (widgets) | `lib/screens/projects/overview_widgets/research_phase_heroes.dart`, `task_milestone_list.dart`, `recent_artifacts.dart`, `children_status.dart` |
 | Tile strip C | `lib/widgets/shortcut_tile_strip.dart` |
 | Tile editor | `PhaseTileEditorSheet` in `lib/widgets/shortcut_tile_strip.dart` (phaseless projects store overrides under the empty-phase key; v1.0.499) |
 
@@ -53,19 +53,23 @@ Closed enum: `kKnownOverviewWidgets` in `overview_widgets/registry.dart`.
 |---|---|---|---|---|
 | `idea_conversation` | `IdeaConversationHero` | Memo-pad-style surface for exploratory idea capture; suggested next prompts | `documents` (memo kind), recent agent events | research idea phase |
 | `deliverable_focus` | `DeliverableFocusHero` | The one ratifiable deliverable for this phase + components + AC pip + ratify CTA | `deliverables`, `deliverable_components`, `acceptance_criteria` | research lit-review + method phases |
-| `experiment_dash` | `ExperimentDashHero` | Live aggregate over runs: sparkline of best metric, sweep summary, recent run chips | `runs`, `run_metrics`, `sweep_summary` | research experiment phase |
+| `experiment_dash` | `ExperimentDashHero` | Deliverable summary + inline aggregate metric-chart (multi-series, N-run sweep) tap-to-fullscreen | `deliverables`, `artifacts` (kind=metric-chart) | research experiment phase (covers single-run + N-run sweeps since v1.0.507) |
 | `paper_acceptance` | `PaperAcceptanceHero` | Manuscript section list with status pips + AC progress + acceptance gate | `documents` (paper draft), `acceptance_criteria` (kind=gate) | research paper phase |
 | `recent_artifacts` | `RecentArtifactsHero` | Top-N artifacts stream, kind-filtered chips | `artifacts` | Artifact-centric goal projects (template-declared) |
 | `recent_firings_list` | `RecentFiringsList` | Top-N schedule firings + cadence info | `schedules`, `firings` | Workspaces (kind=standing — chassis default) |
 | `task_milestone_list` | `TaskMilestoneListHero` | Mini-kanban (3 columns: Open / In progress / Done), tap row → task edit sheet | `tasks` | Generic goal projects (chassis default) |
 | `children_status` | `ChildrenStatusHero` | List of sub-projects with status pill each | `projects` filtered by `parent_id` | Parent-of-children projects |
-| `sweep_compare` | `SweepCompareHero` | Scatter / parallel-coords across runs in a sweep | `sweep_summary`, `runs` | Hyperparam-sweep projects |
 
 The previously-defined `portfolio_header` slug is **NOT in this
 list** — `PortfolioHeader` is the chassis-A header, not a hero.
 Reusing the name as a hero slug confused the boundary; dropped in
 ADR-024 D2 and removed from both the mobile registry and the hub
 `validOverviewWidgets` enum in v1.0.501.
+
+The `sweep_compare` slug was **also removed** in v1.0.507. The
+multi-series metric-chart embedded by `experiment_dash` subsumes the
+cross-run scatter use case — see ADR-024 amendment + plan
+`multi-run-experiment-phase.md`.
 
 > **Hero redesign moratorium until artifact-type-registry W1 lands.**
 > Per ADR-024 follow-up sequencing, hero consolidation /
@@ -88,10 +92,11 @@ needed):
    `recent_firings_list`)
 6. **Task kanban** — mini board (`task_milestone_list`)
 7. **Parent hierarchy** — tree of children (`children_status`)
-8. **Cross-run comparison** — sweep scatter / parallel coords
-   (`sweep_compare`)
 
-8 archetypes, 9 heroes (recent_X is split into two by entity).
+7 archetypes, 8 heroes (recent_X split by entity). The "cross-run
+comparison" archetype was its own bullet pre-v1.0.507 (`sweep_compare`);
+the multi-series metric-chart embedded by `experiment_dash` absorbs
+it under archetype 3 (live aggregate dashboard).
 
 ## 3. Tile registry — catalog
 

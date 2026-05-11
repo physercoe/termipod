@@ -8,7 +8,7 @@
 //   reconstruct-db      Rebuild events DB from event_log/ JSONL.
 //   backup              Snapshot DB + team/ + blobs/ into a tar.gz.
 //   restore             Extract a backup archive into a data root.
-//   seed-demo           Insert ablation-sweep-demo state (no-GPU reviewer flow).
+//   seed-demo           Insert the lifecycle research-demo portfolio (no-GPU reviewer flow).
 package main
 
 import (
@@ -71,7 +71,7 @@ Commands:
   reconstruct-db    Rebuild DB from event_log/ JSONL.
   backup            Snapshot the live DB + team/ + blobs/ into a tar.gz.
   restore           Rehydrate a fresh data root from a backup archive.
-  seed-demo         Insert ablation-sweep-demo state for no-GPU reviewer flow.
+  seed-demo         Insert the lifecycle research-demo portfolio for no-GPU reviewer flow.
 
 Run "hub-server <command> -h" for flags.`)
 }
@@ -325,27 +325,31 @@ func runRestore(args []string, log *slog.Logger) {
 
 // ---- seed-demo ----
 
-// runSeedDemo inserts a ready-to-review "ablation-sweep-demo" project into an
-// already-initialized hub DB. See server.SeedDemo for what it writes.
-// Intended for reviewers who want to explore the mobile UI (projects / runs /
-// docs / reviews / inbox) without running nanoGPT on a GPU.
+// runSeedDemo inserts the lifecycle research-demo portfolio into an
+// already-initialized hub DB. See server.SeedLifecycleDemo for what
+// it writes — five phase-staged research projects covering every UI
+// state the mobile chassis must render.
 //
-// Idempotent — running twice reports the existing project and makes no
-// changes.
+// Idempotent — running twice reports the existing projects and makes
+// no changes. Pass -reset to refresh after a seed schema change.
+//
+// Historic note: the legacy `--shape ablation` flag (Candidate A
+// single-phase nanoGPT sweep) was retired in v1.0.507. The
+// `--shape` flag is preserved here as `lifecycle`-only so existing
+// how-to docs and CI scripts continue to parse; the value is
+// effectively a no-op since `lifecycle` is the only valid choice.
 func runSeedDemo(args []string, log *slog.Logger) {
 	fs := flag.NewFlagSet("seed-demo", flag.ExitOnError)
 	dataRoot := fs.String("data", defaultDataRoot(), "data root directory")
 	dbPath := fs.String("db", "", "sqlite path (default: <data>/hub.db)")
 	reset := fs.Bool("reset", false,
-		"delete the existing demo project for the chosen shape "+
-			"(and its dependent rows) before re-inserting. Use when "+
-			"the seed content has evolved and you want to refresh a "+
-			"previously-seeded hub.")
-	shape := fs.String("shape", "ablation",
-		"which demo to seed: 'ablation' = original Candidate A "+
-			"single-phase nanoGPT sweep (run-the-demo.md); 'lifecycle' "+
-			"= 5-phase research lifecycle (run-lifecycle-demo.md), "+
-			"with phase 1 done, phase 2 in_progress, gate pending.")
+		"delete the existing demo projects (and their dependent rows) "+
+			"before re-inserting. Use when the seed content has evolved "+
+			"and you want to refresh a previously-seeded hub.")
+	shape := fs.String("shape", "lifecycle",
+		"which demo to seed. Only 'lifecycle' is supported — the legacy "+
+			"'ablation' shape was retired in v1.0.507. Flag kept for "+
+			"backward-compatible how-to scripts.")
 	_ = fs.Parse(args)
 
 	if *dbPath == "" {
@@ -364,49 +368,13 @@ func runSeedDemo(args []string, log *slog.Logger) {
 	ctx := context.Background()
 
 	switch *shape {
-	case "ablation":
-		runSeedAblation(ctx, db, *dataRoot, *reset, log)
 	case "lifecycle":
 		runSeedLifecycle(ctx, db, *dataRoot, *reset, log)
 	default:
 		log.Error("unknown shape", "shape", *shape)
-		fmt.Fprintf(os.Stderr, "seed-demo: unknown shape %q (valid: ablation, lifecycle)\n", *shape)
+		fmt.Fprintf(os.Stderr, "seed-demo: unknown shape %q (valid: lifecycle; 'ablation' was retired in v1.0.507)\n", *shape)
 		os.Exit(2)
 	}
-}
-
-func runSeedAblation(ctx context.Context, db *sql.DB, dataRoot string, reset bool, log *slog.Logger) {
-	var wasReset bool
-	if reset {
-		deleted, err := server.ResetDemo(ctx, db)
-		if err != nil {
-			log.Error("seed-demo reset failed", "err", err)
-			os.Exit(1)
-		}
-		wasReset = deleted
-		if deleted {
-			fmt.Println("seed-demo: reset — deleted prior ablation-demo rows.")
-		} else {
-			fmt.Println("seed-demo: reset — no prior ablation-demo rows to delete.")
-		}
-	}
-	res, err := server.SeedDemo(ctx, db, dataRoot)
-	if err != nil {
-		log.Error("seed-demo failed", "err", err)
-		os.Exit(1)
-	}
-	if res.Skipped {
-		fmt.Printf("seed-demo: project already exists (id=%s) — nothing written. "+
-			"Pass -reset to refresh.\n", res.ProjectID)
-		return
-	}
-	res.Reset = wasReset
-	action := "inserted"
-	if wasReset {
-		action = "reset + re-inserted"
-	}
-	fmt.Printf("seed-demo: %s ablation-demo state.\n  project:    %s\n  runs:       %d\n  document:   %s\n  review:     %s (pending)\n  attention:  %s (open decision)\n  images:     %d (samples/generations × 3 per run)\n  artifacts:  %d (checkpoint + eval_curve per run)\n",
-		action, res.ProjectID, len(res.RunIDs), res.DocumentID, res.ReviewID, res.Attention, res.ImageCount, res.ArtifactCount)
 }
 
 func runSeedLifecycle(ctx context.Context, db *sql.DB, dataRoot string, reset bool, log *slog.Logger) {

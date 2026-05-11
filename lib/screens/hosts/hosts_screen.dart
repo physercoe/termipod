@@ -75,7 +75,8 @@ enum _HostSort {
 }
 
 class _HostsScreenState extends ConsumerState<HostsScreen> {
-  bool _hostsExpanded = true;
+  bool _hubHostsExpanded = true;
+  bool _personalHostsExpanded = true;
   _HostSort _sort = _HostSort.name;
 
   @override
@@ -97,6 +98,18 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
       hubHosts: hubHosts,
     );
     _sortRows(rows);
+    // Group rows by their relationship to the hub. teamPersonal hosts
+    // (locally-bookmarked + hub-registered) live under HUB because the
+    // hub side is the authoritative scope; personal-only hosts have no
+    // hub presence and go in their own group.
+    final hubChildRows = [
+      for (final r in rows)
+        if (r.scope != HostScope.personal) r,
+    ];
+    final personalRows = [
+      for (final r in rows)
+        if (r.scope == HostScope.personal) r,
+    ];
 
     return Scaffold(
       body: CustomScrollView(
@@ -157,9 +170,17 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
             ],
           ),
           if (hubConfigured) ...[
-            const SliverToBoxAdapter(child: _StaticSectionLabel(label: 'HUB')),
+            SliverToBoxAdapter(
+              child: _CollapsibleHeader(
+                label: 'Hub',
+                count: hubChildRows.length,
+                expanded: _hubHostsExpanded,
+                onTap: () => setState(
+                    () => _hubHostsExpanded = !_hubHostsExpanded),
+              ),
+            ),
             SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
               sliver: SliverToBoxAdapter(
                 child: HubTile(
                   name: _hubDisplayName(hubStats, hubBaseUrl),
@@ -172,29 +193,62 @@ class _HostsScreenState extends ConsumerState<HostsScreen> {
                 ),
               ),
             ),
+            if (_hubHostsExpanded)
+              SliverPadding(
+                // Indent the children visually so they read as
+                // belonging to the hub above. A thin left rail on
+                // each tile would be tidier than padding alone but
+                // would touch every theme; padding is good enough
+                // for an MVP grouping cue.
+                padding: const EdgeInsets.fromLTRB(32, 0, 16, 8),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _HostTile(row: hubChildRows[i]),
+                    ),
+                    childCount: hubChildRows.length,
+                  ),
+                ),
+              ),
+            if (_hubHostsExpanded && hubChildRows.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(32, 0, 16, 12),
+                  child: _NoHostsHint(text: 'No hub-registered hosts yet.'),
+                ),
+              ),
           ],
           SliverToBoxAdapter(
             child: _CollapsibleHeader(
-              label: 'Hosts',
-              count: rows.length,
-              expanded: _hostsExpanded,
-              onTap: () =>
-                  setState(() => _hostsExpanded = !_hostsExpanded),
+              label: 'Personal',
+              count: personalRows.length,
+              expanded: _personalHostsExpanded,
+              onTap: () => setState(
+                  () => _personalHostsExpanded = !_personalHostsExpanded),
             ),
           ),
           if (rows.isEmpty)
             SliverToBoxAdapter(child: _EmptyState(l10n: l10n))
-          else if (_hostsExpanded)
+          else if (_personalHostsExpanded && personalRows.isNotEmpty)
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, i) => Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: _HostTile(row: rows[i]),
+                    child: _HostTile(row: personalRows[i]),
                   ),
-                  childCount: rows.length,
+                  childCount: personalRows.length,
                 ),
+              ),
+            )
+          else if (_personalHostsExpanded && rows.isNotEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 16, 12),
+                child:
+                    _NoHostsHint(text: 'No personal-only bookmarks yet.'),
               ),
             ),
           const SliverToBoxAdapter(child: _VaultSection()),
@@ -590,27 +644,26 @@ class _ScopeBadge extends StatelessWidget {
 
 /// Non-collapsible variant of the section label used for the Hub block.
 /// Hub is a single tile, not a list, so the chevron + count would be
-/// noise; this matches the rhythm of [_CollapsibleHeader] without the
-/// affordances.
-class _StaticSectionLabel extends StatelessWidget {
-  final String label;
-  const _StaticSectionLabel({required this.label});
+/// Inline empty-section caption rendered under the Hub or Personal
+/// header when the group has no rows. Keeps the section visible (so
+/// the user knows where new hosts would land) without the heavier
+/// full-screen [_EmptyState] which is reserved for the
+/// nothing-at-all case.
+class _NoHostsHint extends StatelessWidget {
+  final String text;
+  const _NoHostsHint({required this.text});
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final muted =
         isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
-      child: Text(
-        label.toUpperCase(),
-        style: GoogleFonts.spaceGrotesk(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: muted,
-          letterSpacing: 0.8,
-        ),
+    return Text(
+      text,
+      style: GoogleFonts.spaceGrotesk(
+        fontSize: 12,
+        fontStyle: FontStyle.italic,
+        color: muted,
       ),
     );
   }

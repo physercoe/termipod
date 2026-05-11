@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.492
+> **Last verified vs code:** v1.0.493
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.493-alpha — 2026-05-11
+
+W4 follow-on: image artifact view-on-tap + CI fix.
+
+### Added
+
+- **`lib/widgets/artifact_viewers/image_viewer.dart`** —
+  `ArtifactImageViewer` (Riverpod consumer; resolves
+  `blob:sha256/<sha>` via `HubClient.downloadBlobCached`) +
+  `ArtifactImageViewerScreen` (fullscreen route wraps the viewer
+  in an `InteractiveViewer` so users can pinch-zoom and pan).
+- **`_ArtifactViewerLauncher`** gains an `image` branch, so any
+  `image`-kind artifact in the detail sheet now surfaces an
+  "Open image" outlined button matching the pdf/tabular pattern.
+- **Cross-engine multimodal input follow-up** documented in
+  `docs/plans/artifact-type-registry.md` W4 section — Claude/
+  Gemini/Codex CLI accept more than images (PDF cross-engine;
+  audio/video on Gemini). Tracking the wedge as a separate plan
+  rather than expanding this one.
+
+### Fixed
+
+- Test import for `resolveCanAttachImages` updated to
+  `composer_image_attach.dart` — the v1.0.492 refactor moved the
+  function out of `agent_compose.dart` and the gate test still
+  imported from the old location, breaking analyze.
 
 ---
 

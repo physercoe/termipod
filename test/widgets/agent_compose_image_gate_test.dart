@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:termipod/widgets/agent_compose.dart';
+import 'package:termipod/widgets/image_attach/composer_image_attach.dart';
 
 // Tests for ADR-021 W4.6 — the image-attach affordance gate.
 // resolveCanAttachImages joins an agent's `kind` + `driving_mode`

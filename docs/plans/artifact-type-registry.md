@@ -308,7 +308,38 @@ References-vs-Documents tile overlap.
 
 **LOC estimate:** ~350 mobile + ~80 hub.
 
-### W4 — Image + multimodal user input ✅ SHIPPED v1.0.492-alpha (2026-05-11)
+### W4 — Image + multimodal user input ✅ SHIPPED v1.0.492-alpha (2026-05-11) + image view-on-tap
+
+**Follow-up — non-image multimodal input (deferred).** The three
+engines we ship today accept more than just images:
+
+| Engine | Image | PDF | Audio | Video | Notes |
+|---|---|---|---|---|---|
+| Claude Code (Claude API) | ✅ JPEG/PNG/GIF/WebP | ✅ `document` blocks, ≤32 MB / 600 pp | ❌ | ❌ | Other office formats (csv/docx/xlsx) via file-upload tool. |
+| Gemini CLI (Gemini API) | ✅ | ✅ native, ≤50 MB / 1000 pp | ✅ mp3/wav | ✅ mp4 | Widest modality coverage of the three. |
+| Codex CLI (OpenAI) | ✅ | ✅ via file_data blocks | ❌ | ❌ | Image is the primary multimodal axis today. |
+
+Extending the composer attach affordance to PDF (cross-engine) +
+audio/video (Gemini-only) is its own wedge. Scope sketch:
+
+1. **Hub validator** — gain MIME allowlists per modality, family-
+   registry flags `prompt_pdf[mode]` / `prompt_audio[mode]` /
+   `prompt_video[mode]` mirroring the existing `prompt_image[mode]`.
+2. **Composer** — capability lookup branches per-modality so the
+   paperclip surfaces a kind picker when the active family accepts
+   multiple; on single-axis families it stays single-purpose.
+3. **Driver wire mapping** — each driver picks the right multimodal
+   content-block shape per modality (Claude: `document`/`image`;
+   Gemini: inline blob/file API; codex: `file_data`/`image_url`).
+4. **MIME plumbing** — already mostly covered by the closed-set
+   artifact kinds: `pdf` / `audio` / `video` viewers ship in W5–W6
+   anyway, so the receive-side renderers are reused.
+
+Tracking issue: file separately as
+`docs/plans/cross-engine-multimodal-input.md` when the wedge slot
+opens — not in scope for the current registry plan.
+
+**Scope.** First multimodal landing — user can attach an image
 
 **Scope.** First multimodal landing — user can attach an image
 from the overlay chat composer or via `attach_artifact` MCP

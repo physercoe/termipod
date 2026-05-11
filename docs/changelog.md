@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-11)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.501
+> **Last verified vs code:** v1.0.502
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,64 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.502-alpha — 2026-05-11
+
+`metric-chart` artifacts now render a graph. Closes the
+biggest functional gap exposed by the v1.0.501 seed review — the
+kind existed in the closed-set registry and the seed attached it,
+but the body was a mock URI with no real bytes and there was no
+mobile viewer, so testers saw the chip and tapped nothing.
+
+### Added
+
+- **MetricChartViewer** (`lib/widgets/artifact_viewers/metric_chart_viewer.dart`)
+  — `ArtifactMetricChartViewer` + `ArtifactMetricChartViewerScreen`
+  download an AFM-V1-style JSON blob via
+  `HubClient.downloadBlobCached`, parse it, and draw a native line
+  chart with axes + grid + per-series legend via `CustomPaint`. No
+  new dependencies; stdlib `dart:math` only. Wire shape (locked
+  v1):
+  ```
+  {
+    "version": 1,
+    "title": "Eval accuracy",
+    "x_label": "Step",
+    "y_label": "Accuracy",
+    "series": [
+      {"name": "eval_accuracy", "color": "#ff00aa?",
+       "points": [[0, 0.50], [100, 0.62], ...]}
+    ]
+  }
+  ```
+  Multi-series + optional hex color per series; brand palette cycles
+  by index when color is omitted. Parser is tolerant of malformed
+  points (dropped) and missing labels.
+- **`_ArtifactViewerLauncher.metricChart` branch** — `Open chart`
+  button on `metric-chart` rows; routes to the new screen. Filter
+  pill in `artifacts_screen.dart` already included the kind.
+- **Hub seed: real JSON bytes for the metric-chart artifact.** New
+  `seedMetricChartArtifact` replaces the prior `seedArtifact(...,
+  "metric-chart", ...)` shortcut at both demo project sites. Body
+  is `demoMetricChartBody()` — 11-point accuracy curve from
+  step=0 (acc=0.50) to step=1000 (acc=0.88). Real bytes via
+  `insertDemoBlob`; same `blob:sha256/…` URI shape as the other
+  wave-2 typed artifacts so the viewer round-trips through the
+  standard blob endpoint.
+- **Lifecycle seed coverage now 8 of 11** closed-set kinds:
+  + metric-chart (joins code-bundle, canvas-app, tabular,
+  external-blob, pdf, image; intentional gaps: audio + video
+  upload-only, diagram post-MVP, prose-document via documents).
+
+### Fixed
+
+- **`overview_widgets_registry_test.dart` no longer asserts
+  `portfolio_header` is in `kKnownOverviewWidgets`.** The slug
+  retirement in v1.0.501 left the test stale; CI flagged it on
+  push. Test now asserts the inverse (regression guard against the
+  slug sneaking back).
 
 ---
 

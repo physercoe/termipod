@@ -839,8 +839,7 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				evalArt, err := seedArtifact(c, "metric-chart",
-					"eval-results.json", "application/json", int64(8*1024))
+				evalArt, err := seedMetricChartArtifact(c, "eval-results.json")
 				if err != nil {
 					return nil, err
 				}
@@ -1046,8 +1045,7 @@ func lifecycleSpecs() []lifecycleSpec {
 				if err != nil {
 					return nil, err
 				}
-				evalArt, err := seedArtifact(c, "metric-chart",
-					"eval-results.json", "application/json", int64(8*1024))
+				evalArt, err := seedMetricChartArtifact(c, "eval-results.json")
 				if err != nil {
 					return nil, err
 				}
@@ -1923,6 +1921,75 @@ func seedCodeBundleArtifact(
 		id, c.projectID, name, uri, int64(len(data)), mime,
 		c.stewardID, c.now); err != nil {
 		return seededArtifact{}, fmt.Errorf("insert code bundle artifact: %w", err)
+	}
+	c.artifactsSeeded++
+	return seededArtifact{id: id, name: name}, nil
+}
+
+// demoMetricChartBody returns the JSON payload backing the
+// `metric-chart` artifact attached to the experiment-results
+// deliverable. Schema mirrors the wire shape consumed by
+// `ArtifactMetricChartViewer` on mobile (version=1, series-of-points).
+// Eleven points span step=0→1000; accuracy rises smoothly to 0.88 so
+// the rendered line chart is visibly different from the canvas-app
+// artifact (which shows the falling loss curve over the same run).
+func demoMetricChartBody() map[string]any {
+	return map[string]any{
+		"version": 1,
+		"title":   "Eval accuracy",
+		"x_label": "Step",
+		"y_label": "Accuracy",
+		"series": []map[string]any{
+			{
+				"name": "eval_accuracy",
+				"points": [][]float64{
+					{0, 0.50},
+					{100, 0.58},
+					{200, 0.66},
+					{300, 0.73},
+					{400, 0.78},
+					{500, 0.82},
+					{600, 0.84},
+					{700, 0.86},
+					{800, 0.87},
+					{900, 0.88},
+					{1000, 0.88},
+				},
+			},
+		},
+	}
+}
+
+// seedMetricChartArtifact materialises a `metric-chart` artifact with
+// real JSON bytes so the mobile MetricChartViewer can render a graph
+// (the prior `seedArtifact` shortcut only inserted a mock URI row,
+// which left the viewer showing "unsupported uri scheme"). Mirrors
+// seedCanvasArtifact's blob-or-mock-uri pattern.
+func seedMetricChartArtifact(
+	c *seedProjectCtx, name string,
+) (seededArtifact, error) {
+	data, err := json.Marshal(demoMetricChartBody())
+	if err != nil {
+		return seededArtifact{}, fmt.Errorf("marshal metric chart: %w", err)
+	}
+	mime := "application/vnd.termipod.metrics+json"
+	uri := fmt.Sprintf("blob:mock/lifecycle/metric-%s-%s", c.projectID, name)
+	if c.dataRoot != "" {
+		sha, berr := insertDemoBlob(c.ctx, c.tx, c.dataRoot, data, mime, c.now)
+		if berr != nil {
+			return seededArtifact{}, fmt.Errorf("write metric blob: %w", berr)
+		}
+		uri = "blob:sha256/" + sha
+	}
+	id := NewID()
+	if _, err := c.tx.ExecContext(c.ctx, `
+		INSERT INTO artifacts
+			(id, project_id, kind, name, uri, size, mime,
+			 producer_agent_id, lineage_json, created_at)
+		VALUES (?, ?, 'metric-chart', ?, ?, ?, ?, NULLIF(?, ''), '{}', ?)`,
+		id, c.projectID, name, uri, int64(len(data)), mime,
+		c.stewardID, c.now); err != nil {
+		return seededArtifact{}, fmt.Errorf("insert metric chart artifact: %w", err)
 	}
 	c.artifactsSeeded++
 	return seededArtifact{id: id, name: name}, nil

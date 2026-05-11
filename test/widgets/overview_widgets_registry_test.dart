@@ -5,8 +5,10 @@ import 'package:termipod/screens/projects/overview_widgets/registry.dart';
 void main() {
   group('overview_widgets registry', () {
     test('research-template slugs are recognised (W7)', () {
+      // `portfolio_header` was retired in v1.0.501 — chassis-A header
+      // already covers what it pointed at, so it falls through to the
+      // chassis default rather than rendering an explanatory paragraph.
       const research = [
-        'portfolio_header',
         'idea_conversation',
         'deliverable_focus',
         'experiment_dash',
@@ -18,6 +20,13 @@ void main() {
         expect(normalizeOverviewWidget(slug), slug,
             reason: 'normalize should pass $slug through unchanged');
       }
+    });
+
+    test('retired portfolio_header slug normalises to default', () {
+      // Regression guard: keep portfolio_header from sneaking back in.
+      expect(kKnownOverviewWidgets.contains('portfolio_header'), isFalse);
+      expect(normalizeOverviewWidget('portfolio_header'),
+          kDefaultOverviewWidget);
     });
 
     test('legacy slugs still recognised', () {

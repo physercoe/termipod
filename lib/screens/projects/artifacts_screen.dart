@@ -10,6 +10,7 @@ import '../../widgets/artifact_viewers/audio_viewer.dart';
 import '../../widgets/artifact_viewers/canvas_viewer.dart';
 import '../../widgets/artifact_viewers/code_bundle_viewer.dart';
 import '../../widgets/artifact_viewers/image_viewer.dart';
+import '../../widgets/artifact_viewers/metric_chart_viewer.dart';
 import '../../widgets/artifact_viewers/pdf_viewer.dart';
 import '../../widgets/artifact_viewers/tabular_viewer.dart';
 import '../../widgets/artifact_viewers/video_viewer.dart';
@@ -629,8 +630,21 @@ class _ArtifactViewerLauncher extends StatelessWidget {
             ),
           ),
         );
-      // Remaining MVP kinds (diagram, prose-document, metric-chart,
-      // external-blob) deliberately have no inline launcher today.
+      case ArtifactKind.metricChart:
+        return _LauncherButton(
+          icon: Icons.show_chart,
+          label: 'Open chart',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ArtifactMetricChartViewerScreen(
+                uri: uri,
+                title: name,
+              ),
+            ),
+          ),
+        );
+      // Remaining MVP kinds (diagram, prose-document, external-blob)
+      // deliberately have no inline launcher today.
       // ignore: no_default_cases
       default:
         return const SizedBox.shrink();

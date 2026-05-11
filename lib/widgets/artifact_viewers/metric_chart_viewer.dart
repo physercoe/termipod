@@ -237,8 +237,11 @@ MetricChartBody? parseMetricChart(dynamic decoded) {
     final points = <({double x, double y})>[];
     for (final p in rawPoints) {
       if (p is! List || p.length < 2) continue;
-      final x = (p[0] as num?)?.toDouble();
-      final y = (p[1] as num?)?.toDouble();
+      // `is num` before cast — JSON arrays can carry strings or
+      // booleans where numbers are expected; the cast `as num?` was
+      // wrong because it succeeds for null but throws for String.
+      final x = p[0] is num ? (p[0] as num).toDouble() : null;
+      final y = p[1] is num ? (p[1] as num).toDouble() : null;
       if (x == null || y == null) continue;
       points.add((x: x, y: y));
     }

@@ -94,7 +94,7 @@ table above.
 | 8 | `diagram` | `image/svg+xml` (mermaid → svg server-side) | `flutter_svg` | n/a (regen via agent) | yes | no |
 | 9 | `canvas-app` | `text/html` (sandboxed bundle) | `webview_flutter` in sandboxed page route (Tier 2 plan) | edit-html deferred | yes (Tier 2 only) | no |
 | 10 | `dataset-ref` | URI-only metadata, no upload | label + click-to-open chip | n/a (registration only) | yes | yes |
-| 11 | `metric-series` | `application/vnd.termipod.metrics+json` | curve chart (fl_chart) | n/a | yes | yes |
+| 11 | `metric-chart` | `application/vnd.termipod.metrics+json` (with `schema` discriminator) | dispatch viewer: line / histogram / scatter / heatmap / roc / pr / calibration | n/a | yes | yes |
 
 **Notes on the set:**
 
@@ -108,9 +108,16 @@ table above.
   `{author, year, title, doi, notes}` against a citation schema.
   No separate `citation` kind needed if `tabular` carries the
   schema. (See Q1.)
-- **`metric-series` is distinct from `tabular`.** Same shape on
-  the wire, different viewer (chart vs grid). Separate kind so
-  the agent doesn't have to encode rendering intent in MIME.
+- **`metric-chart` covers multiple chart schemas via one kind.**
+  Discriminator on the wire (`schema ∈ {line, histogram, scatter,
+  heatmap, roc, pr, calibration}`); one mobile viewer dispatches
+  on schema to the right CustomPaint renderer. Matches the W&B /
+  TensorBoard "one metric entity, typed by `_type`" pattern.
+  Distinct from `tabular` because the agent's intent is to *plot*,
+  not to *list rows* — separate kind so the viewer doesn't have
+  to guess intent from MIME.
+- **`metric-chart` is for snapshots; live training metrics are NOT
+  artifacts.** See "Live-vs-artifact two-layer split" below.
 - **`canvas-app` is reserved.** Lands as the type slot in W1
   (registry entry + storage path); the actual Tier 2 viewer is a
   separate plan that depends on this one.
@@ -118,6 +125,51 @@ table above.
   Notes / Documents today), `equation` (renders via existing
   `flutter_math_fork` inside markdown), `whiteboard` / `mind-map`
   (Tier 3 future, no triangulation evidence).
+
+## Live-vs-artifact two-layer split
+
+Surfaced 2026-05-11 while auditing whether the proposed kinds
+cover the run/experiment visualizations seed-demo produces. They
+don't fully — and the reason is architectural, not a missing kind.
+
+Run-time experiment data lives in **two distinct layers**:
+
+| Layer | Storage | Lifecycle | Visualization origin | Is it an artifact? |
+|---|---|---|---|---|
+| **Live training metrics** | `run_metrics`, `run_histograms`, `sweep_summary` tables (hub) | Streamed incrementally by the run feeder during training | **Derived view** computed at read time over the typed schema | ❌ No |
+| **Run-produced files** | `artifacts` table (hub, URI + MIME + size) | Static — agent or run script emits a finalized blob | **Stored blob** with a typed kind, rendered by a kind-specific viewer | ✅ Yes |
+
+Seed-demo creates **both**:
+
+- `run_metrics` rows for live curves (rendered by `_MultiSparklinePainter`
+  in `runs_screen.dart`) and `run_histograms` rows for per-step
+  distributions (rendered by `HistogramSeriesTile`). These are
+  the live layer — never artifacts.
+- `eval_curve`-kind artifact rows for the *exported snapshot* —
+  the final curve as a PNG/JSON the run "ships." These ARE
+  artifacts.
+
+**The `metric-chart` artifact-kind covers the second case only.**
+The first case (live metrics) is intentionally not migrated to
+artifacts — that would force snapshot-on-every-step writes and
+break the incremental streaming model. The split mirrors W&B
+(live API + stored files), TensorBoard (event-files + saved
+images), and MLflow (metric API + artifacts API).
+
+**Practical implication for tile composition.** A phase like
+`experiment` surfaces *both* layers in different places: the
+phase hero (`experiment_dash`) reads `run_metrics` directly for
+the live overview; the Outputs tile lists snapshot artifacts.
+Don't try to unify; the split IS the architecture.
+
+**Open question Q-new (deferred):** should `run_metrics` /
+`run_histograms` / `sweep_summary` ever migrate to typed
+artifacts? Arguments for: one storage axis, queryable by the
+artifact-kinds endpoint. Arguments against: live streaming
+semantics, write-amplification, breaks incremental-aggregation
+performance. Current answer is **no** — they stay as their own
+typed tables. Revisit only if a concrete user story requires
+cross-axis querying.
 
 ## Wedges
 
@@ -370,6 +422,12 @@ queries? Cheap to add now, hard later.
 **Q9 — Per-kind retention.** Audio/video are huge; should kind
 imply a retention policy (e.g. video TTL = 30 days)? Defer; mention
 in plan for the future-self.
+
+**Q-new — Live metrics migration.** Should `run_metrics` /
+`run_histograms` / `sweep_summary` ever migrate to typed
+artifacts? Captured in the "Live-vs-artifact two-layer split"
+section above. Current answer: no. Open if cross-axis querying
+becomes a concrete need.
 
 **Q10 — APK split alignment.** The deferred voice-input plan
 proposed `full`/`lite`. PDF + audio + video pulls ~5 MB; this is

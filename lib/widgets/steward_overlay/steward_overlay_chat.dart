@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/voice_settings_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../services/deep_link/uri_router.dart';
+import '../../services/voice/cloud_stt.dart';
+import '../../services/voice/recording_controller.dart';
+import '../../services/voice/voice_recording_session.dart';
 import '../../theme/design_colors.dart';
 import '../image_attach/composer_image_attach.dart';
 import '../multimodal_attach/composer_multimodal_attach.dart';
@@ -172,6 +178,22 @@ class _ChatInputSlot extends ConsumerWidget {
         parent._resolveCapabilityIfNeeded(agentId);
       });
     }
+    final voiceSettings = ref.watch(voiceSettingsProvider);
+    final voiceNotifier = ref.read(voiceSettingsProvider.notifier);
+    Future<VoiceRecordingSession?> voiceStarter() async {
+      final apiKey = await voiceNotifier.readApiKey();
+      if (apiKey == null || apiKey.isEmpty) return null;
+      return VoiceRecordingSession(
+        recording: RecordingController(),
+        cloudStt: AlibabaWebSocketStt(
+          apiKey: apiKey,
+          region: voiceSettings.region,
+          model: voiceSettings.model,
+        ),
+        languageHints: voiceSettings.languageHints,
+      );
+    }
+
     return _ChatInput(
       key: const ValueKey('steward-overlay-chat-input'),
       onSend: parent._sendMessage,
@@ -179,6 +201,8 @@ class _ChatInputSlot extends ConsumerWidget {
       canAttachPdfs: parent._canAttachPdfs,
       canAttachAudio: parent._canAttachAudio,
       canAttachVideo: parent._canAttachVideo,
+      voiceEnabled: voiceSettings.isReady,
+      voiceStarter: voiceStarter,
     );
   }
 }
@@ -284,6 +308,18 @@ class _ChatInput extends StatefulWidget {
   final bool canAttachAudio;
   final bool canAttachVideo;
 
+  /// Path C voice input — when true AND the input is empty, the send
+  /// icon is replaced by a long-press mic affordance. Plumbed from the
+  /// `voiceSettingsProvider.isReady` check in [_ChatInputSlot] so the
+  /// input stays a non-Consumer widget.
+  final bool voiceEnabled;
+
+  /// Async factory returning a configured [VoiceRecordingSession] (or
+  /// null if the API key is missing). The starter reads the API key
+  /// from secure storage at long-press time so the secret never lives
+  /// in widget state.
+  final Future<VoiceRecordingSession?> Function()? voiceStarter;
+
   const _ChatInput({
     super.key,
     required this.onSend,
@@ -291,6 +327,8 @@ class _ChatInput extends StatefulWidget {
     this.canAttachPdfs = false,
     this.canAttachAudio = false,
     this.canAttachVideo = false,
+    this.voiceEnabled = false,
+    this.voiceStarter,
   });
 
   @override
@@ -316,8 +354,18 @@ class _ChatInputState extends State<_ChatInput> {
   final List<Map<String, String>> _pendingImages = [];
   final Map<MultimodalKind, Map<String, String>> _pendingMultimodal = {};
 
+  // Path C voice input (Mode B — panel mic button).
+  VoiceRecordingSession? _voiceSession;
+  StreamSubscription<VoiceSessionEvent>? _voiceSub;
+  bool _voiceStarting = false;
+  // Snapshot of the input text at the moment voice recording started.
+  // Restored on cancel so the user doesn't lose what they typed.
+  String _voiceSavedText = '';
+
   @override
   void dispose() {
+    _voiceSub?.cancel();
+    _voiceSession?.dispose();
     _focus.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -457,6 +505,141 @@ class _ChatInputState extends State<_ChatInput> {
   void _removePendingMultimodal(MultimodalKind k) {
     if (!_pendingMultimodal.containsKey(k)) return;
     setState(() => _pendingMultimodal.remove(k));
+  }
+
+  Future<void> _onVoiceLongPressStart(LongPressStartDetails _) async {
+    if (_voiceSession != null || _voiceStarting) return;
+    if (widget.voiceStarter == null) return;
+    setState(() => _voiceStarting = true);
+    VoiceRecordingSession? session;
+    try {
+      session = await widget.voiceStarter!.call();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice unavailable: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _voiceStarting = false);
+    }
+    if (session == null || !mounted) {
+      await session?.dispose();
+      return;
+    }
+    _voiceSavedText = _ctrl.text;
+    _voiceSession = session;
+    _voiceSub = session.events.listen(_onVoiceEvent);
+    try {
+      await session.start();
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Mic unavailable: $e')),
+        );
+      }
+      await _cleanupVoiceSession();
+    }
+  }
+
+  void _onVoiceEvent(VoiceSessionEvent e) {
+    if (!mounted) return;
+    switch (e.kind) {
+      case VoiceSessionEventKind.transcriptUpdated:
+      case VoiceSessionEventKind.completed:
+        _ctrl.value = TextEditingValue(
+          text: e.text,
+          selection: TextSelection.collapsed(offset: e.text.length),
+        );
+        if (e.kind == VoiceSessionEventKind.completed) {
+          _cleanupVoiceSession();
+        }
+      case VoiceSessionEventKind.cancelled:
+        _ctrl.value = TextEditingValue(
+          text: _voiceSavedText,
+          selection:
+              TextSelection.collapsed(offset: _voiceSavedText.length),
+        );
+        _cleanupVoiceSession();
+      case VoiceSessionEventKind.maxDurationReached:
+        // Session auto-calls stop(); a completed event will follow.
+        break;
+      case VoiceSessionEventKind.error:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice error: ${e.error}')),
+        );
+        _cleanupVoiceSession();
+    }
+  }
+
+  Future<void> _onVoiceLongPressEnd(LongPressEndDetails _) async {
+    await _voiceSession?.stop();
+  }
+
+  void _onVoiceLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
+    // Drag-out cancels the recording. Threshold roughly matches the
+    // mic button's hit area so a small wobble doesn't misfire.
+    if (d.offsetFromOrigin.distance > 60) {
+      _voiceSession?.cancel();
+    }
+  }
+
+  Future<void> _cleanupVoiceSession() async {
+    await _voiceSub?.cancel();
+    _voiceSub = null;
+    final s = _voiceSession;
+    _voiceSession = null;
+    if (mounted) setState(() {});
+    await s?.dispose();
+  }
+
+  Widget _buildSendOrMic() {
+    return ListenableBuilder(
+      listenable: _ctrl,
+      builder: (context, _) {
+        final isRecording = _voiceSession != null;
+        final isEmpty = _ctrl.text.isEmpty;
+        final canShowMic =
+            widget.voiceEnabled && isEmpty && !_sending && !_voiceStarting;
+        if (canShowMic || isRecording) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onLongPressStart: _onVoiceLongPressStart,
+            onLongPressEnd: _onVoiceLongPressEnd,
+            onLongPressMoveUpdate: _onVoiceLongPressMoveUpdate,
+            child: Container(
+              width: 40,
+              height: 40,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isRecording
+                    ? DesignColors.error.withValues(alpha: 0.18)
+                    : Colors.transparent,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isRecording ? Icons.mic : Icons.mic_none,
+                color: isRecording
+                    ? DesignColors.error
+                    : DesignColors.primary,
+                size: 22,
+              ),
+            ),
+          );
+        }
+        return IconButton(
+          icon: _sending
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.send, color: DesignColors.primary),
+          onPressed: _sending ? null : _send,
+        );
+      },
+    );
   }
 
   Future<void> _send() async {
@@ -663,16 +846,7 @@ class _ChatInputState extends State<_ChatInput> {
             ),
           ),
               const SizedBox(width: 6),
-              IconButton(
-                icon: _sending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.send, color: DesignColors.primary),
-                onPressed: _sending ? null : _send,
-              ),
+              _buildSendOrMic(),
             ],
           ),
         ],

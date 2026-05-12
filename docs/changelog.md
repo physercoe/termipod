@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.534
+> **Last verified vs code:** v1.0.535
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,31 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.535-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W3a — Mode B panel mic button.** First tester-
+  verifiable surface for the Path C pipeline. When voice is enabled +
+  has API key AND the chat input is empty, the send icon swaps for a
+  mic icon. Long-press to record: PCM16 streams over the WS to
+  DashScope; partial transcripts arrive every ~600 ms and replace the
+  in-progress sentence in the input field; finals accumulate with
+  trailing spaces. Release → the recorder closes, the cloud_stt
+  client sends `finish-task`, the final transcript stays in the
+  input field, and the icon flips back to send for the user to
+  review + tap. Drag the finger >60 dp away from the mic → cancel,
+  restore whatever text was in the input before recording started.
+  Errors (mic permission, WS failure, server-side `task-failed`)
+  surface as SnackBars. Session lifecycle hooks ride on the
+  v1.0.534 orchestrator. Wired through `_ChatInputSlot` as a
+  `voiceStarter` closure so the API key is read lazily at long-press
+  time and never enters widget state
+  (`lib/widgets/steward_overlay/steward_overlay_chat.dart`). No
+  Mode A (puck long-press + HUD) yet — that lands in v1.0.536+.
 
 ---
 

@@ -15,13 +15,20 @@ default, zero-cost answer). The shipping path the *deferred* plan
 picked is **offline SenseVoice-Small via sherpa_onnx** (~1000 LOC,
 ~85–200 MB APK cost). The principal's question is: **would a
 commercial cloud API be much easier?** Answer: **yes, much easier —
-roughly 1/3 the LOC, zero APK bloat, zero model loader, no APK split,
+roughly 1/4 the LOC, zero APK bloat, zero model loader, no APK split,
 no native library bring-up.** But the **truly easiest non-zero path**
 is the system-native `speech_to_text` Flutter package (system OS STT,
 not a third-party API) at ~150 LOC + zero ongoing cost. The right
 sequencing if voice gets prioritised again is **system-native first,
-hub-mediated cloud as a power-user option, offline only if a real
+mobile-direct cloud as a power-user option, offline only if a real
 privacy / offline requirement emerges**.
+
+**The hub stays out of the audio path entirely.** For cloud STT, the
+mobile calls the vendor's API directly and only the resulting
+transcript (text) reaches the hub — identical to typed input. The
+hub never touches audio bytes. This corrects an earlier framing that
+proposed hub-proxied audio; that variant added a hop, doubled
+bandwidth, and bought nothing the simpler shape doesn't already give.
 
 The existing
 [`plans/voice-input-overlay-v1.md`](../plans/voice-input-overlay-v1.md)
@@ -139,31 +146,61 @@ self-contained.
 ### Path C — Commercial cloud STT (Whisper / Deepgram / Google / Azure)
 
 Record audio locally, POST to a chosen vendor's REST endpoint, get a
-transcript back. Two sub-paths:
-
-- **C1 direct from mobile** — app holds an API key, posts the audio
-  blob to e.g. `api.openai.com/v1/audio/transcriptions` (Whisper).
-  Simplest plumbing; *worst* security posture (API key shipped in
-  binary).
-- **C2 hub-mediated** — app records audio, uploads to a new hub
-  endpoint `POST /v1/teams/{team}/voice/transcribe`, hub forwards to
-  the configured backend with the team's API key, returns transcript.
-  Better security; more plumbing; matches the "hub mediates
-  third-party access" pattern (e.g. how engines are credentialed via
-  the host-runner, not the mobile).
+transcript back. **The hub stays out of the audio path entirely** —
+only the resulting transcript text reaches the hub, identical to
+typed input. The mobile calls the vendor directly with a
+user-supplied API key, stored in `flutter_secure_storage` the same
+way SSH keys and engine credentials already are.
 
 | Axis | Score |
 |---|---|
-| LOC | C1: ~300; C2: ~500 (mobile + new hub endpoint + provider plugin) |
+| LOC | ~250 (mic button + gesture + vendor REST client + settings entry) |
 | APK cost | <1 MB |
-| Privacy | Audio leaves the device; user data flows to OpenAI / Google / Azure / Deepgram |
+| Privacy | Audio leaves the device for the user's chosen vendor; the hub never sees audio bytes |
 | Cost | Whisper $0.006/min; Deepgram $0.0043/min real-time. At 10 utterances × 10 s/day × 30 days ≈ 50 min/month ≈ $0.30/user/month |
-| Latency | 400–800 ms (extra hop, especially via hub-mediated) |
+| Latency | 300–600 ms (mobile → vendor → mobile, no hub hop) |
 | Quality | Whisper / Deepgram nova-2: state-of-the-art, multilingual, robust to accents |
 | Offline | No |
 | Discoverability | High |
 
-**Why this is much easier than the deferred offline plan:**
+#### Why the hub stays out
+
+For mobile-originated audio, the natural pattern is:
+
+```
+mic → record audio locally → POST audio to vendor STT → transcript
+    → drop transcript into chat field → user reviews + taps send
+    → hub receives chat message exactly as if typed
+```
+
+The hub never touches audio. The hub's "credential mediation"
+pattern (e.g. engines authed via host-runner, not via mobile) applies
+to *host-side* third-party access — agents running on the host-
+runner shouldn't have to ship secrets to mobile. STT is a
+*mobile-side* third-party call, and the secret already has to be on
+the device that's making the call. Sending audio through the hub
+just to put the key on the hub instead of the mobile adds a hop,
+doubles bandwidth on already-slow connections, and buys nothing —
+the vendor still sees the audio either way.
+
+#### Key management
+
+The vendor API key lives in mobile's `flutter_secure_storage`. Two
+ways to populate it:
+
+- **C-direct** — User pastes their personal vendor API key in
+  Settings → Voice. Mobile uses it for STT calls. This is the
+  default and simplest path. The trust model matches "user gives a
+  third-party app an API key" — no different from how Whisper /
+  Deepgram first-party clients work.
+- **C-distributed** (optional enhancement) — Hub stores the team's
+  vendor key in a team-level settings row; mobile fetches it once at
+  startup via an authed `GET /v1/teams/{team}/voice/credentials`
+  endpoint and caches it in secure storage. Useful if a team wants
+  one shared key across multiple devices. Audio still never goes
+  through the hub. ~50 extra LOC if added later.
+
+#### Why this is much easier than the deferred offline plan
 
 - No native library packaging (sherpa-onnx prebuilt + arm64/x86_64 ABI matrix)
 - No ~85 MB model file in the APK / no lite-flavor download manager
@@ -171,10 +208,12 @@ transcript back. Two sub-paths:
 - No background isolate for inference
 - No APK split build + CI matrix
 
-The deferred plan's W1 (native libs + model loader) and W4 (split
-APK) and W5 (download manager) — ~500 LOC of the 1000 LOC budget —
-**simply don't exist** in the cloud variant. The remaining W2 (audio
-capture + gesture) and W3 (transcribe call) shrink.
+The deferred plan's W1 (native libs + model loader), W4 (split APK),
+and W5 (download manager) — ~500 LOC of the 1000 LOC budget —
+**simply don't exist** in the cloud variant. W2 (audio capture +
+gesture) and W3 (transcribe call) also shrink because the REST call
+is a single `package:http` POST, not a `package:sherpa_onnx`
+initialised inference session.
 
 ### Path D — Offline model (the deferred SenseVoice plan)
 
@@ -207,13 +246,13 @@ use voice.
 ### 4.1 Difficulty ranking
 
 ```
-easiest                                                  hardest
-  │                                                          │
-  ▼                                                          ▼
-  A         B                  C1           C2         D
-  (IME)    (system-            (cloud      (hub-      (offline)
-            native)              direct)    mediated)
-   0 LOC   ~150 LOC             ~300 LOC   ~500 LOC   ~1000 LOC
+easiest                                       hardest
+  │                                               │
+  ▼                                               ▼
+  A          B                  C             D
+  (IME)     (system-native)    (cloud,        (offline)
+                                mobile→vendor)
+   0 LOC    ~150 LOC            ~250 LOC      ~1000 LOC
 ```
 
 The principal's intuition that "online would be much easier than
@@ -272,11 +311,12 @@ APIs and SenseVoice both excel; system-native is variable.
 2. **Path B — system-native STT.** ~150 LOC, ~1 wedge. Adds a mic
    button to the overlay chat input for discoverability. Free, fast,
    no API keys.
-3. **Path C2 — hub-mediated cloud STT** (post-Path B). ~500 LOC.
-   Gate behind a `voice.backend` team setting (defaults to "system";
-   power users select "whisper" / "deepgram" + API key in hub config).
-   Hub-mediated for API-key hygiene + provider-agnostic plugin
-   architecture.
+3. **Path C — mobile-direct cloud STT** (post-Path B). ~250 LOC.
+   Mobile calls Whisper / Deepgram / Google / Azure directly with a
+   user-supplied API key in `flutter_secure_storage`. The hub never
+   touches audio — only the resulting transcript reaches it, exactly
+   as if typed. Optionally add hub-distributed credentials later
+   (~50 extra LOC) if a team wants one shared key across devices.
 4. **Path D — offline.** The deferred plan's actual content. Defer
    *further* until either testers explicitly ask for offline /
    privacy / bilingual-mid-utterance, or zh+en code-switch dictation
@@ -311,17 +351,16 @@ post-MVP power-user upgrade.
 
 ### 5.3 When cloud (Path C) actually pays off
 
-- The user demands a *single specific provider* (e.g. compliance
-  requires Azure Speech) → C2 with provider plugin
 - The user wants better-than-system quality on Android (where OEMs
-  ship inconsistent STT) → C2 with Whisper
+  ship inconsistent STT) → Path C with Whisper
 - The user is doing long-form dictation (memo bodies, briefings) →
-  C2 with Whisper or Deepgram (system STT degrades past ~60 s)
-- Bilingual zh+en code-switching is load-bearing → C2 with Whisper
-  (or D with SenseVoice)
+  Path C with Whisper or Deepgram (system STT degrades past ~60 s)
+- Bilingual zh+en code-switching is load-bearing → Path C with
+  Whisper (or Path D with SenseVoice)
+- Compliance requires a specific provider → Path C with that vendor
 
 None of these are MVP demo blockers. All are legitimate post-MVP
-upgrades.
+upgrades. None require the hub to be in the audio path.
 
 ---
 
@@ -374,13 +413,14 @@ defers that choice to whoever actually picks voice up next.
 - **OQ-4.** TTS read-back for steward replies? Out of scope for this
   discussion. Probably defer further — the user is reading on the
   screen.
-- **OQ-5.** If we go Path C2 (hub-mediated), what's the API surface?
-  Suggested: `POST /v1/teams/{team}/voice/transcribe` with an audio
-  blob in the body, returns `{transcript, confidence, language}`.
-  Backend selection is a team-level setting (`voice.backend =
-  "whisper" | "deepgram" | "google" | "azure"`). Plugin architecture
-  mirroring the engine driver pattern (each backend is a Go file
-  implementing a `transcribe` interface).
+- **OQ-5.** For Path C, where does the vendor API key live?
+  **Default:** user pastes it in mobile Settings → Voice; mobile
+  stores it in `flutter_secure_storage` and calls the vendor
+  directly. No hub involvement.
+  **Optional later:** hub-distributed credentials via authed
+  `GET /v1/teams/{team}/voice/credentials` so multi-device teams
+  share one key. Audio still goes mobile → vendor; the hub only
+  hands out the secret, never proxies the audio.
 - **OQ-6.** Local cache of recent transcripts for "replay last
   utterance" — useful or feature creep? **Lean:** feature creep until
   testers ask.
@@ -390,9 +430,10 @@ defers that choice to whoever actually picks voice up next.
 ## 8. Verdict
 
 To the principal's direct question: **yes, online commercial APIs
-are much easier to implement than the offline plan — roughly 1/3 the
+are much easier to implement than the offline plan — roughly 1/4 the
 LOC, zero APK bloat, no model loader, no native libraries, no APK
-split.** The cost is per-minute billing and audio leaving the device.
+split.** The cost is per-minute billing and audio leaving the device
+for the user's chosen vendor.
 
 But the **truly easiest non-zero path** is system-native STT (iOS /
 Android system APIs via `speech_to_text` Flutter plugin) at ~150
@@ -402,11 +443,17 @@ The recommended sequencing if voice is prioritised again is:
 
 ```
 Path A (status quo) → Path B (system-native, ~150 LOC, MVP-adjacent)
-                    → Path C2 (hub-mediated cloud, ~500 LOC, post-MVP)
+                    → Path C (cloud, mobile-direct, ~250 LOC, post-MVP)
                     → Path D (offline, ~1000 LOC + 85-200 MB, only if
                               a real privacy/offline/bilingual
                               requirement emerges)
 ```
+
+**For every cloud path, the hub stays out of the audio path** —
+mobile calls the vendor directly, only the resulting transcript text
+reaches the hub. The "hub-mediated audio" variant earlier in this
+discussion's draft was wrong: it doubled bandwidth, added a hop, and
+bought nothing the simpler shape doesn't already give.
 
 The deferred SenseVoice plan should be either revised to live at the
 Path D rung of this ladder, or marked Superseded by a future Path B

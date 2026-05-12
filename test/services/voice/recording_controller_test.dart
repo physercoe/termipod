@@ -36,7 +36,10 @@ class _FakeBackend implements RecorderBackend {
     lastSampleRate = sampleRate;
     lastNumChannels = numChannels;
     if (throwOnStart != null) throw throwOnStart!;
-    _controller = StreamController<Uint8List>();
+    // Broadcast so close() resolves whether or not the test subscribed —
+    // single-subscription `close()` hangs awaiting onDone-delivery to a
+    // listener that may never attach in the busy / dispose cases.
+    _controller = StreamController<Uint8List>.broadcast();
     return _controller!.stream;
   }
 

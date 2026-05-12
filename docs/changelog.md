@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.526
+> **Last verified vs code:** v1.0.527
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,29 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.527-alpha — 2026-05-12
+
+### Added
+
+- **PDF outline / bookmarks / TOC drawer is back** — re-added on top
+  of the v1.0.526 deferred-setState pattern. AppBar grows an
+  `Outline` icon (visible only when the PDF carries a non-empty
+  outline tree) that opens an end-drawer with the nested chapter
+  list. Tap a node → `PdfViewerController.goToDest`. Same UX as
+  v1.0.518's TOC drawer but with the `loadOutline` + outline-loaded
+  setState calls now inside `WidgetsBinding.instance
+  .addPostFrameCallback` so they don't fire during pdfrx's build
+  pass. Synthetic PDFs without an outline hide the icon entirely.
+- **Refactor:** `ArtifactPdfViewerScreen` is now `StatefulWidget`
+  again (was `StatelessWidget` since v1.0.521's strip-back) — it
+  owns the `PdfViewerController` and the outline state. The leaf
+  `ArtifactPdfViewer` accepts `controller:` + `onOutlineLoaded:`
+  as optional constructor params; if neither is supplied it falls
+  back to the self-contained v1.0.524 mode (no TOC, internal
+  controller) (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

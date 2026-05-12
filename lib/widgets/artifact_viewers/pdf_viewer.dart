@@ -28,12 +28,24 @@ class ArtifactPdfViewer extends ConsumerStatefulWidget {
   final String uri;
   final String? title;
   final int? expectedSize;
+  // v1.0.527: controller threaded down from the screen so the screen
+  // can host the TOC drawer + (later) text-search affordances. If
+  // null, the leaf creates its own — preserves the v1.0.524 self-
+  // contained mode for any callers that want a bare viewer.
+  final PdfViewerController? controller;
+  // Outline loaded callback — fires (once, deferred to post-frame)
+  // when pdfrx reports the document's outline tree. Null on PDFs
+  // with no outline; non-null even when empty so the screen can
+  // distinguish "no outline" from "still loading."
+  final ValueChanged<List<PdfOutlineNode>?>? onOutlineLoaded;
 
   const ArtifactPdfViewer({
     super.key,
     required this.uri,
     this.title,
     this.expectedSize,
+    this.controller,
+    this.onOutlineLoaded,
   });
 
   @override
@@ -45,12 +57,13 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   String? _error;
   bool _loading = true;
   // v1.0.524 (recovery step 2): a local PdfViewerController so we
-  // can route internal page-ref taps via goToDest. v1.0.523 confirmed
-  // linkHandlerParams alone doesn't regress rendering; v1.0.524
-  // confirmed `controller:` passing is also fine. Kept local to this
-  // State (not threaded from the screen) so it can't interact with
-  // any other surface.
-  late final PdfViewerController _controller;
+  // can route internal page-ref taps via goToDest. v1.0.527: now
+  // optional — the screen can pass its own to host the TOC drawer.
+  // Falls back to an internally-created controller if the caller
+  // didn't supply one.
+  PdfViewerController? _ownedController;
+  PdfViewerController get _controller =>
+      widget.controller ?? _ownedController!;
   // v1.0.525 (recovery step 3): track current page via onPageChanged.
   // 0 means "not reported yet" — the badge is hidden until pdfrx
   // emits the first page-change event.
@@ -69,7 +82,9 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   @override
   void initState() {
     super.initState();
-    _controller = PdfViewerController();
+    if (widget.controller == null) {
+      _ownedController = PdfViewerController();
+    }
     _load();
   }
 
@@ -168,9 +183,24 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                 // pdfrx's build pass and a synchronous setState there
                 // would trigger Flutter's "called during build"
                 // assertion and gray the viewport.
-                WidgetsBinding.instance.addPostFrameCallback((_) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
                   if (!mounted) return;
                   setState(() => _pageCount = document.pages.length);
+                  // v1.0.527: load the outline tree on the same
+                  // deferred frame and bubble up to the screen. PDFs
+                  // without an outline return null/empty; the screen
+                  // hides the drawer in that case.
+                  final cb = widget.onOutlineLoaded;
+                  if (cb != null) {
+                    try {
+                      final outline = await document.loadOutline();
+                      if (!mounted) return;
+                      cb(outline);
+                    } catch (_) {
+                      // loadOutline failures (malformed outline, etc.)
+                      // just leave the drawer hidden; not fatal.
+                    }
+                  }
                 });
               },
             ),
@@ -251,7 +281,15 @@ class _PdfLoadError extends StatelessWidget {
 /// Fullscreen route for the PDF viewer. Lifts the artifact detail sheet
 /// out of the way so pinch-zoom + page navigation aren't fighting the
 /// DraggableScrollableSheet for vertical drag gestures.
-class ArtifactPdfViewerScreen extends StatelessWidget {
+///
+/// v1.0.527: owns the `PdfViewerController` and the outline state so
+/// the AppBar can host an "Outline" icon → end-drawer with the
+/// document's table-of-contents. The leaf viewer (`ArtifactPdfViewer`)
+/// is given the controller via constructor and bubbles the outline up
+/// through `onOutlineLoaded`. AppBar icon is hidden until the outline
+/// resolves and is non-empty (so synthetic PDFs without an outline
+/// don't tease an empty drawer).
+class ArtifactPdfViewerScreen extends StatefulWidget {
   final String uri;
   final String title;
   const ArtifactPdfViewerScreen({
@@ -261,17 +299,148 @@ class ArtifactPdfViewerScreen extends StatelessWidget {
   });
 
   @override
+  State<ArtifactPdfViewerScreen> createState() =>
+      _ArtifactPdfViewerScreenState();
+}
+
+class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
+  late final PdfViewerController _controller;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  List<PdfOutlineNode>? _outline;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PdfViewerController();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final hasOutline = _outline != null && _outline!.isNotEmpty;
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: Text(
-          title,
+          widget.title,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 14, fontWeight: FontWeight.w700),
           overflow: TextOverflow.ellipsis,
         ),
+        actions: [
+          if (hasOutline)
+            IconButton(
+              icon: const Icon(Icons.menu_book_outlined),
+              tooltip: 'Outline',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+            ),
+        ],
       ),
-      body: ArtifactPdfViewer(uri: uri, title: title),
+      endDrawer: hasOutline
+          ? _OutlineDrawer(
+              outline: _outline!,
+              controller: _controller,
+              onTap: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      body: ArtifactPdfViewer(
+        uri: widget.uri,
+        title: widget.title,
+        controller: _controller,
+        onOutlineLoaded: (outline) {
+          if (!mounted) return;
+          setState(() => _outline = outline);
+        },
+      ),
+    );
+  }
+}
+
+/// End drawer listing the PDF's outline / bookmarks / TOC. Tap an
+/// entry to jump the viewer to its destination. The leaf viewer
+/// owns the heavy lifting; this widget is just presentation.
+class _OutlineDrawer extends StatelessWidget {
+  final List<PdfOutlineNode> outline;
+  final PdfViewerController controller;
+  final VoidCallback? onTap;
+
+  const _OutlineDrawer({
+    required this.outline,
+    required this.controller,
+    this.onTap,
+  });
+
+  Iterable<({PdfOutlineNode node, int level})> _flatten(
+    List<PdfOutlineNode>? nodes,
+    int level,
+  ) sync* {
+    if (nodes == null) return;
+    for (final n in nodes) {
+      yield (node: n, level: level);
+      yield* _flatten(n.children, level + 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _flatten(outline, 0).toList();
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Outline',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: list.length,
+                itemBuilder: (ctx, i) {
+                  final item = list[i];
+                  final dest = item.node.dest;
+                  return InkWell(
+                    onTap: dest == null
+                        ? null
+                        : () {
+                            controller.goToDest(dest);
+                            onTap?.call();
+                          },
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        item.level * 16.0 + 12,
+                        10,
+                        12,
+                        10,
+                      ),
+                      child: Text(
+                        item.node.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 13,
+                          fontWeight: item.level == 0
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                          color: dest == null
+                              ? DesignColors.textMuted
+                              : null,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

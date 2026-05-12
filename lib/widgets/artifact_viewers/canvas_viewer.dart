@@ -154,6 +154,13 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
     // onPageFinished fires. Matches the canvas bundle's expected
     // #0d0d0d background so the overlay→content transition is
     // invisible even when colours differ slightly.
+    //
+    // Theme caveat: the overlay is pinned to the dark palette
+    // literal. A light-theme user still sees a brief dark flash on
+    // first open. Tracked in
+    // `docs/discussions/light-theme-parity.md` as part of the
+    // deferred post-MVP light-theme wedge — fix is to read
+    // `Theme.of(context).colorScheme.surface` once that audit lands.
     return SizedBox.expand(
       child: Stack(
         fit: StackFit.expand,

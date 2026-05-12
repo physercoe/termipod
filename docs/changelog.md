@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.524
+> **Last verified vs code:** v1.0.525
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,22 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.525-alpha — 2026-05-12
+
+### Added
+
+- **Current-page badge on PDF viewer** — floating semi-transparent
+  black pill at the bottom centre showing the current page number
+  (e.g. `12`). Hidden until the first `onPageChanged` event fires
+  so single-page PDFs and the initial-render frame stay
+  uncluttered. No total page count yet — that needs
+  `onViewerReady`, the next bisect step. Bisect significance: if
+  rendering still works, the `onPageChanged` callback is innocent
+  and v1.0.518's gray-screen break is either `pagePaintCallbacks`
+  or `onViewerReady` (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

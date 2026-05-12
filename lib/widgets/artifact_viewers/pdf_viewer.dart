@@ -46,11 +46,16 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   bool _loading = true;
   // v1.0.524 (recovery step 2): a local PdfViewerController so we
   // can route internal page-ref taps via goToDest. v1.0.523 confirmed
-  // linkHandlerParams alone doesn't regress rendering; this isolates
-  // whether ALSO passing `controller:` to PdfViewer.data is what
-  // broke v1.0.518. Kept local to this State (not threaded from the
-  // screen) so it can't interact with any other surface.
+  // linkHandlerParams alone doesn't regress rendering; v1.0.524
+  // confirmed `controller:` passing is also fine. Kept local to this
+  // State (not threaded from the screen) so it can't interact with
+  // any other surface.
   late final PdfViewerController _controller;
+  // v1.0.525 (recovery step 3): track current page via onPageChanged.
+  // 0 means "not reported yet" — the badge is hidden until pdfrx
+  // emits the first page-change event. No total page count yet (that
+  // would need onViewerReady, the next bisect step).
+  int _currentPage = 0;
 
   @override
   void initState() {
@@ -117,36 +122,68 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // 2.2.x even when rendering succeeds. If a future regression
     // calls for diagnostics again, resurrect from git history at
     // commit 6dc5614.
-    // v1.0.524 (recovery step 2): also handle internal page-refs
-    // (`link.dest`) by routing through a local PdfViewerController.
-    // v1.0.523 proved linkHandlerParams alone is safe on 2.2.24;
-    // this layer tests whether ALSO passing `controller:` to
-    // PdfViewer.data is what broke v1.0.518. If gray returns,
-    // `controller:` is the trigger and we revert this single line.
-    return ColoredBox(
-      color: Colors.white,
-      child: PdfViewer.data(
-        bytes,
-        sourceName: widget.title ?? widget.uri,
-        controller: _controller,
-        params: PdfViewerParams(
-          backgroundColor: Colors.white,
-          linkHandlerParams: PdfLinkHandlerParams(
-            onLinkTap: (link) async {
-              final url = link.url;
-              if (url != null) {
-                await launchUrl(url,
-                    mode: LaunchMode.externalApplication);
-                return;
-              }
-              final dest = link.dest;
-              if (dest != null) {
-                await _controller.goToDest(dest);
-              }
-            },
+    // v1.0.525 (recovery step 3): add the onPageChanged callback
+    // alone — no onViewerReady, no pagePaintCallbacks, no overlay
+    // builder. If rendering stays OK, that callback is innocent and
+    // we move to onViewerReady as the next bisect.
+    return Stack(
+      children: [
+        ColoredBox(
+          color: Colors.white,
+          child: PdfViewer.data(
+            bytes,
+            sourceName: widget.title ?? widget.uri,
+            controller: _controller,
+            params: PdfViewerParams(
+              backgroundColor: Colors.white,
+              linkHandlerParams: PdfLinkHandlerParams(
+                onLinkTap: (link) async {
+                  final url = link.url;
+                  if (url != null) {
+                    await launchUrl(url,
+                        mode: LaunchMode.externalApplication);
+                    return;
+                  }
+                  final dest = link.dest;
+                  if (dest != null) {
+                    await _controller.goToDest(dest);
+                  }
+                },
+              ),
+              onPageChanged: (page) {
+                if (!mounted) return;
+                setState(() => _currentPage = page ?? 0);
+              },
+            ),
           ),
         ),
-      ),
+        if (_currentPage > 0)
+          Positioned(
+            bottom: 8,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$_currentPage',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10.5,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

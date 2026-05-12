@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.528
+> **Last verified vs code:** v1.0.529
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,27 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.529-alpha — 2026-05-12
+
+### Fixed
+
+- **PDF gray-screen regression in v1.0.528** — adding
+  `pagePaintCallbacks: [searcher.pageTextMatchPaintCallback]` to
+  `PdfViewerParams` grays the viewport on pdfrx 2.2.24. Removed
+  that single line — the `PdfTextSearcher` itself stays wired up
+  so the AppBar search UI still functions: type a query, see
+  "3/12" match count, tap prev/next to jump pages via the
+  searcher's `goToNextMatch` / `goToPrevMatch`. **The only thing
+  missing is in-viewport highlighting** of matches — they don't
+  paint over the page text. Likely a signature mismatch between
+  the 2.2.x `PdfViewerPagePaintCallback` typedef and the closure
+  pdfrx 2.3.x ships for the searcher's highlight rendering.
+  Acceptable degradation; find-in-PDF is still usable via the
+  match-count navigation
+  (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

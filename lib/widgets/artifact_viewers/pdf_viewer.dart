@@ -155,10 +155,16 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // alone — no onViewerReady, no pagePaintCallbacks, no overlay
     // builder. If rendering stays OK, that callback is innocent and
     // we move to onViewerReady as the next bisect.
-    final searcher = widget.searcher;
-    final paintCallbacks = searcher != null
-        ? <PdfViewerPagePaintCallback>[searcher.pageTextMatchPaintCallback]
-        : null;
+    // v1.0.529: drop pagePaintCallbacks. v1.0.528 confirmed adding
+    // `pagePaintCallbacks: [searcher.pageTextMatchPaintCallback]`
+    // grays the viewport on pdfrx 2.2.24, even with the deferred-
+    // setState pattern that fixed everything else. Likely a
+    // signature mismatch between the 2.2.x `PdfViewerPagePaintCallback`
+    // typedef and the closure pdfrx 2.3.x ships for the searcher's
+    // highlight rendering. Find-in-PDF still works: the searcher is
+    // wired, the AppBar's prev/next arrows jump via
+    // goToMatchOfIndex / goToNextMatch — just no in-viewport
+    // highlight. Acceptable degradation for the bisect endgame.
     return Stack(
       children: [
         ColoredBox(
@@ -169,7 +175,6 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
             controller: _controller,
             params: PdfViewerParams(
               backgroundColor: Colors.white,
-              pagePaintCallbacks: paintCallbacks,
               linkHandlerParams: PdfLinkHandlerParams(
                 onLinkTap: (link) async {
                   final url = link.url;

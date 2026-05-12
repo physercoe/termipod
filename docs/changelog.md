@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.516
+> **Last verified vs code:** v1.0.517
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,31 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.517-alpha — 2026-05-12
+
+### Fixed
+
+- **PDF diagnostic strip showed "TIMEOUT" while content rendered
+  fine** — pdfrx 2.2.24's `onDocumentLoadFinished` callback doesn't
+  fire reliably on the success path even when pdfium renders the
+  document; the 10 s watchdog from v1.0.515 then flipped the strip
+  to red. Misleading for testers. The strip + watchdog served their
+  purpose in v1.0.514–515 (identifying the 2.3.x native-assets
+  regression); removed now that pdfium renders. If a future
+  regression calls for it, resurrect from git history at commit
+  `6dc5614`. (`lib/widgets/artifact_viewers/pdf_viewer.dart`)
+- **Uploaded PDFs / images / text fell through to the share sheet
+  instead of opening the viewer** — `_preview` checked the mime
+  string only. `file_picker` sometimes returns a null extension
+  and the upload pipeline then stores `application/octet-stream`;
+  on tap, the PDF mime check failed and the row dropped to the
+  share/save flow. Added a **filename-extension fallback** for the
+  PDF / image / text dispatch paths — `foo.pdf` now opens in the
+  PDF viewer even when the server's mime says `octet-stream`
+  (`lib/screens/projects/blobs_section.dart`).
 
 ---
 

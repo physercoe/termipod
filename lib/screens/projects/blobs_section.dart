@@ -54,10 +54,18 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
   /// back to the system share/save flow via [_download] (v1.0.509 — the
   /// tile previously always called `_download`, so testers couldn't
   /// preview the assets they uploaded).
+  ///
+  /// v1.0.517: falls back to filename-extension detection when mime is
+  /// ambiguous. `file_picker` sometimes hands us a null extension or
+  /// the server stores `application/octet-stream` for files where
+  /// content-sniffing isn't conclusive — a PDF uploaded with bad mime
+  /// would otherwise drop straight to the share sheet.
   Future<void> _preview(BlobRecord rec) async {
     final mime = rec.mime;
+    final lowerName = rec.name.toLowerCase();
     final blobUri = 'blob:sha256/${rec.sha}';
-    if (mime == 'application/pdf') {
+    final isPdf = mime == 'application/pdf' || lowerName.endsWith('.pdf');
+    if (isPdf) {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => ArtifactPdfViewerScreen(uri: blobUri, title: rec.name),
@@ -65,7 +73,13 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
       );
       return;
     }
-    if (mime.startsWith('image/')) {
+    final isImage = mime.startsWith('image/') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.gif') ||
+        lowerName.endsWith('.webp');
+    if (isImage) {
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) =>
@@ -74,14 +88,29 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
       );
       return;
     }
-    if (mime == 'text/markdown' ||
+    final isText = mime == 'text/markdown' ||
         mime == 'text/plain' ||
         mime == 'application/json' ||
-        mime == 'application/yaml') {
+        mime == 'application/yaml' ||
+        lowerName.endsWith('.md') ||
+        lowerName.endsWith('.txt') ||
+        lowerName.endsWith('.json') ||
+        lowerName.endsWith('.yaml') ||
+        lowerName.endsWith('.yml');
+    if (isText) {
+      // Pick a best-effort mime when the server didn't give us one;
+      // BlobTextViewerScreen renders markdown for `text/markdown`.
+      final viewerMime = mime.startsWith('text/') ||
+              mime == 'application/json' ||
+              mime == 'application/yaml'
+          ? mime
+          : lowerName.endsWith('.md')
+              ? 'text/markdown'
+              : 'text/plain';
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) =>
-              BlobTextViewerScreen(sha: rec.sha, mime: mime, name: rec.name),
+              BlobTextViewerScreen(sha: rec.sha, mime: viewerMime, name: rec.name),
         ),
       );
       return;

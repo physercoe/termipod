@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -44,24 +43,11 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   Uint8List? _bytes;
   String? _error;
   bool _loading = true;
-  // pdfium-side state (populated from PdfViewerParams callbacks).
-  // `null` = not yet reported, `true` = success, `false` = failure.
-  bool? _pdfiumLoadOk;
-  String? _pdfiumError;
-  int? _pageCount;
-  bool _pdfiumTimedOut = false;
-  Timer? _pdfiumWatchdog;
 
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  @override
-  void dispose() {
-    _pdfiumWatchdog?.cancel();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -111,150 +97,25 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     if (bytes == null) {
       return _PdfLoadError(message: 'no bytes', uri: widget.uri);
     }
-    // Start a 10 s watchdog as soon as the viewer is mounted with
-    // bytes. If `onDocumentLoadFinished` hasn't fired by then, the
-    // native pdfium library never woke up — the diagnostic strip
-    // flips to "TIMEOUT" so the tester knows it's a native-side
-    // failure, not a slow document. v1.0.514 spent multiple
-    // releases on "loading…" with no signal; this puts a hard
-    // ceiling on diagnosis time.
-    _pdfiumWatchdog ??= Timer(const Duration(seconds: 10), () {
-      if (!mounted) return;
-      if (_pdfiumLoadOk == null) {
-        setState(() => _pdfiumTimedOut = true);
-      }
-    });
     // ColoredBox + the params' backgroundColor white-paint the
     // viewport so a transparent page-fill in a minimal PDF doesn't
-    // blend into the Scaffold's gray. `useProgressiveLoading`
-    // defaults to true to match the canonical pdfrx viewer example —
-    // overriding it to false in v1.0.514 didn't help and the
-    // canonical example uses true.
-    return Column(
-      children: [
-        Expanded(
-          child: ColoredBox(
-            color: Colors.white,
-            child: PdfViewer.data(
-              bytes,
-              sourceName: widget.title ?? widget.uri,
-              params: PdfViewerParams(
-                backgroundColor: Colors.white,
-                onDocumentLoadFinished: _onLoadFinished,
-                onDocumentChanged: _onDocumentChanged,
-              ),
-            ),
-          ),
+    // blend into the Scaffold's gray.
+    //
+    // The v1.0.514 diagnostic strip + 10 s watchdog were removed in
+    // v1.0.517 once the pdfrx 2.2.24 pin confirmed rendering works
+    // — the strip's "TIMEOUT" message was misleading on the happy
+    // path because `onDocumentLoadFinished` doesn't fire reliably in
+    // 2.2.x even when rendering succeeds. If a future regression
+    // calls for diagnostics again, resurrect from git history at
+    // commit 6dc5614.
+    return ColoredBox(
+      color: Colors.white,
+      child: PdfViewer.data(
+        bytes,
+        sourceName: widget.title ?? widget.uri,
+        params: const PdfViewerParams(
+          backgroundColor: Colors.white,
         ),
-        _PdfDiagnosticStrip(
-          byteCount: bytes.length,
-          pdfiumLoadOk: _pdfiumLoadOk,
-          pdfiumError: _pdfiumError,
-          pdfiumTimedOut: _pdfiumTimedOut,
-          pageCount: _pageCount,
-          uri: widget.uri,
-        ),
-      ],
-    );
-  }
-
-  void _onLoadFinished(PdfDocumentRef docRef, bool ok) {
-    if (!mounted) return;
-    _pdfiumWatchdog?.cancel();
-    final listenable = docRef.resolveListenable();
-    setState(() {
-      _pdfiumLoadOk = ok;
-      _pdfiumError = ok ? null : (listenable.error?.toString() ?? 'unknown');
-      _pageCount = listenable.document?.pages.length;
-    });
-  }
-
-  void _onDocumentChanged(PdfDocument? document) {
-    if (!mounted) return;
-    setState(() {
-      _pageCount = document?.pages.length;
-    });
-  }
-}
-
-class _PdfDiagnosticStrip extends StatelessWidget {
-  final int byteCount;
-  final bool? pdfiumLoadOk;
-  final String? pdfiumError;
-  final bool pdfiumTimedOut;
-  final int? pageCount;
-  final String uri;
-
-  const _PdfDiagnosticStrip({
-    required this.byteCount,
-    required this.pdfiumLoadOk,
-    required this.pdfiumError,
-    required this.pdfiumTimedOut,
-    required this.pageCount,
-    required this.uri,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final String status;
-    final Color color;
-    if (pdfiumLoadOk == null) {
-      if (pdfiumTimedOut) {
-        status = 'pdfium: TIMEOUT (native lib likely not loaded)';
-        color = DesignColors.error;
-      } else {
-        status = 'pdfium: loading…';
-        color = DesignColors.textMuted;
-      }
-    } else if (pdfiumLoadOk == true) {
-      status = 'pdfium: ok · ${pageCount ?? "?"} pages';
-      color = Colors.greenAccent.shade700;
-    } else {
-      status = 'pdfium: failed';
-      color = DesignColors.error;
-    }
-    final kib = (byteCount / 1024).toStringAsFixed(byteCount < 10240 ? 1 : 0);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: const BoxDecoration(
-        color: DesignColors.surfaceDark,
-        border: Border(
-          top: BorderSide(color: DesignColors.borderDark, width: 0.5),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.bug_report_outlined, size: 12, color: color),
-              const SizedBox(width: 6),
-              Text(
-                'bytes: ${kib}KiB · $status',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 10.5,
-                  color: color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          if (pdfiumError != null && pdfiumError!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2, left: 18),
-              child: Text(
-                pdfiumError!,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 9.5,
-                  color: DesignColors.error,
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

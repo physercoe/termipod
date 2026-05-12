@@ -28,7 +28,7 @@ each tuned to a different intent. They share one recording stack
 and one transcription pipeline; only the post-transcript routing
 differs.
 
-### Mode A — Puck long-press (ambient, panel-hidden, auto-send)
+### Mode A — Puck long-press (ambient, panel-hidden)
 
 The hands-free path. The user is on some other screen (project
 detail, terminal, settings) with the steward overlay puck collapsed.
@@ -39,18 +39,29 @@ detail, terminal, settings) with the steward overlay puck collapsed.
    pulse, elapsed timer, language chip (`auto / zh / en`). The
    transcript stream does NOT render here (the user isn't looking
    at a text field; partials would just be visual noise).
-3. Release → final transcript is auto-sent to the steward directly,
-   bypassing review. A transient toast confirms what was sent
-   (e.g. "Sent: 'show me the experiment run'"). The panel still
-   stays closed; the user can keep watching the screen they were
-   on, knowing the steward is now working.
-4. To see the steward's response, the user manually taps the puck
-   to open the panel. This decouples "talk to the steward" from
-   "watch the steward respond."
-5. Drag-out during long-press → cancels with no transcript and no
-   send. Critical because the user can't see what they said.
-6. If transcript is empty / whitespace-only → silently drop (no
-   send, no toast). Don't waste a steward turn on a misfire.
+3. Release → behavior depends on the **"Auto-send puck transcripts"**
+   setting (Settings → Voice; default **on**):
+   - **Toggle on (default — hands-free):** final transcript is
+     auto-sent to the steward directly, bypassing review. A
+     transient toast confirms what was sent (e.g. "Sent: 'show me
+     the experiment run'"). The panel still stays closed; the user
+     keeps watching the screen they were on, knowing the steward
+     is now working.
+   - **Toggle off (review fallback):** the panel auto-opens with
+     the transcript pre-filled in the chat input field. User
+     reviews, edits if needed, taps send. This effectively routes
+     puck long-press through Mode B's commit handler — same
+     review-then-send safety, just initiated from the puck instead
+     of the panel mic button.
+4. To see the steward's response (auto-send case), the user
+   manually taps the puck to open the panel. This decouples "talk
+   to the steward" from "watch the steward respond."
+5. Drag-out during long-press → cancels with no transcript, no
+   send, no panel-open. Critical because the user can't see what
+   they said.
+6. If transcript is empty / whitespace-only → silently drop
+   regardless of the toggle. Don't waste a steward turn (auto-send)
+   or pop a useless panel (review fallback) on a misfire.
 
 ### Mode B — Panel-open mic button (review-then-send)
 
@@ -97,6 +108,33 @@ risk profiles**, so collapsing them into one would compromise both:
 
 The same pipeline serves both; only the commit step differs (toast
 + auto-`postAgentInput` vs `_chatInput.text = transcript`).
+
+### UX layer vs protocol layer (clarification)
+
+"Utterance vs streaming" can mean two different things; this plan
+uses both axes but pins them independently:
+
+- **UX layer:** push-to-talk / utterance. The user explicitly starts
+  (long-press) and ends (release) each recording. This is not
+  always-on dictation with VAD-driven turn-taking. The user owns
+  the start/stop boundary, the device just executes.
+- **Protocol layer:** WebSocket streaming. PCM16 chunks flow to
+  DashScope every ~100 ms while the user is holding; the server
+  emits `result-generated` events as it processes each chunk and
+  refines its hypothesis.
+
+These axes are **independent**. **Yes, live partial transcripts
+work in our utterance UX** — the user does push-to-talk on the
+outside while the protocol streams on the inside. That's why
+Mode B can show partials accumulating in the input field even
+though the user is doing utterance-style press-and-hold (Mode A
+intentionally hides those partials because the user isn't watching
+a text field).
+
+If we ever wanted always-on dictation (no press-and-hold), we'd
+add a third UX layer on top of the same streaming protocol —
+toggle button, VAD-driven end-of-utterance detection, etc. Not
+in v1.
 
 ## Non-goals (locked by Q&A 2026-05-12)
 
@@ -346,10 +384,17 @@ controller; only their commit handlers differ.
     elapsed timer + language chip. The pill is NOT a partial-
     transcript surface — the user isn't looking at a text field.
   - `onLongPressEnd` → commit. Read final transcript, `.trim()`.
-    - If non-empty: `postAgentInput(kind: 'text', text: <transcript>)`
-      directly via `hubProvider`, bypassing the chat input.
-      Emit a snackbar/toast: `Sent: "<first 60 chars>…"`.
-    - If empty/whitespace: silently drop. No toast, no send.
+    - If empty/whitespace: silently drop. No toast, no send, no
+      panel-open. (Same regardless of auto-send toggle.)
+    - If non-empty AND `settings.puckAutoSend == true`:
+      `postAgentInput(kind: 'text', text: <transcript>)` directly
+      via `hubProvider`, bypassing the chat input. Emit a
+      snackbar/toast: `Sent: "<first 60 chars>…"`.
+    - If non-empty AND `settings.puckAutoSend == false`: open the
+      overlay panel via the existing controller's open API and
+      pre-fill `_chatInput.text` with the transcript (caret to
+      end). No auto-send; user reviews and taps send. This is
+      Mode B's commit handler, just invoked from a Mode A start.
   - `onLongPressMoveUpdate` with displacement > threshold →
     cancel session, dismiss pill, no commit, no toast.
   - On error mid-session: dismiss pill, snackbar with error,
@@ -382,10 +427,15 @@ controller; only their commit handlers differ.
 - Drag-out during the puck long-press cancels with no send and no
   toast.
 
-### W4 — Settings (~90 LOC)
+### W4 — Settings (~100 LOC)
 
 - New screen `lib/screens/settings/voice_settings_screen.dart`:
-  - Toggle: "Voice input" (gates the mic button).
+  - Toggle: "Voice input" (gates both mic affordances — panel
+    button AND puck long-press).
+  - Toggle: **"Auto-send puck transcripts"** — default **on**.
+    Subtitle: "When off, puck long-press opens the chat for
+    review before sending." (Mode B's panel mic button is
+    unaffected — it's always review-then-send.)
   - API key field (password input, paste-friendly, secure storage).
   - Region picker (Beijing default / Singapore / US).
   - Model picker (Fun-ASR realtime default / Paraformer realtime
@@ -441,12 +491,26 @@ status block all reflect the shipped state.
   tile. Only transcript text persists (via existing `agent_events`).
 - **Q6 → No multi-key support.** Confirmed; one key per device.
 - **Q7 → Two voice entry points, two commit semantics.** Confirmed:
-  - Mode A (puck long-press, panel hidden): **auto-send** to
-    steward; transient toast confirms; panel does NOT auto-open.
+  - Mode A (puck long-press, panel hidden): **auto-send by
+    default**; transient toast confirms; panel does NOT auto-open.
+    Settings → Voice → "Auto-send puck transcripts" toggle
+    controls this — when off, puck long-press routes through
+    Mode B's review handler (panel auto-opens with transcript
+    pre-filled).
   - Mode B (panel mic button, panel open): **review-then-send**
-    into the chat input field (honors ADR-023 D4).
+    into the chat input field (honors ADR-023 D4). Always.
   - Both modes share recording stack + ASR pipeline; only commit
     handlers differ.
+- **Q8 → UX layer ≠ protocol layer.** Confirmed:
+  - **UX is utterance** (push-to-talk: user owns start/stop via
+    long-press).
+  - **Protocol is streaming** (PCM chunks every ~100 ms over
+    WebSocket; server emits partials as it processes them).
+  - These are independent axes — live partials work in Mode B's
+    utterance UX because the underlying protocol is streaming.
+    Mode A intentionally suppresses partial rendering even though
+    they're available, because the user isn't watching a text
+    field while the puck is active.
 
 ## Lingering open questions (do not block v1)
 
@@ -471,9 +535,9 @@ status block all reflect the shipped state.
 | W2  | DashScope WebSocket client | ~140 |
 | W3a | Mode B — panel mic button | ~100 |
 | W3b | Mode A — puck long-press + recording pill | ~100 |
-| W4  | Settings screen + provider | ~90 |
+| W4  | Settings screen + provider (incl. auto-send toggle) | ~100 |
 | W5  | Tests + docs + memory | ~60 |
-| **Total** | | **~560** |
+| **Total** | | **~570** |
 
 Compare:
 - Deferred Path D plan: ~1000 LOC + 85–200 MB APK bloat

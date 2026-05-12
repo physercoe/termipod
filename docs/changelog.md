@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.531
+> **Last verified vs code:** v1.0.532
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.532-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W2 — DashScope WebSocket ASR client.** Second wedge
+  of the Path C plan. Adds `web_socket_channel: ^2.4.0` and
+  `lib/services/voice/cloud_stt.dart` (`CloudStt` interface +
+  `AlibabaWebSocketStt` concrete impl). State machine:
+  `connecting → running → finishing → closed`. Opens the WebSocket
+  to `wss://dashscope.aliyuncs.com/api-ws/v1/inference` (Beijing
+  default; Singapore + US endpoints selectable), sends the
+  `run-task` JSON for `fun-asr-realtime` (or
+  `paraformer-realtime-v2`), pumps PCM chunks as binary frames once
+  `task-started` lands, parses `result-generated` events into
+  `TranscriptUpdate(text, isPartial, isFinal)`, and sends
+  `finish-task` when the audio stream closes. `task-failed` events
+  surface as `DashScopeAsrException`. The WebSocket channel + task
+  ID generator are both injectable so the tests
+  (`test/services/voice/cloud_stt_test.dart`, 7 cases) run with a
+  `_FakeWebSocketChannel` — happy path, task-failed, server close,
+  early audio cancellation, model id forwarding, regional endpoint
+  selection. No UI surface yet; W3 wires the recording + WS stack
+  into the mic affordances.
 
 ---
 

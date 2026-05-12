@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.531-alpha+10531
+version: 1.0.532-alpha+10532
 
 environment:
   sdk: ^3.10.7
@@ -122,6 +122,11 @@ dependencies:
   # roundtrip, no transcoding. See docs/plans/voice-input-path-c-
   # alibaba.md W1.
   record: ^5.2.0
+  # WebSocket transport for the voice-input DashScope ASR client (W2
+  # of the Path C plan). Mobile-only: IOWebSocketChannel.connect
+  # forwards Authorization: Bearer headers to the server, which the
+  # browser shim does not. No web target in v1.
+  web_socket_channel: ^2.4.0
 
 dev_dependencies:
   flutter_test:

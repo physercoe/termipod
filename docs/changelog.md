@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.513
+> **Last verified vs code:** v1.0.514
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,28 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.514-alpha — 2026-05-12
+
+### Changed
+
+- **PDF viewer now surfaces pdfium-side load state on screen** — four
+  prior releases (.508/.510/.511/.512/.513) chased "white page" with
+  speculative fixes (PDF `/Encoding`, page geometry, white viewport,
+  `pdfrxFlutterInitialize()` call) and none moved the needle because
+  we had no visibility into WHICH stage was failing. v1.0.514 wires
+  `PdfViewerParams.onDocumentLoadFinished` + `onDocumentChanged`
+  through to a diagnostic strip below the viewer that reports:
+  bytes downloaded (KiB), pdfium load result (ok/failed), error
+  string (if failed), and page count. Next tester screenshot tells
+  us whether the breakdown is in the byte fetch, the pdfium open, or
+  the rendering pipeline — no more guess-and-ship. Also disabled
+  progressive loading (`useProgressiveLoading: false`) since our
+  blobs are sub-25 MiB and the progressive path has been a known
+  source of blank-page bugs upstream (pdfrx#617, merged 2026-05-08)
+  (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

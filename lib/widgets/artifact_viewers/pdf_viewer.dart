@@ -14,9 +14,15 @@ import '../../theme/design_colors.dart';
 /// (`blob:sha256/<sha>` → `/v1/blobs/<sha>` with bearer auth +
 /// content-addressed disk cache) and feeds them into pdfrx for
 /// rendering. URIs in non-`blob:sha256/` schemes (mock seed data,
-/// external HTTPS, etc.) show an explicit "cannot load" message —
-/// future work in W4 may extend support to HTTPS via a plain HTTP
-/// fetch, but today everything load-bearing flows through the hub.
+/// external HTTPS, etc.) show an explicit "cannot load" message.
+///
+/// v1.0.514 added a diagnostic strip at the bottom showing the load
+/// pipeline state (bytes → pdfium → pages) — four prior releases
+/// chased "white page" with speculative fixes (encoding, page geometry,
+/// init call) and none moved the needle because we had no signal as to
+/// which stage was failing. The strip puts that signal on screen so
+/// the next tester screenshot tells us where pdfium stalls instead of
+/// requiring another guess-and-ship loop.
 class ArtifactPdfViewer extends ConsumerStatefulWidget {
   final String uri;
   final String? title;
@@ -37,6 +43,11 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   Uint8List? _bytes;
   String? _error;
   bool _loading = true;
+  // pdfium-side state (populated from PdfViewerParams callbacks).
+  // `null` = not yet reported, `true` = success, `false` = failure.
+  bool? _pdfiumLoadOk;
+  String? _pdfiumError;
+  int? _pageCount;
 
   @override
   void initState() {
@@ -91,19 +102,133 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     if (bytes == null) {
       return _PdfLoadError(message: 'no bytes', uri: widget.uri);
     }
-    // White-paint the viewport so a transparent page background (our
-    // minimal seed PDF doesn't paint its own page fill) doesn't blend
-    // into the Scaffold's gray and read as "empty / gray" to testers
-    // (v1.0.510). ColoredBox is belt-and-suspenders for any pixel the
-    // PdfViewerParams.backgroundColor doesn't reach.
-    return ColoredBox(
-      color: Colors.white,
-      child: PdfViewer.data(
-        bytes,
-        sourceName: widget.title ?? widget.uri,
-        params: const PdfViewerParams(
-          backgroundColor: Colors.white,
+    // White viewport so any transparent page-fill in a minimal PDF
+    // doesn't blend into the Scaffold's gray. ColoredBox + the params'
+    // backgroundColor are belt-and-suspenders for pdfium builds that
+    // skip painting the page background.
+    //
+    // `useProgressiveLoading: false` — our seed + uploaded PDFs are
+    // small (a few KB to a few MB) and the progressive-loading path
+    // has been the source of "white page" rendering bugs in the past
+    // (pdfrx#617, merged 2026-05-08). Plain-load is cheaper and more
+    // reliable for sub-25 MiB blobs.
+    return Column(
+      children: [
+        Expanded(
+          child: ColoredBox(
+            color: Colors.white,
+            child: PdfViewer.data(
+              bytes,
+              sourceName: widget.title ?? widget.uri,
+              useProgressiveLoading: false,
+              params: PdfViewerParams(
+                backgroundColor: Colors.white,
+                onDocumentLoadFinished: _onLoadFinished,
+                onDocumentChanged: _onDocumentChanged,
+              ),
+            ),
+          ),
         ),
+        _PdfDiagnosticStrip(
+          byteCount: bytes.length,
+          pdfiumLoadOk: _pdfiumLoadOk,
+          pdfiumError: _pdfiumError,
+          pageCount: _pageCount,
+          uri: widget.uri,
+        ),
+      ],
+    );
+  }
+
+  void _onLoadFinished(PdfDocumentRef docRef, bool ok) {
+    if (!mounted) return;
+    final listenable = docRef.resolveListenable();
+    setState(() {
+      _pdfiumLoadOk = ok;
+      _pdfiumError = ok ? null : (listenable.error?.toString() ?? 'unknown');
+      _pageCount = listenable.document?.pages.length;
+    });
+  }
+
+  void _onDocumentChanged(PdfDocument? document) {
+    if (!mounted) return;
+    setState(() {
+      _pageCount = document?.pages.length;
+    });
+  }
+}
+
+class _PdfDiagnosticStrip extends StatelessWidget {
+  final int byteCount;
+  final bool? pdfiumLoadOk;
+  final String? pdfiumError;
+  final int? pageCount;
+  final String uri;
+
+  const _PdfDiagnosticStrip({
+    required this.byteCount,
+    required this.pdfiumLoadOk,
+    required this.pdfiumError,
+    required this.pageCount,
+    required this.uri,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final String status;
+    final Color color;
+    if (pdfiumLoadOk == null) {
+      status = 'pdfium: loading…';
+      color = DesignColors.textMuted;
+    } else if (pdfiumLoadOk == true) {
+      status = 'pdfium: ok · ${pageCount ?? "?"} pages';
+      color = Colors.greenAccent.shade700;
+    } else {
+      status = 'pdfium: failed';
+      color = DesignColors.error;
+    }
+    final kib = (byteCount / 1024).toStringAsFixed(byteCount < 10240 ? 1 : 0);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: const BoxDecoration(
+        color: DesignColors.surfaceDark,
+        border: Border(
+          top: BorderSide(color: DesignColors.borderDark, width: 0.5),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.bug_report_outlined, size: 12, color: color),
+              const SizedBox(width: 6),
+              Text(
+                'bytes: ${kib}KiB · $status',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10.5,
+                  color: color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (pdfiumError != null && pdfiumError!.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 18),
+              child: Text(
+                pdfiumError!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 9.5,
+                  color: DesignColors.error,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

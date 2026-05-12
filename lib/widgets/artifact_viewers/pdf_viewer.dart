@@ -44,10 +44,18 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   Uint8List? _bytes;
   String? _error;
   bool _loading = true;
+  // v1.0.524 (recovery step 2): a local PdfViewerController so we
+  // can route internal page-ref taps via goToDest. v1.0.523 confirmed
+  // linkHandlerParams alone doesn't regress rendering; this isolates
+  // whether ALSO passing `controller:` to PdfViewer.data is what
+  // broke v1.0.518. Kept local to this State (not threaded from the
+  // screen) so it can't interact with any other surface.
+  late final PdfViewerController _controller;
 
   @override
   void initState() {
     super.initState();
+    _controller = PdfViewerController();
     _load();
   }
 
@@ -109,27 +117,32 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // 2.2.x even when rendering succeeds. If a future regression
     // calls for diagnostics again, resurrect from git history at
     // commit 6dc5614.
-    // v1.0.523: re-add tappable external URLs via linkHandlerParams
-    // only — step 1 of the post-regression recovery path. No
-    // controller, no overlay builder, no page tracking. Internal
-    // page-refs (`link.dest`) are ignored here because resolving
-    // them needs a `PdfViewerController`, and v1.0.518's attempt to
-    // pass one to `PdfViewer.data` is what caused the gray-screen
-    // regression. External URLs (`link.url`) are the high-value
-    // case for academic-paper PDFs anyway.
+    // v1.0.524 (recovery step 2): also handle internal page-refs
+    // (`link.dest`) by routing through a local PdfViewerController.
+    // v1.0.523 proved linkHandlerParams alone is safe on 2.2.24;
+    // this layer tests whether ALSO passing `controller:` to
+    // PdfViewer.data is what broke v1.0.518. If gray returns,
+    // `controller:` is the trigger and we revert this single line.
     return ColoredBox(
       color: Colors.white,
       child: PdfViewer.data(
         bytes,
         sourceName: widget.title ?? widget.uri,
+        controller: _controller,
         params: PdfViewerParams(
           backgroundColor: Colors.white,
           linkHandlerParams: PdfLinkHandlerParams(
             onLinkTap: (link) async {
               final url = link.url;
-              if (url == null) return;
-              await launchUrl(url,
-                  mode: LaunchMode.externalApplication);
+              if (url != null) {
+                await launchUrl(url,
+                    mode: LaunchMode.externalApplication);
+                return;
+              }
+              final dest = link.dest;
+              if (dest != null) {
+                await _controller.goToDest(dest);
+              }
             },
           ),
         ),

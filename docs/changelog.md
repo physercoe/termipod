@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.523
+> **Last verified vs code:** v1.0.524
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,24 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.524-alpha — 2026-05-12
+
+### Added
+
+- **Tappable internal page-refs inside PDFs** — v1.0.523 confirmed
+  external URLs work without grayscreening, so this step adds a
+  local `PdfViewerController` and routes internal page-dests via
+  `_controller.goToDest(link.dest)`. The controller lives inside
+  the leaf viewer's state — not threaded from the screen — so it
+  cannot interact with any other surface (no TOC drawer, no
+  text-search, no overlay builder). This is the second bisect
+  point on the v1.0.518 recovery list: if rendering still works,
+  passing `controller:` to `PdfViewer.data` is innocent and the
+  v1.0.518 break was from `pagePaintCallbacks` or `onViewerReady`
+  instead (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

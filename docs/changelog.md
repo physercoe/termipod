@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.538
+> **Last verified vs code:** v1.0.539
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.539-alpha — 2026-05-12
+
+### Changed
+
+- **Mode B voice input polish — overlay chat input rearranged.** The
+  voice button is no longer the same affordance as Send; tester
+  feedback was that the old mic/send icon swap on the right of the
+  composer read as a single, ambiguous button. New layout:
+  `[voice toggle] [field] [attach…] [send]`. Voice is the leftmost
+  surface (where the file-attach button used to live); attach buttons
+  moved next to Send. Tapping the voice toggle replaces the text field
+  with a large "Hold to speak" gesture surface that mirrors the Mode A
+  puck (long-press dictates, release commits per
+  `voiceSettings.autoSendPuckTranscripts` — auto-send when on, drop
+  into the field for review when off). Tapping the toggle again
+  switches back to keyboard mode.
+- **Inline streaming mic inside the text field.** When the field is
+  empty AND the user's first input from empty wasn't keyboard, a
+  small mic icon appears as the field's suffix. Tap once to start
+  streaming dictation (icon turns red); transcripts stream directly
+  into the field as partials arrive. Tap again to stop and commit.
+  Hidden once the user types manually into an empty field — a
+  one-way signal that this user prefers typing, so the prompt stops
+  inviting voice.
 
 ---
 

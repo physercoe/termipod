@@ -203,6 +203,8 @@ class _ChatInputSlot extends ConsumerWidget {
       canAttachVideo: parent._canAttachVideo,
       voiceEnabled: voiceSettings.isReady,
       voiceStarter: voiceStarter,
+      voiceAutoSendOnHold: () =>
+          ref.read(voiceSettingsProvider).autoSendPuckTranscripts,
     );
   }
 }
@@ -320,6 +322,11 @@ class _ChatInput extends StatefulWidget {
   /// in widget state.
   final Future<VoiceRecordingSession?> Function()? voiceStarter;
 
+  /// On-demand getter for the auto-send-on-hold setting. Plumbed in
+  /// from [_ChatInputSlot] so the State remains a non-Consumer (no
+  /// ref.watch) and the v1.0.466 IME rebuild path stays clear.
+  final bool Function()? voiceAutoSendOnHold;
+
   const _ChatInput({
     super.key,
     required this.onSend,
@@ -329,11 +336,36 @@ class _ChatInput extends StatefulWidget {
     this.canAttachVideo = false,
     this.voiceEnabled = false,
     this.voiceStarter,
+    this.voiceAutoSendOnHold,
   });
 
   @override
   State<_ChatInput> createState() => _ChatInputState();
 }
+
+/// Which voice surface owns the currently-running session. Events from
+/// the shared [VoiceRecordingSession] route to the right handler via
+/// this discriminator.
+enum _VoiceFlow {
+  /// No session active.
+  none,
+
+  /// Long-press on the in-panel "Hold to speak" surface that replaces
+  /// the text field while `_voiceComposeMode` is on. Auto-sends on
+  /// release per `voiceSettings.autoSendPuckTranscripts`.
+  holdToSpeak,
+
+  /// Tap-toggle on the inline mic suffix inside the text field. Streams
+  /// partials/finals directly into `_ctrl`; second tap stops.
+  inlineStreaming,
+}
+
+/// Whether the user's first non-empty content came from the keyboard
+/// or voice. Once set it doesn't change for the widget's lifetime. The
+/// inline mic affordance is hidden when this is `keyboard` — the user
+/// has signalled a typing preference, so the prompt shouldn't keep
+/// inviting them to dictate.
+enum _FirstInputSource { none, voice, keyboard }
 
 class _ChatInputState extends State<_ChatInput> {
   final _ctrl = TextEditingController();
@@ -354,10 +386,36 @@ class _ChatInputState extends State<_ChatInput> {
   final List<Map<String, String>> _pendingImages = [];
   final Map<MultimodalKind, Map<String, String>> _pendingMultimodal = {};
 
-  // Path C voice input (Mode B — panel mic button).
+  // Path C voice input.
+  //
+  // Three orthogonal surfaces live in this widget:
+  //
+  //   1. **Voice toggle** (left of the row, mirrors the puck) — taps
+  //      flip `_voiceComposeMode`. When on, the text field is replaced
+  //      by a `Hold to speak` gesture surface; long-press dictates
+  //      and (per voiceSettings.autoSendPuckTranscripts) either
+  //      auto-sends or drops the transcript into the input for review.
+  //   2. **Hold-to-speak surface** (center, only while
+  //      `_voiceComposeMode` is on) — long-press start/end/move
+  //      drives Mode-A semantics in-panel.
+  //   3. **Inline streaming mic** (TextField suffix, only while
+  //      `_voiceComposeMode` is off and the input is empty) —
+  //      tap-toggle streams partials/finals directly into `_ctrl`.
+  //
+  // All three reuse a single session field; `_activeFlow` records
+  // which surface owns the currently-running session so events route
+  // to the right handler.
+  bool _voiceComposeMode = false;
+  _VoiceFlow _activeFlow = _VoiceFlow.none;
+  _FirstInputSource _firstInputSource = _FirstInputSource.none;
+
   VoiceRecordingSession? _voiceSession;
   StreamSubscription<VoiceSessionEvent>? _voiceSub;
   bool _voiceStarting = false;
+  // Recording-state of the hold-to-speak surface — drives the red
+  // pulse + transcript preview inside the gesture box.
+  String _holdTranscript = '';
+  bool _holdRecording = false;
   // Snapshot of the input text at the moment voice recording started.
   // Restored on cancel so the user doesn't lose what they typed.
   String _voiceSavedText = '';
@@ -507,9 +565,15 @@ class _ChatInputState extends State<_ChatInput> {
     setState(() => _pendingMultimodal.remove(k));
   }
 
-  Future<void> _onVoiceLongPressStart(LongPressStartDetails _) async {
-    if (_voiceSession != null || _voiceStarting) return;
-    if (widget.voiceStarter == null) return;
+  // ===== Voice — shared session lifecycle =====
+
+  /// Builds + starts a session, attaching the event subscription. Sets
+  /// `_activeFlow` BEFORE start() so the first event can dispatch
+  /// correctly. Returns true on success; surfaces a SnackBar + cleans
+  /// up on failure.
+  Future<bool> _startVoiceSession(_VoiceFlow flow) async {
+    if (_voiceSession != null || _voiceStarting) return false;
+    if (widget.voiceStarter == null) return false;
     setState(() => _voiceStarting = true);
     VoiceRecordingSession? session;
     try {
@@ -525,14 +589,16 @@ class _ChatInputState extends State<_ChatInput> {
     }
     if (session == null || !mounted) {
       await session?.dispose();
-      return;
+      return false;
     }
     _voiceSavedText = _ctrl.text;
     _voiceSession = session;
+    _activeFlow = flow;
     _voiceSub = session.events.listen(_onVoiceEvent);
     try {
       await session.start();
       if (mounted) setState(() {});
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -540,14 +606,71 @@ class _ChatInputState extends State<_ChatInput> {
         );
       }
       await _cleanupVoiceSession();
+      return false;
     }
   }
 
   void _onVoiceEvent(VoiceSessionEvent e) {
     if (!mounted) return;
+    switch (_activeFlow) {
+      case _VoiceFlow.holdToSpeak:
+        _handleHoldToSpeakEvent(e);
+      case _VoiceFlow.inlineStreaming:
+        _handleInlineStreamingEvent(e);
+      case _VoiceFlow.none:
+        // Defensive — clean up if a stray event arrives after cleanup.
+        _cleanupVoiceSession();
+    }
+  }
+
+  void _handleHoldToSpeakEvent(VoiceSessionEvent e) {
+    switch (e.kind) {
+      case VoiceSessionEventKind.transcriptUpdated:
+        setState(() => _holdTranscript = e.text);
+      case VoiceSessionEventKind.completed:
+        final text = e.text.trim();
+        if (text.isNotEmpty) {
+          _markFirstInputIfNone(_FirstInputSource.voice);
+          final autoSend = widget.voiceAutoSendOnHold?.call() ?? false;
+          if (autoSend) {
+            // Route through the regular _send so any staged
+            // attachments ride along — same outbound shape as a
+            // keyboard send.
+            _ctrl.text = text;
+            // Schedule on a microtask so cleanup state settles before
+            // _send awaits the network call.
+            scheduleMicrotask(_send);
+          } else {
+            // Drop transcript into the input + revert to text mode so
+            // the user can review + tap send.
+            _ctrl.value = TextEditingValue(
+              text: text,
+              selection: TextSelection.collapsed(offset: text.length),
+            );
+            setState(() => _voiceComposeMode = false);
+          }
+        }
+        _cleanupVoiceSession();
+      case VoiceSessionEventKind.cancelled:
+        _cleanupVoiceSession();
+      case VoiceSessionEventKind.maxDurationReached:
+        // Session auto-calls stop(); a completed event will follow.
+        break;
+      case VoiceSessionEventKind.error:
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Voice error: ${e.error}')),
+        );
+        _cleanupVoiceSession();
+    }
+  }
+
+  void _handleInlineStreamingEvent(VoiceSessionEvent e) {
     switch (e.kind) {
       case VoiceSessionEventKind.transcriptUpdated:
       case VoiceSessionEventKind.completed:
+        if (e.text.isNotEmpty) {
+          _markFirstInputIfNone(_FirstInputSource.voice);
+        }
         _ctrl.value = TextEditingValue(
           text: e.text,
           selection: TextSelection.collapsed(offset: e.text.length),
@@ -563,7 +686,6 @@ class _ChatInputState extends State<_ChatInput> {
         );
         _cleanupVoiceSession();
       case VoiceSessionEventKind.maxDurationReached:
-        // Session auto-calls stop(); a completed event will follow.
         break;
       case VoiceSessionEventKind.error:
         ScaffoldMessenger.of(context).showSnackBar(
@@ -573,72 +695,213 @@ class _ChatInputState extends State<_ChatInput> {
     }
   }
 
-  Future<void> _onVoiceLongPressEnd(LongPressEndDetails _) async {
-    await _voiceSession?.stop();
-  }
-
-  void _onVoiceLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
-    // Drag-out cancels the recording. Threshold roughly matches the
-    // mic button's hit area so a small wobble doesn't misfire.
-    if (d.offsetFromOrigin.distance > 60) {
-      _voiceSession?.cancel();
-    }
-  }
-
   Future<void> _cleanupVoiceSession() async {
     await _voiceSub?.cancel();
     _voiceSub = null;
     final s = _voiceSession;
     _voiceSession = null;
+    _activeFlow = _VoiceFlow.none;
+    _holdTranscript = '';
+    _holdRecording = false;
     if (mounted) setState(() {});
     await s?.dispose();
   }
 
-  Widget _buildSendOrMic() {
+  void _markFirstInputIfNone(_FirstInputSource src) {
+    if (_firstInputSource == _FirstInputSource.none) {
+      _firstInputSource = src;
+    }
+  }
+
+  // ===== Voice toggle (left of the row) =====
+
+  Future<void> _toggleVoiceComposeMode() async {
+    // Cancel any active session before swapping surfaces — leaving a
+    // session running while the UI changes underneath causes the
+    // stream listener to fire into the wrong handler.
+    if (_voiceSession != null) {
+      await _voiceSession?.cancel();
+    }
+    if (!mounted) return;
+    setState(() => _voiceComposeMode = !_voiceComposeMode);
+  }
+
+  // ===== Hold-to-speak (center, voice compose mode) =====
+
+  Future<void> _onHoldToSpeakStart(LongPressStartDetails _) async {
+    if (!_voiceComposeMode) return;
+    setState(() => _holdRecording = true);
+    final ok = await _startVoiceSession(_VoiceFlow.holdToSpeak);
+    if (!ok && mounted) setState(() => _holdRecording = false);
+  }
+
+  Future<void> _onHoldToSpeakEnd(LongPressEndDetails _) async {
+    if (_voiceSession != null && _activeFlow == _VoiceFlow.holdToSpeak) {
+      await _voiceSession?.stop();
+    }
+    if (mounted) setState(() => _holdRecording = false);
+  }
+
+  void _onHoldToSpeakMoveUpdate(LongPressMoveUpdateDetails d) {
+    if (d.offsetFromOrigin.distance > 80) {
+      _voiceSession?.cancel();
+    }
+  }
+
+  // ===== Inline streaming mic (TextField suffix) =====
+
+  Future<void> _onInlineMicTap() async {
+    if (_activeFlow == _VoiceFlow.inlineStreaming &&
+        _voiceSession != null) {
+      // Tap-toggle off: stop the running session; completed event
+      // commits the final transcript.
+      await _voiceSession?.stop();
+      return;
+    }
+    if (_voiceSession != null) {
+      // Another flow is active; ignore the tap.
+      return;
+    }
+    await _startVoiceSession(_VoiceFlow.inlineStreaming);
+  }
+
+  void _onTextFieldChanged(String _) {
+    // `onChanged` only fires from user keyboard input — programmatic
+    // `_ctrl.value = …` writes (from voice events) don't trigger it.
+    // So a single call here is enough to fingerprint the user's first
+    // input as keyboard-driven. Once set the inline mic hides whenever
+    // the field is empty, signalling "this user prefers typing".
+    _markFirstInputIfNone(_FirstInputSource.keyboard);
+  }
+
+  // ===== Center-surface builders =====
+
+  Widget _buildTextField() {
     return ListenableBuilder(
       listenable: _ctrl,
       builder: (context, _) {
-        final isRecording = _voiceSession != null;
         final isEmpty = _ctrl.text.isEmpty;
-        final canShowMic =
-            widget.voiceEnabled && isEmpty && !_sending && !_voiceStarting;
-        if (canShowMic || isRecording) {
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onLongPressStart: _onVoiceLongPressStart,
-            onLongPressEnd: _onVoiceLongPressEnd,
-            onLongPressMoveUpdate: _onVoiceLongPressMoveUpdate,
-            child: Container(
-              width: 40,
-              height: 40,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isRecording
-                    ? DesignColors.error.withValues(alpha: 0.18)
-                    : Colors.transparent,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isRecording ? Icons.mic : Icons.mic_none,
-                color: isRecording
-                    ? DesignColors.error
-                    : DesignColors.primary,
-                size: 22,
-              ),
+        final showInlineMic = widget.voiceEnabled &&
+            isEmpty &&
+            _firstInputSource != _FirstInputSource.keyboard;
+        final streaming =
+            _activeFlow == _VoiceFlow.inlineStreaming && _voiceSession != null;
+        // **IME-friendly defaults.** Earlier revisions set
+        // `autocorrect: false` + `enableSuggestions: false` as
+        // belt-and-suspenders for the v1.0.466 deleted-text-returning
+        // bug. v1.0.472 fixed that bug architecturally via rebuild-
+        // scope isolation (see `_StewardOverlayChatState` doc), so the
+        // defensive flags are no longer load-bearing — and they
+        // actively break CJK input. Drop both flags.
+        //
+        // **Do not add `autofillHints: const []`.** An empty list
+        // poisons some Android+Gboard combinations; `null` is correct.
+        return TextField(
+          controller: _ctrl,
+          focusNode: _focus,
+          minLines: 1,
+          maxLines: 4,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          onChanged: _onTextFieldChanged,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Ask the steward…',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
             ),
-          );
-        }
-        return IconButton(
-          icon: _sending
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.send, color: DesignColors.primary),
-          onPressed: _sending ? null : _send,
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12, vertical: 10),
+            suffixIcon: (showInlineMic || streaming)
+                ? IconButton(
+                    tooltip: streaming
+                        ? 'Stop dictation'
+                        : 'Start dictation',
+                    icon: Icon(
+                      streaming ? Icons.mic : Icons.mic_none,
+                      size: 20,
+                      color: streaming
+                          ? DesignColors.error
+                          : DesignColors.primary,
+                    ),
+                    onPressed: (_sending || _voiceStarting)
+                        ? null
+                        : _onInlineMicTap,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints(
+                        minWidth: 32, minHeight: 32),
+                  )
+                : null,
+            suffixIconConstraints:
+                const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
         );
       },
+    );
+  }
+
+  Widget _buildHoldToSpeakSurface() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final recording = _holdRecording;
+    final starting = _voiceStarting;
+    final hint = starting
+        ? 'Starting…'
+        : recording
+            ? (_holdTranscript.isEmpty ? 'Listening…' : _holdTranscript)
+            : 'Hold to speak';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPressStart: _onHoldToSpeakStart,
+      onLongPressEnd: _onHoldToSpeakEnd,
+      onLongPressMoveUpdate: _onHoldToSpeakMoveUpdate,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: recording
+              ? DesignColors.error.withValues(alpha: 0.10)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : Colors.black.withValues(alpha: 0.03)),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: recording
+                ? DesignColors.error.withValues(alpha: 0.55)
+                : (isDark
+                    ? Colors.white24
+                    : Colors.black26),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              recording ? Icons.mic : Icons.mic_none,
+              size: 18,
+              color: recording ? DesignColors.error : DesignColors.primary,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                hint,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 13,
+                  fontWeight:
+                      recording ? FontWeight.w600 : FontWeight.w500,
+                  color: recording
+                      ? DesignColors.error
+                      : (isDark
+                          ? Colors.white.withValues(alpha: 0.78)
+                          : DesignColors.textPrimary
+                              .withValues(alpha: 0.7)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -743,6 +1006,45 @@ class _ChatInputState extends State<_ChatInput> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              // Voice toggle — sits in what used to be the leftmost
+              // attach position. Tap flips `_voiceComposeMode`; the
+              // icon mirrors the active mode (keyboard ↔ mic). Hidden
+              // when the voice setting is off so the row collapses to
+              // a pure-text composer.
+              if (widget.voiceEnabled)
+                IconButton(
+                  tooltip: _voiceComposeMode
+                      ? 'Switch to keyboard'
+                      : 'Switch to voice',
+                  onPressed: (_sending || _voiceStarting)
+                      ? null
+                      : _toggleVoiceComposeMode,
+                  icon: Icon(
+                    _voiceComposeMode ? Icons.keyboard : Icons.mic_none,
+                    size: 22,
+                    color: _voiceComposeMode
+                        ? DesignColors.primary
+                        : null,
+                  ),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  constraints:
+                      const BoxConstraints(minWidth: 36, minHeight: 36),
+                ),
+              // Center surface — either the text field (with optional
+              // inline streaming mic suffix) or the hold-to-speak
+              // gesture box, depending on `_voiceComposeMode`.
+              Expanded(
+                child: _voiceComposeMode
+                    ? _buildHoldToSpeakSurface()
+                    : _buildTextField(),
+              ),
+              const SizedBox(width: 6),
+              // Attach buttons — moved from the left of the row to the
+              // right, so the steward composer reads
+              // `[voice] [field] [attach] [send]` instead of the old
+              // `[attach] [field] [send/mic]` shape that conflated the
+              // voice button with send.
               if (canAttach)
                 IconButton(
                   tooltip: _pendingImages.length >= kMaxImagesPerTurn
@@ -765,8 +1067,6 @@ class _ChatInputState extends State<_ChatInput> {
                   constraints:
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
-              // W7.1 — code/text inline attach. Always rendered;
-              // engine-agnostic.
               IconButton(
                 tooltip: 'Attach code or text file',
                 onPressed: (_sending || _attachingText) ? null : _pickTextFile,
@@ -782,9 +1082,6 @@ class _ChatInputState extends State<_ChatInput> {
                 constraints:
                     const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
-              // W7.2 — PDF / audio / video attach. Visible when the
-              // family declares at least one of the prompt_pdf /
-              // prompt_audio / prompt_video flags.
               if (canAttachMulti)
                 IconButton(
                   tooltip: 'Attach PDF, audio, or video',
@@ -803,50 +1100,17 @@ class _ChatInputState extends State<_ChatInput> {
                   constraints:
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
-              Expanded(
-            // **IME-friendly defaults.** Earlier revisions set
-            // `autocorrect: false` + `enableSuggestions: false` as
-            // belt-and-suspenders for the v1.0.466 deleted-text-
-            // returning bug. v1.0.472 fixed that bug architecturally
-            // via rebuild-scope isolation (see `_StewardOverlayChatState`
-            // doc), so the defensive flags are no longer load-bearing —
-            // and they actively break CJK input. Android maps them to
-            // `TYPE_TEXT_FLAG_NO_AUTO_CORRECT` /
-            // `TYPE_TEXT_FLAG_NO_SUGGESTIONS`; Chinese / Japanese /
-            // Korean IMEs (Sogou, Gboard-CN, Baidu, Mozc, etc.)
-            // interpret no-suggestions as a hard signal to fall back
-            // to Latin-only mode because their candidate display IS
-            // the suggestion surface. Result: a system keyboard
-            // appears, but the user's selected IME refuses to engage
-            // its CJK composition pipeline. v1.0.479 QA: "there is
-            // keyboard but not my input method." Drop both flags.
-            //
-            // **Do not add `autofillHints: const []`.** An empty
-            // autofillHints list is poisoned: on some Android+Gboard
-            // combinations it signals AutofillManager that the field
-            // is managed by autofill but has no hints, and the IME
-            // fails to attach. `null` (the default, achieved by
-            // omitting the line entirely) is the correct shape.
-            child: TextField(
-              controller: _ctrl,
-              focusNode: _focus,
-              minLines: 1,
-              maxLines: 4,
-              keyboardType: TextInputType.multiline,
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Ask the steward…',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+              IconButton(
+                tooltip: 'Send',
+                icon: _sending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send, color: DesignColors.primary),
+                onPressed: _sending ? null : _send,
               ),
-            ),
-          ),
-              const SizedBox(width: 6),
-              _buildSendOrMic(),
             ],
           ),
         ],

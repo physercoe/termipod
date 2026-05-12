@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.542
+> **Last verified vs code:** v1.0.543
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.543-alpha — 2026-05-12
+
+### Added
+
+- **URI router covers all project sub-entities + host lookup by
+  name.** Steward navigation needed more shapes than just `documents`:
+  - Project sub-routes: `/tasks/<tid>` → TaskDetail,
+    `/agents/<aid>` → Agent sheet, `/plans/<plid>` → PlanViewer,
+    `/plans` → PlansScreen, `/runs/<rid>` → RunDetail, `/runs` →
+    RunsScreen, `/artifacts` → ArtifactsScreen.
+  - Project tab anchors: `/overview` `/activity` `/agents` `/tasks`
+    `/files` push ProjectDetail with the right pill highlighted.
+    `ProjectDetailScreen` accepts an `initialTab` param; the
+    `PageController` initial page + `_index` derive from it.
+  - Top-level forms: `termipod://run/<rid>` and
+    `termipod://host/<idOrName>` (the host form tolerates either
+    a ULID or a case-insensitive `name`/`hostname` match, with
+    refresh-retry — steward agents tend to know hostnames not ids).
+- **Steward can now `termipod://host/<hostname>` to open the host
+  detail sheet.** Previously only `termipod://hosts` (tab switch)
+  was wired.
 
 ---
 

@@ -59,7 +59,18 @@ import 'task_detail_screen.dart';
 ///   - Info:     rolled into Overview.
 class ProjectDetailScreen extends ConsumerStatefulWidget {
   final Map<String, dynamic> project;
-  const ProjectDetailScreen({super.key, required this.project});
+
+  /// Tab to land on when the screen opens. Indexes into the pill order
+  /// locked by IA §6.2: 0=Overview, 1=Activity, 2=Agents, 3=Tasks,
+  /// 4=Files. Out-of-range values clamp to 0. Used by the URI router
+  /// to anchor `termipod://project/<pid>/{activity|agents|tasks|files}`.
+  final int initialTab;
+
+  const ProjectDetailScreen({
+    super.key,
+    required this.project,
+    this.initialTab = 0,
+  });
 
   @override
   ConsumerState<ProjectDetailScreen> createState() =>
@@ -67,8 +78,8 @@ class ProjectDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
-  final _pager = PageController();
-  int _index = 0;
+  late final PageController _pager;
+  late int _index;
   late Map<String, dynamic> _project;
 
   /// Lifecycle phase fields (W1). Pulled out as locals so the build
@@ -106,6 +117,8 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
   void initState() {
     super.initState();
     _project = Map<String, dynamic>.from(widget.project);
+    _index = widget.initialTab.clamp(0, _labels.length - 1);
+    _pager = PageController(initialPage: _index);
   }
 
   @override

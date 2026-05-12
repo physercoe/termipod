@@ -103,23 +103,56 @@ Read-only verbs only at this stage — `mobile.navigate` does not
 mutate state. Edits, approvals, ratifications still require the
 director to tap. (Future versions will add write verbs.)
 
-URI grammar (`termipod://...`):
+URI grammar (`termipod://...`) — kept in sync with the mobile router
+(`lib/services/deep_link/uri_router.dart`). Use the **most specific**
+URI you have ids for; the router is forgiving and degrades cleanly.
 
-- `termipod://project/<projectId>` — project home
-- `termipod://project/<projectId>?tab=<plan|documents|deliverables|agents>` — specific tab
-- `termipod://project/<projectId>/documents/<docId>/sections/<sectionId>` — direct to section
-- `termipod://project/<projectId>/deliverables/<delId>/criteria/<critId>` — direct to acceptance criterion
-- `termipod://activity?filter=<all|approvals|stuck|messages|agents>` — Activity tab
-- `termipod://attention/<attentionId>` — single attention item detail
-- `termipod://agent/<agentId>/transcript` — agent's session transcript
-- `termipod://session/<sessionId>` — specific session
-- `termipod://insights?scope=<team|team_stewards|project|agent|engine|host>&id=<id>` — Insights view
-- `termipod://hosts` / `termipod://me` / `termipod://settings` — top-level tabs
+**Top-level tabs:**
+
+- `termipod://projects` · `termipod://activity[?filter=<f>]` ·
+  `termipod://hosts` · `termipod://me` · `termipod://settings`
+
+**Project sub-routes** (`termipod://project/<projectId>/<sub>[/<subId>]`):
+
+- bare `…/<projectId>` — Overview
+- `…/{overview|activity|agents|tasks|files}` — tab-anchored
+- `…/agents/<agentId>` — open Agent sheet
+- `…/tasks/<taskId>` — push Task Detail
+- `…/documents[/<docId>]` — Documents list or single doc
+- `…/plans[/<planId>]` — Plans list or single plan
+- `…/runs[/<runId>]` — Runs list or single run
+- `…/{outputs|artifacts}` — outputs (artifacts) list
+- `…/experiments` — alias of `…/runs`
+- `…/assets` — device-local blob cache
+- `…/schedules` — schedules list
+- `…/deliverables` — deliverables list
+- `…/acceptance-criteria` — acceptance criteria list
+- `…/discussion` — project channels
+- `…/phases/<phase>` — the per-phase "hero" summary page
+
+**Entity top-levels** (when project context is implicit):
+
+- `termipod://document/<docId>` — Document detail
+- `termipod://run/<runId>` — Run detail
+- `termipod://session/<sessionId>` — Session chat
+- `termipod://agent/<agentId>` — Agent sheet
+- `termipod://host/<idOrName>` — if it matches a personal SSH bookmark,
+  open the terminal (connect); else open the team-host detail sheet.
+  Accepts the user-readable hostname or label, not just the ULID.
+- `termipod://connect/<idOrName>` — explicit terminal-only; no
+  hub-host fallback.
+
+**Insights:**
+
+- `termipod://insights[?scope=<team|team_stewards|project|agent|engine|host>&id=<id>]`
 
 When the director's request matches multiple URIs, pick the most
-specific one. *"Show me the methods section of the lit-review"* →
-`termipod://project/<id>/documents/<lit-review-doc-id>/sections/methods`,
-not `termipod://project/<id>`.
+specific one. *"Show me the literature review's methods"* →
+`termipod://project/<id>/documents/<lit-review-doc-id>` (the doc
+viewer scrolls within). *"Take me to the experiment phase"* →
+`termipod://project/<id>/phases/experiment`. Don't synthesise
+sub-paths the grammar doesn't list — section anchors and
+per-criterion deep links aren't implemented.
 
 If you don't know an id (project, document, etc.), look it up
 first via `projects.list` / `documents.list` / `get_attention`

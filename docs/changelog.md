@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.541
+> **Last verified vs code:** v1.0.542
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,25 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.542-alpha — 2026-05-12
+
+### Added
+
+- **URI router: `termipod://project/<pid>/documents/<docId>` and
+  `termipod://document/<docId>` push DocumentDetailScreen.**
+  The steward emitted the nested form after creating a doc and we
+  silently fell through to ProjectDetail (taking only `segments[0]`
+  as the project id and ignoring trailing segments). Sub-routes now
+  branch off `case 'project'`:
+  - `/documents/<docId>` → push the document directly. The detail
+    screen fetches by id, so the project doesn't need to be in
+    cache.
+  - `/documents` (no id) → push the project-scoped documents list.
+  Top-level `termipod://document/<id>` also added for the steward to
+  emit when the project context is implicit.
 
 ---
 

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../screens/insights/insights_screen.dart';
+import '../../screens/projects/documents_screen.dart'
+    show DocumentDetailScreen, DocumentsScreen;
 import '../../screens/projects/project_detail_screen.dart';
 import '../../screens/projects/projects_screen.dart' show openAgentDetail;
 import '../../screens/sessions/sessions_screen.dart' show SessionChatScreen;
@@ -24,15 +26,18 @@ import '../../screens/sessions/sessions_screen.dart' show SessionChatScreen;
 ///
 /// URI grammar (v1 prototype):
 ///
-///   termipod://projects                     → switch to Projects tab
-///   termipod://activity[?filter=<f>]        → switch to Activity tab
-///   termipod://me                           → switch to Me tab
-///   termipod://hosts                        → switch to Hosts tab
-///   termipod://settings                     → switch to Settings tab
-///   termipod://project/<id>[?tab=<t>]       → push Project Detail
-///   termipod://session/<id>                 → push Session Chat
-///   termipod://agent/<id>[/transcript]      → open Agent Detail sheet
-///   termipod://insights[?scope=<k>&id=<x>]  → push Insights screen
+///   termipod://projects                            → switch to Projects tab
+///   termipod://activity[?filter=<f>]               → switch to Activity tab
+///   termipod://me                                  → switch to Me tab
+///   termipod://hosts                               → switch to Hosts tab
+///   termipod://settings                            → switch to Settings tab
+///   termipod://project/<id>[?tab=<t>]              → push Project Detail
+///   termipod://project/<id>/documents              → push project docs list
+///   termipod://project/<id>/documents/<docId>      → push Document Detail
+///   termipod://document/<docId>                    → push Document Detail
+///   termipod://session/<id>                        → push Session Chat
+///   termipod://agent/<id>[/transcript]             → open Agent Detail sheet
+///   termipod://insights[?scope=<k>&id=<x>]         → push Insights screen
 ///
 /// Unknown shapes return false; the caller may surface "unsupported
 /// route" to the user. Forward-compat: new URI shapes can be added
@@ -98,11 +103,28 @@ Future<NavigateResult> navigateToUri(
       return const NavigateResult(true, 'Settings');
 
     case 'project':
-      // termipod://project/<id>[/...]
+      // termipod://project/<id>[/<sub-route>/<sub-id>]
       if (segments.isEmpty) return NavigateResult.unknown;
       final projectId = segments[0];
+      if (segments.length >= 2) {
+        final sub = segments[1].toLowerCase();
+        if (sub == 'documents') {
+          if (segments.length >= 3 && segments[2].isNotEmpty) {
+            // …/documents/<docId> → push DocumentDetail directly.
+            // The detail screen fetches the doc itself, so we don't
+            // need the project in the local cache.
+            return _openDocument(context, segments[2], setTab: setTab);
+          }
+          // …/documents → push the project-scoped documents list.
+          return _openProjectDocuments(context, projectId, setTab: setTab);
+        }
+      }
       return _openProject(context, projectId,
           hub: hub, setTab: setTab, refreshHub: refreshHub);
+
+    case 'document':
+      if (segments.isEmpty) return NavigateResult.unknown;
+      return _openDocument(context, segments[0], setTab: setTab);
 
     case 'session':
       if (segments.isEmpty) return NavigateResult.unknown;
@@ -161,6 +183,40 @@ Future<NavigateResult> _openProject(
   );
   final name = (match['name']?.toString() ?? projectId).trim();
   return NavigateResult(true, 'Project: ${name.isEmpty ? projectId : name}');
+}
+
+Future<NavigateResult> _openDocument(
+  BuildContext context,
+  String documentId, {
+  required void Function(int index) setTab,
+}) async {
+  if (documentId.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
+  // Anchor the back stack to the Projects tab so the user lands back
+  // there if they pop the document — matches the steward's mental
+  // model of "the doc lives inside a project."
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => DocumentDetailScreen(documentId: documentId),
+    ),
+  );
+  return const NavigateResult(true, 'Document');
+}
+
+Future<NavigateResult> _openProjectDocuments(
+  BuildContext context,
+  String projectId, {
+  required void Function(int index) setTab,
+}) async {
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => DocumentsScreen(projectId: projectId),
+    ),
+  );
+  return const NavigateResult(true, 'Documents');
 }
 
 Future<NavigateResult> _openSession(

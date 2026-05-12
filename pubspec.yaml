@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.530-alpha+10530
+version: 1.0.531-alpha+10531
 
 environment:
   sdk: ^3.10.7
@@ -116,6 +116,12 @@ dependencies:
   # data: URIs + a small CDN allowlist; no postMessage bridge. ~2 MB
   # APK cost on Android (see canvas-viewer plan Q6).
   webview_flutter: ^4.10.0
+  # Microphone capture for voice input (Path C — Alibaba
+  # DashScope WebSocket ASR). Streams raw PCM16 16 kHz mono via
+  # startStream(RecordConfig(encoder: pcm16bits)) — no file
+  # roundtrip, no transcoding. See docs/plans/voice-input-path-c-
+  # alibaba.md W1.
+  record: ^5.2.0
 
 dev_dependencies:
   flutter_test:

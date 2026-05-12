@@ -12,6 +12,10 @@
          permission. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
 
+    <!-- Microphone for voice input (Path C — DashScope ASR; see
+         docs/plans/voice-input-path-c-alibaba.md) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Foreground Service permissions for SSH connection maintenance -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

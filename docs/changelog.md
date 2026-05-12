@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.530
+> **Last verified vs code:** v1.0.531
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,28 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.531-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W1 — audio recording infrastructure.** First wedge of
+  the Path C plan (`docs/plans/voice-input-path-c-alibaba.md`). Adds
+  `record: ^5.2.0`, the Android `RECORD_AUDIO` permission, and the
+  iOS `NSMicrophoneUsageDescription` string. Introduces
+  `lib/services/voice/recording_controller.dart` — a thin wrapper
+  that opens a PCM16 16 kHz mono stream from the platform mic via
+  `startStream()`, with `stop()` / `cancel()` / `dispose()`
+  lifecycle. The plugin's concrete `AudioRecorder` sits behind a
+  `RecorderBackend` interface so the unit tests
+  (`test/services/voice/recording_controller_test.dart`, 8 cases)
+  run without platform channels. Permission denial,
+  already-recording, and platform-error states surface as
+  `VoiceRecordingException` with explicit `kind`s for the UI layer
+  to dispatch on. No UI surface yet; W2 wires this stream into the
+  DashScope WebSocket client and W3 adds the mic gestures.
 
 ---
 

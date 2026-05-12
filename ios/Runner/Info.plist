@@ -76,5 +76,7 @@
 	<string>画像をリモートサーバーに転送するためにフォトライブラリを使用します</string>
 	<key>NSCameraUsageDescription</key>
 	<string>撮影した画像をリモートサーバーに転送するためにカメラを使用します</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Voice input dictates text to the steward — audio is sent to the configured ASR service and never persisted.</string>
 </dict>
 </plist>

@@ -23,37 +23,93 @@ inference adapter behind the same `CloudStt` interface.
 
 ## Goal
 
-After this plan:
+After this plan, voice input has **two distinct entry points** —
+each tuned to a different intent. They share one recording stack
+and one transcription pipeline; only the post-transcript routing
+differs.
 
-1. The steward overlay chat input has a microphone button (replaces
-   the send button when the input field is empty, mirroring the
-   deferred plan's UX).
-2. Tap-and-hold to record; release to commit. Drag-out cancels.
-3. **Partial transcripts stream into the input field as the user
-   speaks** — a real-time UX win over batch mode. The final result
-   replaces the partials on release.
-4. Recording soft cap **60 s** (DashScope WebSocket has no hard cap;
-   the UX cap matches push-to-talk's reasonable ceiling).
-5. Bilingual zh + en + 8 Chinese dialects handled in one model
-   (Fun-ASR auto-detects). Per-utterance language chip (`auto / zh /
-   en`) on the recording pill lets the user override when auto-
-   detect mis-flags.
-6. Mic button auto-disables when offline (`connectivity_plus`),
-   greyed with a tooltip.
-7. API key lives in `flutter_secure_storage`; user pastes it in
-   Settings → Voice → DashScope API Key.
-8. **Default region: Beijing** (`dashscope.aliyuncs.com`) — principal
-   tested with a Beijing-region key and Beijing's per-second fee is
-   cheaper than Singapore / US.
-9. Transcripts land in the text field for **review-then-send** — not
-   auto-sent (honors ADR-023 D4).
+### Mode A — Puck long-press (ambient, panel-hidden, auto-send)
+
+The hands-free path. The user is on some other screen (project
+detail, terminal, settings) with the steward overlay puck collapsed.
+
+1. Long-press the floating puck → recording starts. **Panel stays
+   closed.** The user's current screen does NOT change.
+2. A small floating recording pill anchors next to the puck — red
+   pulse, elapsed timer, language chip (`auto / zh / en`). The
+   transcript stream does NOT render here (the user isn't looking
+   at a text field; partials would just be visual noise).
+3. Release → final transcript is auto-sent to the steward directly,
+   bypassing review. A transient toast confirms what was sent
+   (e.g. "Sent: 'show me the experiment run'"). The panel still
+   stays closed; the user can keep watching the screen they were
+   on, knowing the steward is now working.
+4. To see the steward's response, the user manually taps the puck
+   to open the panel. This decouples "talk to the steward" from
+   "watch the steward respond."
+5. Drag-out during long-press → cancels with no transcript and no
+   send. Critical because the user can't see what they said.
+6. If transcript is empty / whitespace-only → silently drop (no
+   send, no toast). Don't waste a steward turn on a misfire.
+
+### Mode B — Panel-open mic button (review-then-send)
+
+The deliberate path. The user has the panel open, is composing a
+message, and wants to dictate into the input field.
+
+1. The chat input's send button is replaced by a mic button when
+   the field is empty.
+2. Long-press → record. Partial transcripts stream into the input
+   field as the user speaks (a real-time UX win over batch mode).
+3. Release → final transcript replaces partials in the input field.
+   User reviews, edits if needed, taps send.
+4. Drag-out cancels with no committed text.
+5. Honors ADR-023 D4 (review-then-send for deliberate compose
+   flow).
+
+### Shared properties
+
+- Recording soft cap **60 s** (50 s haptic hint, 60 s auto-commit).
+- Bilingual zh + en + 8 Chinese dialects in one model (Fun-ASR
+  auto-detects). Per-utterance language chip overrides the
+  Settings default.
+- Mic gestures auto-disable when offline (`connectivity_plus`).
+- API key in `flutter_secure_storage`; entered via Settings →
+  Voice → DashScope API Key.
+- **Default region: Beijing** (`dashscope.aliyuncs.com`) — cheapest
+  per-second; principal already holds a Beijing key for testing.
+- **The hub never sees audio.** Transcripts reach the hub via the
+  existing `postAgentInput(kind: 'text')` path, indistinguishable
+  from typed input.
+
+### Why two modes, not one
+
+Mode A and Mode B have **different latency budgets and different
+risk profiles**, so collapsing them into one would compromise both:
+
+- **Mode A is for short, well-formed commands** the user has already
+  composed in their head ("show me the run"). Speed beats safety
+  — the user wants action, not a transcript-review modal. The puck
+  is the affordance because it's available everywhere.
+- **Mode B is for longer or more nuanced messages** where the user
+  wants to see what was captured before sending. The panel is the
+  affordance because the message belongs in a chat.
+
+The same pipeline serves both; only the commit step differs (toast
++ auto-`postAgentInput` vs `_chatInput.text = transcript`).
 
 ## Non-goals (locked by Q&A 2026-05-12)
 
 - **Audio logging.** No on-disk audio history. PCM frames flow
   microphone → WebSocket → discarded. The transcript text is the
   only persisted artifact (via the normal `agent_events` flow once
-  the user hits send). Principal Q5.
+  the user — or auto-send — commits). Principal Q5.
+- **Audio telemetry / audit / cost rollup.** No `voice_usage` table,
+  no `payload.usage.duration` aggregation, no Settings → Voice →
+  "Usage this month" tile. v1 ships with zero observability on the
+  voice path beyond standard request-level logging that omits the
+  audio payload. Track cost out-of-band in the DashScope console
+  if needed. Principal Q5-extended (2026-05-12 followup).
 - **Hub-distributed API key.** One key per device, stored locally.
   No `GET /v1/teams/{team}/voice/credentials` endpoint. Principal
   Q6.
@@ -94,36 +150,57 @@ This plan picks **Alibaba `fun-asr-realtime`** specifically because:
 
 ## Architecture
 
+The recording stack + ASR pipeline is **shared**. The two modes
+differ only in where the transcript lands at the bottom of the
+diagram.
+
 ```
-overlay chat input
-       │
-       │ [hold mic]
-       ▼
-RecordingController
-       │
-       │ record.startStream(pcm16bits, 16kHz mono)
-       │
-       │ Stream<Uint8List> (each chunk ~100 ms)
-       ▼
-AlibabaWebSocketStt
-       │
-       │ 1. WebSocket connect → wss://dashscope.aliyuncs.com/api-ws/v1/inference
-       │    Authorization: Bearer <key>
-       │ 2. Send run-task JSON { task_id, model: "fun-asr-realtime", parameters: { format: pcm, sample_rate: 16000, language_hints, punctuation_prediction_enabled: true } }
-       │ 3. Await task-started event
-       │ 4. For each PCM chunk → send as binary WebSocket frame
-       │ 5. Listen for result-generated events → emit partial transcript stream
-       │ 6. On stop → send finish-task JSON → drain final result-generated → close
-       ▼
-Stream<TranscriptUpdate { text, isPartial, isFinal }>
-       │
-       ▼
-_chatInput field (partials replace prior; final text is the committed value)
-       │
-       │ [user reviews, edits if needed, taps send]
-       ▼
-postAgentInput(kind: 'text')   ← existing hub path; unchanged
+                 ┌─────────────────────────────────────┐
+                 │       Mode A: puck long-press       │
+                 │  (panel collapsed, ambient command) │
+                 ├─────────────────────────────────────┤
+                 │       Mode B: panel mic button      │
+                 │  (panel open, compose with review)  │
+                 └─────────────────────────────────────┘
+                                  │
+                                  │ both modes invoke:
+                                  ▼
+                       RecordingController
+                                  │
+                                  │ record.startStream(pcm16bits, 16kHz mono)
+                                  │
+                                  │ Stream<Uint8List> (~100 ms chunks)
+                                  ▼
+                       AlibabaWebSocketStt
+                                  │
+                                  │ 1. WS connect → wss://dashscope.aliyuncs.com/api-ws/v1/inference
+                                  │    Authorization: Bearer <key>
+                                  │ 2. Send run-task JSON
+                                  │    { task_id, model: fun-asr-realtime,
+                                  │      parameters: { format: pcm, sample_rate: 16000,
+                                  │                    language_hints, punctuation_prediction_enabled: true } }
+                                  │ 3. Await task-started
+                                  │ 4. For each PCM chunk → binary frame
+                                  │ 5. Listen for result-generated → emit partials
+                                  │ 6. On stop → finish-task → drain → close
+                                  ▼
+                       Stream<TranscriptUpdate { text, isPartial, isFinal }>
+                                  │
+                ┌─────────────────┴─────────────────┐
+                │                                   │
+                ▼                                   ▼
+   Mode A (puck commit):                 Mode B (panel commit):
+   final text → trim                     each partial → _chatInput.text
+   if non-empty:                         final → _chatInput.text (caret end)
+     postAgentInput(text)                user reviews → taps send →
+     toast "Sent: '<text>'"                postAgentInput(text)
+   panel stays closed
 ```
+
+**The hub is not in the audio path.** Mobile → DashScope direct.
+Transcript reaches the hub via the existing `postAgentInput(kind:
+'text')` path, indistinguishable from typed input. No new hub
+endpoints, no `/v1/voice/*`, no audio bytes ever cross our wire.
 
 **The hub is not in the audio path.** Mobile → DashScope direct. The
 transcript reaches the hub via the existing `postAgentInput(kind:
@@ -237,27 +314,73 @@ W1, returns 1+ partial `TranscriptUpdate` and exactly one final
 update with the full sentence. Tests cover the four state-machine
 exit paths.
 
-### W3 — Mic FAB + push-to-talk UX (~140 LOC)
+### W3 — Mic UX for both modes (~200 LOC)
+
+Two integration points share the same `VoiceRecordingSession`
+controller; only their commit handlers differ.
+
+**W3a — Mode B: panel-open mic button** (~100 LOC)
 
 - New `lib/widgets/steward_overlay/voice_mic_button.dart`:
   - Replaces send button when `_chatInput` is empty AND
     `settings.voiceInputEnabled == true` AND device is online.
   - Offline state: greyed button + tooltip "Voice input requires
     connection" (`connectivity_plus` listen).
-  - `GestureDetector`: `onLongPressStart` → start; `onLongPressEnd`
-    → commit; drag-out → cancel.
-  - Recording pill: red pulse + elapsed timer (mm:ss) + a small
-    inline language chip (`auto / zh / en`) per-utterance override.
-  - 50 s soft haptic hint; 60 s auto-stop → calls commit.
+  - `GestureDetector`: `onLongPressStart` → start session;
+    `onLongPressEnd` → commit; drag-out → cancel.
   - Partial transcripts stream into `_chatInput.text` as they
     arrive; final replaces partials; caret to end.
-  - On error: snackbar with the error message; partial text
-    discarded.
+  - On error: snackbar; partial text discarded.
 
-**Acceptance:** in the overlay, holding the mic + speaking shows
-partial text in the input field within ~600 ms, the final commit
-within ~1 s after release. Tap the language chip to toggle `auto →
-zh → en` before recording. Drag-out cancels with no transcript.
+**W3b — Mode A: puck long-press** (~100 LOC)
+
+- Extend the existing floating puck widget in
+  `lib/widgets/steward_overlay/` to add a long-press recognizer:
+  - Existing tap behavior (open panel) is preserved on **short
+    tap**. Long-press starts recording — different gesture, no
+    collision.
+  - `onLongPressStart` → start session; the panel stays closed
+    (do NOT call the controller's open-panel API).
+  - A new floating `_VoiceRecordingPill` widget anchors next to
+    the puck (offset to avoid covering it), showing red pulse +
+    elapsed timer + language chip. The pill is NOT a partial-
+    transcript surface — the user isn't looking at a text field.
+  - `onLongPressEnd` → commit. Read final transcript, `.trim()`.
+    - If non-empty: `postAgentInput(kind: 'text', text: <transcript>)`
+      directly via `hubProvider`, bypassing the chat input.
+      Emit a snackbar/toast: `Sent: "<first 60 chars>…"`.
+    - If empty/whitespace: silently drop. No toast, no send.
+  - `onLongPressMoveUpdate` with displacement > threshold →
+    cancel session, dismiss pill, no commit, no toast.
+  - On error mid-session: dismiss pill, snackbar with error,
+    no send.
+  - Panel state is **not touched** by Mode A. If the panel was
+    closed it stays closed; the user opens it manually when
+    they want to see the steward's response.
+
+**Shared recording pill widget** (counted in W3b):
+- Red pulse animation + elapsed timer (mm:ss).
+- Inline language chip cycling `auto / zh / en` on tap (default
+  from Settings; per-utterance override only applies to *this*
+  recording).
+- 50 s elapsed → haptic + amber tint hint; 60 s → auto-commit.
+- Dismissible only via commit, cancel, or auto-stop.
+
+**Acceptance:**
+
+- **Mode B:** holding the panel mic + speaking shows partial text in
+  the input field within ~600 ms; final commits in input within ~1
+  s after release; user can edit + tap send. Drag-out cancels.
+- **Mode A:** with the panel collapsed, long-press the puck on any
+  screen, speak, release. Within ~1 s a toast appears with the
+  sent transcript; the panel does NOT auto-open; the user's
+  current screen is unchanged. Manually tapping the puck (short
+  tap) opens the panel and the new agent message + steward
+  response are visible there.
+- Tap the language chip on the pill to toggle `auto → zh → en`
+  before/during recording.
+- Drag-out during the puck long-press cancels with no send and no
+  toast.
 
 ### W4 — Settings (~90 LOC)
 
@@ -310,39 +433,51 @@ status block all reflect the shipped state.
 - **Q3 → 60 s soft cap.** Confirmed; 50 s haptic hint, 60 s auto-
   stop.
 - **Q4 → Per-utterance language chip.** Ship in v1, not v2. Lives
-  on the recording pill, cycles `auto / zh / en`. Default = Settings
-  default = `[zh, en]` language hints.
-- **Q5 → No audio logging.** Confirmed; PCM frames flow microphone
-  → WebSocket → discarded. Only transcript text persists (via
-  existing `agent_events`).
+  on the recording pill (both modes), cycles `auto / zh / en`.
+  Default = Settings default = `[zh, en]` language hints.
+- **Q5 → No audio logging AND no audio telemetry.** Confirmed; PCM
+  frames flow microphone → WebSocket → discarded. No `voice_usage`
+  table, no `usage.duration` rollup, no Settings → Voice → "Usage"
+  tile. Only transcript text persists (via existing `agent_events`).
 - **Q6 → No multi-key support.** Confirmed; one key per device.
+- **Q7 → Two voice entry points, two commit semantics.** Confirmed:
+  - Mode A (puck long-press, panel hidden): **auto-send** to
+    steward; transient toast confirms; panel does NOT auto-open.
+  - Mode B (panel mic button, panel open): **review-then-send**
+    into the chat input field (honors ADR-023 D4).
+  - Both modes share recording stack + ASR pipeline; only commit
+    handlers differ.
 
 ## Lingering open questions (do not block v1)
 
-- **Cost telemetry.** Per-second pricing isn't in the public docs;
-  `payload.usage.duration` echoes the billed seconds per result.
-  We could roll those up into a local "voice input usage this
-  month" tile in Settings → Voice. Track as a v1.x follow-up.
 - **Reconnect on transient WebSocket drop.** v1 surfaces a
   snackbar on disconnect and discards the partial. A reconnect-
   with-context (preserving the same `task_id`) is potentially
   supported by Fun-ASR's "connection multiplexing" feature but not
   needed for 60 s push-to-talk. Track as v1.x follow-up.
+- **Mode A misfire UX.** If the puck long-press auto-sends a
+  garbled transcript ("xxxyyyzzz"), the user has no undo. Two
+  candidate follow-ups: (a) an undo button in the toast for ~5 s;
+  (b) a "voice review threshold" setting where transcripts below
+  some confidence drop into Mode B (the panel opens with the text
+  in the input). Track for v1.x once tester reports surface real
+  misfire rates.
 
 ## LOC budget
 
 | Wedge | Content | LOC |
 |---|---|---|
-| W1 | Recording infrastructure | ~70 |
-| W2 | DashScope WebSocket client | ~140 |
-| W3 | Mic FAB + push-to-talk UX | ~140 |
-| W4 | Settings screen + provider | ~90 |
-| W5 | Tests + docs + memory | ~60 |
-| **Total** | | **~500** |
+| W1  | Recording infrastructure | ~70 |
+| W2  | DashScope WebSocket client | ~140 |
+| W3a | Mode B — panel mic button | ~100 |
+| W3b | Mode A — puck long-press + recording pill | ~100 |
+| W4  | Settings screen + provider | ~90 |
+| W5  | Tests + docs + memory | ~60 |
+| **Total** | | **~560** |
 
 Compare:
 - Deferred Path D plan: ~1000 LOC + 85–200 MB APK bloat
-- This plan: ~500 LOC + 0 APK bloat (just the `record` +
+- This plan: ~560 LOC + 0 APK bloat (just the `record` +
   `web_socket_channel` plugin shims)
 
 ## Migration path to Path D (offline)
@@ -397,15 +532,18 @@ offline migration runway.
 
 ## Done criteria
 
-- All five wedges shipped.
-- Holding the mic in the overlay for 5 s and speaking produces
-  partial transcripts within 600 ms and a final committed
-  transcript within 1 s after release.
+- All wedges shipped (W1 / W2 / W3a / W3b / W4 / W5).
+- **Mode A:** with the panel collapsed, long-pressing the puck on
+  any screen, speaking, and releasing produces a toast confirming
+  what was sent within ~1 s; the panel does NOT auto-open.
+- **Mode B:** with the panel open, long-pressing the mic button
+  shows partial transcripts in the chat input within 600 ms and a
+  final committed transcript within 1 s after release.
 - Principal pastes their Beijing-region key in Settings, hits
   "Test recording", and verifies a mixed zh+en utterance round-
   trips correctly.
 - Tester walkthrough in `how-to/test-agent-driven-prototype.md`
-  covers the voice path.
+  covers both modes.
 - Memory file `project_voice_input_discussion.md` updated to
   point at the shipped state.
 

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.540
+> **Last verified vs code:** v1.0.541
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.541-alpha — 2026-05-12
+
+### Fixed
+
+- **IME regression — deleted text returns on Android Gboard.** v1.0.539
+  wrapped the overlay chat input's `TextField` in a `ListenableBuilder`
+  watching `_ctrl` so the inline mic suffix could toggle on emptiness
+  changes. That fires on every keystroke and rebuilds the `TextField`
+  per character — same shape as the v1.0.466 SSE-driven rebuild bug
+  the v1.0.472 isolation work fixed. Per-character rebuild bounces
+  `EditableText.didUpdateWidget`, which can re-emit `setEditingState`
+  to the IME and the IME rebounds with its cached predictive word —
+  deleted characters reappear. Replaced the wrap with a
+  `ValueNotifier<bool>` updated via a `_ctrl` listener; the notifier's
+  `==` check dedupes per-keystroke notifications so only the suffix
+  icon (a small `ValueListenableBuilder`) rebuilds on actual
+  emptiness flips. The `TextField` itself is stable.
+- **Overlay chat panel scrolls to the latest message on open.** The
+  `_MessagesRegion` `ListView` used to render at the top of the
+  cached message history; users had to manually scroll to find what
+  the steward just said. Tracks `_lastSeenLength`; whenever the
+  message count changes (panel-open initial build or new SSE message)
+  schedules a post-frame `jumpTo(maxScrollExtent)`.
 
 ---
 

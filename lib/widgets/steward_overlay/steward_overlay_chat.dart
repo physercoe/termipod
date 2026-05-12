@@ -223,10 +223,26 @@ class _MessagesRegion extends ConsumerStatefulWidget {
 class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
   final _scrollCtrl = ScrollController();
 
+  /// Last message count we know about. Tracked so the scroll-to-end
+  /// fires on the very first frame (panel open) AND on every length
+  /// growth (new SSE message arriving while the panel is open).
+  int _lastSeenLength = -1;
+
   @override
   void dispose() {
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  /// Defer the jump-to-end to after the current frame so the
+  /// ScrollController has bound to its list and `maxScrollExtent` is
+  /// known. Cheap no-op when there's no client yet.
+  void _scheduleScrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollCtrl.hasClients) return;
+      final max = _scrollCtrl.position.maxScrollExtent;
+      _scrollCtrl.jumpTo(max);
+    });
   }
 
   @override
@@ -243,6 +259,7 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.messages.isEmpty) {
+      _lastSeenLength = 0;
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -260,6 +277,14 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
           ),
         ),
       );
+    }
+    // Schedule a jump-to-end whenever the message count changes — the
+    // very first build (panel just opened) hits this branch with
+    // `_lastSeenLength == -1`, so the user lands on the latest
+    // exchange instead of the top of the cached history.
+    if (state.messages.length != _lastSeenLength) {
+      _lastSeenLength = state.messages.length;
+      _scheduleScrollToEnd();
     }
     return ListView.separated(
       controller: _scrollCtrl,
@@ -420,10 +445,59 @@ class _ChatInputState extends State<_ChatInput> {
   // Restored on cancel so the user doesn't lose what they typed.
   String _voiceSavedText = '';
 
+  /// Drives the inline-mic suffix icon visibility. **Critical** — the
+  /// suffix icon depends on `_ctrl.text.isEmpty`, so we'd ordinarily
+  /// wrap the TextField in a `ListenableBuilder` listening to `_ctrl`.
+  /// We don't, because that fires on every keystroke and rebuilds the
+  /// TextField → re-runs `EditableText.didUpdateWidget` → can poke
+  /// the IME's `setEditingState` and bounce the predictive word cache
+  /// (root cause of the v1.0.466 deleted-text-returning bug, AND its
+  /// v1.0.539 regression). Instead we keep a `ValueNotifier<bool>`
+  /// here, recompute on `_ctrl` notifications, and let the notifier's
+  /// `==` check dedupe to fire only when the emptiness state actually
+  /// flips. The TextField itself isn't wrapped in any per-keystroke
+  /// builder; only the small ValueListenableBuilder inside its
+  /// `suffixIcon` slot rebuilds.
+  final ValueNotifier<bool> _showInlineMicHint = ValueNotifier(false);
+
+  @override
+  void initState() {
+    super.initState();
+    // Recompute on every text change. The notifier dedupes via `==`,
+    // so most keystrokes (where emptiness doesn't flip) don't trigger
+    // a listener notification at all — keeping the suffix icon stable
+    // and the TextField widget unrebuilt.
+    _ctrl.addListener(_recomputeShowInlineMicHint);
+    _recomputeShowInlineMicHint();
+  }
+
+  void _recomputeShowInlineMicHint() {
+    final isEmpty = _ctrl.text.isEmpty;
+    final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
+        _voiceSession != null;
+    final hintAvailable = widget.voiceEnabled &&
+        isEmpty &&
+        _firstInputSource != _FirstInputSource.keyboard;
+    final show = hintAvailable || streaming;
+    if (_showInlineMicHint.value != show) {
+      _showInlineMicHint.value = show;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.voiceEnabled != widget.voiceEnabled) {
+      _recomputeShowInlineMicHint();
+    }
+  }
+
   @override
   void dispose() {
     _voiceSub?.cancel();
     _voiceSession?.dispose();
+    _ctrl.removeListener(_recomputeShowInlineMicHint);
+    _showInlineMicHint.dispose();
     _focus.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -594,6 +668,7 @@ class _ChatInputState extends State<_ChatInput> {
     _voiceSavedText = _ctrl.text;
     _voiceSession = session;
     _activeFlow = flow;
+    _recomputeShowInlineMicHint();
     _voiceSub = session.events.listen(_onVoiceEvent);
     try {
       await session.start();
@@ -703,6 +778,7 @@ class _ChatInputState extends State<_ChatInput> {
     _activeFlow = _VoiceFlow.none;
     _holdTranscript = '';
     _holdRecording = false;
+    _recomputeShowInlineMicHint();
     if (mounted) setState(() {});
     await s?.dispose();
   }
@@ -710,6 +786,7 @@ class _ChatInputState extends State<_ChatInput> {
   void _markFirstInputIfNone(_FirstInputSource src) {
     if (_firstInputSource == _FirstInputSource.none) {
       _firstInputSource = src;
+      _recomputeShowInlineMicHint();
     }
   }
 
@@ -777,67 +854,61 @@ class _ChatInputState extends State<_ChatInput> {
   // ===== Center-surface builders =====
 
   Widget _buildTextField() {
-    return ListenableBuilder(
-      listenable: _ctrl,
-      builder: (context, _) {
-        final isEmpty = _ctrl.text.isEmpty;
-        final showInlineMic = widget.voiceEnabled &&
-            isEmpty &&
-            _firstInputSource != _FirstInputSource.keyboard;
-        final streaming =
-            _activeFlow == _VoiceFlow.inlineStreaming && _voiceSession != null;
-        // **IME-friendly defaults.** Earlier revisions set
-        // `autocorrect: false` + `enableSuggestions: false` as
-        // belt-and-suspenders for the v1.0.466 deleted-text-returning
-        // bug. v1.0.472 fixed that bug architecturally via rebuild-
-        // scope isolation (see `_StewardOverlayChatState` doc), so the
-        // defensive flags are no longer load-bearing — and they
-        // actively break CJK input. Drop both flags.
-        //
-        // **Do not add `autofillHints: const []`.** An empty list
-        // poisons some Android+Gboard combinations; `null` is correct.
-        return TextField(
-          controller: _ctrl,
-          focusNode: _focus,
-          minLines: 1,
-          maxLines: 4,
-          keyboardType: TextInputType.multiline,
-          textInputAction: TextInputAction.newline,
-          onChanged: _onTextFieldChanged,
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: 'Ask the steward…',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 10),
-            suffixIcon: (showInlineMic || streaming)
-                ? IconButton(
-                    tooltip: streaming
-                        ? 'Stop dictation'
-                        : 'Start dictation',
-                    icon: Icon(
-                      streaming ? Icons.mic : Icons.mic_none,
-                      size: 20,
-                      color: streaming
-                          ? DesignColors.error
-                          : DesignColors.primary,
-                    ),
-                    onPressed: (_sending || _voiceStarting)
-                        ? null
-                        : _onInlineMicTap,
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(
-                        minWidth: 32, minHeight: 32),
-                  )
-                : null,
-            suffixIconConstraints:
-                const BoxConstraints(minWidth: 32, minHeight: 32),
-          ),
-        );
-      },
+    // **IME-friendly defaults.** Earlier revisions set
+    // `autocorrect: false` + `enableSuggestions: false` as
+    // belt-and-suspenders for the v1.0.466 deleted-text-returning
+    // bug. v1.0.472 fixed that bug architecturally via rebuild-
+    // scope isolation; v1.0.541 reapplied the same lesson here
+    // (no per-keystroke ListenableBuilder around this TextField).
+    // The defensive flags break CJK input — drop both.
+    //
+    // **Do not add `autofillHints: const []`.** An empty list
+    // poisons some Android+Gboard combinations; `null` is correct.
+    return TextField(
+      controller: _ctrl,
+      focusNode: _focus,
+      minLines: 1,
+      maxLines: 4,
+      keyboardType: TextInputType.multiline,
+      textInputAction: TextInputAction.newline,
+      onChanged: _onTextFieldChanged,
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: 'Ask the steward…',
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12, vertical: 10),
+        // The suffix is reactive — but only the IconButton inside the
+        // ValueListenableBuilder rebuilds on emptiness flips. The
+        // outer TextField is stable across every keystroke.
+        suffixIcon: ValueListenableBuilder<bool>(
+          valueListenable: _showInlineMicHint,
+          builder: (context, show, _) {
+            if (!show) return const SizedBox.shrink();
+            final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
+                _voiceSession != null;
+            return IconButton(
+              tooltip: streaming ? 'Stop dictation' : 'Start dictation',
+              icon: Icon(
+                streaming ? Icons.mic : Icons.mic_none,
+                size: 20,
+                color:
+                    streaming ? DesignColors.error : DesignColors.primary,
+              ),
+              onPressed:
+                  (_sending || _voiceStarting) ? null : _onInlineMicTap,
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
+            );
+          },
+        ),
+        suffixIconConstraints:
+            const BoxConstraints(minWidth: 32, minHeight: 32),
+      ),
     );
   }
 

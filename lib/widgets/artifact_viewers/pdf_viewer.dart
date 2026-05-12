@@ -53,9 +53,18 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   late final PdfViewerController _controller;
   // v1.0.525 (recovery step 3): track current page via onPageChanged.
   // 0 means "not reported yet" — the badge is hidden until pdfrx
-  // emits the first page-change event. No total page count yet (that
-  // would need onViewerReady, the next bisect step).
+  // emits the first page-change event.
   int _currentPage = 0;
+  // v1.0.526 (recovery step 4): total page count via onViewerReady.
+  // The setState is deferred to a post-frame callback because
+  // onViewerReady may fire during pdfrx's first build pass — a
+  // synchronous setState there triggers Flutter's "setState during
+  // build" assertion which renders ErrorWidget (full-screen gray).
+  // Wrapping with addPostFrameCallback bounces the state update to
+  // the next frame. This is the prime hypothesis for v1.0.518's
+  // gray-screen since that version's onViewerReady called
+  // widget.onOutlineLoaded synchronously.
+  int _pageCount = 0;
 
   @override
   void initState() {
@@ -154,6 +163,16 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                 if (!mounted) return;
                 setState(() => _currentPage = page ?? 0);
               },
+              onViewerReady: (document, _) {
+                // Defer the setState — onViewerReady can fire during
+                // pdfrx's build pass and a synchronous setState there
+                // would trigger Flutter's "called during build"
+                // assertion and gray the viewport.
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  setState(() => _pageCount = document.pages.length);
+                });
+              },
             ),
           ),
         ),
@@ -172,7 +191,9 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
-                    '$_currentPage',
+                    _pageCount > 0
+                        ? '$_currentPage / $_pageCount'
+                        : '$_currentPage',
                     style: GoogleFonts.jetBrainsMono(
                       fontSize: 10.5,
                       color: Colors.white,

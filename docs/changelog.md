@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.525
+> **Last verified vs code:** v1.0.526
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.526-alpha — 2026-05-12
+
+### Added
+
+- **Total page count on PDF badge** — the floating page pill now
+  reads `12 / 47` instead of just `12` once pdfrx reports the
+  document's total page count via `onViewerReady`. Hidden until
+  the count resolves; falls back to current-page-only display if
+  the callback never fires.
+- **Hypothesis-test for v1.0.518's gray screen.** The
+  `onViewerReady` callback's setState is wrapped in
+  `WidgetsBinding.instance.addPostFrameCallback` so the state
+  update bounces to the next frame instead of firing during
+  pdfrx's build pass. This is the strong hypothesis: v1.0.518's
+  onViewerReady called `widget.onOutlineLoaded` synchronously,
+  which `setState`'d the parent screen during build → Flutter's
+  "setState during build" assertion → ErrorWidget (gray). If
+  rendering survives v1.0.526, the defer pattern is correct and
+  the same wrapping unlocks the TOC drawer
+  (`loadOutline`) in a later step
+  (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

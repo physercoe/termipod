@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pdfrx/pdfrx.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -108,13 +109,29 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // 2.2.x even when rendering succeeds. If a future regression
     // calls for diagnostics again, resurrect from git history at
     // commit 6dc5614.
+    // v1.0.523: re-add tappable external URLs via linkHandlerParams
+    // only — step 1 of the post-regression recovery path. No
+    // controller, no overlay builder, no page tracking. Internal
+    // page-refs (`link.dest`) are ignored here because resolving
+    // them needs a `PdfViewerController`, and v1.0.518's attempt to
+    // pass one to `PdfViewer.data` is what caused the gray-screen
+    // regression. External URLs (`link.url`) are the high-value
+    // case for academic-paper PDFs anyway.
     return ColoredBox(
       color: Colors.white,
       child: PdfViewer.data(
         bytes,
         sourceName: widget.title ?? widget.uri,
-        params: const PdfViewerParams(
+        params: PdfViewerParams(
           backgroundColor: Colors.white,
+          linkHandlerParams: PdfLinkHandlerParams(
+            onLinkTap: (link) async {
+              final url = link.url;
+              if (url == null) return;
+              await launchUrl(url,
+                  mode: LaunchMode.externalApplication);
+            },
+          ),
         ),
       ),
     );

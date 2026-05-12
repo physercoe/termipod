@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.522
+> **Last verified vs code:** v1.0.523
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,26 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.523-alpha — 2026-05-12
+
+### Added
+
+- **Tappable external URLs inside PDFs** — first careful re-add
+  from the v1.0.518/.519 gray-screen recovery list. URLs embedded
+  in PDFs (citation links in academic papers, etc.) now launch in
+  the system browser when tapped. Implementation deliberately
+  minimal — only the `PdfViewerParams.linkHandlerParams` field
+  added, callback handles `link.url` via `launchUrl(externalApplication)`.
+  No `PdfViewerController` is passed to `PdfViewer.data` (which
+  was the suspected runtime trigger for v1.0.518's gray-screen),
+  so internal page-refs (`link.dest`) are silently ignored — those
+  need a controller and will land in a later step once we re-add
+  the controller safely. Single-line API change against the
+  v1.0.521 baseline; should not regress rendering
+  (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

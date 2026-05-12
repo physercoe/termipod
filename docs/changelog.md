@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.520
+> **Last verified vs code:** v1.0.521
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,35 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.521-alpha — 2026-05-12
+
+### Reverted
+
+- **Backed out v1.0.518's TOC drawer + find-in-PDF** after v1.0.520
+  (pure revert of v1.0.519) also full-screen-grayed. Root cause:
+  v1.0.518 introduced `controller: widget.controller` and
+  `pagePaintCallbacks: [searcher.pageTextMatchPaintCallback]` and
+  `onViewerReady: (document, controller) async {...}` on
+  `PdfViewer.data` / `PdfViewerParams`. The Dart type system
+  accepted all three on pdfrx 2.2.24, but at runtime one (or
+  more) of them throws — pdfrx 2.2.24's `PdfViewer.data`
+  constructor likely doesn't accept `controller:` in 2.2.x the way
+  the 2.3.x master docs describe; Flutter then renders its default
+  gray `ErrorWidget` over the viewport. Restored
+  `lib/widgets/artifact_viewers/pdf_viewer.dart` to v1.0.517's
+  state (commit `b20e2a2`): plain `PdfViewer.data(bytes, sourceName:
+  ..., params: const PdfViewerParams(backgroundColor: Colors.white))`,
+  no controller, no searcher, no overlay. PDFs render again.
+  - `blobs_section.dart` extension-fallback dispatch (also from
+    v1.0.517) is preserved.
+  - Tags **v1.0.518, v1.0.519, v1.0.520 are all retired in
+    spirit** — do not re-tag those numbers; their content
+    regressed. Future TOC/search/links/etc. re-attempts will
+    land as v1.0.522+, layered ONE feature per release with
+    on-device verification before the next layer.
 
 ---
 

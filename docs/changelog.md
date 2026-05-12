@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.527
+> **Last verified vs code:** v1.0.528
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.528-alpha — 2026-05-12
+
+### Added
+
+- **Find in PDF** — last v1.0.518 feature re-added; full PDF parity
+  recovered. Tap the `search` icon in the AppBar to swap title for a
+  TextField + match-count `3/12` + prev/next arrows + close. Matches
+  highlight in the viewport via `PdfTextSearcher.
+  pageTextMatchPaintCallback` (the last v1.0.518 suspect; clears
+  the bisect). Case-insensitive by default. The searcher's listener
+  callback's `setState` is also wrapped in `addPostFrameCallback`
+  defensively — matches the v1.0.526 defer pattern we now know is
+  the cure for "setState during pdfrx build pass."
+- **Recovery sequence complete.** Every v1.0.518 feature now ships
+  on top of pdfrx 2.2.24 without a gray-screen regression. Six
+  layered releases bisected the regression: linkHandlerParams +
+  controller + onPageChanged + onViewerReady + loadOutline + TOC +
+  pagePaintCallbacks. The pattern that fixes it all is
+  `WidgetsBinding.instance.addPostFrameCallback` wrapping any
+  `setState` in a pdfrx callback that can fire during the build
+  pass (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

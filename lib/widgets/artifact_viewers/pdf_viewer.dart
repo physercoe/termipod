@@ -38,6 +38,10 @@ class ArtifactPdfViewer extends ConsumerStatefulWidget {
   // with no outline; non-null even when empty so the screen can
   // distinguish "no outline" from "still loading."
   final ValueChanged<List<PdfOutlineNode>?>? onOutlineLoaded;
+  // v1.0.528: text searcher created by the screen and passed down so
+  // the leaf can register its paint callback. The last v1.0.518
+  // suspect — pagePaintCallbacks via PdfTextSearcher — gates here.
+  final PdfTextSearcher? searcher;
 
   const ArtifactPdfViewer({
     super.key,
@@ -46,6 +50,7 @@ class ArtifactPdfViewer extends ConsumerStatefulWidget {
     this.expectedSize,
     this.controller,
     this.onOutlineLoaded,
+    this.searcher,
   });
 
   @override
@@ -150,6 +155,10 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // alone — no onViewerReady, no pagePaintCallbacks, no overlay
     // builder. If rendering stays OK, that callback is innocent and
     // we move to onViewerReady as the next bisect.
+    final searcher = widget.searcher;
+    final paintCallbacks = searcher != null
+        ? <PdfViewerPagePaintCallback>[searcher.pageTextMatchPaintCallback]
+        : null;
     return Stack(
       children: [
         ColoredBox(
@@ -160,6 +169,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
             controller: _controller,
             params: PdfViewerParams(
               backgroundColor: Colors.white,
+              pagePaintCallbacks: paintCallbacks,
               linkHandlerParams: PdfLinkHandlerParams(
                 onLinkTap: (link) async {
                   final url = link.url;
@@ -305,13 +315,56 @@ class ArtifactPdfViewerScreen extends StatefulWidget {
 
 class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
   late final PdfViewerController _controller;
+  late final PdfTextSearcher _searcher;
+  late final TextEditingController _searchInput;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   List<PdfOutlineNode>? _outline;
+  bool _searchMode = false;
 
   @override
   void initState() {
     super.initState();
     _controller = PdfViewerController();
+    _searcher = PdfTextSearcher(_controller)..addListener(_onSearcherUpdate);
+    _searchInput = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchInput.dispose();
+    _searcher
+      ..removeListener(_onSearcherUpdate)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onSearcherUpdate() {
+    if (!mounted) return;
+    // Defer the setState in case the searcher's listener fires
+    // during pdfrx's build pass — same hazard as onViewerReady from
+    // v1.0.526.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _submitSearch() {
+    final q = _searchInput.text.trim();
+    if (q.isEmpty) {
+      _searcher.resetTextSearch();
+    } else {
+      _searcher.startTextSearch(q, caseInsensitive: true);
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchMode = !_searchMode;
+      if (!_searchMode) {
+        _searchInput.clear();
+        _searcher.resetTextSearch();
+      }
+    });
   }
 
   @override
@@ -319,22 +372,9 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
     final hasOutline = _outline != null && _outline!.isNotEmpty;
     return Scaffold(
       key: _scaffoldKey,
-      appBar: AppBar(
-        title: Text(
-          widget.title,
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 14, fontWeight: FontWeight.w700),
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          if (hasOutline)
-            IconButton(
-              icon: const Icon(Icons.menu_book_outlined),
-              tooltip: 'Outline',
-              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-            ),
-        ],
-      ),
+      appBar: _searchMode
+          ? _buildSearchAppBar()
+          : _buildDefaultAppBar(hasOutline),
       endDrawer: hasOutline
           ? _OutlineDrawer(
               outline: _outline!,
@@ -346,11 +386,92 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
         uri: widget.uri,
         title: widget.title,
         controller: _controller,
+        searcher: _searcher,
         onOutlineLoaded: (outline) {
           if (!mounted) return;
           setState(() => _outline = outline);
         },
       ),
+    );
+  }
+
+  PreferredSizeWidget _buildDefaultAppBar(bool hasOutline) {
+    return AppBar(
+      title: Text(
+        widget.title,
+        style: GoogleFonts.spaceGrotesk(
+            fontSize: 14, fontWeight: FontWeight.w700),
+        overflow: TextOverflow.ellipsis,
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: 'Find in PDF',
+          onPressed: _toggleSearch,
+        ),
+        if (hasOutline)
+          IconButton(
+            icon: const Icon(Icons.menu_book_outlined),
+            tooltip: 'Outline',
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _buildSearchAppBar() {
+    final n = _searcher.matches.length;
+    final i = _searcher.currentIndex ?? -1;
+    final label = n == 0
+        ? (_searcher.isSearching ? 'searching…' : '—')
+        : '${i + 1}/$n';
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Close search',
+        onPressed: _toggleSearch,
+      ),
+      title: TextField(
+        controller: _searchInput,
+        autofocus: true,
+        textInputAction: TextInputAction.search,
+        decoration: const InputDecoration(
+          hintText: 'Find in PDF',
+          border: InputBorder.none,
+          isDense: true,
+        ),
+        onSubmitted: (_) => _submitSearch(),
+        onChanged: (_) {
+          if (_searchInput.text.isEmpty) {
+            _searcher.resetTextSearch();
+          }
+        },
+        style: GoogleFonts.jetBrainsMono(fontSize: 13),
+      ),
+      actions: [
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_up),
+          tooltip: 'Previous match',
+          onPressed: n > 0 ? () => _searcher.goToPrevMatch() : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_down),
+          tooltip: 'Next match',
+          onPressed: n > 0 ? () => _searcher.goToNextMatch() : null,
+        ),
+      ],
     );
   }
 }

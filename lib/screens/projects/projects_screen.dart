@@ -675,6 +675,8 @@ class _ProjectsTab extends ConsumerWidget {
         name: p['name']?.toString() ?? '?',
         status: (p['status'] ?? '').toString(),
         phase: stats.currentPhase,
+        phaseIndex: stats.phaseIndex,
+        phasesTotal: stats.phasesTotal,
         openAttention: rolled,
         openCriteria: stats.openCriteria,
         progress: stats.progress,
@@ -1094,12 +1096,19 @@ List<Map<String, dynamic>> _applyFilter(
 /// render the 3-line card without a per-project round-trip.
 class _ProjectInsight {
   final String currentPhase;
+  /// 1-based position of `currentPhase` inside the project's template
+  /// phase list (0 when unknown). Plus the total phase count. Drives
+  /// the `N/M` suffix on the project-list phase pill (v1.0.513).
+  final int phaseIndex;
+  final int phasesTotal;
   final double progress;
   final int openCriteria;
   final int openAttention;
   final String lastActivity;
   const _ProjectInsight({
     required this.currentPhase,
+    required this.phaseIndex,
+    required this.phasesTotal,
     required this.progress,
     required this.openCriteria,
     required this.openAttention,
@@ -1125,6 +1134,8 @@ Map<String, _ProjectInsight> _readProjectInsights(WidgetRef ref, String teamId) 
     if (id.isEmpty) continue;
     out[id] = _ProjectInsight(
       currentPhase: (m['current_phase'] ?? '').toString(),
+      phaseIndex: _asInt(m['phase_index']),
+      phasesTotal: _asInt(m['phases_total']),
       progress: _asDouble(m['progress']),
       openCriteria: _asInt(m['open_criteria']),
       openAttention: _asInt(m['open_attention']),
@@ -1159,6 +1170,8 @@ class _ProjectListCard extends StatelessWidget {
   final String name;
   final String status;
   final String phase;
+  final int phaseIndex;
+  final int phasesTotal;
   final int openAttention;
   final int openCriteria;
   final double progress;
@@ -1172,6 +1185,8 @@ class _ProjectListCard extends StatelessWidget {
     required this.name,
     required this.status,
     required this.phase,
+    required this.phaseIndex,
+    required this.phasesTotal,
     required this.openAttention,
     required this.openCriteria,
     required this.progress,
@@ -1223,7 +1238,11 @@ class _ProjectListCard extends StatelessWidget {
           const SizedBox(height: 6),
           Row(
             children: [
-              _PhasePill(phase: phase),
+              _PhasePill(
+                phase: phase,
+                index: phaseIndex,
+                total: phasesTotal,
+              ),
               const SizedBox(width: 8),
               if (openCriteria > 0)
                 _OpenAcChip(count: openCriteria)
@@ -1315,12 +1334,24 @@ class _StatusDot extends StatelessWidget {
 
 /// Phase pill — matches the InsightsScreen's pill styling so a project
 /// row and an Insights row use the same visual vocabulary for "phase".
+/// `index/total` render as a muted `N/M` suffix (e.g. `Method 3/5`)
+/// when both are > 0; otherwise the pill shows just the phase name —
+/// matches the dense `PhaseBadge` on the project detail header so the
+/// same at-a-glance progress info is reachable from the list (v1.0.513
+/// tester ask).
 class _PhasePill extends StatelessWidget {
   final String phase;
-  const _PhasePill({required this.phase});
+  final int index;
+  final int total;
+  const _PhasePill({
+    required this.phase,
+    this.index = 0,
+    this.total = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final hasPos = index > 0 && total > 0;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
@@ -1329,13 +1360,29 @@ class _PhasePill extends StatelessWidget {
         border:
             Border.all(color: DesignColors.primary.withValues(alpha: 0.4)),
       ),
-      child: Text(
-        phase,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: DesignColors.primary,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            phase,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: DesignColors.primary,
+            ),
+          ),
+          if (hasPos) ...[
+            const SizedBox(width: 4),
+            Text(
+              '$index/$total',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+                color: DesignColors.primary.withValues(alpha: 0.65),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

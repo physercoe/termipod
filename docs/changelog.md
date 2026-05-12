@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.511
+> **Last verified vs code:** v1.0.513
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,69 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.513-alpha — 2026-05-12
+
+### Fixed
+
+- **Project list showed 100% progress on paper-demo despite an open
+  AC** — `phases_done` counted every entry in `phase_history`,
+  including the synthetic `from="" → first_phase` creation marker.
+  For a paper-demo project with `pastPhases=[idea, lit-review,
+  method, experiment]`, `buildPhaseHistory` emits 5 transitions:
+  one creation + 4 real changes. `phasesDone = 5` over `phasesTotal
+  = 5` rolled `progress` to 1.0 even though the paper isn't ratified.
+  Tightened the consumer to count only transitions where `from !=
+  ""` — i.e. real phase changes, not the creation marker. paper-demo
+  now reads `4/5 + 0/2 AC ratio` → `progress = 0.8` (80%)
+  (`hub/internal/server/handlers_insights.go`).
+
+### Added
+
+- **`N/M` phase counter on the project-list phase pill** — added
+  `phase_index` + `phases_total` to `/v1/insights` `by_project[]`
+  rows. The mobile `_PhasePill` now renders `Method 3/5` (compact,
+  muted suffix) when both > 0, matching the dense `PhaseBadge` on
+  the project detail header so the same at-a-glance progress info
+  is reachable from the list without drilling in
+  (`hub/internal/server/handlers_insights.go`,
+  `lib/screens/projects/projects_screen.dart`).
+
+## v1.0.512-alpha — 2026-05-12
+
+Three follow-ups on v1.0.511 — one of them the real root cause for
+the "PDF preview never works" thread.
+
+### Fixed
+
+- **PDF viewer: pdfrx was never initialized** — root cause for the
+  v1.0.510/.511 "white/gray page on every PDF" reports (seed + real
+  uploads alike). pdfrx 2.3.x docs require
+  `pdfrxFlutterInitialize()` once at app startup before any
+  `PdfViewer` widget builds; without it pdfium silently fails and
+  pages render blank. Added the call in `main()` immediately after
+  `WidgetsFlutterBinding.ensureInitialized()`
+  (`lib/main.dart`). The /Encoding/WinAnsiEncoding + white-paint
+  defenses from v1.0.510/.511 stay in place but are no longer
+  load-bearing.
+- **Lit-review demo project had no tabular citation artifact** —
+  the v1.0.509 wiring for the References tile expects a tabular
+  schema=citation artifact, but the citation seed was only wired
+  into the *method-demo* project's deliverables. Testers opening
+  the *lit-review-demo* project hit the document-only fall-back,
+  which felt like "References = duplicated Documents." Added the
+  same `seedCitationArtifact` call inside the lit-review-demo
+  deliverables block so the tile lands on the tabular viewer in
+  this project too
+  (`hub/internal/server/seed_demo_lifecycle.go`).
+- **Image viewer ran to the phone's bottom edge with no meta info**
+  — added a footer strip showing the filename + intrinsic
+  dimensions (`W×H`) + byte size, resolved via `ui.instantiateImageCodec`
+  after the bytes load. Strip lives in the fullscreen viewer's
+  `Scaffold` body (`Column[Expanded(viewer), MetaStrip]`); inline
+  uses of `ArtifactImageViewer` (without `onMeta`) stay footer-less.
+  Also gives the image breathing room above the phone bottom bar
+  (`lib/widgets/artifact_viewers/image_viewer.dart`).
 
 ## v1.0.511-alpha — 2026-05-12
 

@@ -158,10 +158,14 @@ type insightsResponse struct {
 //
 //	progress = (phases_done + current_phase_AC_ratio) / phases_total
 //
-// `phases_done` = count of transitions in `projects.phase_history`.
-// `current_phase_AC_ratio` = met / (pending+met+failed+waived) on the
-// current phase only. `phases_total` = count of `phase_specs` entries
-// in the template YAML.
+// `phases_done` = count of *real* phase changes in `projects.phase_history`
+// — i.e. transitions where `from` is non-empty. The first entry in the
+// history is the project's CREATION (from="" → first phase) which is
+// an initial-state marker, not a phase completion. Counting it as a
+// completed phase produced spurious 100%-with-open-AC readouts in the
+// paper-demo seed (v1.0.512 tester report). `current_phase_AC_ratio`
+// = met / (pending+met+failed+waived) on the current phase only.
+// `phases_total` = count of `phase_specs` entries in the template YAML.
 //
 // `open_criteria` counts ACs in state IN ('pending', 'failed') across
 // *all* phases of the project, not just the current one — the director
@@ -173,6 +177,13 @@ type insightsProjectAgg struct {
 	ProjectID     string  `json:"project_id"`
 	Name          string  `json:"name"`
 	CurrentPhase  string  `json:"current_phase"`
+	// 1-based index of CurrentPhase inside the template's phase_specs
+	// list, and the total number of phases. 0 / 0 when unknown
+	// (template missing, unparseable YAML, or current_phase not in
+	// the template). Mobile renders `Method 3/5` on the project list
+	// row's phase pill when both > 0.
+	PhaseIndex    int     `json:"phase_index"`
+	PhasesTotal   int     `json:"phases_total"`
 	Status        string  `json:"status"`
 	Progress      float64 `json:"progress"`
 	OpenAttention int     `json:"open_attention"`
@@ -975,6 +986,7 @@ func (s *Server) fillInsightsByProject(
 	}
 
 	phasesTotalCache := map[string]int{}
+	phasesListCache := map[string][]string{}
 
 	out.ByProject = make([]insightsProjectAgg, 0, len(projects))
 	for _, p := range projects {
@@ -982,7 +994,18 @@ func (s *Server) fillInsightsByProject(
 		if p.history != "" {
 			var hist phaseHistoryDoc
 			if err := json.Unmarshal([]byte(p.history), &hist); err == nil {
-				phasesDone = len(hist.Transitions)
+				// Only count REAL phase changes — `from != ""`. The
+				// first transition is the creation marker (from="" →
+				// first phase) which doesn't represent a completed
+				// phase. Without this filter, a project sitting in its
+				// 5th-of-5 phase with all transitions seeded reads as
+				// 100% even when ACs are still open (v1.0.512 tester
+				// report on paper-demo).
+				for _, t := range hist.Transitions {
+					if t.From != "" {
+						phasesDone++
+					}
+				}
 			}
 		}
 
@@ -1019,6 +1042,23 @@ func (s *Server) fillInsightsByProject(
 			phasesTotal = s.templatePhaseCount(p.templateID)
 			phasesTotalCache[p.templateID] = phasesTotal
 		}
+		phases, plCached := phasesListCache[p.templateID]
+		if !plCached {
+			phases = s.templatePhases(p.templateID)
+			phasesListCache[p.templateID] = phases
+		}
+		// 1-based position of the current phase within the template's
+		// phase list. Zero when the template is unknown or the project
+		// is sitting in a phase the template doesn't list (legacy /
+		// off-spec). Mobile checks (idx > 0 && total > 0) before
+		// rendering `N/M`.
+		phaseIdx := 0
+		for i, ph := range phases {
+			if ph == p.phase {
+				phaseIdx = i + 1
+				break
+			}
+		}
 
 		progress := 0.0
 		if phasesTotal > 0 {
@@ -1035,6 +1075,8 @@ func (s *Server) fillInsightsByProject(
 			ProjectID:     p.id,
 			Name:          p.name,
 			CurrentPhase:  p.phase,
+			PhaseIndex:    phaseIdx,
+			PhasesTotal:   phasesTotal,
 			Status:        p.status,
 			Progress:      progress,
 			OpenAttention: openAttention[p.id],

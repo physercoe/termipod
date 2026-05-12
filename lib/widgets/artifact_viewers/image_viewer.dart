@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,10 +16,36 @@ import '../../theme/design_colors.dart';
 /// pinch-zoom and pan. Non-`blob:sha256/` URI schemes (mock seed
 /// data, external HTTPS, etc.) show an explicit "cannot load" card —
 /// matches the PdfViewer error surface.
+/// Meta info resolved from the loaded image bytes. Fired through
+/// [ArtifactImageViewer.onMeta] so the host screen can render a
+/// footer strip with byte count + intrinsic dimensions without
+/// re-decoding the image.
+class ArtifactImageMeta {
+  final int byteCount;
+  final int width;
+  final int height;
+  const ArtifactImageMeta({
+    required this.byteCount,
+    required this.width,
+    required this.height,
+  });
+}
+
 class ArtifactImageViewer extends ConsumerStatefulWidget {
   final String uri;
   final String? title;
-  const ArtifactImageViewer({super.key, required this.uri, this.title});
+
+  /// Fires once when the bytes load + decode successfully, so the
+  /// embedding screen can show a meta footer (filename, dimensions,
+  /// byte size). Null in inline contexts that just want the image.
+  final ValueChanged<ArtifactImageMeta>? onMeta;
+
+  const ArtifactImageViewer({
+    super.key,
+    required this.uri,
+    this.title,
+    this.onMeta,
+  });
 
   @override
   ConsumerState<ArtifactImageViewer> createState() =>
@@ -58,10 +85,31 @@ class _ArtifactImageViewerState extends ConsumerState<ArtifactImageViewer> {
     try {
       final bytes = await client.downloadBlobCached(sha);
       if (!mounted) return;
+      final immutable = Uint8List.fromList(bytes);
       setState(() {
-        _bytes = Uint8List.fromList(bytes);
+        _bytes = immutable;
         _loading = false;
       });
+      // Resolve intrinsic dimensions via the platform image codec so
+      // the host screen's meta strip can show `WxH · bytes`. Failures
+      // here are non-fatal — the image still renders, the strip just
+      // omits dims.
+      final cb = widget.onMeta;
+      if (cb != null) {
+        try {
+          final codec = await ui.instantiateImageCodec(immutable);
+          final frame = await codec.getNextFrame();
+          if (!mounted) return;
+          cb(ArtifactImageMeta(
+            byteCount: immutable.length,
+            width: frame.image.width,
+            height: frame.image.height,
+          ));
+          frame.image.dispose();
+        } catch (_) {
+          // ignore decode errors — the meta strip will just be sparse.
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -143,7 +191,7 @@ class _ImageLoadError extends StatelessWidget {
   }
 }
 
-class ArtifactImageViewerScreen extends StatelessWidget {
+class ArtifactImageViewerScreen extends StatefulWidget {
   final String uri;
   final String title;
   const ArtifactImageViewerScreen({
@@ -153,17 +201,106 @@ class ArtifactImageViewerScreen extends StatelessWidget {
   });
 
   @override
+  State<ArtifactImageViewerScreen> createState() =>
+      _ArtifactImageViewerScreenState();
+}
+
+class _ArtifactImageViewerScreenState
+    extends State<ArtifactImageViewerScreen> {
+  ArtifactImageMeta? _meta;
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          title,
+          widget.title,
           style: GoogleFonts.spaceGrotesk(
               fontSize: 14, fontWeight: FontWeight.w700),
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: ArtifactImageViewer(uri: uri, title: title),
+      // Column[viewer, meta] gives the image breathing room above the
+      // phone bottom edge (v1.0.511 tester report) and shows the
+      // filename / dimensions / byte size readout the user expected.
+      body: Column(
+        children: [
+          Expanded(
+            child: ArtifactImageViewer(
+              uri: widget.uri,
+              title: widget.title,
+              onMeta: (m) {
+                if (mounted) setState(() => _meta = m);
+              },
+            ),
+          ),
+          _ImageMetaStrip(name: widget.title, meta: _meta),
+        ],
+      ),
     );
+  }
+}
+
+class _ImageMetaStrip extends StatelessWidget {
+  final String name;
+  final ArtifactImageMeta? meta;
+  const _ImageMetaStrip({required this.name, required this.meta});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark
+        ? DesignColors.borderDark
+        : DesignColors.borderLight;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final dims = meta == null ? null : '${meta!.width}×${meta!.height}';
+    final size = meta == null ? null : _formatBytes(meta!.byteCount);
+    final right = [
+      if (dims != null) dims,
+      if (size != null) size,
+    ].join(' · ');
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          border: Border(top: BorderSide(color: border)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ),
+            if (right.isNotEmpty) ...[
+              const SizedBox(width: 12),
+              Text(
+                right,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatBytes(int b) {
+    if (b < 1024) return '${b}B';
+    final kb = b / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(1)}KB';
+    final mb = kb / 1024;
+    return '${mb.toStringAsFixed(1)}MB';
   }
 }

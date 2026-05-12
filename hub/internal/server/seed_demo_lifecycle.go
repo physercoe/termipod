@@ -526,13 +526,30 @@ func lifecycleSpecs() []lifecycleSpec {
 						return nil, err
 					}
 				}
+				// Wave 2 W3: also seed the tabular citation artifact for
+				// THIS project — testers opening the lit-review-demo
+				// project expect References → table of papers, but
+				// pre-v1.0.512 only the method-demo project had the
+				// citation wired in, so the tile here fell back to the
+				// document-only deliverable view.
+				citationArt, err := seedCitationArtifact(c, demoCitations())
+				if err != nil {
+					return nil, err
+				}
+				litComponents := []componentSpec{
+					{kind: "document", refID: doc.id, ord: 0},
+				}
+				if citationArt.id != "" {
+					litComponents = append(litComponents,
+						componentSpec{kind: "artifact", refID: citationArt.id, ord: 1})
+				}
 				return seedDeliverables(c, []deliverableSpec{
 					{
 						logID:      "lit-review-doc",
 						phase:      "lit-review",
 						kind:       "lit-review",
 						state:      "in-review",
-						components: []componentSpec{{kind: "document", refID: doc.id}},
+						components: litComponents,
 					},
 				})
 			},

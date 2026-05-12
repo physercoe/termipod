@@ -6,6 +6,7 @@
 > revisit when China-market posture becomes a real requirement.
 > **Audience:** principal + future contributors evaluating cross-org
 > interop scope for termipod.
+> **Last verified vs code:** v1.0.508
 > **Sibling discussions:** —
 
 **TL;DR.** "AIP" as the user encountered it is the **Agent Interconnection

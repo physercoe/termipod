@@ -179,6 +179,17 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
             ),
             const SizedBox(width: 8),
             ProjectKindChip(kind: kind),
+            if (_phases.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Flexible(
+                child: PhaseBadge(
+                  phases: _phases,
+                  currentPhase: _phase,
+                  onTap: _openPhaseSummary,
+                  dense: true,
+                ),
+              ),
+            ],
           ],
         ),
         actions: [
@@ -265,12 +276,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
         children: [
           if (parentId.isNotEmpty)
             _ParentBreadcrumb(parentProjectId: parentId),
-          if (_phases.isNotEmpty)
-            PhaseBadge(
-              phases: _phases,
-              currentPhase: _phase,
-              onTap: (p) => _openPhaseSummary(p),
-            ),
           _PillBar(
             labels: _labels,
             selected: _index,
@@ -791,6 +796,12 @@ class _TaskFilterBar extends StatelessWidget {
 /// so the user can read the current filter at a glance without
 /// opening the menu. Compresses the original 5-pill priority row
 /// into a single 20pt icon.
+///
+/// Wire values: `'any'` plus the four [TaskPriority] wires. We avoid
+/// `PopupMenuButton<TaskPriority?>` because Flutter's popup conflates
+/// a `null` selection with cancellation — `onSelected` never fires for
+/// an item whose `value` is `null`, so "Any priority" was unreachable
+/// after a non-null pick (v1.0.508 fix).
 class _PriorityFilterButton extends StatelessWidget {
   final TaskPriority? selected;
   final ValueChanged<TaskPriority?> onChanged;
@@ -799,26 +810,29 @@ class _PriorityFilterButton extends StatelessWidget {
     required this.onChanged,
   });
 
+  static const String _anyValue = 'any';
+
   @override
   Widget build(BuildContext context) {
     final tint = selected == null
         ? DesignColors.textMuted
         : taskPriorityColor(selected!);
-    return PopupMenuButton<TaskPriority?>(
+    return PopupMenuButton<String>(
       tooltip: selected == null
           ? 'Filter by priority'
           : 'Priority: ${selected!.label}',
-      onSelected: onChanged,
+      onSelected: (v) =>
+          onChanged(v == _anyValue ? null : _parsePriorityWire(v)),
       icon: Icon(Icons.filter_list, size: 20, color: tint),
       itemBuilder: (_) => [
-        CheckedPopupMenuItem<TaskPriority?>(
-          value: null,
+        CheckedPopupMenuItem<String>(
+          value: _anyValue,
           checked: selected == null,
           child: const Text('Any priority'),
         ),
         for (final p in TaskPriority.values)
-          CheckedPopupMenuItem<TaskPriority?>(
-            value: p,
+          CheckedPopupMenuItem<String>(
+            value: p.wire,
             checked: selected == p,
             child: Row(
               children: [
@@ -837,6 +851,13 @@ class _PriorityFilterButton extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  static TaskPriority _parsePriorityWire(String wire) {
+    for (final p in TaskPriority.values) {
+      if (p.wire == wire) return p;
+    }
+    return TaskPriority.med;
   }
 }
 
@@ -1224,9 +1245,12 @@ class _OverviewView extends ConsumerWidget {
     ];
     final isGoal = kind != 'standing';
     final overviewWidget = (project['overview_widget'] ?? '').toString();
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      children: [
+    return RefreshIndicator(
+      onRefresh: () => _refresh(context, ref, projectId),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+        children: [
         if (projectId.isNotEmpty) ...[
           if (openAttention > 0) ...[
             _AttentionBanner(
@@ -1336,7 +1360,27 @@ class _OverviewView extends ConsumerWidget {
           ),
         ),
       ],
+      ),
     );
+  }
+
+  Future<void> _refresh(
+    BuildContext context,
+    WidgetRef ref,
+    String projectId,
+  ) async {
+    if (projectId.isEmpty) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final fresh = await client.getProject(projectId);
+      onProjectChanged?.call(fresh);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Refresh failed: $e')),
+      );
+    }
   }
 
   Future<void> _archive(BuildContext context, WidgetRef ref) async {

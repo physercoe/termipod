@@ -53,16 +53,20 @@ class BlobCache {
   Future<List<BlobRecord>> list() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefsKey);
-    if (raw == null || raw.isEmpty) return const [];
+    // Return a fresh growable list on every path: callers (add / remove)
+    // mutate the result in place via removeWhere/insert. Returning
+    // `const []` here would throw "Cannot remove from an unmodifiable
+    // list" on the first upload of a fresh device cache.
+    if (raw == null || raw.isEmpty) return <BlobRecord>[];
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
+      if (decoded is! List) return <BlobRecord>[];
       return decoded
           .whereType<Map>()
           .map((m) => BlobRecord.fromJson(m.cast<String, dynamic>()))
           .toList();
     } catch (_) {
-      return const [];
+      return <BlobRecord>[];
     }
   }
 

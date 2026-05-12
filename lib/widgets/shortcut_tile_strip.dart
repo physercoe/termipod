@@ -273,6 +273,7 @@ class ShortcutTileStrip extends ConsumerWidget {
           overviewWidgetOverrides: overviewWidgetOverrides,
           overviewWidgetTemplate: overviewWidgetTemplate,
           currentOverviewWidget: currentOverviewWidget,
+          onProjectChanged: onProjectChanged,
         ),
       ],
     );

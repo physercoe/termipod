@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-11)
+> **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.507
+> **Last verified vs code:** v1.0.508
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,84 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.508-alpha — 2026-05-12
+
+Tester-reported bug batch from the v1.0.507 seed-demo walkthrough.
+Six small, independent fixes — no design changes.
+
+### Fixed
+
+- **Asset upload (project Assets tile)** — first upload on a fresh
+  device threw "Cannot remove from an unmodifiable list". `BlobCache.list()`
+  returned `const []` on cold start; `add()` then called `removeWhere`
+  on it. Replaced all three `const []` returns with growable
+  `<BlobRecord>[]` so the dedup-then-prepend flow works on the empty
+  case (`lib/services/hub/blob_cache.dart`).
+- **Tasks tab priority filter** — selecting "Any priority" was
+  unreachable after picking a concrete value. Flutter's
+  `PopupMenuButton<T?>` conflates a `null` selection with cancellation
+  (`onSelected` never fires for a `value: null` item). Switched the
+  menu to `PopupMenuButton<String>` with `'any'` + wire-string values
+  and translated back to `TaskPriority?` in the handler
+  (`lib/screens/projects/project_detail_screen.dart`).
+- **Overview hero: cannot re-pick the phase template default** —
+  symptom: switching to any non-default hero worked, but picking
+  `experiment_dash` (which IS the research.v1 experiment-phase
+  template default) silently kept the previous override. Two stacked
+  causes:
+  1. (mobile) `ShortcutTileStrip`'s non-empty-tiles branch dropped
+     the `onProjectChanged` callback, so the PATCH response never
+     reached the parent `_project` snapshot — plumbed it through
+     both branches (`lib/widgets/shortcut_tile_strip.dart`).
+  2. (hub) The "clear the override" path posts
+     `overview_widget_overrides: null`, but `projectPatch`'s typed
+     `*json.RawMessage` field can't tell "absent" from "explicit
+     null" — Go's JSON decoder nullifies the pointer on either, so
+     the handler's `if != nil` check skipped the UPDATE and the
+     previous override stuck in the row. Switched
+     `PhaseTileOverrides` + `OverviewWidgetOverrides` to non-pointer
+     `json.RawMessage` (presence detected via `len > 0`) and added a
+     `clearableRawJSON` helper that maps both `null` and `{}` onto
+     SQL NULL so the column truly resets
+     (`hub/internal/server/handlers_projects.go`).
+- **No pull-to-refresh on project Overview** — added `RefreshIndicator`
+  around the Overview `ListView` plus a new `HubClient.getProject(id)`
+  helper that fetches the single-project endpoint (resolved
+  `overview_widget`, `phase_tiles_template`, …) and pushes the result
+  through `onProjectChanged`. Closes the "have to nav back and in to
+  see the customized result" gap
+  (`lib/screens/projects/project_detail_screen.dart`,
+  `lib/services/hub/hub_client.dart`).
+- **Seed PDF rendered as a tiny gray strip** — the synthetic lifecycle
+  seed PDF used a 300×80-pt MediaBox; pdfrx scale-to-fit on a phone
+  rendered the page so small that testers read it as "totally empty /
+  gray". Bumped MediaBox to US-Letter (612×792), upsized the title
+  to 32pt, and added two subtitle lines so the demo PDF is legible at
+  default zoom (`hub/internal/server/seed_demo_lifecycle.go`).
+- **Code-bundle + canvas viewers landed as sub-screens** —
+  `_ArtifactViewerLauncher` pushed its fullscreen viewer route via
+  `Navigator.of(context)`; when the artifact detail sheet was opened
+  from inside a nested-Navigator route (e.g.
+  `StructuredDeliverableViewer`), the new screen rendered as a
+  constrained sub-rectangle. Switched
+  `showArtifactDetailSheet`'s `showModalBottomSheet` to
+  `useRootNavigator: true` so launcher pushes land on the top-level
+  Navigator. Also wrapped canvas `WebViewWidget` in `SizedBox.expand`
+  so the platform view pins to the parent's full constraints rather
+  than collapsing to intrinsic size on some Android builds
+  (`lib/screens/projects/artifacts_screen.dart`,
+  `lib/widgets/artifact_viewers/canvas_viewer.dart`).
+- **Phase badge stole a whole row under the project name** — moved
+  the badge into the AppBar title row alongside the project-kind chip
+  via a new `PhaseBadge(dense: true)` mode (shrunk padding + font;
+  drops the `N/M` position counter and trailing chevron). The
+  body-Column version still renders with the original geometry for any
+  caller that wants the full-width pill
+  (`lib/widgets/phase_badge.dart`,
+  `lib/screens/projects/project_detail_screen.dart`).
 
 ---
 

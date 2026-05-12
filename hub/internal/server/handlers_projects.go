@@ -190,6 +190,20 @@ func nullRawJSON(b json.RawMessage) sql.NullString {
 	return sql.NullString{String: string(b), Valid: true}
 }
 
+// clearableRawJSON maps the two "clear me" payload shapes (`null` and
+// empty-object `{}`) onto SQL NULL, so the row column truly resets when
+// a client explicitly clears an override. Any other RawMessage value
+// round-trips verbatim. Callers pre-check `len(b) > 0` to distinguish
+// "field absent" from these clearable payloads — see the projectPatch
+// comment for the absent-vs-null distinction this enables.
+func clearableRawJSON(b json.RawMessage) sql.NullString {
+	switch string(b) {
+	case "null", "{}":
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(b), Valid: true}
+}
+
 func nullInt64(p *int64) sql.NullInt64 {
 	if p == nil {
 		return sql.NullInt64{}
@@ -497,20 +511,30 @@ type projectPatch struct {
 	PolicyOverridesJSON *json.RawMessage `json:"policy_overrides_json,omitempty"`
 	StewardAgentID      *string          `json:"steward_agent_id,omitempty"`
 	OnCreateTemplateID  *string          `json:"on_create_template_id,omitempty"`
-	// PhaseTileOverrides: per-phase shortcut tile composition. Pointer
-	// to RawMessage so a `null` payload clears the override; a missing
-	// field leaves it untouched. Shape validated only as JSON parse —
-	// content vocab is the closed TileSlug enum on mobile, which drops
-	// unknown slugs at parse rather than 400'ing here.
-	PhaseTileOverrides *json.RawMessage `json:"phase_tile_overrides,omitempty"`
+	// PhaseTileOverrides: per-phase shortcut tile composition.
+	//
+	// Plain (non-pointer) `json.RawMessage` so we can distinguish
+	// "field absent" (len == 0) from "field is JSON null" (len == 4,
+	// bytes == "null") — the original `*json.RawMessage` typing
+	// silently coalesced both cases because Go's JSON decoder
+	// nullifies the pointer on a literal `null` value. Sending
+	// `phase_tile_overrides: null` from mobile is the clear-the-row
+	// path; without this fix the column never got reset and the
+	// previous override stuck (v1.0.508 bug 3 root cause).
+	//
+	// Shape validated only as JSON parse — content vocab is the closed
+	// TileSlug enum on mobile, which drops unknown slugs at parse
+	// rather than 400'ing here.
+	PhaseTileOverrides json.RawMessage `json:"phase_tile_overrides,omitempty"`
 
 	// OverviewWidgetOverrides: per-phase hero-widget overrides
-	// (chassis-followup wave 1, ADR-024 D10). Same pointer-to-RawMessage
-	// idiom as PhaseTileOverrides. Shape: `{"<phase>": "<slug>"}`.
+	// (chassis-followup wave 1, ADR-024 D10). Same non-pointer
+	// RawMessage idiom as PhaseTileOverrides — see that comment for
+	// the absent-vs-null distinction. Shape: `{"<phase>": "<slug>"}`.
 	// resolveOverviewWidget enforces vocab via validOverviewWidgets;
 	// unknown slugs fall through to the template-side default rather
 	// than 400'ing here.
-	OverviewWidgetOverrides *json.RawMessage `json:"overview_widget_overrides,omitempty"`
+	OverviewWidgetOverrides json.RawMessage `json:"overview_widget_overrides,omitempty"`
 }
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -548,13 +572,13 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		sets = append(sets, "on_create_template_id = ?")
 		args = append(args, nullStringIfEmpty(*in.OnCreateTemplateID))
 	}
-	if in.PhaseTileOverrides != nil {
+	if len(in.PhaseTileOverrides) > 0 {
 		sets = append(sets, "phase_tile_overrides_json = ?")
-		args = append(args, nullRawJSON(*in.PhaseTileOverrides))
+		args = append(args, clearableRawJSON(in.PhaseTileOverrides))
 	}
-	if in.OverviewWidgetOverrides != nil {
+	if len(in.OverviewWidgetOverrides) > 0 {
 		sets = append(sets, "overview_widget_overrides_json = ?")
-		args = append(args, nullRawJSON(*in.OverviewWidgetOverrides))
+		args = append(args, clearableRawJSON(in.OverviewWidgetOverrides))
 	}
 	if len(sets) == 0 {
 		// Nothing to update — fall through to returning the current row so

@@ -384,6 +384,17 @@ class HubClient {
             : {'is_template': isTemplate ? 'true' : 'false'},
       );
 
+  /// Fetches a single project by id (`/v1/teams/{team}/projects/{id}`).
+  /// Used by pull-to-refresh on the project detail screen so the owner
+  /// can pick up server-side resolution (overview_widget,
+  /// phase_tiles_template, etc.) without re-loading the whole team list.
+  Future<Map<String, dynamic>> getProject(String projectId) async {
+    final out = await _get(
+      '/v1/teams/${cfg.teamId}/projects/$projectId',
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Read-through variant of [listProjects]; see [listRunsCached] for the
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listProjectsCached({

@@ -425,6 +425,12 @@ void showArtifactDetailSheet(BuildContext context, Map<String, dynamic> row) {
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
+    // useRootNavigator: true so the "Open …" launcher buttons inside the
+    // sheet push their fullscreen viewer routes onto the top-level
+    // Navigator — without it, the viewer can land on a nested navigator
+    // (e.g. when invoked from `StructuredDeliverableViewer`) and render
+    // as a constrained sub-screen instead of fullscreen (v1.0.508).
+    useRootNavigator: true,
     builder: (_) => _ArtifactDetailSheet(row: row),
   );
 }

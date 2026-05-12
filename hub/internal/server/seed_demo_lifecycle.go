@@ -2168,11 +2168,19 @@ func seedMetricChartArtifact(
 	return seededArtifact{id: id, name: name}, nil
 }
 
-// buildDemoPdfBytes returns a small, syntactically-valid PDF (~600
-// bytes) whose single page reads "Lifecycle demo PDF". Used by the
-// lifecycle seed so testers can exercise the wave 2 W2 pdfrx viewer
-// without uploading a real document. Built at runtime via fmt.Sprintf
-// so the xref offsets stay accurate without hand-counting.
+// buildDemoPdfBytes returns a small, syntactically-valid PDF (~700
+// bytes) sized at US-Letter (612x792 pt) whose single page reads
+// "Lifecycle demo PDF" centered with a couple of subtitle lines. Used
+// by the lifecycle seed so testers can exercise the wave 2 W2 pdfrx
+// viewer without uploading a real document.
+//
+// The earlier 300x80 MediaBox rendered as a tiny strip when pdfrx
+// scaled-to-fit on a phone — testers reported a "totally empty / gray"
+// page (v1.0.507). A full-letter page gives pdfrx room to render the
+// text at a readable scale at the default zoom.
+//
+// Built at runtime via fmt.Sprintf so the xref offsets stay accurate
+// without hand-counting.
 func buildDemoPdfBytes() []byte {
 	var buf bytes.Buffer
 	write := func(s string) int {
@@ -2185,12 +2193,16 @@ func buildDemoPdfBytes() []byte {
 	o2 := write("2 0 obj <</Type/Pages/Kids[3 0 R]/Count 1>> endobj\n")
 	o3 := write(
 		"3 0 obj <</Type/Page/Parent 2 0 R" +
-			"/MediaBox[0 0 300 80]" +
+			"/MediaBox[0 0 612 792]" +
 			"/Resources<</Font<</F1 4 0 R>>>>" +
 			"/Contents 5 0 R>> endobj\n")
 	o4 := write(
 		"4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica>> endobj\n")
-	const content = "BT /F1 18 Tf 50 40 Td (Lifecycle demo PDF) Tj ET"
+	// Content stream: title + subtitle + footer. Coordinates are PDF
+	// user-space (origin at bottom-left of MediaBox).
+	const content = "BT /F1 32 Tf 100 600 Td (Lifecycle demo PDF) Tj ET\n" +
+		"BT /F1 14 Tf 100 560 Td (Synthetic seed artifact for the wave 2 viewer) Tj ET\n" +
+		"BT /F1 12 Tf 100 100 Td (termipod lifecycle demo) Tj ET"
 	o5 := write(fmt.Sprintf(
 		"5 0 obj <</Length %d>>\nstream\n%s\nendstream\nendobj\n",
 		len(content), content))

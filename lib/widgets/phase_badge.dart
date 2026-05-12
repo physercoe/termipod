@@ -20,12 +20,18 @@ class PhaseBadge extends StatelessWidget {
   /// badge itself never dispatches — the badge tap just opens the
   /// sheet, the sheet's phase chips dispatch.
   final ValueChanged<String>? onTap;
+  /// Dense layout: drop the outer padding + Align, shrink the pill, and
+  /// hide the `N/M` position counter + chevron so the badge fits next
+  /// to the project name in the AppBar title row (v1.0.508). Default
+  /// `false` keeps the original body-Column geometry.
+  final bool dense;
 
   const PhaseBadge({
     super.key,
     required this.phases,
     required this.currentPhase,
     this.onTap,
+    this.dense = false,
   });
 
   @override
@@ -37,56 +43,62 @@ class PhaseBadge extends StatelessWidget {
     final label = currentPhase.isEmpty ? 'No phase' : _pretty(currentPhase);
     final pillFg =
         isDark ? DesignColors.primary : DesignColors.primaryDark;
+    final pill = InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _expand(context),
+      child: Container(
+        padding: dense
+            ? const EdgeInsets.fromLTRB(8, 3, 8, 3)
+            : const EdgeInsets.fromLTRB(10, 5, 8, 5),
+        decoration: BoxDecoration(
+          color: DesignColors.primary.withValues(alpha: 0.12),
+          border: Border.all(
+            color: DesignColors.primary.withValues(alpha: 0.45),
+          ),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.timeline, size: dense ? 12 : 13, color: pillFg),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: dense ? 11 : 12,
+                fontWeight: FontWeight.w700,
+                color: pillFg,
+              ),
+            ),
+            if (!dense && position != null) ...[
+              const SizedBox(width: 6),
+              Text(
+                '· $position',
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: DesignColors.textMuted,
+                ),
+              ),
+            ],
+            if (!dense) ...[
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: DesignColors.textMuted,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+    if (dense) return pill;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Align(
         alignment: Alignment.centerLeft,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _expand(context),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 5, 8, 5),
-            decoration: BoxDecoration(
-              color: DesignColors.primary.withValues(alpha: 0.12),
-              border: Border.all(
-                color: DesignColors.primary.withValues(alpha: 0.45),
-              ),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.timeline, size: 13, color: pillFg),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: pillFg,
-                  ),
-                ),
-                if (position != null) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    '· $position',
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: DesignColors.textMuted,
-                    ),
-                  ),
-                ],
-                const SizedBox(width: 4),
-                Icon(
-                  Icons.chevron_right,
-                  size: 16,
-                  color: DesignColors.textMuted,
-                ),
-              ],
-            ),
-          ),
-        ),
+        child: pill,
       ),
     );
   }

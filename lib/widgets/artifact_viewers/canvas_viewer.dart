@@ -129,7 +129,13 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
         uri: widget.uri,
       );
     }
-    return WebViewWidget(controller: controller);
+    // SizedBox.expand pins the WebView to the parent's full constraints
+    // — without it, the platform view collapsed to its intrinsic size on
+    // some Android builds and rendered as a partial sub-rectangle inside
+    // the otherwise-empty Scaffold body (v1.0.508).
+    return SizedBox.expand(
+      child: WebViewWidget(controller: controller),
+    );
   }
 }
 

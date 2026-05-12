@@ -35,10 +35,22 @@ detail, terminal, settings) with the steward overlay puck collapsed.
 
 1. Long-press the floating puck → recording starts. **Panel stays
    closed.** The user's current screen does NOT change.
-2. A small floating recording pill anchors next to the puck — red
-   pulse, elapsed timer, language chip (`auto / zh / en`). The
-   transcript stream does NOT render here (the user isn't looking
-   at a text field; partials would just be visual noise).
+2. A floating **recording HUD** anchors near the puck (offset to
+   not cover it). It contains, top-to-bottom:
+   - **Header strip:** red pulse + elapsed timer (mm:ss) +
+     language chip (`auto / zh / en`) + drag-to-cancel hint.
+   - **Soundwave strip:** ~24 dp tall horizontal soundwave —
+     vertical bars whose height = RMS amplitude of the most
+     recent PCM chunk. Last ~3 s of bars scroll right-to-left so
+     the user has continuous visual confirmation the mic is
+     hearing them.
+   - **Live transcript strip:** 1–2 lines (max ~80 chars,
+     ellipsis after) of the streaming partial transcript. Updates
+     in place as the server refines its hypothesis. This is
+     "second screen for your speech" — gives the user mid-stream
+     confidence and a chance to drag-out cancel if they see the
+     wrong words appearing.
+   The HUD is dismissed only by commit, cancel, or auto-stop.
 3. Release → behavior depends on the **"Auto-send puck transcripts"**
    setting (Settings → Voice; default **on**):
    - **Toggle on (default — hands-free):** final transcript is
@@ -370,7 +382,7 @@ controller; only their commit handlers differ.
     arrive; final replaces partials; caret to end.
   - On error: snackbar; partial text discarded.
 
-**W3b — Mode A: puck long-press** (~100 LOC)
+**W3b — Mode A: puck long-press + recording HUD** (~150 LOC)
 
 - Extend the existing floating puck widget in
   `lib/widgets/steward_overlay/` to add a long-press recognizer:
@@ -379,10 +391,8 @@ controller; only their commit handlers differ.
     collision.
   - `onLongPressStart` → start session; the panel stays closed
     (do NOT call the controller's open-panel API).
-  - A new floating `_VoiceRecordingPill` widget anchors next to
-    the puck (offset to avoid covering it), showing red pulse +
-    elapsed timer + language chip. The pill is NOT a partial-
-    transcript surface — the user isn't looking at a text field.
+  - A new `_VoiceRecordingHud` widget mounts in an Overlay,
+    anchored near the puck (see Recording HUD below).
   - `onLongPressEnd` → commit. Read final transcript, `.trim()`.
     - If empty/whitespace: silently drop. No toast, no send, no
       panel-open. (Same regardless of auto-send toggle.)
@@ -396,20 +406,50 @@ controller; only their commit handlers differ.
       end). No auto-send; user reviews and taps send. This is
       Mode B's commit handler, just invoked from a Mode A start.
   - `onLongPressMoveUpdate` with displacement > threshold →
-    cancel session, dismiss pill, no commit, no toast.
-  - On error mid-session: dismiss pill, snackbar with error,
+    cancel session, dismiss HUD, no commit, no toast.
+  - On error mid-session: dismiss HUD, snackbar with error,
     no send.
   - Panel state is **not touched** by Mode A. If the panel was
     closed it stays closed; the user opens it manually when
     they want to see the steward's response.
 
-**Shared recording pill widget** (counted in W3b):
-- Red pulse animation + elapsed timer (mm:ss).
-- Inline language chip cycling `auto / zh / en` on tap (default
-  from Settings; per-utterance override only applies to *this*
-  recording).
-- 50 s elapsed → haptic + amber tint hint; 60 s → auto-commit.
+**Recording HUD widget — `_VoiceRecordingHud`** (counted in W3b):
+
+A floating Material card, anchored near the puck (positioned to
+avoid covering it; flips above/below the puck based on the
+puck's current Y position). Roughly 280×100 dp.
+
+Three vertically-stacked strips:
+
+1. **Header strip** (~24 dp): red pulse dot + elapsed timer
+   (mm:ss) + language chip (cycling `auto / zh / en` on tap; per-
+   utterance override) + "Drag away to cancel" hint text.
+2. **Soundwave strip** (~24 dp): a `CustomPainter` rendering
+   ~30 vertical bars right-aligned. Each bar's height comes from
+   the RMS amplitude of one ~100 ms PCM chunk; the buffer
+   scrolls right-to-left so the most recent bar is at the right
+   edge. We have the PCM stream in hand already (W1's
+   `Stream<Uint8List>`), so RMS computation is `sqrt(mean(sample
+   * sample))` over the chunk's int16 samples — ~10 LOC. Bar
+   colour uses `DesignColors.primary` (the brand cyan) so the
+   visual ties into termipod's identity, not generic-mic.
+3. **Live transcript strip** (~48 dp): a `Text` widget showing
+   the latest streaming partial transcript, up to 2 lines / ~80
+   chars (ellipsis past that). Uses `AnimatedSwitcher` so
+   partials replace smoothly without jitter. This is the "second
+   screen for your speech" the principal asked for — confidence
+   at a glance, drag-out cancel before commit if the words look
+   wrong.
+
+Shared behavior across both HUD and Mode B's panel mic:
+
+- 50 s elapsed → haptic + amber tint on the timer; 60 s →
+  auto-commit (same handler as `onLongPressEnd`).
 - Dismissible only via commit, cancel, or auto-stop.
+- Soundwave + transcript strips also feed Mode B's panel mic? No
+  — Mode B's input field IS the transcript surface, and the user
+  is already inside the chat panel where richer feedback would
+  feel cluttered. The HUD is Mode-A-only.
 
 **Acceptance:**
 
@@ -417,15 +457,21 @@ controller; only their commit handlers differ.
   the input field within ~600 ms; final commits in input within ~1
   s after release; user can edit + tap send. Drag-out cancels.
 - **Mode A:** with the panel collapsed, long-press the puck on any
-  screen, speak, release. Within ~1 s a toast appears with the
-  sent transcript; the panel does NOT auto-open; the user's
-  current screen is unchanged. Manually tapping the puck (short
-  tap) opens the panel and the new agent message + steward
-  response are visible there.
-- Tap the language chip on the pill to toggle `auto → zh → en`
-  before/during recording.
-- Drag-out during the puck long-press cancels with no send and no
-  toast.
+  screen. The recording HUD appears anchored near the puck,
+  showing pulse + timer + scrolling soundwave + streaming partial
+  transcript. Speak, release. Within ~1 s the HUD dismisses and a
+  toast appears with the sent transcript; the panel does NOT
+  auto-open; the user's current screen is unchanged. Manually
+  tapping the puck (short tap) opens the panel and the new agent
+  message + steward response are visible there.
+- Soundwave bars rise and fall with voice amplitude; partial
+  transcript text updates inside the HUD as the server refines —
+  the user can drag-out cancel before commit if the words look
+  wrong, without opening the panel.
+- Tap the language chip on the HUD header to toggle `auto → zh →
+  en` before/during recording.
+- Drag-out during the puck long-press cancels with no send, no
+  toast, and the HUD dismisses immediately.
 
 ### W4 — Settings (~100 LOC)
 
@@ -534,10 +580,10 @@ status block all reflect the shipped state.
 | W1  | Recording infrastructure | ~70 |
 | W2  | DashScope WebSocket client | ~140 |
 | W3a | Mode B — panel mic button | ~100 |
-| W3b | Mode A — puck long-press + recording pill | ~100 |
+| W3b | Mode A — puck long-press + recording HUD (soundwave + live transcript) | ~150 |
 | W4  | Settings screen + provider (incl. auto-send toggle) | ~100 |
 | W5  | Tests + docs + memory | ~60 |
-| **Total** | | **~570** |
+| **Total** | | **~620** |
 
 Compare:
 - Deferred Path D plan: ~1000 LOC + 85–200 MB APK bloat

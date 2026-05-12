@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../providers/connection_provider.dart' show connectionsProvider;
 import '../../providers/hub_provider.dart';
 import '../../providers/voice_settings_provider.dart';
 import '../../screens/home_screen.dart';
@@ -1369,10 +1370,12 @@ class _IntentPill extends ConsumerWidget {
     final uri = Uri.tryParse(action.uri);
     if (uri == null) return;
     final hub = ref.read(hubProvider).value;
+    final connections = ref.read(connectionsProvider).connections;
     unawaited(navigateToUri(
       context,
       uri,
       hub: hub,
+      connections: connections,
       setTab: (i) => ref.read(currentTabProvider.notifier).setTab(i),
       refreshHub: () async {
         await ref.read(hubProvider.notifier).refreshAll();

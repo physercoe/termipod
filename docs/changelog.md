@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.543
+> **Last verified vs code:** v1.0.544
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,48 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.544-alpha — 2026-05-12
+
+### Added
+
+- **Router covers every Overview tile + phase summary + personal SSH
+  connect.** The v1.0.543 round missed several of the tile slugs the
+  steward uses for navigation; the user reported "hero, outputs,
+  assets" as gaps. Added project sub-routes for:
+  - `outputs` (alias of `artifacts`) → ArtifactsScreen
+  - `assets` → AssetsScreen (extracted public from the private
+    `_AssetsHostScreen` previously buried in `shortcut_tile_strip.dart`)
+  - `experiments` (alias of `runs`)
+  - `schedules` → SchedulesScreen
+  - `deliverables` → DeliverablesScreen
+  - `acceptance-criteria` (and `acceptance_criteria`, `criteria`,
+    `acceptancecriteria` aliases) → AcceptanceCriteriaScreen
+  - `discussion` / `channels` → ProjectChannelsListScreen
+  - `phases/<phase>` / `phase/<phase>` → PhaseSummaryScreen
+    (the per-phase hero; resolves projectName + isCurrent from the
+    cached project record with refresh-retry).
+- **`termipod://host/<idOrName>` handles personal hosts too.**
+  Steward agents see "two kinds of hosts": team-registered hub hosts
+  (open detail sheet) and personal SSH bookmarks
+  (`Connection` rows — "open" means connect to terminal). The router
+  now mirrors `hosts_screen._HostRow._handleTap`: pass 1 is a
+  Connection match → push TerminalScreen; pass 2 is a hub host
+  match → openHostDetail sheet. Refresh-retry on hub miss as before.
+  Connection lookup is case-insensitive against id / name / host.
+- **`termipod://connect/<idOrName>` for explicit terminal-only.**
+  Skips the hub-host fallback; returns unknown if no Connection
+  matches. Useful when the steward wants to force "connect" semantics
+  regardless of whether a hub-host with the same label exists.
+
+### Changed
+
+- `widgets/shortcut_tile_strip.dart` now imports the public
+  `AssetsScreen` instead of constructing its private host wrapper.
+  No user-visible behavior change; just deduplicates the wrapper so
+  the router can reach it.
 
 ---
 

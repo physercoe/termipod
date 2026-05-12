@@ -1,22 +1,34 @@
 import 'package:flutter/material.dart';
 
+import '../../providers/connection_provider.dart' show Connection;
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../screens/insights/insights_screen.dart';
+import '../../screens/projects/acceptance_criteria_screen.dart'
+    show AcceptanceCriteriaScreen;
 import '../../screens/projects/artifacts_screen.dart' show ArtifactsScreen;
+import '../../screens/projects/assets_screen.dart' show AssetsScreen;
+import '../../screens/projects/deliverables_screen.dart'
+    show DeliverablesScreen;
 import '../../screens/projects/documents_screen.dart'
     show DocumentDetailScreen, DocumentsScreen;
+import '../../screens/projects/phase_summary_screen.dart'
+    show PhaseSummaryScreen;
 import '../../screens/projects/plan_viewer_screen.dart'
     show PlanViewerScreen;
 import '../../screens/projects/plans_screen.dart' show PlansScreen;
+import '../../screens/projects/project_channels_list_screen.dart'
+    show ProjectChannelsListScreen;
 import '../../screens/projects/project_detail_screen.dart';
 import '../../screens/projects/projects_screen.dart'
     show openAgentDetail, openHostDetail;
 import '../../screens/projects/runs_screen.dart'
     show RunsScreen, RunDetailScreen;
+import '../../screens/projects/schedules_screen.dart' show SchedulesScreen;
 import '../../screens/projects/task_detail_screen.dart'
     show TaskDetailScreen;
 import '../../screens/sessions/sessions_screen.dart' show SessionChatScreen;
+import '../../screens/terminal/terminal_screen.dart' show TerminalScreen;
 
 /// uri_router.dart — single dispatcher for `termipod://` URIs.
 ///
@@ -45,26 +57,34 @@ import '../../screens/sessions/sessions_screen.dart' show SessionChatScreen;
 ///                                                      → ProjectDetail tab-anchored
 ///   termipod://project/<id>/agents/<aid>               → open Agent sheet
 ///   termipod://project/<id>/tasks/<tid>                → push Task Detail
-///   termipod://project/<id>/documents                  → push project docs list
-///   termipod://project/<id>/documents/<docId>          → push Document Detail
-///   termipod://project/<id>/plans                      → push Plans list
-///   termipod://project/<id>/plans/<plId>               → push Plan Viewer
-///   termipod://project/<id>/runs                       → push Runs list
-///   termipod://project/<id>/runs/<rid>                 → push Run Detail
-///   termipod://project/<id>/artifacts                  → push Artifacts list
+///   termipod://project/<id>/documents[/<docId>]        → push Documents / Doc
+///   termipod://project/<id>/plans[/<plId>]             → push Plans / Plan
+///   termipod://project/<id>/runs[/<rid>]               → push Runs / Run
+///   termipod://project/<id>/{outputs|artifacts}        → push Artifacts list
+///   termipod://project/<id>/{experiments}              → push Runs list
+///   termipod://project/<id>/assets                     → push Assets (BlobsSection)
+///   termipod://project/<id>/schedules                  → push Schedules
+///   termipod://project/<id>/deliverables               → push Deliverables
+///   termipod://project/<id>/{acceptance-criteria|criteria}
+///                                                      → push Acceptance Criteria
+///   termipod://project/<id>/discussion                 → push Project Channels
+///   termipod://project/<id>/phases/<phase>             → push Phase Summary
 ///   termipod://document/<docId>                        → push Document Detail
 ///   termipod://run/<rid>                               → push Run Detail
-///   termipod://host/<idOrName>                         → open Host sheet
+///   termipod://host/<idOrName>                         → connect if a
+///                                                       Connection matches; else
+///                                                       open Host sheet
+///   termipod://connect/<idOrName>                      → push Terminal (Connection only)
 ///   termipod://session/<id>                            → push Session Chat
 ///   termipod://agent/<id>[/transcript]                 → open Agent sheet
 ///   termipod://insights[?scope=<k>&id=<x>]             → push Insights screen
 ///
 /// **Name vs id.** Steward agents tend to know hostnames/handles, not
-/// ULIDs. For URIs where this matters (currently `host/<x>`) the
-/// router tries id-match first, then falls back to a case-insensitive
-/// `name`/`hostname` match. For project/document/agent ids we keep
-/// strict id-matching — those are referenced by the steward only
-/// after it has fetched the entity (so id is in hand).
+/// ULIDs. For URIs where this matters (`host/<x>` and `connect/<x>`)
+/// the router tries id-match first, then falls back to a
+/// case-insensitive `name`/`hostname`/`host` match. For
+/// project/document/agent ids we keep strict id-matching — those are
+/// referenced by the steward only after it has fetched the entity.
 ///
 /// Unknown shapes return false; the caller may surface "unsupported
 /// route" to the user. Forward-compat: new URI shapes can be added
@@ -101,6 +121,10 @@ Future<NavigateResult> navigateToUri(
   required HubState? hub,
   required void Function(int index) setTab,
   Future<HubState?> Function()? refreshHub,
+  // Locally-persisted SSH bookmarks. Passed in (rather than read off a
+  // provider) so this dispatcher stays ref-agnostic and works from
+  // both ConsumerWidget and Notifier callers.
+  List<Connection>? connections,
 }) async {
   if (uri.scheme != 'termipod' && uri.scheme != 'muxpod') {
     return NavigateResult.unknown;
@@ -160,7 +184,15 @@ Future<NavigateResult> navigateToUri(
     case 'host':
       if (segments.isEmpty) return NavigateResult.unknown;
       return _openHost(context, segments[0],
-          hub: hub, setTab: setTab, refreshHub: refreshHub);
+          hub: hub,
+          connections: connections,
+          setTab: setTab,
+          refreshHub: refreshHub);
+
+    case 'connect':
+      if (segments.isEmpty) return NavigateResult.unknown;
+      return _openConnect(context, segments[0],
+          connections: connections, setTab: setTab);
 
     case 'session':
       if (segments.isEmpty) return NavigateResult.unknown;
@@ -231,14 +263,35 @@ Future<NavigateResult> _dispatchProjectSubRoute(
       }
       return _openPlansList(context, projectId, setTab: setTab);
     case 'runs':
+    case 'experiments':
       if (subId.isNotEmpty) {
         return _openRun(context, subId, setTab: setTab);
       }
       return _openRunsList(context, projectId, setTab: setTab);
     case 'artifacts':
-      // Artifacts don't have a public-id detail route yet; ignore subId
-      // for now and surface the list scoped to the project.
+    case 'outputs':
+      // No per-id detail route for artifacts yet; surface the list.
       return _openArtifactsList(context, projectId, setTab: setTab);
+    case 'assets':
+      return _openAssets(context, setTab: setTab);
+    case 'schedules':
+      return _openSchedules(context, projectId, setTab: setTab);
+    case 'deliverables':
+      return _openDeliverables(context, projectId, setTab: setTab);
+    case 'acceptance-criteria':
+    case 'acceptance_criteria':
+    case 'acceptancecriteria':
+    case 'criteria':
+      return _openAcceptanceCriteria(context, projectId, setTab: setTab);
+    case 'discussion':
+    case 'channels':
+      return _openDiscussion(context, projectId,
+          hub: hub, setTab: setTab, refreshHub: refreshHub);
+    case 'phases':
+    case 'phase':
+      if (subId.isEmpty) return NavigateResult.unknown;
+      return _openPhaseSummary(context, projectId, subId,
+          hub: hub, setTab: setTab, refreshHub: refreshHub);
     case 'overview':
     case 'activity':
     case 'files':
@@ -428,14 +481,166 @@ Future<NavigateResult> _openArtifactsList(
   return const NavigateResult(true, 'Artifacts');
 }
 
-Future<NavigateResult> _openHost(
+Future<NavigateResult> _openAssets(
+  BuildContext context, {
+  required void Function(int index) setTab,
+}) async {
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(builder: (_) => const AssetsScreen()),
+  );
+  return const NavigateResult(true, 'Assets');
+}
+
+Future<NavigateResult> _openSchedules(
   BuildContext context,
-  String idOrName, {
+  String projectId, {
+  required void Function(int index) setTab,
+}) async {
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => SchedulesScreen(projectId: projectId),
+    ),
+  );
+  return const NavigateResult(true, 'Schedules');
+}
+
+Future<NavigateResult> _openDeliverables(
+  BuildContext context,
+  String projectId, {
+  required void Function(int index) setTab,
+}) async {
+  if (projectId.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => DeliverablesScreen(projectId: projectId),
+    ),
+  );
+  return const NavigateResult(true, 'Deliverables');
+}
+
+Future<NavigateResult> _openAcceptanceCriteria(
+  BuildContext context,
+  String projectId, {
+  required void Function(int index) setTab,
+}) async {
+  if (projectId.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => AcceptanceCriteriaScreen(projectId: projectId),
+    ),
+  );
+  return const NavigateResult(true, 'Acceptance criteria');
+}
+
+Future<NavigateResult> _openDiscussion(
+  BuildContext context,
+  String projectId, {
   required HubState? hub,
   required void Function(int index) setTab,
   required Future<HubState?> Function()? refreshHub,
 }) async {
+  if (projectId.isEmpty) return NavigateResult.unknown;
+  // Channels screen requires the project name. Read it from cache;
+  // refresh-retry if the steward just created the project.
+  var match = _findById(hub?.projects, projectId);
+  if (match.isEmpty && refreshHub != null) {
+    final fresh = await refreshHub();
+    match = _findById(fresh?.projects, projectId);
+  }
+  final projectName = (match['name'] ?? '').toString();
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => ProjectChannelsListScreen(
+        projectId: projectId,
+        projectName: projectName,
+      ),
+    ),
+  );
+  return const NavigateResult(true, 'Discussion');
+}
+
+/// `…/phases/<phase>` — the per-phase "hero" page. Resolves project
+/// name + isCurrent from cache (with refresh-retry) so the summary
+/// header reads the way the user would tap-to-open it from the
+/// phase chip on the project detail screen.
+Future<NavigateResult> _openPhaseSummary(
+  BuildContext context,
+  String projectId,
+  String phase, {
+  required HubState? hub,
+  required void Function(int index) setTab,
+  required Future<HubState?> Function()? refreshHub,
+}) async {
+  if (projectId.isEmpty || phase.isEmpty) return NavigateResult.unknown;
+  var match = _findById(hub?.projects, projectId);
+  if (match.isEmpty && refreshHub != null) {
+    final fresh = await refreshHub();
+    match = _findById(fresh?.projects, projectId);
+  }
+  if (match.isEmpty) return NavigateResult.unknown;
+  final projectName = (match['name'] ?? '').toString();
+  final currentPhase = (match['phase'] ?? '').toString();
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => PhaseSummaryScreen(
+        projectId: projectId,
+        projectName: projectName,
+        phase: phase,
+        isCurrent: phase == currentPhase,
+      ),
+    ),
+  );
+  return NavigateResult(true, 'Phase: $phase');
+}
+
+/// `termipod://host/<idOrName>` — the steward's "open a host" intent.
+///
+/// Mobile has two host categories that look the same from an LLM's
+/// perspective ("ssh-able machine called <name>") but behave
+/// differently:
+///   1. **Personal SSH bookmarks** — `Connection` records in
+///      `connectionsProvider`. "Open" means push the terminal screen.
+///   2. **Team-registered hub hosts** — entries in `hub.hosts`.
+///      "Open" means show the host detail sheet.
+///
+/// Mirrors `hosts_screen._HostRow._handleTap`: if both are present
+/// for the same logical machine, the Connection wins. Refresh-retry
+/// the hub once on miss so freshly-registered hosts aren't stuck
+/// behind a stale snapshot.
+Future<NavigateResult> _openHost(
+  BuildContext context,
+  String idOrName, {
+  required HubState? hub,
+  required List<Connection>? connections,
+  required void Function(int index) setTab,
+  required Future<HubState?> Function()? refreshHub,
+}) async {
   if (idOrName.isEmpty) return NavigateResult.unknown;
+  // Pass 1: personal Connection → terminal.
+  final conn = _findConnection(connections, idOrName);
+  if (conn != null) {
+    if (!context.mounted) return NavigateResult.unknown;
+    setTab(3);
+    Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) => TerminalScreen(connectionId: conn.id),
+      ),
+    );
+    return NavigateResult(true, 'Connect: ${conn.name}');
+  }
+  // Pass 2: hub host → detail sheet. Refresh-retry on miss.
   var match = _findHost(hub?.hosts, idOrName);
   if (match.isEmpty && refreshHub != null) {
     final fresh = await refreshHub();
@@ -447,6 +652,28 @@ Future<NavigateResult> _openHost(
   openHostDetail(context, match);
   final name = (match['name'] ?? match['hostname'] ?? idOrName).toString();
   return NavigateResult(true, 'Host: $name');
+}
+
+/// `termipod://connect/<idOrName>` — explicit terminal-only entry.
+/// Doesn't fall back to hub host; returns unknown if no Connection
+/// matches.
+Future<NavigateResult> _openConnect(
+  BuildContext context,
+  String idOrName, {
+  required List<Connection>? connections,
+  required void Function(int index) setTab,
+}) async {
+  if (idOrName.isEmpty) return NavigateResult.unknown;
+  final conn = _findConnection(connections, idOrName);
+  if (conn == null) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(3);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => TerminalScreen(connectionId: conn.id),
+    ),
+  );
+  return NavigateResult(true, 'Connect: ${conn.name}');
 }
 
 /// Host lookup tolerates either a hash id or a user-readable
@@ -469,6 +696,23 @@ Map<String, dynamic> _findHost(
     if (name == lower || hostname == lower) return h;
   }
   return const <String, dynamic>{};
+}
+
+/// Personal-SSH lookup. Like [_findHost] but against [Connection]'s
+/// `id`, `name`, and `host` fields.
+Connection? _findConnection(
+  List<Connection>? connections, String idOrName) {
+  if (connections == null || connections.isEmpty) return null;
+  for (final c in connections) {
+    if (c.id == idOrName) return c;
+  }
+  final lower = idOrName.toLowerCase();
+  for (final c in connections) {
+    if (c.name.toLowerCase() == lower || c.host.toLowerCase() == lower) {
+      return c;
+    }
+  }
+  return null;
 }
 
 Future<NavigateResult> _openSession(

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/connection_provider.dart' show connectionsProvider;
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../screens/home_screen.dart';
@@ -684,10 +685,13 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       return;
     }
     final hub = ref.read(hubProvider).value;
+    final connections =
+        ref.read(connectionsProvider).connections;
     final result = await navigateToUri(
       ctx,
       uri,
       hub: hub,
+      connections: connections,
       setTab: (index) =>
           ref.read(currentTabProvider.notifier).setTab(index),
       // Refresh-then-retry path for entity URIs (project/agent). The

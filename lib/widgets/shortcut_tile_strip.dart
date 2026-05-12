@@ -8,7 +8,7 @@ import '../screens/artifacts/artifacts_by_kind_screen.dart';
 import '../screens/deliverables/structured_deliverable_viewer.dart';
 import '../screens/projects/acceptance_criteria_screen.dart';
 import '../screens/projects/artifacts_screen.dart';
-import '../screens/projects/blobs_section.dart';
+import '../screens/projects/assets_screen.dart';
 import '../screens/projects/deliverables_screen.dart';
 import '../screens/projects/documents_screen.dart';
 import '../screens/projects/overview_widgets/registry.dart';
@@ -959,7 +959,7 @@ class _TileRow extends ConsumerWidget {
       case TileSlug.plans:
         page = PlansScreen(projectId: projectId);
       case TileSlug.assets:
-        page = const _AssetsHostScreen();
+        page = const AssetsScreen();
       case TileSlug.experiments:
         page = RunsScreen(projectId: projectId);
       case TileSlug.references:
@@ -1169,29 +1169,6 @@ TileSpec tileSpecFor(TileSlug slug) {
         subtitle: 'Open criteria · gates · ratification checklist',
         icon: Icons.checklist_outlined,
       );
-  }
-}
-
-/// Lightweight host so the Assets tile can push a Scaffold-titled page
-/// without tying every caller to the private `_BlobsScreen` inside the
-/// project detail file.
-class _AssetsHostScreen extends StatelessWidget {
-  const _AssetsHostScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          'Assets',
-          style: GoogleFonts.spaceGrotesk(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-      body: const BlobsSection(),
-    );
   }
 }
 

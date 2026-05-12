@@ -81,10 +81,19 @@ class _ArtifactImageViewerState extends ConsumerState<ArtifactImageViewer> {
     if (bytes == null) {
       return _ImageLoadError(message: 'no bytes', uri: widget.uri);
     }
+    // InteractiveViewer feeds tight constraints to its child (default
+    // `constrained: true`). A `Center` wrapper would then re-loosen the
+    // constraints handed to `Image.memory`, which collapses to its
+    // intrinsic size — so a 4000×3000 photo rendered at 4000×3000 and
+    // ran off-screen on smaller devices (v1.0.510 tester report). Drop
+    // the `Center` so `Image.memory` receives the viewport's tight box
+    // directly and `BoxFit.contain` can scale-to-fit on first paint.
+    // Pinch-zoom + pan still work because that's `InteractiveViewer`'s
+    // job, not the child's.
     return InteractiveViewer(
       minScale: 0.5,
       maxScale: 8.0,
-      child: Center(
+      child: SizedBox.expand(
         child: Image.memory(
           bytes,
           fit: BoxFit.contain,

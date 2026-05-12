@@ -18,6 +18,7 @@ import '../screens/projects/runs_screen.dart';
 import '../screens/projects/schedules_screen.dart';
 import '../services/hub/hub_client.dart';
 import '../theme/design_colors.dart';
+import '../widgets/artifact_viewers/tabular_viewer.dart';
 
 /// Closed registry of shortcut-tile slugs (template-yaml-schema §11).
 /// Templates pick a per-phase subset; the chassis enforces the slug
@@ -985,13 +986,20 @@ class _TileRow extends ConsumerWidget {
 
   Future<void> _openReferences(BuildContext context, WidgetRef ref) async {
     // Wave 2 W3 — references resolve to the tabular citation artifact
-    // produced by the lit-review deliverable. If any citation-shaped
-    // artifact exists for the project, route straight to its kind
-    // screen so the table renders. Otherwise fall back to the older
-    // lit-review-deliverable / documents-screen sequence so the tile
-    // is still useful pre-ratification.
+    // produced by the lit-review deliverable. Resolution order
+    // (v1.0.511, tightened after tester reported References felt like
+    // "duplicated documents"):
+    //
+    //   1. **Single citation artifact** → push the tabular viewer
+    //      directly so the user sees the table on tap, not an
+    //      intermediate filename list that read as a Documents clone.
+    //   2. **Multiple citation artifacts** → ArtifactsByKindScreen so
+    //      the user can disambiguate.
+    //   3. **No citations but a lit-review deliverable exists** →
+    //      StructuredDeliverableViewer (the pre-ratification path).
+    //   4. **Nothing** → DocumentsScreen with an explanatory snackbar.
     final client = ref.read(hubProvider.notifier).client;
-    bool hasCitation = false;
+    final citationArtifacts = <Map<String, dynamic>>[];
     Map<String, dynamic>? litReviewDeliverable;
     if (client != null && projectId.isNotEmpty) {
       try {
@@ -1002,14 +1010,13 @@ class _TileRow extends ConsumerWidget {
         for (final a in cached.body) {
           final mime = (a['mime'] ?? '').toString().toLowerCase();
           if (mime.contains('schema=citation')) {
-            hasCitation = true;
-            break;
+            citationArtifacts.add(a);
           }
         }
       } catch (_) {
         // Swallow — we still try the deliverable route below.
       }
-      if (!hasCitation) {
+      if (citationArtifacts.isEmpty) {
         try {
           final cached = await client.listDeliverablesCached(
             projectId: projectId,
@@ -1027,7 +1034,21 @@ class _TileRow extends ConsumerWidget {
       }
     }
     if (!context.mounted) return;
-    if (hasCitation) {
+    if (citationArtifacts.length == 1) {
+      final row = citationArtifacts.single;
+      final uri = (row['uri'] ?? '').toString();
+      final name = (row['name'] ?? 'references').toString();
+      final mime = (row['mime'] ?? '').toString();
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ArtifactTabularViewerScreen(
+          uri: uri,
+          title: name,
+          mime: mime.isEmpty ? null : mime,
+        ),
+      ));
+      return;
+    }
+    if (citationArtifacts.length > 1) {
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ArtifactsByKindScreen(
           projectId: projectId,

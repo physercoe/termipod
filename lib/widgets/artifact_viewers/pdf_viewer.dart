@@ -91,9 +91,20 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     if (bytes == null) {
       return _PdfLoadError(message: 'no bytes', uri: widget.uri);
     }
-    return PdfViewer.data(
-      bytes,
-      sourceName: widget.title ?? widget.uri,
+    // White-paint the viewport so a transparent page background (our
+    // minimal seed PDF doesn't paint its own page fill) doesn't blend
+    // into the Scaffold's gray and read as "empty / gray" to testers
+    // (v1.0.510). ColoredBox is belt-and-suspenders for any pixel the
+    // PdfViewerParams.backgroundColor doesn't reach.
+    return ColoredBox(
+      color: Colors.white,
+      child: PdfViewer.data(
+        bytes,
+        sourceName: widget.title ?? widget.uri,
+        params: const PdfViewerParams(
+          backgroundColor: Colors.white,
+        ),
+      ),
     );
   }
 }

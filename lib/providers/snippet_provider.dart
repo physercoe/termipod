@@ -203,9 +203,31 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
   static const _overridesKey = 'snippet_preset_overrides';
   static const _deletedKey = 'snippet_deleted_presets';
 
+  /// Resolves once [_loadSnippets] has finished hydrating state from
+  /// disk. Every public mutator awaits this before touching `state`
+  /// so a "save quickly after app launch" tap can't lose its write to
+  /// a clobber-on-load race:
+  ///
+  /// 1. `build()` fires `_loadSnippets()` (async, suspended on
+  ///    `SharedPreferences.getInstance()`).
+  /// 2. User opens compose, types, taps "save as snippet" before the
+  ///    load returns.
+  /// 3. Pre-fix: `addSnippet` updated state.snippets to `[new]`, then
+  ///    awaited `_save()` which itself awaits getInstance(). During
+  ///    that yield, `_loadSnippets` resumed and reset state.snippets
+  ///    to the on-disk list (still empty — `_save` hadn't written
+  ///    yet). `_save` then serialized that empty list back to prefs.
+  ///    Snippet vanished from both memory and disk.
+  /// 4. Post-fix: `addSnippet` (and every other mutator) awaits
+  ///    `_ready` first, so `_loadSnippets` has already set state from
+  ///    disk by the time we mutate.
+  ///
+  /// User-reported in v1.0.509 walkthrough.
+  late final Future<void> _ready;
+
   @override
   SnippetsState build() {
-    _loadSnippets();
+    _ready = _loadSnippets();
     return const SnippetsState(isLoading: true);
   }
 
@@ -263,6 +285,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
   /// Save an edited version of a built-in preset. The override id
   /// must equal the original preset id so the picker can find it.
   Future<void> savePresetOverride(String presetId, Snippet edited) async {
+    await _ready;
     // If the preset was previously hidden, restore it.
     final newDeleted = {...state.deletedPresetIds}..remove(presetId);
     final newOverrides = {...state.presetOverrides, presetId: edited};
@@ -276,6 +299,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
 
   /// Drop a user override and revert the preset to its built-in value.
   Future<void> revertPresetOverride(String presetId) async {
+    await _ready;
     if (!state.presetOverrides.containsKey(presetId)) return;
     final newOverrides = {...state.presetOverrides}..remove(presetId);
     state = state.copyWith(presetOverrides: newOverrides);
@@ -284,6 +308,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
 
   /// Hide a preset from the picker. The user can restore it later.
   Future<void> deletePreset(String presetId) async {
+    await _ready;
     if (state.deletedPresetIds.contains(presetId)) return;
     final newDeleted = {...state.deletedPresetIds, presetId};
     // Drop any override too — keeping it would be confusing if the
@@ -304,6 +329,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
     List<SnippetVariable> variables = const [],
     bool sendImmediately = false,
   }) async {
+    await _ready;
     final snippet = Snippet(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       name: name,
@@ -324,6 +350,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
     List<SnippetVariable>? variables,
     bool? sendImmediately,
   }) async {
+    await _ready;
     final updated = state.snippets.map((s) {
       if (s.id == id) {
         return s.copyWith(
@@ -341,6 +368,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
   }
 
   Future<void> deleteSnippet(String id) async {
+    await _ready;
     state = state.copyWith(
       snippets: state.snippets.where((s) => s.id != id).toList(),
     );
@@ -348,6 +376,7 @@ class SnippetsNotifier extends Notifier<SnippetsState> {
   }
 
   Future<void> reorderSnippets(int oldIndex, int newIndex) async {
+    await _ready;
     final items = [...state.snippets];
     final item = items.removeAt(oldIndex);
     items.insert(newIndex, item);

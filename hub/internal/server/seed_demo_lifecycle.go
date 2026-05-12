@@ -1253,9 +1253,31 @@ func lifecycleSpecs() []lifecycleSpec {
 						deliverableID: paper,
 						body: map[string]any{"gate": "deliverable.ratified",
 							"params": map[string]any{"deliverable_id": paper}},
-						state:        "waived",
-						evidenceRef:  "director: ratify deferred until reviewer feedback returns",
-						required:     true,
+						// `pending` (not `waived`) so the paper-demo's AC
+						// list shows one OPEN criterion — the paper is in
+						// review, the ratify gate is genuinely waiting on
+						// the deliverable, not deferred by director
+						// decision (v1.0.511 tester report).
+						state:    "pending",
+						required: true,
+					},
+					// A non-required `waived` criterion alongside, so the
+					// AC list still exercises the waived-state UI (test
+					// `TestSeedLifecycleDemo_InsertsFivePhaseStagedProjects`
+					// expects ≥1 waived across the lifecycle bundle). Real
+					// narrative: director chose to skip the supplementary-
+					// materials packaging since the venue accepts code-on-
+					// GitHub in place of an appendix.
+					{logID: "supplementary-materials-packaged", phase: "paper",
+						kind: "text",
+						deliverableID: paper,
+						body: map[string]any{
+							"check":     "Supplementary materials archive uploaded",
+							"acceptable": "zip of figures + scripts",
+						},
+						state:       "waived",
+						evidenceRef: "director: venue accepts code-on-github in lieu of archive",
+						required:    false,
 					},
 				})
 			},
@@ -1890,71 +1912,284 @@ Eval is split out to keep the bundle inspectable on mobile.
 // viewer (canvas-viewer plan W2) renders on the ratified
 // experiment-results deliverable. Three files
 // (`index.html` + `chart.js` + `style.css`) draw an interactive SVG
-// line chart over the same synthetic eval data the metric-chart
-// artifact carries, so testers can exercise the viewer without
-// waiting for an agent to emit one. Tapping a point updates the
-// label — confirms JS executes inside the sandboxed WebView.
+// dual-line chart (train + val loss) with gridlines, axis labels,
+// a legend, a series-toggle button, hover crosshair, and click-to-
+// pin readouts — enough surface to verify JS execution + DOM events
+// + dynamic style updates inside the sandboxed WebView (canvas-viewer
+// plan W4 allowlist applies). Bumped v1.0.511 — the prior single-
+// curve fixed-320x200 SVG rendered as a tiny chip in the top-left
+// on wider/folded screens.
 func demoCanvasBundle() map[string]any {
 	const indexHTML = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Eval curve</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eval curves</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<svg id="chart" width="320" height="200"></svg>
-<div id="label">tap a point</div>
+<header>
+  <h1>Training run · WT2 micro-LM · 12.4M params</h1>
+  <p class="sub">Train / val cross-entropy loss vs steps (1M tokens).
+     Lower is better. Tap a point to pin a readout.</p>
+</header>
+<div class="legend">
+  <button class="series train active" data-key="train">
+    <span class="dot"></span>train
+  </button>
+  <button class="series val active" data-key="val">
+    <span class="dot"></span>val
+  </button>
+  <div class="grow"></div>
+  <span id="readout">hover or tap a point</span>
+</div>
+<svg id="chart" viewBox="0 0 800 420"
+     preserveAspectRatio="xMidYMid meet"></svg>
+<table class="summary">
+  <thead><tr><th>series</th><th>start</th><th>final</th>
+             <th>Δ</th><th>min</th></tr></thead>
+  <tbody id="sumbody"></tbody>
+</table>
 <script src="chart.js"></script>
 </body>
 </html>`
-	const chartJS = `const points = [
-  [0, 4.20], [100, 3.60], [200, 3.10], [300, 2.80],
-  [400, 2.60], [500, 2.40], [600, 2.30], [700, 2.20],
-  [800, 2.10], [900, 2.05], [1000, 2.00]
-];
-const svg = document.getElementById('chart');
+	const chartJS = `// Synthetic but realistic-looking train/val curves: train drops
+// smoothly, val tracks then plateaus higher (the gap is the
+// generalization signal the seed wants to make visible).
+const SERIES = {
+  train: { color: '#e94e8a', label: 'train', points: [
+    [0, 4.42],[40, 3.95],[80, 3.55],[120, 3.22],[160, 2.96],
+    [200, 2.74],[240, 2.57],[280, 2.43],[320, 2.31],[360, 2.21],
+    [400, 2.13],[440, 2.06],[480, 2.00],[520, 1.95],[560, 1.90],
+    [600, 1.86],[640, 1.83],[680, 1.80],[720, 1.78],[760, 1.76],
+    [800, 1.74],[840, 1.73],[880, 1.72],[920, 1.71],[960, 1.71],
+    [1000, 1.70]
+  ]},
+  val: { color: '#5fc6e0', label: 'val', points: [
+    [0, 4.40],[40, 3.99],[80, 3.62],[120, 3.32],[160, 3.10],
+    [200, 2.94],[240, 2.81],[280, 2.71],[320, 2.63],[360, 2.57],
+    [400, 2.52],[440, 2.48],[480, 2.45],[520, 2.43],[560, 2.41],
+    [600, 2.39],[640, 2.38],[680, 2.37],[720, 2.36],[760, 2.36],
+    [800, 2.35],[840, 2.35],[880, 2.34],[920, 2.34],[960, 2.34],
+    [1000, 2.34]
+  ]}
+};
 const NS = 'http://www.w3.org/2000/svg';
-const W = 320, H = 200, P = 28;
-const xs = points.map(p => p[0]);
-const ys = points.map(p => p[1]);
-const xMax = Math.max(...xs);
-const yMin = Math.min(...ys), yMax = Math.max(...ys);
-const x = v => P + (W - 2*P) * (v / xMax);
-const y = v => H - P - (H - 2*P) * (v - yMin) / (yMax - yMin);
-const d = points.map((p, i) =>
-  (i === 0 ? 'M' : 'L') + x(p[0]) + ',' + y(p[1])).join(' ');
-const path = document.createElementNS(NS, 'path');
-path.setAttribute('d', d);
-path.setAttribute('fill', 'none');
-path.setAttribute('stroke', '#e94e8a');
-path.setAttribute('stroke-width', '2');
-svg.appendChild(path);
-const label = document.getElementById('label');
-for (const p of points) {
-  const c = document.createElementNS(NS, 'circle');
-  c.setAttribute('cx', x(p[0]));
-  c.setAttribute('cy', y(p[1]));
-  c.setAttribute('r', 4);
-  c.setAttribute('fill', '#e94e8a');
-  c.style.cursor = 'pointer';
-  c.addEventListener('click', () => {
-    label.textContent = 'step=' + p[0] + ', loss=' + p[1].toFixed(2);
-  });
-  svg.appendChild(c);
-}`
-	const styleCSS = `body {
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #111;
-  color: #eee;
-  margin: 12px;
+const svg = document.getElementById('chart');
+const W = 800, H = 420, PAD_L = 56, PAD_R = 20, PAD_T = 24, PAD_B = 40;
+const all = Object.values(SERIES).flatMap(s => s.points);
+const xMax = Math.max(...all.map(p => p[0]));
+const yMin = Math.min(...all.map(p => p[1]));
+const yMax = Math.max(...all.map(p => p[1]));
+const xPad = 0;
+const yPad = (yMax - yMin) * 0.08;
+const x = v => PAD_L + (W - PAD_L - PAD_R) *
+  (v - xPad) / (xMax - xPad);
+const y = v => H - PAD_B - (H - PAD_T - PAD_B) *
+  (v - (yMin - yPad)) / ((yMax + yPad) - (yMin - yPad));
+function add(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  (parent || svg).appendChild(e);
+  return e;
 }
-#chart { background: #1a1a1a; border-radius: 6px; display: block; }
-#label {
-  margin-top: 8px;
-  font-size: 13px;
+// Gridlines + Y axis labels (5 horizontal)
+for (let i = 0; i <= 5; i++) {
+  const yv = yMin - yPad + ((yMax + yPad) - (yMin - yPad)) * (i / 5);
+  add('line', {
+    x1: PAD_L, x2: W - PAD_R, y1: y(yv), y2: y(yv),
+    stroke: '#2a2a2a', 'stroke-width': 1
+  });
+  add('text', {
+    x: PAD_L - 8, y: y(yv) + 4,
+    'text-anchor': 'end', fill: '#888',
+    'font-size': 11, 'font-family': 'ui-monospace'
+  }, svg).textContent = yv.toFixed(2);
+}
+// X axis ticks every 200 steps
+for (let xv = 0; xv <= xMax; xv += 200) {
+  add('line', {
+    x1: x(xv), x2: x(xv), y1: H - PAD_B, y2: H - PAD_B + 4,
+    stroke: '#555', 'stroke-width': 1
+  });
+  add('text', {
+    x: x(xv), y: H - PAD_B + 18,
+    'text-anchor': 'middle', fill: '#888',
+    'font-size': 11, 'font-family': 'ui-monospace'
+  }, svg).textContent = xv;
+}
+// Axis labels
+add('text', {
+  x: (PAD_L + W - PAD_R) / 2, y: H - 6,
+  'text-anchor': 'middle', fill: '#aaa', 'font-size': 12
+}, svg).textContent = 'steps';
+add('text', {
+  x: 14, y: (PAD_T + H - PAD_B) / 2,
+  transform: 'rotate(-90 14 ' + ((PAD_T + H - PAD_B) / 2) + ')',
+  'text-anchor': 'middle', fill: '#aaa', 'font-size': 12
+}, svg).textContent = 'loss';
+// Series groups
+const groups = {};
+for (const key in SERIES) {
+  const s = SERIES[key];
+  const g = add('g', { 'data-key': key }, svg);
+  groups[key] = g;
+  const d = s.points.map((p, i) =>
+    (i === 0 ? 'M' : 'L') + x(p[0]) + ',' + y(p[1])).join(' ');
+  add('path', {
+    d: d, fill: 'none', stroke: s.color, 'stroke-width': 2.2,
+    'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+  }, g);
+  for (const p of s.points) {
+    const c = add('circle', {
+      cx: x(p[0]), cy: y(p[1]), r: 4, fill: s.color
+    }, g);
+    c.style.cursor = 'pointer';
+    c.addEventListener('click', () => {
+      pin(key, p[0], p[1]);
+    });
+    c.addEventListener('mouseenter', () => {
+      hover(key, p[0], p[1]);
+    });
+  }
+}
+// Crosshair (shared)
+const cross = add('line', {
+  x1: 0, x2: 0, y1: PAD_T, y2: H - PAD_B,
+  stroke: '#fff', 'stroke-width': 1, 'stroke-dasharray': '3 3',
+  opacity: 0
+}, svg);
+const readout = document.getElementById('readout');
+function hover(key, step, loss) {
+  cross.setAttribute('x1', x(step));
+  cross.setAttribute('x2', x(step));
+  cross.setAttribute('opacity', 0.4);
+  readout.textContent = key + ' · step ' + step + ' · loss ' +
+    loss.toFixed(3);
+  readout.style.color = SERIES[key].color;
+}
+function pin(key, step, loss) {
+  hover(key, step, loss);
+  readout.textContent += ' (pinned)';
+}
+svg.addEventListener('mouseleave', () => {
+  cross.setAttribute('opacity', 0);
+});
+// Series toggles
+for (const btn of document.querySelectorAll('.series')) {
+  btn.addEventListener('click', () => {
+    btn.classList.toggle('active');
+    const k = btn.dataset.key;
+    groups[k].style.opacity = btn.classList.contains('active') ? 1 : 0.15;
+  });
+}
+// Summary table
+const body = document.getElementById('sumbody');
+for (const key in SERIES) {
+  const s = SERIES[key];
+  const start = s.points[0][1];
+  const final = s.points[s.points.length - 1][1];
+  const min = Math.min(...s.points.map(p => p[1]));
+  const row = document.createElement('tr');
+  row.innerHTML =
+    '<td><span class="dot" style="background:' + s.color + '"></span>'
+      + s.label + '</td>' +
+    '<td>' + start.toFixed(2) + '</td>' +
+    '<td>' + final.toFixed(2) + '</td>' +
+    '<td>' + (final - start).toFixed(2) + '</td>' +
+    '<td>' + min.toFixed(2) + '</td>';
+  body.appendChild(row);
+}`
+	// Single flat background — testers on folded phones read the
+	// previous "body / card / chartwrap" three-color layering as
+	// "the curve is trapped in a fixed-width region" (same vibe as
+	// the B4 code-block report). Everything sits directly on #0d0d0d
+	// now; the chart is edge-to-edge, the chrome lives in dividers
+	// instead of backgrounds.
+	const styleCSS = `* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0d0d0d;
+  color: #eee;
+  padding: 12px;
+  min-height: 100vh;
+}
+header { margin-bottom: 10px; }
+header h1 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f4f4f4;
+}
+header .sub {
+  margin: 0;
+  font-size: 12px;
+  color: #888;
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.legend .grow { flex: 1; }
+.series {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 999px;
   color: #ccc;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.series:not(.active) { opacity: 0.45; }
+.series.train .dot { background: #e94e8a; }
+.series.val .dot { background: #5fc6e0; }
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+#readout {
+  font-size: 12px;
+  color: #aaa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 10px;
+}
+.summary {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.summary th, .summary td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid #1f1f1f;
+  color: #ccc;
+}
+.summary th { color: #777; font-weight: 600; }
+.summary td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (max-width: 480px) {
+  header h1 { font-size: 13px; }
+  .summary { font-size: 11px; }
 }`
 	return map[string]any{
 		"version": 1,

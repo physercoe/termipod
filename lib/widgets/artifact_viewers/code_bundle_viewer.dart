@@ -136,22 +136,42 @@ class _ArtifactCodeBundleViewerState
           onPick: (i) => setState(() => _selected = i),
         ),
         _BundleFileHeader(file: selected),
+        // ConstrainedBox(minWidth: viewport) ensures the highlight
+        // theme background paints the FULL viewport width even when
+        // the longest code line is narrower than the screen. Without
+        // it (v1.0.510 folded-phone report), HighlightView's atom-one
+        // theme background only filled its intrinsic width, leaving a
+        // band of Scaffold-color to the right that looked like a
+        // "fixed-width" code block (`lib/widgets/artifact_viewers/
+        // code_bundle_viewer.dart`).
         Expanded(
           child: SingleChildScrollView(
             scrollDirection: Axis.vertical,
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-              child: HighlightView(
-                selected.content,
-                language: selected.language,
-                theme: isDark ? atomOneDarkTheme : atomOneLightTheme,
-                padding: const EdgeInsets.all(8),
-                textStyle: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  height: 1.35,
-                ),
-              ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewportWidth = constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : 0.0;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: viewportWidth),
+                    child: HighlightView(
+                      selected.content,
+                      language: selected.language,
+                      theme: isDark
+                          ? atomOneDarkTheme
+                          : atomOneLightTheme,
+                      padding: const EdgeInsets.all(8),
+                      textStyle: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),

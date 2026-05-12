@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.509
+> **Last verified vs code:** v1.0.511
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,93 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.511-alpha — 2026-05-12
+
+Six fixes — five from the visual/UX walkthrough of v1.0.509, plus a
+"may not reproduce" snippet-loss race that was diagnosed between
+v1.0.509 and the walkthrough.
+
+### Fixed
+
+- **Snippets saved from the compose box sometimes disappear after
+  leaving + reentering the terminal page** — a "may not reproduce
+  every time" tester report. Root cause: `SnippetsNotifier.build()`
+  fire-and-forgets `_loadSnippets()` to hydrate state from
+  SharedPreferences; if the user reached "save as snippet" before
+  that load resolved, `addSnippet` set state to `[newSnippet]` and
+  awaited `_save()`. While `_save` was suspended on
+  `SharedPreferences.getInstance()`, `_loadSnippets` resumed first
+  (it had awaited that same future earlier), read the still-empty
+  on-disk list, and set state back to `[]`. `_save` then resumed and
+  serialized that empty list back to prefs — the new snippet was lost
+  from both memory and disk. Fixed by gating every public mutator on
+  a `_ready` future that completes when `_loadSnippets` finishes
+  (`lib/providers/snippet_provider.dart`). Same pattern is suspected
+  in 8 other prefs-backed providers — audit deferred (see
+  memory `feedback_prefs_load_race.md`).
+
+- **Image viewer rendered uploaded photos at intrinsic size and ran
+  off-screen** — `InteractiveViewer` feeds tight constraints to its
+  child, but the `Center` wrapper re-loosened them, so
+  `Image.memory(fit: BoxFit.contain)` never engaged and a 4000×3000
+  photo rendered at 4000×3000. Replaced `Center` with
+  `SizedBox.expand` so the image fits on first paint; pinch-zoom and
+  pan still work via `InteractiveViewer`
+  (`lib/widgets/artifact_viewers/image_viewer.dart`).
+- **PDF preview still rendered "empty/gray" for both the seed PDF
+  *and* uploaded PDFs** — the prior /Encoding fix wasn't enough.
+  Wrapped `PdfViewer.data` in a white `ColoredBox` (so a transparent
+  page background can't blend into the Scaffold's gray and read as
+  "empty") + passed an explicit `PdfViewerParams(backgroundColor:
+  Colors.white)`. If pdfrx is in fact rendering but to a transparent
+  page, this exposes the text; if it's failing earlier, the white
+  background still beats the gray scaffold for telling testers it's
+  broken vs invisible. The next gray-report will isolate which side
+  is at fault (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
+- **Code-bundle viewer had a "fixed-width" band on folded phones** —
+  HighlightView's atom-one theme background only painted the
+  intrinsic content width; if the longest line was narrower than the
+  viewport, the right edge showed Scaffold color, which read as
+  "code block has a fixed width." Wrapped the inner horizontal
+  scroll in `LayoutBuilder + ConstrainedBox(minWidth: viewport)` so
+  the theme background paints the full width while pan still works
+  when lines exceed it
+  (`lib/widgets/artifact_viewers/code_bundle_viewer.dart`).
+- **Canvas (eval curve) seed was too thin and rendered in a small
+  top-left region on folded phones** — replaced the fixed
+  `<svg width="320" height="200">` single-curve seed with a richer
+  train+val dual-line chart: SVG `viewBox` + `width:100%` for
+  responsive scaling, gridlines, axis labels, legend with toggle
+  chips, hover crosshair, click-to-pin readouts, and a summary
+  table. Flattened the styling to a single background after the
+  tester saw the body/card/chartwrap three-tone layering as the
+  same "viewport-in-viewport" vibe as the B4 code-block report —
+  chart is now edge-to-edge, divider lines do the chrome work
+  (`hub/internal/server/seed_demo_lifecycle.go`).
+- **Paper-demo seed had no open AC** — the `paper-draft-ratified`
+  gate was seeded with `state: "waived"`, which represents a
+  deliberate director-deferral, not "waiting on the deliverable."
+  The paper-draft deliverable is `in-review`, so the gate is
+  genuinely PENDING. Flipped the state to `pending` so the
+  paper-demo's AC list now shows one open required criterion. Added
+  a non-required `supplementary-materials-packaged` text criterion
+  with `state: "waived"` alongside so the bundle still exercises
+  the waived-state UI (the test that asserts ≥1 waived across the
+  5 projects stays green)
+  (`hub/internal/server/seed_demo_lifecycle.go`).
+- **References tile in lit-review felt indistinguishable from
+  Documents tile** — the prior tap path always went through an
+  intermediate "kind=tabular schema=citation" artifact-list screen,
+  which on a single-citation project rendered a one-row list with
+  the filename and no visible table. The screen pattern looked like
+  Documents to testers. Now the tap-References handler peeks at the
+  matching artifacts first: exactly one citation artifact → push the
+  tabular viewer directly so the table renders on first paint; >1 →
+  the list-by-kind screen for disambiguation; lit-review deliverable
+  but no citations → the structured deliverable viewer; else
+  fall-back to DocumentsScreen with the same snackbar
+  (`lib/widgets/shortcut_tile_strip.dart`).
 
 ## v1.0.509-alpha — 2026-05-12
 

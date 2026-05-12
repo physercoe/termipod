@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.521
+> **Last verified vs code:** v1.0.522
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.522-alpha — 2026-05-12
+
+### Changed
+
+- **Structured-deliverable component rows show name + artifact kind**
+  — tester report: "delivery row only shows types like document /
+  artifact / run, no name or artifact-kind". The
+  `_ComponentCard` in `StructuredDeliverableViewer` previously
+  displayed only the kind label as the primary line and the raw
+  ref-id below. Refactored from `ConsumerWidget` to
+  `ConsumerStatefulWidget` so it can eagerly fetch the referenced
+  entity (`getArtifact` / `getDocument` / `getRun`) on mount and
+  surface real info:
+  - **Primary line**: resolved entity name (e.g. *"Lifecycle demo
+    PDF"*, *"Method doc"*) with the `required` pill on the right.
+  - **Secondary line**: `kind · sub-kind` — for artifacts that
+    becomes *"artifact · pdf"* / *"artifact · image"* / *"artifact
+    · tabular"*; documents stay *"document · <refId-prefix>"* so
+    the id is still locatable. Loading state shows "Loading…" as
+    the primary until the fetch resolves; fetch failures fall back
+    to the refId (`lib/screens/deliverables/structured_deliverable_viewer.dart`).
 
 ---
 

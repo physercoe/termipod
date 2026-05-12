@@ -399,17 +399,84 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
-class _ComponentCard extends ConsumerWidget {
+class _ComponentCard extends ConsumerStatefulWidget {
   final Map<String, dynamic> component;
   final String projectId;
   const _ComponentCard({required this.component, required this.projectId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final kind = (component['kind'] ?? '').toString();
-    final refId = (component['ref_id'] ?? '').toString();
-    final required = component['required'] == true;
+  ConsumerState<_ComponentCard> createState() => _ComponentCardState();
+}
+
+class _ComponentCardState extends ConsumerState<_ComponentCard> {
+  // Resolved primary line (name/title) + secondary line (sub-kind for
+  // artifacts). Populated by an eager fetch in initState so each row
+  // surfaces the underlying entity instead of just its type label.
+  // Tester report 2026-05-12: "the delivary row info only shows types
+  // like document/artifact/run, no name or artifact-kind."
+  String? _resolvedName;
+  String? _artifactSubKind;
+  bool _resolving = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  Future<void> _resolve() async {
+    final kind = (widget.component['kind'] ?? '').toString();
+    final refId = (widget.component['ref_id'] ?? '').toString();
+    if (refId.isEmpty) {
+      if (mounted) setState(() => _resolving = false);
+      return;
+    }
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      if (mounted) setState(() => _resolving = false);
+      return;
+    }
+    try {
+      if (kind == 'artifact') {
+        final row = await client.getArtifact(refId);
+        if (!mounted) return;
+        setState(() {
+          _resolvedName = (row['name'] ?? '').toString();
+          _artifactSubKind = (row['kind'] ?? '').toString();
+          _resolving = false;
+        });
+      } else if (kind == 'document') {
+        final row = await client.getDocument(refId);
+        if (!mounted) return;
+        setState(() {
+          _resolvedName =
+              (row['title'] ?? row['name'] ?? '').toString();
+          _resolving = false;
+        });
+      } else if (kind == 'run') {
+        final row = await client.getRun(refId);
+        if (!mounted) return;
+        setState(() {
+          _resolvedName = (row['name'] ?? row['title'] ?? '').toString();
+          _resolving = false;
+        });
+      } else {
+        if (mounted) setState(() => _resolving = false);
+      }
+    } catch (_) {
+      // Network/perm failures fall back to refId display below.
+      if (mounted) setState(() => _resolving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final kind = (widget.component['kind'] ?? '').toString();
+    final refId = (widget.component['ref_id'] ?? '').toString();
+    final required = widget.component['required'] == true;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryLabel = _primaryLine(kind: kind, refId: refId);
+    final secondaryLabel = _secondaryLine(kind: kind, refId: refId);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
@@ -430,21 +497,27 @@ class _ComponentCard extends ConsumerWidget {
             ),
             child: Row(
               children: [
-                Icon(_iconFor(kind), size: 22, color: _colorFor(kind)),
+                Icon(_iconFor(kind),
+                    size: 22, color: _colorFor(kind)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Primary line: entity name (or "Loading…" / refId
+                      // fallback). The big visible piece of new info per
+                      // the tester report.
                       Row(
                         children: [
-                          Text(
-                            _labelFor(kind),
-                            style: GoogleFonts.spaceGrotesk(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: _colorFor(kind),
-                              letterSpacing: 0.4,
+                          Expanded(
+                            child: Text(
+                              primaryLabel,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (required) ...[
@@ -453,8 +526,8 @@ class _ComponentCard extends ConsumerWidget {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color:
-                                    DesignColors.warning.withValues(alpha: 0.15),
+                                color: DesignColors.warning
+                                    .withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -470,11 +543,16 @@ class _ComponentCard extends ConsumerWidget {
                         ],
                       ),
                       const SizedBox(height: 2),
+                      // Secondary line: "<kind> · <subkind>" — e.g.
+                      // "artifact · pdf" or just "document". Picks up
+                      // the artifact kind from the resolved row.
                       Text(
-                        refId,
+                        secondaryLabel,
                         style: GoogleFonts.jetBrainsMono(
-                          fontSize: 11,
-                          color: DesignColors.textMuted,
+                          fontSize: 10.5,
+                          color: _colorFor(kind),
+                          letterSpacing: 0.3,
+                          fontWeight: FontWeight.w600,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -491,9 +569,31 @@ class _ComponentCard extends ConsumerWidget {
     );
   }
 
+  String _primaryLine({required String kind, required String refId}) {
+    if (_resolving) return 'Loading…';
+    final name = _resolvedName ?? '';
+    if (name.isNotEmpty) return name;
+    return refId.isEmpty ? _labelFor(kind) : refId;
+  }
+
+  String _secondaryLine({required String kind, required String refId}) {
+    final base = _labelFor(kind).toLowerCase();
+    if (kind == 'artifact') {
+      final sub = _artifactSubKind ?? '';
+      if (sub.isNotEmpty) return '$base · $sub';
+    }
+    // Echo the truncated refId on the secondary line so the user can
+    // still verify which row maps to which entity, but stay short.
+    if (refId.isNotEmpty && _resolvedName != null && _resolvedName!.isNotEmpty) {
+      final short = refId.length > 14 ? '${refId.substring(0, 14)}…' : refId;
+      return '$base · $short';
+    }
+    return base;
+  }
+
   Future<void> _onTap(BuildContext context, WidgetRef ref) async {
-    final kind = (component['kind'] ?? '').toString();
-    final refId = (component['ref_id'] ?? '').toString();
+    final kind = (widget.component['kind'] ?? '').toString();
+    final refId = (widget.component['ref_id'] ?? '').toString();
     if (refId.isEmpty) return;
     if (kind == 'document') {
       Navigator.of(context).push(

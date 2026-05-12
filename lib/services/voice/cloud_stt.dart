@@ -110,7 +110,8 @@ class AlibabaWebSocketStt implements CloudStt {
     }
 
     var phase = _Phase.connecting;
-    StreamSubscription<Uint8List>? audioSub;
+    final earlyChunks = <Uint8List>[];
+    late StreamSubscription<Uint8List> audioSub;
     late StreamSubscription channelSub;
     final shutdown = Completer<void>();
 
@@ -118,7 +119,7 @@ class AlibabaWebSocketStt implements CloudStt {
       if (shutdown.isCompleted) return;
       shutdown.complete();
       phase = _Phase.closed;
-      await audioSub?.cancel();
+      await audioSub.cancel();
       await channelSub.cancel();
       try {
         await channel.sink.close();
@@ -144,6 +145,42 @@ class AlibabaWebSocketStt implements CloudStt {
       }
     }
 
+    // Subscribe to audio immediately so caller-side close() always finds a
+    // listener and PCM chunks emitted before task-started are buffered.
+    audioSub = audioChunks.listen(
+      (chunk) {
+        switch (phase) {
+          case _Phase.connecting:
+            earlyChunks.add(chunk);
+          case _Phase.running:
+            try {
+              channel.sink.add(chunk);
+            } catch (e) {
+              teardown(error: e);
+            }
+          case _Phase.finishing:
+          case _Phase.closed:
+            break;
+        }
+      },
+      onDone: () {
+        switch (phase) {
+          case _Phase.connecting:
+            // Mic released before task-started; tear down without
+            // finish-task (the server has no task to finish).
+            teardown();
+          case _Phase.running:
+            phase = _Phase.finishing;
+            sendFinishTask();
+          case _Phase.finishing:
+          case _Phase.closed:
+            break;
+        }
+      },
+      onError: (e) => teardown(error: e),
+      cancelOnError: true,
+    );
+
     channelSub = channel.stream.listen(
       (message) async {
         if (phase == _Phase.closed || message is! String) return;
@@ -159,23 +196,15 @@ class AlibabaWebSocketStt implements CloudStt {
         switch (event) {
           case 'task-started':
             phase = _Phase.running;
-            audioSub = audioChunks.listen(
-              (chunk) {
-                if (phase != _Phase.running) return;
-                try {
-                  channel.sink.add(chunk);
-                } catch (e) {
-                  teardown(error: e);
-                }
-              },
-              onDone: () {
-                if (phase != _Phase.running) return;
-                phase = _Phase.finishing;
-                sendFinishTask();
-              },
-              onError: (e) => teardown(error: e),
-              cancelOnError: true,
-            );
+            for (final chunk in earlyChunks) {
+              try {
+                channel.sink.add(chunk);
+              } catch (e) {
+                await teardown(error: e);
+                return;
+              }
+            }
+            earlyChunks.clear();
             break;
           case 'result-generated':
             final payload =

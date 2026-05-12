@@ -209,8 +209,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       channel.serverClose();
       await doneCompleter.future;
-
-      await audio.close();
+      // Don't await audio.close() — teardown already cancelled the
+      // subscription so close() would park awaiting a listener that
+      // is no longer there.
+      unawaited(audio.close());
     });
 
     test('audio cancellation pre-task-started never sends finish-task',

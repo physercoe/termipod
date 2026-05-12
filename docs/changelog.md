@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.532
+> **Last verified vs code:** v1.0.533
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,30 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.533-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W3/W4 prep — config layer.** Third release in the Path
+  C series. Adds the `VoiceSettings` immutable model
+  (`lib/services/voice/voice_settings.dart`) carrying `enabled`,
+  `autoSendPuckTranscripts`, `region`, `model`, `languageHints`, and a
+  derived `hasApiKey` flag — the API key itself stays in
+  flutter_secure_storage and is read on-demand so the secret never
+  enters the observable Riverpod state graph. Adds
+  `voiceSettingsProvider`
+  (`lib/providers/voice_settings_provider.dart`) wired to
+  shared_preferences + flutter_secure_storage using the `await _ready`
+  pattern (`feedback_prefs_load_race`) so the very first user toggle
+  doesn't race the async on-disk load. Region + model keys are
+  hand-mapped strings (not enum indices) so reordering the enum later
+  doesn't shift saved values. 14 unit-test cases cover defaults,
+  copyWith, equality, and the round-trip + fallback behavior of the
+  region/model JSON helpers. No UI surface yet — the settings screen
+  + mic affordance follow in v1.0.534.
 
 ---
 

@@ -159,6 +159,10 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       await session.cancel();
+      // Broadcast controllers dispatch on the next microtask; flush
+      // before asserting the listener saw the cancelled event.
+      await Future<void>.delayed(Duration.zero);
+
       expect(session.isActive, isFalse);
       expect(backend.cancelCalls, 1);
       expect(backend.stopCalls, 0);
@@ -197,7 +201,11 @@ void main() {
     test('start rethrows permission denial as VoiceRecordingException',
         () async {
       backend.permission = false;
-      expect(
+      // `expect(() => fn(), throwsA(...))` for an async fn does NOT wait
+      // for the future to reject before the next expect runs; use
+      // expectLater so the catch block (which flips _active back to
+      // false) has actually run before we read isActive.
+      await expectLater(
         () => session.start(),
         throwsA(isA<VoiceRecordingException>().having(
           (e) => e.kind,

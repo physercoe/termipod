@@ -1,14 +1,21 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/voice_settings_provider.dart';
 import '../../screens/home_screen.dart';
 import '../../screens/sessions/sessions_screen.dart';
+import '../../services/voice/cloud_stt.dart';
+import '../../services/voice/recording_controller.dart';
+import '../../services/voice/voice_recording_session.dart';
 import '../../theme/design_colors.dart';
 import 'steward_overlay_chat.dart';
 import 'steward_overlay_controller.dart';
+import 'voice_recording_hud.dart';
 
 /// Steward overlay shell — a persistent, draggable chat surface that
 /// stays visible across all routes (Projects / Activity / Me /
@@ -53,6 +60,17 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
 
   /// Expanded vs collapsed.
   bool _expanded = false;
+
+  // Mode A — puck long-press voice recording state. Lives on the
+  // overlay because the puck is the affordance; HUD is positioned
+  // relative to the puck's current offset.
+  VoiceRecordingSession? _voiceSession;
+  StreamSubscription<VoiceSessionEvent>? _voiceSub;
+  String _voiceTranscript = '';
+  DateTime? _voiceStartTime;
+  Timer? _voiceTickTimer;
+  Duration _voiceElapsed = Duration.zero;
+  bool _voiceStarting = false;
 
   static const double _puckSize = 56;
   static const double _margin = 16;
@@ -133,6 +151,139 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
     if (r == null) return;
     ref.read(settingsProvider.notifier)
         .setStewardOverlayPanelRect(r.left, r.top, r.width, r.height);
+  }
+
+  // ===== Mode A — puck long-press voice recording =====
+
+  Future<VoiceRecordingSession?> _buildVoiceSession() async {
+    final settings = ref.read(voiceSettingsProvider);
+    if (!settings.isReady) return null;
+    final apiKey =
+        await ref.read(voiceSettingsProvider.notifier).readApiKey();
+    if (apiKey == null || apiKey.isEmpty) return null;
+    return VoiceRecordingSession(
+      recording: RecordingController(),
+      cloudStt: AlibabaWebSocketStt(
+        apiKey: apiKey,
+        region: settings.region,
+        model: settings.model,
+      ),
+      languageHints: settings.languageHints,
+    );
+  }
+
+  Future<void> _onPuckLongPressStart() async {
+    if (_voiceSession != null || _voiceStarting) return;
+    setState(() => _voiceStarting = true);
+    VoiceRecordingSession? session;
+    try {
+      session = await _buildVoiceSession();
+    } catch (e) {
+      _showSnack('Voice unavailable: $e');
+    } finally {
+      if (mounted) setState(() => _voiceStarting = false);
+    }
+    if (session == null || !mounted) {
+      await session?.dispose();
+      return;
+    }
+    _voiceTranscript = '';
+    _voiceStartTime = DateTime.now();
+    _voiceElapsed = Duration.zero;
+    _voiceSession = session;
+    _voiceSub = session.events.listen(_onVoiceEvent);
+    _voiceTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _voiceStartTime == null) return;
+      setState(() => _voiceElapsed = DateTime.now().difference(_voiceStartTime!));
+    });
+    try {
+      await session.start();
+      if (mounted) setState(() {});
+    } catch (e) {
+      _showSnack('Mic unavailable: $e');
+      await _cleanupVoiceSession();
+    }
+  }
+
+  void _onVoiceEvent(VoiceSessionEvent e) {
+    if (!mounted) return;
+    switch (e.kind) {
+      case VoiceSessionEventKind.transcriptUpdated:
+        setState(() => _voiceTranscript = e.text);
+      case VoiceSessionEventKind.completed:
+        final text = e.text.trim();
+        final autoSend =
+            ref.read(voiceSettingsProvider).autoSendPuckTranscripts;
+        if (text.isNotEmpty) {
+          if (autoSend) {
+            _autoSendTranscript(text);
+          } else {
+            // Review fallback — open the panel and surface the text in
+            // a SnackBar so the tester can re-enter it for now. A
+            // first-class pre-fill into the chat input is a v1.0.537+
+            // follow-up (needs an injection signal from this state
+            // into the chat input controller).
+            setState(() => _expanded = true);
+            _showSnack('Voice → review: "$text" (panel opened)');
+          }
+        }
+        _cleanupVoiceSession();
+      case VoiceSessionEventKind.cancelled:
+        _cleanupVoiceSession();
+      case VoiceSessionEventKind.maxDurationReached:
+        // Auto-stop is called by the session; completed event follows.
+        break;
+      case VoiceSessionEventKind.error:
+        _showSnack('Voice error: ${e.error}');
+        _cleanupVoiceSession();
+    }
+  }
+
+  Future<void> _autoSendTranscript(String text) async {
+    try {
+      await ref
+          .read(stewardOverlayControllerProvider.notifier)
+          .sendUserText(text);
+      _showSnack('Sent: "${text.length > 60 ? '${text.substring(0, 60)}…' : text}"');
+    } catch (e) {
+      _showSnack('Send failed: $e');
+    }
+  }
+
+  Future<void> _onPuckLongPressEnd() async {
+    await _voiceSession?.stop();
+  }
+
+  void _onPuckLongPressMoveUpdate(LongPressMoveUpdateDetails d) {
+    if (d.offsetFromOrigin.distance > 80) {
+      _voiceSession?.cancel();
+    }
+  }
+
+  Future<void> _cleanupVoiceSession() async {
+    _voiceTickTimer?.cancel();
+    _voiceTickTimer = null;
+    await _voiceSub?.cancel();
+    _voiceSub = null;
+    final s = _voiceSession;
+    _voiceSession = null;
+    _voiceStartTime = null;
+    if (mounted) setState(() {});
+    await s?.dispose();
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  @override
+  void dispose() {
+    _voiceTickTimer?.cancel();
+    _voiceSub?.cancel();
+    _voiceSession?.dispose();
+    super.dispose();
   }
 
   @override
@@ -224,6 +375,7 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
                 top: _puckOffset!.dy,
                 child: _Puck(
                   size: _puckSize,
+                  recording: _voiceSession != null,
                   onTap: () {
                     if (!_draggedThisGesture) _toggleExpanded();
                     _draggedThisGesture = false;
@@ -242,23 +394,59 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
                     });
                   },
                   onPanEnd: _persistPuck,
+                  onLongPressStart: _onPuckLongPressStart,
+                  onLongPressEnd: _onPuckLongPressEnd,
+                  onLongPressMoveUpdate: _onPuckLongPressMoveUpdate,
                 ),
               ),
+            if (_voiceSession != null && !_expanded)
+              _positionedRecordingHud(constraints.biggest),
           ],
         );
       },
     );
   }
+
+  /// Positions the recording HUD relative to the puck, flipping above
+  /// or below depending on which side has more room.
+  Widget _positionedRecordingHud(Size screen) {
+    final puck = _puckOffset ?? Offset.zero;
+    const hudWidth = 280.0;
+    const hudGap = 12.0;
+    final placeAbove = puck.dy > 140;
+    final hudTop = placeAbove ? puck.dy - 110 : puck.dy + _puckSize + hudGap;
+    var hudLeft = puck.dx + _puckSize / 2 - hudWidth / 2;
+    hudLeft = hudLeft.clamp(8.0, (screen.width - hudWidth - 8).clamp(8.0, double.infinity));
+    return Positioned(
+      left: hudLeft,
+      top: hudTop.clamp(8.0, screen.height - 110),
+      child: IgnorePointer(
+        // Don't let the HUD intercept the puck long-press gesture.
+        child: VoiceRecordingHud(
+          transcript: _voiceTranscript,
+          elapsed: _voiceElapsed,
+        ),
+      ),
+    );
+  }
 }
 
 /// The collapsed puck — small circular avatar with the steward's
-/// initial. Tap toggles expansion; drag relocates.
+/// initial. Tap toggles expansion; drag relocates; long-press starts a
+/// Mode A voice recording (Path C plan §Mode A).
 class _Puck extends StatelessWidget {
   final double size;
   final VoidCallback onTap;
   final VoidCallback onPanStart;
   final ValueChanged<Offset> onPanUpdate;
   final VoidCallback onPanEnd;
+  final VoidCallback? onLongPressStart;
+  final VoidCallback? onLongPressEnd;
+  final ValueChanged<LongPressMoveUpdateDetails>? onLongPressMoveUpdate;
+
+  /// When non-null, paints a red ring around the puck to signal Mode A
+  /// recording is in progress.
+  final bool recording;
 
   const _Puck({
     required this.size,
@@ -266,6 +454,10 @@ class _Puck extends StatelessWidget {
     required this.onPanStart,
     required this.onPanUpdate,
     required this.onPanEnd,
+    this.onLongPressStart,
+    this.onLongPressEnd,
+    this.onLongPressMoveUpdate,
+    this.recording = false,
   });
 
   @override
@@ -277,16 +469,27 @@ class _Puck extends StatelessWidget {
       onPanStart: (_) => onPanStart(),
       onPanUpdate: (d) => onPanUpdate(d.delta),
       onPanEnd: (_) => onPanEnd(),
-      child: Material(
-        elevation: 6,
-        shape: const CircleBorder(),
-        color: DesignColors.primary,
-        child: SizedBox(
-          width: size,
-          height: size,
+      onLongPressStart:
+          onLongPressStart == null ? null : (_) => onLongPressStart!(),
+      onLongPressEnd:
+          onLongPressEnd == null ? null : (_) => onLongPressEnd!(),
+      onLongPressMoveUpdate: onLongPressMoveUpdate,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: recording
+              ? Border.all(color: DesignColors.error, width: 3)
+              : null,
+        ),
+        child: Material(
+          elevation: 6,
+          shape: const CircleBorder(),
+          color: DesignColors.primary,
           child: Center(
             child: Icon(
-              Icons.support_agent_outlined,
+              recording ? Icons.mic : Icons.support_agent_outlined,
               color: isDark ? Colors.white : Colors.white,
               size: 28,
             ),

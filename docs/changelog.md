@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.535
+> **Last verified vs code:** v1.0.536
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,39 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.536-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W3b — Mode A puck long-press + recording HUD.** Hands-
+  free voice path. Long-press the steward overlay puck on any screen
+  (panel collapsed) to start recording. The puck flips its avatar to
+  a mic icon with a red ring; a floating
+  [`VoiceRecordingHud`](../lib/widgets/steward_overlay/voice_recording_hud.dart)
+  anchors above or below the puck (whichever has more screen room)
+  showing a red pulse + mm:ss timer + the live streaming partial
+  transcript + a "drag away to cancel" hint. Release → the session's
+  `completed` event fires; if Settings → "Auto-send puck transcripts"
+  is on (default), the transcript is auto-sent via
+  `StewardOverlayController.sendUserText` and a confirmation SnackBar
+  appears with the first ~60 chars of what was sent. The panel does
+  NOT auto-open in the auto-send case — the user can tap the puck
+  later to see the response. Drag finger >80 dp from the puck origin
+  → cancel (no send, no toast). 60-second cap auto-stops; permission
+  / mic / WS errors surface as SnackBars.
+- **Auto-send off → review fallback (v1 stub).** When the toggle is
+  off, the panel opens and a SnackBar shows the transcript verbatim
+  — first-class pre-fill into the chat input is a v1.0.537 follow-up
+  (needs an injection signal from overlay state into the chat input
+  controller).
+- **Soundwave strip deferred.** The plan's third HUD strip
+  (CustomPainter rendering RMS bars per ~100 ms PCM chunk) is
+  v1.0.537+ polish; v1.0.536 ships the strict-minimum useful signal
+  (pulse + timer + transcript line) so the wedge fits a single CI
+  cycle.
 
 ---
 

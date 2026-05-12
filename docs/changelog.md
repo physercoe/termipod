@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.518
+> **Last verified vs code:** v1.0.520
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,27 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.520-alpha — 2026-05-12
+
+### Reverted
+
+- **Backed out v1.0.519's PDF feature bundle** (tappable links + page
+  badge + scroll thumb + double-tap zoom). Tester reported full-
+  screen gray viewport on both seed-demo and uploaded PDFs after
+  installing v1.0.519, even though CI + release builds went green
+  — the regression is a runtime issue in pdfrx 2.2.24's interaction
+  with `viewerOverlayBuilder` / `linkHandlerParams` API surface
+  (those docs were drafted against the master / 2.3.x branch; the
+  2.2.24 signatures may diverge in ways the compiler didn't catch).
+  Pure revert of commit `520741a`; ships v1.0.518's state (TOC
+  drawer + find-in-PDF working) under a fresh v1.0.520 tag.
+
+  v1.0.519 number is retired — do not re-tag. Future re-attempts at
+  the bundle (Issue: layer features one at a time, verify per-build
+  on device before stacking) will land as v1.0.521+.
 
 ---
 

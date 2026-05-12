@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.517
+> **Last verified vs code:** v1.0.518
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,32 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.518-alpha — 2026-05-12
+
+### Added
+
+- **PDF outline / bookmarks / table-of-contents drawer** — tap the
+  `menu_book` icon in the PDF viewer AppBar (only visible when the
+  PDF carries an outline; most synthetic PDFs don't, real papers
+  and books do) to slide in an end drawer listing the outline tree.
+  Tap an entry → viewer jumps to that destination via
+  `PdfViewerController.goToDest`. Renders nested levels with
+  indentation; outline-less PDFs hide the icon entirely so it
+  doesn't tease an empty drawer.
+- **Find in PDF (text search)** — tap the `search` icon in the
+  AppBar to enter search mode. Type a query, press search/return,
+  and matches are highlighted in the viewport via pdfrx's
+  `PdfTextSearcher.pageTextMatchPaintCallback`. AppBar shows the
+  current match index (e.g. `3/12`) plus up/down arrows to step
+  through matches. Close button restores the default AppBar and
+  clears highlights. Case-insensitive by default.
+
+Both features use pdfrx 2.2.24's high-level APIs (`PdfDocument.
+loadOutline`, `PdfTextSearcher`) — no native code (`lib/widgets/
+artifact_viewers/pdf_viewer.dart`).
 
 ---
 

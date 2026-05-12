@@ -16,23 +16,26 @@ import '../../theme/design_colors.dart';
 /// rendering. URIs in non-`blob:sha256/` schemes (mock seed data,
 /// external HTTPS, etc.) show an explicit "cannot load" message.
 ///
-/// v1.0.514 added a diagnostic strip at the bottom showing the load
-/// pipeline state (bytes → pdfium → pages) — four prior releases
-/// chased "white page" with speculative fixes (encoding, page geometry,
-/// init call) and none moved the needle because we had no signal as to
-/// which stage was failing. The strip puts that signal on screen so
-/// the next tester screenshot tells us where pdfium stalls instead of
-/// requiring another guess-and-ship loop.
+/// The widget is the leaf — its parent [ArtifactPdfViewerScreen]
+/// owns the `PdfViewerController` and `PdfTextSearcher` so the
+/// AppBar can drive outline + search actions. v1.0.518 added these
+/// integrations on top of the v1.0.515 native-assets backout.
 class ArtifactPdfViewer extends ConsumerStatefulWidget {
   final String uri;
   final String? title;
   final int? expectedSize;
+  final PdfViewerController? controller;
+  final PdfTextSearcher? searcher;
+  final ValueChanged<List<PdfOutlineNode>?>? onOutlineLoaded;
 
   const ArtifactPdfViewer({
     super.key,
     required this.uri,
     this.title,
     this.expectedSize,
+    this.controller,
+    this.searcher,
+    this.onOutlineLoaded,
   });
 
   @override
@@ -100,21 +103,23 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // ColoredBox + the params' backgroundColor white-paint the
     // viewport so a transparent page-fill in a minimal PDF doesn't
     // blend into the Scaffold's gray.
-    //
-    // The v1.0.514 diagnostic strip + 10 s watchdog were removed in
-    // v1.0.517 once the pdfrx 2.2.24 pin confirmed rendering works
-    // — the strip's "TIMEOUT" message was misleading on the happy
-    // path because `onDocumentLoadFinished` doesn't fire reliably in
-    // 2.2.x even when rendering succeeds. If a future regression
-    // calls for diagnostics again, resurrect from git history at
-    // commit 6dc5614.
+    final searcher = widget.searcher;
+    final paintCallbacks = searcher != null
+        ? <PdfViewerPagePaintCallback>[searcher.pageTextMatchPaintCallback]
+        : null;
     return ColoredBox(
       color: Colors.white,
       child: PdfViewer.data(
         bytes,
         sourceName: widget.title ?? widget.uri,
-        params: const PdfViewerParams(
+        controller: widget.controller,
+        params: PdfViewerParams(
           backgroundColor: Colors.white,
+          pagePaintCallbacks: paintCallbacks,
+          onViewerReady: (document, controller) async {
+            final outline = await document.loadOutline();
+            widget.onOutlineLoaded?.call(outline);
+          },
         ),
       ),
     );
@@ -163,7 +168,11 @@ class _PdfLoadError extends StatelessWidget {
 /// Fullscreen route for the PDF viewer. Lifts the artifact detail sheet
 /// out of the way so pinch-zoom + page navigation aren't fighting the
 /// DraggableScrollableSheet for vertical drag gestures.
-class ArtifactPdfViewerScreen extends StatelessWidget {
+///
+/// Owns the `PdfViewerController`, `PdfTextSearcher`, and outline state
+/// so the AppBar can drive find-in-PDF and the end-drawer outline
+/// jump-list. The viewer widget (`ArtifactPdfViewer`) is a leaf.
+class ArtifactPdfViewerScreen extends StatefulWidget {
   final String uri;
   final String title;
   const ArtifactPdfViewerScreen({
@@ -173,17 +182,267 @@ class ArtifactPdfViewerScreen extends StatelessWidget {
   });
 
   @override
+  State<ArtifactPdfViewerScreen> createState() =>
+      _ArtifactPdfViewerScreenState();
+}
+
+class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
+  late final PdfViewerController _controller;
+  late final PdfTextSearcher _searcher;
+  late final TextEditingController _searchInput;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  List<PdfOutlineNode>? _outline;
+  bool _searchMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PdfViewerController();
+    _searcher = PdfTextSearcher(_controller)..addListener(_onSearcherUpdate);
+    _searchInput = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchInput.dispose();
+    _searcher
+      ..removeListener(_onSearcherUpdate)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onSearcherUpdate() {
+    if (mounted) setState(() {});
+  }
+
+  void _submitSearch() {
+    final q = _searchInput.text.trim();
+    if (q.isEmpty) {
+      _searcher.resetTextSearch();
+    } else {
+      _searcher.startTextSearch(q, caseInsensitive: true);
+    }
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searchMode = !_searchMode;
+      if (!_searchMode) {
+        _searchInput.clear();
+        _searcher.resetTextSearch();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final hasOutline = _outline != null && _outline!.isNotEmpty;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          title,
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 14, fontWeight: FontWeight.w700),
-          overflow: TextOverflow.ellipsis,
+      key: _scaffoldKey,
+      appBar: _searchMode
+          ? _buildSearchAppBar()
+          : _buildDefaultAppBar(hasOutline),
+      endDrawer: hasOutline
+          ? _OutlineDrawer(
+              outline: _outline!,
+              controller: _controller,
+              onTap: () => Navigator.of(context).maybePop(),
+            )
+          : null,
+      body: ArtifactPdfViewer(
+        uri: widget.uri,
+        title: widget.title,
+        controller: _controller,
+        searcher: _searcher,
+        onOutlineLoaded: (outline) {
+          if (!mounted) return;
+          setState(() => _outline = outline);
+        },
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildDefaultAppBar(bool hasOutline) {
+    return AppBar(
+      title: Text(
+        widget.title,
+        style: GoogleFonts.spaceGrotesk(
+            fontSize: 14, fontWeight: FontWeight.w700),
+        overflow: TextOverflow.ellipsis,
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.search),
+          tooltip: 'Find in PDF',
+          onPressed: _toggleSearch,
+        ),
+        if (hasOutline)
+          IconButton(
+            icon: const Icon(Icons.menu_book_outlined),
+            tooltip: 'Outline',
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+      ],
+    );
+  }
+
+  PreferredSizeWidget _buildSearchAppBar() {
+    final matches = _searcher.matches;
+    final n = matches.length;
+    final i = _searcher.currentIndex ?? -1;
+    final label = n == 0
+        ? (_searcher.isSearching ? 'searching…' : '—')
+        : '${i + 1}/$n';
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        tooltip: 'Close search',
+        onPressed: _toggleSearch,
+      ),
+      title: TextField(
+        controller: _searchInput,
+        autofocus: true,
+        textInputAction: TextInputAction.search,
+        decoration: const InputDecoration(
+          hintText: 'Find in PDF',
+          border: InputBorder.none,
+          isDense: true,
+        ),
+        onSubmitted: (_) => _submitSearch(),
+        onChanged: (_) {
+          // Reset match state if user clears the field mid-search;
+          // otherwise wait for explicit submit (live-search would
+          // re-scan every keystroke on multi-page PDFs).
+          if (_searchInput.text.isEmpty) {
+            _searcher.resetTextSearch();
+          }
+        },
+        style: GoogleFonts.jetBrainsMono(fontSize: 13),
+      ),
+      actions: [
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              label,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.textMuted,
+              ),
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_up),
+          tooltip: 'Previous match',
+          onPressed: n > 0 ? () => _searcher.goToPrevMatch() : null,
+        ),
+        IconButton(
+          icon: const Icon(Icons.keyboard_arrow_down),
+          tooltip: 'Next match',
+          onPressed: n > 0 ? () => _searcher.goToNextMatch() : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// End drawer listing the PDF's outline / bookmarks / table-of-
+/// contents. Tap an entry to jump the viewer to its destination.
+/// Hidden when the PDF carries no outline (most synthetic PDFs).
+class _OutlineDrawer extends StatelessWidget {
+  final List<PdfOutlineNode> outline;
+  final PdfViewerController controller;
+  final VoidCallback? onTap;
+
+  const _OutlineDrawer({
+    required this.outline,
+    required this.controller,
+    this.onTap,
+  });
+
+  Iterable<({PdfOutlineNode node, int level})> _flatten(
+    List<PdfOutlineNode>? nodes,
+    int level,
+  ) sync* {
+    if (nodes == null) return;
+    for (final n in nodes) {
+      yield (node: n, level: level);
+      yield* _flatten(n.children, level + 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _flatten(outline, 0).toList();
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Outline',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: list.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No outline',
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 12,
+                          color: DesignColors.textMuted,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: list.length,
+                      itemBuilder: (ctx, i) {
+                        final item = list[i];
+                        final dest = item.node.dest;
+                        return InkWell(
+                          onTap: dest == null
+                              ? null
+                              : () {
+                                  controller.goToDest(dest);
+                                  onTap?.call();
+                                },
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              item.level * 16.0 + 12,
+                              10,
+                              12,
+                              10,
+                            ),
+                            child: Text(
+                              item.node.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.spaceGrotesk(
+                                fontSize: 13,
+                                fontWeight: item.level == 0
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: dest == null
+                                    ? DesignColors.textMuted
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
-      body: ArtifactPdfViewer(uri: uri, title: title),
     );
   }
 }

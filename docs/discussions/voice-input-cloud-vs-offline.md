@@ -1,8 +1,9 @@
 # Voice input — cloud STT vs offline model vs system IME
 
 > **Type:** discussion
-> **Status:** Open (Drafted 2026-05-11) — re-opens the design space
-> that [`plans/voice-input-overlay-v1.md`](../plans/voice-input-overlay-v1.md)
+> **Status:** Open (Drafted 2026-05-11; vendor snapshot 2026-05-12) —
+> re-opens the design space that
+> [`plans/voice-input-overlay-v1.md`](../plans/voice-input-overlay-v1.md)
 > picked. No implementation commitment; this captures the
 > comparative analysis so the next prioritisation has it ready.
 > **Audience:** contributors · principal
@@ -356,11 +357,140 @@ post-MVP power-user upgrade.
 - The user is doing long-form dictation (memo bodies, briefings) →
   Path C with Whisper or Deepgram (system STT degrades past ~60 s)
 - Bilingual zh+en code-switching is load-bearing → Path C with
-  Whisper (or Path D with SenseVoice)
+  Soniox (or Path D with SenseVoice / Qwen3-ASR)
 - Compliance requires a specific provider → Path C with that vendor
 
 None of these are MVP demo blockers. All are legitimate post-MVP
 upgrades. None require the hub to be in the audio path.
+
+### 5.4 Vendor selection for Path C — May 2026 snapshot
+
+The principal asked: if we want English + Chinese ASR, what are the
+best vendors? Web research snapshot, May 2026. Sources at the
+bottom of this section.
+
+#### Top contenders, ranked for termipod's use case (short utterances, mobile-direct, zh + en mixed)
+
+1. **Soniox** — best fit for true zh+en code-switching.
+   - **6.6 % WER on Chinese** in a 2025 60-language study (vs 14.2 % for
+     Speechmatics, the runner-up benchmarked).
+   - **Explicitly designed for intra-sentential code-switching** —
+     auto-detects and transcribes mid-sentence zh↔en switches without a
+     language toggle. Most other APIs lock to one language per utterance
+     and treat a mid-sentence switch as an error.
+   - This is *the* differentiator for a research user who code-switches
+     naturally ("我跑了一下 ablation, accuracy 0.85"). Other APIs do well
+     at "all Chinese" or "all English" segments but fail at
+     intra-sentential mixing.
+
+2. **ElevenLabs Scribe v2** — best accuracy if monolingual segments
+   dominate.
+   - Claims the **industry's lowest WER for Mandarin transcription**
+     with character-level timestamps + speaker diarization.
+   - Leads on accuracy in commercial benchmarks; loses on latency vs
+     Deepgram. Higher per-minute cost than Whisper / Deepgram / GPT-4o.
+
+3. **OpenAI GPT-4o Transcribe** — best cost-performance for batch.
+   - **$0.006/min batch.** Consistently scored lower WER than Deepgram
+     Nova-3 and Google Gemini 2.0 Flash across most languages
+     including Mandarin.
+   - Realtime variant is ~$0.06/min (10× pricier; aimed at voice
+     agents, not transcription).
+   - Lowest friction to implement — single `package:http` POST to
+     `api.openai.com/v1/audio/transcriptions`, one API key,
+     well-documented.
+
+4. **Deepgram Nova-3** — best latency for streaming.
+   - **$0.0077/min PAYG, $0.0065/min on Growth plans.**
+   - Sub-200 ms streaming wins on real-time UX; less of a fit for
+     push-to-talk where end-of-utterance latency dominates anyway.
+   - Mandarin support solid (36 languages including zh-CN) but not
+     best-in-class for code-switching.
+
+5. **Google Gemini 2.0 Flash / Cloud STT** — solid generalist.
+   - "Best-in-class diarization accuracy, transcription speed,
+     affordable enough to offer free" per 2026 comparisons.
+   - Strong on Mandarin; weaker on code-switching than Soniox.
+
+6. **iFlytek (Spark / xfyun)** — strongest if China-mainland only.
+   - Chinese first-party, deeply tuned for **zh + 22 Chinese dialects**
+     (Cantonese, Wu, Min, etc.). Trial API free.
+   - Latency advantage if users are in mainland China; English
+     accuracy weaker than Whisper / Soniox.
+   - Privacy: data routes through PRC infrastructure — relevant to a
+     deployment story aware of jurisdictional boundaries.
+
+7. **Qwen3-ASR (Alibaba)** — open-source SOTA early 2026.
+   - Open weights (0.6 B + 1.7 B parameters), Conformer + LLM decoder,
+     **52 languages including 22 Chinese dialects**, 92 ms TTFT.
+   - Available via DashScope API or self-host. One of the new SOTA
+     models alongside FireRedASR2-LLM, Fun-ASR (7.7 B), NVIDIA
+     Canary-Qwen.
+   - **Strategic value:** open weights mean a clean Path C →
+     Path D migration story if voice usage grows enough to want
+     offline. Single architectural decision now covers two future
+     tiers.
+
+#### Pick-by-language-profile
+
+| Demo language profile | Pick |
+|---|---|
+| zh + en mixed mid-sentence | **Soniox** — code-switching is its differentiator |
+| zh + en monolingual segments | **ElevenLabs Scribe v2** (quality) or **OpenAI GPT-4o** (cost) |
+| en-dominant with occasional zh | **OpenAI GPT-4o Transcribe** — lowest friction, $0.006/min |
+| zh-dominant, mainland deployment | **iFlytek** or **Alibaba DashScope (Qwen3-ASR)** |
+| Plan to migrate to offline later | **Qwen3-ASR via DashScope** — open weights enable clean Path C → Path D |
+
+#### Cost reality check
+
+At typical termipod usage (~50 min/user/month for short steward
+utterances):
+
+| Vendor | $/user/month |
+|---|---|
+| OpenAI GPT-4o Transcribe (batch) | ~$0.30 |
+| Deepgram Nova-3 (PAYG) | ~$0.40 |
+| Soniox | ~$0.50 (published rates) |
+| ElevenLabs Scribe v2 | ~$2.00 |
+| iFlytek / Alibaba | comparable to Whisper at retail |
+
+**Cost is not a decision driver at termipod's scale.** Quality +
+code-switching support are. The cost matters only if voice usage
+balloons (e.g. agents calling STT for podcast-length inputs).
+
+#### Plugin-architecture recommendation
+
+If Path C is built, structure the mobile-side STT client as a thin
+adapter interface so vendor choice is a runtime setting, not a
+build-time commitment:
+
+```dart
+abstract class CloudStt {
+  Future<String> transcribe(List<int> pcm16k, {String? hintLanguage});
+}
+
+class WhisperStt implements CloudStt { … }
+class SonioxStt  implements CloudStt { … }
+class DeepgramStt implements CloudStt { … }
+```
+
+User picks vendor in Settings → Voice; mobile dispatches. ~50 extra
+LOC vs hardcoding one vendor, and it preserves the option to swap
+without a release.
+
+#### Vendor-selection sources (May 2026)
+
+- [Best Speech-to-Text APIs in 2026: A Comprehensive Comparison Guide — Deepgram](https://deepgram.com/learn/best-speech-to-text-apis-2026)
+- [Speech-to-Text APIs in 2026: Benchmarks, Pricing & Developer's Decision Guide — FutureAGI](https://futureagi.com/blog/speech-to-text-apis-in-2026-benchmarks-pricing-developer-s-decision-guide/)
+- [Mandarin Chinese Speech to Text API — Deepgram](https://deepgram.com/product/speech-to-text/mandarin-chinese)
+- [Free Mandarin Chinese Speech to Text Transcription — ElevenLabs](https://elevenlabs.io/speech-to-text/chinese)
+- [Soniox vs Speechmatics: The Best Chinese Speech-to-Text](https://soniox.com/compare/soniox-vs-speechmatics/chinese)
+- [Chinese speech-to-text transcription and translation API — Soniox](https://soniox.com/speech-to-text/chinese)
+- [Deepgram Pricing 2026: Nova-3 at $0.46/hr Breakdown — BrassTranscripts](https://brasstranscripts.com/blog/deepgram-pricing-per-minute-2025-real-time-vs-batch)
+- [GPT-4o-Transcribe Review: vs Whisper Pricing & Latency 2026 — TokenMix](https://tokenmix.ai/blog/gpt-4o-transcribe-vs-whisper-review-2026)
+- [Best open source speech-to-text (STT) model in 2026 (with benchmarks) — Northflank](https://northflank.com/blog/best-open-source-speech-to-text-stt-model-in-2026-benchmarks)
+- [ASR in 2025-2026: A Deep Dive into Speech Recognition Technology Selection — Ruoqi Jin](https://ruoqijin.com/blog/asr-deep-dive-2025-2026)
+- [Speech to Text API — iFLYTEK](https://global.xfyun.cn/products/speech-to-text)
 
 ---
 

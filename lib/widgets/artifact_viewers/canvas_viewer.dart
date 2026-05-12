@@ -55,6 +55,13 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
   WebViewController? _controller;
   String? _error;
   bool _loading = true;
+  // True once the WebView fires onPageFinished. Until then, a dark
+  // overlay covers the platform view so the user doesn't see the
+  // native WebView's default white background while it initialises
+  // on the first cold mount (the "white splash" tester report).
+  // Second open is fine because the platform-view process is already
+  // warm and renders content same-frame.
+  bool _pageReady = false;
 
   @override
   void initState() {
@@ -96,8 +103,17 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
       final html = inlineCanvasBundle(manifest);
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        // Transparent WebView so the platform view's default white
+        // background doesn't paint during cold init. Combined with the
+        // dark overlay (see build), this gives zero-flash perceived
+        // behaviour even on the very first open.
+        ..setBackgroundColor(const Color(0x00000000))
         ..setNavigationDelegate(NavigationDelegate(
           onNavigationRequest: (req) async => decideCanvasNavigation(req.url),
+          onPageFinished: (_) {
+            if (!mounted) return;
+            setState(() => _pageReady = true);
+          },
         ));
       await controller.loadHtmlString(html, baseUrl: 'about:blank');
       if (!mounted) return;
@@ -133,8 +149,26 @@ class _ArtifactCanvasViewerState extends ConsumerState<ArtifactCanvasViewer> {
     // — without it, the platform view collapsed to its intrinsic size on
     // some Android builds and rendered as a partial sub-rectangle inside
     // the otherwise-empty Scaffold body (v1.0.508).
+    //
+    // Stack the WebView under a dark overlay that fades out once
+    // onPageFinished fires. Matches the canvas bundle's expected
+    // #0d0d0d background so the overlay→content transition is
+    // invisible even when colours differ slightly.
     return SizedBox.expand(
-      child: WebViewWidget(controller: controller),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          WebViewWidget(controller: controller),
+          IgnorePointer(
+            ignoring: _pageReady,
+            child: AnimatedOpacity(
+              opacity: _pageReady ? 0.0 : 1.0,
+              duration: const Duration(milliseconds: 120),
+              child: const ColoredBox(color: DesignColors.canvasDark),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

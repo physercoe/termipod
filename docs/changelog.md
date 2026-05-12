@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.515
+> **Last verified vs code:** v1.0.516
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,29 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.516-alpha — 2026-05-12
+
+### Fixed
+
+- **Canvas-app viewer flashed a white page on first open** — only on
+  the very first time a canvas-app artifact was opened in a session;
+  second open rendered instantly. Root cause: cold platform-view
+  initialisation on Android. `WebViewWidget` mounted, native WebView
+  process spun up with its default white background, then HTML
+  rendered on top a few hundred ms later. Two-part fix:
+  - `WebViewController.setBackgroundColor(0x00000000)` makes the
+    WebView itself transparent so the OS default never paints.
+  - `NavigationDelegate.onPageFinished` flips a `_pageReady` flag
+    that fades out an opaque `DesignColors.canvasDark` overlay
+    stacked above the WebView. The user sees the dark overlay
+    during the cold-init window, then the canvas content fades in
+    when the page is actually ready. 120 ms `AnimatedOpacity`
+    crossfade for a smooth transition. Subsequent opens are
+    same-frame since the platform-view process is already warm
+    (`lib/widgets/artifact_viewers/canvas_viewer.dart`).
 
 ---
 

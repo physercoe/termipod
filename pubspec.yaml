@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.514-alpha+10514
+version: 1.0.515-alpha+10515
 
 environment:
   sdk: ^3.10.7
@@ -94,7 +94,17 @@ dependencies:
   # artifact-type-registry plan). PDFium-backed; pinch zoom, text
   # search/selection, outline, password support built-in. ~2 MB APK
   # cost — see open-question Q10 if APK split lands.
-  pdfrx: ^2.3.3
+  # pdfrx pinned to 2.2.24 (the last 2.2.x release) instead of 2.3.x
+  # because 2.3.0 migrated pdfium_flutter to Dart's native-assets
+  # link hooks for the native binary, which requires Flutter
+  # build-time experiment plumbing we don't have wired in CI. The
+  # 2.3.x line ships as "pdfium: loading… forever" on our Android
+  # release builds — `onDocumentLoadFinished` never fires because
+  # the native lib never loads. 2.2.24 uses the prior platform-
+  # channel mechanism that "just works" out of the box. v1.0.514
+  # diagnostic strip showed bytes flowing but pdfium silent;
+  # this is the cleanest backout of the regression.
+  pdfrx: 2.2.24
   # Audio + video players for `audio` / `video` artifacts (wave 2 W6).
   # Both packages accept file paths but not raw bytes, so the viewers
   # download the artifact via HubClient.downloadBlobCached then stage

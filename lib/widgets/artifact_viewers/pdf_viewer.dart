@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -48,11 +49,19 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   bool? _pdfiumLoadOk;
   String? _pdfiumError;
   int? _pageCount;
+  bool _pdfiumTimedOut = false;
+  Timer? _pdfiumWatchdog;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _pdfiumWatchdog?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -102,16 +111,25 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     if (bytes == null) {
       return _PdfLoadError(message: 'no bytes', uri: widget.uri);
     }
-    // White viewport so any transparent page-fill in a minimal PDF
-    // doesn't blend into the Scaffold's gray. ColoredBox + the params'
-    // backgroundColor are belt-and-suspenders for pdfium builds that
-    // skip painting the page background.
-    //
-    // `useProgressiveLoading: false` — our seed + uploaded PDFs are
-    // small (a few KB to a few MB) and the progressive-loading path
-    // has been the source of "white page" rendering bugs in the past
-    // (pdfrx#617, merged 2026-05-08). Plain-load is cheaper and more
-    // reliable for sub-25 MiB blobs.
+    // Start a 10 s watchdog as soon as the viewer is mounted with
+    // bytes. If `onDocumentLoadFinished` hasn't fired by then, the
+    // native pdfium library never woke up — the diagnostic strip
+    // flips to "TIMEOUT" so the tester knows it's a native-side
+    // failure, not a slow document. v1.0.514 spent multiple
+    // releases on "loading…" with no signal; this puts a hard
+    // ceiling on diagnosis time.
+    _pdfiumWatchdog ??= Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      if (_pdfiumLoadOk == null) {
+        setState(() => _pdfiumTimedOut = true);
+      }
+    });
+    // ColoredBox + the params' backgroundColor white-paint the
+    // viewport so a transparent page-fill in a minimal PDF doesn't
+    // blend into the Scaffold's gray. `useProgressiveLoading`
+    // defaults to true to match the canonical pdfrx viewer example —
+    // overriding it to false in v1.0.514 didn't help and the
+    // canonical example uses true.
     return Column(
       children: [
         Expanded(
@@ -120,7 +138,6 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
             child: PdfViewer.data(
               bytes,
               sourceName: widget.title ?? widget.uri,
-              useProgressiveLoading: false,
               params: PdfViewerParams(
                 backgroundColor: Colors.white,
                 onDocumentLoadFinished: _onLoadFinished,
@@ -133,6 +150,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
           byteCount: bytes.length,
           pdfiumLoadOk: _pdfiumLoadOk,
           pdfiumError: _pdfiumError,
+          pdfiumTimedOut: _pdfiumTimedOut,
           pageCount: _pageCount,
           uri: widget.uri,
         ),
@@ -142,6 +160,7 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
 
   void _onLoadFinished(PdfDocumentRef docRef, bool ok) {
     if (!mounted) return;
+    _pdfiumWatchdog?.cancel();
     final listenable = docRef.resolveListenable();
     setState(() {
       _pdfiumLoadOk = ok;
@@ -162,6 +181,7 @@ class _PdfDiagnosticStrip extends StatelessWidget {
   final int byteCount;
   final bool? pdfiumLoadOk;
   final String? pdfiumError;
+  final bool pdfiumTimedOut;
   final int? pageCount;
   final String uri;
 
@@ -169,6 +189,7 @@ class _PdfDiagnosticStrip extends StatelessWidget {
     required this.byteCount,
     required this.pdfiumLoadOk,
     required this.pdfiumError,
+    required this.pdfiumTimedOut,
     required this.pageCount,
     required this.uri,
   });
@@ -178,8 +199,13 @@ class _PdfDiagnosticStrip extends StatelessWidget {
     final String status;
     final Color color;
     if (pdfiumLoadOk == null) {
-      status = 'pdfium: loading…';
-      color = DesignColors.textMuted;
+      if (pdfiumTimedOut) {
+        status = 'pdfium: TIMEOUT (native lib likely not loaded)';
+        color = DesignColors.error;
+      } else {
+        status = 'pdfium: loading…';
+        color = DesignColors.textMuted;
+      }
     } else if (pdfiumLoadOk == true) {
       status = 'pdfium: ok · ${pageCount ?? "?"} pages';
       color = Colors.greenAccent.shade700;

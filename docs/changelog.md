@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.514
+> **Last verified vs code:** v1.0.515
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,37 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.515-alpha — 2026-05-12
+
+### Fixed
+
+- **PDF viewer hangs at "pdfium: loading…" forever** — v1.0.514's
+  diagnostic strip revealed the actual failure mode: bytes load
+  fine and the viewer mounts, but pdfium's `onDocumentLoadFinished`
+  callback never fires. The native pdfium library never wakes up.
+  Root cause: pdfrx 2.3.0 migrated `pdfium_flutter` to Dart's
+  native-assets link hooks for the native binary, which requires
+  Flutter build-time experiment plumbing we don't have wired in
+  CI. The 2.3.x line ships with a silent native-lib-not-loaded
+  failure on our Android release builds.
+  - **Pinned pdfrx to `2.2.24`** (the last 2.2.x release, using
+    the prior platform-channel mechanism that "just works" out
+    of the box). Decisive backout of the regression.
+  - Removed the speculative `pdfrxFlutterInitialize()` call from
+    `main.dart` — pdfrx docs say it's a no-op for widget use, and
+    the canonical viewer example doesn't have it.
+  - Reverted `useProgressiveLoading: false` to the default `true`
+    (canonical example uses the default; v1.0.514's override
+    didn't help).
+  - Added a **10 s watchdog** in the diagnostic strip — if
+    `onDocumentLoadFinished` doesn't fire by then, the strip
+    flips to "pdfium: TIMEOUT (native lib likely not loaded)" so
+    we never spend another release cycle on "loading…" with no
+    signal (`pubspec.yaml`, `lib/main.dart`,
+    `lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:media_store_plus/media_store_plus.dart';
-import 'package:pdfrx/pdfrx.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:termipod/providers/connection_provider.dart';
@@ -27,14 +26,6 @@ const int _meTabIndex = 2;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // pdfrx (PDF artifact viewer) needs an explicit init call before
-  // any PdfViewer widget builds — without this, pdfium silently
-  // fails and pages render as a blank white sheet. Caught after
-  // v1.0.510/.511 testers reported "white page" on every PDF (both
-  // the synthetic seed and uploaded real PDFs). See pdfrx 2.3.x
-  // docs: `pdfrxFlutterInitialize` is the canonical entry point.
-  pdfrxFlutterInitialize();
 
   // MediaStore for public Download/TermiPod writes. Android-only; the
   // plugin errors on iOS if we call ensureInitialized there.

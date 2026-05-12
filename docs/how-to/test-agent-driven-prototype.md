@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-10)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.464
+> **Last verified vs code:** v1.0.537
 
 **TL;DR.** Step-by-step QA walkthrough for the v1.0.464-alpha
 agent-driven mobile prototype: a persistent floating steward
@@ -347,6 +347,130 @@ it tells us whether the steward picked the right destination
 
 ---
 
+## Scenario 11 — voice input Path C (in-app dictation)
+
+**Goal:** confirm Path C voice input works end-to-end with a real
+DashScope API key — both the panel mic button (Mode B,
+review-then-send) and the puck long-press (Mode A, hands-free
+auto-send).
+
+**Pre-conditions:**
+
+- A DashScope API key (Beijing region preferred — cheapest).
+  Sign up at <https://dashscope.console.aliyun.com/> if you
+  don't have one. The key is a string starting with `sk-`.
+- The phone has a working microphone and an active internet
+  connection.
+- App is on v1.0.536-alpha or newer.
+
+### Step 1 — enable voice + paste key
+
+1. Settings → scroll to **Behavior** section → tap
+   **Voice input**.
+2. Toggle **Voice input** to ON. The "Auto-send puck transcripts"
+   toggle appears underneath (default ON), plus the API key /
+   region / model rows.
+3. Tap **DashScope API key**. The "Not set" subtitle should be
+   tinted amber. An obscured-text dialog opens.
+4. Paste the `sk-…` key, tap **Save**. The subtitle should flip
+   to "Stored securely • tap to replace" in green, with a trash
+   icon for clearing.
+5. **Region** defaults to Beijing. Leave it for the cheapest
+   per-second cost.
+6. **Model** defaults to `fun-asr-realtime` (zh + dialects +
+   en + ja). Leave it.
+7. Back out to the home screen.
+
+### Step 2 — Mode B (panel mic button, review-then-send)
+
+1. Open the steward overlay (tap the puck once).
+2. The chat input is empty — the send icon should now be a **mic
+   icon** (`Icons.mic_none`) in the steward primary cyan.
+3. Long-press the mic icon. It should turn red (`Icons.mic` with
+   a red-tinted background).
+4. While holding, say a short phrase in Mandarin + English mixed:
+   "你好 show me the experiment run".
+5. Partials should stream into the input field within ~600 ms.
+6. Release the mic. The final transcript replaces the partials.
+   Edit if you like (you're in normal text-edit mode now).
+7. Tap **send** (the icon flipped back from mic to send). The
+   steward receives the text as a normal turn.
+
+**Drag-out cancel test:** long-press the mic, start speaking, then
+drag your finger >60 dp away. The recording cancels and the input
+field restores whatever was there before.
+
+### Step 3 — Mode A (puck long-press, hands-free auto-send)
+
+1. Collapse the panel (tap the X in the panel header).
+2. Long-press the **puck** anywhere on the screen.
+3. The puck flips its icon to `Icons.mic` with a red ring around
+   it.
+4. A floating HUD appears anchored above or below the puck (you
+   may need to drag the puck to the middle of the screen if the
+   HUD is clipped at the top/bottom edge).
+5. The HUD shows:
+   - Red pulsing dot + elapsed timer (e.g. `00:03`)
+   - "drag away to cancel" hint on the right
+   - Live partial transcript line below ("…listening" before any
+     audio is recognized)
+6. Speak a short directive: "show me the runs page".
+7. Release the puck.
+8. Within ~1 second the HUD dismisses and a SnackBar appears with
+   "Sent: 'show me the runs page'".
+9. The panel does NOT auto-open — the puck stays collapsed, your
+   underlying screen is unchanged.
+10. Tap the puck once to open the panel and see the steward's
+    response.
+
+**Drag-out cancel test:** long-press the puck, start speaking,
+then drag your finger >80 dp away. The HUD dismisses with no
+SnackBar and no send.
+
+### Step 4 — auto-send off (review fallback v1 stub)
+
+1. Settings → Voice input → toggle **Auto-send puck transcripts**
+   OFF.
+2. Back to the home screen, long-press the puck, speak, release.
+3. **Current behavior (v1 stub):** the panel auto-opens and a
+   SnackBar shows the transcript verbatim. You can manually
+   re-enter the text in the chat input.
+4. **Future (v1.0.537+):** the transcript will pre-fill the chat
+   input directly — the SnackBar is a stand-in until that's
+   wired up.
+
+### What to capture if voice fails
+
+- **Whether the mic affordance even appears.** If not: voice is
+  disabled, the input is non-empty, or the device is offline.
+- **The exact SnackBar text** if voice errors. Common cases:
+  - "Mic unavailable: permission denied" — grant mic permission
+    in OS settings.
+  - "Voice error: DashScopeAsrException: …" — the WS handshake
+    failed or the server returned `task-failed`. Most likely
+    causes are a bad / expired key or a region mismatch.
+  - "Send failed: …" — the auto-send call to
+    `postAgentInput` failed; check that the steward is alive.
+- **A short screen recording** if the HUD position is wrong,
+  the partial-transcript update timing feels janky, or the puck's
+  recording border doesn't appear.
+
+### Known limitations of voice in v1.0.536
+
+- **No soundwave strip** in the HUD — just the pulse + timer +
+  transcript line. The plan's RMS-based bar visualisation
+  (`feedback_audio_rms_soundwave.md`-style) is deferred to
+  v1.0.537+ polish.
+- **Auto-send-off review path** is a SnackBar stub, not a
+  first-class pre-fill of the chat input field. See Step 4
+  above.
+- **No reconnect** on transient WebSocket drops; the user has to
+  release and re-press.
+- **Recording stops on app pause.** Backgrounding the app mid-
+  recording cancels the session and discards the partial.
+
+---
+
 ## Known limitations of the v1 prototype
 
 - **Read-only.** No edits, approvals, ratifications, or spawn
@@ -358,8 +482,12 @@ it tells us whether the steward picked the right destination
   project are not bound to the overlay yet.
 - **Position resets on app restart.** The puck moves back to
   bottom-right on every cold start (no shared_preferences yet).
-- **Voice via system IME only.** Tap the microphone on your
-  keyboard; the chat input is just text.
+- **Voice via system IME** *or* the new in-app Path C dictation
+  (Settings → Voice input — see the voice-input scenarios below).
+  The system IME mic still works as before for keyboard-driven
+  dictation; Path C adds long-press affordances on the puck
+  (hands-free Mode A) and the panel mic button (review-then-send
+  Mode B).
 
 These are known + documented in
 [`discussions/agent-driven-mobile-ui.md`](../discussions/agent-driven-mobile-ui.md)

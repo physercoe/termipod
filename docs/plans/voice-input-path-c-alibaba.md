@@ -1,13 +1,16 @@
 # Voice input — Path C, Alibaba DashScope (`fun-asr-realtime`)
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-12; principal Q&A locked) — supersedes
+> **Status:** **Shipped 2026-05-12** (v1.0.531 → v1.0.536). W1–W4 done;
+> W5 (this doc update + how-to walkthrough) closes the wedge.
+> Soundwave HUD strip + auto-send-off chat-input pre-fill are tracked as
+> v1.0.537+ polish. Supersedes
 > [`voice-input-overlay-v1.md`](voice-input-overlay-v1.md) (deferred
 > SenseVoice / Path D). Path B (system-native STT) explicitly skipped
 > on quality-variance grounds — Android OEM speech recognizers are too
 > inconsistent for the principal's zh+en code-switching utterances.
 > **Audience:** contributors · principal
-> **Last verified vs code:** v1.0.514
+> **Last verified vs code:** v1.0.536
 
 **TL;DR.** Add push-to-talk voice input to the steward overlay chat
 using Alibaba's `fun-asr-realtime` over **WebSocket streaming**

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.536
+> **Last verified vs code:** v1.0.537
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,29 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.537-alpha — 2026-05-12
+
+### Changed
+
+- **Voice input W5 — docs + status block updates.** Closes the Path C
+  wedge (no code change in this release; doc-only). Adds **Scenario
+  11 — voice input Path C** to
+  [`how-to/test-agent-driven-prototype.md`](how-to/test-agent-driven-prototype.md)
+  covering the end-to-end walkthrough: enabling the master toggle,
+  pasting the DashScope key, testing Mode B (panel mic button), Mode
+  A (puck long-press auto-send), Mode A's auto-send-off review-
+  fallback v1 stub, and what to capture on failure. Flips the plan
+  at
+  [`plans/voice-input-path-c-alibaba.md`](plans/voice-input-path-c-alibaba.md)
+  from "Proposed" to "Shipped 2026-05-12 (v1.0.531 → v1.0.536)". Flips
+  the discussion at
+  [`discussions/voice-input-cloud-vs-offline.md`](discussions/voice-input-cloud-vs-offline.md)
+  to "Path C shipped". Updates the "Voice via system IME only"
+  limitation in the prototype how-to to reflect the new in-app
+  dictation as the alternative.
 
 ---
 

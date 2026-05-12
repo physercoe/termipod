@@ -1,13 +1,13 @@
 # Voice input — cloud STT vs offline model vs system IME
 
 > **Type:** discussion
-> **Status:** Open (Drafted 2026-05-11; vendor snapshot 2026-05-12) —
-> re-opens the design space that
-> [`plans/voice-input-overlay-v1.md`](../plans/voice-input-overlay-v1.md)
-> picked. No implementation commitment; this captures the
-> comparative analysis so the next prioritisation has it ready.
+> **Status:** **Path C shipped 2026-05-12** (v1.0.531 → v1.0.536; see
+> [`plans/voice-input-path-c-alibaba.md`](../plans/voice-input-path-c-alibaba.md)).
+> Path D (self-hosted Fun-ASR / SenseVoice) remains the deferred
+> Phase 2 — Path C's `CloudStt` interface is the adapter seam. Path B
+> (system-native STT) explicitly **not** revisited.
 > **Audience:** contributors · principal
-> **Last verified vs code:** v1.0.507
+> **Last verified vs code:** v1.0.536
 
 **TL;DR.** Voice input on the steward overlay has three paths past
 "just use the keyboard's mic button" (which

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.537
+> **Last verified vs code:** v1.0.538
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,33 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.538-alpha — 2026-05-12
+
+### Fixed
+
+- **iOS release build broke at v1.0.537-alpha.** Tagging surfaced a
+  transitive-dep incompatibility: `record_linux 0.7.2` (resolved
+  alongside `record: ^5.2.0`) is missing a `hasPermission` named
+  argument that the newer
+  `record_method_channel_platform_interface` declares — the iOS Xcode
+  build pulls in all Flutter platform plugins for compile checks, so
+  the Linux variant fails the build even though the runtime target
+  is iOS. Bumped the `record` constraint to `^6.0.0` so pub resolves
+  aligned transitive deps. The 6.x API surface is backward-
+  compatible for the calls we use (`AudioRecorder` /
+  `hasPermission` / `startStream(RecordConfig)` / `stop` / `cancel`
+  / `dispose`); no Dart code changes needed.
+
+### Notes
+
+- The `flutter test` workflow does not exercise Pod-level iOS
+  compilation, so the issue was latent across v1.0.531 → v1.0.537's
+  green CI runs. The release-workflow surface is the only signal for
+  iOS-side native-dep incompatibilities — they only manifest at tag
+  time.
 
 ---
 

@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.537-alpha+10537
+version: 1.0.538-alpha+10538
 
 environment:
   sdk: ^3.10.7
@@ -121,7 +121,17 @@ dependencies:
   # startStream(RecordConfig(encoder: pcm16bits)) — no file
   # roundtrip, no transcoding. See docs/plans/voice-input-path-c-
   # alibaba.md W1.
-  record: ^5.2.0
+  #
+  # Bumped to ^6.0.0 in v1.0.538 after the v1.0.537-alpha iOS
+  # release build failed with "record_linux 0.7.2 missing
+  # implementations" — the 5.x branch's transitive
+  # `record_linux` lagged behind
+  # `record_method_channel_platform_interface`'s newer signature.
+  # The 6.x line ships aligned transitive deps. API shape is
+  # backward-compatible for the surface we use
+  # (AudioRecorder + hasPermission + startStream + stop / cancel /
+  # dispose).
+  record: ^6.0.0
   # WebSocket transport for the voice-input DashScope ASR client (W2
   # of the Path C plan). Mobile-only: IOWebSocketChannel.connect
   # forwards Authorization: Bearer headers to the server, which the

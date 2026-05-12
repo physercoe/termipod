@@ -38,10 +38,6 @@ class ArtifactPdfViewer extends ConsumerStatefulWidget {
   // with no outline; non-null even when empty so the screen can
   // distinguish "no outline" from "still loading."
   final ValueChanged<List<PdfOutlineNode>?>? onOutlineLoaded;
-  // v1.0.528: text searcher created by the screen and passed down so
-  // the leaf can register its paint callback. The last v1.0.518
-  // suspect — pagePaintCallbacks via PdfTextSearcher — gates here.
-  final PdfTextSearcher? searcher;
 
   const ArtifactPdfViewer({
     super.key,
@@ -50,7 +46,6 @@ class ArtifactPdfViewer extends ConsumerStatefulWidget {
     this.expectedSize,
     this.controller,
     this.onOutlineLoaded,
-    this.searcher,
   });
 
   @override
@@ -155,16 +150,6 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // alone — no onViewerReady, no pagePaintCallbacks, no overlay
     // builder. If rendering stays OK, that callback is innocent and
     // we move to onViewerReady as the next bisect.
-    // v1.0.529: drop pagePaintCallbacks. v1.0.528 confirmed adding
-    // `pagePaintCallbacks: [searcher.pageTextMatchPaintCallback]`
-    // grays the viewport on pdfrx 2.2.24, even with the deferred-
-    // setState pattern that fixed everything else. Likely a
-    // signature mismatch between the 2.2.x `PdfViewerPagePaintCallback`
-    // typedef and the closure pdfrx 2.3.x ships for the searcher's
-    // highlight rendering. Find-in-PDF still works: the searcher is
-    // wired, the AppBar's prev/next arrows jump via
-    // goToMatchOfIndex / goToNextMatch — just no in-viewport
-    // highlight. Acceptable degradation for the bisect endgame.
     return Stack(
       children: [
         ColoredBox(
@@ -226,23 +211,33 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
             bottom: 8,
             left: 0,
             right: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.55),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    _pageCount > 0
-                        ? '$_currentPage / $_pageCount'
-                        : '$_currentPage',
-                    style: GoogleFonts.jetBrainsMono(
-                      fontSize: 10.5,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
+            child: Center(
+              // v1.0.530: tappable page badge → "Go to page" dialog.
+              // Only tappable when pdfrx has reported the total page
+              // count (otherwise the validator can't bound the input).
+              // Below the badge the rest of the viewport is unblocked
+              // because Positioned + Center sizes to content.
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _pageCount > 0 ? _showGoToPageDialog : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _pageCount > 0
+                          ? '$_currentPage / $_pageCount'
+                          : '$_currentPage',
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 10.5,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ),
@@ -251,6 +246,67 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
           ),
       ],
     );
+  }
+
+  Future<void> _showGoToPageDialog() async {
+    final controller = TextEditingController(text: '$_currentPage');
+    final formKey = GlobalKey<FormState>();
+    final target = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(
+            'Go to page',
+            style: GoogleFonts.spaceGrotesk(
+                fontSize: 14, fontWeight: FontWeight.w700),
+          ),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.go,
+              decoration: InputDecoration(
+                hintText: '1 – $_pageCount',
+                border: const OutlineInputBorder(),
+              ),
+              style: GoogleFonts.jetBrainsMono(fontSize: 13),
+              validator: (s) {
+                if (s == null || s.isEmpty) return 'enter a page number';
+                final n = int.tryParse(s);
+                if (n == null) return 'not a number';
+                if (n < 1 || n > _pageCount) return '1 – $_pageCount';
+                return null;
+              },
+              onFieldSubmitted: (_) {
+                if (formKey.currentState!.validate()) {
+                  Navigator.of(ctx).pop(int.parse(controller.text));
+                }
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.of(ctx).pop(int.parse(controller.text));
+                }
+              },
+              child: const Text('Go'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (target != null) {
+      await _controller.goToPage(pageNumber: target);
+    }
   }
 }
 
@@ -320,56 +376,13 @@ class ArtifactPdfViewerScreen extends StatefulWidget {
 
 class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
   late final PdfViewerController _controller;
-  late final PdfTextSearcher _searcher;
-  late final TextEditingController _searchInput;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   List<PdfOutlineNode>? _outline;
-  bool _searchMode = false;
 
   @override
   void initState() {
     super.initState();
     _controller = PdfViewerController();
-    _searcher = PdfTextSearcher(_controller)..addListener(_onSearcherUpdate);
-    _searchInput = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _searchInput.dispose();
-    _searcher
-      ..removeListener(_onSearcherUpdate)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _onSearcherUpdate() {
-    if (!mounted) return;
-    // Defer the setState in case the searcher's listener fires
-    // during pdfrx's build pass — same hazard as onViewerReady from
-    // v1.0.526.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  void _submitSearch() {
-    final q = _searchInput.text.trim();
-    if (q.isEmpty) {
-      _searcher.resetTextSearch();
-    } else {
-      _searcher.startTextSearch(q, caseInsensitive: true);
-    }
-  }
-
-  void _toggleSearch() {
-    setState(() {
-      _searchMode = !_searchMode;
-      if (!_searchMode) {
-        _searchInput.clear();
-        _searcher.resetTextSearch();
-      }
-    });
   }
 
   @override
@@ -377,9 +390,22 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
     final hasOutline = _outline != null && _outline!.isNotEmpty;
     return Scaffold(
       key: _scaffoldKey,
-      appBar: _searchMode
-          ? _buildSearchAppBar()
-          : _buildDefaultAppBar(hasOutline),
+      appBar: AppBar(
+        title: Text(
+          widget.title,
+          style: GoogleFonts.spaceGrotesk(
+              fontSize: 14, fontWeight: FontWeight.w700),
+          overflow: TextOverflow.ellipsis,
+        ),
+        actions: [
+          if (hasOutline)
+            IconButton(
+              icon: const Icon(Icons.menu_book_outlined),
+              tooltip: 'Outline',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+            ),
+        ],
+      ),
       endDrawer: hasOutline
           ? _OutlineDrawer(
               outline: _outline!,
@@ -391,92 +417,11 @@ class _ArtifactPdfViewerScreenState extends State<ArtifactPdfViewerScreen> {
         uri: widget.uri,
         title: widget.title,
         controller: _controller,
-        searcher: _searcher,
         onOutlineLoaded: (outline) {
           if (!mounted) return;
           setState(() => _outline = outline);
         },
       ),
-    );
-  }
-
-  PreferredSizeWidget _buildDefaultAppBar(bool hasOutline) {
-    return AppBar(
-      title: Text(
-        widget.title,
-        style: GoogleFonts.spaceGrotesk(
-            fontSize: 14, fontWeight: FontWeight.w700),
-        overflow: TextOverflow.ellipsis,
-      ),
-      actions: [
-        IconButton(
-          icon: const Icon(Icons.search),
-          tooltip: 'Find in PDF',
-          onPressed: _toggleSearch,
-        ),
-        if (hasOutline)
-          IconButton(
-            icon: const Icon(Icons.menu_book_outlined),
-            tooltip: 'Outline',
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-          ),
-      ],
-    );
-  }
-
-  PreferredSizeWidget _buildSearchAppBar() {
-    final n = _searcher.matches.length;
-    final i = _searcher.currentIndex ?? -1;
-    final label = n == 0
-        ? (_searcher.isSearching ? 'searching…' : '—')
-        : '${i + 1}/$n';
-    return AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.close),
-        tooltip: 'Close search',
-        onPressed: _toggleSearch,
-      ),
-      title: TextField(
-        controller: _searchInput,
-        autofocus: true,
-        textInputAction: TextInputAction.search,
-        decoration: const InputDecoration(
-          hintText: 'Find in PDF',
-          border: InputBorder.none,
-          isDense: true,
-        ),
-        onSubmitted: (_) => _submitSearch(),
-        onChanged: (_) {
-          if (_searchInput.text.isEmpty) {
-            _searcher.resetTextSearch();
-          }
-        },
-        style: GoogleFonts.jetBrainsMono(fontSize: 13),
-      ),
-      actions: [
-        Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(
-              label,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 11,
-                color: DesignColors.textMuted,
-              ),
-            ),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.keyboard_arrow_up),
-          tooltip: 'Previous match',
-          onPressed: n > 0 ? () => _searcher.goToPrevMatch() : null,
-        ),
-        IconButton(
-          icon: const Icon(Icons.keyboard_arrow_down),
-          tooltip: 'Next match',
-          onPressed: n > 0 ? () => _searcher.goToNextMatch() : null,
-        ),
-      ],
     );
   }
 }

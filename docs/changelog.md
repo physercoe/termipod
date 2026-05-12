@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.529
+> **Last verified vs code:** v1.0.530
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,34 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.530-alpha — 2026-05-12
+
+### Fixed
+
+- **PDF gray-screen on v1.0.529** — even removing the
+  `pagePaintCallbacks` line, the bare `PdfTextSearcher`
+  construction + listener wiring in the screen state grays the
+  viewport on pdfrx 2.2.24. Stripped back to v1.0.527's state:
+  TOC drawer, internal/external link tap, page badge, deferred
+  onViewerReady all stay; find-in-PDF (search UI + searcher) is
+  fully removed. **Find-in-PDF is now declared incompatible with
+  the pdfrx 2.2.24 pin** until either pdfrx upstream stabilises
+  text search in a future 2.2.x patch or we move past the
+  native-assets regression in 2.3.x.
+
+### Added
+
+- **Tappable page badge → "Go to page" dialog.** Tap the floating
+  `12 / 47` pill at the bottom of the PDF viewer to open a "Go to
+  page" dialog with a numeric `TextFormField` (validated against
+  `1 – pageCount`) plus Cancel/Go buttons. Pre-fills the current
+  page, supports keyboard "Go" action. On confirm, calls
+  `PdfViewerController.goToPage(pageNumber:)` to jump. Replaces
+  the scroll-only navigation path with a direct way to seek
+  long PDFs (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

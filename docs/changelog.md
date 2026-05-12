@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.508
+> **Last verified vs code:** v1.0.509
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,61 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.509-alpha — 2026-05-12
+
+Follow-up bug batch from the v1.0.508 tester report. Four small fixes
+on the artifact-viewer + project-header surface.
+
+### Fixed
+
+- **Artifact viewers — tap row goes straight to fullscreen, not via
+  metadata sheet** — testers reported "canvas / code-bundle viewport
+  still not full screen" because the prior tap path opened a 55%-high
+  bottom sheet, then required tapping "Open canvas" / "Open code" to
+  push the actual viewer. The two-step felt like the viewer itself was
+  constrained. Now: tap → fullscreen viewer route directly when the
+  kind has one (`pdf`, `tabular`, `image`, `code-bundle`, `audio`,
+  `video`, `canvas-app`, `metric-chart`); long-press still opens the
+  metadata sheet for uri/sha/lineage. Same dispatch is reused by
+  `showArtifactDetailSheet()` so the StructuredDeliverableViewer's
+  component-card tap follows the same fast path
+  (`lib/screens/projects/artifacts_screen.dart`).
+- **Seed PDF still rendered empty/gray** — v1.0.508 fixed the page
+  size (300×80 → US-Letter) but pdfium still produced no glyphs in
+  some builds because the Helvetica font object had no `/Encoding`
+  entry. The standard-14 fonts are nominally implicit-encoding but
+  not every pdfium build picks that up. Added explicit
+  `/Encoding/WinAnsiEncoding` to the font dict and `/ProcSet[/PDF/Text]`
+  to the page resource dict, repositioned the text so it lands near
+  the top of the visible fit-to-width window
+  (`hub/internal/server/seed_demo_lifecycle.go`).
+- **Assets tile — uploaded PDFs / markdown not previewable** — the
+  blob tile's `onTap` always launched the system share/save flow, so
+  testers couldn't verify the PDF / markdown viewer with their own
+  uploads (and `_guessMime` returned `application/octet-stream` for
+  `.pdf` regardless). Now `onTap` dispatches by mime:
+  - `application/pdf` → `ArtifactPdfViewerScreen`
+  - `image/*` → `ArtifactImageViewerScreen`
+  - `text/markdown` / `text/plain` / `application/json` /
+    `application/yaml` → new `BlobTextViewerScreen` (flutter_markdown
+    for `text/markdown`, monospace `SelectableText` otherwise)
+  - Anything else → falls back to the download/share flow
+  
+  Added `pdf → application/pdf` to `_guessMime` so the upload itself
+  records the right mime
+  (`lib/screens/projects/blobs_section.dart`).
+- **Project detail header — dropped Project/Workspace kind chip; phase
+  badge regained N/M counter** — testers wanted more horizontal space
+  for the phase badge in the AppBar title row, and missed the
+  at-a-glance progress info that dense mode had stripped. Removed
+  `ProjectKindChip` from the title row (kind is still surfaced by the
+  side-tab and template chip elsewhere); added the position counter
+  back into dense `PhaseBadge` (compact form: `Method 3/5` instead of
+  `Method · 3/5 ›` — chevron stays hidden in dense mode since the
+  whole pill is the tap target)
+  (`lib/screens/projects/project_detail_screen.dart`,
+  `lib/widgets/phase_badge.dart`).
 
 ## v1.0.508-alpha — 2026-05-12
 

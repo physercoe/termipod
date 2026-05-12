@@ -177,8 +177,6 @@ class _ProjectDetailScreenState extends ConsumerState<ProjectDetailScreen> {
                     fontSize: 18, fontWeight: FontWeight.w700),
               ),
             ),
-            const SizedBox(width: 8),
-            ProjectKindChip(kind: kind),
             if (_phases.isNotEmpty) ...[
               const SizedBox(width: 8),
               Flexible(
@@ -1470,44 +1468,6 @@ class _AttentionBanner extends StatelessWidget {
             const Icon(Icons.chevron_right,
                 size: 18, color: DesignColors.warning),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class ProjectKindChip extends StatelessWidget {
-  final String kind;
-  const ProjectKindChip({required this.kind});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final color = switch (kind) {
-      'goal' => DesignColors.terminalCyan,
-      'standing' => DesignColors.warning,
-      _ => DesignColors.textMuted,
-    };
-    // Schema `kind` stays goal/standing; UI surfaces Project/Workspace
-    // per IA §6.2 since the mental models differ.
-    final label = switch (kind) {
-      'goal' => l10n.kindProject,
-      'standing' => l10n.kindWorkspace,
-      _ => kind,
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.5)),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.jetBrainsMono(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: color,
         ),
       ),
     );

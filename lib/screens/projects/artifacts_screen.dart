@@ -367,8 +367,76 @@ class _ArtifactRow extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
       ),
-      onTap: () => _showDetail(context, row),
+      onTap: () {
+        // Tap → viewer when the kind has one (so testers don't have to
+        // open the metadata sheet first, hunt for "Open X", and only
+        // then see the content). Long-press still gates the sheet so
+        // the metadata view stays reachable (v1.0.509).
+        final route = _routeForArtifact(row);
+        if (route != null) {
+          Navigator.of(context).push(route);
+        } else {
+          _showMetadataSheet(context, row);
+        }
+      },
+      onLongPress: () => _showMetadataSheet(context, row),
     );
+  }
+}
+
+/// Returns the fullscreen viewer route for an artifact row when the kind
+/// is one we render in-app; otherwise null so the caller falls back to
+/// the detail sheet. Mirrors the dispatch in `_ArtifactViewerLauncher`
+/// — when adding a new viewer kind, update both sites.
+Route<void>? _routeForArtifact(Map<String, dynamic> row) {
+  final uri = (row['uri'] ?? '').toString();
+  if (uri.isEmpty) return null;
+  final rawKind = (row['kind'] ?? '').toString();
+  final spec = artifactKindSpecFor(rawKind);
+  final name = (row['name'] ?? '(unnamed)').toString();
+  final mime = (row['mime'] ?? '').toString();
+  switch (spec.kind) {
+    case ArtifactKind.pdf:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactPdfViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.tabular:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactTabularViewerScreen(
+          uri: uri,
+          title: name,
+          mime: mime.isEmpty ? null : mime,
+        ),
+      );
+    case ArtifactKind.image:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactImageViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.codeBundle:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactCodeBundleViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.audio:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactAudioViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.video:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactVideoViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.canvasApp:
+      return MaterialPageRoute<void>(
+        builder: (_) => ArtifactCanvasViewerScreen(uri: uri, title: name),
+      );
+    case ArtifactKind.metricChart:
+      return MaterialPageRoute<void>(
+        builder: (_) =>
+            ArtifactMetricChartViewerScreen(uri: uri, title: name),
+      );
+    // Kinds without an in-app viewer fall back to the metadata sheet.
+    // ignore: no_default_cases
+    default:
+      return null;
   }
 }
 
@@ -412,24 +480,38 @@ class ArtifactKindChip extends StatelessWidget {
   }
 }
 
-void _showDetail(BuildContext context, Map<String, dynamic> row) {
-  showArtifactDetailSheet(context, row);
-}
-
-/// Public entry point for showing the artifact detail bottom sheet
-/// from outside the artifacts screen (e.g. the W5b deliverable
-/// viewer's component card). Caller hands in a fully-loaded artifact
-/// row (`/v1/teams/{team}/artifacts/{id}` shape).
-void showArtifactDetailSheet(BuildContext context, Map<String, dynamic> row) {
+/// Always shows the metadata bottom sheet (no viewer dispatch). Used by
+/// the row long-press affordance so testers can still see the
+/// uri/sha/lineage fields even when a tap goes straight to the viewer.
+void _showMetadataSheet(BuildContext context, Map<String, dynamic> row) {
   showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    // useRootNavigator: true so the "Open …" launcher buttons inside the
-    // sheet push their fullscreen viewer routes onto the top-level
-    // Navigator — without it, the viewer can land on a nested navigator
-    // (e.g. when invoked from `StructuredDeliverableViewer`) and render
-    // as a constrained sub-screen instead of fullscreen (v1.0.508).
+    useRootNavigator: true,
+    builder: (_) => _ArtifactDetailSheet(row: row),
+  );
+}
+
+/// Public entry point for opening an artifact from outside the
+/// artifacts screen (e.g. the W5b deliverable viewer's component card).
+/// Caller hands in a fully-loaded artifact row
+/// (`/v1/teams/{team}/artifacts/{id}` shape).
+///
+/// Routes directly to the kind-specific fullscreen viewer when one
+/// exists (v1.0.509 — the prior sheet+launcher two-step felt like the
+/// viewer wasn't fullscreen). Falls back to the metadata sheet for
+/// kinds without an in-app viewer.
+void showArtifactDetailSheet(BuildContext context, Map<String, dynamic> row) {
+  final route = _routeForArtifact(row);
+  if (route != null) {
+    Navigator.of(context, rootNavigator: true).push(route);
+    return;
+  }
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
     useRootNavigator: true,
     builder: (_) => _ArtifactDetailSheet(row: row),
   );

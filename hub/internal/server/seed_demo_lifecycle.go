@@ -2168,16 +2168,19 @@ func seedMetricChartArtifact(
 	return seededArtifact{id: id, name: name}, nil
 }
 
-// buildDemoPdfBytes returns a small, syntactically-valid PDF (~700
+// buildDemoPdfBytes returns a small, syntactically-valid PDF (~800
 // bytes) sized at US-Letter (612x792 pt) whose single page reads
 // "Lifecycle demo PDF" centered with a couple of subtitle lines. Used
 // by the lifecycle seed so testers can exercise the wave 2 W2 pdfrx
 // viewer without uploading a real document.
 //
-// The earlier 300x80 MediaBox rendered as a tiny strip when pdfrx
-// scaled-to-fit on a phone — testers reported a "totally empty / gray"
-// page (v1.0.507). A full-letter page gives pdfrx room to render the
-// text at a readable scale at the default zoom.
+// Two iterations of "the page is totally empty / gray" from testers:
+//   - v1.0.507: 300x80 MediaBox rendered as a tiny scaled strip
+//   - v1.0.508: 612x792 page rendered but pdfium produced no glyphs
+//     because the Helvetica font had no /Encoding entry (the standard
+//     14 fonts are technically implicit-encoding but some pdfium builds
+//     drop them on the floor). Fixed v1.0.509 by adding explicit
+//     /Encoding/WinAnsiEncoding and a /ProcSet on the page.
 //
 // Built at runtime via fmt.Sprintf so the xref offsets stay accurate
 // without hand-counting.
@@ -2194,15 +2197,18 @@ func buildDemoPdfBytes() []byte {
 	o3 := write(
 		"3 0 obj <</Type/Page/Parent 2 0 R" +
 			"/MediaBox[0 0 612 792]" +
-			"/Resources<</Font<</F1 4 0 R>>>>" +
+			"/Resources<</Font<</F1 4 0 R>>/ProcSet[/PDF/Text]>>" +
 			"/Contents 5 0 R>> endobj\n")
 	o4 := write(
-		"4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica>> endobj\n")
+		"4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica" +
+			"/Encoding/WinAnsiEncoding>> endobj\n")
 	// Content stream: title + subtitle + footer. Coordinates are PDF
-	// user-space (origin at bottom-left of MediaBox).
-	const content = "BT /F1 32 Tf 100 600 Td (Lifecycle demo PDF) Tj ET\n" +
-		"BT /F1 14 Tf 100 560 Td (Synthetic seed artifact for the wave 2 viewer) Tj ET\n" +
-		"BT /F1 12 Tf 100 100 Td (termipod lifecycle demo) Tj ET"
+	// user-space (origin at bottom-left of MediaBox). Title sits near
+	// the top of the visible area when pdfrx fits-to-width on a phone.
+	const content = "BT /F1 28 Tf 80 700 Td (Lifecycle demo PDF) Tj ET\n" +
+		"BT /F1 14 Tf 80 660 Td (Synthetic seed artifact for the wave 2 viewer) Tj ET\n" +
+		"BT /F1 12 Tf 80 620 Td (Tap to verify the PDF renderer works.) Tj ET\n" +
+		"BT /F1 11 Tf 80 80 Td (termipod lifecycle demo) Tj ET"
 	o5 := write(fmt.Sprintf(
 		"5 0 obj <</Length %d>>\nstream\n%s\nendstream\nendobj\n",
 		len(content), content))

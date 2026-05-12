@@ -20,10 +20,12 @@ class PhaseBadge extends StatelessWidget {
   /// badge itself never dispatches — the badge tap just opens the
   /// sheet, the sheet's phase chips dispatch.
   final ValueChanged<String>? onTap;
-  /// Dense layout: drop the outer padding + Align, shrink the pill, and
-  /// hide the `N/M` position counter + chevron so the badge fits next
-  /// to the project name in the AppBar title row (v1.0.508). Default
-  /// `false` keeps the original body-Column geometry.
+  /// Dense layout: drop the outer padding + Align and shrink the pill
+  /// so the badge fits next to the project name in the AppBar title
+  /// row (v1.0.508). Position counter (`N/M`) stays — testers wanted
+  /// the at-a-glance progress info; only the chevron is dropped (the
+  /// pill is the tap target on its own). Default `false` keeps the
+  /// original body-Column geometry.
   final bool dense;
 
   const PhaseBadge({
@@ -70,12 +72,12 @@ class PhaseBadge extends StatelessWidget {
                 color: pillFg,
               ),
             ),
-            if (!dense && position != null) ...[
-              const SizedBox(width: 6),
+            if (position != null) ...[
+              SizedBox(width: dense ? 4 : 6),
               Text(
-                '· $position',
+                dense ? position : '· $position',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
+                  fontSize: dense ? 10 : 11,
                   fontWeight: FontWeight.w500,
                   color: DesignColors.textMuted,
                 ),

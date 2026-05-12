@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +12,8 @@ import 'package:share_plus/share_plus.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/blob_cache.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/artifact_viewers/image_viewer.dart';
+import '../../widgets/artifact_viewers/pdf_viewer.dart';
 
 /// Blobs section inside ProjectDetail's PageView. Blobs are content-addressed
 /// and team-global — the records shown here are a device-local cache of
@@ -42,6 +46,49 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
       _records = rows;
       _loading = false;
     });
+  }
+
+  /// Routes a blob row to its mime-appropriate viewer. PDFs go to the
+  /// shared `ArtifactPdfViewerScreen`; markdown + plain text get a small
+  /// inline reader; images go to the image viewer. Anything else falls
+  /// back to the system share/save flow via [_download] (v1.0.509 — the
+  /// tile previously always called `_download`, so testers couldn't
+  /// preview the assets they uploaded).
+  Future<void> _preview(BlobRecord rec) async {
+    final mime = rec.mime;
+    final blobUri = 'blob:sha256/${rec.sha}';
+    if (mime == 'application/pdf') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ArtifactPdfViewerScreen(uri: blobUri, title: rec.name),
+        ),
+      );
+      return;
+    }
+    if (mime.startsWith('image/')) {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              ArtifactImageViewerScreen(uri: blobUri, title: rec.name),
+        ),
+      );
+      return;
+    }
+    if (mime == 'text/markdown' ||
+        mime == 'text/plain' ||
+        mime == 'application/json' ||
+        mime == 'application/yaml') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              BlobTextViewerScreen(sha: rec.sha, mime: mime, name: rec.name),
+        ),
+      );
+      return;
+    }
+    // Fall-through: not a previewable mime — preserve the legacy
+    // download/share path so the row stays useful.
+    await _download(rec);
   }
 
   Future<void> _download(BlobRecord rec) async {
@@ -146,7 +193,7 @@ class _BlobsSectionState extends ConsumerState<BlobsSection> {
                   separatorBuilder: (_, __) => const SizedBox(height: 4),
                   itemBuilder: (_, i) => _BlobTile(
                     rec: _records[i],
-                    onTap: () => _download(_records[i]),
+                    onTap: () => _preview(_records[i]),
                     onLongPress: () => _confirmRemove(_records[i]),
                     onDownload: () => _download(_records[i]),
                   ),
@@ -257,8 +304,9 @@ class _AssetsGuidance extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Screenshots, audio, reference media from channels. '
-                  'For things an agent must read by path (code, datasets), use Files.',
+                  'Screenshots, audio, PDFs, notes. Tap a row to preview '
+                  '(PDF / markdown / text / images), or use the download '
+                  'button to share. For files an agent reads by path, use Files.',
                   style: GoogleFonts.spaceGrotesk(fontSize: 11, color: muted),
                 ),
               ],
@@ -314,6 +362,110 @@ class _BlobTile extends StatelessWidget {
   }
 }
 
+/// Fullscreen reader for text-shaped blobs (markdown, plain text,
+/// JSON, YAML). Decoded as UTF-8; markdown renders via flutter_markdown,
+/// everything else falls back to a monospace `SelectableText` so the
+/// raw content stays copyable. Keeps the assets surface useful for the
+/// notes/configs testers upload to verify behavior without needing the
+/// full DocViewerScreen (which is wired to `getProjectDoc`, not blobs).
+class BlobTextViewerScreen extends ConsumerStatefulWidget {
+  final String sha;
+  final String mime;
+  final String name;
+  const BlobTextViewerScreen({
+    super.key,
+    required this.sha,
+    required this.mime,
+    required this.name,
+  });
+
+  @override
+  ConsumerState<BlobTextViewerScreen> createState() =>
+      _BlobTextViewerScreenState();
+}
+
+class _BlobTextViewerScreenState extends ConsumerState<BlobTextViewerScreen> {
+  bool _loading = true;
+  String _content = '';
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) {
+      setState(() {
+        _loading = false;
+        _error = 'hub not connected';
+      });
+      return;
+    }
+    try {
+      final bytes = await client.downloadBlobCached(widget.sha);
+      if (!mounted) return;
+      setState(() {
+        _content = utf8.decode(bytes, allowMalformed: true);
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          widget.name,
+          style: GoogleFonts.spaceGrotesk(
+              fontSize: 14, fontWeight: FontWeight.w700),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    _error!,
+                    style: GoogleFonts.jetBrainsMono(
+                      color: DesignColors.error,
+                      fontSize: 12,
+                    ),
+                  ),
+                )
+              : _body(),
+    );
+  }
+
+  Widget _body() {
+    if (widget.mime == 'text/markdown') {
+      return Markdown(
+        data: _content,
+        padding: const EdgeInsets.all(16),
+        selectable: true,
+      );
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        _content,
+        style: GoogleFonts.jetBrainsMono(fontSize: 12, height: 1.4),
+      ),
+    );
+  }
+}
+
 /// Maps common file extensions onto MIME types. Reused verbatim by the
 /// chat composer attachment flow — keep the two in sync if the table
 /// grows. Unknown extensions fall through to `application/octet-stream`.
@@ -327,5 +479,6 @@ String _guessMime(String? ext) {
   if (e == 'txt') return 'text/plain';
   if (e == 'json') return 'application/json';
   if (e == 'yaml' || e == 'yml') return 'application/yaml';
+  if (e == 'pdf') return 'application/pdf';
   return 'application/octet-stream';
 }

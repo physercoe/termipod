@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.533
+> **Last verified vs code:** v1.0.534
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,39 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.534-alpha — 2026-05-12
+
+### Added
+
+- **Voice input W3/W4 — settings screen + session orchestrator.**
+  Settings → "Voice input" tile (in the Behavior section) opens the
+  new `VoiceSettingsScreen`
+  (`lib/screens/settings/voice_settings_screen.dart`): master enable
+  toggle, auto-send-puck toggle, DashScope API key entry (obscured
+  TextField → `flutter_secure_storage`), region picker (Beijing /
+  Singapore / US), model picker (Fun-ASR realtime / Paraformer
+  realtime v2). The API key tile shows "Stored securely • tap to
+  replace" when set with a trash-icon clear action; "Not set" with
+  warning tint when empty.
+- **`VoiceRecordingSession` orchestrator**
+  (`lib/services/voice/voice_recording_session.dart`) combines the
+  W1 `RecordingController` and the W2 `CloudStt` client into a
+  single session abstraction. Owns the partial→final accumulation
+  policy: each partial replaces the in-progress sentence, each
+  final appends with a single trailing space, next partial begins
+  a new sentence. Emits tagged `VoiceSessionEvent`s
+  (`transcriptUpdated` / `completed` / `cancelled` /
+  `maxDurationReached` / `error`) that UI surfaces subscribe to.
+  60-second max-duration timer auto-stops the session; cancel
+  discards the partial, stop commits via the ASR's finish-task
+  flow. 9 unit-test cases cover language-hint forwarding, partial
+  + final accumulation, stop vs cancel divergence, completed
+  event, permission-denied propagation, and the max-duration
+  timer firing stop. No mic UI surface yet — Mode B mic button +
+  Mode A puck land in v1.0.535+.
 
 ---
 

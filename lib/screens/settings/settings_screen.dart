@@ -29,6 +29,7 @@ import '../../widgets/dialogs/theme_dialog.dart';
 import '../../services/update_service.dart';
 import '../../services/version_info.dart';
 import 'licenses_screen.dart';
+import 'voice_settings_screen.dart';
 
 /// 設定画面
 class SettingsScreen extends ConsumerWidget {
@@ -397,6 +398,21 @@ class SettingsScreen extends ConsumerWidget {
                   value: settings.invertPaneNavigation,
                   onChanged: (value) {
                     ref.read(settingsProvider.notifier).setInvertPaneNavigation(value);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.mic_outlined),
+                  title: const Text('Voice input'),
+                  subtitle: const Text(
+                    'DashScope ASR — dictate to the steward',
+                  ),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const VoiceSettingsScreen(),
+                      ),
+                    );
                   },
                 ),
                 const Divider(),

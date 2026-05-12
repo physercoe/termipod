@@ -458,9 +458,8 @@ SnackBar and no send.
 ### Known limitations of voice in v1.0.536
 
 - **No soundwave strip** in the HUD — just the pulse + timer +
-  transcript line. The plan's RMS-based bar visualisation
-  (`feedback_audio_rms_soundwave.md`-style) is deferred to
-  v1.0.537+ polish.
+  transcript line. The plan's RMS-based bar visualisation is
+  deferred to v1.0.537+ polish.
 - **Auto-send-off review path** is a SnackBar stub, not a
   first-class pre-fill of the chat input field. See Step 4
   above.

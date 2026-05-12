@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pdfrx/pdfrx.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
@@ -47,12 +46,6 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
   Uint8List? _bytes;
   String? _error;
   bool _loading = true;
-  // Current/total page state for the floating "N / M" badge in
-  // viewerOverlayBuilder. Populated from PdfViewerParams callbacks
-  // — defensive defaults (1 / 0) hide the badge until pdfrx reports
-  // a real document.
-  int _currentPage = 1;
-  int _pageCount = 0;
 
   @override
   void initState() {
@@ -111,7 +104,6 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
     // viewport so a transparent page-fill in a minimal PDF doesn't
     // blend into the Scaffold's gray.
     final searcher = widget.searcher;
-    final controller = widget.controller;
     final paintCallbacks = searcher != null
         ? <PdfViewerPagePaintCallback>[searcher.pageTextMatchPaintCallback]
         : null;
@@ -120,96 +112,14 @@ class _ArtifactPdfViewerState extends ConsumerState<ArtifactPdfViewer> {
       child: PdfViewer.data(
         bytes,
         sourceName: widget.title ?? widget.uri,
-        controller: controller,
+        controller: widget.controller,
         params: PdfViewerParams(
           backgroundColor: Colors.white,
           pagePaintCallbacks: paintCallbacks,
-          // Tappable links — academic PDFs are full of citation
-          // refs (internal page-dests) and external URLs. Routes
-          // each to the right action: in-doc nav vs system browser.
-          linkHandlerParams: PdfLinkHandlerParams(
-            onLinkTap: (link) async {
-              if (link.url != null) {
-                await launchUrl(link.url!,
-                    mode: LaunchMode.externalApplication);
-              } else if (link.dest != null && controller != null) {
-                await controller.goToDest(link.dest);
-              }
-            },
-          ),
-          onViewerReady: (document, ctrl) async {
+          onViewerReady: (document, controller) async {
             final outline = await document.loadOutline();
             widget.onOutlineLoaded?.call(outline);
-            if (!mounted) return;
-            setState(() => _pageCount = document.pages.length);
           },
-          onPageChanged: (page) {
-            if (!mounted) return;
-            setState(() => _currentPage = page ?? 1);
-          },
-          // viewerOverlayBuilder stacks on top of the page grid.
-          // Three layers, top-to-bottom of the Stack pdfrx wraps
-          // around them:
-          //   1. GestureDetector wrapping the full viewport for
-          //      double-tap zoom; forwards single-tap to
-          //      handleLinkTap so the link handler still fires.
-          //   2. Right-edge scroll thumb (visible only while
-          //      scrolling) for orientation on long PDFs.
-          //   3. Bottom "N / M" page badge (hidden for 1-page
-          //      docs since it's just visual noise).
-          viewerOverlayBuilder: controller == null
-              ? null
-              : (context, size, handleLinkTap) => [
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onDoubleTap: () => controller.zoomUp(loop: true),
-                      onTapUp: (details) =>
-                          handleLinkTap(details.localPosition),
-                      child: IgnorePointer(
-                        child: SizedBox(
-                            width: size.width, height: size.height),
-                      ),
-                    ),
-                    PdfViewerScrollThumb(
-                      controller: controller,
-                      orientation: ScrollbarOrientation.right,
-                      thumbSize: const Size(6, 60),
-                      thumbBuilder:
-                          (context, thumbSize, pageNumber, controller) =>
-                              DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: DesignColors.primary.withOpacity(0.45),
-                          borderRadius: BorderRadius.circular(3),
-                        ),
-                      ),
-                    ),
-                    if (_pageCount > 1)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 8,
-                        child: IgnorePointer(
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.55),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                '$_currentPage / $_pageCount',
-                                style: GoogleFonts.jetBrainsMono(
-                                  fontSize: 10.5,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
         ),
       ),
     );

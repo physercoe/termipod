@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.519
+> **Last verified vs code:** v1.0.518
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,34 +20,6 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
-
----
-
-## v1.0.519-alpha — 2026-05-12
-
-### Added
-
-- **Tappable links inside PDFs** — academic PDFs with citation
-  refs (internal page destinations) and external URLs become
-  interactive. Internal refs jump via
-  `PdfViewerController.goToDest`; external URLs open in the
-  system browser via `launchUrl(LaunchMode.externalApplication)`.
-- **Floating page-number badge** — small `12 / 47` pill anchored
-  at the bottom centre of the viewer, semi-transparent black,
-  monospace. Hidden for single-page PDFs so it doesn't clutter
-  short docs. Updates via `PdfViewerParams.onPageChanged`.
-- **Right-edge scroll thumb** — a slim 6 dp wide brand-cyan
-  scrollbar visible while scrolling long PDFs, helps orient when
-  the user is mid-doc. Uses `PdfViewerScrollThumb` from pdfrx.
-- **Double-tap to zoom** — double-tap anywhere on a page to
-  toggle through zoom levels via `controller.zoomUp(loop: true)`.
-  Single-tap still routes to the link handler so tappable links
-  remain clickable.
-
-All four features layer in a single `viewerOverlayBuilder` (zoom
-gesture + scroll thumb + page badge) plus `linkHandlerParams` for
-links. ~90 LOC; no FFI work — high-level pdfrx 2.2.24 APIs
-throughout (`lib/widgets/artifact_viewers/pdf_viewer.dart`).
 
 ---
 

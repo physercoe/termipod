@@ -475,7 +475,10 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       // snackbar via `_dispatchIntentLive`.
       final msg = _eventToMessage(evt);
       if (msg != null) _appendMessage(msg);
-      _dispatchIntentLive(evt);
+      // Fire-and-forget — dispatch is async because it may need to
+      // refresh the hub snapshot when a steward-created entity hasn't
+      // landed in our cache yet. We don't block the SSE handler on it.
+      unawaited(_dispatchIntentLive(evt));
       return;
     }
     final msg = _eventToMessage(evt);
@@ -657,7 +660,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
   /// about the UI dispatch that happens AS the intent fires. On
   /// replay (cold-open backfill) this method is never called; on
   /// live SSE it runs alongside the message append.
-  void _dispatchIntentLive(Map<String, dynamic> evt) {
+  Future<void> _dispatchIntentLive(Map<String, dynamic> evt) async {
     final uriStr = (evt['uri'] ?? '').toString();
     if (uriStr.isEmpty) return;
     final uri = Uri.tryParse(uriStr);
@@ -681,12 +684,20 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       return;
     }
     final hub = ref.read(hubProvider).value;
-    final result = navigateToUri(
+    final result = await navigateToUri(
       ctx,
       uri,
       hub: hub,
       setTab: (index) =>
           ref.read(currentTabProvider.notifier).setTab(index),
+      // Refresh-then-retry path for entity URIs (project/agent). The
+      // steward emits `mobile.intent` immediately after creating the
+      // entity, so the very first navigate often races our snapshot —
+      // a single refresh closes that race without a Dart-side wait.
+      refreshHub: () async {
+        await ref.read(hubProvider.notifier).refreshAll();
+        return ref.read(hubProvider).value;
+      },
     );
     if (!result.ok) {
       _appendMessage(OverlayChatMessage(

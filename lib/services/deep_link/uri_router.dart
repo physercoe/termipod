@@ -54,12 +54,22 @@ class NavigateResult {
 /// callback keep this function ref-agnostic — works from both
 /// `WidgetRef` (ConsumerWidget) and `Ref` (Notifier) callers
 /// without coupling to either type.
-NavigateResult navigateToUri(
+///
+/// `refreshHub` (optional) lets the router recover from a missing
+/// project / session / agent in the local cache by re-fetching the hub
+/// snapshot and retrying the lookup once. This matters most for the
+/// **steward-created-then-navigated** flow: the steward MCP tool that
+/// creates an entity returns immediately and emits a `mobile.intent`
+/// for the new id, but the mobile client's local snapshot hasn't
+/// observed the create yet. Without a refresh-retry path the very
+/// first navigate after creation always fails.
+Future<NavigateResult> navigateToUri(
   BuildContext context,
   Uri uri, {
   required HubState? hub,
   required void Function(int index) setTab,
-}) {
+  Future<HubState?> Function()? refreshHub,
+}) async {
   if (uri.scheme != 'termipod' && uri.scheme != 'muxpod') {
     return NavigateResult.unknown;
   }
@@ -91,7 +101,8 @@ NavigateResult navigateToUri(
       // termipod://project/<id>[/...]
       if (segments.isEmpty) return NavigateResult.unknown;
       final projectId = segments[0];
-      return _openProject(context, projectId, hub: hub, setTab: setTab);
+      return _openProject(context, projectId,
+          hub: hub, setTab: setTab, refreshHub: refreshHub);
 
     case 'session':
       if (segments.isEmpty) return NavigateResult.unknown;
@@ -101,7 +112,8 @@ NavigateResult navigateToUri(
     case 'agent':
       if (segments.isEmpty) return NavigateResult.unknown;
       final agentId = segments[0];
-      return _openAgent(context, agentId, hub: hub);
+      return _openAgent(context, agentId,
+          hub: hub, refreshHub: refreshHub);
 
     case 'insights':
       return _openInsights(context, qp, hub: hub);
@@ -109,21 +121,36 @@ NavigateResult navigateToUri(
   return NavigateResult.unknown;
 }
 
-NavigateResult _openProject(
+/// Lookup a record by `id` in a list of map snapshots; empty map on
+/// miss. Pulled out as a helper because every entity dispatch follows
+/// the same shape and we now retry-after-refresh.
+Map<String, dynamic> _findById(
+  List<Map<String, dynamic>>? list, String id) {
+  if (list == null) return const <String, dynamic>{};
+  return list.firstWhere(
+    (e) => (e['id'] ?? '').toString() == id,
+    orElse: () => const <String, dynamic>{},
+  );
+}
+
+Future<NavigateResult> _openProject(
   BuildContext context,
   String projectId, {
   required HubState? hub,
   required void Function(int index) setTab,
-}) {
-  if (hub == null) return NavigateResult.unknown;
+  Future<HubState?> Function()? refreshHub,
+}) async {
   // Find the project record so ProjectDetailScreen has the data it
-  // needs. If not loaded, surface an unknown — the caller can show
-  // a "project not found in cache" toast.
-  final match = hub.projects.firstWhere(
-    (p) => (p['id'] ?? '').toString() == projectId,
-    orElse: () => const <String, dynamic>{},
-  );
+  // needs. Steward-created projects often miss on the first lookup
+  // because mobile's snapshot hasn't observed the create yet — try
+  // a refresh once before giving up.
+  var match = _findById(hub?.projects, projectId);
+  if (match.isEmpty && refreshHub != null) {
+    final fresh = await refreshHub();
+    match = _findById(fresh?.projects, projectId);
+  }
   if (match.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
   // Switch to Projects tab so the back stack reads naturally:
   // Projects tab → Project detail.
   setTab(0);
@@ -136,11 +163,11 @@ NavigateResult _openProject(
   return NavigateResult(true, 'Project: ${name.isEmpty ? projectId : name}');
 }
 
-NavigateResult _openSession(
+Future<NavigateResult> _openSession(
   BuildContext context,
   String sessionId, {
   required HubState? hub,
-}) {
+}) async {
   if (hub == null) return NavigateResult.unknown;
   // Sessions live in sessionsProvider, but the chat ctor only
   // requires the ids + a title. For the prototype we accept "" as
@@ -158,27 +185,29 @@ NavigateResult _openSession(
   return const NavigateResult(true, 'Session');
 }
 
-NavigateResult _openAgent(
+Future<NavigateResult> _openAgent(
   BuildContext context,
   String agentId, {
   required HubState? hub,
-}) {
-  if (hub == null) return NavigateResult.unknown;
-  final agent = hub.agents.firstWhere(
-    (a) => (a['id'] ?? '').toString() == agentId,
-    orElse: () => const <String, dynamic>{},
-  );
+  Future<HubState?> Function()? refreshHub,
+}) async {
+  var agent = _findById(hub?.agents, agentId);
+  if (agent.isEmpty && refreshHub != null) {
+    final fresh = await refreshHub();
+    agent = _findById(fresh?.agents, agentId);
+  }
   if (agent.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
   openAgentDetail(context, agent);
   final handle = (agent['handle'] ?? '').toString();
   return NavigateResult(true, 'Agent: ${handle.isEmpty ? agentId : handle}');
 }
 
-NavigateResult _openInsights(
+Future<NavigateResult> _openInsights(
   BuildContext context,
   Map<String, String> qp, {
   required HubState? hub,
-}) {
+}) async {
   final teamId = hub?.config?.teamId ?? '';
   // Default scope: team_stewards if no scope param (matches the
   // common "show me steward insights" intent shape).

@@ -408,18 +408,24 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
   }
 
   /// Positions the recording HUD relative to the puck, flipping above
-  /// or below depending on which side has more room.
+  /// or below depending on which side has more room. The v1.0.540 HUD
+  /// is bigger (~340 × 175) so the placement offsets accommodate it.
   Widget _positionedRecordingHud(Size screen) {
     final puck = _puckOffset ?? Offset.zero;
-    const hudWidth = 280.0;
+    const hudWidth = 340.0;
+    const hudHeight = 175.0;
     const hudGap = 12.0;
-    final placeAbove = puck.dy > 140;
-    final hudTop = placeAbove ? puck.dy - 110 : puck.dy + _puckSize + hudGap;
+    final placeAbove = puck.dy > hudHeight + 24;
+    final hudTop = placeAbove
+        ? (puck.dy - hudHeight - hudGap)
+        : (puck.dy + _puckSize + hudGap);
     var hudLeft = puck.dx + _puckSize / 2 - hudWidth / 2;
-    hudLeft = hudLeft.clamp(8.0, (screen.width - hudWidth - 8).clamp(8.0, double.infinity));
+    hudLeft = hudLeft.clamp(
+        8.0, (screen.width - hudWidth - 8).clamp(8.0, double.infinity));
     return Positioned(
       left: hudLeft,
-      top: hudTop.clamp(8.0, screen.height - 110),
+      top: hudTop.clamp(
+          8.0, (screen.height - hudHeight - 8).clamp(8.0, double.infinity)),
       child: IgnorePointer(
         // Don't let the HUD intercept the puck long-press gesture.
         child: VoiceRecordingHud(

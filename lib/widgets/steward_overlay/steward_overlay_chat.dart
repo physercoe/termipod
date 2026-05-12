@@ -1298,12 +1298,16 @@ class _IntentPill extends ConsumerWidget {
     final uri = Uri.tryParse(action.uri);
     if (uri == null) return;
     final hub = ref.read(hubProvider).value;
-    navigateToUri(
+    unawaited(navigateToUri(
       context,
       uri,
       hub: hub,
       setTab: (i) => ref.read(currentTabProvider.notifier).setTab(i),
-    );
+      refreshHub: () async {
+        await ref.read(hubProvider.notifier).refreshAll();
+        return ref.read(hubProvider).value;
+      },
+    ));
   }
 }
 

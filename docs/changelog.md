@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-12)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.539
+> **Last verified vs code:** v1.0.540
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,43 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.540-alpha — 2026-05-12
+
+### Fixed
+
+- **`termipod://project/<id>` failed for steward-created projects.**
+  When the steward MCP `create_project` tool returned and the steward
+  immediately emitted a `mobile.intent` to navigate to the new
+  project, the mobile client's hub snapshot hadn't yet observed the
+  create — the router's local-cache lookup missed and surfaced "could
+  not navigate." The router now accepts an optional `refreshHub`
+  callback; on a project/agent cache miss it refreshes the hub once
+  and retries the lookup before failing. Live SSE caller wires the
+  callback through; tap-to-refire on past intent pills does too.
+  `navigateToUri` is now `Future<NavigateResult>`; the call sites
+  in `steward_overlay_controller._dispatchIntentLive` and
+  `_IntentPill._refire` use `unawaited` so the SSE handler and tap
+  callback stay non-blocking.
+
+### Changed
+
+- **Mode A recording HUD redesigned for prominence.** Tester
+  feedback was that the v1.0.536 HUD (280-px pill, small red dot,
+  13-pt text) read as a passive tooltip, not "you are LIVE on the
+  mic." New shape (340 × 175):
+  - Red header bar with `RECORDING` label, pulsing dot, and an
+    outward-rippling ring.
+  - 32-pt monospace mm:ss timer flanked by three staggered animated
+    "audio level" bars (not real RMS amplitude — RMS strip is still
+    deferred polish — but the staggered motion sells "live" without
+    a per-frame amplitude pipeline).
+  - 15-pt transcript area (3 lines).
+  - Footer split: "Release to send" on the left, "Drag away to
+    cancel" on the right so the cancel affordance is unmissable.
+  Positioning helper in `steward_overlay.dart` widened to match.
 
 ---
 

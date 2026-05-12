@@ -1,5 +1,10 @@
 import 'cloud_stt.dart';
 
+// Re-export the enums so callers that only import voice_settings.dart
+// can reference DashScopeRegion / DashScopeAsrModel without a second
+// import.
+export 'cloud_stt.dart' show DashScopeRegion, DashScopeAsrModel;
+
 /// Immutable voice-input configuration surfaced to the UI. The API key
 /// itself is **not** carried on this object — it lives in
 /// flutter_secure_storage and is read on-demand. [hasApiKey] is the

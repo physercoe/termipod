@@ -155,13 +155,18 @@ Role set (MVP has only **Director**; the rest are reserved slots):
   no `users`/`team_members` table yet). The intended future shape is
   one steward per *member*, acting as that member's deputy with their
   own preferences, memory, and budget envelope — see §11 follow-up.
-- **Worker** — an IC agent spawned by a steward (or another worker)
+- **Worker** — an IC agent spawned by a steward
   for bounded specific work. Renders in the mobile UI as a *code
   surface* (branch + diff + file count + tests) rather than a
   *decision surface*. Lives in `agents` like a steward but with
   different tool allowlist, different transcript styling, different
-  distillation outcome. See `agent-lifecycle.md` §4.9 for the full
-  manager-vs-IC table.
+  distillation outcome. **Project-scoped** ([ADR-025](../decisions/025-project-steward-accountability.md)
+  D1): every worker carries `project_id` and may only be spawned by
+  that project's steward; sessioned (D5) so the steward↔worker
+  conversation is observable from the mobile session viewer. Worker
+  sessions appear in the project's Agents tab, not the team-level
+  Sessions list (which is reserved for steward sessions). See
+  `agent-lifecycle.md` §4.9 for the full manager-vs-IC table.
 - **Reviewer** — consulted on specific documents or decisions. Has a
   scoped inbox: reviews assigned to them, not the whole team's.
 - **Member** — participates in a team; can propose, comment, execute.

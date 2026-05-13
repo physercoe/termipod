@@ -875,26 +875,38 @@ class _ChatInputState extends State<_ChatInput> {
       maxLines: 4,
       keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
-      // **v1.0.551 fix for the recurring deleted-text-returning bug.**
-      // The previous theory was rebuild-path / widget-identity / panel-
-      // position; turned out all of those were red herrings. The real
-      // mechanism is Gboard's *per-field personalized learning*: when
-      // the user types "hello", Gboard records it in its in-app
-      // predictive cache; when they delete and start a new word with
-      // the same prefix, Gboard offers the previously-typed word back
-      // as a high-confidence completion (visible as "deleted text
-      // returning"). Session transcript's `agent_compose` doesn't
-      // surface the bug as visibly because of layout differences, but
-      // Gboard's behavior is the same in both places.
+      // **v1.0.552 — full belt-of-IME-flags defence after .551's
+      // personalised-learning theory was disproved by tester clue
+      // "it is not predictive, whatever I input, the previous old
+      // input comes back".** That clue rules out per-field learning
+      // (which IS predictive — prefix-driven). But it doesn't rule
+      // out *autocorrect* (deterministic dictionary-driven
+      // replacement) or *smart text replacement* (iOS auto-quote /
+      // auto-dash). Both can swap user input for previously-seen
+      // tokens without surfacing a suggestion strip.
       //
-      // `enableIMEPersonalizedLearning: false` tells the IME to treat
-      // this field as private — no learning, no offering past input
-      // back as predictions. Critically, this does NOT disable the
-      // suggestion strip (which CJK IMEs use for candidate display —
-      // see v1.0.480 burn) and does NOT disable composition. CJK input
-      // still works; only the autocomplete-from-past-input path is
-      // suppressed.
+      // Stacking the four flags below disables every Flutter-exposed
+      // automatic-text-modification path:
+      //
+      //   - enableIMEPersonalizedLearning: false — no in-app
+      //     learning, no offering past input as predictions.
+      //   - autocorrect: false — disable dictionary-driven
+      //     replacement on commit (the path that turns deleted "h"
+      //     back into "hello").
+      //   - smartDashesType: disabled — iOS would otherwise
+      //     auto-substitute -- for an em-dash.
+      //   - smartQuotesType: disabled — iOS would otherwise
+      //     auto-substitute " for curly quotes.
+      //
+      // Crucially, NONE of these disable `enableSuggestions` (which
+      // CJK IMEs need as their candidate display — burn in v1.0.480)
+      // and NONE disable composition. CJK input still works
+      // end-to-end. The previously-mistaken v1.0.471 flag combo
+      // included `enableSuggestions: false` — that's what broke CJK.
       enableIMEPersonalizedLearning: false,
+      autocorrect: false,
+      smartDashesType: SmartDashesType.disabled,
+      smartQuotesType: SmartQuotesType.disabled,
       decoration: InputDecoration(
         isDense: true,
         hintText: 'Ask the steward…',

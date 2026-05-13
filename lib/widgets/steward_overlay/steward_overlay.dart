@@ -325,13 +325,17 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
     if (wasOpen != isOpen) {
       // Open/close transition: snapshot the inset once and rebuild.
       setState(() => _keyboardInset = isOpen ? inset : 0);
-    } else if (isOpen && (inset - _keyboardInset).abs() > 80) {
-      // Significant resize while keyboard stays open (rotation,
-      // foldable unfold, large IME swap). Resync. The 80-px threshold
-      // is wide enough to ignore Gboard's suggestion-strip animations
-      // (~30-40 px) but small enough to catch real layout changes.
-      setState(() => _keyboardInset = inset);
     }
+    // **v1.0.555 — removed the prior `>80px` resync branch.** Even at
+    // 80px, devices with tall predictive strips (Samsung, some Xiaomi
+    // ROMs) can cross the threshold mid-typing, fire setState, rebuild
+    // the panel, and ripple a transform update down to EditableText
+    // that re-pushes setEditingState. That was the residual repro path
+    // after v1.0.549 — the keyboard-open inset snapshot is good enough
+    // to keep the panel above the IME for the lifetime of the editing
+    // session; rotation/foldable-unfold/IME-swap are rare enough that
+    // closing-and-reopening the panel is acceptable recovery, and rare
+    // enough that the more-frequent rebuild path was net-harmful.
   }
 
   @override
@@ -581,11 +585,47 @@ class _ExpandedPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final base = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    // **v1.0.555 — the missing IME isolation channel.** v1.0.549 froze
+    // the panel's outer `Positioned(top:)` against Gboard's per-frame
+    // viewInsets ticks. But that doesn't stop the TextField *itself*
+    // (via its internal `Scrollable` and `EditableText._showCaretOnScreen`)
+    // from subscribing to `MediaQuery.viewInsets.bottom`. Every time
+    // Gboard's suggestion strip animates a few pixels, MediaQuery
+    // dispatches an `InheritedWidget` notification, and every subscriber
+    // in the panel's subtree rebuilds — including EditableText, which
+    // ends up calling `_updateRemoteEditingValueIfNeeded` against its
+    // own `_lastKnownRemoteTextEditingValue` cache. On a stale cache
+    // (because the IME's selection moved client-side but Flutter's
+    // cache hadn't caught up yet) that re-pushes setEditingState with
+    // an old text+selection, which clobbers what the user just typed.
+    //
+    // Stripping `viewInsets`, `viewPadding`, and `padding` from the
+    // MediaQuery the panel subtree inherits is the standard Flutter
+    // pattern for this — see `Scaffold` source, which does the same
+    // for nested scaffolds. Reads of MediaQuery.viewInsets.bottom from
+    // INSIDE the panel will see 0 regardless of what Gboard is
+    // animating, so no rebuild storm reaches EditableText.
+    //
+    // Session-transcript compose works without this because it lives
+    // inside a `Scaffold` whose `resizeToAvoidBottomInset: true` body
+    // already gets a MediaQuery with `viewInsets.bottom` zeroed by
+    // Scaffold itself (Scaffold pads its body and then masks viewInsets
+    // from descendants). The overlay panel is mounted in
+    // `MaterialApp.builder`, OUTSIDE that Scaffold, so it never gets
+    // that automatic mask — we have to apply it ourselves.
+    final mq = MediaQuery.of(context);
+    final maskedMq = mq.copyWith(
+      viewInsets: EdgeInsets.zero,
+      viewPadding: EdgeInsets.zero,
+      padding: EdgeInsets.zero,
+    );
     // Opacity applies to the BACKGROUND ONLY (not the children) so the
     // chat text stays fully readable while the underlying page peeks
     // through the panel surface. Wrapping in Opacity() instead would
     // fade messages too — wrong for a chat surface.
-    return Stack(
+    return MediaQuery(
+      data: maskedMq,
+      child: Stack(
       children: [
         Positioned.fill(
           child: Container(
@@ -663,6 +703,7 @@ class _ExpandedPanel extends StatelessWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }

@@ -34,6 +34,11 @@ type agentOut struct {
 	Capabilities json.RawMessage `json:"capabilities"`
 	ParentID     string          `json:"parent_agent_id,omitempty"`
 	HostID       string          `json:"host_id,omitempty"`
+	// ProjectID binds the agent to a project per ADR-025. Empty for
+	// pre-ADR (v1.0.563-) rows that predate the column. Mobile uses
+	// this to populate the project detail Agents tab; the W9 spawn
+	// gate (v1.0.565) authorizes against it.
+	ProjectID    string          `json:"project_id,omitempty"`
 	Status       string          `json:"status"`
 	PaneID       string          `json:"pane_id,omitempty"`
 	WorktreePath string          `json:"worktree_path,omitempty"`
@@ -106,6 +111,7 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	q := `
 		SELECT id, team_id, handle, kind, backend_json, capabilities_json,
 		       COALESCE(parent_agent_id, ''), COALESCE(host_id, ''),
+		       COALESCE(project_id, ''),
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
@@ -121,6 +127,10 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	if st := r.URL.Query().Get("status"); st != "" {
 		q += " AND status = ?"
 		args = append(args, st)
+	}
+	if pid := r.URL.Query().Get("project_id"); pid != "" {
+		q += " AND project_id = ?"
+		args = append(args, pid)
 	}
 	// Archived rows stay in the DB for audit/history resolution but drop
 	// out of the default list. Pass ?include_archived=1 to see them
@@ -154,6 +164,7 @@ func (s *Server) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 	row := s.db.QueryRowContext(r.Context(), `
 		SELECT id, team_id, handle, kind, backend_json, capabilities_json,
 		       COALESCE(parent_agent_id, ''), COALESCE(host_id, ''),
+		       COALESCE(project_id, ''),
 		       status, COALESCE(pane_id, ''),
 		       COALESCE(worktree_path, ''), COALESCE(journal_path, ''),
 		       budget_cents, spent_cents, pause_state, idle_since,
@@ -836,7 +847,7 @@ func scanAgent(r rowScanner) (agentOut, error) {
 		idleSince, termAt, archAt, lastEvAt sql.NullString
 	)
 	if err := r.Scan(&a.ID, &a.TeamID, &a.Handle, &a.Kind, &backend, &caps,
-		&a.ParentID, &a.HostID, &a.Status, &a.PaneID,
+		&a.ParentID, &a.HostID, &a.ProjectID, &a.Status, &a.PaneID,
 		&a.WorktreePath, &a.JournalPath,
 		&budget, &a.SpentCents, &a.PauseState, &idleSince,
 		&a.CreatedAt, &termAt, &a.Mode, &archAt, &lastEvAt); err != nil {

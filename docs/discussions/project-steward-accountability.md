@@ -321,8 +321,8 @@ The set of decisions (full text in ADR-025):
   workers. Worker sessions appear only on the project page.
 
 The wedge spec lives in ADR-025 §Decision. Implementation lands in
-v1.0.563 (schema + lazy steward + worker session + visibility) +
-v1.0.564 (role-gate enforcement + UI re-routing). (v1.0.557–v1.0.562
+v1.0.564 (schema + lazy steward + worker session + visibility) +
+v1.0.565 (role-gate enforcement + UI re-routing). (v1.0.557–v1.0.563
 were claimed by successive steward-overlay IME hotfixes.)
 
 ---

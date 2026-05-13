@@ -20,6 +20,21 @@ import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
 import 'voice_recording_hud.dart';
 
+/// Stable input border that doesn't change color between focused and
+/// unfocused states. Used by the overlay's chat input to avoid
+/// border-color flicker during the ghost-focus-bounce IME re-attach
+/// (see `_ChatInputState._bounceFocusForImeResync`). The default
+/// Material `InputDecorator` picks different colors for
+/// `enabledBorder` vs `focusedBorder`; we pin all three to one outline
+/// so the brief unfocused frame during the bounce doesn't flash.
+final OutlineInputBorder _kStableInputBorder = OutlineInputBorder(
+  borderRadius: BorderRadius.circular(10),
+  borderSide: BorderSide(
+    color: DesignColors.primary.withValues(alpha: 0.4),
+    width: 1,
+  ),
+);
+
 /// Compact chat surface that lives inside the expanded
 /// [StewardOverlay] panel. Connects to the team's general steward
 /// (via [stewardOverlayControllerProvider]) and renders a minimal
@@ -997,9 +1012,18 @@ class _ChatInputState extends State<_ChatInput> {
       decoration: InputDecoration(
         isDense: true,
         hintText: 'Ask the steward…',
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-        ),
+        // **v1.0.563 — pin border color across focus states** so the
+        // ghost-focus-bounce in `_bounceFocusForImeResync` doesn't
+        // flicker the border between focused/unfocused colors every
+        // time we resync. The cursor's visibility still signals focus
+        // to the user; this just removes the otherwise-distracting
+        // border-color flash on every edit. All three border slots
+        // (border, enabledBorder, focusedBorder) use the same outline
+        // so Flutter's InputDecorator can't pick a different one
+        // during the brief unfocused-frame of the bounce.
+        border: _kStableInputBorder,
+        enabledBorder: _kStableInputBorder,
+        focusedBorder: _kStableInputBorder,
         contentPadding: const EdgeInsets.symmetric(
             horizontal: 12, vertical: 10),
         suffixIcon: voiceEnabled

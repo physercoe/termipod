@@ -1110,22 +1110,33 @@ class _ChatInputState extends State<_ChatInput> {
             ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
+            // **Stable keys on every child — v1.0.553 fix.** Without
+            // keys, Flutter matches children by position. When
+            // `voiceEnabled` async-loads to true (from
+            // `voiceSettingsProvider._load()`) OR `canAttach*` resolves
+            // to true (from `_resolveCapabilityIfNeeded` finishing the
+            // post-frame callback), the Row's children list count
+            // changes, every child shifts by one index, and Flutter
+            // destroys-then-rebuilds the `Expanded(TextField)` to fit
+            // the new position. That destroyed-and-rebuilt EditableText
+            // reopens its IME connection, sends `setEditingState` with
+            // the current `_ctrl.value`, and clobbers whatever the
+            // user was typing — visible as "type hello, backspace 5×,
+            // type x, field shows hellox" + "tap before 'o', type a,
+            // cursor jumps to end + a goes after." Both are the EXACT
+            // v1.0.466 signature; the recurring "isolation" fixes
+            // missed this path because the Row was simple in v1.0.467
+            // and only grew dynamic when voice / image / multimodal
+            // attach features arrived.
+            //
+            // With ValueKey'd children, Flutter matches by key, the
+            // Expanded element survives index shifts, and the
+            // TextField/EditableText stays mounted. State preserved,
+            // IME connection preserved, no `setEditingState` clobber.
             children: [
-              // Voice-mode switcher — sits in what used to be the
-              // leftmost attach position. Tap flips `_voiceComposeMode`
-              // between keyboard mode (TextField) and voice mode
-              // (Hold-to-speak surface).
-              //
-              // **Iconography is intentionally different from the
-              // inline mic suffix** (issue #2 v1.0.545). Same
-              // mic-shape on both buttons made testers conflate the
-              // mode-switcher with the recording-toggle. This button
-              // uses `record_voice_over_outlined` / `keyboard_alt_outlined`
-              // — the pair signals "switch input mode" rather than
-              // "start/stop recording." The recording-toggle role
-              // belongs to the suffix mic inside the TextField.
               if (widget.voiceEnabled)
                 IconButton(
+                  key: const ValueKey('chat-row-voice-toggle'),
                   tooltip: _voiceComposeMode
                       ? 'Switch to keyboard input'
                       : 'Switch to voice input',
@@ -1148,20 +1159,19 @@ class _ChatInputState extends State<_ChatInput> {
                 ),
               // Center surface — either the text field (with optional
               // inline streaming mic suffix) or the hold-to-speak
-              // gesture box, depending on `_voiceComposeMode`.
+              // gesture box, depending on `_voiceComposeMode`. Keyed
+              // because this is THE one that mustn't remount.
               Expanded(
+                key: const ValueKey('chat-row-input'),
                 child: _voiceComposeMode
                     ? _buildHoldToSpeakSurface()
                     : _buildTextField(),
               ),
-              const SizedBox(width: 6),
-              // Attach buttons — moved from the left of the row to the
-              // right, so the steward composer reads
-              // `[voice] [field] [attach] [send]` instead of the old
-              // `[attach] [field] [send/mic]` shape that conflated the
-              // voice button with send.
+              const SizedBox(
+                  key: ValueKey('chat-row-spacer'), width: 6),
               if (canAttach)
                 IconButton(
+                  key: const ValueKey('chat-row-attach-image'),
                   tooltip: _pendingImages.length >= kMaxImagesPerTurn
                       ? 'Max $kMaxImagesPerTurn images per turn'
                       : 'Attach image (${_pendingImages.length}/$kMaxImagesPerTurn)',
@@ -1183,6 +1193,7 @@ class _ChatInputState extends State<_ChatInput> {
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
               IconButton(
+                key: const ValueKey('chat-row-attach-text'),
                 tooltip: 'Attach code or text file',
                 onPressed: (_sending || _attachingText) ? null : _pickTextFile,
                 icon: _attachingText
@@ -1199,6 +1210,7 @@ class _ChatInputState extends State<_ChatInput> {
               ),
               if (canAttachMulti)
                 IconButton(
+                  key: const ValueKey('chat-row-attach-multimodal'),
                   tooltip: 'Attach PDF, audio, or video',
                   onPressed: (_sending || _attachingMultimodal)
                       ? null
@@ -1216,6 +1228,7 @@ class _ChatInputState extends State<_ChatInput> {
                       const BoxConstraints(minWidth: 36, minHeight: 36),
                 ),
               IconButton(
+                key: const ValueKey('chat-row-send'),
                 tooltip: 'Send',
                 icon: _sending
                     ? const SizedBox(

@@ -128,7 +128,12 @@ URI you have ids for; the router is forgiving and degrades cleanly.
 - `…/deliverables` — deliverables list
 - `…/acceptance-criteria` — acceptance criteria list
 - `…/discussion` — project channels
-- `…/phases/<phase>` — the per-phase "hero" summary page
+- `…/phases/<phase>` — the per-phase summary page
+- `…/{hero|header|tiles}` — the 3-layer Overview chassis (header at
+  top, hero widget in the middle, shortcut tiles at bottom). All
+  three names land on the Overview tab; the hero is the centerpiece
+  template-declared widget (task milestones, recent artifacts,
+  experiment dashboard, etc.).
 
 **Entity top-levels** (when project context is implicit):
 

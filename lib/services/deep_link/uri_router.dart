@@ -69,6 +69,9 @@ import '../../screens/terminal/terminal_screen.dart' show TerminalScreen;
 ///                                                      → push Acceptance Criteria
 ///   termipod://project/<id>/discussion                 → push Project Channels
 ///   termipod://project/<id>/phases/<phase>             → push Phase Summary
+///   termipod://project/<id>/{hero|header|tiles}        → Overview tab (the
+///                                                       3-layer chassis lives
+///                                                       inside it)
 ///   termipod://document/<docId>                        → push Document Detail
 ///   termipod://run/<rid>                               → push Run Detail
 ///   termipod://host/<idOrName>                         → connect if a
@@ -300,6 +303,21 @@ Future<NavigateResult> _dispatchProjectSubRoute(
           setTab: setTab,
           refreshHub: refreshHub,
           tab: _projectTabIndex[sub]);
+    case 'hero':
+    case 'header':
+    case 'tiles':
+      // The Overview tab's 3-layer chassis is header → hero → tiles.
+      // None of the three are separately scrollable screens — they
+      // sit one above the other inside the Overview ListView. Anchor
+      // any of these names to the Overview tab; the user's request
+      // ("show me the hero") reads as "show me the Overview
+      // centerpiece," and opening Overview surfaces it at the top of
+      // the scroll.
+      return _openProject(context, projectId,
+          hub: hub,
+          setTab: setTab,
+          refreshHub: refreshHub,
+          tab: _projectTabIndex['overview']);
   }
   return NavigateResult.unknown;
 }

@@ -327,6 +327,11 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				})
 				r.Route("/steward", func(r chi.Router) {
 					r.Get("/state", s.handleGetStewardState)
+					// ADR-025 W3 — idempotent ensure-spawn for the
+					// project's domain steward. Director-auth only
+					// (general steward delegates via attention items
+					// per W4 rather than calling this directly).
+					r.Post("/ensure", s.handleEnsureProjectSteward)
 				})
 				// W5b — Deliverables + components (A3 §4 + §5). Templates
 				// hydrate these on phase entry; the runtime here ships the

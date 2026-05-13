@@ -459,34 +459,14 @@ class _ChatInputState extends State<_ChatInput> {
   // `_activeFlow` / `_voiceStarting`, both of which mutate through
   // setState (user-driven events, never keystrokes).
 
-  // ===== TextField widget identity cache =====
-  //
-  // Flutter's `Element.updateChild` short-circuits with no update at
-  // all when `child.widget == newWidget` (reference-equal — Widget
-  // doesn't override `==`). If we return the SAME `TextField` widget
-  // instance across rebuilds, the framework skips `didUpdateWidget`
-  // entirely, EditableText's State doesn't reattach, and the IME's
-  // `setEditingState` is never re-poked mid-composition.
-  //
-  // This is the v1.0.548 fix for the recurring "deleted characters
-  // come back" bug. Removing the `_ctrl.addListener` in v1.0.545
-  // wasn't enough — any ancestor rebuild (MediaQuery viewInsets when
-  // Gboard's suggestion strip animates, a Riverpod provider emitting,
-  // theme transitions, focus shifts) still propagates down to
-  // `_buildTextField()` and creates a fresh TextField + fresh
-  // InputDecoration + fresh suffix IconButton each call. New widget
-  // identity → `didUpdateWidget` → potential IME poke → Gboard
-  // predictive-cache rebound.
-  //
-  // Memoising the TextField widget by the only inputs that actually
-  // affect its config (voiceEnabled, streaming, disabled) cuts every
-  // such path. The internal `_ctrl` mutates independently and notifies
-  // EditableText via its addListener — that's the legitimate user-
-  // typing path and is unaffected by caching widget identity.
-  Widget? _cachedTextField;
-  bool _cachedTfStreaming = false;
-  bool _cachedTfVoiceEnabled = false;
-  bool _cachedTfDisabled = false;
+  // v1.0.548 cached the TextField widget identity to short-circuit
+  // Flutter's Element.updateChild on rebuild. That defended against a
+  // hypothesised rebuild path, but the IME delete bug persisted —
+  // proving the bug wasn't about widget identity. Cache removed in
+  // v1.0.551 to keep this file simpler; the architectural fixes that
+  // do matter live elsewhere (no _ctrl listener; v1.0.549 panel-
+  // position freeze; the enableIMEPersonalizedLearning flag on the
+  // TextField itself).
 
   @override
   void dispose() {
@@ -888,26 +868,33 @@ class _ChatInputState extends State<_ChatInput> {
         _voiceSession != null;
     final voiceEnabled = widget.voiceEnabled;
     final disabled = _sending || _voiceStarting;
-    // Widget-identity cache (see §"TextField widget identity cache"
-    // above). When the cached inputs match, return the SAME TextField
-    // instance — Flutter's `Element.updateChild` will see
-    // `child.widget == newWidget` and skip the rebuild entirely.
-    if (_cachedTextField != null &&
-        _cachedTfStreaming == streaming &&
-        _cachedTfVoiceEnabled == voiceEnabled &&
-        _cachedTfDisabled == disabled) {
-      return _cachedTextField!;
-    }
-    _cachedTfStreaming = streaming;
-    _cachedTfVoiceEnabled = voiceEnabled;
-    _cachedTfDisabled = disabled;
-    _cachedTextField = TextField(
+    return TextField(
       controller: _ctrl,
       focusNode: _focus,
       minLines: 1,
       maxLines: 4,
       keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
+      // **v1.0.551 fix for the recurring deleted-text-returning bug.**
+      // The previous theory was rebuild-path / widget-identity / panel-
+      // position; turned out all of those were red herrings. The real
+      // mechanism is Gboard's *per-field personalized learning*: when
+      // the user types "hello", Gboard records it in its in-app
+      // predictive cache; when they delete and start a new word with
+      // the same prefix, Gboard offers the previously-typed word back
+      // as a high-confidence completion (visible as "deleted text
+      // returning"). Session transcript's `agent_compose` doesn't
+      // surface the bug as visibly because of layout differences, but
+      // Gboard's behavior is the same in both places.
+      //
+      // `enableIMEPersonalizedLearning: false` tells the IME to treat
+      // this field as private — no learning, no offering past input
+      // back as predictions. Critically, this does NOT disable the
+      // suggestion strip (which CJK IMEs use for candidate display —
+      // see v1.0.480 burn) and does NOT disable composition. CJK input
+      // still works; only the autocomplete-from-past-input path is
+      // suppressed.
+      enableIMEPersonalizedLearning: false,
       decoration: InputDecoration(
         isDense: true,
         hintText: 'Ask the steward…',
@@ -937,7 +924,6 @@ class _ChatInputState extends State<_ChatInput> {
             const BoxConstraints(minWidth: 32, minHeight: 32),
       ),
     );
-    return _cachedTextField!;
   }
 
   Widget _buildHoldToSpeakSurface() {

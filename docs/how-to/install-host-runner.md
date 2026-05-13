@@ -1,9 +1,9 @@
 # Install host-runner
 
 > **Type:** how-to
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-13)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.314
+> **Last verified vs code:** v1.0.547
 
 **TL;DR.** How to add a host to a running hub so it can execute
 agents. Covers the `host-runner` daemon: what it is, how to register
@@ -66,12 +66,27 @@ across restarts.
 ## 2. Prerequisites on the host
 
 - Linux / macOS box reachable to the hub (Tailscale, LAN, or public).
+  **Windows is not supported** — see "OS support" below.
 - `tmux` ≥ 3.2 (required for `-F` format variables the launcher uses).
+- `bash` on PATH (the M2 launcher invokes `bash -c <command>` for each
+  agent spawn; macOS still ships `/bin/bash` by default, Linux always
+  does).
 - `git` (only if you'll use `worktree:` specs).
 - One or more backend CLIs on `PATH` for the login user: e.g. `claude`,
   `codex`.
 - Go 1.23+ **only if you build from source**; prebuilt binaries land
   next to the hub-server in the release workflow (planned).
+
+> **OS support.** Host-runner is POSIX-only by design. It depends on
+> `bash` (every agent spawn), `tmux` (every pane), and Linux/macOS
+> kernel facilities including `syscall.SysProcAttr{Setpgid: true}`
+> for the process-group cleanup that prevents grandchild leaks (see
+> `launch_m2.go`), plus `/proc/meminfo` / `uname` / `sysctl` for the
+> host-info heartbeat. The `Setpgid` struct field doesn't exist on
+> the Windows variant of `syscall.SysProcAttr`, so the package
+> wouldn't even compile for `GOOS=windows`. If a Windows machine is
+> the only host available, install Linux host-runner inside WSL2
+> and let the agents run there.
 
 > **Why it runs as a login user, not a dedicated system user.** The
 > TermiPod mobile app views/operates tmux by SSH'ing into this box as

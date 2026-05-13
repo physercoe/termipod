@@ -1,9 +1,9 @@
 # Quality attributes
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.547
 
 **TL;DR.** Quantified targets for the seven arc42 §10 quality
 scenarios — performance, security, scalability, reliability,
@@ -143,7 +143,7 @@ a warning (non-failing); past 10 should be flagged in code review.
 | Hub OS: Windows | No | Untested |
 | Host-runner OS: Linux | Yes | Primary |
 | Host-runner OS: macOS | Yes | Tested |
-| Host-runner OS: Windows | No | tmux not available |
+| Host-runner OS: Windows | No | Multiple hard POSIX dependencies: `bash -c` shells out every agent spawn (`launch_m2.go`), `syscall.SysProcAttr{Setpgid: true}` for process-group cleanup (Linux-only struct field; wouldn't compile under `GOOS=windows`), tmux for every pane (`tmux_launcher.go`, `markers.go`, `driver_pane.go`), `/proc/meminfo` / `uname` / `sysctl` for host capability probing. WSL2 is the path if a Windows host is operationally required — install the Linux host-runner inside WSL. Native Windows would need a launcher swap (`cmd` / PowerShell), a tmux replacement, and a process-group cleanup rewrite. Not on roadmap. |
 | Engine: Claude Code | Yes | Primary; M2 stream-json default for Pro/Max |
 | Engine: Codex CLI | Yes | M1 ACP via `codex app-server` per [ADR-012](../decisions/012-codex-app-server-integration.md) |
 | Engine: Gemini CLI | Yes | M1 exec-per-turn-with-resume per [ADR-013](../decisions/013-gemini-exec-per-turn.md) |

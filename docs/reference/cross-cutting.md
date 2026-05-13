@@ -1,9 +1,9 @@
 # Cross-cutting concerns
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.547
 
 **TL;DR.** One umbrella doc for the architecture-spanning concerns
 that touch every container — security boundaries, observability,
@@ -289,6 +289,11 @@ patterns in the codebase:
 - **Supported platforms.** Mobile: Android primary, iOS secondary.
   Web is N/A in MVP. Hub: Linux focus (the systemd unit ships in
   `hub/deploy/systemd/`); macOS supported for development.
+  Host-runner: Linux + macOS only — POSIX-only by design (`bash -c`
+  agent launch, `tmux` for every pane, `syscall.SysProcAttr.Setpgid`
+  for process-group cleanup). Windows is not supported and would
+  not compile under `GOOS=windows`; WSL2 is the workaround. Full
+  matrix in [`quality-attributes.md` §6](quality-attributes.md).
 
 ---
 

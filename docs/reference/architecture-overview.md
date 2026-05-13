@@ -1,9 +1,9 @@
 # Architecture overview
 
 > **Type:** reference
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors, reviewers
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.547
 
 **TL;DR.** termipod in two pictures: a C4 Level 1 system context
 diagram and a C4 Level 2 container diagram. Read this first if you're
@@ -152,7 +152,11 @@ agents in tmux panes, relays agent MCP calls to the hub, exposes A2A
 endpoints, polls metric files, heartbeats to the hub. **Survives hub
 outages** (buffers writes, serves cached reads).
 
-**Tech stack.** Go 1.23+, `tmux` 3.2+ for pane management. Same binary
+**Tech stack.** Go 1.23+, `tmux` 3.2+ for pane management, `bash` for
+agent launch. POSIX-only — depends on `syscall.SysProcAttr.Setpgid`
+for process-group cleanup, which doesn't exist on Windows. Supported
+OSes: Linux + macOS (see
+[`quality-attributes.md` §6](quality-attributes.md)). Same binary
 also serves as `hub-mcp-bridge` (multicall) when invoked via symlink.
 
 **Owns:** local panes / windows / sessions, worktrees, local

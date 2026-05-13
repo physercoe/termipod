@@ -1,9 +1,9 @@
 # Local development environment
 
 > **Type:** how-to
-> **Status:** Current (2026-05-05)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.351
+> **Last verified vs code:** v1.0.547
 
 **TL;DR.** Cold-start guide: clone the repo, install Flutter + Go,
 build and run the hub locally, point the mobile app at it, register a
@@ -32,8 +32,12 @@ test changes.
 | `tmux` | 3.2+ | required for host-runner; `apt install tmux` / `brew install tmux` |
 | `jq`, `curl` | any | for the smoke-test recipes below |
 
-**Platform support.** macOS / Linux / WSL2 are tested. Windows native
-is untested — use WSL2.
+**Platform support.** macOS / Linux / WSL2 are tested. Windows
+native is **not supported** — the host-runner is POSIX-only (`bash`
+launch, `tmux` for every pane, `syscall.SysProcAttr.Setpgid` for
+process-group cleanup which doesn't exist on the Windows variant of
+`SysProcAttr`; the package wouldn't compile under `GOOS=windows`).
+Use WSL2 and run the Linux host-runner inside it.
 
 **Network.** Outbound HTTPS to your chosen engine vendor (Anthropic /
 OpenAI / Google) for end-to-end agent flows. The hub itself does not

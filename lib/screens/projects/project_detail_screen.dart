@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../providers/sessions_provider.dart';
+import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
 import '../../widgets/activity_snippet.dart'
@@ -1194,20 +1196,98 @@ class _AgentsView extends ConsumerWidget {
           Positioned(
             right: 16,
             bottom: 16,
-            child: FloatingActionButton.extended(
-              heroTag: 'spawn_project_agent_$projectId',
-              onPressed: () => showSpawnAgentSheet(
+            // ADR-025 W10: default tap path now drafts an intent
+            // message to the project's steward instead of spawning a
+            // worker directly. Long-press preserves the legacy
+            // direct-spawn flow as the Advanced bypass.
+            child: GestureDetector(
+              onLongPress: () => showSpawnAgentSheet(
                 context,
                 hosts: hosts,
                 projectId: projectId,
               ),
-              icon: const Icon(Icons.add),
-              label: const Text('Spawn Agent'),
+              child: FloatingActionButton.extended(
+                heroTag: 'ask_project_steward_$projectId',
+                onPressed: () => _askProjectSteward(
+                  context,
+                  ref,
+                  projectId,
+                ),
+                icon: const Icon(Icons.forum_outlined),
+                label: const Text('Ask steward'),
+                tooltip:
+                    'Ask the project steward (long-press for Advanced direct spawn)',
+              ),
             ),
           ),
       ],
     );
   }
+}
+
+// ADR-025 W10 — Spawn-FAB intent rerouting. Resolves the project's
+// live steward, finds its session, and opens SessionChatScreen so
+// the director can dictate the spawn request as a normal chat turn.
+// Falls through to the W7 host-picker sheet when no steward exists
+// yet (director must consent to the steward before delegating
+// worker spawns to it).
+Future<void> _askProjectSteward(
+  BuildContext context,
+  WidgetRef ref,
+  String projectId,
+) async {
+  final hub = ref.read(hubProvider).value;
+  Map<String, dynamic>? stewardAgent;
+  for (final a in hub?.agents ?? const <Map<String, dynamic>>[]) {
+    if ((a['project_id'] ?? '').toString() != projectId) continue;
+    if (!((a['kind'] ?? '').toString().startsWith('steward.'))) continue;
+    final status = (a['status'] ?? '').toString();
+    if (status == 'terminated' ||
+        status == 'crashed' ||
+        status == 'failed') {
+      continue;
+    }
+    if ((a['archived_at'] ?? '').toString().isNotEmpty) continue;
+    stewardAgent = a;
+    break;
+  }
+  if (stewardAgent == null) {
+    // No live steward yet — kick the host-picker sheet so the
+    // director can materialize one. Same flow as the empty-state
+    // CTA on this tab.
+    await showSpawnProjectStewardSheet(context, projectId: projectId);
+    return;
+  }
+  final stewardID = (stewardAgent['id'] ?? '').toString();
+  final sessions = ref.read(sessionsProvider).value;
+  final allSessions = <Map<String, dynamic>>[
+    ...?sessions?.active,
+    ...?sessions?.previous,
+  ];
+  Map<String, dynamic>? stewardSession;
+  for (final s in allSessions) {
+    if ((s['current_agent_id'] ?? '').toString() == stewardID) {
+      stewardSession = s;
+      break;
+    }
+  }
+  if (stewardSession == null) {
+    // Steward without a session is the multi-steward UX gap that
+    // pre-dates auto_open_session. Drop into the agent detail
+    // sheet so the operator can resolve manually.
+    openAgentDetail(context, stewardAgent);
+    return;
+  }
+  if (!context.mounted) return;
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => SessionChatScreen(
+        sessionId: (stewardSession?['id'] ?? '').toString(),
+        agentId: stewardID,
+        title: (stewardSession?['title'] ?? 'Project steward').toString(),
+      ),
+    ),
+  );
 }
 
 // ADR-025 W7 — empty-state CTA on the project Agents tab. When no

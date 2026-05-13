@@ -660,17 +660,30 @@ class _ExpandedPanel extends StatelessWidget {
                 ),
               ],
             ),
-            // The Material ancestor here is what stops Flutter from
-            // drawing yellow "missing Material" double underlines under
-            // every Text inside the panel. The overlay is mounted via
-            // `MaterialApp.builder` and lives OUTSIDE the Navigator's
-            // Material/Scaffold scope, so descendant Text widgets would
-            // otherwise have no DefaultTextStyle ancestor. `transparency`
-            // means it doesn't paint anything itself — the parent
-            // Container still owns the colour, border, and shadow.
-            child: Material(
-              type: MaterialType.transparency,
-              child: Column(
+            // **v1.0.559 — Scaffold wrap for IME plumbing.** The overlay
+            // is mounted via `MaterialApp.builder` so it lives OUTSIDE
+            // any Navigator route. Working session-compose
+            // (`agent_compose.dart`) lives INSIDE a Scaffold body and
+            // works correctly across all IMEs we've tested; the overlay
+            // panel previously had only a bare `Material(transparency)`
+            // ancestor, which provides DefaultTextStyle but NOT
+            // ScaffoldMessenger, ScrollNotificationObserver, the
+            // Scaffold-owned FocusScope, DefaultSelectionStyle from
+            // ScaffoldState, or `_ScaffoldScope`. After v1.0.555 + .557
+            // + .558 ruled out rebuild storms + defensive IME flags as
+            // the cause of the cursor-position-not-respected bug, the
+            // remaining structural difference between working
+            // session-compose and broken overlay was "is inside a
+            // Scaffold body or not." Wrapping the panel content in a
+            // transparent Scaffold gives the TextField full
+            // Scaffold-body plumbing. `backgroundColor: transparent`
+            // keeps the Container's decoration visible;
+            // `resizeToAvoidBottomInset: false` because the overlay
+            // manages its own panel positioning against the keyboard.
+            child: Scaffold(
+              backgroundColor: Colors.transparent,
+              resizeToAvoidBottomInset: false,
+              body: Column(
                 children: [
                   _PanelHeader(
                     onClose: onClose,

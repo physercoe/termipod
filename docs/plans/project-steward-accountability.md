@@ -5,7 +5,7 @@
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.556
 
-**TL;DR.** Implementation tracker for [ADR-025](../decisions/025-project-steward-accountability.md). Workers become project-scoped first-class agents with their own session; every engaged project gets exactly one steward (lazy materialization with director consent); the general steward routes intent down to project stewards but does not spawn workers itself. Eleven wedges across v1.0.559 (foundation: schema + lazy steward + worker session + visibility) and v1.0.560 (enforcement + UI rerouting). Order is the safe-to-ship sequence; the foundation lands first and is observed for one release before the gating tightens.
+**TL;DR.** Implementation tracker for [ADR-025](../decisions/025-project-steward-accountability.md). Workers become project-scoped first-class agents with their own session; every engaged project gets exactly one steward (lazy materialization with director consent); the general steward routes intent down to project stewards but does not spawn workers itself. Eleven wedges across v1.0.560 (foundation: schema + lazy steward + worker session + visibility) and v1.0.561 (enforcement + UI rerouting). Order is the safe-to-ship sequence; the foundation lands first and is observed for one release before the gating tightens.
 
 ---
 
@@ -58,9 +58,9 @@ After this plan:
 
 ## 5. Wedges
 
-Each wedge is one commit + one version bump. Foundation (W1-W8) ships in v1.0.559; enforcement and UI rerouting (W9-W11) follow in v1.0.560 once the foundation has soaked for a release. (v1.0.557 + v1.0.558 were claimed by successive IME hotfixes on the steward-overlay TextField; see commit history for `steward_overlay.dart` + `steward_overlay_chat.dart`.)
+Each wedge is one commit + one version bump. Foundation (W1-W8) ships in v1.0.560; enforcement and UI rerouting (W9-W11) follow in v1.0.561 once the foundation has soaked for a release. (v1.0.557 + v1.0.558 + v1.0.559 were claimed by successive IME hotfixes on the steward-overlay TextField; see commit history for `steward_overlay*.dart`.)
 
-### v1.0.559 — Foundation
+### v1.0.560 — Foundation
 
 **W1. Migration: `agents.project_id`.**
 - Migration 0042: `ALTER TABLE agents ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`. Index on the non-NULL subset.
@@ -107,7 +107,7 @@ Each wedge is one commit + one version bump. Foundation (W1-W8) ships in v1.0.55
 - Worker session rows appear ONLY on project detail Agents tab — filtered out of the global Sessions list to keep it readable.
 - Tap on worker row → `agent_feed` scoped to that worker's session_id. Steward↔worker conversation observable.
 
-### v1.0.560 — Enforcement + UI rerouting
+### v1.0.561 — Enforcement + UI rerouting
 
 **W9. Hub role gate: `agents.spawn` project-binding check.**
 - New gate in `mcp_authority_roles.go` (or a sibling file): when `agents.spawn` request has `project_id` set, the caller's `parent_agent_id` must match `projects.steward_agent_id` for that project. Otherwise 403.

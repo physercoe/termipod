@@ -12,6 +12,8 @@ import '../../screens/projects/deliverables_screen.dart'
     show DeliverablesScreen;
 import '../../screens/projects/documents_screen.dart'
     show DocumentDetailScreen, DocumentsScreen;
+import '../../screens/projects/overview_widgets/registry.dart'
+    show normalizeOverviewWidget, overviewWidgetSpecFor;
 import '../../screens/projects/phase_summary_screen.dart'
     show PhaseSummaryScreen;
 import '../../screens/projects/plan_viewer_screen.dart'
@@ -20,6 +22,7 @@ import '../../screens/projects/plans_screen.dart' show PlansScreen;
 import '../../screens/projects/project_channels_list_screen.dart'
     show ProjectChannelsListScreen;
 import '../../screens/projects/project_detail_screen.dart';
+import '../../screens/projects/project_hero_screen.dart' show ProjectHeroScreen;
 import '../../screens/projects/projects_screen.dart'
     show openAgentDetail, openHostDetail;
 import '../../screens/projects/runs_screen.dart'
@@ -69,9 +72,9 @@ import '../../screens/terminal/terminal_screen.dart' show TerminalScreen;
 ///                                                      → push Acceptance Criteria
 ///   termipod://project/<id>/discussion                 → push Project Channels
 ///   termipod://project/<id>/phases/<phase>             → push Phase Summary
-///   termipod://project/<id>/{hero|header|tiles}        → Overview tab (the
-///                                                       3-layer chassis lives
-///                                                       inside it)
+///   termipod://project/<id>/hero                       → push dedicated Hero
+///                                                       screen (the template-
+///                                                       declared overview_widget)
 ///   termipod://document/<docId>                        → push Document Detail
 ///   termipod://run/<rid>                               → push Run Detail
 ///   termipod://host/<idOrName>                         → connect if a
@@ -304,20 +307,15 @@ Future<NavigateResult> _dispatchProjectSubRoute(
           refreshHub: refreshHub,
           tab: _projectTabIndex[sub]);
     case 'hero':
-    case 'header':
-    case 'tiles':
-      // The Overview tab's 3-layer chassis is header → hero → tiles.
-      // None of the three are separately scrollable screens — they
-      // sit one above the other inside the Overview ListView. Anchor
-      // any of these names to the Overview tab; the user's request
-      // ("show me the hero") reads as "show me the Overview
-      // centerpiece," and opening Overview surfaces it at the top of
-      // the scroll.
-      return _openProject(context, projectId,
-          hub: hub,
-          setTab: setTab,
-          refreshHub: refreshHub,
-          tab: _projectTabIndex['overview']);
+      // The hero is the template-declared centerpiece widget
+      // (experiment_dash, task_milestone_list, paper_acceptance, …).
+      // It lives inline inside the Overview tab's 3-layer chassis
+      // BUT is also navigable as its own dedicated screen — same
+      // treatment as a shortcut tile. Steward saying "show me the
+      // experiment dashboard hero" expects a focused page, not the
+      // mixed Overview scroll.
+      return _openHero(context, projectId,
+          hub: hub, setTab: setTab, refreshHub: refreshHub);
   }
   return NavigateResult.unknown;
 }
@@ -587,7 +585,38 @@ Future<NavigateResult> _openDiscussion(
   return const NavigateResult(true, 'Discussion');
 }
 
-/// `…/phases/<phase>` — the per-phase "hero" page. Resolves project
+/// `…/<projectId>/hero` — dedicated full-screen page for whichever
+/// `overview_widget` the project's template declared. Same chassis as
+/// a shortcut tile (its own Scaffold + AppBar), so steward navigation
+/// "show me the experiment dashboard hero" lands on a focused page
+/// rather than the Overview tab's mixed scroll.
+Future<NavigateResult> _openHero(
+  BuildContext context,
+  String projectId, {
+  required HubState? hub,
+  required void Function(int index) setTab,
+  required Future<HubState?> Function()? refreshHub,
+}) async {
+  if (projectId.isEmpty) return NavigateResult.unknown;
+  var match = _findById(hub?.projects, projectId);
+  if (match.isEmpty && refreshHub != null) {
+    final fresh = await refreshHub();
+    match = _findById(fresh?.projects, projectId);
+  }
+  if (match.isEmpty) return NavigateResult.unknown;
+  if (!context.mounted) return NavigateResult.unknown;
+  setTab(0);
+  Navigator.of(context, rootNavigator: true).push(
+    MaterialPageRoute(
+      builder: (_) => ProjectHeroScreen(project: match),
+    ),
+  );
+  final raw = (match['overview_widget'] ?? '').toString();
+  final spec = overviewWidgetSpecFor(normalizeOverviewWidget(raw));
+  return NavigateResult(true, 'Hero: ${spec.label}');
+}
+
+/// `…/phases/<phase>` — the per-phase summary page. Resolves project
 /// name + isCurrent from cache (with refresh-retry) so the summary
 /// header reads the way the user would tap-to-open it from the
 /// phase chip on the project detail screen.

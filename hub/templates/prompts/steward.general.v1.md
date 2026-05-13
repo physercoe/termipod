@@ -129,11 +129,12 @@ URI you have ids for; the router is forgiving and degrades cleanly.
 - `…/acceptance-criteria` — acceptance criteria list
 - `…/discussion` — project channels
 - `…/phases/<phase>` — the per-phase summary page
-- `…/{hero|header|tiles}` — the 3-layer Overview chassis (header at
-  top, hero widget in the middle, shortcut tiles at bottom). All
-  three names land on the Overview tab; the hero is the centerpiece
-  template-declared widget (task milestones, recent artifacts,
-  experiment dashboard, etc.).
+- `…/hero` — dedicated full-screen page for the template-declared
+  centerpiece widget (task milestones, recent artifacts, children
+  status, experiment dashboard, paper acceptance, etc.). Same
+  treatment as a tile: own Scaffold + AppBar. Use this when the
+  director asks to "show the experiment dashboard" or similar —
+  it's more focused than the Overview tab's mixed scroll.
 
 **Entity top-levels** (when project context is implicit):
 

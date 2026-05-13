@@ -916,6 +916,55 @@ class HubClient {
     );
   }
 
+  // ---- hub-wide governance config (owner-only) ----
+
+  /// Fetches the active operation-scope manifest (`roles.yaml`).
+  /// Returns the on-disk overlay if present; otherwise returns the
+  /// embedded built-in so the editor always has a starting point.
+  /// Requires an owner-kind token; non-owners get 403.
+  Future<String> getHubRolesConfig() async {
+    final req = await _open('GET', '/v1/hub/config/roles');
+    req.headers.set(HttpHeaders.acceptHeader, 'application/yaml');
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
+  /// Writes `roles.yaml` atomically: server validates by parsing the
+  /// supplied YAML, snapshots any prior overlay to `roles.yaml.bak`,
+  /// writes the new body, and hot-reloads the manifest. Parse failure
+  /// surfaces as HubApiError(400) without touching disk. Hot-reload
+  /// failure rolls back from the `.bak`. Returns the canonical body
+  /// the hub is now serving.
+  Future<String> putHubRolesConfig(String yaml) async {
+    final req = await _open('PUT', '/v1/hub/config/roles');
+    req.headers.contentType =
+        ContentType('application', 'yaml', charset: 'utf-8');
+    req.add(utf8.encode(yaml));
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
+  /// Removes the on-disk `roles.yaml` overlay and hot-reloads back to
+  /// the embedded default. Returns the embedded body. Idempotent —
+  /// succeeds whether or not an overlay file currently exists.
+  Future<String> resetHubRolesConfig() async {
+    final req = await _open('DELETE', '/v1/hub/config/roles');
+    final resp = await req.close();
+    final body = await resp.transform(utf8.decoder).join();
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw HubApiError(resp.statusCode, body);
+    }
+    return body;
+  }
+
   /// Fetches the raw team policy.yaml. Returns an empty string when the
   /// hub has no policy file yet — the editor treats that as a blank canvas.
   Future<String> getPolicy() async {

@@ -189,6 +189,14 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	// authenticated bearer can read it.
 	r.Get("/v1/hub/stats", s.handleHubStats)
 
+	// /v1/hub/config — owner-only hub-wide governance files. MVP
+	// exposes the operation-scope manifest (roles.yaml); pattern
+	// extends to other hub-level configs as they appear. See
+	// handlers_hub_config.go for the validate-then-swap contract.
+	r.Get("/v1/hub/config/roles", s.handleGetRolesConfig)
+	r.Put("/v1/hub/config/roles", s.handlePutRolesConfig)
+	r.Delete("/v1/hub/config/roles", s.handleResetRolesConfig)
+
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:
 	// /v1/insights?project_id=...&since=...&until=...

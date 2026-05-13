@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import 'hub_config_screen.dart';
 
 /// Fullscreen breakdown of `/v1/hub/stats`. Sibling of the per-hostrunner
 /// detail sheet, but reads from `state.hubStats` instead of a hub_host
@@ -36,7 +37,22 @@ class HubDetailScreen extends ConsumerWidget {
           style: GoogleFonts.spaceGrotesk(fontWeight: FontWeight.w700),
         ),
         actions: [
+          // Hub-wide governance config (owner-only). The screen
+          // itself handles the 403 surfacing — non-owners see a
+          // clear "owner token required" message. Living on the
+          // AppBar (vs the overflow) keeps it discoverable but the
+          // owner audience small. ADR-016 + Q1a 2026-05-13.
           IconButton(
+            tooltip: 'Hub config (owner)',
+            icon: const Icon(Icons.tune),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const HubRolesConfigScreen(),
+              ),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: () =>
                 ref.read(hubProvider.notifier).refreshHubStats(),

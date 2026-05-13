@@ -199,6 +199,85 @@ func (r *Roles) RoleFor(kind string) string {
 	return r.defaultRole
 }
 
+// RoleForSpec resolves a role using BOTH the agent_kind AND the
+// spawn_spec_yaml. The spec is the load-bearing input because mobile
+// historically conflated engine kind (claude-code/codex/gemini-cli)
+// with persona kind (steward.research.v1/worker.coder.v1), sending
+// the engine name as `kind` even for stewards — which made every
+// steward spawned from mobile land with role=worker.
+//
+// Resolution order:
+//  1. Kind-based match (RoleFor) — if the caller already passed a
+//     recognised persona kind, trust it.
+//  2. Spec-based fallback — parse the `default_role:` line from the
+//     embedded YAML. Every steward template declares
+//     `default_role: team.*` (coordinator or concierge); every worker
+//     declares `worker.*`. So the spec carries the persona signal
+//     even when the kind string doesn't.
+//  3. Default — `r.defaultRole`.
+//
+// Empty spec falls straight through to RoleFor, preserving the
+// existing path for callers that don't have a spec in hand.
+func (r *Roles) RoleForSpec(kind, spawnSpecYaml string) string {
+	if r == nil {
+		return "worker"
+	}
+	// Try kind-based first so admin-supplied exact overrides still win.
+	if v, ok := r.kindExact[kind]; ok && v != "" {
+		return v
+	}
+	if r.prefixSteward != "" && strings.HasPrefix(kind, r.prefixSteward) {
+		return "steward"
+	}
+	// Spec-based fallback. Tiny line scan — no need for a full YAML
+	// parser when we only care about a single top-level key.
+	if dr := parseDefaultRole(spawnSpecYaml); dr != "" {
+		if strings.HasPrefix(dr, "team.") {
+			return "steward"
+		}
+		// `worker.*` / `writer.*` / anything else explicitly declared
+		// stays in the worker bucket. We only escalate to steward on
+		// the `team.*` signal; nothing else carries that authority.
+		if strings.HasPrefix(dr, "worker.") || strings.HasPrefix(dr, "writer.") {
+			return "worker"
+		}
+	}
+	return r.defaultRole
+}
+
+// parseDefaultRole extracts the top-level `default_role:` value from
+// a spawn-spec YAML body. Returns "" when the key is absent or the
+// body is empty. We avoid a full YAML decode because every spawn
+// touches this path and the field is single-line, top-level, and
+// trivially unambiguous.
+//
+// Tolerates: surrounding whitespace, single/double-quoted values,
+// trailing comments after `#`. Stops scanning at the first non-
+// indented occurrence so a nested `default_role:` under e.g.
+// `mcp.something:` doesn't accidentally trump the top-level value.
+func parseDefaultRole(yamlBody string) string {
+	if yamlBody == "" {
+		return ""
+	}
+	for _, line := range strings.Split(yamlBody, "\n") {
+		// Top-level keys have no leading whitespace.
+		if len(line) == 0 || line[0] == ' ' || line[0] == '\t' || line[0] == '#' {
+			continue
+		}
+		const key = "default_role:"
+		if !strings.HasPrefix(line, key) {
+			continue
+		}
+		val := strings.TrimSpace(line[len(key):])
+		if i := strings.IndexByte(val, '#'); i >= 0 {
+			val = strings.TrimSpace(val[:i])
+		}
+		val = strings.Trim(val, `"'`)
+		return val
+	}
+	return ""
+}
+
 // Allows reports whether the given role may invoke the given tool name
 // per the manifest. Unknown role → deny. allow_all roles always
 // allow. Patterns: exact, prefix ("foo.*"), suffix ("*.bar"), or "*".

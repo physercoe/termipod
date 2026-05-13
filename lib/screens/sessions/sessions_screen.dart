@@ -8,6 +8,7 @@ import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/session_details_sheet.dart';
 import '../insights/insights_screen.dart';
@@ -20,8 +21,8 @@ import 'search_screen.dart';
 /// steward gets its own section with its current session inline + a
 /// collapsible "previous" subsection of archived sessions for that
 /// steward. AppBar `+` spawns a new steward; `⋮` opens template /
-/// engine management. Per-steward kebab carries Reset (new
-/// conversation), Replace, Stop session, Rename.
+/// engine management. Per-steward kebab carries View agent config,
+/// Reset (new conversation), Replace, Rename, Stop session.
 ///
 /// Multi-select mode: long-press on a session tile (or the AppBar
 /// "Select" menu item) enters select mode. While selecting, tiles
@@ -1027,6 +1028,9 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                             size: 18, color: muted),
                         onSelected: (v) {
                           switch (v) {
+                            case 'agent_config':
+                              showAgentConfigSheet(context,
+                                  agentId: group.agentId);
                             case 'reset':
                               _resetStewardConversation(context, ref,
                                   group.agentId, group.handle);
@@ -1040,6 +1044,11 @@ class _StewardSectionState extends ConsumerState<_StewardSection> {
                           }
                         },
                         itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'agent_config',
+                            child: Text('View agent config'),
+                          ),
+                          PopupMenuDivider(),
                           PopupMenuItem(
                             value: 'reset',
                             child: Text('Reset (new conversation)'),
@@ -2158,49 +2167,84 @@ class _SessionChatScreenState extends ConsumerState<SessionChatScreen> {
               onPressed: () =>
                   showModeModelPickerSheet(context, _modeModel!),
             ),
-          IconButton(
-            tooltip: 'Rename session',
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: _rename,
+          // Single overflow that carries everything except the
+          // engine-state chip and scope chip. Rename moved off the bar
+          // (was its own icon) to make room for the agent-config entry
+          // without the AppBar growing wider. Reset/Replace live on the
+          // steward-row kebab, not here, because they affect the
+          // steward identity (not just this session).
+          PopupMenuButton<String>(
+            tooltip: 'Session actions',
+            onSelected: (v) {
+              switch (v) {
+                case 'agent_config':
+                  final aid = (sessionRow?['current_agent_id'] ?? '')
+                      .toString();
+                  if (aid.isNotEmpty) {
+                    showAgentConfigSheet(context, agentId: aid);
+                  }
+                case 'rename':
+                  _rename();
+                case 'stop':
+                  _stopSession();
+                case 'fork':
+                  _forkSession();
+              }
+            },
+            itemBuilder: (_) => [
+              if ((sessionRow?['current_agent_id'] ?? '')
+                  .toString()
+                  .isNotEmpty)
+                const PopupMenuItem(
+                  value: 'agent_config',
+                  child: ListTile(
+                    leading: Icon(Icons.account_tree_outlined),
+                    title: Text('View agent config'),
+                    subtitle: Text(
+                        'Kind, role, mode, spawn spec'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'rename',
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Rename session'),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                ),
+              ),
+              if (canStop)
+                PopupMenuItem(
+                  value: 'stop',
+                  child: ListTile(
+                    leading: Icon(Icons.power_settings_new,
+                        color: Theme.of(context).colorScheme.error),
+                    title: Text('Stop session',
+                        style: TextStyle(
+                            color: Theme.of(context).colorScheme.error)),
+                    subtitle: const Text(
+                        'Kills the agent process; session pauses'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+              if (canFork)
+                PopupMenuItem(
+                  value: 'fork',
+                  child: ListTile(
+                    leading: Icon(Icons.fork_right,
+                        color: Theme.of(context).colorScheme.primary),
+                    title: const Text('Fork from archive'),
+                    subtitle: const Text(
+                        'New active session, same scope, fresh transcript'),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                ),
+            ],
           ),
-          if (canStop || canFork)
-            PopupMenuButton<String>(
-              tooltip: 'Session actions',
-              onSelected: (v) {
-                if (v == 'stop') _stopSession();
-                if (v == 'fork') _forkSession();
-              },
-              itemBuilder: (_) => [
-                if (canStop)
-                  PopupMenuItem(
-                    value: 'stop',
-                    child: ListTile(
-                      leading: Icon(Icons.power_settings_new,
-                          color: Theme.of(context).colorScheme.error),
-                      title: Text('Stop session',
-                          style: TextStyle(
-                              color: Theme.of(context).colorScheme.error)),
-                      subtitle: const Text(
-                          'Kills the agent process; session pauses'),
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                    ),
-                  ),
-                if (canFork)
-                  PopupMenuItem(
-                    value: 'fork',
-                    child: ListTile(
-                      leading: Icon(Icons.fork_right,
-                          color: Theme.of(context).colorScheme.primary),
-                      title: const Text('Fork from archive'),
-                      subtitle: const Text(
-                          'New active session, same scope, fresh transcript'),
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                    ),
-                  ),
-              ],
-            ),
         ],
       ),
       body: AgentFeed(

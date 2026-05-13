@@ -637,15 +637,25 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// rows if e.g. agent_spawns INSERT fails).
 	mcpTokenPlaintext := auth.NewToken()
 	mcpTokenID := NewID()
-	// Stamp role per ADR-016 — derive from agent_kind via the active
-	// operation-scope manifest. Two roles in MVP: steward / worker.
-	// The middleware in dispatchTool reads scope.Role first; legacy
-	// tokens (role="agent") still work via the resolveAgentRole
-	// fallback that re-derives from the agents row, but new tokens
-	// land with the explicit role here.
+	// Stamp role per ADR-016 — derive from agent_kind AND
+	// spawn_spec_yaml via the active operation-scope manifest. Two
+	// roles in MVP: steward / worker. The middleware in dispatchTool
+	// reads scope.Role first; legacy tokens (role="agent") still work
+	// via the resolveAgentRole fallback that re-derives from the
+	// agents row, but new tokens land with the explicit role here.
+	//
+	// **RoleForSpec, not RoleFor.** Mobile historically conflates
+	// engine kind (claude-code) with persona kind (steward.*.v1),
+	// sending the engine name as `kind` for stewards — which made
+	// every steward spawned from mobile land with role=worker and
+	// hit "tool not permitted for role: worker" the moment it tried
+	// to spawn a child agent. RoleForSpec consults the
+	// `default_role:` line from spawn_spec_yaml as a fallback so
+	// `default_role: team.*` (the canonical steward declaration in
+	// every steward template) escalates the role correctly.
 	role := "worker"
 	if r := activeRoles(); r != nil {
-		role = r.RoleFor(in.Kind)
+		role = r.RoleForSpec(in.Kind, in.SpawnSpec)
 	}
 	mcpScopeJSON, _ := json.Marshal(map[string]any{
 		"team":     team,

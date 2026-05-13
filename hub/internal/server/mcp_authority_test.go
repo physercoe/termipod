@@ -141,6 +141,70 @@ func TestRoles_ManifestMatching(t *testing.T) {
 		}
 	}
 
+	// RoleForSpec — when the caller (mobile, historically) sends the
+	// engine kind as `kind` for a steward template, the spawn_spec_yaml
+	// still carries `default_role: team.*` and that must escalate the
+	// role correctly. Otherwise stewards spawned from mobile land with
+	// worker role and can't invoke `agents.spawn` themselves.
+	specCases := []struct {
+		name, kind, spec, want string
+	}{
+		{
+			"steward spec with engine kind",
+			"claude-code",
+			"template: agents.steward.research\nversion: 1\ndefault_role: team.coordinator\n",
+			"steward",
+		},
+		{
+			"steward spec via concierge",
+			"claude-code",
+			"default_role: team.concierge\n",
+			"steward",
+		},
+		{
+			"worker spec keeps worker role",
+			"claude-code",
+			"default_role: worker.ml\n",
+			"worker",
+		},
+		{
+			"kind already matches prefix_steward — spec ignored",
+			"steward.research.v1",
+			"default_role: worker.foo\n",
+			"steward",
+		},
+		{
+			"empty spec falls through to kind",
+			"claude-code",
+			"",
+			"worker",
+		},
+		{
+			"nested default_role under another key is NOT picked up",
+			"claude-code",
+			"backend:\n  default_role: team.coordinator\n",
+			"worker",
+		},
+		{
+			"comment after value is stripped",
+			"claude-code",
+			"default_role: team.coordinator # canonical steward signal\n",
+			"steward",
+		},
+		{
+			"quoted value works",
+			"claude-code",
+			"default_role: \"team.coordinator\"\n",
+			"steward",
+		},
+	}
+	for _, c := range specCases {
+		if got := r.RoleForSpec(c.kind, c.spec); got != c.want {
+			t.Errorf("%s: RoleForSpec(%q, …) = %q; want %q",
+				c.name, c.kind, got, c.want)
+		}
+	}
+
 	// Steward allows everything.
 	for _, tool := range []string{"agents.spawn", "documents.create", "schedules.create", "anything"} {
 		if !r.Allows("steward", tool) {

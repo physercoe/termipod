@@ -505,7 +505,7 @@ class _ChatInputState extends State<_ChatInput> {
   /// Detect the conditions that cause IME state desync and trigger a
   /// ghost-focus-bounce to force InputConnection re-creation.
   ///
-  /// Two triggers:
+  /// Three triggers:
   ///   - **Cursor-only change** (text unchanged, selection changed):
   ///     user tapped to move the cursor. Within an active
   ///     InputConnection, the IME doesn't pick up the new selection;
@@ -514,6 +514,15 @@ class _ChatInputState extends State<_ChatInput> {
   ///     voice or attach handlers wrote to `_ctrl.value`. The IME
   ///     doesn't see the new text via setEditingState; subsequent
   ///     typing wipes the programmatic write.
+  ///   - **Delete or replace** (v1.0.562 — text changed but isn't a
+  ///     pure append, AND composing isn't involved): user backspaced
+  ///     or used a selection-replace. The IME's cache appears to stay
+  ///     at the pre-deletion state in our MaterialApp.builder context,
+  ///     so the next keystroke restores the deleted text and appends
+  ///     after. **Composing-involved transitions are skipped** so CJK
+  ///     candidate selection (composing "ni" → committed "你") still
+  ///     works — CJK commits change `composing.isValid` between before
+  ///     and after, which we use as the discriminator.
   ///
   /// Bounce: focus ghost FocusNode then refocus real one on postFrame.
   /// `_isResyncing` debounces re-entry.
@@ -523,11 +532,20 @@ class _ChatInputState extends State<_ChatInput> {
     _lastCtrlValue = cur;
     if (last == null || _isResyncing) return;
     if (!_focus.hasFocus) return; // not actively editing
-    final cursorOnly =
-        last.text == cur.text && last.selection != cur.selection;
+
+    final textChanged = last.text != cur.text;
+    final isPureAppend = textChanged &&
+        cur.text.length > last.text.length &&
+        cur.text.startsWith(last.text);
+    final involvesComposing =
+        last.composing.isValid || cur.composing.isValid;
+    final cursorOnly = !textChanged && last.selection != cur.selection;
+    final isDeleteOrReplace =
+        textChanged && !isPureAppend && !involvesComposing;
     final wasProgrammatic = _programmaticMutation;
     _programmaticMutation = false;
-    if (cursorOnly || wasProgrammatic) {
+
+    if (cursorOnly || wasProgrammatic || isDeleteOrReplace) {
       _bounceFocusForImeResync();
     }
   }

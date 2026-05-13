@@ -514,6 +514,78 @@ func (s *Server) mcpRequestHelp(ctx context.Context, team, fromID string, raw js
 }
 
 // ---------------------------------------------------------------------
+// request_project_steward — ADR-025 W4 delegation attention item.
+// ---------------------------------------------------------------------
+//
+// The general steward calls this when the principal asks it to operate
+// inside a project that has no live steward yet. Per ADR-025 D2 the
+// general steward can't spawn workers directly; it must hand off to a
+// project steward, and project stewards are materialized lazily with
+// director consent. This tool is the delegation channel: raise an
+// attention item the principal can tap to open the host-picker sheet
+// (W7) prefilled with the general steward's suggestion.
+//
+// kind=`project_steward_request` is the mobile-recognized rendering
+// hook for this flow. Severity is `major` — it's principal-blocking
+// (the general steward is waiting on this to proceed) but not
+// critical.
+
+type requestProjectStewardArgs struct {
+	ProjectID       string `json:"project_id"`
+	Reason          string `json:"reason"`
+	SuggestedHostID string `json:"suggested_host_id"`
+}
+
+func (s *Server) mcpRequestProjectSteward(ctx context.Context, team, fromID string, raw json.RawMessage) (any, *jrpcError) {
+	var a requestProjectStewardArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.ProjectID == "" || a.Reason == "" {
+		return nil, &jrpcError{Code: -32602, Message: "project_id and reason required"}
+	}
+	// Validate the project exists in this team so a typo can't park a
+	// permanent open attention against a nonexistent project_id.
+	if err := s.validateProjectInTeam(ctx, team, a.ProjectID); err != nil {
+		return nil, &jrpcError{Code: -32602, Message: err.Error()}
+	}
+	id := NewID()
+	now := NowUTC()
+	payload, _ := json.Marshal(map[string]any{
+		"project_id":        a.ProjectID,
+		"reason":            a.Reason,
+		"suggested_host_id": a.SuggestedHostID,
+		"requested_by":      fromID,
+	})
+	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)
+	sessionID := s.lookupAgentSession(ctx, fromID)
+	summary := "Spawn a project steward: " + a.Reason
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO attention_items (
+			id, project_id, scope_kind, scope_id, kind,
+			summary, severity, current_assignees_json, status, created_at,
+			actor_kind, actor_handle, pending_payload_json, session_id
+		) VALUES (?, ?, 'project', ?, 'project_steward_request',
+		          ?, 'major', '[]', 'open', ?,
+		          'agent', NULLIF(?, ''), ?, NULLIF(?, ''))`,
+		id, a.ProjectID, a.ProjectID, summary, now,
+		actorHandle, string(payload), sessionID)
+	if err != nil {
+		return nil, &jrpcError{Code: -32000, Message: err.Error()}
+	}
+	s.recordAudit(ctx, team, "project_steward.request", "attention", id,
+		"project steward requested for "+a.ProjectID+": "+a.Reason,
+		map[string]any{
+			"agent_id":          fromID,
+			"project_id":        a.ProjectID,
+			"suggested_host_id": a.SuggestedHostID,
+		})
+	return mcpResultJSON(map[string]any{
+		"id":           id,
+		"kind":         "project_steward_request",
+		"status":       "awaiting_response",
+		"requested_by": fromID,
+	}), nil
+}
+
+// ---------------------------------------------------------------------
 // attach — upload base64 content as a blob, return {sha256, size}
 // ---------------------------------------------------------------------
 

@@ -358,6 +358,11 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 		return s.mcpRequestSelect(ctx, scope.Team, agentID, call.Arguments)
 	case "request_help":
 		return s.mcpRequestHelp(ctx, scope.Team, agentID, call.Arguments)
+	case "request_project_steward":
+		// ADR-025 W4: general-steward delegation channel. The tool
+		// raises a `project_steward_request` attention item the
+		// director acts on via the host-picker sheet (W7).
+		return s.mcpRequestProjectSteward(ctx, scope.Team, agentID, call.Arguments)
 	case "attach":
 		return s.mcpAttach(ctx, call.Arguments)
 	case "get_event":

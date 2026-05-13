@@ -459,6 +459,35 @@ class _ChatInputState extends State<_ChatInput> {
   // `_activeFlow` / `_voiceStarting`, both of which mutate through
   // setState (user-driven events, never keystrokes).
 
+  // ===== TextField widget identity cache =====
+  //
+  // Flutter's `Element.updateChild` short-circuits with no update at
+  // all when `child.widget == newWidget` (reference-equal — Widget
+  // doesn't override `==`). If we return the SAME `TextField` widget
+  // instance across rebuilds, the framework skips `didUpdateWidget`
+  // entirely, EditableText's State doesn't reattach, and the IME's
+  // `setEditingState` is never re-poked mid-composition.
+  //
+  // This is the v1.0.548 fix for the recurring "deleted characters
+  // come back" bug. Removing the `_ctrl.addListener` in v1.0.545
+  // wasn't enough — any ancestor rebuild (MediaQuery viewInsets when
+  // Gboard's suggestion strip animates, a Riverpod provider emitting,
+  // theme transitions, focus shifts) still propagates down to
+  // `_buildTextField()` and creates a fresh TextField + fresh
+  // InputDecoration + fresh suffix IconButton each call. New widget
+  // identity → `didUpdateWidget` → potential IME poke → Gboard
+  // predictive-cache rebound.
+  //
+  // Memoising the TextField widget by the only inputs that actually
+  // affect its config (voiceEnabled, streaming, disabled) cuts every
+  // such path. The internal `_ctrl` mutates independently and notifies
+  // EditableText via its addListener — that's the legitimate user-
+  // typing path and is unaffected by caching widget identity.
+  Widget? _cachedTextField;
+  bool _cachedTfStreaming = false;
+  bool _cachedTfVoiceEnabled = false;
+  bool _cachedTfDisabled = false;
+
   @override
   void dispose() {
     _holdTickTimer?.cancel();
@@ -857,7 +886,22 @@ class _ChatInputState extends State<_ChatInput> {
     // `_voiceStarting`, which only flip via user-driven setState.
     final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
         _voiceSession != null;
-    return TextField(
+    final voiceEnabled = widget.voiceEnabled;
+    final disabled = _sending || _voiceStarting;
+    // Widget-identity cache (see §"TextField widget identity cache"
+    // above). When the cached inputs match, return the SAME TextField
+    // instance — Flutter's `Element.updateChild` will see
+    // `child.widget == newWidget` and skip the rebuild entirely.
+    if (_cachedTextField != null &&
+        _cachedTfStreaming == streaming &&
+        _cachedTfVoiceEnabled == voiceEnabled &&
+        _cachedTfDisabled == disabled) {
+      return _cachedTextField!;
+    }
+    _cachedTfStreaming = streaming;
+    _cachedTfVoiceEnabled = voiceEnabled;
+    _cachedTfDisabled = disabled;
+    _cachedTextField = TextField(
       controller: _ctrl,
       focusNode: _focus,
       minLines: 1,
@@ -872,7 +916,7 @@ class _ChatInputState extends State<_ChatInput> {
         ),
         contentPadding: const EdgeInsets.symmetric(
             horizontal: 12, vertical: 10),
-        suffixIcon: widget.voiceEnabled
+        suffixIcon: voiceEnabled
             ? IconButton(
                 tooltip: streaming ? 'Stop dictation' : 'Start dictation',
                 icon: Icon(
@@ -882,8 +926,7 @@ class _ChatInputState extends State<_ChatInput> {
                       ? DesignColors.error
                       : DesignColors.primary,
                 ),
-                onPressed:
-                    (_sending || _voiceStarting) ? null : _onInlineMicTap,
+                onPressed: disabled ? null : _onInlineMicTap,
                 padding: EdgeInsets.zero,
                 visualDensity: VisualDensity.compact,
                 constraints:
@@ -894,6 +937,7 @@ class _ChatInputState extends State<_ChatInput> {
             const BoxConstraints(minWidth: 32, minHeight: 32),
       ),
     );
+    return _cachedTextField!;
   }
 
   Widget _buildHoldToSpeakSurface() {

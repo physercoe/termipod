@@ -875,38 +875,22 @@ class _ChatInputState extends State<_ChatInput> {
       maxLines: 4,
       keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
-      // **v1.0.552 — full belt-of-IME-flags defence after .551's
-      // personalised-learning theory was disproved by tester clue
-      // "it is not predictive, whatever I input, the previous old
-      // input comes back".** That clue rules out per-field learning
-      // (which IS predictive — prefix-driven). But it doesn't rule
-      // out *autocorrect* (deterministic dictionary-driven
-      // replacement) or *smart text replacement* (iOS auto-quote /
-      // auto-dash). Both can swap user input for previously-seen
-      // tokens without surfacing a suggestion strip.
-      //
-      // Stacking the four flags below disables every Flutter-exposed
-      // automatic-text-modification path:
-      //
-      //   - enableIMEPersonalizedLearning: false — no in-app
-      //     learning, no offering past input as predictions.
-      //   - autocorrect: false — disable dictionary-driven
-      //     replacement on commit (the path that turns deleted "h"
-      //     back into "hello").
-      //   - smartDashesType: disabled — iOS would otherwise
-      //     auto-substitute -- for an em-dash.
-      //   - smartQuotesType: disabled — iOS would otherwise
-      //     auto-substitute " for curly quotes.
-      //
-      // Crucially, NONE of these disable `enableSuggestions` (which
-      // CJK IMEs need as their candidate display — burn in v1.0.480)
-      // and NONE disable composition. CJK input still works
-      // end-to-end. The previously-mistaken v1.0.471 flag combo
-      // included `enableSuggestions: false` — that's what broke CJK.
-      enableIMEPersonalizedLearning: false,
-      autocorrect: false,
-      smartDashesType: SmartDashesType.disabled,
-      smartQuotesType: SmartQuotesType.disabled,
+      // **v1.0.558 — strip the four defensive IME flags.** v1.0.551/.552
+      // added `enableIMEPersonalizedLearning: false`, `autocorrect: false`,
+      // `smartDashesType.disabled`, `smartQuotesType.disabled` to fight
+      // the recurring "deleted text returns + cursor jumps to end" bug.
+      // None of those fixes moved the bug. Tester clue in v1.0.557:
+      // repro is "type, tap cursor mid-text, type new char — old content
+      // restored + char appended at end", which is an IME state desync
+      // (cursor-position not respected by the IME), NOT a Flutter-side
+      // rebuild storm. Working session-compose (`agent_compose.dart`) has
+      // ZERO of these flags and works correctly across CJK + English on
+      // WeChat input method + Gboard. Hypothesis: the flag stack
+      // (especially `IME_FLAG_NO_PERSONALIZED_LEARNING` +
+      // `IME_FLAG_NO_AUTOCORRECT` together) pushes some Android IMEs
+      // into a non-standard EditorInfo mode that stops respecting
+      // `setEditingState` cursor updates. Reverting to a bare TextField
+      // matches the proven-good compose pattern.
       decoration: InputDecoration(
         isDense: true,
         hintText: 'Ask the steward…',

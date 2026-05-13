@@ -187,11 +187,38 @@ func launchM2(ctx context.Context, cfg M2LaunchConfig) (M2LaunchResult, error) {
 	// We expand ~ ourselves rather than relying on bash's tilde expansion
 	// because the launcher passes the command through `bash -c "..."` and
 	// we want the failure mode to be a clean Go error if HOME is unset.
+	//
+	// Workdir resolution (ADR-025 W6):
+	//   1. spec.Backend.DefaultWorkdir   — explicit template field wins.
+	//   2. cfg.Spawn.ProjectID set        — derive ~/hub-work/<pid8>/<handle>
+	//      so workers in the same project share a folder root and sibling
+	//      handles don't collide across projects.
+	//   3. neither                        — empty, command runs from
+	//      host-runner's cwd (legacy single-host demo path).
+	wd := spec.Backend.DefaultWorkdir
+	if wd == "" && cfg.Spawn.ProjectID != "" {
+		pid := cfg.Spawn.ProjectID
+		if len(pid) > 8 {
+			pid = pid[:8]
+		}
+		handle := cfg.Spawn.Handle
+		if handle == "" {
+			handle = cfg.Spawn.ChildID
+		}
+		wd = filepath.Join("~", "hub-work", pid, handle)
+	}
 	expandedWorkdir := ""
-	if wd := spec.Backend.DefaultWorkdir; wd != "" {
+	if wd != "" {
 		expanded, err := expandHome(wd)
 		if err != nil {
-			return M2LaunchResult{}, fmt.Errorf("expand default_workdir %q: %w", wd, err)
+			return M2LaunchResult{}, fmt.Errorf("expand workdir %q: %w", wd, err)
+		}
+		// Ensure the directory exists — derivation builds a new path the
+		// first time a worker lands in this project, and writeContextFiles
+		// / writeMCPConfig below would fail otherwise. 0o755 matches the
+		// downstream calls so a re-launch is idempotent.
+		if err := os.MkdirAll(expanded, 0o755); err != nil {
+			return M2LaunchResult{}, fmt.Errorf("mkdir workdir %q: %w", expanded, err)
 		}
 		expandedWorkdir = expanded
 		command = fmt.Sprintf("cd %s && %s", shellEscape(expanded), command)

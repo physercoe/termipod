@@ -779,6 +779,10 @@ type spawnListOut struct {
 	// and never exposes it to mobile/principal clients. Empty for
 	// pre-W2.2 spawns that predate the column.
 	McpToken string `json:"mcp_token,omitempty"`
+	// ProjectID binds the spawned agent to a project per ADR-025 W2.
+	// host-runner reads this in launch_m2 to derive the project-
+	// scoped workdir when the template's default_workdir is empty.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // handleListSpawns returns agent_spawns rows, filtered by host and/or status.
@@ -794,7 +798,8 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 		       sp.spawn_spec_yaml, sp.spawn_authority_json, sp.task_json,
 		       COALESCE(sp.worktree_path, ''), sp.spawned_at,
 		       COALESCE(a.driving_mode, ''),
-		       COALESCE(sp.mcp_token_plaintext, '')
+		       COALESCE(sp.mcp_token_plaintext, ''),
+		       COALESCE(a.project_id, '')
 		FROM agent_spawns sp
 		JOIN agents a ON a.id = sp.child_agent_id
 		WHERE a.team_id = ?`
@@ -831,7 +836,7 @@ func (s *Server) handleListSpawns(w http.ResponseWriter, r *http.Request) {
 			&sp.Handle, &sp.Kind, &sp.HostID, &sp.Status,
 			&sp.SpawnSpec, &authority, &task,
 			&sp.WorktreePath, &sp.SpawnedAt, &sp.Mode,
-			&sp.McpToken); err != nil {
+			&sp.McpToken, &sp.ProjectID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

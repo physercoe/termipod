@@ -15,10 +15,18 @@ template: agents.coder
 version: 1
 extends: null
 
+# ADR-025 W6 — workers run in M2 (structured stdio) so the steward
+# overlay can render their turns as transcripts and gate tool use.
+# M4 fallback covers hosts without the MCP gateway port. workdir
+# is left to launch_m2: when project_id is set, the hub derives
+# ~/hub-work/<pid[:8]>/<handle> so each worker pane lands in a
+# project-scoped folder without colliding with siblings.
+driving_mode: M2
+fallback_modes: [M4]
+
 backend:
   kind: claude-code
   model: claude-opus-4-7
-  default_workdir: ~/hub-work/coder
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"

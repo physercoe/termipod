@@ -145,6 +145,11 @@ type Spawn struct {
 	// the per-spawn token wedge (W2.2) — those agents still launch but
 	// can't call hub MCP tools.
 	MCPToken string `json:"mcp_token,omitempty"`
+	// ProjectID binds the spawn to a project per ADR-025 W2. When the
+	// template leaves backend.default_workdir empty the M2 launcher
+	// derives `~/hub-work/<pid[:8]>/<handle>` so each project gets a
+	// stable folder root and sibling worker handles don't collide.
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 func (c *Client) ListPendingSpawns(ctx context.Context, hostID string) ([]Spawn, error) {

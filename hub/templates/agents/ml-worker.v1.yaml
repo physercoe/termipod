@@ -8,6 +8,14 @@ template: agents.ml-worker
 version: 1
 extends: null
 
+# ADR-025 W6 — workers default to M2 (structured stdio) so the
+# steward overlay can render transcripts; M4 fallback for hosts
+# without the MCP gateway port. ml-worker keeps its explicit
+# `default_workdir: ~/hub-work` since it's the team-shared scratch
+# space, not project-scoped.
+driving_mode: M2
+fallback_modes: [M4]
+
 backend:
   kind: claude-code
   # {{model}} expands from this field; permission_modes lets the spawn

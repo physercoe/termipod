@@ -20,10 +20,14 @@ template: agents.paper-writer
 version: 1
 extends: null
 
+# ADR-025 W6 — M2 driver default + project-scoped workdir
+# derivation when the spawn carries project_id.
+driving_mode: M2
+fallback_modes: [M4]
+
 backend:
   kind: claude-code
   model: claude-opus-4-7
-  default_workdir: ~/hub-work/paper-writer
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"

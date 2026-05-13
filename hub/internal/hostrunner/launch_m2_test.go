@@ -213,6 +213,93 @@ func TestLaunchM2_WrapsCommandWithWorkdir(t *testing.T) {
 	res.Driver.Stop()
 }
 
+// ADR-025 W6: when the template leaves backend.default_workdir empty
+// AND the spawn carries a project_id, the M2 launcher derives
+// ~/hub-work/<pid[:8]>/<handle> and creates the directory. This is
+// what makes the new W6-style worker templates work without their
+// per-handle default_workdir overrides.
+func TestLaunchM2_DerivesProjectWorkdir(t *testing.T) {
+	logDir := t.TempDir()
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:coder.0"}
+	poster := &fakePoster{}
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	projectID := "01HXYZABCDEFGHJKMNPQR0123" // ULID-shaped; first 8 = "01HXYZAB"
+	sp := Spawn{
+		ChildID:   "agent-coder-1",
+		Handle:    "coder",
+		Kind:      "claude-code",
+		ProjectID: projectID,
+		// No default_workdir — coder.v1.yaml after W6.
+		SpawnSpec: "backend:\n  cmd: claude --print\n",
+		Mode:      "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	wantDir := filepath.Join(homeDir, "hub-work", projectID[:8], "coder")
+	wantPrefix := "cd '" + wantDir + "' && "
+	if !strings.HasPrefix(spawner.cmd, wantPrefix) {
+		t.Fatalf("spawner.cmd = %q; want prefix %q", spawner.cmd, wantPrefix)
+	}
+	if _, err := os.Stat(wantDir); err != nil {
+		t.Errorf("derived workdir %q not created: %v", wantDir, err)
+	}
+}
+
+// Templates that explicitly declare default_workdir keep winning
+// over the project-derived path — explicit always overrides per
+// W6 resolution rules. This guards the briefing + ml-worker case
+// (kept their workdir intentionally).
+func TestLaunchM2_ExplicitWorkdirBeatsProjectID(t *testing.T) {
+	logDir := t.TempDir()
+	spawner := newFakeProcSpawner()
+	launcher := &recordingLauncher{pane: "hub-agents:briefing.0"}
+	poster := &fakePoster{}
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	sp := Spawn{
+		ChildID:   "agent-briefing-1",
+		Handle:    "briefing",
+		Kind:      "claude-code",
+		ProjectID: "01HXYZABCDEFGHJKMNPQR0123",
+		SpawnSpec: "backend:\n  cmd: claude --print\n" +
+			"  default_workdir: ~/hub-work\n",
+		Mode: "M2",
+	}
+
+	res, err := launchM2(context.Background(), M2LaunchConfig{
+		Spawn:    sp,
+		Launcher: launcher,
+		Client:   poster,
+		Spawner:  spawner,
+		LogDir:   logDir,
+	})
+	if err != nil {
+		t.Fatalf("launchM2: %v", err)
+	}
+	defer res.Driver.Stop()
+
+	want := "cd '" + filepath.Join(homeDir, "hub-work") + "' && "
+	if !strings.HasPrefix(spawner.cmd, want) {
+		t.Fatalf("explicit default_workdir lost to derivation: spawner.cmd=%q want prefix %q",
+			spawner.cmd, want)
+	}
+}
+
 func TestLaunchM2_ErrorsWhenBackendCmdMissing(t *testing.T) {
 	_, err := launchM2(context.Background(), M2LaunchConfig{
 		Spawn:    Spawn{ChildID: "a1", SpawnSpec: ""}, // no backend.cmd

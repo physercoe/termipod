@@ -78,6 +78,30 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
   /// micro-fluctuations.
   double _keyboardInset = 0;
 
+  /// **v1.0.560 — the actual root-cause fix.** A long-lived
+  /// FocusScopeNode that wraps the panel content in an explicit
+  /// `FocusScope`. Per Flutter issue #28986 (closed; HansMuller,
+  /// Flutter contributor): *"To create a TextField in an Overlay you
+  /// need to provide an enclosing FocusScope."* Our overlay panel is
+  /// mounted in `MaterialApp.builder` outside the Navigator's
+  /// FocusScope hierarchy; without an explicit FocusScope, the
+  /// InputConnection lifecycle is misconfigured, `setEditingState`
+  /// pushes from Dart don't propagate cursor/text updates to the IME
+  /// cache, and the IME runs on stale state. Symptoms across IMEs:
+  /// cursor jumps to end on any input, programmatic writes (voice)
+  /// get wiped by subsequent typing. The manual workaround (tap
+  /// another compose then back) creates a fresh InputConnection by
+  /// transferring focus to a TextField inside a real FocusScope; this
+  /// node automates that by giving the overlay TextField its own
+  /// stable, properly-scoped focus context. Held on `_StewardOverlayState`
+  /// rather than `_ExpandedPanel` so it survives panel expand/collapse
+  /// (otherwise focus state would be lost on every reopen). See
+  /// `docs/decisions/` (and the IME memory in `~/.claude/.../memory/`)
+  /// for the full saga of wrong theories v1.0.466→.559 that this
+  /// supersedes.
+  final FocusScopeNode _panelFocusScope =
+      FocusScopeNode(debugLabel: 'StewardOverlayPanel');
+
   // Mode A — puck long-press voice recording state. Lives on the
   // overlay because the puck is the affordance; HUD is positioned
   // relative to the puck's current offset.
@@ -307,6 +331,7 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
     _voiceTickTimer?.cancel();
     _voiceSub?.cancel();
     _voiceSession?.dispose();
+    _panelFocusScope.dispose();
     super.dispose();
   }
 
@@ -381,6 +406,7 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay>
                 child: _ExpandedPanel(
                   onClose: _collapse,
                   panelOpacity: settings.stewardOverlayPanelOpacity,
+                  focusScopeNode: _panelFocusScope,
                   onHeaderDrag: (delta) {
                     setState(() {
                       final next = _panelRect!.translate(delta.dx, delta.dy);
@@ -570,6 +596,7 @@ class _ExpandedPanel extends StatelessWidget {
   final VoidCallback onResizeEnd;
   final double resizeHandleSize;
   final double panelOpacity;
+  final FocusScopeNode focusScopeNode;
 
   const _ExpandedPanel({
     required this.onClose,
@@ -579,6 +606,7 @@ class _ExpandedPanel extends StatelessWidget {
     required this.onResizeEnd,
     required this.resizeHandleSize,
     required this.panelOpacity,
+    required this.focusScopeNode,
   });
 
   @override
@@ -680,7 +708,28 @@ class _ExpandedPanel extends StatelessWidget {
             // keeps the Container's decoration visible;
             // `resizeToAvoidBottomInset: false` because the overlay
             // manages its own panel positioning against the keyboard.
-            child: Scaffold(
+            // **v1.0.560 — the real root-cause fix.** Wrap the panel
+            // in an explicit `FocusScope` with a long-lived
+            // `FocusScopeNode` (owned by `_StewardOverlayState`). Per
+            // Flutter issue #28986 (HansMuller, Flutter contributor):
+            // *"To create a TextField in an Overlay you need to
+            // provide an enclosing FocusScope."* Our panel is mounted
+            // in `MaterialApp.builder` outside the Navigator's
+            // FocusScope hierarchy; without an explicit FocusScope
+            // here, the InputConnection lifecycle is misconfigured,
+            // `setEditingState` pushes from Dart don't propagate to
+            // the IME's cache, and the IME runs on stale state —
+            // visible as cursor jumps to end on input and
+            // programmatic writes (voice) wiped on subsequent typing.
+            // The user's manual workaround "tap another compose then
+            // back" works because that other compose IS inside a real
+            // FocusScope (Scaffold body in a Navigator route); the
+            // round-trip creates a fresh InputConnection that
+            // re-syncs the IME from Dart. This FocusScope automates
+            // that scope discipline.
+            child: FocusScope(
+              node: focusScopeNode,
+              child: Scaffold(
               backgroundColor: Colors.transparent,
               resizeToAvoidBottomInset: false,
               body: Column(
@@ -694,6 +743,7 @@ class _ExpandedPanel extends StatelessWidget {
                   Expanded(
                       child: StewardOverlayChat(onCloseRequested: onClose)),
                 ],
+              ),
               ),
             ),
           ),

@@ -394,7 +394,34 @@ class _ChatInputState extends State<_ChatInput> {
   // parent rebuilds — same reasoning as the dedicated controller. A
   // freshly-minted FocusNode every build can race the IME attach/detach
   // cycle and exacerbate the predictive-restore bug below.
-  final _focus = FocusNode();
+  final _focus = FocusNode(debugLabel: 'overlayChatInput');
+
+  // **v1.0.561 — ghost FocusNode for IME re-attach.** The overlay
+  // TextField suffers an undocumented Flutter limitation in
+  // MaterialApp.builder mounted contexts: within a long-lived
+  // InputConnection, `setEditingState` pushes from Dart don't
+  // propagate cursor/text updates to the IME. Symptoms: cursor jumps
+  // to end on input after a cursor-move; programmatic writes (voice)
+  // wiped on subsequent typing. v1.0.555–560 chased rebuild storms,
+  // IME flags, Scaffold plumbing, and explicit FocusScope — none
+  // moved the bug. User's diagnostic clue: tapping a sibling
+  // TextField then tapping back makes editing work for one round
+  // trip. Mechanism: switching focus between distinct
+  // TextField/EditableText pairs creates fresh InputConnections,
+  // which forces the IME to drop its stale cache.
+  //
+  // The ghost TextField below is parked offscreen (Positioned at
+  // -1000,-1000) inside this widget's Stack. When we detect a
+  // moment that previously caused desync (cursor-only change via
+  // user tap, or programmatic _ctrl mutation from voice / pick), we
+  // briefly focus the ghost then refocus the real input on
+  // postFrame — automating the user's manual workaround.
+  final _ghostController = TextEditingController();
+  final _ghostFocus = FocusNode(debugLabel: 'overlayChatInputGhost');
+  TextEditingValue? _lastCtrlValue;
+  bool _programmaticMutation = false;
+  bool _isResyncing = false;
+
   bool _sending = false;
   // Wave 2 W4 — pending image attachments queued for the next send.
   // Each entry is `{mime_type, data}` with data base64-encoded; rides
@@ -469,10 +496,63 @@ class _ChatInputState extends State<_ChatInput> {
   // TextField itself).
 
   @override
+  void initState() {
+    super.initState();
+    _lastCtrlValue = _ctrl.value;
+    _ctrl.addListener(_onCtrlChanged);
+  }
+
+  /// Detect the conditions that cause IME state desync and trigger a
+  /// ghost-focus-bounce to force InputConnection re-creation.
+  ///
+  /// Two triggers:
+  ///   - **Cursor-only change** (text unchanged, selection changed):
+  ///     user tapped to move the cursor. Within an active
+  ///     InputConnection, the IME doesn't pick up the new selection;
+  ///     subsequent typing appends at the IME's stale cursor.
+  ///   - **Programmatic mutation** (flagged before voice/pick writes):
+  ///     voice or attach handlers wrote to `_ctrl.value`. The IME
+  ///     doesn't see the new text via setEditingState; subsequent
+  ///     typing wipes the programmatic write.
+  ///
+  /// Bounce: focus ghost FocusNode then refocus real one on postFrame.
+  /// `_isResyncing` debounces re-entry.
+  void _onCtrlChanged() {
+    final cur = _ctrl.value;
+    final last = _lastCtrlValue;
+    _lastCtrlValue = cur;
+    if (last == null || _isResyncing) return;
+    if (!_focus.hasFocus) return; // not actively editing
+    final cursorOnly =
+        last.text == cur.text && last.selection != cur.selection;
+    final wasProgrammatic = _programmaticMutation;
+    _programmaticMutation = false;
+    if (cursorOnly || wasProgrammatic) {
+      _bounceFocusForImeResync();
+    }
+  }
+
+  void _bounceFocusForImeResync() {
+    _isResyncing = true;
+    _ghostFocus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        _isResyncing = false;
+        return;
+      }
+      _focus.requestFocus();
+      _isResyncing = false;
+    });
+  }
+
+  @override
   void dispose() {
     _holdTickTimer?.cancel();
     _voiceSub?.cancel();
     _voiceSession?.dispose();
+    _ctrl.removeListener(_onCtrlChanged);
+    _ghostController.dispose();
+    _ghostFocus.dispose();
     _focus.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -529,6 +609,7 @@ class _ChatInputState extends State<_ChatInput> {
           : TextSelection.collapsed(offset: value.text.length);
       final next = value.text.replaceRange(sel.start, sel.end, att.markdown);
       final cursor = sel.start + att.markdown.length;
+      _programmaticMutation = true;
       _ctrl.value = TextEditingValue(
         text: next,
         selection: TextSelection.collapsed(offset: cursor),
@@ -684,6 +765,7 @@ class _ChatInputState extends State<_ChatInput> {
             // Route through the regular _send so any staged
             // attachments ride along — same outbound shape as a
             // keyboard send.
+            _programmaticMutation = true;
             _ctrl.text = text;
             // Schedule on a microtask so cleanup state settles before
             // _send awaits the network call.
@@ -691,6 +773,7 @@ class _ChatInputState extends State<_ChatInput> {
           } else {
             // Drop transcript into the input + revert to text mode so
             // the user can review + tap send.
+            _programmaticMutation = true;
             _ctrl.value = TextEditingValue(
               text: text,
               selection: TextSelection.collapsed(offset: text.length),
@@ -727,6 +810,7 @@ class _ChatInputState extends State<_ChatInput> {
         final needsSeparator =
             base.isNotEmpty && dictated.isNotEmpty && !base.endsWith(' ');
         final combined = needsSeparator ? '$base $dictated' : '$base$dictated';
+        _programmaticMutation = true;
         _ctrl.value = TextEditingValue(
           text: combined,
           selection: TextSelection.collapsed(offset: combined.length),
@@ -735,6 +819,7 @@ class _ChatInputState extends State<_ChatInput> {
           _cleanupVoiceSession();
         }
       case VoiceSessionEventKind.cancelled:
+        _programmaticMutation = true;
         _ctrl.value = TextEditingValue(
           text: _voiceSavedText,
           selection:
@@ -1021,6 +1106,7 @@ class _ChatInputState extends State<_ChatInput> {
         // Only restore if the user hasn't started typing something
         // new — preserving their fresh input is the higher priority.
         if (_ctrl.text.isEmpty) {
+          _programmaticMutation = true;
           _ctrl.text = text;
         }
         if (stagedImages != null) {
@@ -1052,6 +1138,28 @@ class _ChatInputState extends State<_ChatInput> {
     return Stack(
       clipBehavior: Clip.none,
       children: [
+        // **Ghost TextField for IME re-attach trick.** Parked offscreen
+        // at (-1000, -1000) with 1x1 size. Used by
+        // `_bounceFocusForImeResync` to force the IME to drop its stale
+        // InputConnection cache by transferring focus to a distinct
+        // TextField/EditableText and back. See `_onCtrlChanged` and the
+        // v1.0.561 field-doc on `_ghostFocus` for full rationale. Stack
+        // has `clipBehavior: Clip.none` already, so the offscreen
+        // position renders without being clipped away (which would
+        // prevent the EditableText from being laid out and focusable).
+        Positioned(
+          left: -1000,
+          top: -1000,
+          width: 1,
+          height: 1,
+          child: IgnorePointer(
+            child: TextField(
+              controller: _ghostController,
+              focusNode: _ghostFocus,
+              decoration: const InputDecoration.collapsed(hintText: ''),
+            ),
+          ),
+        ),
         Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: Column(

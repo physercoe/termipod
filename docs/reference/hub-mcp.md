@@ -119,8 +119,8 @@ fields read straight from the JSON-Schema embedded in
 
 | Tool | Purpose |
 |---|---|
-| `agents.spawn` | Spawn a child agent. **`child_handle`**, **`kind`**, **`spawn_spec_yaml`**; optional `host_id`, `parent_agent_id`, `worktree_path`, `budget_cents`, `mode`. *Planned (v1.0.561, ADR-025):* `project_id:` in the spawn YAML binds the agent to a project, the hub persists it on the agent row, and atomically creates a `sessions` row for the new worker (D5). Project-scoped spawns will be gated to the project's steward as caller (D3); the general steward delegates rather than spawning directly. May return 202 + attention_id when policy gates the spawn. |
-| `agents.list` | List agents. Optional `host_id`, `status` filters; `include_archived: true` to also show soft-deleted rows. *Planned (v1.0.561):* `project_id` filter — the lookup mobile uses to populate the project detail Agents tab. |
+| `agents.spawn` | Spawn a child agent. **`child_handle`**, **`kind`**, **`spawn_spec_yaml`**; optional `host_id`, `parent_agent_id`, `worktree_path`, `budget_cents`, `mode`. *Planned (v1.0.562, ADR-025):* `project_id:` in the spawn YAML binds the agent to a project, the hub persists it on the agent row, and atomically creates a `sessions` row for the new worker (D5). Project-scoped spawns will be gated to the project's steward as caller (D3); the general steward delegates rather than spawning directly. May return 202 + attention_id when policy gates the spawn. |
+| `agents.list` | List agents. Optional `host_id`, `status` filters; `include_archived: true` to also show soft-deleted rows. *Planned (v1.0.562):* `project_id` filter — the lookup mobile uses to populate the project detail Agents tab. |
 | `agents.get` | Fetch one. **`agent`**. Returns `spawn_spec_yaml` + `spawn_authority_json` when known. |
 | `agents.terminate` | Mark status=`terminated`. Steward-only. Host-runner kills the underlying process on its next reconcile loop. |
 | `hosts.list` | List host-runners. Returns id, name, status (online/stale/offline), capabilities, last_seen_at, ssh_hint. **The lookup table for hostname → host_id** needed by `agents.spawn`. |

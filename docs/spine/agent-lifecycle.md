@@ -1,9 +1,9 @@
 # Agent lifecycle
 
 > **Type:** axiom
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.311
+> **Last verified vs code:** v1.0.556
 
 **TL;DR.** Third leg of the design tripod, peer to `blueprint.md`
 (architecture/ontology) and `information-architecture.md` (mobile
@@ -306,13 +306,29 @@ carried across model swaps.
 
 The team's **IC / performer / hand**. An agent spawned for bounded,
 specific work — coding, experiments, analysis, writing. Has a parent
-(steward or another worker), a return path (HA-A5), a deadline, a
-budget, a worktree. Workers do the things; stewards decide what
-things and when.
+(its project's steward; see ADR-025), a return path (HA-A5), a
+deadline, a budget, a worktree. Workers do the things; stewards
+decide what things and when.
 
-**Today:** a regular `agents` row spawned via `agents.spawn`; parent
-edge lives in `agent_spawns`. **Target:** all four invariants
-enforced at the schema level.
+**Project-scoped (ADR-025).** Workers belong to exactly one project.
+The `agents.project_id` column binds them; only the project's
+steward may call `agents.spawn` with that `project_id`. The general
+steward delegates intent down to project stewards rather than
+spawning workers directly. Pre-ADR-025 workers without
+`project_id` are legacy and team-scope; new spawns always carry it
+when invoked through the standard flow.
+
+**Sessioned (ADR-025 D5).** Every worker spawned via the standard
+flow gets a `sessions` row at the same time (`scope_kind='project'`,
+`scope_id=<pid>`). All `agent_events` get `session_id` stamped, so
+the steward↔worker A2A conversation + driver output are observable
+in the worker's session viewer. This is what makes worker behavior
+debuggable from the principal's surfaces.
+
+**Today:** a regular `agents` row with `project_id` set, spawned
+via `agents.spawn`; parent edge lives in `agent_spawns`; sibling
+session row owns the conversational frame. **Target:** all four
+invariants enforced at the schema level.
 
 ### 4.3 Harness
 
@@ -689,6 +705,16 @@ Three triggers:
   the worker reports back through.
 - **Budget envelope inheritance**: worker's budget cannot exceed
   parent's remaining budget; harness enforces.
+- **Project binding (ADR-025 D1):** the spawn carries `project_id`,
+  persisted on `agents`. Only the project's steward may call with
+  that `project_id`; the general steward cannot spawn workers (it
+  delegates by routing intent into the project's steward session).
+- **Session at spawn (ADR-025 D5):** atomically with the agent row,
+  a `sessions` row is created (`scope_kind='project'`,
+  `scope_id=<pid>`, `current_agent_id=<worker>`). The worker's
+  transcript becomes reachable from the mobile session viewer, and
+  A2A conversations with the steward are stamped with the worker's
+  `session_id` for cross-direction observability.
 
 ### 7.3 Worker → steward report-back
 

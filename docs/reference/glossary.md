@@ -1,9 +1,9 @@
 # Glossary
 
 > **Type:** reference
-> **Status:** Current (2026-05-11)
+> **Status:** Current (2026-05-13)
 > **Audience:** contributors (humans + AI)
-> **Last verified vs code:** v1.0.483
+> **Last verified vs code:** v1.0.556
 
 **TL;DR.** Canonical definitions for every project-specific term that
 has more than one possible meaning, or whose meaning is non-obvious
@@ -231,17 +231,26 @@ and future-project bootstraps.
 A steward kind authored as overlay by the general steward, scoped to
 one project's lifecycle. Examples: `steward.research.v1`,
 `steward.infra.v1`, `steward.briefing.v1`. Editable by the director;
-archived at project completion.
+archived at project completion. **Lazy-materialized (ADR-025 D2):**
+a project row can exist without a domain steward; the steward is
+spawned on first engagement (director taps the project's steward
+overlay, sends a message into it, or another steward delegates into
+it), with explicit director consent via a host-picker sheet (D4).
 - *Distinguish from:* **general steward** (frozen, persistent,
   team-scoped).
-- *Canonical:* ADR-001 D-amend-2.
+- *Canonical:* ADR-017, ADR-025.
 
 ### worker
 An agent role — a steward-spawned subordinate that does bounded
 work on a host. Reports back via A2A (to its parent steward only —
-see operation scope) and channel messages.
+see operation scope) and channel messages. **Project-scoped
+(ADR-025 D1):** every worker carries a `project_id` and may only
+be spawned by that project's steward (the general steward delegates
+rather than spawning directly, D3). Every worker has its own session
+(`scope_kind='project'`), so the steward↔worker conversation is
+observable from the mobile session viewer.
 - *Distinguish from:* **steward** (the boss).
-- *Canonical:* ADR-016 D3.
+- *Canonical:* ADR-016 D3, ADR-025.
 
 ### general-purpose steward
 **Anti-pattern.** A single agent that answers questions, edits files,

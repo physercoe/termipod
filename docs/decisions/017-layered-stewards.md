@@ -1,11 +1,13 @@
 # 017. Layered stewards: general (frozen, persistent) + domain (overlay, project-scoped)
 
 > **Type:** decision
-> **Status:** Accepted (2026-04-30) — Amendment 1 proposed (2026-05-06): peer steward tier
+> **Status:** Accepted (2026-04-30) — Amendment 1 proposed (2026-05-06): peer steward tier; refined by ADR-025 (2026-05-13)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.370-alpha
+> **Last verified vs code:** v1.0.556
 
 **TL;DR.** Termipod runs **two tiers of steward** instead of one. The **general steward** (`steward.general.v1`, handle `@steward`) is **frozen** in the hub binary, **persistent** (one per team, archived only by manual director action), and serves as the director's concierge — bootstraps projects, authors templates, manages schedules, debugs, free-discusses. **Domain stewards** (`steward.research.v1`, `steward.infra.v1`, …) are **overlay-authored** by the general steward, **project-scoped**, archived at project completion, and orchestrate one project's lifecycle. The general steward never does IC work (manager/IC invariant). The contract surfaces as a singleton `POST /v1/teams/{team}/steward.general/ensure` endpoint and a `@steward` handle convention distinct from the legacy plain `steward` and the domain `*-steward` suffix. This ADR consolidates the rationale that ADR-001 D-amend-2 introduced and gives it a load-bearing home.
+
+> **Refinement — [ADR-025](025-project-steward-accountability.md) (2026-05-13).** Tightens D6 from "*at most one* domain steward per project" to "*exactly one* steward per engaged project," and binds workers to projects via a new `agents.project_id` column. Adds the lazy-materialization + director-consent contract for project-steward spawn. ADR-017's tier model is intact; ADR-025 is the operational specification for how project stewards come into existence and how workers relate to them. Read 017 for the tier ontology, 025 for the spawn / scope / consent rules.
 
 > **Amendment 1 (proposed, 2026-05-06)** introduces a **third tier**: **peer stewards** — overlay-authored, persistent, team-scoped (not project-scoped), multi-instance (one per kind per team). Closes the "vice-steward / board member" gap between the singleton general concierge and the per-project domain orchestrator. See [§ Amendment 1](#amendment-1--peer-steward-tier-2026-05-06) at the bottom of this ADR. Implementation tracker: [`plans/team-peer-stewards.md`](../plans/team-peer-stewards.md).
 

@@ -42,6 +42,8 @@ next sequential number — don't reserve, don't skip.
 | [021](021-acp-capability-surface.md) | ACP capability surface — resume, auth, mode/model, image inputs | Accepted 2026-05-08 | — |
 | [022](022-observability-surfaces.md) | Observability surfaces — insights aggregator + hub stats | Accepted 2026-05-09 | — |
 | [023](023-agent-driven-mobile-ui.md) | Agent-driven mobile UI — overlay + URI intents + compact mode | Accepted 2026-05-10 | [005](005-owner-authority-model.md) |
+| [024](024-project-detail-chassis.md) | Project detail chassis | Accepted 2026-05-11 | — |
+| [025](025-project-steward-accountability.md) | Project steward accountability — workers, scope, lazy materialization, director consent | Accepted 2026-05-13 | — |
 
 ---
 

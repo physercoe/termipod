@@ -316,23 +316,41 @@ class HubClient {
         decode: _decodeListMaps,
       );
 
-  Future<List<Map<String, dynamic>>> listAgents({bool includeArchived = false}) =>
-      _listJson(
-        '/v1/teams/${cfg.teamId}/agents',
-        query: includeArchived ? {'include_archived': '1'} : null,
-      );
+  Future<List<Map<String, dynamic>>> listAgents({
+    bool includeArchived = false,
+    String? projectId,
+  }) {
+    final q = <String, String>{};
+    if (includeArchived) q['include_archived'] = '1';
+    if (projectId != null && projectId.isNotEmpty) {
+      q['project_id'] = projectId;
+    }
+    return _listJson(
+      '/v1/teams/${cfg.teamId}/agents',
+      query: q.isEmpty ? null : q,
+    );
+  }
 
   /// Read-through variant of [listAgents]; see [listRunsCached] for the
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAgentsCached({
     bool includeArchived = false,
+    String? projectId,
   }) {
-    final q = includeArchived ? {'include_archived': '1'} : null;
+    final q = <String, String>{};
+    if (includeArchived) q['include_archived'] = '1';
+    if (projectId != null && projectId.isNotEmpty) {
+      q['project_id'] = projectId;
+    }
+    final query = q.isEmpty ? null : q;
     return readThrough<List<Map<String, dynamic>>>(
       cache: snapshotCache,
       hubKey: _cacheHubKey,
-      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/agents', q),
-      fetch: () => listAgents(includeArchived: includeArchived),
+      endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/agents', query),
+      fetch: () => listAgents(
+        includeArchived: includeArchived,
+        projectId: projectId,
+      ),
       decode: _decodeListMaps,
     );
   }
@@ -1433,6 +1451,34 @@ class HubClient {
     }
     final out = await _post(
       '/v1/teams/${cfg.teamId}/steward.general/ensure',
+      body,
+    );
+    return (out as Map).cast<String, dynamic>();
+  }
+
+  /// Ensures the named project's steward (per ADR-025) is running,
+  /// spawning one if none exists. Idempotent. Returns the server
+  /// envelope — `agent_id`, `project_id`, `status`, `already_running`,
+  /// plus `spawn_id` on first spawn.
+  ///
+  /// `hostId` pins the spawn to a specific host; empty falls back to
+  /// the hub's pickFirstHost. `permissionMode` ("skip" / "prompt")
+  /// chooses the template's permission flag at spawn time; empty
+  /// defaults to "skip" (matches the demo bootstrap).
+  Future<Map<String, dynamic>> ensureProjectSteward({
+    required String projectId,
+    String? hostId,
+    String? permissionMode,
+  }) async {
+    final body = <String, dynamic>{};
+    if (hostId != null && hostId.isNotEmpty) {
+      body['host_id'] = hostId;
+    }
+    if (permissionMode != null && permissionMode.isNotEmpty) {
+      body['permission_mode'] = permissionMode;
+    }
+    final out = await _post(
+      '/v1/teams/${cfg.teamId}/projects/$projectId/steward/ensure',
       body,
     );
     return (out as Map).cast<String, dynamic>();

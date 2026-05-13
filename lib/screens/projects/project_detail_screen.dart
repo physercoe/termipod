@@ -19,6 +19,7 @@ import '../../widgets/insights_panel.dart';
 import '../../widgets/phase_badge.dart';
 import '../../widgets/shortcut_tile_strip.dart';
 import '../../widgets/team_switcher.dart';
+import '../../widgets/spawn_project_steward_sheet.dart';
 import '../../widgets/template_yaml_sheet.dart';
 import 'phase_summary_screen.dart';
 import 'archived_agents_screen.dart';
@@ -1106,11 +1107,19 @@ class _AgentsView extends ConsumerWidget {
         'goal';
     final isWorkspace = kind == 'standing';
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // ADR-025 W7: the empty state for a goal project gets a steward
+    // CTA. Workspaces (standing projects) follow the same pattern but
+    // the framing copy reads differently; we share the CTA either way
+    // since `ensureProjectSteward` is project-kind-agnostic.
     final body = rows.isEmpty
-        ? _Placeholder(
-            text: isWorkspace
+        ? _AgentsEmptyStateCta(
+            projectId: projectId,
+            isWorkspace: isWorkspace,
+            hasHost: hosts.isNotEmpty,
+            placeholderText: isWorkspace
                 ? l10n.workspaceNoAgents
-                : l10n.projectNoAgents)
+                : l10n.projectNoAgents,
+          )
         : ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             itemCount: rows.length,
@@ -1197,6 +1206,91 @@ class _AgentsView extends ConsumerWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ADR-025 W7 — empty-state CTA on the project Agents tab. When no
+// agent is bound to this project, we surface a "Spawn steward" button
+// rather than the bare placeholder text: ADR-025 D1 says every
+// engaged project has exactly one steward, materialized lazily on
+// first engagement, and this is the principal's consent gate.
+class _AgentsEmptyStateCta extends ConsumerWidget {
+  final String projectId;
+  final bool isWorkspace;
+  final bool hasHost;
+  final String placeholderText;
+  const _AgentsEmptyStateCta({
+    required this.projectId,
+    required this.isWorkspace,
+    required this.hasHost,
+    required this.placeholderText,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.smart_toy_outlined,
+              size: 36,
+              color: isDark
+                  ? DesignColors.textMuted
+                  : DesignColors.textMutedLight,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              placeholderText,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                color: isDark
+                    ? DesignColors.textMuted
+                    : DesignColors.textMutedLight,
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: !hasHost
+                  ? null
+                  : () async {
+                      final agentId =
+                          await showSpawnProjectStewardSheet(
+                        context,
+                        projectId: projectId,
+                      );
+                      if (agentId != null &&
+                          agentId.isNotEmpty &&
+                          context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Project steward spawned ($agentId).'),
+                          ),
+                        );
+                      }
+                    },
+              icon: const Icon(Icons.bolt_outlined),
+              label: const Text('Spawn project steward'),
+            ),
+            if (!hasHost) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Register a host-runner first.',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  color: Colors.redAccent,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

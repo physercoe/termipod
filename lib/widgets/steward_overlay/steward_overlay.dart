@@ -45,7 +45,8 @@ class StewardOverlay extends ConsumerStatefulWidget {
   ConsumerState<StewardOverlay> createState() => _StewardOverlayState();
 }
 
-class _StewardOverlayState extends ConsumerState<StewardOverlay> {
+class _StewardOverlayState extends ConsumerState<StewardOverlay>
+    with WidgetsBindingObserver {
   /// Puck position in screen coordinates. Initialised from settings
   /// (if persisted) or computed defaults on first build.
   Offset? _puckOffset;
@@ -60,6 +61,22 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
 
   /// Expanded vs collapsed.
   bool _expanded = false;
+
+  /// Stable keyboard inset — only updated on **open/close transitions**
+  /// (via `didChangeMetrics`), NOT on per-frame `MediaQuery.viewInsets`
+  /// reads. The v1.0.549 fix for the recurring IME delete bug: reading
+  /// `MediaQuery.viewInsets.bottom` directly in `build` would re-run
+  /// the layout for every pixel Gboard's suggestion strip animates,
+  /// which moved the panel's `Positioned(top:)` value per frame, which
+  /// moved the `EditableText` render box, which re-emitted
+  /// `setEditableSizeAndTransform` to the IME, which made Gboard
+  /// resync its predictive cache and restore the deleted word.
+  /// Session transcript doesn't have this bug because its TextField
+  /// lives inside a Scaffold (resizeToAvoidBottomInset = one-shot
+  /// layout pin, not per-frame transform). This field is the overlay
+  /// equivalent — snap the inset only on open/close, ignore the
+  /// micro-fluctuations.
+  double _keyboardInset = 0;
 
   // Mode A — puck long-press voice recording state. Lives on the
   // overlay because the puck is the affordance; HUD is positioned
@@ -279,7 +296,14 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _voiceTickTimer?.cancel();
     _voiceSub?.cancel();
     _voiceSession?.dispose();
@@ -287,14 +311,40 @@ class _StewardOverlayState extends ConsumerState<StewardOverlay> {
   }
 
   @override
+  void didChangeMetrics() {
+    if (!mounted) return;
+    // Read the raw inset from PlatformDispatcher (NOT MediaQuery.of)
+    // so this method doesn't establish an InheritedWidget dependency
+    // on MediaQuery — that would re-run `build` for every pixel
+    // change again, defeating the whole point.
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final dpr = view.devicePixelRatio;
+    final inset = dpr > 0 ? view.viewInsets.bottom / dpr : 0.0;
+    final wasOpen = _keyboardInset > 0;
+    final isOpen = inset > 0;
+    if (wasOpen != isOpen) {
+      // Open/close transition: snapshot the inset once and rebuild.
+      setState(() => _keyboardInset = isOpen ? inset : 0);
+    } else if (isOpen && (inset - _keyboardInset).abs() > 80) {
+      // Significant resize while keyboard stays open (rotation,
+      // foldable unfold, large IME swap). Resync. The 80-px threshold
+      // is wide enough to ignore Gboard's suggestion-strip animations
+      // (~30-40 px) but small enough to catch real layout changes.
+      setState(() => _keyboardInset = inset);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     // Watch the layout fields so a settings reset (e.g. via a future
     // "Reset overlay layout" button) re-applies without restart.
     final settings = ref.watch(settingsProvider);
-    // Keyboard inset — when the IME is up we shift the panel up so the
-    // chat input stays visible. Non-persistent (snaps back when IME
-    // closes); we don't write to settings or _panelRect.
-    final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    // Stable keyboard inset (see field doc). NOT
+    // `MediaQuery.of(context).viewInsets.bottom` — that would
+    // subscribe build to per-frame Gboard animations and re-trigger
+    // the IME delete bug. didChangeMetrics keeps `_keyboardInset`
+    // snapped to open/close transitions.
+    final keyboardInset = _keyboardInset;
     return LayoutBuilder(
       builder: (ctx, constraints) {
         _ensureInitial(constraints.biggest, settings);

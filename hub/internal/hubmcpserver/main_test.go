@@ -345,6 +345,119 @@ func TestToolsCall_HostsUpdateSSHHint(t *testing.T) {
 	}
 }
 
+// TestToolsCall_HostsList: hosts.list must GET the team hosts URL and
+// pass through the raw JSON array.
+func TestToolsCall_HostsList(t *testing.T) {
+	var sawMethod, sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"h1","name":"gpu-01","status":"online"}]`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":50,"method":"tools/call","params":{"name":"hosts.list","arguments":{}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "GET" {
+		t.Errorf("method = %q, want GET", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/hosts" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if !strings.Contains(string(raw), `gpu-01`) {
+		t.Errorf("expected host row passed through: %q", raw)
+	}
+}
+
+// TestToolsCall_HostsGet: hosts.get must GET the host-id URL.
+func TestToolsCall_HostsGet(t *testing.T) {
+	var sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"h1","name":"gpu-01"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":51,"method":"tools/call","params":{"name":"hosts.get","arguments":{"host":"h1"}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawPath != "/v1/teams/team-alpha/hosts/h1" {
+		t.Errorf("path = %q", sawPath)
+	}
+}
+
+// TestToolsCall_AgentsList: agents.list must pass host_id + status as
+// query params, and include_archived only when true.
+func TestToolsCall_AgentsList(t *testing.T) {
+	var sawQuery string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":52,"method":"tools/call","params":{"name":"agents.list","arguments":{"host_id":"h1","status":"running","include_archived":true}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	for _, want := range []string{"host_id=h1", "status=running", "include_archived=1"} {
+		if !strings.Contains(sawQuery, want) {
+			t.Errorf("query missing %q: %q", want, sawQuery)
+		}
+	}
+}
+
+// TestToolsCall_AgentsGet: agents.get must GET the agent-id URL.
+func TestToolsCall_AgentsGet(t *testing.T) {
+	var sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"a1"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":53,"method":"tools/call","params":{"name":"agents.get","arguments":{"agent":"a1"}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawPath != "/v1/teams/team-alpha/agents/a1" {
+		t.Errorf("path = %q", sawPath)
+	}
+}
+
+// TestToolsCall_AgentsTerminate: agents.terminate must PATCH the agent
+// URL with {"status":"terminated"}.
+func TestToolsCall_AgentsTerminate(t *testing.T) {
+	var sawMethod, sawPath, sawBody string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawMethod = r.Method
+		sawPath = r.URL.Path
+		b := make([]byte, r.ContentLength)
+		_, _ = r.Body.Read(b)
+		sawBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"a1","status":"terminated"}`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":54,"method":"tools/call","params":{"name":"agents.terminate","arguments":{"agent":"a1"}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawMethod != "PATCH" {
+		t.Errorf("method = %q, want PATCH", sawMethod)
+	}
+	if sawPath != "/v1/teams/team-alpha/agents/a1" {
+		t.Errorf("path = %q", sawPath)
+	}
+	if !strings.Contains(sawBody, `"status":"terminated"`) {
+		t.Errorf("body missing terminated status: %q", sawBody)
+	}
+}
+
 // TestToolsCall_ProjectChannelsCreate: project_channels.create must POST
 // to the project-scoped channels endpoint with just {"name": ...}.
 func TestToolsCall_ProjectChannelsCreate(t *testing.T) {

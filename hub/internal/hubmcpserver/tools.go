@@ -539,6 +539,89 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "hosts.list",
+			Description: "List host-runners registered with the team. Each row carries `id`, `name`, `status` (online/stale/offline), `capabilities` (engines/modes the host can run), `last_seen_at`, and `ssh_hint_json`. Use this to resolve a hostname → host_id for `agents.spawn` (which requires the id, not the name).",
+			InputSchema: schema(`{"type":"object","properties":{}}`),
+			call: func(c *hubClient, _ map[string]any) (any, error) {
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/hosts"), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "hosts.get",
+			Description: "Fetch one host-runner by id. Returns the same shape as `hosts.list` rows. Use after `hosts.list` to confirm a host's capabilities before spawning.",
+			InputSchema: schema(`{"type":"object","required":["host"],"properties":{"host":{"type":"string","description":"host_id"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				h, _ := args["host"].(string)
+				if h == "" {
+					return nil, fmt.Errorf("host is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/hosts/"+url.PathEscape(h)), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "agents.list",
+			Description: "List agents in the team. Optional `host_id` filters to agents on one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed). By default archived rows are hidden — pass `include_archived: true` to include them. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate.",
+			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				q := url.Values{}
+				if h, ok := args["host_id"].(string); ok && h != "" {
+					q.Set("host_id", h)
+				}
+				if st, ok := args["status"].(string); ok && st != "" {
+					q.Set("status", st)
+				}
+				if inc, ok := args["include_archived"].(bool); ok && inc {
+					q.Set("include_archived", "1")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/agents"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "agents.get",
+			Description: "Fetch one agent by id. Returns full detail including `spawn_spec_yaml` and `spawn_authority_json` when known (agents spawned via `agents.spawn` have these; agents minted by other paths may not). Use before `agents.terminate` to confirm the right target.",
+			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				a, _ := args["agent"].(string)
+				if a == "" {
+					return nil, fmt.Errorf("agent is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/agents/"+url.PathEscape(a)), nil, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "agents.terminate",
+			Description: "Mark an agent as terminated. The host-runner reconciles by killing the underlying process on its next loop. Sets status=`terminated` and stamps `terminated_at`. Destructive — only stewards may call this. To also drop the row from the live list afterwards, archive via the REST surface (no MCP wrapper today; rare cleanup operation).",
+			InputSchema: schema(`{"type":"object","required":["agent"],"properties":{"agent":{"type":"string","description":"agent_id"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				a, _ := args["agent"].(string)
+				if a == "" {
+					return nil, fmt.Errorf("agent is required")
+				}
+				body := map[string]any{"status": "terminated"}
+				var out json.RawMessage
+				if err := c.do("PATCH", c.teamPath("/agents/"+url.PathEscape(a)), nil, body, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "hosts.update_ssh_hint",
 			Description: "Patch a host's non-secret ssh_hint_json. Requires `host` and `ssh_hint` (object). The hub rejects payloads containing password/private_key/passphrase/secret/token keys per the data-ownership law (§4) — use only non-secret hints (username, port, jump, proxy_command, identity_file path).",
 			InputSchema: schema(`{"type":"object","required":["host","ssh_hint"],"properties":{"host":{"type":"string"},"ssh_hint":{"type":"object","description":"JSON object of non-secret SSH hints; stringified before sending to the hub"}}}`),

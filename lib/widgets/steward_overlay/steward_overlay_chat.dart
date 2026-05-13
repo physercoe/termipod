@@ -18,6 +18,7 @@ import '../multimodal_attach/composer_multimodal_attach.dart';
 import '../text_attach/composer_text_attach.dart';
 import 'steward_overlay_chips.dart';
 import 'steward_overlay_controller.dart';
+import 'voice_recording_hud.dart';
 
 /// Compact chat surface that lives inside the expanded
 /// [StewardOverlay] panel. Connects to the team's general steward
@@ -386,13 +387,6 @@ enum _VoiceFlow {
   inlineStreaming,
 }
 
-/// Whether the user's first non-empty content came from the keyboard
-/// or voice. Once set it doesn't change for the widget's lifetime. The
-/// inline mic affordance is hidden when this is `keyboard` — the user
-/// has signalled a typing preference, so the prompt shouldn't keep
-/// inviting them to dictate.
-enum _FirstInputSource { none, voice, keyboard }
-
 class _ChatInputState extends State<_ChatInput> {
   final _ctrl = TextEditingController();
   // Owning the focus node here (rather than letting the framework mint
@@ -417,88 +411,59 @@ class _ChatInputState extends State<_ChatInput> {
   // Three orthogonal surfaces live in this widget:
   //
   //   1. **Voice toggle** (left of the row, mirrors the puck) — taps
-  //      flip `_voiceComposeMode`. When on, the text field is replaced
-  //      by a `Hold to speak` gesture surface; long-press dictates
-  //      and (per voiceSettings.autoSendPuckTranscripts) either
-  //      auto-sends or drops the transcript into the input for review.
+  //      flip `_voiceComposeMode`. The button is purely a mode
+  //      switcher (Icons.record_voice_over_outlined ↔
+  //      Icons.keyboard_alt_outlined) and is visually distinct from
+  //      the inline recording-toggle mic (`mic_none` / `stop_circle`)
+  //      so testers don't conflate the two.
   //   2. **Hold-to-speak surface** (center, only while
   //      `_voiceComposeMode` is on) — long-press start/end/move
-  //      drives Mode-A semantics in-panel.
-  //   3. **Inline streaming mic** (TextField suffix, only while
-  //      `_voiceComposeMode` is off and the input is empty) —
-  //      tap-toggle streams partials/finals directly into `_ctrl`.
+  //      drives Mode-A semantics in-panel. While held, the same Mode A
+  //      HUD floats above the input row with timer + transcript.
+  //   3. **Inline streaming mic** (TextField suffix, always present
+  //      when voiceEnabled is true) — tap-toggle streams partials/
+  //      finals; on completion the transcript is *appended* to any
+  //      pre-existing typed text rather than replacing it.
   //
   // All three reuse a single session field; `_activeFlow` records
   // which surface owns the currently-running session so events route
   // to the right handler.
   bool _voiceComposeMode = false;
   _VoiceFlow _activeFlow = _VoiceFlow.none;
-  _FirstInputSource _firstInputSource = _FirstInputSource.none;
 
   VoiceRecordingSession? _voiceSession;
   StreamSubscription<VoiceSessionEvent>? _voiceSub;
   bool _voiceStarting = false;
   // Recording-state of the hold-to-speak surface — drives the red
-  // pulse + transcript preview inside the gesture box.
+  // pulse + transcript preview inside the gesture box AND the floating
+  // Mode A HUD above the input row.
   String _holdTranscript = '';
   bool _holdRecording = false;
+  Duration _holdElapsed = Duration.zero;
+  DateTime? _holdStartTime;
+  Timer? _holdTickTimer;
   // Snapshot of the input text at the moment voice recording started.
-  // Restored on cancel so the user doesn't lose what they typed.
+  // Restored on cancel so the user doesn't lose what they typed; on
+  // completion the dictated transcript is appended to the snapshot.
   String _voiceSavedText = '';
 
-  /// Drives the inline-mic suffix icon visibility. **Critical** — the
-  /// suffix icon depends on `_ctrl.text.isEmpty`, so we'd ordinarily
-  /// wrap the TextField in a `ListenableBuilder` listening to `_ctrl`.
-  /// We don't, because that fires on every keystroke and rebuilds the
-  /// TextField → re-runs `EditableText.didUpdateWidget` → can poke
-  /// the IME's `setEditingState` and bounce the predictive word cache
-  /// (root cause of the v1.0.466 deleted-text-returning bug, AND its
-  /// v1.0.539 regression). Instead we keep a `ValueNotifier<bool>`
-  /// here, recompute on `_ctrl` notifications, and let the notifier's
-  /// `==` check dedupe to fire only when the emptiness state actually
-  /// flips. The TextField itself isn't wrapped in any per-keystroke
-  /// builder; only the small ValueListenableBuilder inside its
-  /// `suffixIcon` slot rebuilds.
-  final ValueNotifier<bool> _showInlineMicHint = ValueNotifier(false);
-
-  @override
-  void initState() {
-    super.initState();
-    // Recompute on every text change. The notifier dedupes via `==`,
-    // so most keystrokes (where emptiness doesn't flip) don't trigger
-    // a listener notification at all — keeping the suffix icon stable
-    // and the TextField widget unrebuilt.
-    _ctrl.addListener(_recomputeShowInlineMicHint);
-    _recomputeShowInlineMicHint();
-  }
-
-  void _recomputeShowInlineMicHint() {
-    final isEmpty = _ctrl.text.isEmpty;
-    final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
-        _voiceSession != null;
-    final hintAvailable = widget.voiceEnabled &&
-        isEmpty &&
-        _firstInputSource != _FirstInputSource.keyboard;
-    final show = hintAvailable || streaming;
-    if (_showInlineMicHint.value != show) {
-      _showInlineMicHint.value = show;
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _ChatInput oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.voiceEnabled != widget.voiceEnabled) {
-      _recomputeShowInlineMicHint();
-    }
-  }
+  // **No `_ctrl.addListener` here.** Earlier revisions registered a
+  // listener that drove the inline-mic suffix icon (visible only when
+  // the field was empty). Even a deduped ValueNotifier-backed listener
+  // turned out to bounce Gboard's predictive cache on the
+  // first-keystroke transition, re-emitting `setEditingState` and
+  // making deleted characters reappear (v1.0.466 / v1.0.539 / v1.0.541
+  // repeats of the same bug). The reliable fix is to keep the suffix
+  // entirely static across text changes — the inline mic is always
+  // present when voice is enabled, and its appearance only depends on
+  // `_activeFlow` / `_voiceStarting`, both of which mutate through
+  // setState (user-driven events, never keystrokes).
 
   @override
   void dispose() {
+    _holdTickTimer?.cancel();
     _voiceSub?.cancel();
     _voiceSession?.dispose();
-    _ctrl.removeListener(_recomputeShowInlineMicHint);
-    _showInlineMicHint.dispose();
     _focus.dispose();
     _ctrl.dispose();
     super.dispose();
@@ -669,7 +634,6 @@ class _ChatInputState extends State<_ChatInput> {
     _voiceSavedText = _ctrl.text;
     _voiceSession = session;
     _activeFlow = flow;
-    _recomputeShowInlineMicHint();
     _voiceSub = session.events.listen(_onVoiceEvent);
     try {
       await session.start();
@@ -706,7 +670,6 @@ class _ChatInputState extends State<_ChatInput> {
       case VoiceSessionEventKind.completed:
         final text = e.text.trim();
         if (text.isNotEmpty) {
-          _markFirstInputIfNone(_FirstInputSource.voice);
           final autoSend = widget.voiceAutoSendOnHold?.call() ?? false;
           if (autoSend) {
             // Route through the regular _send so any staged
@@ -744,12 +707,20 @@ class _ChatInputState extends State<_ChatInput> {
     switch (e.kind) {
       case VoiceSessionEventKind.transcriptUpdated:
       case VoiceSessionEventKind.completed:
-        if (e.text.isNotEmpty) {
-          _markFirstInputIfNone(_FirstInputSource.voice);
-        }
+        // **Append, don't replace.** Earlier revisions wrote
+        // `_ctrl.text = e.text` directly, which clobbered any text the
+        // user had typed before tapping the inline mic. Now the saved
+        // prefix is preserved verbatim and the dictated transcript is
+        // concatenated with a single space separator (only when the
+        // prefix doesn't already end in whitespace).
+        final dictated = e.text;
+        final base = _voiceSavedText;
+        final needsSeparator =
+            base.isNotEmpty && dictated.isNotEmpty && !base.endsWith(' ');
+        final combined = needsSeparator ? '$base $dictated' : '$base$dictated';
         _ctrl.value = TextEditingValue(
-          text: e.text,
-          selection: TextSelection.collapsed(offset: e.text.length),
+          text: combined,
+          selection: TextSelection.collapsed(offset: combined.length),
         );
         if (e.kind == VoiceSessionEventKind.completed) {
           _cleanupVoiceSession();
@@ -772,6 +743,9 @@ class _ChatInputState extends State<_ChatInput> {
   }
 
   Future<void> _cleanupVoiceSession() async {
+    _holdTickTimer?.cancel();
+    _holdTickTimer = null;
+    _holdStartTime = null;
     await _voiceSub?.cancel();
     _voiceSub = null;
     final s = _voiceSession;
@@ -779,16 +753,9 @@ class _ChatInputState extends State<_ChatInput> {
     _activeFlow = _VoiceFlow.none;
     _holdTranscript = '';
     _holdRecording = false;
-    _recomputeShowInlineMicHint();
+    _holdElapsed = Duration.zero;
     if (mounted) setState(() {});
     await s?.dispose();
-  }
-
-  void _markFirstInputIfNone(_FirstInputSource src) {
-    if (_firstInputSource == _FirstInputSource.none) {
-      _firstInputSource = src;
-      _recomputeShowInlineMicHint();
-    }
   }
 
   // ===== Voice toggle (left of the row) =====
@@ -808,9 +775,26 @@ class _ChatInputState extends State<_ChatInput> {
 
   Future<void> _onHoldToSpeakStart(LongPressStartDetails _) async {
     if (!_voiceComposeMode) return;
-    setState(() => _holdRecording = true);
+    _holdTickTimer?.cancel();
+    _holdStartTime = DateTime.now();
+    _holdTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _holdStartTime == null) return;
+      setState(() {
+        _holdElapsed = DateTime.now().difference(_holdStartTime!);
+      });
+    });
+    setState(() {
+      _holdRecording = true;
+      _holdElapsed = Duration.zero;
+      _holdTranscript = '';
+    });
     final ok = await _startVoiceSession(_VoiceFlow.holdToSpeak);
-    if (!ok && mounted) setState(() => _holdRecording = false);
+    if (!ok && mounted) {
+      _holdTickTimer?.cancel();
+      _holdTickTimer = null;
+      _holdStartTime = null;
+      setState(() => _holdRecording = false);
+    }
   }
 
   Future<void> _onHoldToSpeakEnd(LongPressEndDetails _) async {
@@ -843,15 +827,6 @@ class _ChatInputState extends State<_ChatInput> {
     await _startVoiceSession(_VoiceFlow.inlineStreaming);
   }
 
-  void _onTextFieldChanged(String _) {
-    // `onChanged` only fires from user keyboard input — programmatic
-    // `_ctrl.value = …` writes (from voice events) don't trigger it.
-    // So a single call here is enough to fingerprint the user's first
-    // input as keyboard-driven. Once set the inline mic hides whenever
-    // the field is empty, signalling "this user prefers typing".
-    _markFirstInputIfNone(_FirstInputSource.keyboard);
-  }
-
   // ===== Center-surface builders =====
 
   Widget _buildTextField() {
@@ -859,12 +834,29 @@ class _ChatInputState extends State<_ChatInput> {
     // `autocorrect: false` + `enableSuggestions: false` as
     // belt-and-suspenders for the v1.0.466 deleted-text-returning
     // bug. v1.0.472 fixed that bug architecturally via rebuild-
-    // scope isolation; v1.0.541 reapplied the same lesson here
-    // (no per-keystroke ListenableBuilder around this TextField).
-    // The defensive flags break CJK input — drop both.
+    // scope isolation. The defensive flags break CJK input.
     //
     // **Do not add `autofillHints: const []`.** An empty list
     // poisons some Android+Gboard combinations; `null` is correct.
+    //
+    // **No `onChanged` callback.** Anything that reacts to a
+    // keystroke risks bouncing the IME's predictive-cache state.
+    // The earlier `_onTextFieldChanged` only set a one-shot
+    // first-input-source flag for the inline-mic hint — both the
+    // flag and the hint are gone (v1.0.545); the inline mic is now
+    // always present when voice is enabled.
+    //
+    // **Suffix is a plain IconButton.** Earlier revisions wrapped
+    // it in a ValueListenableBuilder driven by a `_ctrl` listener so
+    // the mic could hide once the field became non-empty. The
+    // listener fired per keystroke, and on Android+Gboard that
+    // path repeatedly bounced setEditingState — the exact v1.0.466
+    // shape. Keeping the suffix entirely static across text
+    // changes is the only mechanism that survives all the IME
+    // edge cases. Mic state ride entirely on `_activeFlow` /
+    // `_voiceStarting`, which only flip via user-driven setState.
+    final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
+        _voiceSession != null;
     return TextField(
       controller: _ctrl,
       focusNode: _focus,
@@ -872,7 +864,6 @@ class _ChatInputState extends State<_ChatInput> {
       maxLines: 4,
       keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
-      onChanged: _onTextFieldChanged,
       decoration: InputDecoration(
         isDense: true,
         hintText: 'Ask the steward…',
@@ -881,32 +872,24 @@ class _ChatInputState extends State<_ChatInput> {
         ),
         contentPadding: const EdgeInsets.symmetric(
             horizontal: 12, vertical: 10),
-        // The suffix is reactive — but only the IconButton inside the
-        // ValueListenableBuilder rebuilds on emptiness flips. The
-        // outer TextField is stable across every keystroke.
-        suffixIcon: ValueListenableBuilder<bool>(
-          valueListenable: _showInlineMicHint,
-          builder: (context, show, _) {
-            if (!show) return const SizedBox.shrink();
-            final streaming = _activeFlow == _VoiceFlow.inlineStreaming &&
-                _voiceSession != null;
-            return IconButton(
-              tooltip: streaming ? 'Stop dictation' : 'Start dictation',
-              icon: Icon(
-                streaming ? Icons.mic : Icons.mic_none,
-                size: 20,
-                color:
-                    streaming ? DesignColors.error : DesignColors.primary,
-              ),
-              onPressed:
-                  (_sending || _voiceStarting) ? null : _onInlineMicTap,
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints:
-                  const BoxConstraints(minWidth: 32, minHeight: 32),
-            );
-          },
-        ),
+        suffixIcon: widget.voiceEnabled
+            ? IconButton(
+                tooltip: streaming ? 'Stop dictation' : 'Start dictation',
+                icon: Icon(
+                  streaming ? Icons.stop_circle : Icons.mic_none,
+                  size: 20,
+                  color: streaming
+                      ? DesignColors.error
+                      : DesignColors.primary,
+                ),
+                onPressed:
+                    (_sending || _voiceStarting) ? null : _onInlineMicTap,
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 32, minHeight: 32),
+              )
+            : null,
         suffixIconConstraints:
             const BoxConstraints(minWidth: 32, minHeight: 32),
       ),
@@ -1035,7 +1018,15 @@ class _ChatInputState extends State<_ChatInput> {
     final canAttachMulti = widget.canAttachPdfs ||
         widget.canAttachAudio ||
         widget.canAttachVideo;
-    return Padding(
+    // The compose box's hold-to-speak gesture is the same Mode A
+    // semantics as the puck long-press; show the same RECORDING HUD
+    // floating above the input row so the user gets identical "you
+    // are LIVE" feedback wherever they triggered Mode A from.
+    final showHoldHud = _holdRecording || _voiceStarting;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1078,21 +1069,31 @@ class _ChatInputState extends State<_ChatInput> {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Voice toggle — sits in what used to be the leftmost
-              // attach position. Tap flips `_voiceComposeMode`; the
-              // icon mirrors the active mode (keyboard ↔ mic). Hidden
-              // when the voice setting is off so the row collapses to
-              // a pure-text composer.
+              // Voice-mode switcher — sits in what used to be the
+              // leftmost attach position. Tap flips `_voiceComposeMode`
+              // between keyboard mode (TextField) and voice mode
+              // (Hold-to-speak surface).
+              //
+              // **Iconography is intentionally different from the
+              // inline mic suffix** (issue #2 v1.0.545). Same
+              // mic-shape on both buttons made testers conflate the
+              // mode-switcher with the recording-toggle. This button
+              // uses `record_voice_over_outlined` / `keyboard_alt_outlined`
+              // — the pair signals "switch input mode" rather than
+              // "start/stop recording." The recording-toggle role
+              // belongs to the suffix mic inside the TextField.
               if (widget.voiceEnabled)
                 IconButton(
                   tooltip: _voiceComposeMode
-                      ? 'Switch to keyboard'
-                      : 'Switch to voice',
+                      ? 'Switch to keyboard input'
+                      : 'Switch to voice input',
                   onPressed: (_sending || _voiceStarting)
                       ? null
                       : _toggleVoiceComposeMode,
                   icon: Icon(
-                    _voiceComposeMode ? Icons.keyboard : Icons.mic_none,
+                    _voiceComposeMode
+                        ? Icons.keyboard_alt_outlined
+                        : Icons.record_voice_over_outlined,
                     size: 22,
                     color: _voiceComposeMode
                         ? DesignColors.primary
@@ -1187,6 +1188,23 @@ class _ChatInputState extends State<_ChatInput> {
           ),
         ],
       ),
+    ),
+        if (showHoldHud && _voiceComposeMode)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 60,
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.center,
+                child: VoiceRecordingHud(
+                  transcript: _holdTranscript,
+                  elapsed: _holdElapsed,
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

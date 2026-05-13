@@ -38,6 +38,10 @@ type spawnModeYAML struct {
 	Backend       struct {
 		Kind string `yaml:"kind"`
 	} `yaml:"backend"`
+	// ProjectID binds the spawned agent to a project per ADR-025 W2.
+	// Templates and mobile both write this under `project_id:` in the
+	// rendered spawn YAML; the hub persists it on the `agents` row.
+	ProjectID string `yaml:"project_id"`
 }
 
 func parseSpawnModeYAML(text string) spawnModeYAML {

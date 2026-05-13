@@ -375,6 +375,12 @@ type spawnIn struct {
 	ChildHandle  string          `json:"child_handle"`
 	Kind         string          `json:"kind"`
 	HostID       string          `json:"host_id,omitempty"`
+	// ProjectID binds the spawned agent to a project per ADR-025 W2.
+	// Precedence: `project_id:` inside SpawnSpec YAML wins (the
+	// canonical site every template + mobile sheet writes to). This
+	// body field is a precedence-low fallback for callers that build
+	// the YAML elsewhere and want to pass the binding out-of-band.
+	ProjectID    string          `json:"project_id,omitempty"`
 	SpawnSpec    string          `json:"spawn_spec_yaml"`
 	Authority    json.RawMessage `json:"spawn_authority,omitempty"`
 	Task         json.RawMessage `json:"task,omitempty"`
@@ -558,6 +564,14 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusBadRequest, err
 	}
 
+	// Resolve project_id per ADR-025 W2: YAML wins (canonical site
+	// every template + mobile sheet writes to), body field is the
+	// precedence-low fallback for callers that don't render YAML.
+	projectID := in.ProjectID
+	if y := parseSpawnModeYAML(in.SpawnSpec); y.ProjectID != "" {
+		projectID = y.ProjectID
+	}
+
 	// Validate the session-swap path before opening the tx so a 4xx
 	// exits without a rollback. SessionID is the W2 follow-up that
 	// lets "Recreate steward" or "Switch engine" land the new agent
@@ -626,15 +640,15 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		INSERT INTO agents (
 			id, team_id, handle, kind, backend_json, capabilities_json,
 			parent_agent_id, host_id, budget_cents, worktree_path,
-			driving_mode,
+			driving_mode, project_id,
 			status, pause_state, created_at
 		) VALUES (?, ?, ?, ?, '{}', '[]',
 		          NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''),
-		          NULLIF(?, ''),
+		          NULLIF(?, ''), NULLIF(?, ''),
 		          'pending', 'running', ?)`,
 		agentID, team, in.ChildHandle, in.Kind,
 		in.ParentID, in.HostID, nullableInt(in.BudgetCents),
-		in.WorktreePath, mode, now); err != nil {
+		in.WorktreePath, mode, projectID, now); err != nil {
 		return spawnOut{}, http.StatusConflict, err
 	}
 

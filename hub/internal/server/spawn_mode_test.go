@@ -114,7 +114,7 @@ func TestDoSpawn_NoModeDeclared_LeavesEmpty(t *testing.T) {
 	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "w4",
 		Kind:        "claude-code",
-		SpawnSpec:   "project_id: p1\n",
+		SpawnSpec:   "name: w4\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)

@@ -403,8 +403,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "agents.spawn",
-			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode. May return 202 + attention_id if policy gates the spawn on approval.",
-			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"}}}`),
+			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode, project_id (binds the agent to a project per ADR-025; the YAML `project_id:` is the canonical site, this body field is a fallback). May return 202 + attention_id if policy gates the spawn on approval. Project-bound spawns require the caller to be that project's steward (ADR-025 W9); the general steward must delegate via `request_project_steward`.",
+			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"},"project_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				for _, k := range []string{"child_handle", "kind", "spawn_spec_yaml"} {
 					if v, _ := args[k].(string); v == "" {

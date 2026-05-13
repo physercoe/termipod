@@ -327,6 +327,14 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 			return nil, jerr
 		}
 	}
+	// agents.spawn project-binding gate (ADR-025 W9). General steward
+	// blocked outright; project-bound spawns require the caller to be
+	// that project's steward. Principal tokens bypass.
+	if call.Name == "agents.spawn" {
+		if jerr := s.authorizeAgentsSpawn(agentID, call.Arguments); jerr != nil {
+			return nil, jerr
+		}
+	}
 	switch call.Name {
 	case "post_message":
 		return s.mcpPostMessage(ctx, agentID, call.Arguments)

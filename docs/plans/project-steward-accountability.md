@@ -1,9 +1,9 @@
 # Project steward accountability — implementation plan
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-13)
+> **Status:** Foundation shipped; enforcement pending (2026-05-13)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.556
+> **Last verified vs code:** v1.0.571
 
 **TL;DR.** Implementation tracker for [ADR-025](../decisions/025-project-steward-accountability.md). Workers become project-scoped first-class agents with their own session; every engaged project gets exactly one steward (lazy materialization with director consent); the general steward routes intent down to project stewards but does not spawn workers itself. Eleven wedges across v1.0.564 (foundation: schema + lazy steward + worker session + visibility) and v1.0.565 (enforcement + UI rerouting). Order is the safe-to-ship sequence; the foundation lands first and is observed for one release before the gating tightens.
 
@@ -58,56 +58,58 @@ After this plan:
 
 ## 5. Wedges
 
-Each wedge is one commit + one version bump. Foundation (W1-W8) ships in v1.0.564; enforcement and UI rerouting (W9-W11) follow in v1.0.565 once the foundation has soaked for a release. (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes; v1.0.561 introduced the ghost-FocusNode focus-bounce, v1.0.562 extended it to delete/replace cases, v1.0.563 pinned the input border color to eliminate visual flicker.)
+Each wedge is one commit + one version bump. Foundation **shipped** at v1.0.564-v1.0.571 (W1-W8, one wedge per minor version). Enforcement and UI rerouting (W9-W11) follow at v1.0.572+ once the foundation has soaked. (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes; v1.0.561 introduced the ghost-FocusNode focus-bounce, v1.0.562 extended it to delete/replace cases, v1.0.563 pinned the input border color to eliminate visual flicker.)
 
-### v1.0.564 — Foundation
+### Foundation (SHIPPED v1.0.564–v1.0.571)
 
-**W1. Migration: `agents.project_id`.**
-- Migration 0042: `ALTER TABLE agents ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`. Index on the non-NULL subset.
+**W1 (v1.0.564). Migration: `agents.project_id`.** SHIPPED.
+- Migration 0040 (not 0042 as initially planned — sequential numbering): `ALTER TABLE agents ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`. Index on the non-NULL subset.
 - No backfill. Pre-ADR rows stay NULL.
-- Update `agentOut` to include `project_id`; update `handleListAgents` query SELECT list; add optional `?project_id=` filter on the REST endpoint.
-- Tests: round-trip insert + list + project filter.
+- `agentOut` carries `project_id`; `handleListAgents` + `handleGetAgent` SELECT it; `?project_id=` filter on the REST endpoint.
+- Tests cover round-trip insert + list + project filter + ON DELETE SET NULL behavior.
 
-**W2. Spawn flow plumbing.**
-- `spawnModeYAML` (`spawn_mode.go`) extends to parse `project_id` from the YAML.
-- `spawnIn.ProjectID` field (`handlers_agents.go`); precedence: YAML `project_id:` > spawn body field (rare). Persisted on the `agents` row insert.
-- Existing spawn paths (mobile spawn sheet, MCP `agents.spawn`, internal handlers) flow through unchanged — they all build YAML with `project_id:` already (mobile) or can pass it explicitly (MCP).
-- Tests: spawn with `project_id:` lands on row; spawn without leaves NULL.
+**W2 (v1.0.565). Spawn flow plumbing.** SHIPPED.
+- `spawnModeYAML` (`spawn_mode.go`) parses `project_id:` from the rendered YAML.
+- `spawnIn.ProjectID` body field is the precedence-low fallback (rare); YAML wins.
+- Persisted on the `agents` row insert via `NULLIF(?, '')`.
+- Tests cover YAML, body, YAML-beats-body, NULL fallthrough.
 
-**W3. `ensureProjectSteward` endpoint.**
-- New helper `ensureProjectSteward(team, project, host, model, permission)` modeled on `ensureGeneralSteward`. Idempotent: returns existing steward when `agents.kind LIKE 'steward.%' AND project_id = <pid> AND status IN ('pending','running')` matches; otherwise spawns a fresh one.
-- New route `POST /v1/teams/{team}/projects/{project}/steward/ensure` taking `{host_id, model, permission_mode}` body; returns the steward's `agentOut`.
-- Endpoint requires director auth (not steward). The general steward cannot call it directly — it raises an attention item instead (W4).
-- Tests: idempotency, no-host failure, swap when previous steward is archived.
+**W3 (v1.0.566). `ensureProjectSteward` endpoint.** SHIPPED.
+- `handleEnsureProjectSteward` modeled on the general-steward variant. Looks up `agents.kind LIKE 'steward.%' AND project_id = ? AND status NOT IN ('terminated','crashed','failed') AND archived_at IS NULL`; spawns a fresh `steward.v1` when no live match.
+- Route `POST /v1/teams/{team}/projects/{project}/steward/ensure` accepts `{host_id, permission_mode, kind}`. Per-project handle `@steward.<pid[:8]>` avoids the team-singleton `@steward` collision.
+- Updates `projects.steward_agent_id` on success so the existing field stays authoritative.
+- Tests: first-spawn + project_id binding, idempotent repeat, archive-respawn, no-host (424), unknown project (404), cross-team isolation, pinned host honored.
 
-**W4. General-steward delegation attention item.**
-- New MCP tool `attention.raise_project_steward_request` (or extend `attention.create` with a new kind) for the general steward to use when the user asks it to operate in a project that has no steward.
-- Payload: `{project_id, suggested_host_id, reason}`.
-- Mobile attention list surfaces this kind specially — tapping it opens the host-picker sheet (W7), prefilled with the suggestion.
+**W4 (v1.0.567). General-steward delegation attention item.** SHIPPED.
+- New MCP tool `request_project_steward` (sibling of `request_help` / `request_select`; the plan's `attention.raise_project_steward_request` was renamed to follow the `request_*` convention).
+- Args: `{project_id, reason, suggested_host_id}`. Validates project belongs to the caller's team.
+- Creates an attention_items row with `kind='project_steward_request'`, `scope_kind='project'`, severity `major`. Steward role's `allow_all: true` grants the tool; workers remain denied.
+- Tests cover happy-path persistence, required-field validation, unknown-project rejection, cross-team isolation.
 
-**W5. MCP `agents.list?project_id=` filter.**
-- Add `project_id` to the existing `agents.list` MCP tool schema + call.
-- Update `docs/reference/hub-mcp.md` to drop the "planned" annotation once shipped.
+**W5 (v1.0.568). MCP `agents.list?project_id=` filter.** SHIPPED.
+- `agents.list` MCP tool schema and call gain `project_id`. Threads through to the W1 REST filter.
+- `docs/reference/hub-mcp.md` annotation updated; planned-then-shipped markers cleared.
 
-**W6. Worker templates + workdir convention.**
-- Add `driving_mode: M2` + `fallback_modes: [M4]` to all 6 worker templates: `briefing.v1.yaml`, `coder.v1.yaml`, `critic.v1.yaml`, `lit-reviewer.v1.yaml`, `ml-worker.v1.yaml`, `paper-writer.v1.yaml`.
-- Drop per-template `default_workdir` overrides in 4 of them (coder, critic, lit-reviewer, paper-writer). `briefing` and `ml-worker` already use `~/hub-work`.
-- `launch_m2.go`: when `spec.Backend.DefaultWorkdir` is empty AND the spawn carries `project_id`, compute `~/hub-work/<pid[:8]>/<handle>` and use it as the workdir. Create the directory tree if missing.
-- Tests: spawn with project_id → expected workdir.
+**W6 (v1.0.569). Worker templates + workdir convention.** SHIPPED.
+- All 6 worker templates carry `driving_mode: M2` + `fallback_modes: [M4]`.
+- coder / critic / lit-reviewer / paper-writer dropped their per-handle `default_workdir`. briefing + ml-worker kept their team-shared `~/hub-work`.
+- `launch_m2.go` derives `~/hub-work/<pid[:8]>/<handle>` when DefaultWorkdir is empty AND the spawn carries `project_id`; creates the directory tree.
+- Tests cover the derivation path and the explicit-default-wins fallback.
 
-**W7. Mobile: project steward materialization + host-picker sheet.**
-- New widget `SpawnStewardSheet` — bottom sheet with host/model/permission pickers. Used by both engagement and delegation paths.
-- Project detail Agents tab: empty state when no steward exists → CTA opens the sheet → Spawn → calls `ensureProjectSteward` → tab populates.
-- Steward overlay scoped to a project: same empty state when the project has no steward.
-- Attention list: tapping the W4 attention item opens the same sheet prefilled.
-- Defaults ladder per ADR-025 D4: general steward's host > project template `host_hint` > sibling project hosts > first online host.
+**W7 (v1.0.570). Mobile: project steward materialization + host-picker sheet.** SHIPPED.
+- New widget `showSpawnProjectStewardSheet` (`lib/widgets/spawn_project_steward_sheet.dart`). Host picker + permission-mode chips + Spawn button. POSTs the W3 endpoint, refreshes the hub snapshot on success.
+- `HubClient.ensureProjectSteward(...)` + `listAgents({projectId})` (with cached variant) added.
+- Project detail Agents tab empty state replaces the bare placeholder with a `Spawn project steward` CTA.
+- Default host ladder per ADR-025 D4: suggested > first online > first available. (Sibling-project + project-template hints will layer on once `projects.host_hint` exists — see open question §6.)
+- Deferred: steward-overlay empty-state mirror and attention-tap deep link (those land alongside W10/W11 rerouting).
 
-**W8. Sessions screen: scope chip + worker rows.**
-- Each session row gains a `Scope` chip: `Team` (general steward) or `Project: <name>` (domain steward, worker).
-- Worker session rows appear ONLY on project detail Agents tab — filtered out of the global Sessions list to keep it readable.
-- Tap on worker row → `agent_feed` scoped to that worker's session_id. Steward↔worker conversation observable.
+**W8 (v1.0.571). Worker auto-session + sessions screen filter.** SHIPPED.
+- DoSpawn auto-opens a `scope_kind='project'` sessions row whenever `in.ProjectID` resolves non-empty (was: only when `AutoOpenSession=true`). Realizes ADR-025 D5 ("worker is born with its session").
+- Mobile sessions screen builds a `workerSessionAgentIDs` skip-set and filters worker sessions out of the "Detached sessions" bucket — they live on the project detail Agents tab instead.
+- The per-row "Scope chip" the plan called for is already provided by the existing group-header label (`General` / `Project: <name>`); adding a literal chip per row would visually duplicate the header.
+- Tests cover the auto-open path and confirm the swap branch doesn't double-create.
 
-### v1.0.565 — Enforcement + UI rerouting
+### v1.0.572+ — Enforcement + UI rerouting (PENDING)
 
 **W9. Hub role gate: `agents.spawn` project-binding check.**
 - New gate in `mcp_authority_roles.go` (or a sibling file): when `agents.spawn` request has `project_id` set, the caller's `parent_agent_id` must match `projects.steward_agent_id` for that project. Otherwise 403.

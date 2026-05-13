@@ -735,17 +735,31 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// the same tx. This guarantees the spawn either lands a complete
 	// (agent + session) pair or rolls back both — the caller never
 	// observes an agent-without-session intermediate state.
-	if swapSessionID == "" && in.AutoOpenSession {
+	//
+	// ADR-025 D5: project-scoped spawns always get an auto-opened
+	// session, regardless of in.AutoOpenSession. Workers materialized
+	// for a project must be debuggable through the standard session
+	// viewer, so every (worker agent, session) pair is born together.
+	// The session inherits scope_kind='project', scope_id=projectID
+	// so the project detail surfaces can find it.
+	autoOpen := in.AutoOpenSession || projectID != ""
+	if swapSessionID == "" && autoOpen {
 		newSessionID := NewID()
+		scopeKind := "team"
+		scopeID := ""
+		if projectID != "" {
+			scopeKind = "project"
+			scopeID = projectID
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO sessions (
 				id, team_id, title, scope_kind, scope_id, current_agent_id,
 				status, opened_at, last_active_at,
 				worktree_path, spawn_spec_yaml
-			) VALUES (?, ?, NULL, 'team', NULL, ?,
+			) VALUES (?, ?, NULL, ?, NULLIF(?, ''), ?,
 			          'active', ?, ?,
 			          NULLIF(?, ''), NULLIF(?, ''))`,
-			newSessionID, team, agentID, now, now,
+			newSessionID, team, scopeKind, scopeID, agentID, now, now,
 			in.WorktreePath, in.SpawnSpec); err != nil {
 			return spawnOut{}, http.StatusInternalServerError, err
 		}

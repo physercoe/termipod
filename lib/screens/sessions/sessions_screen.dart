@@ -540,9 +540,25 @@ List<_StewardGroup> _groupByStateward(
   // backing row's status isn't mutated; only the copy passed to the
   // tile is. Migration 0032 heals the data on the hub itself; this
   // keeps the UI honest until the deployed hub picks it up.
+  // ADR-025 W8: worker sessions (non-steward agent bound to a
+  // project) live on the project detail Agents tab, not in the
+  // global Sessions list — keeps this screen focused on the
+  // operator's steward conversations rather than every per-worker
+  // micro-chat. Build a quick "skip" set: agents whose kind is NOT
+  // a steward variant AND whose project_id is non-empty.
+  final workerSessionAgentIDs = <String>{};
+  for (final a in agents) {
+    final kind = (a['kind'] ?? '').toString();
+    final projectID = (a['project_id'] ?? '').toString();
+    if (projectID.isEmpty) continue;
+    if (kind.startsWith('steward.') || kind == 'steward.v1') continue;
+    final aid = (a['id'] ?? '').toString();
+    if (aid.isNotEmpty) workerSessionAgentIDs.add(aid);
+  }
   final orphanSessions = <Map<String, dynamic>>[];
   for (final s in [...sessions.active, ...sessions.previous]) {
     final aid = (s['current_agent_id'] ?? '').toString();
+    if (workerSessionAgentIDs.contains(aid)) continue;
     if (aid.isEmpty || !liveStewardIds.contains(aid)) {
       final asPausedIfActive = {...s};
       final st = (asPausedIfActive['status'] ?? '').toString();

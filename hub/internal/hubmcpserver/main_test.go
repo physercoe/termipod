@@ -411,6 +411,25 @@ func TestToolsCall_AgentsList(t *testing.T) {
 	}
 }
 
+// TestToolsCall_AgentsList_ProjectID: ADR-025 W5 — agents.list must
+// thread the project_id filter into the REST query when present.
+func TestToolsCall_AgentsList_ProjectID(t *testing.T) {
+	var sawQuery string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawQuery = r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":520,"method":"tools/call","params":{"name":"agents.list","arguments":{"project_id":"proj-xyz"}}}` + "\n")
+	if _, ok := handleLine(c, tools, line); !ok {
+		t.Fatalf("expected a response")
+	}
+	if !strings.Contains(sawQuery, "project_id=proj-xyz") {
+		t.Errorf("query missing project_id=proj-xyz: %q", sawQuery)
+	}
+}
+
 // TestToolsCall_AgentsGet: agents.get must GET the agent-id URL.
 func TestToolsCall_AgentsGet(t *testing.T) {
 	var sawPath string

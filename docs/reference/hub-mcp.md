@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-13)
 > **Audience:** agent authors, steward template authors, integrators
-> **Last verified vs code:** v1.0.556
+> **Last verified vs code:** v1.0.568
 
 **TL;DR.** Single canonical entry for "what MCP tools does the
 hub expose, and what does each one do?" Every tool is a thin
@@ -119,8 +119,8 @@ fields read straight from the JSON-Schema embedded in
 
 | Tool | Purpose |
 |---|---|
-| `agents.spawn` | Spawn a child agent. **`child_handle`**, **`kind`**, **`spawn_spec_yaml`**; optional `host_id`, `parent_agent_id`, `worktree_path`, `budget_cents`, `mode`. *Planned (v1.0.564, ADR-025):* `project_id:` in the spawn YAML binds the agent to a project, the hub persists it on the agent row, and atomically creates a `sessions` row for the new worker (D5). Project-scoped spawns will be gated to the project's steward as caller (D3); the general steward delegates rather than spawning directly. May return 202 + attention_id when policy gates the spawn. |
-| `agents.list` | List agents. Optional `host_id`, `status` filters; `include_archived: true` to also show soft-deleted rows. *Planned (v1.0.564):* `project_id` filter — the lookup mobile uses to populate the project detail Agents tab. |
+| `agents.spawn` | Spawn a child agent. **`child_handle`**, **`kind`**, **`spawn_spec_yaml`**; optional `host_id`, `parent_agent_id`, `worktree_path`, `budget_cents`, `mode`, `project_id` (binds the agent to a project per ADR-025; the YAML `project_id:` field is the canonical site, the body field is the fallback). *Planned (v1.0.565, ADR-025 W9):* project-scoped spawns gated to the project's steward as caller (D3); the general steward delegates via `request_project_steward` rather than spawning directly. May return 202 + attention_id when policy gates the spawn. |
+| `agents.list` | List agents. Optional `host_id`, `status`, `project_id` filters; `include_archived: true` to also show soft-deleted rows. The `project_id` filter is the lookup mobile uses to populate the project detail Agents tab. |
 | `agents.get` | Fetch one. **`agent`**. Returns `spawn_spec_yaml` + `spawn_authority_json` when known. |
 | `agents.terminate` | Mark status=`terminated`. Steward-only. Host-runner kills the underlying process on its next reconcile loop. |
 | `hosts.list` | List host-runners. Returns id, name, status (online/stale/offline), capabilities, last_seen_at, ssh_hint. **The lookup table for hostname → host_id** needed by `agents.spawn`. |

@@ -568,8 +568,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "agents.list",
-			Description: "List agents in the team. Optional `host_id` filters to agents on one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed). By default archived rows are hidden — pass `include_archived: true` to include them. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate.",
-			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
+			Description: "List agents in the team. Optional `host_id` filters to agents on one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed); optional `project_id` filters to agents bound to one project (per ADR-025 — the steward + its workers). By default archived rows are hidden — pass `include_archived: true` to include them. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `project_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate.",
+			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string"},"project_id":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
 				if h, ok := args["host_id"].(string); ok && h != "" {
@@ -577,6 +577,9 @@ func buildTools() []toolDef {
 				}
 				if st, ok := args["status"].(string); ok && st != "" {
 					q.Set("status", st)
+				}
+				if pid, ok := args["project_id"].(string); ok && pid != "" {
+					q.Set("project_id", pid)
 				}
 				if inc, ok := args["include_archived"].(bool); ok && inc {
 					q.Set("include_archived", "1")

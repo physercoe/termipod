@@ -1,7 +1,7 @@
 # 025. Project steward accountability — workers, scope, lazy materialization, director consent
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-13) — implementation lands across v1.0.557 (schema + lazy steward + worker session) and v1.0.558 (enforcement + UI rerouting)
+> **Status:** Accepted (2026-05-13) — implementation lands across v1.0.558 (schema + lazy steward + worker session) and v1.0.559 (enforcement + UI rerouting). (v1.0.557 was claimed by the steward-overlay IME hotfix; see `steward_overlay.dart` commit history.)
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.556
 
@@ -106,7 +106,7 @@ The director is a *principal*, not an operator. Their canonical operations:
 | **Through the steward (preferred)** | Spawn workers, edit live agent config (mode/model/permissions), terminate agents, run schedules, create plans/tasks/docs, open A2A conversations. |
 | **Escape valves (technically possible, flagged in UI)** | Direct-spawn workers bypassing steward, direct PATCH on live agent config, raw tmux/SSH input. Each remains available but routed through an "advanced" affordance with a friction hint. |
 
-Mobile implications (delivered in v1.0.558):
+Mobile implications (delivered in v1.0.559):
 - The project Agents tab `[+ Spawn Agent]` FAB routes intent through the project steward by default (intent → `a2a.invoke` → steward acts on `agents.spawn`). The advanced-bypass path moves behind a long-press or settings flag.
 - The agent_config_sheet stays read-only by default; an "Ask steward to reconfigure" CTA replaces direct PATCH.
 - The escape-valve flows are kept (they're load-bearing when stewards are unresponsive) but explicitly named so director and audit log both see the bypass.
@@ -160,7 +160,7 @@ This is intentional minimalism. The five domain steward kinds (research, infra, 
 
 Three pieces, landed across two releases:
 
-**v1.0.557 — schema + lazy steward + worker session + visibility:**
+**v1.0.558 — schema + lazy steward + worker session + visibility:**
 
 1. **Migration 0042** — `ALTER TABLE agents ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL; CREATE INDEX idx_agents_project ON agents(project_id) WHERE project_id IS NOT NULL;`. Forward-only; no backfill.
 2. **`spawn_mode.go`** — extend `spawnModeYAML` to parse `project_id`; thread through `resolveSpawnMode` so it lands on the agent row.
@@ -169,7 +169,7 @@ Three pieces, landed across two releases:
 5. **Mobile** — empty-state on project Agents tab + steward overlay surfaces. Bottom sheet with host/model/permission picker. Sessions screen gains a scope chip on each row. Worker row tap → agent_feed scoped to its session.
 6. **Worker templates** — add `driving_mode: M2` + `fallback_modes: [M4]` to all 6 worker templates (briefing, coder, critic, lit-reviewer, ml-worker, paper-writer). Drop per-template `default_workdir` overrides in favor of a derived `~/hub-work/<project-id-prefix>/<handle>` convention computed at spawn time.
 
-**v1.0.558 — enforcement + UI rerouting:**
+**v1.0.559 — enforcement + UI rerouting:**
 
 7. **Role gate** — `agents.spawn` with `project_id` requires `parent_agent_id` to be the project's current steward (D3). General steward (`kind = 'steward.general.v1'`) cannot call `agents.spawn`; falls through to delegation.
 8. **Mobile** — `[+ Spawn Agent]` FAB on project Agents tab routes through the project steward by default. Direct-bypass moved behind an advanced toggle (D6).
@@ -190,7 +190,7 @@ Three pieces, landed across two releases:
 - **ADR-016 (subagent scope manifest)** — the role gate that enforces D3 is implemented as an extension of the existing `mcp_authority` middleware. The `worker` role is unchanged; the project-binding check is a separate gate that fires before the role check on `agents.spawn`.
 - **ADR-017 (layered stewards)** — D1's domain-steward tier becomes the canonical project-steward role. D6's "at most one domain steward per project" becomes "exactly one steward per engaged project" — a tighter invariant that subsumes the original. ADR-017 D-amend-1 (peer stewards) is unaffected: peers are team-scope by design and never own a `project_id`.
 - **ADR-020 (director-action surface)** — unaffected. The seven director-on-doc moves are about deliberation primitives, orthogonal to spawn accountability.
-- **ADR-023 (agent-driven mobile UI)** — D6's "director scope guardrails" formalizes the principal/operator boundary that ADR-023 has been operating under since v1.0.464. Mobile reroute (v1.0.558) is the wedge that finishes the work ADR-023 started.
+- **ADR-023 (agent-driven mobile UI)** — D6's "director scope guardrails" formalizes the principal/operator boundary that ADR-023 has been operating under since v1.0.464. Mobile reroute (v1.0.559) is the wedge that finishes the work ADR-023 started.
 
 ---
 

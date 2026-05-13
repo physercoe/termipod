@@ -585,39 +585,56 @@ class _ExpandedPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final base = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
-    // **v1.0.555 — the missing IME isolation channel.** v1.0.549 froze
-    // the panel's outer `Positioned(top:)` against Gboard's per-frame
-    // viewInsets ticks. But that doesn't stop the TextField *itself*
-    // (via its internal `Scrollable` and `EditableText._showCaretOnScreen`)
-    // from subscribing to `MediaQuery.viewInsets.bottom`. Every time
-    // Gboard's suggestion strip animates a few pixels, MediaQuery
-    // dispatches an `InheritedWidget` notification, and every subscriber
-    // in the panel's subtree rebuilds — including EditableText, which
-    // ends up calling `_updateRemoteEditingValueIfNeeded` against its
-    // own `_lastKnownRemoteTextEditingValue` cache. On a stale cache
-    // (because the IME's selection moved client-side but Flutter's
-    // cache hadn't caught up yet) that re-pushes setEditingState with
-    // an old text+selection, which clobbers what the user just typed.
+    // **v1.0.557 — the actual IME isolation fix.** v1.0.555 was the right
+    // SHAPE (mask MediaQuery's keyboard-affected fields so EditableText's
+    // internal Scrollable / `_showCaretOnScreen` reads zero) but two
+    // implementation leaks kept the bug alive:
     //
-    // Stripping `viewInsets`, `viewPadding`, and `padding` from the
-    // MediaQuery the panel subtree inherits is the standard Flutter
-    // pattern for this — see `Scaffold` source, which does the same
-    // for nested scaffolds. Reads of MediaQuery.viewInsets.bottom from
-    // INSIDE the panel will see 0 regardless of what Gboard is
-    // animating, so no rebuild storm reaches EditableText.
+    //   1. `MediaQuery.of(context)` subscribes this widget to the ancestor
+    //      MediaQuery, so every Gboard suggestion-strip animation frame
+    //      re-runs `_ExpandedPanel.build`. Each rebuild constructs a NEW
+    //      MediaQueryData via copyWith. Flutter's inner `MediaQuery`
+    //      widget calls `updateShouldNotify` (value `==`) — if any
+    //      unmasked field ticks, the new data is unequal to the previous
+    //      one and the inner MediaQuery NOTIFIES its descendants.
+    //
+    //   2. v1.0.555 zeroed `viewInsets`, `viewPadding`, `padding`. But
+    //      on Android `systemGestureInsets.bottom` ALSO shrinks when the
+    //      IME shows (the bottom-edge swipe area is occluded). That field
+    //      was inherited from the (ticking) outer MQ, breaking equality,
+    //      re-notifying inner MediaQuery, re-rebuilding EditableText,
+    //      re-pushing stale `setEditingState` — same bug shape, same
+    //      symptom ("deleted text returns + cursor jumps to end").
+    //
+    // Two fixes stacked:
+    //
+    //   - **Don't subscribe.** Read via
+    //     `getElementForInheritedWidgetOfExactType<MediaQuery>()` which
+    //     returns the InheritedElement WITHOUT establishing a dependency.
+    //     `_ExpandedPanel.build` no longer re-runs on viewInsets ticks at
+    //     all, so the inner MediaQuery's data object stays reference-
+    //     stable across the typing session.
+    //
+    //   - **Zero `systemGestureInsets` too.** Belt-and-suspenders against
+    //     any other code path (parent rebuild) that does trigger this
+    //     build to re-run while the keyboard is mid-animation.
     //
     // Session-transcript compose works without this because it lives
     // inside a `Scaffold` whose `resizeToAvoidBottomInset: true` body
     // already gets a MediaQuery with `viewInsets.bottom` zeroed by
-    // Scaffold itself (Scaffold pads its body and then masks viewInsets
-    // from descendants). The overlay panel is mounted in
+    // Scaffold itself. The overlay panel is mounted in
     // `MaterialApp.builder`, OUTSIDE that Scaffold, so it never gets
     // that automatic mask — we have to apply it ourselves.
-    final mq = MediaQuery.of(context);
-    final maskedMq = mq.copyWith(
+    final mqElement =
+        context.getElementForInheritedWidgetOfExactType<MediaQuery>();
+    final outerMq = (mqElement?.widget as MediaQuery?)?.data ??
+        MediaQueryData.fromView(
+            WidgetsBinding.instance.platformDispatcher.views.first);
+    final maskedMq = outerMq.copyWith(
       viewInsets: EdgeInsets.zero,
       viewPadding: EdgeInsets.zero,
       padding: EdgeInsets.zero,
+      systemGestureInsets: EdgeInsets.zero,
     );
     // Opacity applies to the BACKGROUND ONLY (not the children) so the
     // chat text stays fully readable while the underlying page peeks

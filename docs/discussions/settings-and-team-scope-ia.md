@@ -1,14 +1,14 @@
 # Settings + TeamSwitcher information architecture
 
 > **Type:** discussion
-> **Status:** Open — director-aligned (2026-05-14), ready for implementation wedge
+> **Status:** Open — director-aligned (2026-05-14), ready for implementation wedge. Local-notifications scope finalized via the "System" category 2026-05-14 (replaces the Display-stretch proposal).
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.579
 
 **TL;DR.** Termipod has two correctly-scoped configuration trees that
 were never explicitly named, plus one of them (Settings) is a
 1870-line flat scroll. This doc pins the **two-scope mental model**
-(Device vs Team), specifies the **seven-category Settings IA**, and
+(Device vs Team), specifies the **six-category Settings IA**, and
 records the placement rules so future contributors don't re-decide
 where a new toggle belongs. The TeamSwitcher pill is already
 correctly scoped and needs no structural change — only better
@@ -66,13 +66,15 @@ need to rewrite copy that radically; a few well-placed sublabels
 │           flutter_secure_storage         │                                          │
 │  Survives team switches                  │  Per hub_profile (URL + teamId + token)  │
 ├──────────────────────────────────────────┼──────────────────────────────────────────┤
-│  Terminal cursor / fonts / scrollback    │  Profiles list (active marker)           │
-│  Input (NavPad, custom kbd, voice,       │  Add profile · Manage profiles           │
-│         action-bar / toolbar, haptic)    │  Templates & engines (overlay editor)    │
-│  Theme + language                        │  Team settings →                         │
-│  Local notif enable (OS gate)            │    Members · Policies · Channels         │
-│  Image / file transfer formats           │    Governance (Budgets · Auth ·          │
+│  Display (theme, fonts, cursor,          │  Profiles list (active marker)           │
+│           scrollback, language)          │  Add profile · Manage profiles           │
+│  Input (NavPad, custom kbd, voice,       │  Templates & engines (overlay editor)    │
+│         action-bar preset, haptic,       │  Team settings →                         │
+│         floating pad)                    │    Members · Policies · Channels         │
+│  Files & Media (image + file transfer)   │    Governance (Budgets · Auth ·          │
 │  Data: export / import / cache           │      Councils · Steward defaults)        │
+│  System (local notifications, future     │                                          │
+│          OS-permission toggles)          │                                          │
 │  About (version / update / source /      │                                          │
 │         licenses)                        │                                          │
 └──────────────────────────────────────────┴──────────────────────────────────────────┘
@@ -97,24 +99,25 @@ answer is ambiguous, you've probably found a real overlap (see
 
 ---
 
-## 3. Settings — seven categories
+## 3. Settings — six categories
 
-Seven top-level rows. Each opens a sub-screen with ≤ 7 grouped
-rows. Two-tier max except where the section is dense enough to
-warrant its own sub-sub-page (currently: NavPad, Voice — see §6
-open questions).
+Six top-level rows after director directive (2026-05-14) dropped
+the "You" category and introduced "System" as a clean home for
+OS-permission-level toggles. Each row opens a sub-screen with ≤ 7
+grouped rows. Two-tier max except where the section is dense
+enough to warrant its own sub-sub-page (NavPad, Voice, Action-bar
+preset, Image transfer, File transfer — per §6 OQ-1).
 
 | # | Category | Rows | Why this category |
 |---|---|---|---|
-| 1 | **You** | Language · Local notifications · Feedback channel | Identity-flavored device prefs. Small (~3 rows) but high-clarity scope. |
-| 2 | **Display** | Theme (dark/light) · Terminal cursor · Terminal font family · Font size · Min font size · Scrollback lines | "How things look on screen" — all visual chrome. |
-| 3 | **Input** | NavPad → · Custom keyboard · Action-bar toolbar → · Voice → · Haptic feedback · Invert pane nav · Keep screen on | "How input reaches the app" — any tactile or input modality. **Voice lives here**: it IS an input modality (parallel to NavPad, custom kbd), and keeping the toggle + DashScope credentials together avoids a two-visit setup flow. |
-| 4 | **Files & Media** | Image transfer → · File transfer → · Auto-enter on paste · Bracketed paste | Image + File transfer share path-format / auto-enter / bracketed-paste rows today; merge under one parent. |
-| 5 | **Data** | Export backup · Import backup · Clear offline cache · Browse local files · Vault (legacy) | Local data lifecycle — backup, restore, wipe, inspect. |
-| 6 | **Advanced** | Experimental floating pad · Floating pad size · Floating pad center key · Bracketed paste edge cases | Hidden by default; for power users + bug-hunt. |
-| 7 | **About** | Version · Check update · Source code · Feedback · Licenses · App icon | Standard "about this build" — last by convention. |
+| 1 | **Display** | Theme (dark/light) · Terminal cursor · Terminal font family · Font size · Min font size · Scrollback lines · Language | "How things look on screen" — visual chrome. Language sits here because the language code IS what the app *shows*. |
+| 2 | **Input** | NavPad → · Custom keyboard · Action-bar preset → · Voice → · Haptic feedback · Invert pane nav · Keep screen on · Floating pad (Beta) → | "How input reaches the app" — any tactile or input modality. **Voice lives here**: it IS an input modality (parallel to NavPad, custom kbd), and keeping the toggle + DashScope credentials together avoids a two-visit setup flow. Experimental floating pad joins as a NavPad variant with a "Beta" sublabel rather than its own category. |
+| 3 | **Files & Media** | Image transfer → · File transfer → · Auto-enter on paste · Bracketed paste | Image + File transfer share path-format / auto-enter / bracketed-paste rows today; merge under one parent. |
+| 4 | **Data** | Export backup · Import backup · Clear offline cache · Browse local files · Vault (legacy) | Local data lifecycle — backup, restore, wipe, inspect. |
+| 5 | **System** | Local notifications | OS-layer toggles. Today just the one row (notification-shade ping on new attention items, backed by `flutter_local_notifications`), but the category is a load-bearing slot for future OS-permission-style settings (background sync, app badge, OS-permission resets, data-saver behavior). Naming the scope explicitly is worth more than the current row count. |
+| 6 | **About** | Version · Check update · Source code · Feedback · Licenses · App icon | Standard "about this build" — last by convention. The Feedback channel was previously under "Behavior"; no move, it stays here as it was. |
 
-Total top-level rows: **7** (Miller-budget compliant). Total leaf
+Total top-level rows: **6** (Miller-budget compliant). Total leaf
 toggles redistributed: ~30, same as today — the wedge moves them,
 doesn't add or remove.
 
@@ -276,7 +279,7 @@ settings", iOS Spotlight surfacing recent Settings rows.
 **Trade**: real ergonomic win for power users; adds state
 (per-device persistence), one more concept to maintain.
 
-**Recommendation: defer to a follow-up wedge.** Ship the 7-cat
+**Recommendation: defer to a follow-up wedge.** Ship the 6-cat
 taxonomy + search first; measure whether search alone is enough
 before adding state. If users still complain about access time
 for frequent toggles (theme, voice, scrollback), add Pinned in a
@@ -327,27 +330,38 @@ lands as one user-visible release rather than dribbling out.
 
 ## 7. Implementation sketch
 
-One wedge, ~v1.0.580, single commit:
+Two wedges, one commit each. Full per-wedge tracker lives at
+[`docs/plans/settings-ia-refactor.md`](../plans/settings-ia-refactor.md).
 
-1. Refactor `settings_screen.dart` from flat ListView into a 7-row
+**W1 (~v1.0.580) — structural refactor.**
+
+1. Refactor `settings_screen.dart` from flat ListView into a 6-row
    home screen.
-2. Create 7 sub-screen widgets (Display, Input, Files & Media,
-   Data, Advanced, About, You). Each pulls its rows from the
-   existing settings_screen body.
-3. Wire the search bar with row-list indexing (title + subtitle
-   per OQ-2).
-4. Add sub-label "current value" rendering on each top-level home
-   row.
-5. Rename l10n keys (OQ-6).
-6. Update TeamSwitcher copy + first-run nudge (OQ-7).
-7. Update `docs/how-to/release-testing.md` §X with a settings IA
-   verification scenario.
+2. Create 6 sub-screen widgets (Display, Input, Files & Media,
+   Data, System, About) plus sub-sub-pages (NavPad, Action-bar
+   preset, Image transfer, File transfer, Floating pad (Beta)).
+3. Drop the "You" category; redistribute (Language → Display,
+   Local notifications → System, Feedback stays in About).
+4. Move experimental floating pad from its own section into Input
+   as a "Beta"-chipped sub-sub-page.
+5. Rename toolbar "Profile" to "Preset" (l10n + UI text).
+6. Rename l10n keys per OQ-6.
+
+**W2 (~v1.0.581) — discoverability layer.**
+
+7. Search bar with row-list indexing (title + subtitle per OQ-2).
+8. 600ms tint-pulse on deep-link target.
+9. Sub-label "current value" rendering on each home category card.
+10. TeamSwitcher popup section label + tooltip copy + first-run
+    nudge for team-flavored search misses (OQ-7).
+11. New `release-testing.md` scenario covering 6-card nav, search,
+    highlight, nudge.
 
 No backend work. No data model changes. Pure presentation
 refactor with state-preserving wrapping (existing
 `SettingsState` and providers untouched).
 
-A follow-up wedge ~v1.0.581 adds Templates list chrome (tab +
+A separate plan (~v1.0.582) adds Templates list chrome (tab +
 chip filters + search) — out of scope for this discussion but
 referenced for completeness.
 

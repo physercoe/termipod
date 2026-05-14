@@ -1,7 +1,7 @@
 # Settings + TeamSwitcher IA refactor — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-14) — director-aligned, ready to implement
+> **Status:** Draft (2026-05-14) — director-aligned, ready to implement. Local-notifications scope finalized in a "System" category 2026-05-14 (replaces the Display-stretch proposal).
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -9,11 +9,13 @@
 [`docs/discussions/settings-and-team-scope-ia.md`](../discussions/settings-and-team-scope-ia.md).
 Two wedges. **W1 (v1.0.580) = structural refactor**: the
 1870-line flat ListView in `settings_screen.dart` becomes a
-6-row home + 6 sub-screens, voice rows fold into Input, Image +
-File transfer merge under "Files & Media", "Toolbar Profile"
-renames to "Preset", and the "You" category is dropped (Language
-→ Display, Feedback already in About, Local notifications →
-Display). **W2 (v1.0.581) = discoverability layer**: search bar
+6-row home + 6 sub-screens (Display · Input · Files & Media ·
+Data · System · About), voice rows fold into Input, Image +
+File transfer merge under "Files & Media", experimental floating
+pad joins Input as a NavPad-variant with a "Beta" sublabel,
+"Toolbar Profile" renames to "Preset", and the "You" category
+is dropped (Language → Display, Feedback stays in About, Local
+notifications → System). **W2 (v1.0.581) = discoverability layer**: search bar
 on Settings home with 600ms tint-pulse deep-link, sub-label
 "current value" on each home row, plus TeamSwitcher popup
 section label + tooltip copy + first-run nudge so users learn
@@ -70,7 +72,7 @@ After this plan:
 - **Settings home** — the new 6-row landing screen replacing the
   flat ListView at `lib/screens/settings/settings_screen.dart`.
 - **Category** — one of the 6 top-level rows on Settings home
-  (Display, Input, Files & Media, Data, Advanced, About).
+  (Display, Input, Files & Media, Data, System, About).
 - **Sub-screen** — the page reached by tapping a category. Lists
   ≤ 7 grouped rows, may include navigators into sub-sub-pages.
 - **Sub-sub-page** — dense detail page reached from a sub-screen
@@ -88,11 +90,12 @@ After this plan:
 | Surface | Change | Wedge |
 |---|---|---|
 | `lib/screens/settings/settings_screen.dart` | Rewrite from flat ListView to 6-row home; spawn 6 sub-screen widgets | W1 |
-| `lib/screens/settings/display_screen.dart` (new) | Theme · Terminal cursor · Font family/size/min · Scrollback · Language · Local notifications | W1 |
-| `lib/screens/settings/input_screen.dart` (new) | NavPad → · Custom keyboard · Action-bar preset → · Voice → · Haptic · Invert pane nav · Keep screen on | W1 |
+| `lib/screens/settings/display_screen.dart` (new) | Theme · Terminal cursor · Font family/size/min · Scrollback · Language | W1 |
+| `lib/screens/settings/input_screen.dart` (new) | NavPad → · Custom keyboard · Action-bar preset → · Voice → · Haptic · Invert pane nav · Keep screen on · Floating pad (Beta) → | W1 |
 | `lib/screens/settings/files_media_screen.dart` (new) | Image transfer → · File transfer → · Shared knobs (auto-enter, bracketed paste) | W1 |
 | `lib/screens/settings/data_screen.dart` (new) | Export · Import · Clear cache · Browse files · Vault (legacy) | W1 |
-| `lib/screens/settings/advanced_screen.dart` (new) | Experimental floating pad (size, center key) | W1 |
+| `lib/screens/settings/system_screen.dart` (new) | Local notifications (single row today; load-bearing slot for future OS-permission toggles) | W1 |
+| `lib/screens/settings/sub_screens/floating_pad_screen.dart` (new) | Floating pad toggle · size · center key — was the "Experimental" section; now an Input sub-sub-page with a "Beta" chip in the header | W1 |
 | `lib/screens/settings/about_screen.dart` (new) | Version · Check update · Source code · Feedback · Licenses · App icon | W1 |
 | `lib/screens/settings/voice_settings_screen.dart` | Keep file; reachable via Input → Voice → (existing route preserved) | W1 (no diff) |
 | `lib/screens/settings/action_bar_settings_screen.dart` | Rename internal references from "Profile" to "Preset"; reachable via Input → Action-bar preset → | W1 |
@@ -131,15 +134,15 @@ single Column of 6 large category cards. Each card:
 Card order is fixed (no user reordering in v1):
 
 1. **Display** — Theme · Terminal cursor · Font family · Font
-   size · Min font size · Scrollback · Language · Local
-   notifications
+   size · Min font size · Scrollback · Language
 2. **Input** — NavPad → · Custom keyboard · Action-bar preset →
-   · Voice → · Haptic feedback · Invert pane nav · Keep screen on
+   · Voice → · Haptic feedback · Invert pane nav · Keep screen on ·
+   Floating pad (Beta) →
 3. **Files & Media** — Image transfer → · File transfer → ·
    Auto-enter on paste · Bracketed paste
 4. **Data** — Export backup · Import backup · Clear offline
    cache · Browse local files · Vault (legacy)
-5. **Advanced** — Experimental floating pad → (size, center key)
+5. **System** — Local notifications
 6. **About** — Version · Check update · Source code · Feedback ·
    Licenses · App icon
 
@@ -149,15 +152,36 @@ Per director directive (2026-05-14):
 
 - **Language** → Display (the language code IS what the app
   *shows*).
-- **Local notifications** → Display. Slight scope expansion:
-  Display now covers anything the app produces toward the user's
-  senses, not strictly visual. Defensible alternative is a 7th
-  "System" category — single-row, awkward. Pin in Display for
-  v1; revisit only if more system-flavored toggles arrive.
+- **Local notifications** → **System** (new 5th category). The
+  toggle is an OS-permission-level concern (backed by
+  `flutter_local_notifications`, fires
+  `LocalNotifications.requestPermission()` on opt-in, gates the
+  OS notification shade for new hub `attention_item`s while the
+  app is backgrounded). Putting it in a category named for its
+  scope is clearer than stretching Display. The "System" category
+  starts as a single-row home, but it's load-bearing: future
+  OS-flavored toggles (background sync, app badge, OS-permission
+  resets, data-saver behavior) have an obvious destination.
 - **Feedback channel** — no move. Already in About in current
   code.
 
 No "You" sub-screen widget is created. The category disappears.
+
+**5.2.1 Experimental floating pad → Input (Beta).**
+
+The current "Experimental" section's three rows (toggle, size,
+center key) move into Input as a sub-sub-page reachable via
+`Floating pad (Beta) →`. Rationale: floating pad IS a navigation-
+pad variant — siblings with NavPad and custom keyboard makes
+more sense than its own category. The "Experimental" framing
+becomes a "Beta" chip in the sub-sub-page header rather than a
+top-level category.
+
+No standalone "Advanced" category in v1. If genuinely
+experimental knobs accrue in the future (more than 1-2), an
+"Advanced" or "Labs" category can be added; until then, the
+"Beta" sublabel pattern does the discoverability job without an
+empty-looking top-level row.
 
 **5.3 Voice moves into Input.**
 
@@ -216,13 +240,14 @@ Map every old `sectionFoo` key to its new scope-named equivalent:
 |---|---|
 | `sectionTerminal` | `scopeDisplay` (via Display sub-screen) |
 | `sectionNavPad` | `scopeInputNavPad` |
-| `sectionExperimental` | `scopeAdvanced` |
+| `sectionExperimental` | `scopeInputFloatingPad` (moved into Input as a "Beta" sub-sub-page) |
 | `sectionToolbar` | `scopeInputPreset` (was Profile) |
-| `sectionBehavior` | (split — Haptic/KeepScreenOn/Invert → Input; Local notif → Display) |
+| `sectionBehavior` | (split — Haptic/KeepScreenOn/Invert → Input; Local notif → **System**) |
 | `sectionAppearance` | (merged into Display) |
 | `sectionImageTransfer` | `scopeFilesImageTransfer` |
 | `sectionFileTransfer` | `scopeFilesFileTransfer` |
 | `sectionData` | `scopeData` |
+| (new) | `scopeSystem` (top-level for System category) |
 | `sectionAbout` | `scopeAbout` |
 
 New keys for the 6 category-card titles + ~6 sub-label
@@ -287,8 +312,7 @@ string from `settingsProvider`:
 - Files & Media → `Image format · JPEG` (highest-frequency
   setting in that scope)
 - Data → (no sub-label — no single representative value)
-- Advanced → `Floating pad · Off` (only when on, otherwise
-  blank)
+- System → `Notifications · On` (or Off)
 - About → `v1.0.581-alpha`
 
 Convention: when no representative value exists, render no
@@ -375,11 +399,9 @@ are resolved by director sign-off (2026-05-14):
 - OQ-7 → TeamSwitcher polish in W2 (same release window as the
   IA refactor user-visibly).
 
-One **minor follow-up to flag**: Local notifications in Display
-(§5.2) is a slight scope stretch. If on-device review feels off,
-the polish move is to introduce a 7th "Behavior" or "System"
-category to host this row alone — but this would be a follow-up
-wedge, not part of W1.
+The "Local notifications scope stretch" flagged in the earlier
+draft has been **resolved by the System category** (§5.2) and
+is no longer open.
 
 ## 8. Rollout
 
@@ -409,9 +431,10 @@ wedge, not part of W1.
 - **l10n breakage** from key renames. Mitigation: rename keys
   in the same wedge that renames their consumers; CI's
   `flutter analyze` catches any orphan references.
-- **Display scope feels stretched** by Local notifications.
-  Mitigation: §7 OQ-flag. Follow-up wedge if on-device review
-  surfaces friction.
+- **"System" category feels empty with one row.** Acceptable
+  for v1 — the scope name is correct, the row count will grow
+  as OS-level toggles accrue (background sync, app badge, etc.).
+  Alternative was stretching Display, which obscured scope.
 - **Search nudge keyword list** drifts from reality (someone
   adds a new team-flavored concept and the nudge stops firing
   on relevant queries). Mitigation: keep the keyword list as a

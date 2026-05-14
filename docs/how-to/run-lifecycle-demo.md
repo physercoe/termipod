@@ -1,9 +1,9 @@
 # Run the lifecycle demo — end-to-end walkthrough + test plan
 
 > **Type:** how-to
-> **Status:** Current (2026-05-06) — staged via wedges W1–W6 + lifecycle-mvp W1–W7
+> **Status:** Current (2026-05-14) — staged via wedges W1–W6 + lifecycle-mvp W1–W7; see ADR-025 amendments §A below
 > **Audience:** testers, contributors, demo reviewers
-> **Last verified vs code:** v1.0.359
+> **Last verified vs code:** v1.0.574 (steps 1.x–4.x verified against v1.0.359; ADR-025 surface changes inline-noted)
 
 **TL;DR.** The canonical end-to-end walkthrough for the amended MVP
 demo (the 5-phase research lifecycle locked in
@@ -26,6 +26,32 @@ The walkthrough is **idealised end-state** — what the demo does once
 W1–W6 are all shipped. The §Milestones section maps which wedge
 unblocks which checkpoints, so a reader running the demo at any
 intermediate point knows what's expected to work and what's not.
+
+---
+
+## §A. ADR-025 amendments (v1.0.564–574)
+
+Two changes to the original flow:
+
+1. **Domain steward = project steward, materialized with director
+   consent.** Phase 0's automatic "general steward spawns the
+   domain steward" handoff is replaced by the W7 host-picker sheet:
+   after phase 0 review the principal taps the project Agents
+   tab's `Spawn project steward` CTA (or accepts the W4
+   `project_steward_request` attention raised by the general
+   steward) and chooses host + permission mode. Same end-state, one
+   extra consent gate. Checkpoint 0.7 still passes — verify
+   `projects.steward_agent_id` is set after the sheet returns.
+2. **Worker spawns require the project steward.** Per W9, only the
+   project's steward may call `agents.spawn` with that project's
+   `project_id`. The general steward can no longer spawn workers
+   for the project — it must `a2a.invoke` the project steward.
+   Phase 1+ checkpoints (1.1, 2.1, 3.x, 4.1) still fire, but the
+   spawn audit row's `parent_agent_id` is the **project** steward,
+   not the general steward.
+
+For a canonical e2e walkthrough of the new chain see
+[`test-steward-lifecycle.md`](test-steward-lifecycle.md) Scenario 7.5.
 
 ---
 

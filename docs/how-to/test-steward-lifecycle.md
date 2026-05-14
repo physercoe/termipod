@@ -1,9 +1,9 @@
 # Test the steward-driven project lifecycle (write + A2A)
 
 > **Type:** how-to
-> **Status:** Current (2026-05-11)
+> **Status:** Current (2026-05-14)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.500
+> **Last verified vs code:** v1.0.574 (Scenario 7 + new Scenario 7.5 reflect ADR-025; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -350,9 +350,16 @@ the project root.
 rests on the steward delegating to a different agent and
 surfacing the reply.
 
-**Goal:** end-to-end A2A: steward spawns a worker on a host,
-sends it a tiny task via `a2a.invoke`, receives the reply, and
-surfaces it back in the overlay chat as a steward bubble.
+**ADR-025 (v1.0.564+) note.** The general steward is **blocked
+from `agents.spawn` against project-bound workers** per W9. This
+scenario exercises an *unbound* worker spawn (no `project_id`)
+so the general steward can still drive it end-to-end. For
+project-bound spawn delegation (the canonical ADR-025 chain),
+run Scenario 7.5 below.
+
+**Goal:** end-to-end A2A: steward spawns an unbound worker on a
+host, sends it a tiny task via `a2a.invoke`, receives the reply,
+and surfaces it back in the overlay chat as a steward bubble.
 
 **Steps:**
 
@@ -360,7 +367,7 @@ surfaces it back in the overlay chat as a steward bubble.
    section (the indented children under the HubTile, v1.0.499
    grouping). Personal-only bookmarks won't carry an A2A relay
    target — only HUB-registered hosts can host workers.
-2. Type: `Spawn a worker on host <host-id> called "summarizer-1", give it the goal "summarize a project goal in one line", and have it write a one-line title for research-method-demo.`
+2. Type: `Spawn an unbound worker on host <host-id> called "summarizer-1" (no project binding), give it the goal "summarize a project goal in one line", and have it write a one-line title for research-method-demo.`
 3. Wait. This scenario is allowed up to **90 s** — spawn +
    engine warm + A2A round-trip.
 4. Read the steward's reply in the overlay chat.
@@ -369,17 +376,23 @@ surfaces it back in the overlay chat as a steward bubble.
 
 - Steward chat shows a system row indicating `agents.spawn`
   fired (worker handle visible somewhere — overlay or audit).
+  The worker's `project_id` column is NULL (no binding).
 - Within ~30–60 s of the spawn, the steward posts a final text
   bubble containing the **worker's one-line title** for the
   method project. The text is short, on-topic, and clearly
   *not* the steward's own paraphrase of the project goal.
-- Activity tab → project `research-method-demo` shows two
-  audit rows: a spawn event and an A2A invoke event.
+- Activity tab → project `research-method-demo` shows an A2A
+  invoke event (the worker isn't bound to the project; the
+  spawn event lands on the team-scope audit feed instead).
 - Hosts tab → the chosen host shows an extra running agent
   (the worker) for at least the duration of the call.
 
 **Failure modes (and what each one tells you):**
 
+- **403 from W9 gate** — the prompt didn't make `project_id`
+  empty enough. Re-run with an explicit "no project binding"
+  instruction, and double-check the rendered spawn YAML doesn't
+  carry a stray `project_id:` from a template.
 - **No spawn event in audit** → policy gated `agents.spawn` or
   it 4xx'd. Hub logs will say which. Pre-condition 6 should
   cover this; if not, the policy needs adjusting for test.
@@ -405,6 +418,87 @@ surfaces it back in the overlay chat as a steward bubble.
   text reads.
 - **Worker hangs** → worker engine is cold or stuck on
   approval. Hub `attention_items` will tell you which.
+
+---
+
+## Scenario 7.5 — Project steward delegation chain (ADR-025)
+
+**The canonical ADR-025 delegation flow.** Exercises every layer
+of the accountability chain end-to-end: principal → general
+steward → request_project_steward → director consent →
+project steward → worker. Verifies the W9 gate AND the W4 +
+W7 + W8 surfaces in a single pass.
+
+**Pre-condition:** the demo project `research-method-demo` has
+**no** project steward yet (run `hub-server seed-demo --shape
+lifecycle --reset` if a previous run left one behind).
+
+**Steps:**
+
+1. From the home tab, open the General steward overlay.
+2. Type: `Spawn a coder worker on host <host-id> called "summarizer-2" inside project research-method-demo. Have it write a one-line title for the method-demo project.`
+3. Wait ~10 s.
+
+**Expected (general steward branch):**
+
+- The general steward replies that it can't directly spawn a
+  project-bound worker (per ADR-025 D2). It calls
+  `request_project_steward({project_id, reason})` instead.
+- A `project_steward_request` attention item appears in the
+  Me tab, severity `major`, summary "Spawn a project
+  steward: …".
+
+4. Tap the attention item. **Expected:** the W7 host-picker
+   sheet opens prefilled with the general steward's
+   suggestion (host_id). Tap **Spawn steward**.
+5. **Expected:** SnackBar `Project steward spawned (<id>)`. The
+   attention item closes.
+6. Pop back to the general steward overlay. The steward should
+   recognise the project now has a steward and either:
+   - retry the request as an A2A to the new project steward, OR
+   - tell you to open the project Agents tab and ask the
+     project steward directly.
+
+7. Open Projects → `research-method-demo` → Agents → tap **Ask
+   steward** FAB → land in the project steward's session.
+8. In the project steward's chat, type:
+   `Spawn the summarizer-2 worker on host <host-id> as a coder. Have it write a one-line title for this project.`
+9. Wait up to 90 s for spawn + engine warm + A2A.
+
+**Expected (project steward branch):**
+
+- The project steward calls `agents.spawn` with `project_id` in
+  the spawn YAML. The W9 gate ALLOWS it (caller == project
+  steward).
+- The new worker row carries `project_id =
+  research-method-demo`'s id and `kind = claude-code`
+  (workers don't start with `steward.`).
+- A `scope_kind='project'` session row opens for the worker
+  (W8). It does NOT appear in the global Sessions screen —
+  Sessions filters worker sessions to the project Agents tab
+  (verify by popping to Sessions and looking for it).
+- Project Agents tab shows the steward AND the worker. Tap
+  the worker → agent_config_sheet → confirm `Ask steward to
+  reconfigure` CTA renders.
+- Within ~30-60 s the project steward posts the worker's reply
+  text in its chat.
+
+**Failure modes:**
+
+- **W9 gate rejects the project steward's spawn** → check
+  `projects.steward_agent_id` matches the project steward's
+  id. If they don't match, W3's bind step didn't run; re-spawn
+  the project steward.
+- **request_project_steward never fired** → the general
+  steward's prompt update didn't take. Confirm the deployed
+  `steward.general.v1.md` includes the
+  `## Project work — delegate to the project steward`
+  section (added in v1.0.573-alpha).
+- **No worker session in project Agents tab** → DoSpawn's
+  auto-open for project_id didn't fire. Check hub logs for
+  `INSERT INTO sessions ... scope_kind='project'`. If the
+  worker row exists but no session, the auto-open guard
+  (W8) regressed.
 
 ---
 

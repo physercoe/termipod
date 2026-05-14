@@ -1,9 +1,9 @@
 # Release testing
 
 > **Type:** how-to
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-14)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.172 (per-section version markers below pin steps individually)
+> **Last verified vs code:** v1.0.574 (per-section version markers below pin steps individually)
 
 **TL;DR.** Evergreen manual test plan covering the mobile app +
 Termipod Hub surfaces. Update in place when behavior changes; the
@@ -322,12 +322,30 @@ settings), **Refresh**, **search**.
 
 ### 5.3 Project detail → Agents
 
+_Verified against v1.0.574-alpha (ADR-025 W7-W11)._
+
 1. Toggle **List / Tree** in the sub-app-bar. **Expected:** List is a
    flat table; Tree renders `agent_spawns` parent → child graph with
    indent (cycle-safe).
-2. Long-press a preset chip (if any exist). **Expected:** delete
-   confirmation.
-3. Tap the **Spawn Agent** FAB. See §7 for the full spawn flow.
+2. **Empty state.** When the project has no agents yet, **Expected:**
+   the body shows a centered `Spawn project steward` button (the ADR-
+   025 W7 CTA) instead of bare placeholder text. The bottom-right
+   FAB is also visible.
+3. Tap the **Ask steward** FAB. **Expected:**
+   - If the project has a live steward → lands in
+     `SessionChatScreen` against the project's steward.
+   - If not → opens the W7 host-picker sheet (`Spawn project
+     steward`). Same sheet as the empty-state CTA.
+4. **Long-press** the **Ask steward** FAB. **Expected:** the legacy
+   direct-spawn sheet (`showSpawnAgentSheet`) opens — the Advanced
+   bypass for ad-hoc / template-driven spawns that should *not*
+   route through a steward. See §7.4.
+5. Tap any agent row → **Expected:** read-only agent_config_sheet
+   opens with PERSONA / RUNTIME / SPAWN SPEC blocks. For project-
+   bound agents an `Ask steward to reconfigure` CTA sits between
+   RUNTIME and SPAWN SPEC; tapping it pops the sheet and jumps into
+   the steward's session (ADR-025 W11). Team-scoped agents render
+   the same sheet without that CTA.
 
 ### 5.4 Hosts tab
 
@@ -440,13 +458,87 @@ MCP / REST callers carrying an agent token show `actor_kind=agent`.
 
 ## 7. Agent spawn — end-to-end
 
-_Verified against v1.0.49-alpha._
+_Verified against v1.0.574-alpha (ADR-025 W1-W11)._
 
-### 7.1 Direct (no policy gate)
+The end-to-end spawn flow now has three layered surfaces:
 
-1. Projects → tap a project → **Agents** sub-tab → **Spawn Agent** FAB.
-2. Handle: `smoke-1`. Kind: `claude-code`. Host: pick an online host.
-   Spec YAML:
+1. **Steward materialization (W7)** — director consents to a
+   project steward via a host-picker sheet.
+2. **Worker spawn via steward (W10)** — director asks the project
+   steward in chat; the steward calls `agents.spawn` with the
+   project_id binding. The W9 gate authorizes only the project's
+   steward to do this.
+3. **Direct spawn (Advanced bypass, W10)** — long-press path for
+   templates / ad-hoc spawns that bypass the steward. Still works,
+   policy gate from §7.4 still applies.
+
+### 7.1 Materialize the project steward (W7)
+
+1. Projects → tap a project that has no agents → **Agents** sub-tab.
+2. **Expected:** the body shows the empty-state `Spawn project
+   steward` CTA. Tap it.
+3. The W7 host-picker sheet opens. Pick a host (default: first
+   online). Permission mode chip defaults to `skip`. Tap **Spawn
+   steward**.
+4. **Expected:** SnackBar `Project steward spawned (<agent_id>).`
+   The Agents tab now shows one row — the new project steward,
+   handle `@steward.<pid_prefix>`, kind starts `steward.`.
+5. Verify in Audit Log → **Spawn** filter: a new `agent.spawn` row.
+6. **Sessions screen.** Pop back to Sessions. **Expected:** the
+   project steward appears as its own group with header
+   `Project: <name>`. Worker sessions (when they exist) stay
+   hidden — they only render on the project Agents tab.
+7. **Re-run idempotency.** Open the project Agents tab again. The
+   `Ask steward` FAB is now in the bottom-right. Tap it.
+   **Expected:** lands in the steward's session chat, no new spawn.
+8. **Verify the projects.steward_agent_id rebind.** Mobile only
+   shows it implicitly; on the hub, the `projects.steward_agent_id`
+   column now points at the spawned agent.
+
+### 7.2 Spawn a worker via the steward (W10)
+
+1. From the project Agents tab tap **Ask steward** → lands in the
+   steward's SessionChatScreen.
+2. In the chat, type something like:
+   `Spawn a coder worker on host gpu-01 to refactor lib/auth.dart.`
+3. **Expected:** the steward chooses a template, calls
+   `agents.spawn` with `project_id` in the YAML. The W9 gate lets
+   it through (caller == projects.steward_agent_id). A new row
+   appears in the project Agents tab with kind != `steward.*` and
+   `project_id` matching.
+4. The worker auto-opens a `scope_kind='project'` session (W8); tap
+   the row → agent_config_sheet → confirm the PERSONA + RUNTIME
+   blocks. The `Ask steward to reconfigure` CTA is visible.
+5. Verify Audit Log: one `agent.spawn` row attributed to the
+   steward, not the principal.
+
+### 7.3 General-steward delegation (W4)
+
+1. From the home tab, tap the General steward card. In its chat
+   type: `Spawn a coder on project X.` (use a project the general
+   steward isn't bound to).
+2. **Expected:** the general steward must NOT call agents.spawn
+   directly (the W9 gate would reject). Instead it should either
+   - call `request_project_steward({project_id, reason})` —
+     surfaces as a `project_steward_request` attention item in the
+     Me tab, severity major; OR
+   - (when a project steward already exists) send an A2A message
+     to that steward.
+3. Tap the attention item → **Expected:** opens the host-picker
+   sheet pre-filled with the suggestion. Continuing from there
+   reaches §7.1 step 3.
+
+### 7.4 Advanced direct-spawn bypass (long-press)
+
+The legacy direct-spawn FAB is still reachable for template
+authoring + ad-hoc smoke spawns. Use it sparingly — workers
+spawned this way don't carry a `project_id` binding.
+
+1. Projects → project → Agents tab. **Long-press** the `Ask
+   steward` FAB. **Expected:** the legacy `showSpawnAgentSheet`
+   opens.
+2. Handle: `smoke-1`. Kind: `claude-code`. Host: pick an online
+   host. Spec YAML:
 
    ```yaml
    backend:
@@ -454,19 +546,17 @@ _Verified against v1.0.49-alpha._
    ```
 
 3. Submit. **Expected:** SnackBar `Agent "smoke-1" spawned.` Row
-   appears in Agents (List view) with status=`pending`, flips to
-   `running` within ~3s once the host-runner picks it up.
-4. Verify in Audit Log → **Spawn** filter: a new `agent.spawn` row
-   named `spawn smoke-1 (claude-code)`.
-5. Terminate: tap the agent → **Terminate**. **Expected:** status
-   flips to `terminated`, pane closes on the host, a new row lands
-   in the Audit Log under **Terminate**.
+   appears in Agents (List view), status=`pending` → `running`
+   within ~3s. The `project_id` column is empty (no W1 binding) —
+   that's the Advanced trade-off.
+4. Terminate: tap the agent → **Terminate**. Audit Log shows the
+   row under **Terminate**.
 
-### 7.2 Policy-gated
+### 7.5 Policy-gated spawn
 
 1. Edit the team policy to set `spawn: significant` (requires an
    approver group). Restart `hub-server` (policy is loaded on boot).
-2. Repeat §7.1 step 2. **Expected:** SnackBar `Spawn request sent —
+2. Repeat §7.2 or §7.4. **Expected:** SnackBar `Spawn request sent —
    awaiting approval.` No `agents` row yet; a new Me-tab row appears
    under **Approvals**.
 3. Open that attention row → **Approve**. **Expected:** real spawn
@@ -476,6 +566,16 @@ _Verified against v1.0.49-alpha._
 4. Try the same with **Reject**. **Expected:** no agent row
    appears; audit shows `attention.decide` with `decision=reject`
    only.
+
+### 7.6 W11 reconfigure CTA
+
+1. From §7.2's worker row → tap → agent_config_sheet opens.
+2. Tap **Ask steward to reconfigure**. **Expected:** the sheet
+   closes; SessionChatScreen against the project steward opens.
+   Type the reconfiguration request.
+3. The steward's canonical reconfigure is *terminate + respawn
+   with new spec*. Verify both rows in Audit Log after the
+   steward acts.
 
 ---
 

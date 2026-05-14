@@ -656,5 +656,28 @@
   "workspaceCadenceEveryAt": "每 {day} {time} 运行",
   "@workspaceCadenceEveryAt": { "placeholders": { "day": { "type": "String" }, "time": { "type": "String" } } },
   "workspaceCadenceEvery": "每 {spec} 运行",
-  "@workspaceCadenceEvery": { "placeholders": { "spec": { "type": "String" } } }
+  "@workspaceCadenceEvery": { "placeholders": { "spec": { "type": "String" } } },
+
+  "scopeDisplay": "显示",
+  "scopeInput": "输入",
+  "scopeFilesMedia": "文件与媒体",
+  "scopeData": "数据",
+  "scopeSystem": "系统",
+  "scopeAbout": "关于",
+  "scopeSystemNotificationsOn": "通知 · 开启",
+  "scopeSystemNotificationsOff": "通知 · 关闭",
+  "scopeInputVoiceOn": "语音开启",
+  "scopeInputVoiceTitle": "语音输入",
+  "scopeInputVoiceDesc": "DashScope ASR — 向 steward 听写",
+  "scopeFilesImageTransfer": "图片传输",
+  "scopeFilesFileTransfer": "文件传输",
+
+  "activeToolbarPreset": "当前预设",
+  "customizeToolbarPreset": "自定义预设",
+  "customizeToolbarPresetDesc": "重排和编辑按钮组",
+  "addNewToolbarPreset": "添加预设",
+  "addNewToolbarPresetDesc": "创建新的自定义工具栏预设",
+  "selectToolbarPreset": "选择预设",
+  "newToolbarPreset": "新预设",
+  "toolbarPresetName": "预设名称"
 }

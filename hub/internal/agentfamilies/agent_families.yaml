@@ -762,3 +762,57 @@ families:
         # That keeps the profile forward-compatible — a v1 hub
         # talking to a v2 app-server still records the new
         # notifications verbatim instead of erroring out.
+  - family: kimi-code
+    bin: kimi
+    version_flag: --version
+    # M1-only. Kimi Code CLI (Moonshot AI's `kimi`, repo
+    # MoonshotAI/kimi-cli) ships an ACP daemon (`kimi acp` subcommand)
+    # and an interactive REPL — there is no stream-json one-shot mode
+    # and no JSON-RPC app-server. ACPDriver covers the M1 path
+    # wholesale; M4 (tmux pane) is the sole fallback when ACP can't
+    # negotiate (e.g. binary too old, daemon crashed mid-handshake).
+    # See docs/decisions/026-kimi-code-engine.md for the integration
+    # rationale and docs/plans/kimi-code-engine.md for the wedge plan.
+    #
+    # Minimum supported kimi-cli version: 1.43.0. Older builds either
+    # lack the `kimi acp` subcommand or lack the --yolo / --thinking
+    # top-level flags the steward template (steward.kimi.v1.yaml)
+    # depends on. The probe surfaces the actual version in the host
+    # capabilities pane; the resolver doesn't gate on the version
+    # string today (mirror of gemini-cli's precedent) — operators
+    # observe the version, upgrade as needed.
+    supports: [M1, M4]
+    # Authentication is out-of-band via `kimi login` run interactively
+    # on the host. The ACP daemon returns AUTH_REQUIRED on session/new
+    # until login completes; ACPDriver surfaces that as a kind=error
+    # agent_event whose payload carries the operator-actionable
+    # remediation text. We don't pre-pick an ACP authMethod — kimi's
+    # initialize response is expected to return an empty authMethods
+    # array because authentication isn't routed through ACP at all.
+    default_auth_method: ""
+    # ADR-021 D4 / W2.1 — assumed-true (director directive 2026-05-14):
+    # kimi's ACP daemon supports session/set_mode + session/set_model
+    # RPCs against the live process, matching the gemini-cli M1
+    # precedent. Mobile mode/model picker routes through the driver
+    # without respawning. If on-host verification (post-W4 smoke)
+    # shows kimi lacks one of these, flip the affected key to
+    # "respawn" in a follow-up wedge.
+    runtime_mode_switch:
+      M1: rpc
+    # ADR-021 D5 — assumed-true (director directive 2026-05-14):
+    # kimi's ACP promptCapabilities advertise image + PDF content
+    # blocks. Mobile composer enables the inline attach affordances
+    # accordingly. Audio/video aren't asserted because Moonshot
+    # hasn't documented input modality support for those today.
+    # M4 (tmux pane) has no inline-multimodal affordance anywhere.
+    prompt_image:
+      M1: true
+      M4: false
+    prompt_pdf:
+      M1: true
+      M4: false
+    # No frame_profile / frame_translator for kimi-code — M1 ACPDriver
+    # speaks ACP natively (driver_acp.go), and the M1 path doesn't
+    # consult per-engine frame_profiles. Future polish (e.g. promoting
+    # SearchWeb tool calls to a typed `web_search` kind) would land a
+    # profile here; deferred per docs/plans/kimi-code-engine.md §W6.

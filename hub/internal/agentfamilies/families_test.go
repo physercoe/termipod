@@ -7,23 +7,23 @@ import (
 )
 
 // TestAll_ParsesEmbeddedYAML asserts the embedded YAML is well-formed
-// and contains the three families the blueprint pins down today
-// (claude-code / gemini-cli / codex — dominant-vendor coverage; aider
-// was retired 2026-04-29 per project decision to track only major
-// vendor products). If a future PR retires or renames a family this
-// test fails loudly — that failure is the prompt to update callers
-// (resolver/spawn_mode/probe).
+// and contains the four families the blueprint pins down today
+// (claude-code / gemini-cli / codex / kimi-code — dominant-vendor
+// coverage; aider was retired 2026-04-29 per project decision to
+// track only major vendor products). If a future PR retires or
+// renames a family this test fails loudly — that failure is the
+// prompt to update callers (resolver/spawn_mode/probe).
 func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 	got, err := All()
 	if err != nil {
 		t.Fatalf("All: %v", err)
 	}
-	if len(got) < 3 {
-		t.Fatalf("expected ≥3 families, got %d", len(got))
+	if len(got) < 4 {
+		t.Fatalf("expected ≥4 families, got %d", len(got))
 	}
 	want := map[string]bool{
 		"claude-code": false, "gemini-cli": false,
-		"codex": false,
+		"codex": false, "kimi-code": false,
 	}
 	for _, f := range got {
 		if _, ok := want[f.Family]; ok {
@@ -40,6 +40,44 @@ func TestAll_ParsesEmbeddedYAML(t *testing.T) {
 		if !v {
 			t.Errorf("expected family %q in registry", k)
 		}
+	}
+}
+
+// TestKimiCode_FamilyShape asserts the kimi-code row carries the
+// assumed-true ACP capability surface declared in ADR-026 D8. If a
+// future on-host verification flips one of these, this test failing
+// is the prompt to update both the YAML and the engine-capabilities
+// reference doc in the same wedge.
+func TestKimiCode_FamilyShape(t *testing.T) {
+	f, ok := ByName("kimi-code")
+	if !ok {
+		t.Fatal("kimi-code not in embedded registry")
+	}
+	if f.Bin != "kimi" {
+		t.Errorf("kimi-code bin = %q; want kimi", f.Bin)
+	}
+	wantSupports := map[string]bool{"M1": false, "M4": false}
+	for _, m := range f.Supports {
+		if _, ok := wantSupports[m]; ok {
+			wantSupports[m] = true
+		}
+		if m == "M2" {
+			t.Errorf("kimi-code should NOT declare M2 support (no stream-json mode)")
+		}
+	}
+	for m, ok := range wantSupports {
+		if !ok {
+			t.Errorf("kimi-code missing mode %q from supports", m)
+		}
+	}
+	if got := f.RuntimeModeSwitch["M1"]; got != "rpc" {
+		t.Errorf("kimi-code runtime_mode_switch[M1] = %q; want rpc (assumed-true)", got)
+	}
+	if !f.PromptImage["M1"] {
+		t.Errorf("kimi-code prompt_image[M1] = false; want true (assumed-true)")
+	}
+	if !f.PromptPDF["M1"] {
+		t.Errorf("kimi-code prompt_pdf[M1] = false; want true (assumed-true)")
 	}
 }
 

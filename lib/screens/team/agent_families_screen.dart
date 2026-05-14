@@ -514,7 +514,7 @@ class _NewFamilyNameDialogState extends State<_NewFamilyNameDialog> {
               LengthLimitingTextInputFormatter(32),
             ],
             decoration: InputDecoration(
-              hintText: 'kimi',
+              hintText: 'kimi-code',
               labelText: 'Family name',
               errorText: _error,
             ),

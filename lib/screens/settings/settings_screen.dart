@@ -1220,10 +1220,10 @@ class _CategoryPage extends ConsumerWidget {
         children: [
           for (final entry in [
             ('original', l10n.resizePresetOriginal),
-            ('1080p', '1080p'),
-            ('720p', '720p'),
-            ('480p', '480p'),
-            ('custom', l10n.resizePresetCustom),
+            ('small', l10n.resizeSmall),
+            ('medium', l10n.resizeMedium),
+            ('large', l10n.resizeLarge),
+            ('custom', l10n.resizeCustom),
           ])
             RadioListTile<String>(
               title: Text(entry.$2),

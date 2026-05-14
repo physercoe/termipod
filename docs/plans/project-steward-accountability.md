@@ -1,9 +1,9 @@
 # Project steward accountability — implementation plan
 
 > **Type:** plan
-> **Status:** Foundation shipped; enforcement pending (2026-05-13)
+> **Status:** Shipped (foundation v1.0.564-571; enforcement v1.0.572-574) — 2026-05-13
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.571
+> **Last verified vs code:** v1.0.574
 
 **TL;DR.** Implementation tracker for [ADR-025](../decisions/025-project-steward-accountability.md). Workers become project-scoped first-class agents with their own session; every engaged project gets exactly one steward (lazy materialization with director consent); the general steward routes intent down to project stewards but does not spawn workers itself. Eleven wedges across v1.0.564 (foundation: schema + lazy steward + worker session + visibility) and v1.0.565 (enforcement + UI rerouting). Order is the safe-to-ship sequence; the foundation lands first and is observed for one release before the gating tightens.
 
@@ -58,7 +58,7 @@ After this plan:
 
 ## 5. Wedges
 
-Each wedge is one commit + one version bump. Foundation **shipped** at v1.0.564-v1.0.571 (W1-W8, one wedge per minor version). Enforcement and UI rerouting (W9-W11) follow at v1.0.572+ once the foundation has soaked. (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes; v1.0.561 introduced the ghost-FocusNode focus-bounce, v1.0.562 extended it to delete/replace cases, v1.0.563 pinned the input border color to eliminate visual flicker.)
+Each wedge is one commit + one version bump. **ALL 11 wedges shipped at v1.0.564-v1.0.574**, one wedge per minor version. (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes; v1.0.561 introduced the ghost-FocusNode focus-bounce, v1.0.562 extended it to delete/replace cases, v1.0.563 pinned the input border color to eliminate visual flicker.)
 
 ### Foundation (SHIPPED v1.0.564–v1.0.571)
 
@@ -109,23 +109,24 @@ Each wedge is one commit + one version bump. Foundation **shipped** at v1.0.564-
 - The per-row "Scope chip" the plan called for is already provided by the existing group-header label (`General` / `Project: <name>`); adding a literal chip per row would visually duplicate the header.
 - Tests cover the auto-open path and confirm the swap branch doesn't double-create.
 
-### v1.0.572+ — Enforcement + UI rerouting (PENDING)
+### Enforcement + UI rerouting (SHIPPED v1.0.572–v1.0.574)
 
-**W9. Hub role gate: `agents.spawn` project-binding check.**
-- New gate in `mcp_authority_roles.go` (or a sibling file): when `agents.spawn` request has `project_id` set, the caller's `parent_agent_id` must match `projects.steward_agent_id` for that project. Otherwise 403.
-- General steward (`kind = 'steward.general.v1'`) is blocked from `agents.spawn` outright — falls through to delegation (raises the W4 attention item).
-- Tests: project steward can spawn into its project; general cannot; worker cannot spawn workers.
+**W9 (v1.0.572). Hub role gate: `agents.spawn` project-binding check.** SHIPPED.
+- New gate `authorizeAgentsSpawn` in `mcp_authority_spawn.go`. When `agents.spawn` carries `project_id` (YAML wins / body field fallback), the caller's `agent_id` must equal `projects.steward_agent_id`. General steward (`kind = steward.general.v1`) blocked outright — must delegate via `request_project_steward` (W4). Project without a live steward rejects.
+- Wired into dispatchTool alongside the existing A2A gate; principal tokens bypass.
+- `agents.spawn` MCP schema gains `project_id`; description points to W9.
+- 8 tests cover principal bypass, general-steward block (with + without project_id), project-steward allow, foreign-steward deny, worker deny, no-project_id fallthrough, project-without-steward reject, YAML-wins precedence.
 
-**W10. UI rerouting: spawn-agent FAB routes through steward.**
-- Mobile `[+ Spawn Agent]` FAB on project Agents tab: default path becomes "draft an intent message to the project steward" — opens the steward overlay scoped to that project with a prefilled chat ("Spawn a [template] with params: …").
-- Direct-spawn (bypass) moves behind an "Advanced" toggle in settings or a long-press gesture.
-- General steward prompt: add a paragraph teaching the routing pattern. "If the principal asks you to operate in project X and project X has a steward, send your suggestion as an A2A to that steward. If it doesn't, raise an attention item."
+**W10 (v1.0.573). UI rerouting: spawn-agent FAB routes through steward.** SHIPPED.
+- Project detail Agents tab FAB renamed `Ask steward`. Tap resolves the project's live steward (filter by `project_id` + `kind` starts `steward.`), finds its session, pushes `SessionChatScreen`. Falls back to the W7 host-picker sheet when no steward yet; falls back to agent detail sheet when steward has no session.
+- Long-press preserves the legacy `showSpawnAgentSheet` flow as the Advanced direct-spawn bypass.
+- General steward prompt (`steward.general.v1.md`) gains a `Project work — delegate to the project steward` section teaching the discovery + A2A + `request_project_steward` routing pattern, and explaining the W9 gate.
+- Deferred: prefilled chat draft ("Spawn a [template] with params: …"). The tap-to-session lands the user with an empty input — pre-filled drafts are a polish item; user types the request naturally.
 
-**W11. `agent_config_sheet` read-only + steward-mediated edits.**
-- Existing PATCH controls hidden by default.
-- Read-only viewer (already mostly there in v1.0.554) becomes the default.
-- New CTA "Ask steward to reconfigure" → opens the project's steward overlay with a prefilled "Please reconfigure agent <handle>: …" message.
-- Direct PATCH still reachable via the "Advanced" toggle from W10.
+**W11 (v1.0.574). `agent_config_sheet` steward-mediated edits.** SHIPPED.
+- The sheet was already read-only (no PATCH controls existed in v1.0.554+). Added an `Ask steward to reconfigure` CTA for project-bound agents that pops the sheet and pushes `SessionChatScreen` against the project steward.
+- Team-scoped agents (no project_id) get no CTA — they don't have a project steward to delegate to.
+- Direct-spawn bypass from W10 still reaches respawn-with-spec-mutation paths for power users.
 
 ## 6. Open questions tracked here, not in the ADR
 

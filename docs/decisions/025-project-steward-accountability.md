@@ -1,9 +1,9 @@
 # 025. Project steward accountability — workers, scope, lazy materialization, director consent
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-13) — implementation lands across v1.0.564 (schema + lazy steward + worker session) and v1.0.565 (enforcement + UI rerouting). (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes.)
+> **Status:** Accepted + Shipped (2026-05-13 / 2026-05-14) — implementation landed across v1.0.564-v1.0.574 (one wedge per minor version: foundation W1-W8 at .564-.571, enforcement + UI rerouting W9-W11 at .572-.574). (v1.0.557–v1.0.563 were claimed by successive steward-overlay IME hotfixes.)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.556
+> **Last verified vs code:** v1.0.574
 
 **TL;DR.** Workers become first-class project-scoped agents with their own session. Every project that's *engaged with* has exactly one steward (lazy materialization); only that steward may spawn workers in the project. The general steward (ADR-017) routes and delegates but does not spawn workers itself. Every steward spawn — including the project-steward auto-create — requires explicit director consent via a host-picker sheet, regardless of host count. The director's role is principal (set intent, observe, configure, escape) rather than operator; mobile UIs that let the director operate directly should reroute through the steward by default. Refinement and extension of ADR-017; sister to ADR-016 (scope manifest).
 

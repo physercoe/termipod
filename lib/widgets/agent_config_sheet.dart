@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/hub_provider.dart';
+import '../providers/sessions_provider.dart';
+import '../screens/sessions/sessions_screen.dart' show SessionChatScreen;
 import '../theme/design_colors.dart';
 
 /// Bottom sheet that surfaces an agent's full configuration —
@@ -225,6 +227,26 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
     // Authoritative for "what does this agent actually run." Long, so
     // we wrap in a SelectableText with copy affordance. Empty when
     // the agent predates agent_spawns capture (e.g. seeded demo data).
+    // ADR-025 W11 — steward-mediated reconfiguration CTA. The sheet
+    // is read-only by design (config edits flow through the
+    // project's steward as the authority anchor). For project-bound
+    // agents, the CTA jumps into the steward's session so the user
+    // can dictate the reconfiguration request as a normal chat turn.
+    // For team-scoped agents (no project_id), the CTA is absent
+    // since there's no project steward to delegate to.
+    final projectID = (a['project_id'] ?? '').toString();
+    if (projectID.isNotEmpty) {
+      children.add(Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+        child: FilledButton.tonalIcon(
+          onPressed: () => _askStewardToReconfigure(
+            context, projectID, handle),
+          icon: const Icon(Icons.forum_outlined, size: 16),
+          label: const Text('Ask steward to reconfigure'),
+        ),
+      ));
+    }
+
     if (spawnSpec.isNotEmpty) {
       children.add(Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
@@ -299,6 +321,80 @@ class _AgentConfigSheetState extends ConsumerState<_AgentConfigSheet> {
         ),
         ...children,
       ],
+    );
+  }
+
+  /// ADR-025 W11: jump into the project steward's session so the
+  /// director can phrase the reconfiguration request as a normal
+  /// chat turn. The steward owns the authority to spawn a new agent
+  /// (the canonical "reconfigure" path = terminate + respawn with
+  /// new spec) per D3/W9.
+  Future<void> _askStewardToReconfigure(
+    BuildContext context,
+    String projectID,
+    String agentHandle,
+  ) async {
+    final hub = ref.read(hubProvider).value;
+    Map<String, dynamic>? stewardAgent;
+    for (final ag in hub?.agents ?? const <Map<String, dynamic>>[]) {
+      if ((ag['project_id'] ?? '').toString() != projectID) continue;
+      if (!((ag['kind'] ?? '').toString().startsWith('steward.'))) continue;
+      final status = (ag['status'] ?? '').toString();
+      if (status == 'terminated' ||
+          status == 'crashed' ||
+          status == 'failed') {
+        continue;
+      }
+      if ((ag['archived_at'] ?? '').toString().isNotEmpty) continue;
+      stewardAgent = ag;
+      break;
+    }
+    if (stewardAgent == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'No live steward for this project yet — open the project '
+            'Agents tab and spawn one first.',
+          ),
+        ),
+      );
+      return;
+    }
+    final stewardID = (stewardAgent['id'] ?? '').toString();
+    final sessions = ref.read(sessionsProvider).value;
+    final allSessions = <Map<String, dynamic>>[
+      ...?sessions?.active,
+      ...?sessions?.previous,
+    ];
+    Map<String, dynamic>? stewardSession;
+    for (final s in allSessions) {
+      if ((s['current_agent_id'] ?? '').toString() == stewardID) {
+        stewardSession = s;
+        break;
+      }
+    }
+    if (stewardSession == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Steward has no live session yet — try again shortly.'),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    // Close this read-only sheet first so the steward session lands
+    // as the foreground surface.
+    Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => SessionChatScreen(
+          sessionId: (stewardSession?['id'] ?? '').toString(),
+          agentId: stewardID,
+          title: (stewardSession?['title'] ?? 'Project steward').toString(),
+        ),
+      ),
     );
   }
 

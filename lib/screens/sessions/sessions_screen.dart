@@ -653,34 +653,52 @@ Future<_ScopePick?> _pickScopeSheet(
   return showModalBottomSheet<_ScopePick>(
     context: context,
     showDragHandle: true,
-    builder: (ctx) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-            child: Text(
-              'Scope for new session',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
+    // Tall portfolios easily exceed the default ~half-screen cap and the
+    // original Column(mainAxisSize.min) had no scroll wrapper, leaving
+    // trailing options clipped off the bottom of the sheet.
+    isScrollControlled: true,
+    builder: (ctx) {
+      final maxH = MediaQuery.of(ctx).size.height * 0.7;
+      return SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxH),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Text(
+                  'Scope for new session',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
-            ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  itemBuilder: (_, i) {
+                    final o = options[i];
+                    return ListTile(
+                      leading: Icon(
+                        o.kind == 'project'
+                            ? Icons.folder_outlined
+                            : Icons.forum_outlined,
+                      ),
+                      title: Text(o.label),
+                      onTap: () => Navigator.of(ctx).pop(o),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-          for (final o in options)
-            ListTile(
-              leading: Icon(
-                o.kind == 'project'
-                    ? Icons.folder_outlined
-                    : Icons.forum_outlined,
-              ),
-              title: Text(o.label),
-              onTap: () => Navigator.of(ctx).pop(o),
-            ),
-        ],
-      ),
-    ),
+        ),
+      );
+    },
   );
 }
 

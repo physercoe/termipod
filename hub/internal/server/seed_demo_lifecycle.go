@@ -1400,31 +1400,19 @@ func seedLifecycleProject(
 		}
 	}
 
-	// 3. Steward + worker agents. Domain steward drives the project; one
-	// worker per declared kind so the Children Status hero shows real fan-
-	// out for projects past the idea phase.
-	res.stewardID = NewID()
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO agents
-			(id, team_id, handle, kind, capabilities_json,
-			 status, pause_state, created_at)
-		VALUES (?, ?, ?, ?, '[]', 'running', 'running', ?)`,
-		res.stewardID, defaultTeamID,
-		"@lifecycle-"+spec.phase+"-steward", spec.stewardKind, now); err != nil {
-		return res, fmt.Errorf("insert steward: %w", err)
-	}
-	for i, wk := range spec.workerKinds {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO agents
-				(id, team_id, handle, kind, capabilities_json,
-				 parent_agent_id, status, pause_state, created_at)
-			VALUES (?, ?, ?, ?, '[]', ?, 'running', 'running', ?)`,
-			NewID(), defaultTeamID,
-			fmt.Sprintf("@lifecycle-%s-worker-%d", spec.phase, i),
-			wk, res.stewardID, now); err != nil {
-			return res, fmt.Errorf("insert worker %s: %w", wk, err)
-		}
-	}
+	// 3. NO agent rows. The seed previously inserted fake @lifecycle-*-
+	// steward + @lifecycle-*-worker-N rows with `status='running'` so the
+	// Children Status hero could render a populated fan-out, but those
+	// rows had no real daemon behind them — the user could "start a
+	// session" against the steward and the session looked active while
+	// inputs silently dropped (v1.0.591 burn). With no agents the tester
+	// drives the flow from scratch: tap "Spawn project steward" on the
+	// project's Agents tab → host picker → live agent. Downstream
+	// document/artifact/run inserts use stewardID="" → NULLIF makes the
+	// authoring columns NULL, which matches the "human-authored" path
+	// already used elsewhere in the schema.
+	res.stewardID = ""
+	_ = spec.workerKinds
 
 	// 4. Phase content (deliverables → components → criteria).
 	c := &seedProjectCtx{
@@ -1655,7 +1643,7 @@ func seedTypedDocument(
 		INSERT INTO documents
 			(id, project_id, kind, title, version, content_inline,
 			 schema_id, author_agent_id, created_at)
-		VALUES (?, ?, 'typed', ?, 1, ?, ?, ?, ?)`,
+		VALUES (?, ?, 'typed', ?, 1, ?, ?, NULLIF(?, ''), ?)`,
 		docID, c.projectID, title, contentInline, schemaID,
 		c.stewardID, c.now); err != nil {
 		return seededDocument{}, fmt.Errorf("insert typed document %s: %w", schemaID, err)
@@ -2579,7 +2567,7 @@ func seedRun(
 		INSERT INTO runs
 			(id, project_id, config_json, seed, status,
 			 started_at, finished_at, trackio_run_uri, agent_id, created_at)
-		VALUES (?, ?, ?, 42, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, 42, ?, ?, ?, ?, NULLIF(?, ''), ?)`,
 		id, c.projectID, string(cfg), status, c.now, c.now,
 		fmt.Sprintf("trackio://lifecycle/%s", id), c.stewardID, c.now); err != nil {
 		return seededRun{}, fmt.Errorf("insert run: %w", err)

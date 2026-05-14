@@ -186,6 +186,25 @@ class TeamSwitcher extends ConsumerWidget {
       ]),
     ));
     items.add(const PopupMenuDivider());
+    // W2 / v1.0.583 — name the scope at the moment of choice so first-
+    // time users learn "team-shared settings live in this pill, not in
+    // the Settings tab." The "On this team" section header sits above
+    // the team-scoped affordances (Templates & engines, Team settings)
+    // and matches the IA documented in
+    // docs/discussions/settings-and-team-scope-ia.md §4.
+    items.add(PopupMenuItem<_MenuAction>(
+      enabled: false,
+      height: 28,
+      child: Text(
+        AppLocalizations.of(ctx)!.teamSwitcherSectionOnThisTeam,
+        style: GoogleFonts.spaceGrotesk(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
+          color: scheme.onSurfaceVariant,
+        ),
+      ),
+    ));
     items.add(PopupMenuItem<_MenuAction>(
       value: const _MenuAction.openTemplates(),
       child: Row(children: const [

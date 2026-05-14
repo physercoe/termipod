@@ -594,7 +594,7 @@
   "activityDigestKinds": "类型",
   "activityDigestEmpty": "最近 24 小时没有活动。",
   "meDigestSection": "自上次到访以来",
-  "teamSwitcherTooltip": "配置 · 模板 · 团队",
+  "teamSwitcherTooltip": "切换配置 · 团队共享设置在此",
   "councilsTitle": "评审会",
   "councilsComingSoon": "评审会（多评审员面板、法定人数和轮换）即将推出。",
   "stewardConfigTitle": "管家配置",
@@ -679,5 +679,11 @@
   "addNewToolbarPresetDesc": "创建新的自定义工具栏预设",
   "selectToolbarPreset": "选择预设",
   "newToolbarPreset": "新预设",
-  "toolbarPresetName": "预设名称"
+  "toolbarPresetName": "预设名称",
+
+  "settingsSearchHint": "搜索设置…",
+  "settingsSearchNoResults": "没有匹配的设置",
+  "settingsSearchNudgeTeam": "在找团队共享设置？点击顶部的团队选择器。",
+  "settingsSearchNudgeDismiss": "知道了",
+  "teamSwitcherSectionOnThisTeam": "团队配置"
 }

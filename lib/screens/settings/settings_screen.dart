@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -58,6 +59,18 @@ class SettingsScreen extends ConsumerWidget {
       body: CustomScrollView(
         slivers: [
           _buildAppBar(context, l10n),
+          // W2 / v1.0.583 — search bar for power-user direct access.
+          // Indexes every category + sub-row title against the typed
+          // query. Mandatory now that the rows live behind a category
+          // tap; without search, users who know the label name pay
+          // the taxonomy tax. Per
+          // docs/discussions/settings-and-team-scope-ia.md §3.
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: _SettingsSearchBar(),
+            ),
+          ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(0, 8, 0, 100),
             sliver: SliverList(
@@ -2220,6 +2233,342 @@ class _NavPadButtonCatalog extends StatelessWidget {
           style: TextStyle(
             color: isDark ? Colors.white38 : Colors.black38,
             fontSize: 14,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── W2 / v1.0.583 — Search bar + first-run nudge ───────────────────
+//
+// Static index of settings rows mapped to their parent category.
+// Substring-matched against the typed query (case-insensitive on
+// title + subtitle). Tapping a result pushes the destination
+// _CategoryPage — no row-anchor highlight in v1; reserved for a
+// follow-up wedge if device testing shows scanning the destination
+// page is too slow.
+//
+// Index entries are built inside the search bar's `build()` so the
+// l10n strings resolve correctly per active locale; the alternative
+// (const list keyed by enum) would force English-only search labels
+// and degrade the Chinese localization. ~30 entries; cheap to
+// rebuild each frame.
+
+class _SearchEntry {
+  final String title;
+  final String? subtitle;
+  final _Category category;
+  const _SearchEntry(this.title, this.subtitle, this.category);
+}
+
+// Keywords that — if they appear in a zero-result search query —
+// trigger the first-run nudge pointing the user at the TeamSwitcher
+// pill. All seven concepts live on the hub, not the device.
+const Set<String> _kTeamFlavoredKeywords = {
+  'member', 'members',
+  'policy', 'policies',
+  'template', 'templates',
+  'channel', 'channels',
+  'auth', 'authentication',
+  'council', 'councils',
+  'budget', 'budgets',
+};
+
+bool _looksTeamFlavored(String query) {
+  final q = query.toLowerCase();
+  for (final kw in _kTeamFlavoredKeywords) {
+    if (q.contains(kw)) return true;
+  }
+  return false;
+}
+
+/// SharedPreferences key for the dismissed-nudge flag. Per-device,
+/// never replayed once the user has tapped "Got it" — even across
+/// app restarts. Direct SharedPreferences read avoids the 5-place
+/// edit a new AppSettings field would require.
+const String _kSearchNudgeDismissedKey = 'settings_search_nudge_dismissed';
+
+class _SettingsSearchBar extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_SettingsSearchBar> createState() =>
+      _SettingsSearchBarState();
+}
+
+class _SettingsSearchBarState extends ConsumerState<_SettingsSearchBar> {
+  final SearchController _controller = SearchController();
+  bool _nudgeDismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNudgeFlag();
+  }
+
+  Future<void> _loadNudgeFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _nudgeDismissed = prefs.getBool(_kSearchNudgeDismissedKey) ?? false;
+      });
+    } catch (_) {
+      // Best-effort; if prefs are unavailable the nudge stays
+      // available until the next app launch.
+    }
+  }
+
+  Future<void> _dismissNudge() async {
+    setState(() => _nudgeDismissed = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kSearchNudgeDismissedKey, true);
+    } catch (_) {
+      // Best-effort; the in-memory flag still hides the chip for
+      // the rest of this session.
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final settings = ref.watch(settingsProvider);
+
+    return SearchAnchor(
+      searchController: _controller,
+      builder: (context, controller) {
+        return SearchBar(
+          controller: controller,
+          padding: const WidgetStatePropertyAll<EdgeInsets>(
+            EdgeInsets.symmetric(horizontal: 16),
+          ),
+          onTap: () => controller.openView(),
+          onChanged: (_) => controller.openView(),
+          leading: const Icon(Icons.search),
+          hintText: l10n.settingsSearchHint,
+        );
+      },
+      suggestionsBuilder: (context, controller) {
+        final query = controller.text.trim();
+        final entries = _buildIndex(l10n, settings);
+        final results = query.isEmpty
+            ? <_SearchEntry>[]
+            : entries.where((e) {
+                final q = query.toLowerCase();
+                return e.title.toLowerCase().contains(q) ||
+                    (e.subtitle?.toLowerCase().contains(q) ?? false);
+              }).toList();
+
+        final widgets = <Widget>[];
+
+        if (results.isEmpty && query.isNotEmpty) {
+          if (_looksTeamFlavored(query) && !_nudgeDismissed) {
+            widgets.add(_TeamSwitcherNudgeChip(onDismiss: _dismissNudge));
+          } else {
+            widgets.add(ListTile(
+              leading: const Icon(Icons.search_off, size: 20),
+              title: Text(l10n.settingsSearchNoResults),
+            ));
+          }
+        }
+
+        for (final r in results) {
+          widgets.add(ListTile(
+            leading: Icon(_iconFor(r.category), size: 20),
+            title: Text(r.title),
+            subtitle: Text(
+              '${_titleForCategory(r.category, l10n)}'
+              '${r.subtitle == null ? '' : ' · ${r.subtitle}'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              controller.closeView('');
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => _CategoryPage(category: r.category),
+                ),
+              );
+            },
+          ));
+        }
+
+        return widgets;
+      },
+    );
+  }
+
+  /// Build the search index from the current locale's l10n + the
+  /// current settings (for subtitles that depend on state). Cheap;
+  /// runs once per suggestion rebuild. About 30 entries.
+  List<_SearchEntry> _buildIndex(
+      AppLocalizations l10n, AppSettings settings) {
+    return [
+      // ── Display ────────────────────────────────────────────────
+      _SearchEntry(l10n.settingTheme,
+          settings.darkMode ? l10n.themeDark : l10n.themeLight,
+          _Category.display),
+      _SearchEntry(l10n.settingLanguage, null, _Category.display),
+      _SearchEntry(l10n.settingShowCursor, l10n.settingShowCursorDesc,
+          _Category.display),
+      _SearchEntry(l10n.settingAdjustMode, null, _Category.display),
+      _SearchEntry(l10n.settingFontSize, null, _Category.display),
+      _SearchEntry(l10n.settingFontFamily, settings.fontFamily,
+          _Category.display),
+      _SearchEntry(l10n.settingMinFontSize, null, _Category.display),
+      _SearchEntry(l10n.settingScrollbackLines, null, _Category.display),
+
+      // ── Input ──────────────────────────────────────────────────
+      _SearchEntry(l10n.navPadMode, null, _Category.input),
+      _SearchEntry(l10n.navPadDpadStyle, null, _Category.input),
+      _SearchEntry(
+          l10n.navPadCustomizeButtons,
+          l10n.navPadCustomizeButtonsDesc,
+          _Category.input),
+      _SearchEntry(l10n.navPadRepeatRate, null, _Category.input),
+      _SearchEntry(l10n.navPadHaptic, l10n.navPadHapticDesc,
+          _Category.input),
+      _SearchEntry(l10n.useCustomKeyboardTitle,
+          l10n.useCustomKeyboardDesc, _Category.input),
+      _SearchEntry(l10n.activeToolbarPreset, null, _Category.input),
+      _SearchEntry(l10n.customizeToolbarPreset,
+          l10n.customizeToolbarPresetDesc, _Category.input),
+      _SearchEntry(l10n.addNewToolbarPreset,
+          l10n.addNewToolbarPresetDesc, _Category.input),
+      _SearchEntry(l10n.scopeInputVoiceTitle, l10n.scopeInputVoiceDesc,
+          _Category.input),
+      _SearchEntry(l10n.settingHapticFeedback,
+          l10n.settingHapticFeedbackDesc, _Category.input),
+      _SearchEntry(l10n.settingKeepScreenOn, l10n.settingKeepScreenOnDesc,
+          _Category.input),
+      _SearchEntry(l10n.settingInvertPaneNav, l10n.settingInvertPaneNavDesc,
+          _Category.input),
+      _SearchEntry(l10n.floatingPad, l10n.floatingPadDesc,
+          _Category.input),
+      _SearchEntry(l10n.floatingPadSize, null, _Category.input),
+      _SearchEntry(l10n.floatingPadCenterKey, null, _Category.input),
+
+      // ── Files & Media ─────────────────────────────────────────
+      _SearchEntry(l10n.scopeFilesImageTransfer,
+          l10n.settingImageOutputFormat, _Category.filesMedia),
+      _SearchEntry(l10n.scopeFilesFileTransfer, null,
+          _Category.filesMedia),
+      _SearchEntry(l10n.settingRemotePath, null, _Category.filesMedia),
+      _SearchEntry(l10n.settingDownloadPath, null,
+          _Category.filesMedia),
+      _SearchEntry(l10n.settingPathFormat, null, _Category.filesMedia),
+      _SearchEntry(l10n.settingImageOutputFormat,
+          settings.imageOutputFormat, _Category.filesMedia),
+      _SearchEntry(l10n.settingJpegQuality, null, _Category.filesMedia),
+      _SearchEntry(l10n.settingImageResize, null, _Category.filesMedia),
+      _SearchEntry(l10n.settingAutoEnter, l10n.settingAutoEnterDesc,
+          _Category.filesMedia),
+      _SearchEntry(l10n.settingBracketedPaste,
+          l10n.settingBracketedPasteDesc, _Category.filesMedia),
+
+      // ── Data ──────────────────────────────────────────────────
+      _SearchEntry(l10n.exportBackup, l10n.exportBackupDesc,
+          _Category.data),
+      _SearchEntry(l10n.importBackup, l10n.importBackupDesc,
+          _Category.data),
+      _SearchEntry(l10n.clearOfflineCache, l10n.clearOfflineCacheDesc,
+          _Category.data),
+      _SearchEntry(l10n.browseFiles, l10n.browseFilesDesc,
+          _Category.data),
+      _SearchEntry(l10n.vaultLegacy, l10n.vaultLegacyDesc,
+          _Category.data),
+
+      // ── System ────────────────────────────────────────────────
+      _SearchEntry(l10n.settingNotifications,
+          l10n.settingNotificationsDesc, _Category.system),
+
+      // ── About ─────────────────────────────────────────────────
+      _SearchEntry(l10n.settingVersion, VersionInfo.version,
+          _Category.about),
+      _SearchEntry(l10n.settingCheckUpdate, l10n.settingCheckUpdateDesc,
+          _Category.about),
+      _SearchEntry(l10n.settingSourceCode, l10n.settingSourceCodeUrl,
+          _Category.about),
+      _SearchEntry(l10n.settingFeedback, l10n.settingFeedbackDesc,
+          _Category.about),
+      _SearchEntry(l10n.settingLicenses, l10n.settingLicensesDesc,
+          _Category.about),
+    ];
+  }
+
+  IconData _iconFor(_Category c) {
+    return switch (c) {
+      _Category.display => Icons.palette_outlined,
+      _Category.input => Icons.touch_app_outlined,
+      _Category.filesMedia => Icons.attach_file,
+      _Category.data => Icons.storage_outlined,
+      _Category.system => Icons.notifications_outlined,
+      _Category.about => Icons.info_outline,
+    };
+  }
+
+  String _titleForCategory(_Category c, AppLocalizations l10n) {
+    return switch (c) {
+      _Category.display => l10n.scopeDisplay,
+      _Category.input => l10n.scopeInput,
+      _Category.filesMedia => l10n.scopeFilesMedia,
+      _Category.data => l10n.scopeData,
+      _Category.system => l10n.scopeSystem,
+      _Category.about => l10n.scopeAbout,
+    };
+  }
+}
+
+/// Surfaced in the search results when the user typed a team-flavored
+/// keyword (members / policies / template / channel / auth / council /
+/// budget) AND no local Settings rows matched. Tells them the
+/// TeamSwitcher pill at the top of every Tier-1 tab is where
+/// team-shared settings actually live. Dismissable; the flag persists
+/// per-device so it never reappears for that user.
+class _TeamSwitcherNudgeChip extends StatelessWidget {
+  final VoidCallback onDismiss;
+  const _TeamSwitcherNudgeChip({required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Material(
+        color: scheme.primaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          child: Row(
+            children: [
+              Icon(
+                Icons.groups_2_outlined,
+                size: 18,
+                color: scheme.onPrimaryContainer,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.settingsSearchNudgeTeam,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onDismiss,
+                child: Text(l10n.settingsSearchNudgeDismiss),
+              ),
+            ],
           ),
         ),
       ),

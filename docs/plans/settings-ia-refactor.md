@@ -1,9 +1,9 @@
 # Settings + TeamSwitcher IA refactor — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-14) — director-aligned, ready to implement. Local-notifications scope finalized in a "System" category 2026-05-14 (replaces the Display-stretch proposal).
+> **Status:** Shipped (W1 at v1.0.580–582; W2 at v1.0.583) — 2026-05-14. Pulse-highlight + row-anchor deep-linking deferred to a polish wedge if device testing surfaces scanning friction.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.579
+> **Last verified vs code:** v1.0.583
 
 **TL;DR.** Implementation tracker for the IA proposed in
 [`docs/discussions/settings-and-team-scope-ia.md`](../discussions/settings-and-team-scope-ia.md).

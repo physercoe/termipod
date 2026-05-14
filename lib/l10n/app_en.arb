@@ -645,7 +645,7 @@
   "activityDigestKinds": "kinds",
   "activityDigestEmpty": "No activity in the last 24 hours.",
   "meDigestSection": "Since you were last here",
-  "teamSwitcherTooltip": "Profiles, templates, team",
+  "teamSwitcherTooltip": "Switch profile · team-shared settings live in here",
   "councilsTitle": "Councils",
   "councilsComingSoon": "Councils — multi-reviewer panels with quorum and rotation — are coming soon.",
   "stewardConfigTitle": "Steward Config",
@@ -737,5 +737,13 @@
   "addNewToolbarPresetDesc": "Create a new custom toolbar preset",
   "selectToolbarPreset": "Select preset",
   "newToolbarPreset": "New preset",
-  "toolbarPresetName": "Preset name"
+  "toolbarPresetName": "Preset name",
+
+  "settingsSearchHint": "Search settings…",
+  "@settingsSearchHint": { "description": "Placeholder text in the Settings home search bar (W2 / v1.0.583)." },
+  "settingsSearchNoResults": "No matching settings",
+  "settingsSearchNudgeTeam": "Looking for team-shared settings? Tap the team pill at the top.",
+  "@settingsSearchNudgeTeam": { "description": "Dismissible nudge surfaced when the user's Settings search query matches a known team-flavored keyword (members / policies / template / channel / auth / council / budget) AND no local rows hit. Points the user at the TeamSwitcher pill where team-shared settings actually live." },
+  "settingsSearchNudgeDismiss": "Got it",
+  "teamSwitcherSectionOnThisTeam": "On this team"
 }

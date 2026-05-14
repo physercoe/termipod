@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-14)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.579 (per-section version markers below pin steps individually; §7.7 added for ADR-026 kimi-code)
+> **Last verified vs code:** v1.0.583 (per-section version markers below pin steps individually; §5.1a added for settings IA refactor W1+W2; §7.7 added for ADR-026 kimi-code)
 
 **TL;DR.** Evergreen manual test plan covering the mobile app +
 Termipod Hub surfaces. Update in place when behavior changes; the
@@ -286,26 +286,92 @@ settings), **Refresh**, **search**.
 1. Locate the TeamSwitcher pill at the top-left of the app bar.
    **Expected:** readable contrast in both light/dark themes. Pill
    label shows the active hub profile's display name.
-2. Tap it. **Expected:** popup menu opens with sections —
+2. Long-press the pill (or hover on web). **Expected:** tooltip
+   surfaces the canonical IA hint copy: *"Switch profile ·
+   team-shared settings live in here"* (v1.0.583+).
+3. Tap it. **Expected:** popup menu opens with sections —
    **Profiles** (one row per saved profile, active marked with a
-   check), **Add profile…**, **Manage profiles…**, **Templates &
-   engines**, **Team settings**.
-3. Tap a non-active profile in the list. **Expected:** active switches;
+   check), **Add profile…**, **Manage profiles…**, then a small
+   section label **On this team** (v1.0.583+) above **Templates &
+   engines** and **Team settings**. The section label names the
+   scope: items below it touch the hub, not the device.
+4. Tap a non-active profile in the list. **Expected:** active switches;
    dashboards re-hydrate from that profile's offline cache while a
    network refresh runs in the background. Pill label updates.
-4. Re-open the menu and tap **Team settings**. **Expected:** opens
+5. Re-open the menu and tap **Team settings**. **Expected:** opens
    Team Settings with tiles for **Councils · Steward · Schedules ·
    Usage · Members · Policies · Channels**. Tap **Steward** →
    Steward Config form with principal handle, tone, constraints
    (SharedPreferences-local today — server round-trip is an open
    follow-up).
-5. Re-open the menu and tap **Add profile…**. **Expected:** Add hub
+6. Re-open the menu and tap **Add profile…**. **Expected:** Add hub
    profile screen with blank form. Cancel out — no new profile
    created.
-6. Re-open the menu and tap **Manage profiles…**. **Expected:** list
+7. Re-open the menu and tap **Manage profiles…**. **Expected:** list
    view of saved profiles with rename / edit / delete affordances on
    each row's overflow menu. Active profile marked with a filled
    check.
+
+### 5.1a Settings home + search (W1+W2 / v1.0.580–583)
+
+_New scenario for the six-category IA refactor and the search
+discoverability layer._
+
+1. Tap the **Settings** tab in the bottom nav. **Expected:** the
+   home shows a **Search settings…** bar at the top followed by
+   six large category cards in order:
+   - **Display** (subtitle: `<Dark or Light> · <Language>`)
+   - **Input** (subtitle: NavPad mode)
+   - **Files & Media** (subtitle: image output format upper-cased)
+   - **Data** (no subtitle)
+   - **System** (subtitle: Notifications · On/Off)
+   - **About** (subtitle: app version)
+
+   Pre-W1 testers should NOT see the old flat 10-section scroll
+   under any conditions.
+
+2. Tap **Display**. **Expected:** sub-screen with Theme · Language ·
+   Show Cursor · Adjust Mode · Font Size · Font Family · Min Font
+   Size · Scrollback Lines. AppBar shows "Display" as title; back
+   arrow returns to home.
+
+3. Tap **Input**. **Expected:** NavPad mode at top, then the
+   action-bar **preset** picker (labeled "Active preset" — note
+   the rename from the pre-W1 "Active Profile"), then a Voice
+   navigator row that pushes the existing Voice settings screen.
+   Scroll down — Floating pad row has a **BETA** chip.
+
+4. Tap **Files & Media**. **Expected:** section header "IMAGE
+   TRANSFER" followed by image-transfer rows, then a "FILE
+   TRANSFER" header followed by file-transfer rows. No "Image
+   Transfer" or "File Transfer" rendered as a top-level Settings
+   section anywhere else.
+
+5. Tap **System**. **Expected:** single row "Notifications" with
+   the OS-permission toggle. Verify toggling On triggers the OS
+   permission prompt on first opt-in.
+
+6. **Search basic round-trip** (v1.0.583+). Go back to Settings
+   home. Tap the search bar. Type "font" (no enter required).
+   **Expected:** suggestion list shows at minimum Font Size,
+   Font Family, Min Font Size — each row's subtitle reads
+   "Display · …" naming the destination category. Tap **Font
+   Size**. **Expected:** Settings home → Display sub-screen
+   opens. (v1 does not pulse-highlight the matched row — that's
+   a deferred polish per the plan §10.)
+
+7. **Search team-flavored nudge** (v1.0.583+). Clear the search.
+   Type "members". **Expected:** no local rows match, AND a
+   dismissible nudge chip surfaces with the copy *"Looking for
+   team-shared settings? Tap the team pill at the top."* Tap
+   **Got it**. **Expected:** nudge disappears. Type "policies"
+   — no nudge reappears (per-device dismiss is sticky across
+   queries AND app restarts; verify on a second cold launch).
+
+8. **Voice setup round-trip.** Settings → Input → Voice. The
+   voice settings screen loads with the existing DashScope API
+   key / region / model rows unchanged. No behavior regression
+   compared to v1.0.579-and-earlier voice setup.
 
 ### 5.2 Projects tab
 

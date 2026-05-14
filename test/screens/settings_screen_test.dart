@@ -48,6 +48,18 @@ void main() {
       expect(find.text('System'), findsOneWidget);
       expect(find.text('About'), findsOneWidget);
     });
+
+    testWidgets('renders the search bar above the cards (W2 / v1.0.583)',
+        (tester) async {
+      await tester.pumpWidget(_buildApp());
+      await tester.pumpAndSettle();
+      // The search bar's hint copy is the canonical scent for the
+      // power-user direct-access path. Bare presence is enough to
+      // pin the wire-up; deep search interaction is verified via
+      // manual on-device walkthrough in
+      // docs/how-to/release-testing.md.
+      expect(find.text('Search settings…'), findsOneWidget);
+    });
   });
 
   group('SettingsScreen → Display', () {

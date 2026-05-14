@@ -219,10 +219,12 @@ class _MyAppState extends ConsumerState<MyApp> {
   }
 }
 
-/// Tiny wrapper that ensures the overlay controller has called
-/// `ensureStarted()` once the hub config is loaded. Doing this here
-/// (rather than in StewardOverlay's State) means the controller is
-/// alive across MaterialApp rebuilds.
+/// Tiny wrapper that asks the overlay controller to attach to the
+/// running general steward once the hub config is loaded. The
+/// controller's `ensureStarted` is find-only (no spawn) and self-
+/// gates against repeat work, so we re-fire it on every rebuild —
+/// that lets a steward spawned later from Home get picked up by the
+/// overlay without forcing the user to restart the app.
 class _StewardOverlayHost extends ConsumerStatefulWidget {
   final Widget child;
   const _StewardOverlayHost({required this.child});
@@ -233,21 +235,15 @@ class _StewardOverlayHost extends ConsumerStatefulWidget {
 }
 
 class _StewardOverlayHostState extends ConsumerState<_StewardOverlayHost> {
-  bool _ensured = false;
-
   @override
   Widget build(BuildContext context) {
     final hub = ref.watch(hubProvider).value;
     final hasConfig = hub?.config != null;
     final overlayEnabled =
         ref.watch(settingsProvider.select((s) => s.stewardOverlayEnabled));
-    // Lazy-start the controller once the hub config is available
-    // AND the user hasn't disabled the overlay. Before config land
-    // ensureGeneralSteward would 401; if the user has the toggle
-    // off there's no surface to render events into.
-    if (!_ensured && hasConfig && overlayEnabled) {
-      _ensured = true;
+    if (hasConfig && overlayEnabled) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
         ref.read(stewardOverlayControllerProvider.notifier).ensureStarted();
       });
     }

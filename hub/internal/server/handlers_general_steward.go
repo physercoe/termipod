@@ -8,14 +8,18 @@
 //
 //   - it has no parent (top-level concierge);
 //   - it's a singleton — concurrent or repeat calls coalesce on the
-//     first running instance rather than producing duplicates;
-//   - the director's mobile UI calls it on home-tab open (W3) so
-//     the steward exists by the time the director taps the card.
+//     first running instance rather than producing duplicates.
+//
+// Caller surface: the mobile persistent-steward card on Home is the
+// sole user-facing entry point (tap → multi-host picker if needed →
+// POST here). The overlay is a viewport that attaches to an existing
+// steward but does NOT call this endpoint — auto-spawn-on-app-open
+// was retired in v1.0.589 so steward lifecycle stays explicit.
 //
 // On first call: spawns a fresh `steward.general.v1` agent on the
-// team's first known host (operator picks the binding for now;
-// multi-host topology is post-MVP). Subsequent calls return the
-// existing running instance.
+// host the caller picked (or the most-recently-registered one when
+// no host_id is in the body). Subsequent calls return the existing
+// running instance.
 
 package server
 

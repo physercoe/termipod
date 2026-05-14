@@ -272,6 +272,21 @@ class _MessagesRegionState extends ConsumerState<_MessagesRegion> {
     if (state.error != null && state.agentId == null) {
       return _ErrorView(error: state.error!);
     }
+    if (state.noStewardYet) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No general steward yet.\nSpawn one from Home.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 13,
+              color: muted,
+            ),
+          ),
+        ),
+      );
+    }
     if (state.agentId == null) {
       return const Center(child: CircularProgressIndicator());
     }

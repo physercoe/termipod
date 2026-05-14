@@ -40,11 +40,16 @@ const int _overlayMessageCap = 15;
 /// steward_overlay_controller.dart — owns the lifecycle of the overlay's
 /// connection to the team's general steward.
 ///
+/// The overlay is a viewport, not an agent lifecycle owner: it
+/// attaches to an existing general steward if one is running and
+/// surfaces a "spawn from Home" CTA otherwise. The spawn path itself
+/// lives in `persistent_steward_card.dart` and is always user-gated.
+/// No auto-spawn, no respawn-after-archive.
+///
 /// Responsibilities:
-///   1. Ensure the general steward is running (call ensureGeneralSteward
-///      on first build; idempotent fast path on subsequent builds).
-///   2. Resolve the steward's active session id.
-///   3. Subscribe to the steward's SSE event stream.
+///   1. Find a running `@steward` agent in the cached hub state.
+///   2. Resolve its active session id.
+///   3. Subscribe to that session's SSE event stream.
 ///   4. Demultiplex incoming events into:
 ///        - chat-renderable messages (text frames, tool-call summaries)
 ///        - mobile.intent navigation events (dispatched via uri_router
@@ -100,20 +105,26 @@ class OverlayChatMessage {
 
 @immutable
 class StewardOverlayState {
-  /// Resolved general-steward agent id, null while ensuring/loading.
+  /// Resolved general-steward agent id, null while finding/loading.
   final String? agentId;
   /// Active session id for that agent. Empty until resolved.
   final String sessionId;
   /// Rolling chat history. Newest at the end.
   final List<OverlayChatMessage> messages;
-  /// Last error (auth, network, ensure-spawn). Cleared on next success.
+  /// Last error (auth, network, bootstrap). Cleared on next success.
   final String? error;
+  /// True when the find-only bootstrap settled with no running general
+  /// steward in the team. The chat region renders a CTA pointing the
+  /// user at the Home spawn card. Resets to false the next time the
+  /// bootstrap succeeds in attaching.
+  final bool noStewardYet;
 
   const StewardOverlayState({
     this.agentId,
     this.sessionId = '',
     this.messages = const [],
     this.error,
+    this.noStewardYet = false,
   });
 
   StewardOverlayState copyWith({
@@ -122,12 +133,14 @@ class StewardOverlayState {
     List<OverlayChatMessage>? messages,
     String? error,
     bool clearError = false,
+    bool? noStewardYet,
   }) {
     return StewardOverlayState(
       agentId: agentId ?? this.agentId,
       sessionId: sessionId ?? this.sessionId,
       messages: messages ?? this.messages,
       error: clearError ? null : (error ?? this.error),
+      noStewardYet: noStewardYet ?? this.noStewardYet,
     );
   }
 }
@@ -148,7 +161,11 @@ const Duration _reconnectNoteGrace = Duration(seconds: 3);
 
 class StewardOverlayController extends Notifier<StewardOverlayState> {
   StreamSubscription<Map<String, dynamic>>? _sub;
-  bool _initStarted = false;
+  /// Self-gate for in-flight find-only bootstraps. Replaces the old
+  /// one-shot `_initStarted` so a hub-state change (general steward
+  /// appearing after the user spawns one from Home) can trigger a
+  /// fresh attach attempt without reloading the controller.
+  bool _attaching = false;
   bool _disposed = false;
   Timer? _reconnectTimer;
   /// Defers the "stream — reconnecting…" system note so a healthy
@@ -190,12 +207,21 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
     return const StewardOverlayState();
   }
 
-  /// Lazily ensures the general steward + opens its event stream.
-  /// Safe to call repeatedly; only the first call does the work.
+  /// Lazily attaches to an existing general steward + opens its event
+  /// stream. Safe to call repeatedly: returns immediately when already
+  /// attached or another attempt is in-flight, otherwise re-runs the
+  /// find-only bootstrap. The host widget calls this on every rebuild
+  /// — the self-gating here keeps it cheap.
   Future<void> ensureStarted() async {
-    if (_initStarted) return;
-    _initStarted = true;
-    await _bootstrap();
+    final aid = state.agentId;
+    if (aid != null && aid.isNotEmpty) return;
+    if (_attaching) return;
+    _attaching = true;
+    try {
+      await _bootstrap();
+    } finally {
+      _attaching = false;
+    }
   }
 
   Future<void> _bootstrap() async {
@@ -206,11 +232,22 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       return;
     }
     try {
-      // 1. Ensure-spawn — fast path returns existing agent id.
-      final res = await client.ensureGeneralSteward();
-      final agentId = (res['agent_id'] ?? '').toString();
+      // 1. Find an existing general steward in the cached hub state.
+      //    The persistent_steward_card on Home owns the user-gated
+      //    spawn path; the overlay never spawns or respawns. If none
+      //    is running we settle in `noStewardYet` and the chat region
+      //    renders a CTA pointing the user at Home.
+      String agentId = '';
+      for (final a in hub.agents) {
+        if (!isGeneralStewardHandle((a['handle'] ?? '').toString())) continue;
+        final status = (a['status'] ?? '').toString();
+        if (status == 'running' || status == 'pending') {
+          agentId = (a['id'] ?? '').toString();
+          if (agentId.isNotEmpty) break;
+        }
+      }
       if (agentId.isEmpty) {
-        state = state.copyWith(error: 'Steward agent_id missing in response');
+        state = state.copyWith(noStewardYet: true, clearError: true);
         return;
       }
 
@@ -251,6 +288,7 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
         sessionId: sessionId,
         messages: hydrated.messages,
         clearError: true,
+        noStewardYet: false,
       );
       if (hydrated.warning != null) {
         _appendMessage(OverlayChatMessage(

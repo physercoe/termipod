@@ -124,6 +124,20 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		); err != nil {
 			return M1LaunchResult{}, fmt.Errorf("write mcp config: %w", err)
 		}
+		// kimi-code does NOT auto-discover the per-spawn mcp.json the
+		// way gemini-cli auto-discovers <workdir>/.gemini/settings.json
+		// from a cwd-matching trust gate. Kimi's `--mcp-config-file`
+		// flag is the only sanctioned injection path, and its default
+		// (~/.kimi/mcp.json) points at the operator's home dir — which
+		// our writeKimiMCPConfig has already merged into the per-spawn
+		// copy. Splice the flag into the argv between `kimi` and the
+		// next top-level flag so the per-spawn file wins. Idempotent
+		// against operator templates that already specify the flag.
+		if cfg.Spawn.Kind == "kimi-code" && !strings.Contains(command, "--mcp-config-file") {
+			mcpPath := filepath.Join(expandedWorkdir, ".kimi", "mcp.json")
+			command = strings.Replace(command, "kimi ",
+				"kimi --mcp-config-file "+shellEscape(mcpPath)+" ", 1)
+		}
 	}
 
 	logPath := filepath.Join(cfg.LogDir, "termipod-agent-"+cfg.Spawn.ChildID+".log")

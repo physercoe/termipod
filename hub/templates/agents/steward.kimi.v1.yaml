@@ -1,0 +1,101 @@
+# Kimi steward template.
+#
+# Drives `kimi acp` (Moonshot AI's Kimi Code CLI) as a long-running
+# stdio JSON-RPC daemon via the M1/ACP path (ACPDriver, driver_acp.go).
+# Kimi's `acp` subcommand starts an Agent Client Protocol server
+# (Zed's spec, JSON-RPC over stdio): handshake = initialize +
+# session/new; turn = session/prompt; events = session/update
+# notifications; per-tool-call approval = session/request_permission
+# round-trips IF --yolo is omitted (see below for why the default
+# template keeps --yolo ON).
+#
+# ADR-026 is the authoritative design. Key decisions:
+#   - M1-only. Kimi has no stream-json mode and no JSON-RPC app-server
+#     (its `--wire` flag is marked experimental upstream). M4 is the
+#     sole fallback when ACP can't negotiate.
+#   - Authentication is out-of-band via `kimi login` run interactively
+#     on the host. Until login completes, kimi's ACP daemon returns
+#     AUTH_REQUIRED at session/new — ACPDriver surfaces that as a
+#     typed attention_request and a wrapped spawn error pointing the
+#     operator at `kimi login`. No flag-time auth alternative.
+#   - MCP injection happens via the top-level `--mcp-config-file`
+#     flag spliced by launch_m1.go between `kimi` and `--yolo`. The
+#     hub writes a per-spawn <workdir>/.kimi/mcp.json that merges the
+#     operator's existing ~/.kimi/mcp.json (preserving their custom
+#     MCP servers) with the termipod entry.
+#
+# Minimum supported kimi-cli version: 1.43.0. Older builds either
+# lack the `kimi acp` subcommand or lack the --yolo / --thinking
+# top-level flags this template depends on.
+#
+# Built-in. Copied to team/templates/agents/ on first init; user
+# edits win — subsequent inits never overwrite.
+template: agents.steward.kimi
+version: 1
+extends: null
+
+# M1 (ACP daemon) is the only stable shape kimi-cli ships today; M4
+# keeps a transcript when ACP can't negotiate (binary too old, daemon
+# crashed mid-handshake). No M2 fallback — kimi has no stream-json
+# one-shot mode.
+driving_mode: M1
+fallback_modes: [M4]
+
+backend:
+  kind: kimi-code
+  default_workdir: ~/hub-work
+  # cmd is what host-runner executes via `bash -c "cd <workdir> &&
+  # <cmd>"`. Two top-level kimi flags precede the `acp` subcommand:
+  #
+  # --yolo (-y) auto-approves all tool calls at the engine layer.
+  # This INTENTIONALLY bypasses ACP's session/request_permission gate
+  # — kimi's steward sits at the opposite end of the consent spectrum
+  # from gemini's steward (which omits --yolo precisely so the ACP
+  # gate fires). Operators who want per-call principal consent on a
+  # kimi steward override this cmd in their team-local
+  # steward.kimi.v1.yaml overlay; the symmetric override on gemini is
+  # adding --yolo. See ADR-026 D3 for the rationale.
+  #
+  # --thinking enables Kimi K2.5's reasoning mode on models that
+  # support it (no-op on models that don't). The steward workload —
+  # multi-step decomposition and delegation — is exactly the profile
+  # that benefits from reasoning; cost is latency, which the operator
+  # tolerates for steward turns.
+  #
+  # launch_m1 splices --mcp-config-file <workdir>/.kimi/mcp.json into
+  # the argv between `kimi` and `--yolo` so the per-spawn merged MCP
+  # config wins over kimi's ~/.kimi/mcp.json default.
+  cmd: "kimi --yolo --thinking acp"
+
+default_role: team.coordinator
+display_label: "Steward (kimi)"
+
+# Same governance shape as the claude / codex / gemini stewards — the
+# kimi steward coordinates the same way once the daemon model is
+# hidden by the driver.
+default_capabilities:
+  - blob.read
+  - blob.write
+  - delegate
+  - decision.vote: significant
+  - spawn.descendants: 20
+  - templates.read
+  - templates.propose
+  - tasks.create
+  - tasks.assign_others
+  - projects.create
+
+prompt: steward.kimi.v1.md
+
+skills:
+  - id: plan
+    name: plan
+    description: "Decompose a project goal into plan steps"
+    tags: [planning]
+  - id: brief
+    name: brief
+    description: "Write a briefing document summarizing run outputs"
+    tags: [writing]
+
+default_channels:
+  hub-meta: full

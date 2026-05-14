@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-14)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.574 (Scenario 7 + new Scenario 7.5 reflect ADR-025; older scenarios pinned to v1.0.500)
+> **Last verified vs code:** v1.0.579 (Scenario 7 + Scenario 7.5 reflect ADR-025; kimi-code prereq added per ADR-026; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -48,9 +48,13 @@ configured."* That implies the rest:
    `research-experiment-demo`, `research-paper-demo`). If the
    command says `seed-demo: skipped (already exists)`, run it
    again with `--reset` so each scenario starts from known state.
-5. **Worker engine available** on the chosen host (claude-code
-   or any ACP-conformant engine). Confirm with
-   `host-runner self-check` if available.
+5. **Worker engine available** on the chosen host (claude-code,
+   codex, gemini-cli, or kimi-code — see
+   `../reference/steward-templates.md` §"Per-engine capability
+   matrix" for which engines speak which driving mode). Kimi-code
+   additionally needs `kimi login` to have run interactively in
+   the operator's shell — out-of-band auth, no flag-time fallback
+   (ADR-026 W3). Confirm with `host-runner self-check` if available.
 6. **Policy permits `agents.spawn`** without manual approval.
    Default test-team policy permits.
 

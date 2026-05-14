@@ -1,9 +1,9 @@
 # Steward templates
 
 > **Type:** reference
-> **Status:** Current (2026-05-01)
+> **Status:** Current (2026-05-14)
 > **Audience:** contributors · template authors · operators
-> **Last verified vs code:** v1.0.350-alpha
+> **Last verified vs code:** v1.0.578-alpha
 
 **TL;DR.** Steward template authoring contract. Two tiers — **frozen** general steward (one bundled file, hub-release-only edits) and **overlay** domain stewards (per-team filesystem, editable by the director and authored by the general steward). This file documents what the templates contain, where they live, what overlay can and can't shadow, and which engine selection is wired where. Read [ADR-017](../decisions/017-layered-stewards.md) first for the *why*; this file is the *what* and *where*.
 
@@ -20,6 +20,7 @@ hub/templates/                            # bundled into the hub binary via embe
 │   ├── steward.briefing.v1.yaml          # bundled seed (named per project, e.g. steward.briefing-east)
 │   ├── steward.codex.v1.yaml             # bundled seed (codex engine)
 │   ├── steward.gemini.v1.yaml            # bundled seed (gemini-cli engine)
+│   ├── steward.kimi.v1.yaml              # bundled seed (kimi-code engine, ADR-026)
 │   ├── steward.v1.yaml                   # legacy plain steward (single-steward installs)
 │   ├── ml-worker.v1.yaml                 # worker
 │   ├── lit-reviewer.v1.yaml              # worker
@@ -46,7 +47,7 @@ A steward template (YAML) has four required sections plus a backend block:
 
 ```yaml
 template: steward.research.v1            # canonical id (matches filename)
-kind: claude-code                         # engine kind; one of claude-code | codex | gemini-cli
+kind: claude-code                         # engine kind; one of claude-code | codex | gemini-cli | kimi-code
 role: steward                             # roles.yaml key (always 'steward' for any *.steward.* file)
 prompt: steward.research.v1.md            # basename of prompts/*.md to embed at spawn
 
@@ -122,7 +123,7 @@ Every other template under `hub/templates/` is bundled as a **seed**, not frozen
 When spawning a steward (general or domain), the hub validates:
 
 1. The template exists (overlay-then-bundled lookup).
-2. `backend.kind` is one of the three supported engine kinds (`claude-code`, `codex`, `gemini-cli`). New engines need a frame profile (ADR-010) before they can land here.
+2. `backend.kind` is one of the four supported engine kinds (`claude-code`, `codex`, `gemini-cli`, `kimi-code`). New engines need a frame profile (ADR-010) OR an ACP-compatible daemon (kimi-code's path — ADR-026) before they can land here.
 3. `role` matches `roles.yaml` (ADR-016 D6) — `steward` for steward.* files; `worker` for worker files.
 4. The handle (D2 in ADR-017) is unique within the team for stewards (live-uniqueness check).
 
@@ -134,17 +135,34 @@ Spawn fails with a 4xx error if any check fails; the mobile spawn sheet surfaces
 
 | Template | Default `backend.kind` | Engine driver |
 |---|---|---|
-| `steward.general.v1` | `claude-code` | `hub/internal/hostrunner/driver_claude.go` |
+| `steward.general.v1` | `claude-code` | `hub/internal/hostrunner/driver_stdio.go` |
 | `steward.research.v1` | `claude-code` | same |
-| `steward.codex.v1` | `codex` | `hub/internal/hostrunner/driver_codex.go` (ADR-012) |
-| `steward.gemini.v1` | `gemini-cli` | `hub/internal/hostrunner/driver_gemini.go` (ADR-013) |
+| `steward.codex.v1` | `codex` | `hub/internal/hostrunner/driver_appserver.go` (ADR-012) |
+| `steward.gemini.v1` | `gemini-cli` | `hub/internal/hostrunner/driver_acp.go` (ADR-013) |
+| `steward.kimi.v1` | `kimi-code` | `hub/internal/hostrunner/driver_acp.go` (ADR-026) |
 | `ml-worker.v1` | `claude-code` | claude default |
 | `lit-reviewer.v1` | `claude-code` | claude default |
 | `paper-writer.v1` | `claude-code` | claude default |
 | `coder.v1` | `claude-code` | claude default |
 | `critic.v1` | `claude-code` | claude default |
 
-Overlay edits to `backend.kind` switch the engine driver immediately on next spawn — a research steward can be migrated from claude to codex by editing the template's `backend.kind`. Frame profiles (ADR-010) keep the transcript renderer compatible.
+Overlay edits to `backend.kind` switch the engine driver immediately on next spawn — a research steward can be migrated from claude to codex by editing the template's `backend.kind`. Frame profiles (ADR-010) keep the transcript renderer compatible. Note: gemini-cli and kimi-code share `ACPDriver` (Zed ACP protocol); the only Go diff for adding kimi was an `EngineKind` field for auth-required remediation text — ADR-026 W3.
+
+### Per-engine capability matrix
+
+| Engine | Driving mode | Auth UX | Mode/model switch | Per-tool consent gate | Native web search | Min CLI version |
+|---|---|---|---|---|---|---|
+| claude-code | M2 stream-json | flag-time (`ANTHROPIC_API_KEY` / OAuth) | respawn | `--permission-prompt-tool` | no | n/a |
+| codex | M2 app-server JSON-RPC | env var (`OPENAI_API_KEY` or `~/.codex/auth.json`) | respawn | `item/*/requestApproval` | no | n/a |
+| gemini-cli | M1 ACP | flag-time (`GEMINI_API_KEY`) OR out-of-band (`gemini auth`) | rpc | `session/request_permission` (template omits `--yolo`) | no | 0.41+ |
+| kimi-code | M1 ACP | out-of-band (`kimi login`) | rpc (assumed-true; verify in W4 smoke) | bypassed by default (template enables `--yolo`) | yes (`SearchWeb`) | 1.43.0 |
+
+Notes:
+
+- **kimi-code consent gate**: the bundled template enables `--yolo`, intentionally bypassing ACP's `session/request_permission`. This is the opposite stance from gemini-cli (which omits `--yolo` to keep the gate live). ADR-026 D3 takes the asymmetry; operators flip the default per-team via template overlay.
+- **kimi-code web search**: Moonshot's native `SearchWeb` tool, configured under `[services.moonshot_search]` in `~/.kimi/config.toml`. Rendered as a generic `tool_call` row in v1; no typed `web_search` kind (ADR-026 D7).
+- **kimi-code MCP injection**: `--mcp-config-file` flag spliced by `launch_m1.go` between `kimi` and `--yolo`. Per-spawn `<workdir>/.kimi/mcp.json` deep-merges the operator's `~/.kimi/mcp.json` so custom MCP servers pass through unchanged (ADR-026 D5).
+- **kimi-code AUTH_REQUIRED**: if `kimi login` hasn't run on the host, the daemon rejects `session/new` with an AUTH_REQUIRED error. ACPDriver surfaces this as a typed `attention_request` agent_event + a wrapped spawn error referencing the remediation command (ADR-026 W3).
 
 ---
 
@@ -153,5 +171,5 @@ Overlay edits to `backend.kind` switch the engine driver immediately on next spa
 - [ADR-017](../decisions/017-layered-stewards.md) — the design (read first).
 - [ADR-016](../decisions/016-subagent-scope-manifest.md) — D6 role gate, D7 self-mod guard.
 - [ADR-010](../decisions/010-frame-profiles-as-data.md) — frame profile model that lets new engines land without code changes.
-- [ADR-012](../decisions/012-codex-app-server-integration.md), [ADR-013](../decisions/013-gemini-exec-per-turn.md) — engine driver contracts referenced by `backend.kind`.
+- [ADR-012](../decisions/012-codex-app-server-integration.md), [ADR-013](../decisions/013-gemini-exec-per-turn.md), [ADR-026](../decisions/026-kimi-code-engine.md) — engine driver contracts referenced by `backend.kind`.
 - Code: `hub/templates/`, `hub/internal/server/handlers_general_steward.go`, `lib/screens/team/templates_screen.dart`, `lib/screens/team/spawn_steward_sheet.dart`.

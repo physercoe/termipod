@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-14)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.574 (per-section version markers below pin steps individually)
+> **Last verified vs code:** v1.0.579 (per-section version markers below pin steps individually; §7.7 added for ADR-026 kimi-code)
 
 **TL;DR.** Evergreen manual test plan covering the mobile app +
 Termipod Hub surfaces. Update in place when behavior changes; the
@@ -576,6 +576,66 @@ spawned this way don't carry a `project_id` binding.
 3. The steward's canonical reconfigure is *terminate + respawn
    with new spec*. Verify both rows in Audit Log after the
    steward acts.
+
+### 7.7 Kimi Code CLI steward (ADR-026)
+
+_New scenario for v1.0.575-579 — kimi-code engine integration._
+
+**Prereq.** Host has `kimi --version` ≥ 1.43.0 AND `kimi login` has
+run successfully in the operator's shell on that host. The login is
+out-of-band — the hub does NOT automate it. Verify with `kimi
+--print "ok"` on the host; the daemon must respond without an
+AUTH_REQUIRED error before the spawn will succeed.
+
+1. **Spawn the kimi steward (happy path).** §3 → mobile spawn-steward
+   sheet → pick `steward.kimi.v1` (template id). **Expected:** an
+   `agents` row appears with `kind=kimi-code`, `mode=M1`,
+   `status=running`. The cmd recorded under `spawn_spec_yaml` is
+   `kimi --yolo --thinking acp` (the hub splices
+   `--mcp-config-file <workdir>/.kimi/mcp.json` at materialization
+   time; check `host-runner` logs to confirm the splice).
+2. **MCP merge.** SSH to the host; cat the per-spawn
+   `<workdir>/.kimi/mcp.json`. **Expected:** the file contains a
+   `mcpServers.termipod` entry pointing at `hub-mcp-bridge` AND any
+   custom MCP servers the operator had configured in
+   `~/.kimi/mcp.json` pass through unchanged. The operator's
+   `~/.kimi/config.toml` is untouched.
+3. **Native web search.** From the chat surface, send "What's the
+   latest stable Flutter release?" **Expected:** a `tool_call` row
+   appears with `name=SearchWeb` (kimi's native search; backed by
+   Moonshot's hosted endpoint configured under
+   `[services.moonshot_search]` in `~/.kimi/config.toml`). Tap to
+   expand; the search results render verbatim. **Note:** v1 does
+   NOT promote this to a typed `web_search` transcript kind (ADR-026
+   D7) — generic `tool_call` row is the expected UX.
+4. **--yolo consent behavior.** From the chat surface, ask the
+   steward to do something that would normally trigger a
+   tool-approval card (e.g. "delete a file called test.txt in your
+   workdir"). **Expected:** the tool call executes WITHOUT an
+   approval card surfacing in the transcript. This is by design —
+   the template enables `--yolo`, intentionally bypassing ACP's
+   `session/request_permission` gate. Compare with §7.2's worker
+   spawn under a gemini steward, which would surface the approval
+   card.
+5. **MCP integration.** Ask the kimi steward "list projects in this
+   team via the hub MCP server." **Expected:** the steward calls
+   the `projects.list` MCP tool through the `termipod` server entry
+   spliced in step 2 and returns the team's projects.
+6. **AUTH_REQUIRED path.** Identify a host where `kimi login` has
+   never run (or run `kimi logout` first). Try to spawn the kimi
+   steward there. **Expected:** the spawn fails with a SnackBar
+   error referencing both "authentication required" AND
+   "`kimi login`". The agent row appears with `status=failed`. The
+   transcript should also contain an `attention_request` event with
+   `kind=auth_required` and a remediation string pointing at
+   `kimi login`. **This is the operator-actionable surface.**
+7. **Engine swap.** From an existing project, swap the steward from
+   kimi-code to gemini-cli via the template-overlay editor (or by
+   spawning a fresh steward with the gemini template). **Expected:**
+   the new steward picks up the existing project context without
+   loss; the per-tool consent gate flips back ON (gemini's template
+   omits `--yolo`). Confirms the engine-asymmetry behavior from
+   ADR-026 D3.
 
 ---
 

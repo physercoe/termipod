@@ -1,9 +1,9 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Draft (2026-05-14) — director-aligned, ready to implement
+> **Status:** Shipped (W1–W5 across v1.0.575–579, one wedge per minor version) — 2026-05-14
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.574
+> **Last verified vs code:** v1.0.579
 
 **TL;DR.** Add `kimi-code` (Moonshot AI's "Kimi Code CLI", repo
 `MoonshotAI/kimi-cli`) as the fourth engine family, driven by the

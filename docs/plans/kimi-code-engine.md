@@ -1,7 +1,7 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Shipped (W1–W7a across v1.0.575–586) — 2026-05-14
+> **Status:** Shipped (W1–W7b across v1.0.575–587) — 2026-05-14
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -398,6 +398,32 @@ Files:
   gate relaxed.
 - Test: `TestACPDriver_SetModeDispatchesWhenCacheEmpty` (replaces the
   pre-W7a `TestACPDriver_SetModeUnsupportedWhenNoList`).
+
+### W7b (v1.0.587). Synthesize current_mode/model update after RPC.
+
+Shipped 2026-05-14. On-device verification of W7a surfaced one
+remaining UX gap: the `session/set_model` RPC succeeds end-to-end
+(behavioral test confirmed: thinking-mode actually flipped on the
+next prompt — no `agent_thought_chunk` frames), but kimi-cli@1.43.0
+responds with an empty `result:{}` and never emits the
+`current_model_update` notification mobile expects. The picker chip
+keeps reading the prior currentModelId from the session/new or W7
+carryover event, so the "selected" indicator stays stuck on the
+old model and the user can't visually confirm or reverse the switch.
+
+Fix: after a successful `session/set_mode` / `session/set_model` RPC,
+the driver posts a synthetic `system` agent_event carrying the new
+`currentModeId` / `currentModelId`. Mobile's `modeModelStateFromEvents`
+walks events in reverse picking up the latest id, so the chip refreshes
+to the new selection. Engine-neutral: daemons that DO emit the
+notification will land an equivalent system event milliseconds later;
+mobile reduces to the latest, harmless duplicate.
+
+Files:
+- `hub/internal/hostrunner/driver_acp.go` — set_mode + set_model
+  emit synthetic event on RPC success.
+- Test: `TestACPDriver_SetModelEmitsCurrentUpdate` pins the contract
+  via the existing `fakePoster.snapshot()` mechanism.
 
 ### W8 (post-MVP). SearchWeb-as-typed-kind, if needed.
 

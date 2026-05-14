@@ -2944,6 +2944,73 @@ func TestACPDriver_SetModeRejectsUnknownID(t *testing.T) {
 	}
 }
 
+// TestACPDriver_SetModelEmitsCurrentUpdate — W7b. After a successful
+// session/set_model RPC, the driver must post a synthetic `system`
+// agent_event carrying the new currentModelId. Without this, daemons
+// that don't broadcast current_model_update on their own (kimi-cli@
+// 1.43.0 responds with empty `result:{}` and nothing else) leave
+// mobile's picker chip reading the prior currentModelId from the
+// session/new or W7 carryover system event — the "selected" indicator
+// goes stale and the user can't visually confirm or reverse the
+// switch.
+func TestACPDriver_SetModelEmitsCurrentUpdate(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-update")
+	fake.availableModels = []string{"model-a", "model-b"}
+	go fake.serve()
+
+	poster := &fakePoster{}
+	drv := &ACPDriver{
+		AgentID:          "agent-set-model-update",
+		Poster:           poster,
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	// Snapshot baseline so we can ignore Start's own system event
+	// (the initial mode/model state advertised at session/new).
+	baseline := len(poster.snapshot())
+
+	if err := drv.Input(context.Background(), "set_model",
+		map[string]any{"model_id": "model-b"}); err != nil {
+		t.Fatalf("Input set_model: %v", err)
+	}
+
+	// Wait for the RPC reply + the synthetic event to land.
+	deadline := time.Now().Add(2 * time.Second)
+	var synth *postedEvent
+	for time.Now().Before(deadline) {
+		evs := poster.snapshot()
+		for i := baseline; i < len(evs); i++ {
+			e := evs[i]
+			if e.Kind == "system" && e.Producer == "system" {
+				if got, _ := e.Payload["currentModelId"].(string); got == "model-b" {
+					synth = &evs[i]
+					break
+				}
+			}
+		}
+		if synth != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if synth == nil {
+		t.Fatalf("no synthetic system event with currentModelId=model-b posted "+
+			"after successful set_model; events since baseline=%+v",
+			poster.snapshot()[baseline:])
+	}
+}
+
 // TestACPDriver_SetModeDispatchesWhenCacheEmpty — W7a: when the
 // driver's availableModes cache is empty (e.g. resumed via
 // session/load on an agent like kimi-cli@1.43.0 that doesn't echo

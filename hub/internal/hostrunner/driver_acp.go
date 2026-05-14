@@ -1677,6 +1677,21 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			"sessionId": sid,
 			"modeId":    modeID,
 		})
+		if err == nil {
+			// ADR-026 W7b — some daemons (kimi-cli@1.43.0) accept set_mode
+			// with an empty success result but never emit the matching
+			// current_mode_update notification, so mobile's picker chip
+			// keeps reading the prior currentModeId from the carryover/
+			// session-new system event and the "selected chip" indicator
+			// goes stale. Post a synthetic system event under the same
+			// shape mobile already reduces (top-level currentModeId) so
+			// the chip refreshes. Daemons that DO emit the notification
+			// will land an equivalent system event milliseconds later;
+			// mobile's reducer keeps the latest, which is identical, so
+			// the duplicate is harmless.
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system",
+				map[string]any{"currentModeId": modeID})
+		}
 		return err
 	case "attention_reply":
 		// Wake-up turn for vendor-neutral, turn-based attention kinds
@@ -1743,6 +1758,15 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 			"sessionId": sid,
 			"modelId":   modelID,
 		})
+		if err == nil {
+			// W7b — synthesize the current_model_update mobile expects
+			// (same rationale as set_mode above). Without this, kimi's
+			// silent-success set_model leaves the picker chip stuck on
+			// the prior modelId and the user can't visually confirm or
+			// reverse the switch.
+			_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "system", "system",
+				map[string]any{"currentModelId": modelID})
+		}
 		return err
 	default:
 		return fmt.Errorf("acp driver: unsupported input kind %q", kind)

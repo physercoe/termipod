@@ -2944,15 +2944,24 @@ func TestACPDriver_SetModeRejectsUnknownID(t *testing.T) {
 	}
 }
 
-// TestACPDriver_SetModeUnsupportedWhenNoList — agent that didn't
-// advertise any modes (older or barebones daemon) → typed error
-// surfacing the mismatch instead of dispatching against an empty cache.
-func TestACPDriver_SetModeUnsupportedWhenNoList(t *testing.T) {
+// TestACPDriver_SetModeDispatchesWhenCacheEmpty — W7a: when the
+// driver's availableModes cache is empty (e.g. resumed via
+// session/load on an agent like kimi-cli@1.43.0 that doesn't echo
+// state on load), set_mode dispatches the RPC anyway and lets the
+// agent be the authority. The pre-W7a hard "did not advertise modes"
+// rejection blocked every set_mode/set_model on resumed kimi agents
+// even though mobile's picker (hydrated via the W7 hub-side carryover
+// event) was sending valid ids. Mobile's `hasMode` gate already
+// requires a populated state event before the picker is even
+// rendered, so reaching this code path with truly-unsupported set_mode
+// would require a bug elsewhere.
+func TestACPDriver_SetModeDispatchesWhenCacheEmpty(t *testing.T) {
 	hostInR, hostInW := io.Pipe()
 	hostOutR, hostOutW := io.Pipe()
 
 	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-no-modes")
-	// Intentionally no availableModes injected.
+	// Intentionally no availableModes injected — fake.respond on
+	// session/set_mode still returns empty success.
 	go fake.serve()
 
 	drv := &ACPDriver{
@@ -2969,12 +2978,22 @@ func TestACPDriver_SetModeUnsupportedWhenNoList(t *testing.T) {
 	defer drv.Stop()
 	<-fake.initCh
 
-	err := drv.Input(context.Background(), "set_mode", map[string]any{"mode_id": "yolo"})
-	if err == nil {
-		t.Fatalf("expected error for no-list agent, got nil")
+	if err := drv.Input(context.Background(), "set_mode", map[string]any{"mode_id": "yolo"}); err != nil {
+		t.Fatalf("Input set_mode: %v "+
+			"(W7a: empty cache should dispatch, not pre-flight reject)", err)
 	}
-	if !strings.Contains(err.Error(), "did not advertise modes") {
-		t.Errorf("error = %q; want substring 'did not advertise modes'", err.Error())
+	deadline := time.Now().Add(2 * time.Second)
+	var rpc map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/set_mode"); m != nil {
+			rpc = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rpc == nil {
+		t.Fatalf("session/set_mode never dispatched on empty-cache agent; "+
+			"received methods=%v", receivedMethods(fake))
 	}
 }
 

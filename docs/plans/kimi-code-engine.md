@@ -1,7 +1,7 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Shipped (W1–W7 across v1.0.575–585) — 2026-05-14
+> **Status:** Shipped (W1–W7a across v1.0.575–586) — 2026-05-14
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -366,6 +366,38 @@ Files:
 - Tests: `TestACPDriver_SetModelDispatch_KimiShape` (driver-level
   modelId-only parse) + `TestSessions_ResumeCarriesModeModelState`
   (handler-level carryover end-to-end).
+
+### W7a (v1.0.586). Relax set_mode/set_model gate on empty cache.
+
+Shipped 2026-05-14. W7 fixed the carryover so mobile's picker
+re-appeared on the resumed agent, BUT the driver's internal
+`availableModes`/`availableModels` cache (used for id validation
+before dispatching the RPC) is built from the session/new or
+session/load response. Kimi's `{}` load reply leaves both caches
+empty for the resumed agent. So even with a valid id from mobile's
+hydrated picker, the driver pre-flight rejected:
+
+```
+input dispatch failed agent=… kind=set_model
+err="acp driver: set_model unsupported (agent did not advertise models)"
+```
+
+Fix: when the cache is empty, dispatch the RPC anyway and let the
+agent be the authority. The hard "unsupported" path is removed; the
+"unknown id" path stays guarded by `hasList`. Rationale: mobile's
+`hasMode` / `hasModel` gates already require a populated state event
+before the picker even renders — so reaching the empty-cache code
+path implies the carryover successfully fired, which implies the
+prior agent really did advertise these ids, which implies the agent's
+in-process state still knows them. Bad ids surface as JSON-RPC errors
+from the agent, propagated to the operator as a snackbar instead of
+silent backend rejection.
+
+Files:
+- `hub/internal/hostrunner/driver_acp.go` — set_mode + set_model
+  gate relaxed.
+- Test: `TestACPDriver_SetModeDispatchesWhenCacheEmpty` (replaces the
+  pre-W7a `TestACPDriver_SetModeUnsupportedWhenNoList`).
 
 ### W8 (post-MVP). SearchWeb-as-typed-kind, if needed.
 

@@ -1654,10 +1654,21 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		_, ok := d.availableModes[modeID]
 		hasList := len(d.availableModes) > 0
 		d.modesMu.Unlock()
-		if !hasList {
-			return fmt.Errorf("acp driver: set_mode unsupported (agent did not advertise modes)")
-		}
-		if !ok {
+		// ADR-026 W7a — when the cache is non-empty, reject unknown ids
+		// before burning a round trip. When the cache IS empty, dispatch
+		// anyway: the resumed-via-session/load case for engines that
+		// omit echoing state on load (kimi-cli@1.43.0) leaves us with
+		// no list to validate against, but the agent's in-process state
+		// still knows the ids and will accept the RPC. The pre-W7a hard
+		// "unsupported" fail rejected every set_mode/set_model on resumed
+		// kimi agents even though mobile's picker (hydrated via the W7
+		// hub-side carryover event) was sending valid ids. Mobile won't
+		// expose the picker for engines that never advertised — its
+		// `hasMode` gate requires currentMode + non-empty availableModes
+		// — so the surface for "agent doesn't actually support set_mode"
+		// is approximately zero. Bad ids surface as JSON-RPC errors from
+		// the agent, propagated to mobile as a snackbar.
+		if hasList && !ok {
 			return fmt.Errorf("acp driver: set_mode unknown mode_id %q", modeID)
 		}
 		callCtx, cancel := context.WithTimeout(ctx, d.HandshakeTimeout)
@@ -1721,10 +1732,9 @@ func (d *ACPDriver) Input(ctx context.Context, kind string, payload map[string]a
 		_, ok := d.availableModels[modelID]
 		hasList := len(d.availableModels) > 0
 		d.modesMu.Unlock()
-		if !hasList {
-			return fmt.Errorf("acp driver: set_model unsupported (agent did not advertise models)")
-		}
-		if !ok {
+		// W7a — same rationale as set_mode above. Empty cache means
+		// the resumed-via-empty-load case; trust mobile's id.
+		if hasList && !ok {
 			return fmt.Errorf("acp driver: set_model unknown model_id %q", modelID)
 		}
 		callCtx, cancel := context.WithTimeout(ctx, d.HandshakeTimeout)

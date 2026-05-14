@@ -47,7 +47,9 @@ const int _overlayMessageCap = 15;
 /// No auto-spawn, no respawn-after-archive.
 ///
 /// Responsibilities:
-///   1. Find a running `@steward` agent in the cached hub state.
+///   1. Find a running `@steward` agent via a fresh `listAgents`
+///      fetch (cached hub state can show now-crashed agents as
+///      running; the hub is authoritative).
 ///   2. Resolve its active session id.
 ///   3. Subscribe to that session's SSE event stream.
 ///   4. Demultiplex incoming events into:
@@ -232,14 +234,29 @@ class StewardOverlayController extends Notifier<StewardOverlayState> {
       return;
     }
     try {
-      // 1. Find an existing general steward in the cached hub state.
+      // 1. Find an existing general steward via a FRESH hub fetch. We
+      //    deliberately bypass the cached `hub.agents` here: that
+      //    cache can show a now-crashed @steward as `status: running`
+      //    if the row was fetched while the daemon was alive and
+      //    nothing has refreshed since. The overlay then bound to the
+      //    dead agent, your inputs landed under its (paused) session,
+      //    and the live steward never saw them (v1.0.589 → .590 burn).
+      //    `listAgents()` round-trips the hub, which is authoritative.
+      //    Belt-and-suspenders: also skip rows with `terminated_at`
+      //    set, in case a future cache layer reintroduces staleness.
       //    The persistent_steward_card on Home owns the user-gated
-      //    spawn path; the overlay never spawns or respawns. If none
-      //    is running we settle in `noStewardYet` and the chat region
-      //    renders a CTA pointing the user at Home.
+      //    spawn path; the overlay never spawns or respawns.
       String agentId = '';
-      for (final a in hub.agents) {
+      List<Map<String, dynamic>> agents;
+      try {
+        agents = await client.listAgents();
+      } catch (e) {
+        state = state.copyWith(error: 'Lookup failed: $e');
+        return;
+      }
+      for (final a in agents) {
         if (!isGeneralStewardHandle((a['handle'] ?? '').toString())) continue;
+        if ((a['terminated_at'] ?? '').toString().isNotEmpty) continue;
         final status = (a['status'] ?? '').toString();
         if (status == 'running' || status == 'pending') {
           agentId = (a['id'] ?? '').toString();

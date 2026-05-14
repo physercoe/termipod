@@ -45,6 +45,11 @@ class _PersistentStewardCardState extends ConsumerState<PersistentStewardCard> {
     for (final a in hub.agents) {
       final handle = (a['handle'] ?? '').toString();
       if (!isGeneralStewardHandle(handle)) continue;
+      // Stale cache can show a now-crashed agent with status=running
+      // (see v1.0.590 fix in the overlay). terminated_at is set by
+      // the hub regardless of the status race, so a non-empty value
+      // is a hard "dead" signal even when status hasn't caught up.
+      if ((a['terminated_at'] ?? '').toString().isNotEmpty) continue;
       final status = (a['status'] ?? '').toString();
       if (status == 'running' || status == 'pending') return a;
     }

@@ -553,7 +553,7 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		switch deadKind.String {
 		case "claude-code":
 			specYAML = spliceClaudeResume(specYAML, engineSessionID.String)
-		case "gemini-cli":
+		case "gemini-cli", "kimi-code":
 			specYAML = spliceACPResume(specYAML, engineSessionID.String)
 		}
 	}

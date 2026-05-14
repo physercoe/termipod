@@ -395,6 +395,99 @@ func TestSessions_ResumeThreadsACPCursor(t *testing.T) {
 	}
 }
 
+// TestSessions_ResumeThreadsACPCursor_KimiCode pins the kimi-code
+// arm of the resume splice switch (ADR-026 W6). Identical contract
+// to gemini-cli: same protocol-level `resume_session_id` field, same
+// no-`--resume`-cmd-flag invariant. Closes the bug where a kimi-code
+// agent crashed + resumed would cold-start via session/new because
+// the handleResumeSession switch hadn't enumerated kimi-code.
+func TestSessions_ResumeThreadsACPCursor_KimiCode(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	channelID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO channels (id, scope_kind, name, created_at)
+		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	if _, err := s.db.Exec(`
+		INSERT INTO hosts (id, team_id, name, status, capabilities_json, created_at)
+		VALUES (?, ?, 'h-kimi', 'online', '{}', ?)`,
+		"host-kimi", defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed host: %v", err)
+	}
+	oldAgentID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, host_id, created_at)
+		VALUES (?, ?, 'worker', 'kimi-code', 'host-kimi', ?)`,
+		oldAgentID, defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	specYAML := "kind: kimi-code\n" +
+		"backend:\n" +
+		"  cmd: \"kimi --yolo --thinking acp\"\n" +
+		"  default_workdir: /tmp/wt\n"
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "kimi resume threads acp cursor",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/kimi-resume",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "kimi-engine-cursor-abc"},
+		})
+
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+	if newAgentID == "" {
+		t.Fatalf("no new_agent_id: %s", body)
+	}
+
+	var newSpec string
+	_ = s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns
+		   WHERE child_agent_id = ?`, newAgentID).Scan(&newSpec)
+	if !strings.Contains(newSpec, "resume_session_id: kimi-engine-cursor-abc") {
+		t.Errorf("new spawn_spec missing resume_session_id field:\n%s", newSpec)
+	}
+	if strings.Contains(newSpec, "--resume kimi-engine-cursor-abc") {
+		t.Errorf("kimi resume incorrectly added cmd-line --resume flag:\n%s",
+			newSpec)
+	}
+
+	var sesSpec string
+	_ = s.db.QueryRow(
+		`SELECT COALESCE(spawn_spec_yaml, '') FROM sessions WHERE id = ?`,
+		ses.ID).Scan(&sesSpec)
+	if strings.Contains(sesSpec, "resume_session_id:") {
+		t.Errorf("sessions.spawn_spec_yaml leaked resume_session_id:\n%s", sesSpec)
+	}
+}
+
 // TestSessions_ForkDoesNotInheritEngineSessionID is the ADR-014
 // defensive guard: fork must mint a fresh engine cursor, never
 // inherit the source's. Engine session stores aren't multi-writer —

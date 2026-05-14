@@ -1,7 +1,7 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Shipped (W1–W5 across v1.0.575–579, one wedge per minor version) — 2026-05-14
+> **Status:** Shipped (W1–W6 across v1.0.575–584) — 2026-05-14
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -288,14 +288,46 @@ plan-write time; they'll shift if other wedges land in between.
   `mode_switch=rpc`, `supports=[M1,M4]`, `prompt_image=M1`,
   `prompt_pdf=M1`.
 
-### W6 (post-MVP). SearchWeb-as-typed-kind, if needed.
+### W6 (v1.0.584). Resume splice for kimi-code.
+
+Shipped 2026-05-14. On-device verification surfaced that resuming a
+paused kimi-code session cold-started via `session/new` instead of
+`session/load`: the wire showed a fresh `sessionId` and the agent
+had no memory of the prior turn. Root cause: two `switch kind`
+statements in the server layer (`handleResumeSession` in
+`handlers_sessions.go:553`, `respawnWithSpecMutation` in
+`respawn_with_spec_mutation.go:129`) enumerated only `claude-code`
+and `gemini-cli` for the resume-cursor splice. The capture path
+(`captureEngineSessionID`) is engine-neutral and was already
+persisting the kimi sessionId to `sessions.engine_session_id`
+correctly; only the splice was gated.
+
+Fix: add `kimi-code` to the ACP arm of both switches. `spliceACPResume`
+is protocol-level (just sets `resume_session_id` on the top-level YAML
+mapping) — no engine-specific behaviour needed.
+
+- `hub/internal/server/handlers_sessions.go:553` → `case "gemini-cli", "kimi-code":`
+- `hub/internal/server/respawn_with_spec_mutation.go:129` → same (defensive; kimi-code today returns at `flagForField` lookup since model/mode switching routes via RPC like gemini, but the splice belongs in the same enumeration for when ADR-021 W2.3 lands kimi).
+- Test: `TestSessions_ResumeThreadsACPCursor_KimiCode` in
+  `handlers_resume_engine_session_test.go` — mirrors the gemini-cli
+  test verbatim. Pins both invariants: resume_session_id field
+  appears on the new agent_spawns row; no `--resume` cmd flag leaks
+  into the spec.
+
+Verified on-device 2026-05-14: kimi agent's `agentCapabilities.loadSession: true`
+gates the driver's session/load path; with the cursor now flowing
+through, ACPDriver.Start dispatches `session/load` instead of
+`session/new`, and the agent's "do you know my first turn?" answer
+should change from "no" (cold-start) to citing the prior turn.
+
+### W7 (post-MVP). SearchWeb-as-typed-kind, if needed.
 
 Deferred. If the generic `tool_call` row turns out to be too noisy
 (long quoted passages collapsing the rest of the transcript), revisit
 promoting SearchWeb to a typed `web_search` kind with a dedicated
 collapsing card. Don't pre-build the card — measure pain first.
 
-### W7 (post-MVP). Per-team Moonshot search API key override.
+### W8 (post-MVP). Per-team Moonshot search API key override.
 
 Deferred. Each host's operator manages the search API key via
 `~/.kimi/config.toml`. A hub-side per-team override (write the key

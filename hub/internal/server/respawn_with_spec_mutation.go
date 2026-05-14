@@ -129,7 +129,7 @@ func (s *Server) respawnWithSpecMutation(
 		switch kind.String {
 		case "claude-code":
 			mutated = spliceClaudeResume(mutated, engineSessionID.String)
-		case "gemini-cli":
+		case "gemini-cli", "kimi-code":
 			mutated = spliceACPResume(mutated, engineSessionID.String)
 		}
 	}

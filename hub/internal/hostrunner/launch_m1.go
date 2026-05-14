@@ -254,6 +254,9 @@ func launchM1(ctx context.Context, cfg M1LaunchConfig) (M1LaunchResult, error) {
 		// driver in either case.
 		ResumeSessionID: spec.ResumeSessionID,
 		AuthMethod:      authMethod,
+		// ADR-026 W3: engine-specific AUTH_REQUIRED remediation text
+		// needs to know which engine the driver is talking to.
+		EngineKind: cfg.Spawn.Kind,
 	}
 	if err := drv.Start(ctx); err != nil {
 		// Start covers initialize + session/new — if either fails the

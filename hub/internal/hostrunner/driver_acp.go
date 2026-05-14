@@ -23,6 +23,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,6 +80,14 @@ type ACPDriver struct {
 	// when authMethods is empty (zero-cost daemon, e.g. a daemon that
 	// already has cached creds and treats authenticate as a no-op).
 	AuthMethod string
+
+	// EngineKind is the agent_families.yaml `family` name of the engine
+	// the driver is talking to (`claude-code`, `gemini-cli`, `codex`,
+	// `kimi-code`, …). Threaded in from launch_m1 so engine-specific
+	// remediation strings can be picked without sniffing the cmd. Empty
+	// is acceptable — emitAuthRequiredAttention then falls back to a
+	// generic "log in on the host" hint. ADR-026 W3.
+	EngineKind string
 
 	// AuthTimeout caps the `authenticate` RPC. 0 → 30s. Interactive
 	// methods (oauth-personal without cached creds) can hang opening a
@@ -454,6 +463,20 @@ func (d *ACPDriver) Start(parent context.Context) error {
 		})
 		cancelNS()
 		if newErr != nil {
+			// AUTH_REQUIRED handling — kimi-code (and any future ACP
+			// daemon that authenticates out-of-band rather than via the
+			// ACP `authenticate` method) returns an AUTH_REQUIRED-class
+			// error from session/new when no logged-in account is on the
+			// host. Surface it as a typed attention_request so the mobile
+			// UI renders the remediation card AND wrap the returned
+			// error so the spawn error toast reads operator-actionable.
+			// Substring match is engine-neutral; the remediation string
+			// is engine-specific (see authRequiredRemediation).
+			if isAuthRequiredError(newErr) {
+				d.emitAuthRequiredAttention(parent, newErr.Error())
+				return fmt.Errorf("acp session/new: authentication required on the engine host — %s: %w",
+					d.authRequiredRemediation(), newErr)
+			}
 			return fmt.Errorf("acp session/new: %w", newErr)
 		}
 		sres = newRes
@@ -840,6 +863,66 @@ func (d *ACPDriver) emitAuthAttention(
 				"OR set GEMINI_API_KEY in the daemon's environment " +
 				"OR override `auth_method:` in the steward template.",
 		})
+}
+
+// isAuthRequiredError detects "agent requires out-of-band login"
+// JSON-RPC errors at handshake time. Substring match against the
+// daemon's error message — engine-neutral, defensive against minor
+// phrasing variations across kimi-cli releases or future engines that
+// borrow the same idiom. Case-insensitive on "AUTH_REQUIRED" because
+// that's the documented kimi-cli convention; "authentication required"
+// (lowercase prose) is the gemini-cli idiom from
+// `gemini auth`-missing paths and is included for forward symmetry.
+//
+// Returns false on nil or on errors whose text doesn't match — those
+// fall through to the generic session/new error wrap and the operator
+// sees the daemon's raw message in the spawn-failure toast.
+func isAuthRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToUpper(err.Error())
+	return strings.Contains(msg, "AUTH_REQUIRED") ||
+		strings.Contains(msg, "AUTHENTICATION REQUIRED")
+}
+
+// emitAuthRequiredAttention surfaces an AUTH_REQUIRED-class handshake
+// error as a typed `attention_request` agent_event. Sibling to
+// emitAuthAttention — that one fires when the ACP `authenticate`
+// method itself fails or can't be picked; this one fires when the
+// agent reports an out-of-band login gap (kimi-cli's idiom). The
+// available_methods slice stays empty because the remediation is to
+// run an engine-specific login command on the host, not to retry
+// `authenticate` with a different methodId.
+func (d *ACPDriver) emitAuthRequiredAttention(ctx context.Context, daemonMessage string) {
+	if d.Poster == nil {
+		return
+	}
+	_ = d.Poster.PostAgentEvent(ctx, d.AgentID, "attention_request", "agent",
+		map[string]any{
+			"kind":              "auth_required",
+			"reason":            daemonMessage,
+			"engine_kind":       d.EngineKind,
+			"available_methods": []any{},
+			"remediation":       d.authRequiredRemediation(),
+		})
+}
+
+// authRequiredRemediation returns the operator-actionable hint to
+// emit alongside an AUTH_REQUIRED attention. Engine-specific because
+// the login command differs (`kimi login` for kimi-code, `gemini auth`
+// for gemini-cli without cached creds, etc.). Generic fallback when
+// EngineKind is empty or unknown — covers future engines with no Go
+// diff required.
+func (d *ACPDriver) authRequiredRemediation() string {
+	switch d.EngineKind {
+	case "kimi-code":
+		return "Run `kimi login` in your shell on the engine host to authenticate, then retry the spawn."
+	case "gemini-cli":
+		return "Run `gemini auth` on the engine host OR set GEMINI_API_KEY in the daemon's environment, then retry the spawn."
+	default:
+		return "Authenticate the engine in your shell on the host (consult the engine's docs for the login command), then retry the spawn."
+	}
 }
 
 // setReplay flips the replay tag window. handleNotification reads the

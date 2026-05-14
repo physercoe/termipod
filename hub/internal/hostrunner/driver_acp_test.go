@@ -48,6 +48,12 @@ type fakeACPAgent struct {
 	// promptCapabilities.image with this value. nil → field absent.
 	promptCapImage *bool
 
+	// ADR-026 W3: when set, session/new returns a JSON-RPC error
+	// whose message contains "AUTH_REQUIRED" — mirrors kimi-cli's
+	// idiom when no `kimi login` has run on the host. Drives the
+	// ACPDriver auth-required attention + error-wrap path.
+	failSessionNewWithAuth bool
+
 	mu       sync.Mutex
 	closed   bool
 	initCh   chan struct{} // closed when handshake completes
@@ -113,6 +119,10 @@ func (f *fakeACPAgent) serve() {
 				f.respond(id, map[string]any{})
 			}
 		case "session/new":
+			if f.failSessionNewWithAuth {
+				f.respondError(id, -32603, "AUTH_REQUIRED: Run `kimi login` to authenticate")
+				continue
+			}
 			result := map[string]any{"sessionId": f.sessionID}
 			if len(f.availableModes) > 0 {
 				modes := make([]map[string]any, 0, len(f.availableModes))

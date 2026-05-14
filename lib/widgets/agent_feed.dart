@@ -99,6 +99,16 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
   List<Map<String, dynamic>>? availableModes;
   String? currentModel;
   List<Map<String, dynamic>>? availableModels;
+  // W7c — capture each of the four fields independently from the
+  // latest event that carries it, NOT from the sibling inside the
+  // same event. W7b synthetic events (posted after set_mode/set_model
+  // RPC success) ship only the new currentModeId/currentModelId; the
+  // available* lists live on the older session/new (or W7 carryover)
+  // event. Pre-W7c the reducer captured the list inside the same
+  // event branch as the id, so once a W7b synth arrived the picker
+  // saw currentModel without availableModels and the hasModel gate
+  // hid the chip. Independent capture means the latest id pairs with
+  // whatever list-bearing event came before it.
   for (var i = events.length - 1; i >= 0; i--) {
     final e = events[i];
     final kind = (e['kind'] ?? '').toString();
@@ -108,23 +118,26 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
     final body = p.cast<String, dynamic>();
     if (currentMode == null && body['currentModeId'] is String) {
       currentMode = body['currentModeId'] as String;
-      if (body['availableModes'] is List) {
-        availableModes = [
-          for (final m in (body['availableModes'] as List))
-            if (m is Map) m.cast<String, dynamic>(),
-        ];
-      }
+    }
+    if (availableModes == null && body['availableModes'] is List) {
+      availableModes = [
+        for (final m in (body['availableModes'] as List))
+          if (m is Map) m.cast<String, dynamic>(),
+      ];
     }
     if (currentModel == null && body['currentModelId'] is String) {
       currentModel = body['currentModelId'] as String;
-      if (body['availableModels'] is List) {
-        availableModels = [
-          for (final m in (body['availableModels'] as List))
-            if (m is Map) m.cast<String, dynamic>(),
-        ];
-      }
     }
-    if (currentMode != null && currentModel != null) break;
+    if (availableModels == null && body['availableModels'] is List) {
+      availableModels = [
+        for (final m in (body['availableModels'] as List))
+          if (m is Map) m.cast<String, dynamic>(),
+      ];
+    }
+    if (currentMode != null && currentModel != null &&
+        availableModes != null && availableModels != null) {
+      break;
+    }
   }
   if (currentMode == null && currentModel == null) return null;
   return <String, dynamic>{

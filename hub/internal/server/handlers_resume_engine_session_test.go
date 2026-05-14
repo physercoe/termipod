@@ -611,6 +611,128 @@ func TestSessions_ResumeCarriesModeModelState(t *testing.T) {
 	}
 }
 
+// TestSessions_ResumeCarriesModeModelState_Fragmented — W7c. When the
+// prior agent's history has a W7b synthetic event (id-only, posted
+// after set_mode/set_model RPC success) AS THE LATEST mode/model
+// event, the carryover must still surface the available* lists from
+// the older session/new (or prior carryover) event. Pre-W7c the
+// query picked the single latest matching row, copied the id-only
+// payload, and the resumed picker stayed hidden because mobile's
+// hasMode/hasModel gate requires the list to be non-empty.
+func TestSessions_ResumeCarriesModeModelState_Fragmented(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	channelID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO channels (id, scope_kind, name, created_at)
+		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	if _, err := s.db.Exec(`
+		INSERT INTO hosts (id, team_id, name, status, capabilities_json, created_at)
+		VALUES (?, ?, 'h-kimi', 'online', '{}', ?)`,
+		"host-kimi-w7c", defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed host: %v", err)
+	}
+	oldAgentID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, host_id, created_at)
+		VALUES (?, ?, 'worker', 'kimi-code', 'host-kimi-w7c', ?)`,
+		oldAgentID, defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	specYAML := "kind: kimi-code\nbackend:\n  cmd: \"kimi --yolo --thinking acp\"\n  default_workdir: /tmp/wt\n"
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "fragmented",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/kimi-w7c",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Older: full session/new state — the W7 carryover's source shape.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "system",
+			"producer": "system",
+			"payload": map[string]any{
+				"currentModelId": "kimi-code/kimi-for-coding,thinking",
+				"availableModels": []map[string]any{
+					{"modelId": "kimi-code/kimi-for-coding", "name": "kimi-for-coding"},
+					{"modelId": "kimi-code/kimi-for-coding,thinking", "name": "kimi-for-coding (thinking)"},
+				},
+				"currentModeId": "default",
+				"availableModes": []map[string]any{
+					{"id": "default", "name": "Default"},
+				},
+			},
+		})
+	// Newer: W7b synthetic — id only, no list. This is what the driver
+	// posts after a successful session/set_model RPC.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "system",
+			"producer": "system",
+			"payload": map[string]any{
+				"currentModelId": "kimi-code/kimi-for-coding",
+			},
+		})
+
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "kimi-cursor-w7c"},
+		})
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+	if newAgentID == "" {
+		t.Fatalf("no new_agent_id: %s", body)
+	}
+
+	var carriedJSON string
+	if err := s.db.QueryRow(`
+		SELECT payload_json FROM agent_events
+		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
+		   AND payload_json LIKE '%availableModels%'
+		 ORDER BY seq DESC LIMIT 1`,
+		newAgentID).Scan(&carriedJSON); err != nil {
+		t.Fatalf("no carried event with availableModels: %v", err)
+	}
+	// Composition test: the W7b id (latest) must pair with the older
+	// availableModels list.
+	if !strings.Contains(carriedJSON, `"currentModelId":"kimi-code/kimi-for-coding"`) {
+		t.Errorf("carried event missing latest currentModelId (W7b id):\n%s",
+			carriedJSON)
+	}
+	if !strings.Contains(carriedJSON, "kimi-code/kimi-for-coding,thinking") {
+		t.Errorf("carried event missing older availableModels entry:\n%s",
+			carriedJSON)
+	}
+	if !strings.Contains(carriedJSON, `"availableModes"`) {
+		t.Errorf("carried event missing availableModes list:\n%s", carriedJSON)
+	}
+}
+
 // TestSessions_ForkDoesNotInheritEngineSessionID is the ADR-014
 // defensive guard: fork must mint a fresh engine cursor, never
 // inherit the source's. Engine session stores aren't multi-writer —

@@ -687,33 +687,59 @@ func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgent
 	if s.db == nil || priorAgentID == "" || newAgentID == "" {
 		return
 	}
-	var payloadJSON sql.NullString
-	err := s.db.QueryRowContext(ctx, `
+	// W7c — walk the prior agent's system events newest-first and
+	// independently capture each of the four picker-relevant fields
+	// from the LATEST event that carries it. Pre-W7c the query grabbed
+	// only the single latest matching row; once W7b synthetic events
+	// (which ship only currentModeId/currentModelId, no available*
+	// lists) landed after a set_mode/set_model RPC, that single row
+	// was id-only and the carried event lost the lists — the resumed
+	// agent's picker stayed hidden because mobile's hasMode/hasModel
+	// gate requires the list to be non-empty. Composing across events
+	// mirrors the mobile-side reducer, so the picker survives any
+	// fragmentation of the underlying event stream.
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT payload_json FROM agent_events
 		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
 		   AND (payload_json LIKE '%currentModeId%'
 		     OR payload_json LIKE '%currentModelId%'
 		     OR payload_json LIKE '%availableModes%'
 		     OR payload_json LIKE '%availableModels%')
-		 ORDER BY seq DESC LIMIT 1`,
-		priorAgentID).Scan(&payloadJSON)
-	if err != nil || !payloadJSON.Valid || payloadJSON.String == "" {
+		 ORDER BY seq DESC`,
+		priorAgentID)
+	if err != nil {
 		return
 	}
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(payloadJSON.String), &raw); err != nil {
-		return
-	}
-	// Strip to the four picker-relevant keys so the carryover doesn't
-	// drag along siblings (e.g. lifecycle fields that may have shared
-	// the payload).
+	defer rows.Close()
 	carried := map[string]any{}
-	for _, k := range []string{
-		"currentModeId", "availableModes",
-		"currentModelId", "availableModels",
-	} {
-		if v, ok := raw[k]; ok {
-			carried[k] = v
+	want := map[string]bool{
+		"currentModeId":   true,
+		"availableModes":  true,
+		"currentModelId":  true,
+		"availableModels": true,
+	}
+	for rows.Next() {
+		var payloadJSON sql.NullString
+		if err := rows.Scan(&payloadJSON); err != nil {
+			continue
+		}
+		if !payloadJSON.Valid || payloadJSON.String == "" {
+			continue
+		}
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(payloadJSON.String), &raw); err != nil {
+			continue
+		}
+		for k := range want {
+			if _, already := carried[k]; already {
+				continue
+			}
+			if v, ok := raw[k]; ok && v != nil {
+				carried[k] = v
+			}
+		}
+		if len(carried) == len(want) {
+			break
 		}
 	}
 	if len(carried) == 0 {

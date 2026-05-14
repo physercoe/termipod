@@ -1,7 +1,7 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Shipped (W1–W7b across v1.0.575–587) — 2026-05-14
+> **Status:** Shipped (W1–W7c across v1.0.575–588) — 2026-05-14
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -424,6 +424,44 @@ Files:
   emit synthetic event on RPC success.
 - Test: `TestACPDriver_SetModelEmitsCurrentUpdate` pins the contract
   via the existing `fakePoster.snapshot()` mechanism.
+
+### W7c (v1.0.588). Independent capture of currentId vs available list.
+
+Shipped 2026-05-14. W7b's synthetic event ships only the new
+currentModeId/currentModelId (no `available*` lists, because the
+driver only knows the single id it just sent). Two cascade bugs
+surfaced on-device:
+
+1. **Picker chip disappeared right after a model swap.** Mobile's
+   `modeModelStateFromEvents` captured the available list inside the
+   same event branch as the id — so once a W7b id-only event was the
+   latest system event, `availableModels` came back null and the
+   `hasModel` gate hid the picker.
+2. **Resuming a kimi session after any in-session model swap showed
+   an empty picker.** The W7 carryover query latched onto the single
+   latest matching row — when that was a W7b synth, the carried event
+   had no list and the resumed agent's picker was empty.
+
+Fix: capture each of the four fields (`currentModeId`,
+`availableModes`, `currentModelId`, `availableModels`) independently
+from the LATEST event that carries it. Mobile reducer and hub
+carryover share the same composition logic now, so any fragmentation
+of the underlying event stream — id-only synths, list-only carryovers
+from older agents, mode-only/model-only updates — composes into a
+complete picker state.
+
+Files:
+- `lib/widgets/agent_feed.dart` — reducer captures id vs list
+  independently.
+- `hub/internal/server/handlers_sessions.go` —
+  `carryModeModelStateAcrossResume` walks prior agent's full history,
+  composing from each field's latest-bearing event.
+- Tests:
+  `test/widgets/mode_model_picker_test.dart` — new case:
+  latest id-only event composes with older list-bearing event.
+  `TestSessions_ResumeCarriesModeModelState_Fragmented` —
+  hub-side: prior agent has a W7b synth as latest event;
+  carryover must still surface the older list.
 
 ### W8 (post-MVP). SearchWeb-as-typed-kind, if needed.
 

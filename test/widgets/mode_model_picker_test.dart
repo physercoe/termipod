@@ -119,6 +119,39 @@ void main() {
       expect(state['currentModel'], 'gemini-2.5-flash');
     });
 
+    test('W7c: latest id-only event composes with older list-bearing event', () {
+      // Real wire shape from kimi-cli@1.43.0 after a session/set_model
+      // RPC: the driver posts a W7b synthetic event carrying only the
+      // new currentModelId; the prior session/new (or W7 carryover)
+      // event carrying availableModels sits underneath. The reducer
+      // must independently capture id and list across events so the
+      // picker chip stays visible (hasModel = currentModel != null &&
+      // availableModels.isNotEmpty) and the new id wins.
+      final events = [
+        // Older: session/new state — full list, original current id.
+        sysEvent(
+          currentModelId: 'kimi-code/kimi-for-coding,thinking',
+          availableModels: [
+            {'modelId': 'kimi-code/kimi-for-coding', 'name': 'kimi-for-coding'},
+            {'modelId': 'kimi-code/kimi-for-coding,thinking', 'name': 'kimi-for-coding (thinking)'},
+          ],
+        ),
+        // Newer: W7b synthetic — id only, no list.
+        {
+          'kind': 'system',
+          'payload': {
+            'currentModelId': 'kimi-code/kimi-for-coding',
+          },
+        },
+      ];
+      final state = modeModelStateFromEvents(events);
+      expect(state, isNotNull);
+      expect(state!['currentModel'], 'kimi-code/kimi-for-coding',
+          reason: 'latest id-only event must win for currentModel');
+      expect((state['availableModels'] as List).length, 2,
+          reason: 'older list must survive when newer event is id-only');
+    });
+
     test('non-string currentModeId is ignored', () {
       // Forward-compatibility: a future ACP shape that ships
       // currentModeId as an object would silently downgrade rather

@@ -516,7 +516,19 @@ func (d *ACPDriver) Start(parent context.Context) error {
 	}
 	d.availableModels = make(map[string]struct{}, len(sr.Models.AvailableModels))
 	for _, m := range sr.Models.AvailableModels {
-		if id, _ := m["id"].(string); id != "" {
+		// ACP spec: model entries carry `modelId` (mode entries carry
+		// `id`). gemini-cli@0.41 echoed both — its test fixtures
+		// confused the original W2.2 implementation into reading `id`
+		// for models too. kimi-cli@1.43 strictly emits `modelId` only,
+		// so the legacy `id` lookup left availableModels empty and
+		// every set_model call got "unknown model_id" before the RPC
+		// went out. Try modelId first, fall back to id for
+		// compatibility with any agent that happens to ship both.
+		id, _ := m["modelId"].(string)
+		if id == "" {
+			id, _ = m["id"].(string)
+		}
+		if id != "" {
 			d.availableModels[id] = struct{}{}
 		}
 	}

@@ -590,8 +590,13 @@ class _ModeModelPicker extends StatelessWidget {
   }
 
   Widget _buildChip(BuildContext context, Map<String, dynamic> opt) {
-    final id = opt['id']?.toString() ?? '';
-    final label = (opt['name'] ?? opt['id'] ?? '').toString();
+    // ACP spec: model entries carry `modelId`, mode entries carry `id`.
+    // Read modelId first, fall back to id. Without this, kimi-cli's
+    // models (which ship only `modelId`) all collapse to an empty id
+    // and the tap-handler's `id.isEmpty` guard silently swallows every
+    // chip press — no hub-side log, picker looks unresponsive (W7).
+    final id = (opt['modelId'] ?? opt['id'] ?? '').toString();
+    final label = (opt['name'] ?? opt['modelId'] ?? opt['id'] ?? '').toString();
     final desc = opt['description']?.toString() ?? '';
     final selected = id == currentId;
     final chip = ChoiceChip(

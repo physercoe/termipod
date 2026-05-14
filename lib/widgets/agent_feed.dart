@@ -1349,8 +1349,11 @@ class _AgentFeedState extends ConsumerState<AgentFeed> {
     final modeIds = d.availableModes
         .map((m) => m['id']?.toString() ?? '')
         .join('|');
+    // Models carry `modelId` (mode entries carry `id`) per ACP spec —
+    // match _ModeModelPicker._buildChip so the signature recomputes
+    // when the model id changes on kimi-shape responses (W7).
     final modelIds = d.availableModels
-        .map((m) => m['id']?.toString() ?? '')
+        .map((m) => (m['modelId'] ?? m['id'])?.toString() ?? '')
         .join('|');
     return '${d.currentMode ?? ''}::$modeIds::${d.currentModel ?? ''}::$modelIds';
   }

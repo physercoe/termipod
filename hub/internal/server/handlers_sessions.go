@@ -582,6 +582,20 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// ADR-026 W7 — carry forward the prior agent's last advertised
+	// mode/model state. kimi-cli's session/load returns an empty `{}`
+	// response (the ACP spec permits this; agents MAY omit echoing
+	// state on load), so ACPDriver.Start emits no synthetic
+	// `currentModeId`/`currentModelId` system event and mobile's
+	// modeModelStateFromEvents returns null — the picker stays hidden
+	// on the resumed agent even though the daemon's session is fully
+	// alive. Re-post the prior agent's last state event under the new
+	// agent_id so the picker survives the resume. Engine-neutral:
+	// gemini-cli echoes state on load anyway, so the duplicate lands
+	// on a list mobile reduces to the same final state. Best-effort —
+	// failure leaves the picker hidden but doesn't fail the resume.
+	s.carryModeModelStateAcrossResume(r.Context(),
+		currentAgentID.String, out.AgentID)
 	s.recordAudit(r.Context(), team, "session.resume", "session", id,
 		"resumed; new agent="+out.AgentID,
 		map[string]any{
@@ -656,6 +670,67 @@ func (s *Server) captureEngineSessionID(ctx context.Context, sessionID, kind, pr
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE sessions SET engine_session_id = ? WHERE id = ?`,
 		p.SessionID, sessionID)
+}
+
+// carryModeModelStateAcrossResume copies the prior agent's most recent
+// mode/model state event (`kind=system, producer=system` carrying
+// currentModeId/currentModelId/availableModes/availableModels) onto
+// the freshly-resumed agent. ADR-026 W7. Without this, kimi-cli's
+// empty `session/load` response leaves the resumed agent with no
+// state event for mobile to walk, hiding the picker even though the
+// daemon's session is alive and routable.
+//
+// Best-effort: any DB error is logged and swallowed so the resume
+// itself completes successfully — the worst case is a hidden picker,
+// which is the pre-W7 status quo.
+func (s *Server) carryModeModelStateAcrossResume(ctx context.Context, priorAgentID, newAgentID string) {
+	if s.db == nil || priorAgentID == "" || newAgentID == "" {
+		return
+	}
+	var payloadJSON sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT payload_json FROM agent_events
+		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
+		   AND (payload_json LIKE '%currentModeId%'
+		     OR payload_json LIKE '%currentModelId%'
+		     OR payload_json LIKE '%availableModes%'
+		     OR payload_json LIKE '%availableModels%')
+		 ORDER BY seq DESC LIMIT 1`,
+		priorAgentID).Scan(&payloadJSON)
+	if err != nil || !payloadJSON.Valid || payloadJSON.String == "" {
+		return
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(payloadJSON.String), &raw); err != nil {
+		return
+	}
+	// Strip to the four picker-relevant keys so the carryover doesn't
+	// drag along siblings (e.g. lifecycle fields that may have shared
+	// the payload).
+	carried := map[string]any{}
+	for _, k := range []string{
+		"currentModeId", "availableModes",
+		"currentModelId", "availableModels",
+	} {
+		if v, ok := raw[k]; ok {
+			carried[k] = v
+		}
+	}
+	if len(carried) == 0 {
+		return
+	}
+	carriedJSON, err := json.Marshal(carried)
+	if err != nil {
+		return
+	}
+	id := NewID()
+	ts := NowUTC()
+	sessionID := s.lookupSessionForAgent(ctx, newAgentID)
+	_, _ = s.db.ExecContext(ctx, `
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'system', 'system', ?, NULLIF(?, '')
+		  FROM agent_events WHERE agent_id = ?`,
+		id, newAgentID, ts, string(carriedJSON), sessionID, newAgentID)
 }
 
 // maybeEmitContextMutationMarker inspects an input.text body for a

@@ -43,6 +43,13 @@ type fakeACPAgent struct {
 	availableModels []string
 	failSetMode     bool
 	failSetModel    bool
+	// ADR-026 W7. When true, model entries in the session/new response
+	// carry only `modelId` (not `id`), matching kimi-cli@1.43.0's
+	// strict ACP-spec emission. Drives the driver's modelId/id
+	// fallback parse — without the fallback the driver's
+	// availableModels cache stays empty and set_model RPCs get
+	// rejected before they go on the wire.
+	modelEntriesUseModelIDOnly bool
 
 	// W4.4 toggle: when set, initialize advertises
 	// promptCapabilities.image with this value. nil → field absent.
@@ -134,7 +141,13 @@ func (f *fakeACPAgent) serve() {
 			if len(f.availableModels) > 0 {
 				models := make([]map[string]any, 0, len(f.availableModels))
 				for _, m := range f.availableModels {
-					models = append(models, map[string]any{"id": m, "name": m})
+					entry := map[string]any{"name": m}
+					if f.modelEntriesUseModelIDOnly {
+						entry["modelId"] = m
+					} else {
+						entry["id"] = m
+					}
+					models = append(models, entry)
 				}
 				result["models"] = map[string]any{"availableModels": models}
 			}
@@ -2830,6 +2843,66 @@ func TestACPDriver_SetModelDispatch(t *testing.T) {
 	params, _ := rpc["params"].(map[string]any)
 	if params["modelId"] != "gemini-2.5-flash" {
 		t.Errorf("modelId = %v, want gemini-2.5-flash", params["modelId"])
+	}
+}
+
+// TestACPDriver_SetModelDispatch_KimiShape — W7. kimi-cli's
+// session/new response ships model entries with `modelId` only
+// (no `id` field, per strict ACP spec). Pre-W7 the driver indexed
+// availableModels by `id` and so cached zero ids on kimi, rejecting
+// every set_model call as "unknown model_id" before any RPC went out.
+// This test pins the fallback-to-modelId parse: even with id absent,
+// the driver caches the id and dispatches session/set_model
+// successfully.
+func TestACPDriver_SetModelDispatch_KimiShape(t *testing.T) {
+	hostInR, hostInW := io.Pipe()
+	hostOutR, hostOutW := io.Pipe()
+
+	fake := newFakeACPAgent(t, hostInR, hostOutW, "sess-model-kimi")
+	fake.availableModels = []string{
+		"kimi-code/kimi-for-coding",
+		"kimi-code/kimi-for-coding,thinking",
+	}
+	fake.modelEntriesUseModelIDOnly = true
+	go fake.serve()
+
+	drv := &ACPDriver{
+		AgentID:          "agent-set-model-kimi",
+		Poster:           &fakePoster{},
+		Stdin:            hostInW,
+		Stdout:           hostOutR,
+		Closer:           func() { _ = hostInW.Close(); _ = hostOutW.Close(); fake.close() },
+		HandshakeTimeout: 2 * time.Second,
+	}
+	if err := drv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer drv.Stop()
+	<-fake.initCh
+
+	if err := drv.Input(context.Background(), "set_model",
+		map[string]any{"model_id": "kimi-code/kimi-for-coding,thinking"}); err != nil {
+		t.Fatalf("Input set_model: %v "+
+			"(would mean availableModels cache is empty — modelId fallback parse missing)",
+			err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var rpc map[string]any
+	for time.Now().Before(deadline) {
+		if m := fake.findReceived("session/set_model"); m != nil {
+			rpc = m
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if rpc == nil {
+		t.Fatalf("session/set_model never arrived; received methods=%v",
+			receivedMethods(fake))
+	}
+	params, _ := rpc["params"].(map[string]any)
+	if params["modelId"] != "kimi-code/kimi-for-coding,thinking" {
+		t.Errorf("modelId = %v, want kimi-code/kimi-for-coding,thinking",
+			params["modelId"])
 	}
 }
 

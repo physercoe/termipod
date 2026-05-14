@@ -1,7 +1,7 @@
 # Kimi Code CLI engine — implementation plan
 
 > **Type:** plan
-> **Status:** Shipped (W1–W6 across v1.0.575–584) — 2026-05-14
+> **Status:** Shipped (W1–W7 across v1.0.575–585) — 2026-05-14
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.579
 
@@ -320,14 +320,61 @@ through, ACPDriver.Start dispatches `session/load` instead of
 `session/new`, and the agent's "do you know my first turn?" answer
 should change from "no" (cold-start) to citing the prior turn.
 
-### W7 (post-MVP). SearchWeb-as-typed-kind, if needed.
+### W7 (v1.0.585). Resume picker + modelId field-name parse.
+
+Shipped 2026-05-14. On-device verification of W6 surfaced two distinct
+bugs that surfaced together when the resume actually started working:
+
+1. **Picker hidden on resumed agent.** kimi-cli's session/load reply
+   is an empty `{}` — the ACP spec lets agents omit echoing mode/model
+   state on load, and kimi takes that latitude. ACPDriver.Start's
+   synthetic `currentModeId`/`currentModelId` system event therefore
+   never fires for the resumed agent, mobile's
+   `modeModelStateFromEvents` returns null, and the picker stays
+   hidden even though the daemon session is alive and routable.
+
+   Fix: `handleResumeSession` carries the prior agent's most recent
+   mode/model state event under the new agent_id via a new
+   `carryModeModelStateAcrossResume` helper. The query is field-shape-
+   driven (payload contains `currentModeId`/`currentModelId` or the
+   available* arrays), so it works regardless of which engine wrote
+   the state originally. Engine-neutral; gemini-cli echoes state on
+   load anyway, so the duplicate event lands on a list mobile reduces
+   to the same final state.
+
+2. **set_model RPC silently rejected.** Kimi ships model entries with
+   only the `modelId` field (ACP spec compliant); the legacy ACPDriver
+   parse read `m["id"]` for both modes AND models, so kimi's
+   `availableModels` cache was always empty and every `set_model`
+   call was rejected as "unknown model_id" before any RPC went on the
+   wire. Mobile compounded this by reading `opt['id']` in the picker
+   chip too, so even when the picker rendered (cold start) every chip
+   collapsed to an empty id and `id.isEmpty` silently swallowed taps.
+
+   Fix: driver and mobile both try `modelId` first, fall back to `id`
+   for backward compat with gemini-cli's loose emission. Mode entries
+   keep using `id` (matches both spec and emission).
+
+Files:
+- `hub/internal/hostrunner/driver_acp.go` — modelId/id fallback in
+  availableModels parse.
+- `hub/internal/server/handlers_sessions.go` — call carryover after
+  resume's session row UPDATE; new helper near `captureEngineSessionID`.
+- `lib/widgets/session_details_sheet.dart` —
+  `_ModeModelPicker._buildChip` reads modelId first.
+- `lib/widgets/agent_feed.dart` — `_modeModelSig` matches.
+- Tests: `TestACPDriver_SetModelDispatch_KimiShape` (driver-level
+  modelId-only parse) + `TestSessions_ResumeCarriesModeModelState`
+  (handler-level carryover end-to-end).
+
+### W8 (post-MVP). SearchWeb-as-typed-kind, if needed.
 
 Deferred. If the generic `tool_call` row turns out to be too noisy
 (long quoted passages collapsing the rest of the transcript), revisit
 promoting SearchWeb to a typed `web_search` kind with a dedicated
 collapsing card. Don't pre-build the card — measure pain first.
 
-### W8 (post-MVP). Per-team Moonshot search API key override.
+### W9 (post-MVP). Per-team Moonshot search API key override.
 
 Deferred. Each host's operator manages the search API key via
 `~/.kimi/config.toml`. A hub-side per-team override (write the key

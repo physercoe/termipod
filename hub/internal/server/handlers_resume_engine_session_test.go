@@ -488,6 +488,129 @@ func TestSessions_ResumeThreadsACPCursor_KimiCode(t *testing.T) {
 	}
 }
 
+// TestSessions_ResumeCarriesModeModelState — ADR-026 W7. kimi-cli's
+// session/load returns an empty `{}` response (the ACP spec permits
+// agents to omit echoing state on load), so ACPDriver.Start emits
+// no synthetic `currentModeId`/`currentModelId` system event for the
+// resumed agent. Mobile's modeModelStateFromEvents then returns null
+// and the picker is hidden on the resumed agent even though the
+// daemon's session is alive and routable. Fix:
+// handleResumeSession copies the prior agent's most recent mode/model
+// state event under the new agent_id. This test pins the carryover
+// end-to-end: seed a kimi-code agent with a mode/model state event,
+// pause+resume the session, assert the new agent has a system event
+// with the same picker-relevant fields.
+func TestSessions_ResumeCarriesModeModelState(t *testing.T) {
+	s, token := newA2ATestServer(t)
+
+	channelID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO channels (id, scope_kind, name, created_at)
+		VALUES (?, 'team', 'meta', ?)`, channelID, NowUTC()); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	if _, err := s.db.Exec(`
+		INSERT INTO hosts (id, team_id, name, status, capabilities_json, created_at)
+		VALUES (?, ?, 'h-kimi', 'online', '{}', ?)`,
+		"host-kimi-w7", defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed host: %v", err)
+	}
+	oldAgentID := NewID()
+	if _, err := s.db.Exec(`
+		INSERT INTO agents (id, team_id, handle, kind, host_id, created_at)
+		VALUES (?, ?, 'worker', 'kimi-code', 'host-kimi-w7', ?)`,
+		oldAgentID, defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	specYAML := "kind: kimi-code\n" +
+		"backend:\n" +
+		"  cmd: \"kimi --yolo --thinking acp\"\n" +
+		"  default_workdir: /tmp/wt\n"
+
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":           "kimi resume carries mode/model state",
+			"agent_id":        oldAgentID,
+			"worktree_path":   "/tmp/wt/kimi-w7",
+			"spawn_spec_yaml": specYAML,
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("open: %s", body)
+	}
+	var ses sessionOut
+	_ = json.Unmarshal(body, &ses)
+
+	// Emit the engine-state event the ACPDriver synthesizes from
+	// session/new — the carryover query is field-shape-driven, so it
+	// works regardless of which engine wrote it originally.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "system",
+			"producer": "system",
+			"payload": map[string]any{
+				"currentModelId": "kimi-code/kimi-for-coding,thinking",
+				"availableModels": []map[string]any{
+					{"modelId": "kimi-code/kimi-for-coding", "name": "kimi-for-coding"},
+					{"modelId": "kimi-code/kimi-for-coding,thinking", "name": "kimi-for-coding (thinking)"},
+				},
+				"currentModeId": "default",
+				"availableModes": []map[string]any{
+					{"id": "default", "name": "Default", "description": "The default mode."},
+				},
+			},
+		})
+
+	// Capture cursor + pause + resume.
+	doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID+"/events",
+		map[string]any{
+			"kind":     "session.init",
+			"producer": "agent",
+			"payload":  map[string]any{"session_id": "kimi-cursor-w7"},
+		})
+	doReq(t, s, token, http.MethodPatch,
+		"/v1/teams/"+defaultTeamID+"/agents/"+oldAgentID,
+		map[string]any{"status": "crashed"})
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions/"+ses.ID+"/resume", nil)
+	if status != http.StatusOK {
+		t.Fatalf("resume: %d %s", status, body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(body, &resp)
+	newAgentID, _ := resp["new_agent_id"].(string)
+	if newAgentID == "" {
+		t.Fatalf("no new_agent_id: %s", body)
+	}
+
+	// Assert the new agent has at least one system event carrying the
+	// picker-relevant fields. Strict shape: same currentModelId +
+	// availableModels survived the carryover so mobile's
+	// modeModelStateFromEvents will hydrate the picker.
+	var carriedJSON string
+	err := s.db.QueryRow(`
+		SELECT payload_json FROM agent_events
+		 WHERE agent_id = ? AND kind = 'system' AND producer = 'system'
+		   AND payload_json LIKE '%currentModelId%'
+		 ORDER BY seq DESC LIMIT 1`,
+		newAgentID).Scan(&carriedJSON)
+	if err != nil {
+		t.Fatalf("no carried mode/model event on new agent: %v", err)
+	}
+	if !strings.Contains(carriedJSON, "kimi-code/kimi-for-coding,thinking") {
+		t.Errorf("carried event missing currentModelId:\n%s", carriedJSON)
+	}
+	if !strings.Contains(carriedJSON, "availableModels") {
+		t.Errorf("carried event missing availableModels:\n%s", carriedJSON)
+	}
+	if !strings.Contains(carriedJSON, "default") {
+		t.Errorf("carried event missing mode state:\n%s", carriedJSON)
+	}
+}
+
 // TestSessions_ForkDoesNotInheritEngineSessionID is the ADR-014
 // defensive guard: fork must mint a fresh engine cursor, never
 // inherit the source's. Engine session stores aren't multi-writer —

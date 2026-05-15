@@ -224,12 +224,11 @@ selects the appropriate body+options rendering.
 Hooks installed via `<workdir>/.claude/settings.local.json` with
 `type:"mcp_tool"` routing through the per-spawn host-runner UDS
 MCP gateway (same transport as the approval channel). Host-runner
-gains 7 new MCP tool handlers in `hub/internal/hostrunner/mcp_gateway.go`.
-Approval-channel-covered hooks (PreToolUse non-AskUserQuestion,
-PostToolUse) are informational only; the only hook that **parks**
-is `PreCompact` (compaction isn't a tool, so the approval channel
-doesn't cover it) and `PreToolUse(AskUserQuestion)` (the picker
-content surface).
+gains **9 new MCP tool handlers** in `hub/internal/hostrunner/mcp_gateway.go`,
+one per hook event. Of those, only `hook_pre_compact` parks
+unconditionally, and `hook_pre_tool_use` parks only when
+`tool_name=="AskUserQuestion"`; the other 7 return `{}` immediately
+and forward an observational `agent_event` to hub.
 
 | Hook | Payload | AgentEvent emission | Parks? |
 |---|---|---|---|
@@ -444,7 +443,150 @@ Wedge-sized; each line is its own commit / test pass:
 
 ---
 
-## 12. References
+## 12. Implementation handoff notes (resolved-before-coding)
+
+Resolutions for the questions that surfaced during the design but
+that future coders would otherwise have to re-derive:
+
+### 12.1 attention_items shape — single kind, dialog_type discriminator
+
+All approval surfaces (`tool_permission`, `plan_approval`,
+`user_question`, `compaction`) reuse the existing
+`attention_items.kind = "permission_prompt"` row. The `payload` JSON
+gains a `dialog_type` field that the renderer branches on. **No
+new attention kind required.** Verified against existing schema in
+`hub/internal/server/handlers_attention.go` — `kind` is a free-form
+string column; mobile filters on it in
+`lib/widgets/agent_feed.dart` already.
+
+### 12.2 agent_feed.dart approval-card branches
+
+Existing renderer already handles `kind == "approval_request"` at
+`agent_feed.dart` lines 78, 171, 2499, 3220, 3460 (buttons from
+`payload.options`). Add `dialog_type` branching INSIDE that card:
+
+| dialog_type | Body | Buttons (from payload.options) |
+|---|---|---|
+| `tool_permission` (existing) | `Run <tool>?` + tool input preview | `Allow`, `Deny`, optional `Always` |
+| `plan_approval` (new) | `payload.body` as markdown | `Approve`, `Edit`, `Comment` |
+| `user_question` (new) | One question at a time from `payload.questions[i]`; render options as a radio list | `Submit` (sends the chosen index); `Skip to TUI` (cancels park, lets user-at-terminal handle) |
+| `compaction` (new) | `Compact context now?` + trigger source | `Compact`, `Defer` |
+
+### 12.3 MCP gateway tool registration
+
+Adding 9 entries to `gatewayToolDefs()` in
+`hub/internal/hostrunner/mcp_gateway.go` (alongside existing
+`host.ping`, `hub.agent_event_post`, etc.):
+
+| Tool name (in catalog) | claude-code-side name (in settings.local.json) | Parks? |
+|---|---|---|
+| `hook_pre_tool_use` | `mcp__termipod__hook_pre_tool_use` | only for AskUserQuestion |
+| `hook_post_tool_use` | `mcp__termipod__hook_post_tool_use` | no |
+| `hook_notification` | `mcp__termipod__hook_notification` | no |
+| `hook_pre_compact` | `mcp__termipod__hook_pre_compact` | yes |
+| `hook_stop` | `mcp__termipod__hook_stop` | no |
+| `hook_subagent_stop` | `mcp__termipod__hook_subagent_stop` | no |
+| `hook_user_prompt` | `mcp__termipod__hook_user_prompt` | no |
+| `hook_session_start` | `mcp__termipod__hook_session_start` | no |
+| `hook_session_end` | `mcp__termipod__hook_session_end` | no |
+
+Each handler's input schema is the corresponding hook payload from
+`docs/reference/claude-code-hook-schema.md` (referenced by section
+anchor).
+
+### 12.4 Hook merge strategy in `hooks_install.go`
+
+If `<workdir>/.claude/settings.local.json` already exists:
+
+1. Parse existing JSON.
+2. Ensure `.hooks` key exists; create empty `{}` if missing.
+3. For each of our 9 events: ensure `.hooks.<Event>` is an array;
+   **append** our matcher block to the existing array rather than
+   overwrite. Existing user-defined hooks for the same event stay
+   active; ours runs alongside.
+4. Don't touch other top-level keys (`permissions`, `model`,
+   `statusLine`, etc.) — preserve user config.
+5. Write back atomically (write to temp + rename).
+
+On teardown, the host-runner removes only the matcher blocks it
+added (identified by a stable marker — e.g. a comment-key
+`"_termipod_managed": true` on each hook entry). Phase-2 nicety;
+MVP can leave the entries in place.
+
+### 12.5 Pane lookup by claude PID
+
+- `pgrep -af '/claude\b'` to find candidate PIDs on the host.
+- For each, walk parent chain with `ps -o ppid` until reaching tmux
+  (executable name `tmux: server`).
+- Then `tmux list-panes -aF '#{pane_pid} #{pane_id} #{session_name}:#{window_index}.#{pane_index}'` and match on pane_pid (which is the child shell, not claude — so cross-reference: claude_pid → its parent → match against tmux pane_pid).
+- If multiple matches, pick the most recently active: `tmux list-panes -F '#{pane_id} #{pane_active} #{session_activity}'` and prefer `pane_active=1`, then newest `session_activity`.
+- Disambiguation by `session_id` (matching the JSONL `session_id`) is **Phase 2**.
+
+### 12.6 AskUserQuestion multi-question handling
+
+The TUI renders questions **sequentially** (one prompt at a time).
+After answering Q1, the next prompt appears for Q2. The adapter's
+send-keys flow per question:
+
+1. `PreToolUse(AskUserQuestion)` fires with `tool_input.questions[]`.
+2. Park hook; emit `approval_request{dialog_type:"user_question", questions, current:0}`.
+3. User picks an option for Q1 on mobile.
+4. Adapter sends `Down × i + Enter` for Q1.
+5. Wait for next TUI prompt to appear (Notification or a sentinel from `tmux capture-pane`).
+   - **MVP simplification:** sleep 200 ms between question sends; if subsequent send-keys arrives before TUI is ready, claude-code buffers them. Acceptable for MVP.
+6. Repeat for Q2, Q3, …
+7. After last question, unblock hook with `{}`; tool completes.
+
+`isMultiSelect:true` rejected with a `system{subtype:"multi_select_unsupported"}` event — user handles in TUI.
+
+### 12.7 Auth + spawn ordering
+
+The MCP gateway must be **ready** before claude-code spawns. Today
+`runner.go` already wires this for M1/M2 (`HOST_MCP_URL` env →
+spawn). For M4 with this driver:
+
+1. host-runner starts the per-agent UDS MCP gateway.
+2. host-runner writes `<workdir>/.claude/settings.local.json` (hooks block).
+3. host-runner writes the `.mcp.json` (existing pattern; lists termipod MCP server pointed at the UDS).
+4. host-runner spawns `claude --model X --dangerously-skip-permissions --permission-prompt-tool mcp__termipod__permission_prompt` in the tmux pane.
+5. claude-code reads `.mcp.json` + `settings.local.json`, attaches to the UDS gateway.
+6. JSONL tail begins on the session file as soon as it appears (poll the project directory for new files).
+
+If steps 2/3 fail, host-runner aborts the spawn rather than launching a broken session.
+
+### 12.8 First-line-of-code reference targets
+
+When the next session starts implementing, these are the load-bearing existing files to read first:
+
+| File | What to learn from it |
+|---|---|
+| `hub/internal/hostrunner/driver_acp.go` | AgentEvent emission shape, host-runner driver interface |
+| `hub/internal/hostrunner/mcp_gateway.go` | Per-spawn UDS MCP gateway, tool catalog, JSON-RPC handling |
+| `hub/internal/server/mcp_more.go::mcpPermissionPrompt` | Parking model + attention_items insertion |
+| `hub/internal/server/handlers_attention.go` | Attention item schema, kind values, resolve flow |
+| `hub/internal/server/tiers.go` | Tier-based auto-allow for non-claude-code tools |
+| `hub/internal/agentfamilies/agent_families.yaml` | Where M4 binding swaps |
+| `lib/widgets/agent_feed.dart` (`approval_request` branches) | Where new dialog_type branches go |
+| `hub/cmd/probe-claude-jsonl/main.go` | Reference implementation of the JSONL schema mapper |
+| `docs/reference/claude-code-hook-schema.md` | Authoritative hook payload schemas |
+
+---
+
+## 13. Open questions (don't block coding)
+
+These are nice-to-have validations the implementation can defer:
+
+1. **`mcp_tool`-type hook long-park behavior** — does claude-code time out a `type:"mcp_tool"` hook after the settings.local.json `timeout` value (5–300 s)? Or only after a different upper bound? On-device test: configure a hook with `timeout:300`, make the tool sleep 200s, observe whether claude considers the hook stuck. If timeout < park duration, host-runner needs a faster default decision before the hook fires.
+2. **`PreToolUse permissionDecision:"allow"` skip of plan-mode-exit prompt** — we don't need this since the approval channel handles plan-mode anyway, but knowing whether the override works informs Phase-2 robustness.
+3. **`SessionStart.source` vocabulary** — only `startup` observed; need probe with `claude --resume` and `/clear`.
+4. **Auto-compaction trigger** — observe a real `PreCompact{trigger:"auto"}` (context-fill driven).
+5. **Multiple claude PIDs on same host** — verify the pane lookup handles split-pane workflow gracefully.
+
+None of these block implementing the plan as written. Each becomes a small follow-up commit if observed misbehavior surfaces during integration testing.
+
+---
+
+## 14. References
 
 - JSONL probe wedge: `hub/cmd/probe-claude-jsonl/` (committed `48c6a93`) — validated the transcript-event schema
 - Hook probe wedge: `hub/cmd/probe-claude-hooks/` (committed `a45d24f`) — captured the 9-hook payload corpus from claude-code 2.1.129 on 2026-05-15

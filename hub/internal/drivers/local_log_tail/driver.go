@@ -40,10 +40,29 @@ type EventPoster interface {
 //     into engine-side action — tmux send-keys for M4 LocalLogTail.
 //     Unknown kinds should return an error so the InputRouter logs the
 //     drop instead of silently swallowing.
+//   - OnHook ingests a hook MCP call from the host-runner gateway
+//     (ADR-027 W5b). Observational hooks return immediately;
+//     parked hooks (PreCompact, PreToolUse(AskUserQuestion)) block
+//     until the hub-side attention is resolved and return the
+//     decision claude-code's hook contract expects. The adapter is
+//     responsible for posting any derived AgentEvent via the
+//     EventPoster supplied in Config; the return value is solely the
+//     JSON-RPC response body the gateway forwards to claude-code.
 type Adapter interface {
 	Start(ctx context.Context) error
 	Stop()
 	HandleInput(ctx context.Context, kind string, payload map[string]any) error
+	OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error)
+}
+
+// HookSink is what the host-runner UDS gateway calls when claude-code
+// invokes one of the `mcp__termipod-host__hook_*` tools (ADR-027 W5b).
+// LocalLogTailDriver implements it by forwarding to its Adapter so the
+// per-engine state machine owns the actual translation. Event posting
+// is the adapter's responsibility (via Config.Poster); the return is
+// just the JSON-RPC body the gateway relays.
+type HookSink interface {
+	OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error)
 }
 
 // Config bundles the runtime dependencies the driver hands to its
@@ -149,4 +168,15 @@ func (d *Driver) Input(ctx context.Context, kind string, payload map[string]any)
 		return fmt.Errorf("local_log_tail: nil Adapter")
 	}
 	return d.Adapter.HandleInput(ctx, kind, payload)
+}
+
+// OnHook implements HookSink — delegates to the adapter so per-engine
+// state machines own hook→event translation. The host-runner UDS
+// gateway calls this when claude-code invokes a
+// `mcp__termipod-host__hook_*` tool (ADR-027 W5b).
+func (d *Driver) OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error) {
+	if d.Adapter == nil {
+		return nil, fmt.Errorf("local_log_tail: nil Adapter")
+	}
+	return d.Adapter.OnHook(ctx, name, payload)
 }

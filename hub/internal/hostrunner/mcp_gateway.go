@@ -60,10 +60,27 @@ type McpGateway struct {
 	hubURL     string // base URL for forwarded requests (http.Client)
 	httpClient *http.Client
 
+	// HookSink, when non-nil, is invoked by the 9 hook tool handlers
+	// (ADR-027 W5b). The runner wires this for M4 LocalLogTail spawns
+	// only; M1/M2/non-claude M4 spawns leave it nil and the hook tools
+	// return -32601 method-not-found (defensive — settings.local.json
+	// won't reference them for those spawns either).
+	HookSink HookSink
+
 	mu     sync.Mutex
 	closed bool
 	conns  map[net.Conn]struct{}
 	wg     sync.WaitGroup
+}
+
+// HookSink is the gateway-side seam to the LocalLogTailDriver
+// (ADR-027 W5b). Signature mirrors locallogtail.HookSink so a
+// *locallogtail.Driver satisfies it by structural typing — no import
+// cycle. The sink is responsible for posting any derived agent_event
+// to the hub (via its own configured Poster); the return is solely
+// the JSON-RPC body the gateway relays to claude-code.
+type HookSink interface {
+	OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error)
 }
 
 // StartGateway starts a per-agent MCP gateway on a UDS. The returned cleanup
@@ -307,8 +324,58 @@ func encodeResp(r gwResp) []byte {
 
 // --- Tool catalog ---
 
+// claudeHookToolDefs returns the 9 ADR-027 hook tools (W5b). They live
+// alongside the existing host.* and hub.* tools in gatewayToolDefs.
+// Input schemas are intentionally loose (`type:object`, no required
+// fields): claude-code's hook payloads are the source of truth and we
+// don't want a schema mismatch to silently drop a hook call. The
+// per-event payload shapes are documented in
+// docs/reference/claude-code-hook-schema.md and parsed dynamically by
+// the adapter.
+func claudeHookToolDefs() []map[string]any {
+	names := []string{
+		"hook_pre_tool_use",
+		"hook_post_tool_use",
+		"hook_notification",
+		"hook_pre_compact",
+		"hook_stop",
+		"hook_subagent_stop",
+		"hook_user_prompt",
+		"hook_session_start",
+		"hook_session_end",
+	}
+	out := make([]map[string]any, 0, len(names))
+	for _, n := range names {
+		out = append(out, map[string]any{
+			"name":        n,
+			"description": "claude-code " + n + " hook (ADR-027 W5b); driven by the LocalLogTailDriver.",
+			"inputSchema": map[string]any{
+				"type":                 "object",
+				"properties":           map[string]any{},
+				"additionalProperties": true,
+			},
+		})
+	}
+	return out
+}
+
+// claudeHookToolNames returns the set of tool names installed by
+// claudeHookToolDefs. dispatchTool consults this to route hook calls
+// to the HookSink.
+var claudeHookToolNames = map[string]struct{}{
+	"hook_pre_tool_use":  {},
+	"hook_post_tool_use": {},
+	"hook_notification":  {},
+	"hook_pre_compact":   {},
+	"hook_stop":          {},
+	"hook_subagent_stop": {},
+	"hook_user_prompt":   {},
+	"hook_session_start": {},
+	"hook_session_end":   {},
+}
+
 func gatewayToolDefs() []map[string]any {
-	return []map[string]any{
+	defs := []map[string]any{
 		{
 			"name":        "host.ping",
 			"description": "Liveness check for the host-runner MCP gateway.",
@@ -363,6 +430,8 @@ func gatewayToolDefs() []map[string]any {
 			},
 		},
 	}
+	defs = append(defs, claudeHookToolDefs()...)
+	return defs
 }
 
 type gwToolCallIn struct {
@@ -390,8 +459,74 @@ func (g *McpGateway) dispatchTool(params json.RawMessage) (any, *gwRespError) {
 		return g.forwardReviewCreate(call.Arguments)
 
 	default:
+		if _, isHook := claudeHookToolNames[call.Name]; isHook {
+			return g.dispatchHookTool(call.Name, call.Arguments)
+		}
 		return nil, &gwRespError{Code: -32601, Message: "unknown tool: " + call.Name}
 	}
+}
+
+// claudeHookEventByTool maps the gateway tool name to the claude-code
+// hook event name the adapter expects. The two differ only in style
+// (snake_case vs PascalCase) but the adapter's state machine keys on
+// the event name, so we translate at the gateway boundary.
+var claudeHookEventByTool = map[string]string{
+	"hook_pre_tool_use":  "PreToolUse",
+	"hook_post_tool_use": "PostToolUse",
+	"hook_notification":  "Notification",
+	"hook_pre_compact":   "PreCompact",
+	"hook_stop":          "Stop",
+	"hook_subagent_stop": "SubagentStop",
+	"hook_user_prompt":   "UserPromptSubmit",
+	"hook_session_start": "SessionStart",
+	"hook_session_end":   "SessionEnd",
+}
+
+// dispatchHookTool routes a hook MCP call to the configured HookSink
+// (ADR-027 W5b). If no sink is wired (M1/M2 spawn or runner failed to
+// configure one) the call returns -32601; that's defensive — for a
+// spawn that doesn't reference these tools in settings.local.json the
+// call shouldn't happen in the first place.
+//
+// The sink is responsible for posting any derived agent_event to hub
+// via its own Poster; the return is purely the JSON-RPC body the
+// gateway relays. Parking (for PreCompact + AskUserQuestion) happens
+// inside the sink — dispatchHookTool will block as long as the sink
+// blocks, which is the desired contract for the `mcp_tool` hook type
+// in claude-code's settings.local.json.
+func (g *McpGateway) dispatchHookTool(name string, raw json.RawMessage) (any, *gwRespError) {
+	if g.HookSink == nil {
+		return nil, &gwRespError{Code: -32601,
+			Message: "hook tool " + name + " not wired (no HookSink); " +
+				"spawn is not configured for ADR-027 LocalLogTailDriver"}
+	}
+	event := claudeHookEventByTool[name]
+	if event == "" {
+		return nil, &gwRespError{Code: -32601, Message: "unknown hook tool: " + name}
+	}
+	var payload map[string]any
+	if len(raw) > 0 {
+		// claude-code passes the hook payload as the `arguments` object;
+		// per Anthropic's contract every hook receives a JSON object,
+		// possibly empty. We tolerate empty/missing by treating it as
+		// an empty map rather than rejecting the call.
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return nil, &gwRespError{Code: -32602,
+				Message: "hook " + name + " payload parse: " + err.Error()}
+		}
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	resp, err := g.HookSink.OnHook(context.Background(), event, payload)
+	if err != nil {
+		return nil, &gwRespError{Code: -32000,
+			Message: "hook " + name + ": " + err.Error()}
+	}
+	if resp == nil {
+		resp = map[string]any{}
+	}
+	return mcpGWResultJSON(resp), nil
 }
 
 // --- hub.* forwards ---

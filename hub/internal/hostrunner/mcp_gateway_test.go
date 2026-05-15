@@ -84,9 +84,9 @@ func TestGateway_InitializeAndToolsList(t *testing.T) {
 	resp = readJRPCLine(t, r)
 	result, _ = resp["result"].(map[string]any)
 	toolsRaw, _ := result["tools"].([]any)
-	if len(toolsRaw) != 4 {
-		t.Fatalf("expected 4 tools, got %d: %v", len(toolsRaw), toolsRaw)
-	}
+	// Catalog grows additively (ADR-027 W5b added the 9 hook tools).
+	// Assert presence of the 4 core ones rather than an exact length so
+	// future additions don't force test churn.
 	want := map[string]bool{
 		"host.ping":            false,
 		"hub.agent_event_post": false,

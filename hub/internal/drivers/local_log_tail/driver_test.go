@@ -37,6 +37,9 @@ type fakeAdapter struct {
 	stopCalls  int
 	startErr   error
 	inputs     []string
+	hooks      []string
+	hookResp   map[string]any
+	hookErr    error
 }
 
 func (a *fakeAdapter) Start(_ context.Context) error { a.startCalls++; return a.startErr }
@@ -44,6 +47,10 @@ func (a *fakeAdapter) Stop()                         { a.stopCalls++ }
 func (a *fakeAdapter) HandleInput(_ context.Context, kind string, _ map[string]any) error {
 	a.inputs = append(a.inputs, kind)
 	return nil
+}
+func (a *fakeAdapter) OnHook(_ context.Context, name string, _ map[string]any) (map[string]any, error) {
+	a.hooks = append(a.hooks, name)
+	return a.hookResp, a.hookErr
 }
 
 func TestDriverStartStop(t *testing.T) {
@@ -136,6 +143,23 @@ func TestDriverStartAdapterFailureEmitsStopped(t *testing.T) {
 	}
 	if got["err"] != "boom" {
 		t.Errorf("second event err = %v, want boom", got["err"])
+	}
+}
+
+func TestDriverOnHookDelegates(t *testing.T) {
+	p := &recordingPoster{}
+	a := &fakeAdapter{hookResp: map[string]any{"decision": "block"}}
+	d := &Driver{Config: Config{AgentID: "agent-1", Poster: p}, Adapter: a}
+	_ = d.Start(context.Background())
+	res, err := d.OnHook(context.Background(), "PreCompact", map[string]any{"trigger": "manual"})
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
+	}
+	if len(a.hooks) != 1 || a.hooks[0] != "PreCompact" {
+		t.Errorf("adapter hook calls = %v, want [PreCompact]", a.hooks)
+	}
+	if d, _ := res["decision"]; d != "block" {
+		t.Errorf("response decision = %v, want block", d)
 	}
 }
 

@@ -103,6 +103,7 @@ type Runner struct {
 	panes     map[string]paneState    // keyed by agent id
 	tailers   map[string]*Tailer      // keyed by agent id
 	drivers   map[string]Driver       // keyed by agent id (P1.1)
+	gateways  map[string]*McpGateway  // keyed by agent id (ADR-027 W5a)
 	worktrees map[string]WorktreeSpec // keyed by agent id
 	inputs    *InputRouter            // P1.8 — dispatches producer=user events
 	// a2aDisp owns A2A task correlation. Created in Start when A2AAddr
@@ -176,6 +177,9 @@ func (a *Runner) defaults() {
 	}
 	if a.drivers == nil {
 		a.drivers = map[string]Driver{}
+	}
+	if a.gateways == nil {
+		a.gateways = map[string]*McpGateway{}
 	}
 	if a.worktrees == nil {
 		a.worktrees = map[string]WorktreeSpec{}
@@ -567,6 +571,37 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 	}
 
 	if mode == "M4" && drv == nil {
+		// ADR-027 W7: claude-code M4 spawns try the LocalLogTailDriver
+		// path first (JSONL tail + UDS gateway + send-keys). On any
+		// failure we fall through to the PaneDriver path below so the
+		// agent still launches — degraded UX (text-dump transcript)
+		// but live. Other engines (gemini-cli, codex, kimi-code) stay
+		// on PaneDriver until their adapters ship (Phase 2/3).
+		if sp.Kind == "claude-code" {
+			hubURLForAgent := a.Client.BaseURL
+			if a.egressProxy != nil {
+				hubURLForAgent = a.egressProxy.LocalURL
+			}
+			res, lerr := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+				Spawn:            sp,
+				Launcher:         a.Launcher,
+				Client:           a.agentPoster,
+				HubURL:           hubURLForAgent,
+				GatewayHubClient: a.Client,
+				Log:              a.Log,
+			})
+			if lerr != nil {
+				a.Log.Warn("M4 LocalLogTail launch failed; falling back to PaneDriver",
+					"handle", sp.Handle, "err", lerr)
+				// Continue to the PaneDriver path below.
+			} else {
+				pane = res.PaneID
+				drv = res.Driver
+				a.gateways[sp.ChildID] = res.Gateway
+			}
+		}
+	}
+	if mode == "M4" && drv == nil {
 		// Resolve the pane command data-first: a spec-level backend.cmd
 		// wins over the per-kind template default, which wins over the
 		// launcher's built-in placeholder. Keeping this ladder in the
@@ -777,6 +812,13 @@ func (a *Runner) stopDriver(agentID string) {
 	}
 	d.Stop()
 	delete(a.drivers, agentID)
+	// ADR-027 W5a: tear down the per-spawn UDS gateway if one was
+	// wired (claude-code M4 LocalLogTail). Other modes leave a.gateways
+	// untouched so this delete is a no-op for them.
+	if gw, ok := a.gateways[agentID]; ok && gw != nil {
+		_ = gw.Close()
+		delete(a.gateways, agentID)
+	}
 }
 
 // a2aSource adapts ListRunningAgents into the a2a.AgentSource callback.

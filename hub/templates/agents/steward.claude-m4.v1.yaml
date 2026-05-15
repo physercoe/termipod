@@ -1,0 +1,125 @@
+# M4-test steward — claude-code in interactive TUI mode.
+#
+# Test artifact for ADR-027 (LocalLogTailDriver). Spawned the same
+# way as steward.general.v1 but with `driving_mode: M4` so the
+# host-runner launches `claude` interactively inside a tmux pane
+# rather than as a stream-json child process. The new
+# LocalLogTailDriver (claude-code adapter, MVP) tails the on-disk
+# session JSONL and routes mobile input through `tmux send-keys`.
+#
+# Intentional differences from steward.general.v1:
+#
+#   - driving_mode: M4 (no fallback_modes — M4 IS the test target)
+#   - backend.cmd is the interactive form (no --print / stream-json
+#     flags); the TUI must render so capture-pane can read the
+#     approval prompt
+#   - backend.cmd omits {{permission_flag}} so claude-code falls back
+#     to its native numbered approval prompt ("1. Yes / 2. Yes, and
+#     don't ask again / 3. No, and tell Claude what to do
+#     differently"). Native prompts are exactly what the adapter's
+#     capture-pane regex + arrow-key send-keys flow is designed to
+#     drive — bypassing them via --dangerously-skip-permissions or
+#     --permission-prompt-tool would defeat the test.
+#   - default_workdir: ~/hub-work/m4-test — separate scratchpad so a
+#     debugging session doesn't pollute the general steward's tree.
+#   - display_label flags this as a test instance.
+#
+# Capability surface mirrors steward.general so the director can
+# exercise tool calls (bash, edits, web fetch) and observe the full
+# approval-card + always-allow + deny-with-reason loops on mobile.
+#
+# Delete this template once ADR-027 ships and the new M4 driver is
+# the default claude-code M4 binding — at that point any
+# claude-code steward in M4 exercises the same code path and a
+# dedicated test template is no longer load-bearing.
+
+template: agents.steward.claude-m4
+version: 1
+extends: null
+
+driving_mode: M4
+fallback_modes: []
+
+backend:
+  kind: claude-code
+  model: claude-opus-4-7
+  default_workdir: ~/hub-work/m4-test
+  permission_modes:
+    # Defined for parity with sibling templates but intentionally
+    # unused — the cmd below omits {{permission_flag}} so claude-code
+    # boots in its default interactive prompt mode. See header.
+    skip: "--dangerously-skip-permissions"
+    prompt: "--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt"
+  cmd: "claude --model {{model}}"
+
+default_role: team.concierge
+display_label: "Steward (claude · M4 test)"
+
+# Mirrors steward.general.v1's capability surface so the test
+# steward can exercise the full director-facing flow: spawn workers,
+# author templates, fetch web pages, run bash, edit files — every
+# tool kind whose approval prompt format the adapter is supposed to
+# handle.
+default_capabilities:
+  - templates.agent.create
+  - templates.agent.update
+  - templates.agent.delete
+  - templates.agent.list
+  - templates.agent.get
+  - templates.prompt.create
+  - templates.prompt.update
+  - templates.prompt.delete
+  - templates.prompt.list
+  - templates.prompt.get
+  - templates.plan.create
+  - templates.plan.update
+  - templates.plan.delete
+  - templates.plan.list
+  - templates.plan.get
+  - plan.instantiate
+  - plan.advance
+  - plans.steps.create
+  - plans.steps.update
+  - projects.update
+  - schedules.create
+  - schedules.update
+  - schedules.delete
+  - schedules.run
+  - agents.spawn
+  - agents.archive
+  - projects.list
+  - projects.get
+  - plans.list
+  - plans.get
+  - runs.list
+  - documents.list
+  - documents.read
+  - reviews.list
+  - audit.read
+  - channels.list
+  - get_attention
+  - channels.post_event
+  - post_message
+  - delegate
+  - request_approval
+  - request_select
+  - request_help
+  - decision.vote: significant
+  - mobile.navigate
+  - journal_append
+  - journal_read
+
+prompt: steward.claude-m4.v1.md
+
+skills:
+  - id: m4-exercise
+    name: m4-exercise
+    description: "Exercise tool calls so the new LocalLogTailDriver's approval-card + always-allow + deny-with-reason flows can be validated on mobile"
+    tags: [test, m4, validation]
+  - id: advise
+    name: advise
+    description: "Open-ended discussion with the director — same concierge surface as the general steward"
+    tags: [chat, advisory]
+
+default_channels:
+  hub-meta: full

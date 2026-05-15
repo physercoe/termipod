@@ -44,6 +44,8 @@ next sequential number — don't reserve, don't skip.
 | [023](023-agent-driven-mobile-ui.md) | Agent-driven mobile UI — overlay + URI intents + compact mode | Accepted 2026-05-10 | [005](005-owner-authority-model.md) |
 | [024](024-project-detail-chassis.md) | Project detail chassis | Accepted 2026-05-11 | — |
 | [025](025-project-steward-accountability.md) | Project steward accountability — workers, scope, lazy materialization, director consent | Accepted 2026-05-13 | — |
+| [026](026-kimi-code-engine.md) | Kimi Code CLI is the fourth engine, M1-only | Accepted 2026-05-14 | — |
+| [027](027-local-log-tail-driver.md) | LocalLogTailDriver replaces agent-mode M4 (claude-code first) | Accepted 2026-05-15 | — |
 
 ---
 

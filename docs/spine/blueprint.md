@@ -325,8 +325,11 @@ Per-bullet status below; current Now/Next/Later view is in
 
 - P1.1 ✅ Host-runner multi-mode agent driver (see [`protocols.md` §5](protocols.md)): **M1 ACP shim**,
   **M2 structured-stdio shim** (per-agent, starting with Claude Code
-  `stream-json`), **M4 manual/pane-only**. Unified `agent_events` queue
-  regardless of mode. Hooks side-channel optional.
+  `stream-json`), **M4 per-engine local-stream tap** (amended by
+  [ADR-027](../decisions/027-local-log-tail-driver.md): JSONL-tail
+  adapter for claude-code; legacy pane-PTY for the rest until their
+  adapters ship). Unified `agent_events` queue regardless of mode.
+  Hooks side-channel optional.
 - P1.2 ✅ Host-runner **plan-step executor** (deterministic phases):
   executes `llm_call`, `shell`, `mcp_call`, `human_decision` steps
   without spawning a supervised agent. `agent_spawn` steps delegate to

@@ -176,8 +176,17 @@ and resume mechanism. **Not** the engine's product/build version.
 
 ### driving mode
 The `driving_mode` column. Values: `M1` (ACP / interactive), `M2`
-(structured stdio), `M4` (tmux pane PTY). Selects which driver and
-launch path the host-runner uses.
+(structured stdio), `M4` (per-engine local-stream tap). Selects
+which driver and launch path the host-runner uses.
+
+M4's implementation is **per-engine** as of
+[ADR-027](../decisions/027-local-log-tail-driver.md): claude-code's
+M4 is `LocalLogTailDriver` (tails the on-disk session JSONL and
+routes input via `tmux send-keys`); gemini-cli, codex, and
+kimi-code retain the legacy tmux-pane PTY binding until their
+adapters ship. Whichever implementation is bound, the driver emits
+the same `agent_event` shapes M1/M2 produce.
+
 - *Distinguish from:* **permission mode** (auto-allow vs prompt),
   **output mode** (stream-json vs text).
 - *Canonical:* `spine/blueprint.md` §5.3.

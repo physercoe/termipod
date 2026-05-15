@@ -106,7 +106,7 @@ There are three modes:
 |---|---|---|---|---|---|
 | M1 | **ACP** | JSON-RPC over stdio via ACP adapter | High (native) | No (API key only via Agent SDK) | Preferred for agents with native ACP (Gemini CLI, Codex, OpenCode, Cline, …). |
 | M2 | **Structured stdio** | Agent-native JSON-line protocol (e.g. `claude --input-format stream-json --output-format stream-json`) | High (agent-equivalent to ACP) | Yes (drives the CLI binary directly) | Per-agent shim. Recommended default for Claude Code under Pro/Max. |
-| M4 | **Manual / pane-only** | None — host-runner only observes tmux | Low (pane scrape → lifecycle + text events) | Yes | Explicit escape hatch: user types directly into the pane from the mobile app's terminal view. |
+| M4 | **Per-engine local-stream tap** | Per engine — claude-code: JSONL tail + `tmux send-keys`; others: tmux pane PTY scrape | High for engines with a JSONL adapter (claude-code today); Low otherwise | Yes | Per [ADR-027](../decisions/027-local-log-tail-driver.md): adapter ships claude-code first; gemini / codex / kimi retain the legacy pane-PTY binding until their adapters land. Emits the same `agent_event` shapes M1/M2 produce when a JSONL adapter is bound. |
 
 (M3 "headless one-shot" is not a mode; it's a `llm_call` step inside a
 deterministic plan phase — see [`blueprint.md §6.2`](blueprint.md). A

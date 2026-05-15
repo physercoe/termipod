@@ -27,3 +27,12 @@ var TemplatesFS embed.FS
 // previously hosted by the standalone hub-mcp-server daemon, so one
 // .mcp.json entry reaches everything (see mcp_authority.go).
 const MCPServerName = "termipod"
+
+// MCPServerNameHost is the namespace under which the per-spawn
+// host-runner gateway registers ITS local MCP tools (currently the 9
+// hook handlers from ADR-027 W5b). Only the claude-code M4
+// LocalLogTailDriver path writes this server into `.mcp.json` —
+// every other spawn keeps a single-entry `.mcp.json` pointing at
+// MCPServerName. Changing this name is a wire change for ADR-027's
+// `settings.local.json` hook entries (`mcp__termipod-host__hook_*`).
+const MCPServerNameHost = "termipod-host"

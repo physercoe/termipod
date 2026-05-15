@@ -6,11 +6,18 @@
 // --host-id to skip registration. Launches spawned agents into tmux panes
 // on behalf of the hub — not an agent itself (no row in the agents table).
 //
-// host-runner is also a busybox-style multicall binary: when invoked
-// under the basename `hub-mcp-bridge` (typically via a symlink in
-// /usr/local/bin), or via the explicit `mcp-bridge` subcommand, it
-// runs the stdio↔HTTP shim that claude-code spawns from `.mcp.json`.
-// One install covers both roles.
+// host-runner is also a busybox-style multicall binary. Two stdio
+// shims live alongside the daemon, both invoked by spawned agents
+// from their `.mcp.json` files:
+//
+//   - `hub-mcp-bridge` basename (or `mcp-bridge` subcommand): stdio ↔
+//     HTTP shim to the hub via the egress proxy. Used by every spawn
+//     for `mcp__termipod__*` tools.
+//   - `mcp-uds-stdio` subcommand: stdio ↔ UDS shim to the per-spawn
+//     host-runner gateway. Used only by claude-code M4 LocalLogTail
+//     spawns for `mcp__termipod-host__hook_*` tools (ADR-027 W5c).
+//
+// One install covers all roles.
 package main
 
 import (
@@ -26,6 +33,7 @@ import (
 	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner"
 	"github.com/termipod/hub/internal/mcpbridge"
+	"github.com/termipod/hub/internal/mcpudsbridge"
 )
 
 func main() {
@@ -55,6 +63,8 @@ func main() {
 		runRegister(os.Args[2:])
 	case "mcp-bridge":
 		os.Exit(mcpbridge.Run(os.Args[2:]))
+	case "mcp-uds-stdio":
+		os.Exit(mcpudsbridge.Run(os.Args[2:]))
 	case "-h", "--help", "help":
 		usage()
 	case "-v", "--version", "version":
@@ -84,11 +94,15 @@ func usage() {
 	fmt.Fprintln(os.Stderr, `host-runner <command> [flags]
 
 Commands:
-  register     Register this host with the hub, print host_id.
-  run          Run the daemon: heartbeat + poll pending spawns + launch.
-  mcp-bridge   stdio↔HTTP shim used by spawned agents (claude-code et al.)
-               via .mcp.json. Also reachable by symlinking the binary as
-               hub-mcp-bridge for back-compat with older spawn configs.`)
+  register       Register this host with the hub, print host_id.
+  run            Run the daemon: heartbeat + poll pending spawns + launch.
+  mcp-bridge     stdio↔HTTP shim used by spawned agents (claude-code et al.)
+                 via .mcp.json. Also reachable by symlinking the binary as
+                 hub-mcp-bridge for back-compat with older spawn configs.
+  mcp-uds-stdio  stdio↔UDS shim into the per-spawn host-runner MCP gateway.
+                 Used by claude-code M4 LocalLogTail spawns to reach the
+                 mcp__termipod-host__hook_* tools (ADR-027). Reads
+                 --socket / MCP_UDS_SOCKET.`)
 }
 
 func runRegister(args []string) {

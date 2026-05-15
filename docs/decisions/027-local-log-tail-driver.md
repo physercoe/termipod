@@ -316,6 +316,86 @@ exercise plan-mode approval + compaction + idle signals (the
 hook-driven surfaces) rather than the three-row tool-permission
 loop (which doesn't fire in bypass mode).
 
+**D-amend-3. `--permission-prompt-tool` covers ALL approval gates,
+including ExitPlanMode; hooks become purely observational.**
+
+Further empirical investigation of the claude-code 2.1.129 binary
+established that the permission engine routes every tool whose
+`checkPermissions()` returns `{behavior:"ask"}` through the
+configured `--permission-prompt-tool` MCP tool — including
+`ExitPlanMode`, whose check unconditionally returns `"ask"`
+regardless of `permission_mode`. The PreToolUse-park-for-ExitPlanMode
+flow proposed in D-amend-1 is therefore **unnecessary**: setting
+`--permission-prompt-tool mcp__termipod__permission_prompt` in the
+spawn cmd lets the existing `mcpPermissionPrompt` handler in
+`hub/internal/server/mcp_more.go` cover plan-mode approval
+identically to other tool permissions, with zero new code.
+
+**Coverage matrix of `--permission-prompt-tool` (empirical, 2.1.129):**
+
+| Tool | bypass | default | acceptEdits | Notes |
+|---|---|---|---|---|
+| Read / Glob / Grep | allow | allow | allow | read-only; never gated |
+| Bash | allow | rule-based | rule-based | governed by `Bash(<cmd>*)` allow rules |
+| Write / Edit / MultiEdit / NotebookEdit | allow | **ask** | allow | core file-mutation gate |
+| WebFetch | allow | **ask** | **ask** | network access |
+| WebSearch | allow | allow* | allow | *config-dependent |
+| Agent (Task subagent) | allow | **ask** | **ask** | gates subagent spawn |
+| **ExitPlanMode** | **ask** | **ask** | **ask** | **always asks** — independent of mode |
+| **AskUserQuestion** | **ask** | **ask** | **ask** | gate always asks; the picker UI is separate (see below) |
+| TodoWrite | allow | allow | allow | internal; bypasses engine |
+
+Setting `--permission-prompt-tool` is therefore harmless in
+bypass-permissions mode (almost no tools fire "ask" → almost no
+MCP calls) but covers the load-bearing ExitPlanMode case for
+free.
+
+**Hook surface narrows to purely observational events:**
+
+- `Stop` → `system{subtype:"turn_complete"}`
+- `Notification` (with `notification_type` discriminator) → `system{subtype:"awaiting_input"}` or `system{subtype:"attention", ...}`
+- `SubagentStop` (with `agent_type != ""`) → `system{subtype:"subagent_complete"}`
+- `PreCompact` → still parks; **compaction is not a tool, so `--permission-prompt-tool` does not cover it** — this remains the one approval surface that needs hook-handler parking
+- `SessionStart` / `SessionEnd` → `system{subtype:"session_*"}`
+- `PreToolUse` / `PostToolUse` → informational (carry `tool_input` / `tool_response` for activity surfaces; not used for approval routing)
+- `UserPromptSubmit` → informational
+
+**D-amend-4. AskUserQuestion picker handled via send-keys
+(Option A).**
+
+`AskUserQuestion` is the one tool whose **content** (multi-choice
+question + options) is not a permission decision but an actual
+question whose result is the user's choice. The permission gate
+(message: "Answer questions?") is intercepted by
+`--permission-prompt-tool`; the **MCP handler auto-allows the gate
+for AskUserQuestion specifically** (no mobile card from the gate),
+while the adapter's `PreToolUse(AskUserQuestion)` hook handler
+emits a separate `approval_request{dialog_type:"user_question",
+questions: tool_input.questions}` and parks. When the user picks
+on mobile, the adapter sends arrow-key + Enter via `tmux send-keys`
+to navigate the TUI's option picker to the matching row. This is
+the only remaining case where send-keys drives an interactive UI
+beyond text/cancel/escape.
+
+For MVP, the AskUserQuestion handler supports **single-select
+questions only**. Multi-select picker (multiple toggles via Space
+then submit) is Phase 2 — the binary exposes `isMultiSelect` as a
+per-question flag but the MVP adapter rejects multi-select inputs
+with a "Phase 2" message and defers to the TUI.
+
+**Net effect on the implementation plan:**
+
+| Surface | Before D-amend-3/4 | After |
+|---|---|---|
+| Plan-mode approval | PreToolUse(ExitPlanMode) hook parks + emits dialog | `--permission-prompt-tool` MCP path; existing handler |
+| Tool-permission approval (non-bypass) | Notification + PreToolUse cross-reference | `--permission-prompt-tool` MCP path; existing handler |
+| Compaction approval | PreCompact hook parks | unchanged — still parks |
+| Idle / turn-end / subagent-stop | hook surface | unchanged — still observational |
+| AskUserQuestion picker | (not addressed) | PreToolUse(AskUserQuestion) hook + send-keys arrow navigation |
+| Send-keys role | text + cancel + escape + slash + (mode-cycle) | + AskUserQuestion option navigation |
+
+The 9 MCP hook tool handlers (D-amend-1) collapse to **6 purely-observational handlers + 1 parked handler** (PreCompact): `hook_notification`, `hook_stop`, `hook_subagent_stop`, `hook_user_prompt`, `hook_session_start`, `hook_session_end` (observational) + `hook_pre_compact` (parked). PreToolUse and PostToolUse can still be installed if mobile wants activity-timeline previews, but they're not load-bearing for the approval surface anymore.
+
 ## References
 
 - [discussions/local-log-tail-m4-replacement.md](../discussions/local-log-tail-m4-replacement.md) — comparative interception-layer survey, empirical findings, design-evolution audit trail.

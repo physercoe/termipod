@@ -24,12 +24,23 @@ handle (per ADR-027 D-amend-1 — hook-driven event surface):
   the existing tool_call card. No approval card.
 - **Plan mode approval** — enter plan mode (Shift+Tab cycles
   default → acceptEdits → bypass → **plan** → default). Author a
-  small plan. When you call `ExitPlanMode`, claude-code fires a
-  `Notification{notification_type:"permission_prompt"}` with the
-  plan body in `PreToolUse(ExitPlanMode).tool_input.plan`. Mobile
-  should render a plan-approval card with `Approve` / `Edit` /
-  `Comment` buttons. Verify by waiting for {{principal.handle}}'s
-  mobile decision rather than approving in the TUI.
+  small plan. When you call `ExitPlanMode`, the
+  `--permission-prompt-tool mcp__termipod__permission_prompt` flag
+  routes the approval through the existing MCP path. Mobile should
+  render a plan-approval card populated from
+  `tool_input.plan` with `Approve` / `Edit` / `Comment` buttons.
+  Wait for {{principal.handle}}'s mobile decision rather than
+  approving in the TUI.
+- **AskUserQuestion picker** (the new tool that asks the user a
+  multiple-choice question) — at some point during the exercise,
+  invoke the `AskUserQuestion` tool with 1-2 simple questions
+  (e.g. "Which approach do you prefer?" with 3 options). Mobile
+  should render the picker from the structured
+  `PreToolUse(AskUserQuestion).tool_input.questions[]` payload.
+  When {{principal.handle}} taps an option, the adapter sends
+  arrow+Enter via `tmux send-keys` to make the TUI's matching
+  selection. Verify the chosen option becomes the tool's result on
+  your side.
 - **Idle / waiting** — finish a response cleanly. `Stop` hook fires,
   then `Notification{notification_type:"idle_prompt"}`. Mobile's
   streaming pill should clear and the compose box should focus.

@@ -6,26 +6,42 @@
 > **Last verified vs code:** claude-code 2.1.129, JSONL 200k-line live sample + 9-hook payload corpus on 2026-05-15
 
 **TL;DR.** Replace the current "agent fallback M4" raw-PTY+xterm-VT
-path with a hub-side driver that **tails claude-code's on-disk
-session JSONL for transcript content** AND **installs hooks via the
-existing host-runner MCP gateway for TUI-interactive state events**
-(plan-mode approval, compaction, idle, turn-end, subagent-stop).
+path with a hub-side driver that combines **three structured
+signal sources**:
+
+1. **JSONL tail** of claude-code's on-disk session log — provides
+   transcript content (text / thinking / tool_use / tool_result /
+   attachment).
+2. **`--permission-prompt-tool` MCP path** (existing infrastructure
+   in `hub/internal/server/mcp_more.go::mcpPermissionPrompt`) —
+   covers ALL approval gates including `ExitPlanMode` and
+   non-bypass tool-permission requests. Per-tool dispatch in the
+   handler emits the right `dialog_type` (plan_approval /
+   tool_permission). Same parking model the M1/M2 stewards
+   already use; **no new approval-routing code**.
+3. **Hook surface** (via the per-spawn host-runner UDS MCP gateway,
+   `type:"mcp_tool"`) — covers TUI-interactive state events not
+   served by the approval channel: idle / turn-end / subagent-stop
+   / session-lifecycle (purely observational) + compaction (parked)
+   + AskUserQuestion picker content (parked + send-keys for the
+   actual choice).
+
 Mobile input flows back via `tmux send-keys` for free-text + cancel
-+ escape only; approve/deny decisions ride hook-return values so
-they reach claude-code's permission engine directly without
-keystroke synthesis. The driver emits `AgentEvent` shapes identical
-to M1/M2; mobile surfaces (cards, approval prompt, compose box,
-action bar, snippet bar) are unchanged. MVP = claude-code only;
-gemini / codex / kimi are Phase 2/3 with adapter implementations
-against their own log paths.
++ escape + the AskUserQuestion picker's arrow-navigation. The
+driver emits `AgentEvent` shapes identical to M1/M2; mobile
+surfaces (cards, approval prompt, compose box, action bar, snippet
+bar) gain a few new `dialog_type` branches (plan_approval,
+user_question, compaction). MVP = claude-code only; gemini / codex
+/ kimi are Phase 2/3 with adapter implementations against their
+own log paths.
 
 **Capture-pane is not in the implementation.** Empirical validation
-(probe 2026-05-15) established that claude-code's hook surface
-provides every TUI-interactive signal the adapter needs as
-structured payloads, with categorical discriminators
-(`Notification.notification_type`, `PreToolUse.tool_name`,
-`PreCompact.trigger`). The pre-amendment design's regex-driven
-capture-pane probe is removed entirely.
+(probe 2026-05-15) established that the approval channel +
+hook surface together cover every TUI-interactive signal the
+adapter needs as structured payloads, with categorical
+discriminators (`Notification.notification_type`, `PreToolUse.tool_name`,
+`PreCompact.trigger`, MCP `tool_name`). The pre-amendment design's
+regex-driven capture-pane probe is removed entirely.
 
 The plain-SSH terminal viewer in `lib/services/terminal/` and
 `raw_pty_backend.dart` is independent of this swap and stays
@@ -168,103 +184,123 @@ no regex parse of the terminal screen.
 
 ---
 
-## 5. Hook event surface (the primary structured signal)
+## 5. Two-channel signal surface
 
-Empirically validated against claude-code 2.1.129 (probe 2026-05-15).
-Hook delivery uses `type:"mcp_tool"` routing through the existing
-per-spawn host-runner UDS MCP gateway — same transport as
-`mcp__termipod__permission_prompt`, not raw HTTP to hub. Host-runner
-inserts the spawn id from the per-agent UDS, forwards events to hub
-via the existing `agent_event_post` REST channel.
+Two cooperating channels carry the M4 driver's structured signals.
+Both empirically validated against claude-code 2.1.129 (probes
+2026-05-15) and locked by ADR-027 D-amend-3/4.
 
-### 5.1 Installed hooks (9 events) + AgentEvent mappings
+### 5.A Approval channel — `--permission-prompt-tool` MCP path
 
-| Hook | Notable payload fields | AgentEvent emission |
-|---|---|---|
-| **PreToolUse** | `tool_name, tool_input, tool_use_id` | (informational; JSONL also has it). For `tool_name=="ExitPlanMode"` → emit `approval_request{dialog_type:"plan_approval", body: tool_input.plan, options:["approve","edit","comment"]}` and **park the hook call** waiting for mobile decision |
-| **PostToolUse** | `tool_name, tool_input, tool_response` | (informational; closes the parked plan_approval if user approved) |
-| **Notification** | `message, notification_type` | `notification_type:"idle_prompt"` → `system{subtype:"awaiting_input"}` (clears streaming pill). `notification_type:"permission_prompt"` → either covered by PreToolUse(ExitPlanMode) park above, or for direct tool permission → `approval_request{dialog_type:"tool_permission", tool: last PreToolUse.tool_name, body: last PreToolUse.tool_input, options:["allow","deny"]}` |
-| **PreCompact** | `trigger:"manual"\|"auto", custom_instructions` | `approval_request{dialog_type:"compaction", trigger, options:["compact","defer"]}`. **Park** the hook waiting for mobile decision; return `{"decision":"block"}` to defer |
-| **Stop** | `last_assistant_message, permission_mode, effort` | `system{subtype:"turn_complete", final_message: last_assistant_message}` (canonical parent-turn-end signal) |
-| **SubagentStop** | `agent_id, agent_type, last_assistant_message, agent_transcript_path` | If `agent_type != ""` → `system{subtype:"subagent_complete", agent_id, agent_type, final_message: last_assistant_message}`. If `agent_type == ""` → **drop** (parent-turn duplicate of Stop) |
-| **UserPromptSubmit** | `prompt, permission_mode` | (informational; JSONL records as `user.message.content` shortly after) |
-| **SessionStart** | `source:"startup"\|"resume"\|"clear", model` | `system{subtype:"session_start", source, model}` |
-| **SessionEnd** | `reason` | `system{subtype:"session_end", reason}` |
+The driver spawns claude-code with
+`--permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt`
+**always**, regardless of `permission_mode`. The permission engine
+routes every tool whose `checkPermissions()` returns
+`behavior:"ask"` through this MCP tool. Coverage:
 
-### 5.2 Empirically locked discriminators
+| Tool | bypass | default | acceptEdits | dialog_type emitted |
+|---|---|---|---|---|
+| Write / Edit / MultiEdit / NotebookEdit | allow | ask | allow | `tool_permission` |
+| Bash | allow | rule-based | rule-based | `tool_permission` |
+| WebFetch | allow | ask | ask | `tool_permission` |
+| Agent (Task) | allow | ask | ask | `tool_permission` |
+| **ExitPlanMode** | **ask** | **ask** | **ask** | **`plan_approval`** (always — independent of mode) |
+| AskUserQuestion | ask | ask | ask | gate auto-allowed; **picker handled via PreToolUse hook + send-keys** (see 5.B) |
+| Read / Glob / Grep / TodoWrite | allow | allow | allow | (never gated) |
+
+Existing handler at `hub/internal/server/mcp_more.go::mcpPermissionPrompt`
+adapts cleanly with a per-tool dispatcher:
+
+- `tool_name == "ExitPlanMode"` → set `dialog_type:"plan_approval"`, extract `body` from `tool_input.plan`, options `["approve","edit","comment"]`, park as today.
+- `tool_name == "AskUserQuestion"` → **auto-allow the gate immediately** (`{behavior:"allow"}`); the picker UI is handled in 5.B.
+- Any other tool → existing tier-based path (`tierFor()` + attention_items{kind:"permission_prompt"}).
+
+Mobile resolution: existing approval-card UI in
+`lib/widgets/agent_feed.dart`; the `dialog_type` discriminator
+selects the appropriate body+options rendering.
+
+### 5.B Observation channel — hook surface
+
+Hooks installed via `<workdir>/.claude/settings.local.json` with
+`type:"mcp_tool"` routing through the per-spawn host-runner UDS
+MCP gateway (same transport as the approval channel). Host-runner
+gains 7 new MCP tool handlers in `hub/internal/hostrunner/mcp_gateway.go`.
+Approval-channel-covered hooks (PreToolUse non-AskUserQuestion,
+PostToolUse) are informational only; the only hook that **parks**
+is `PreCompact` (compaction isn't a tool, so the approval channel
+doesn't cover it) and `PreToolUse(AskUserQuestion)` (the picker
+content surface).
+
+| Hook | Payload | AgentEvent emission | Parks? |
+|---|---|---|---|
+| **PreToolUse** | `tool_name, tool_input, tool_use_id, permission_mode` | If `tool_name=="AskUserQuestion"` → **park**, emit `approval_request{dialog_type:"user_question", questions: tool_input.questions, tool_use_id}` (see 5.B.1). Otherwise → informational only (mobile activity timeline). | only for AskUserQuestion |
+| **PostToolUse** | `tool_name, tool_input, tool_response, duration_ms` | informational (JSONL has this too) | no |
+| **Notification** | `message, notification_type` | `notification_type:"idle_prompt"` → `system{subtype:"awaiting_input"}`. `notification_type:"permission_prompt"` → **drop** (approval channel already handled this). Unknown → `system{subtype:"unknown_notification"}` | no |
+| **PreCompact** | `trigger, custom_instructions` | **park**, emit `approval_request{dialog_type:"compaction", trigger, options:["compact","defer"]}`. Returns `{"decision":"block"}` to defer or `{}` to proceed | yes |
+| **Stop** | `last_assistant_message, permission_mode, effort` | `system{subtype:"turn_complete", final_message}` | no |
+| **SubagentStop** | `agent_id, agent_type, last_assistant_message, agent_transcript_path` | If `agent_type != ""` → `system{subtype:"subagent_complete", ...}`. If empty → drop (parent-turn duplicate) | no |
+| **UserPromptSubmit** | `prompt, permission_mode` | informational (JSONL records soon after) | no |
+| **SessionStart** | `source, model` | `system{subtype:"session_start", source, model}` | no |
+| **SessionEnd** | `reason` | `system{subtype:"session_end", reason}` | no |
+
+#### 5.B.1 AskUserQuestion picker — send-keys driven (Option A)
+
+`PreToolUse(AskUserQuestion).tool_input.questions[]` carries the
+structured payload: `{question, options:[{label}], isMultiSelect}`.
+The adapter renders this on mobile as an N-choice picker (1-4
+questions, per the tool's schema).
+
+Resolution flow:
+
+1. Hook parks, emits the `approval_request{dialog_type:"user_question"}` AgentEvent.
+2. Mobile renders the question(s) + options as a card (existing approval-card widget, new dialog_type branch).
+3. User selects option index `i` for each question.
+4. Adapter unblocks the hook with `{}` (no decision override — the gate was already auto-allowed in 5.A).
+5. claude-code's TUI renders the picker for the actual user-input step.
+6. Adapter sends `tmux send-keys` arrow navigation + Enter for each question — `Down × i + Enter`. With multiple questions, repeat per question.
+
+**MVP scope:** single-select only (`isMultiSelect:false`). Multi-select rejected with a `system{subtype:"multi_select_unsupported"}` event and the user handles in the TUI. Phase 2 adds toggle (Space) + submit navigation.
+
+**Latency:** ~50-100 ms per send-keys round-trip; acceptable for click-then-wait UX.
+
+#### 5.B.2 Empirically locked discriminators
 
 The probe (2026-05-15) confirmed:
 
-- **`Notification.notification_type`** is a structured categorical
-  field (NOT a free-form message string requiring regex). Observed
-  values: `idle_prompt`, `permission_prompt`. Routing is a 2-row
-  lookup, not a regex library.
-- **`PreToolUse(ExitPlanMode).tool_input.plan`** carries the full
-  plan body (markdown, 600+ chars in observed sessions) + a
-  `planFilePath` field. No JSONL cross-reference needed for plan
-  content.
-- **`PreToolUse` fires in bypass-permissions mode** — every tool
-  call, regardless of permission gate state.
-- **Plan-mode approval fires even with `--dangerously-skip-permissions`**
-  (Q1 confirmed). Bypass-permissions doesn't suppress plan-mode's
-  separate gate.
-- **`permission_mode` field on every hook payload.** Mode changes
-  (Shift+Tab cycling between default/acceptEdits/bypass/plan) are
-  authoritatively reflected here; no need to parse JSONL
-  `permission-mode` events for current-mode tracking.
-- **`SubagentStop` fires at parent turn end with `agent_type:""`.**
-  Distinct from real Task subagent terminations (which have
-  `agent_type` set, e.g. "Explore"). Adapter must filter.
+- `Notification.notification_type` is a structured categorical field. Observed values: `idle_prompt`, `permission_prompt`. Routing is a 2-row lookup, not a regex.
+- `PreToolUse(ExitPlanMode).tool_input.plan` carries the full plan body — but **read via the approval channel (5.A), not the hook channel**, since `--permission-prompt-tool` receives the same `tool_input` payload.
+- `PreToolUse(AskUserQuestion).tool_input.questions[]` carries the structured questionnaire — read via the hook channel since the approval channel auto-allows the gate.
+- Every hook payload includes `permission_mode`. Mode changes (Shift+Tab) are reflected without JSONL parsing.
+- `SubagentStop` fires twice per Task call: once with `agent_type` set (real subagent), once at parent turn end with empty `agent_type` (drop).
+- `Stop.last_assistant_message` is the canonical parent-turn final-message field.
 
-### 5.3 Mobile-resolution → hook-return contract
+### 5.C Spawn-time setup
 
-For hooks that park waiting for a mobile decision (`PreToolUse(ExitPlanMode)`, `PreCompact`, and the direct `permission_prompt` Notification path), the round-trip is:
+Two things written at spawn:
 
-1. Hook fires → host-runner MCP tool handler parks the MCP RPC.
-2. Handler inserts `attention_items{kind:"plan_approval"|"compaction"|"tool_permission"}` and posts a corresponding `approval_request` AgentEvent.
-3. Mobile renders the approval card with options from the dialog_type's table.
-4. User taps → mobile resolves the attention via the existing approval-flow REST endpoint.
-5. Host-runner unblocks the parked MCP call, returns the appropriate hook response:
-   - `PreToolUse → {"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"|"deny"}}`
-   - `PreCompact → {"decision":"block"}` (defer) or `{}` (allow compaction)
-   - `Notification` → not a parked hook (returns immediately); approval routes through the prior `PreToolUse` park instead
-
-This is the same parking model `mcpPermissionPrompt` already uses;
-no new infrastructure.
-
-### 5.4 Spawn-time hook installation
-
-Host-runner writes `<workdir>/.claude/settings.local.json` at spawn
-time with the hooks block. Schema (template; `{{mcp_namespace}}`
-resolves to the spawn's MCP namespace, identical to existing
-`--permission-prompt-tool` usage):
-
-```jsonc
-{
-  "permissions": { "defaultMode": "bypassPermissions" },
-  "hooks": {
-    "PreToolUse":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_pre_tool_use",   "timeout":30 }]}],
-    "PostToolUse":    [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_post_tool_use",  "timeout":5  }]}],
-    "Notification":   [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_notification",   "timeout":5  }]}],
-    "PreCompact":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_pre_compact",    "timeout":300 }]}],
-    "Stop":           [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_stop",           "timeout":5  }]}],
-    "SubagentStop":   [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_subagent_stop",  "timeout":5  }]}],
-    "UserPromptSubmit":[{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_user_prompt",   "timeout":5  }]}],
-    "SessionStart":   [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_session_start",  "timeout":5  }]}],
-    "SessionEnd":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_session_end",    "timeout":5  }]}]
-  }
-}
-```
-
-Timeout 30s on PreToolUse + 300s on PreCompact are headroom for
-mobile-decision parks; the host-runner side enforces a real
-deadline (configurable) and falls back to a default decision if
-the user doesn't respond.
+1. **Cmd flag** in `backend.cmd`:
+   ```
+   claude --model {{model}} <perm-mode-flag> --permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt
+   ```
+   `<perm-mode-flag>` is `--dangerously-skip-permissions` (M4 default), or empty (default mode), or `--permission-mode acceptEdits`, depending on the template's intent.
+2. **Hook config** merged into `<workdir>/.claude/settings.local.json`:
+   ```jsonc
+   { "hooks": {
+       "Notification":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_notification",   "timeout":5  }]}],
+       "PreToolUse":       [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_pre_tool_use",   "timeout":30 }]}],
+       "PostToolUse":      [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_post_tool_use",  "timeout":5  }]}],
+       "PreCompact":       [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_pre_compact",    "timeout":300 }]}],
+       "Stop":             [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_stop",           "timeout":5  }]}],
+       "SubagentStop":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_subagent_stop",  "timeout":5  }]}],
+       "UserPromptSubmit": [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_user_prompt",    "timeout":5  }]}],
+       "SessionStart":     [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_session_start",  "timeout":5  }]}],
+       "SessionEnd":       [{ "matcher":"*", "hooks":[{ "type":"mcp_tool", "tool":"mcp__{{mcp_namespace}}__hook_session_end",    "timeout":5  }]}]
+   } }
+   ```
 
 If the workdir already has a `settings.local.json` (user's
-`.permissions.allow` rules etc.), host-runner **merges** the
-hooks block in rather than overwrite — preserves user
-configuration.
+`.permissions.allow` rules etc.), host-runner **merges** the hooks
+block in rather than overwrite — preserves user configuration.
 
 ---
 
@@ -274,10 +310,12 @@ The pane is identified by walking up from the `claude` PID
 (`pstree -p <claude_pid>`) to the tmux pane that owns it.
 
 `tmux send-keys` is **output-only direction** (mobile → CLI). Approve
-/ deny / always-allow decisions for the dialog_types in §5 do NOT
-route through here — they unblock parked hook calls (§5.3) so
-claude-code receives the decision via its own permission engine.
-The send-keys path covers only the surfaces hooks can't reach.
+/ deny / always-allow decisions for `tool_permission`, `plan_approval`,
+and `compaction` do NOT route through here — they unblock parked
+MCP / hook calls (§5.A and §5.B). The send-keys path covers
+free-text input, control keys, and the **AskUserQuestion picker**
+(the one tool whose internal UI requires arrow-key navigation per
+§5.B.1, per ADR-027 D-amend-4).
 
 ### 6.1 Action table
 
@@ -291,11 +329,13 @@ The send-keys path covers only the surfaces hooks can't reach.
 | Escape modal / dismiss prompt | `tmux send-keys -t <pane> Escape` |
 | Mode cycle (Shift+Tab) | `tmux send-keys -t <pane> S-Tab` — note: usually user-initiated in TUI; mobile equivalent is optional |
 | Action bar → Up/Down/Tab/F-keys | `tmux send-keys -t <pane> <name>` |
+| **AskUserQuestion: pick option `i` for question** (single-select MVP) | `tmux send-keys -t <pane> Down × i; tmux send-keys -t <pane> Enter` — per question; repeat sequentially for multi-question payloads |
 
 The action table is **strictly smaller** than the pre-amendment
-draft. No `Down Enter` / `Down Down Enter` rows for approvals; no
-highlight-position arithmetic; no Y/N letter shortcuts. All of
-those collapse to the parked-hook decision path.
+draft. No `Down Enter` / `Down Down Enter` rows for tool-permission
+or plan-mode approvals — those collapse to the `--permission-prompt-tool`
+MCP path. AskUserQuestion's arrow-key row remains because its
+picker UI lives inside the tool body, not the permission engine.
 
 ---
 
@@ -365,24 +405,37 @@ Wedge-sized; each line is its own commit / test pass:
   implementing the same interface as `ACPDriver`
 - [ ] `hub/internal/drivers/local_log_tail/claude_code/` — adapter:
   path resolver, JSONL streamer + schema mapper, send-keys router
+  (including AskUserQuestion picker navigation per §6.1)
+- [ ] `hub/internal/server/mcp_more.go::mcpPermissionPrompt` — extend
+  with per-tool dispatch: `ExitPlanMode → dialog_type:"plan_approval"
+  + body: tool_input.plan`; `AskUserQuestion → auto-allow gate`;
+  default → existing tier-based path
 - [ ] `hub/internal/hostrunner/mcp_gateway.go` — 9 new MCP tool
-  handlers (`hook_pre_tool_use`, `hook_post_tool_use`,
-  `hook_notification`, `hook_pre_compact`, `hook_stop`,
-  `hook_subagent_stop`, `hook_user_prompt_submit`,
-  `hook_session_start`, `hook_session_end`); reuse the parking
-  pattern from `mcpPermissionPrompt`
+  handlers (`hook_pre_tool_use` parks only for AskUserQuestion,
+  `hook_pre_compact` parks always; the other 7 are purely
+  observational). Reuse the parking pattern from
+  `mcpPermissionPrompt`.
 - [ ] `hub/internal/hostrunner/hooks_install.go` — spawn-time writer
   that merges the hooks block into `<workdir>/.claude/settings.local.json`
 - [ ] `hub/internal/agentfamilies/agent_families.yaml` — switch
   claude-code M4 binding to `local_log_tail`
+- [ ] `lib/widgets/agent_feed.dart` — add new `dialog_type` branches
+  in the approval-card widget: `plan_approval` (markdown body),
+  `user_question` (multi-choice picker), `compaction` (simple
+  yes/no). Existing `tool_permission` path unchanged.
 - [ ] Tests against `/tmp/probe.events` golden fixture from the JSONL
   probe (`hub/cmd/probe-claude-jsonl/`) AND the hook probe corpus
   from `hub/cmd/probe-claude-hooks/` (sample tarballs to commit
   alongside)
-- [ ] On-device verification: open a fresh claude-code session,
-  enter plan mode, trigger `ExitPlanMode`, verify the plan-approval
-  card renders on mobile with `tool_input.plan` as the body and
-  resolves correctly when tapped
+- [ ] On-device verification: open a fresh claude-code session
+  with `--dangerously-skip-permissions --permission-prompt-tool
+  mcp__termipod__permission_prompt`, enter plan mode, trigger
+  `ExitPlanMode`, verify the plan-approval card renders on mobile
+  with `tool_input.plan` as the body and resolves correctly when
+  tapped
+- [ ] On-device verification: trigger AskUserQuestion, verify mobile
+  picker renders, tap option → arrow-keys send-keys navigate TUI
+  → tool returns the chosen option
 - [ ] On-device verification: `/compact`, observe PreCompact-driven
   approval card; defer once + compact once
 - [ ] On-device verification: idle/streaming pill clears on `Stop` +

@@ -26,9 +26,26 @@ draft of this doc proposed a capture-pane regex probe to detect
 established that claude-code's hook surface provides this signal
 **structurally** — `Notification.notification_type:"permission_prompt"` +
 `PreToolUse(ExitPlanMode).tool_input.plan` carry every field the
-adapter needs without regex. Capture-pane is removed entirely; the
-sections below that reference it are kept for the historical record
-of *why* it was considered and *why* we abandoned it.
+adapter needs without regex. Capture-pane is removed entirely.
+
+**Further simplification, same day:** a second binary probe of the
+permission engine established that `--permission-prompt-tool`
+intercepts **every** tool whose `checkPermissions()` returns
+`behavior:"ask"`, including `ExitPlanMode` (whose check is
+unconditional). The PreToolUse-park-for-ExitPlanMode flow proposed
+in D-amend-1 collapses into the existing `mcpPermissionPrompt`
+handler: setting `--permission-prompt-tool mcp__termipod__permission_prompt`
+in the spawn cmd gives plan-mode-approval-on-mobile with zero new
+hub-side approval-routing code. Hooks narrow to **purely
+observational** (idle, turn-end, subagent-stop, session lifecycle)
+plus **PreCompact parking** (compaction isn't a tool, so the
+approval channel doesn't cover it) and the **AskUserQuestion picker**
+(structured question content surfaces via the PreToolUse hook;
+the option selection drives the TUI via send-keys arrow navigation).
+ADR-027 D-amend-3/4 captures this.
+
+The sections below are kept for the historical record of the
+design evolution.
 
 ---
 

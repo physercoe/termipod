@@ -85,9 +85,29 @@ keyboard to decide instead of the mobile user).
 
 ### Routing semantics
 
-- For `tool_name == "ExitPlanMode"`: **park** the hook call,
-  emit `approval_request{dialog_type:"plan_approval", body: tool_input.plan, options:["approve","edit","comment"]}`, await mobile decision, then return `permissionDecision`. This is the load-bearing path.
-- For other `tool_name` values: store `tool_input` in a per-session map keyed by `tool_use_id`, return `{}` immediately so the permission engine proceeds. If a `Notification{notification_type:"permission_prompt"}` follows, retrieve the stored `tool_input` to populate the approval card.
+Per ADR-027 D-amend-3/4 (post-2026-05-15 design):
+
+- **`tool_name == "ExitPlanMode"`**: handled by the **approval
+  channel** (`--permission-prompt-tool` MCP path), NOT by parking
+  this hook. The hub-side `mcpPermissionPrompt` handler receives
+  the same `tool_input` and dispatches to
+  `dialog_type:"plan_approval"`. This hook fires informationally.
+  Return `{}` immediately.
+- **`tool_name == "AskUserQuestion"`**: **park** this hook, emit
+  `approval_request{dialog_type:"user_question", questions: tool_input.questions, tool_use_id}`,
+  await mobile decision, then return `{}`. The mobile's
+  option-index choice is delivered out-of-band via the adapter's
+  `tmux send-keys` arrow navigation (the gate was auto-allowed via
+  the approval channel; the TUI's option picker is what we drive).
+  MVP: single-select questions only (`isMultiSelect:false`);
+  multi-select degrades to a `system{subtype:"multi_select_unsupported"}`
+  card and the user handles in the TUI.
+- **All other `tool_name` values**: store `tool_input` in a
+  per-session map keyed by `tool_use_id` if mobile wants an
+  activity timeline. Return `{}` immediately. The approval channel
+  handles any "ask" gate. The `Notification{permission_prompt}` that
+  follows for a gated tool is also informational (and dropped by
+  the handler — the MCP path is the authoritative gate).
 
 ### Example payload (real probe artefact, redacted)
 
@@ -165,7 +185,7 @@ None — Notification is observation-only. Return `{}`.
 | `notification_type` | Action |
 |---|---|
 | `idle_prompt` | Emit `system{subtype:"awaiting_input", message}`. Mobile clears streaming pill + focuses compose box. |
-| `permission_prompt` | Retrieve the most-recent unresolved PreToolUse for this session (by `tool_use_id`). If it's `ExitPlanMode`, the plan_approval parking is already active — no-op. Otherwise, emit `approval_request{dialog_type:"tool_permission", tool:<tool_name>, body:<tool_input>, options:["allow","deny"]}` and route the mobile decision back through whatever the active permission channel is (MCP-tool path if `--permission-prompt-tool` is configured; otherwise this is an alert without a closing-loop mechanism — log + display). |
+| `permission_prompt` | **Drop.** Per ADR-027 D-amend-3, the approval channel (`--permission-prompt-tool` MCP path) is the authoritative gate for every "ask" decision, including ExitPlanMode. By the time this Notification fires, `mcpPermissionPrompt` has already (a) been called, (b) emitted the appropriate `approval_request` AgentEvent, (c) parked waiting for mobile. The Notification is a redundant alert; dropping it avoids double-card-display on mobile. |
 | unknown | Emit `system{subtype:"unknown_notification", notification_type, message}`. Mobile renders muted info card. |
 
 ### Example payloads
@@ -419,6 +439,36 @@ probe corpus:
 Note: claude-code's wire name for the Task tool is `"Agent"`. The
 `subagent_type` field maps to `SubagentStop.agent_type` on
 completion.
+
+### AskUserQuestion
+
+```json
+{
+  "questions": [
+    {
+      "question": "Which approach do you prefer?",
+      "options": [
+        { "label": "Option A — fast but lossy" },
+        { "label": "Option B — slow but exact" },
+        { "label": "Option C — defer decision" }
+      ],
+      "isMultiSelect": false
+    }
+  ]
+}
+```
+
+Schema constraints (from binary):
+
+- `questions`: array of 1–4 questions (`.min(1).max(4)`)
+- Each question has `question` (string prompt) + `options` (array of `{label}`) + `isMultiSelect` (boolean)
+- Options may carry additional fields (`preview`, `description`) — adapter ignores unknown fields
+
+For the M4 driver, this is the **only built-in tool whose
+`tool_input` carries an interactive payload that mobile must
+render and the user must resolve via a non-text response.**
+See PreToolUse Routing semantics above for the `dialog_type:"user_question"`
+parking + send-keys closure flow.
 
 ---
 

@@ -1911,6 +1911,19 @@ class _PermissionPromptCardState
       (widget.payload['tier'] ?? 'significant').toString().toLowerCase();
   bool get _isStrategic => _tier == 'strategic';
 
+  /// ADR-027 W8: dialog_type discriminator on permission_prompt
+  /// attention items. Defaults to tool_permission for backward
+  /// compatibility with rows that pre-date the discriminator.
+  ///
+  ///   tool_permission (default) — render tool name + input preview
+  ///   plan_approval             — render plan_body as markdown
+  ///   compaction                — render "Compact context now?" prompt
+  ///
+  /// user_question is NOT handled here — it goes through
+  /// approval_request agent_events + _ApprovalCard, not attention_items.
+  String get _dialogType =>
+      (widget.payload['dialog_type'] ?? 'tool_permission').toString();
+
   Future<void> _decide(String decision) async {
     final id = (widget.attention['id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -1957,6 +1970,8 @@ class _PermissionPromptCardState
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
 
+    // ADR-027 W8: per-dialog_type title + body + button labels.
+    final dialogType = _dialogType;
     final toolName = (widget.payload['tool_name'] ?? 'tool').toString();
     final input = widget.payload['input'];
     final inputText = input == null
@@ -1967,6 +1982,25 @@ class _PermissionPromptCardState
       'significant' => DesignColors.warning,
       _ => DesignColors.primary,
     };
+    final String headerTitle;
+    final String approveLabel;
+    final String denyLabel;
+    switch (dialogType) {
+      case 'plan_approval':
+        headerTitle = 'Approve plan?';
+        approveLabel = 'Approve';
+        denyLabel = 'Reject';
+        break;
+      case 'compaction':
+        headerTitle = 'Compact context?';
+        approveLabel = 'Compact';
+        denyLabel = 'Defer';
+        break;
+      default:
+        headerTitle = 'Approve $toolName?';
+        approveLabel = _isStrategic ? 'Approve (strategic)' : 'Approve';
+        denyLabel = 'Deny';
+    }
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
@@ -2002,7 +2036,7 @@ class _PermissionPromptCardState
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Approve $toolName?',
+                  headerTitle,
                   style: GoogleFonts.spaceGrotesk(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -2012,7 +2046,20 @@ class _PermissionPromptCardState
               ),
             ],
           ),
-          if (inputText.isNotEmpty) ...[
+          // Body — per dialog_type. ADR-027 W8.
+          if (dialogType == 'plan_approval') ...[
+            const SizedBox(height: 6),
+            _PlanApprovalBody(
+              planBody: (widget.payload['plan_body'] ?? '').toString(),
+            ),
+          ] else if (dialogType == 'compaction') ...[
+            const SizedBox(height: 6),
+            _CompactionBody(
+              trigger: (widget.payload['trigger'] ?? '').toString(),
+              customInstructions:
+                  (widget.payload['custom_instructions'] ?? '').toString(),
+            ),
+          ] else if (inputText.isNotEmpty) ...[
             const SizedBox(height: 6),
             _CollapsibleMono(text: inputText),
           ],
@@ -2056,22 +2103,24 @@ class _PermissionPromptCardState
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: const Text('Deny'),
+                child: Text(denyLabel),
               ),
               const SizedBox(width: 8),
               FilledButton(
                 onPressed: _sending ? null : () => _decide('approve'),
                 style: FilledButton.styleFrom(
-                  backgroundColor: _isStrategic
-                      ? DesignColors.error
-                      : DesignColors.success,
+                  backgroundColor: dialogType == 'plan_approval'
+                      ? DesignColors.primary
+                      : (_isStrategic
+                          ? DesignColors.error
+                          : DesignColors.success),
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 14, vertical: 6),
                   minimumSize: const Size(0, 32),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                child: Text(_isStrategic ? 'Approve (strategic)' : 'Approve'),
+                child: Text(approveLabel),
               ),
               const Spacer(),
               if (_sending)
@@ -2084,6 +2133,101 @@ class _PermissionPromptCardState
           ),
         ],
       ),
+    );
+  }
+}
+
+/// ADR-027 W8: body widget for permission_prompt rows whose
+/// dialog_type is "plan_approval". Renders the agent's proposed plan
+/// (carried in payload.plan_body) as markdown so the principal can
+/// scan it inside the approval card. Empty plan_body falls back to a
+/// muted placeholder rather than rendering an empty body.
+class _PlanApprovalBody extends StatelessWidget {
+  final String planBody;
+  const _PlanApprovalBody({required this.planBody});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    if (planBody.trim().isEmpty) {
+      return Text(
+        '(no plan body provided)',
+        style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+      );
+    }
+    final textColor = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 360),
+      child: SingleChildScrollView(
+        child: MarkdownBody(
+          data: planBody,
+          selectable: true,
+          shrinkWrap: true,
+          styleSheet: MarkdownStyleSheet(
+            p: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              height: 1.4,
+              color: textColor,
+            ),
+            code: GoogleFonts.jetBrainsMono(
+              fontSize: 11,
+              color: textColor,
+            ),
+            listBullet: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              color: textColor,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ADR-027 W8: body widget for permission_prompt rows whose
+/// dialog_type is "compaction". Surfaces the trigger source (manual /
+/// auto) + any custom instructions claude shipped with the
+/// PreCompact hook payload so the principal can decide whether to
+/// allow the context collapse now or defer.
+class _CompactionBody extends StatelessWidget {
+  final String trigger;
+  final String customInstructions;
+  const _CompactionBody({
+    required this.trigger,
+    required this.customInstructions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    final body = isDark
+        ? DesignColors.textPrimary
+        : DesignColors.textPrimaryLight;
+    final triggerLabel = trigger.isEmpty ? '(unspecified)' : trigger;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Trigger: $triggerLabel',
+          style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+        ),
+        if (customInstructions.trim().isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            customInstructions,
+            style: GoogleFonts.spaceGrotesk(fontSize: 12, color: body),
+          ),
+        ],
+      ],
     );
   }
 }

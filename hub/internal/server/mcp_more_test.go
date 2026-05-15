@@ -604,6 +604,105 @@ func TestMCP_PermissionPrompt_RoutineAutoAllows(t *testing.T) {
 	}
 }
 
+// ADR-027 W4: AskUserQuestion is auto-allowed at the gate; the picker
+// UX is handled separately via the host-runner hook surface (W5b) +
+// tmux send-keys (W3). No attention_items row should be created.
+func TestMCP_PermissionPrompt_AskUserQuestionAutoAllows(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "AskUserQuestion",
+		"input":     map[string]any{"questions": []map[string]any{{"question": "Color?", "options": []map[string]any{{"label": "Red"}, {"label": "Blue"}}}}},
+	})
+
+	out, jerr := s.mcpPermissionPrompt(
+		context.Background(), defaultTeamID, agentID, args)
+	if jerr != nil {
+		t.Fatalf("permission_prompt: %+v", jerr)
+	}
+	body := mcpResultTextBody(t, out)
+	if !strings.Contains(body, `"behavior": "allow"`) {
+		t.Errorf("expected immediate allow for AskUserQuestion, got %s", body)
+	}
+	// updatedInput should pass through so claude-code keeps the
+	// questionnaire structure intact for its TUI picker.
+	if !strings.Contains(body, "questions") {
+		t.Errorf("updatedInput should pass through, got %s", body)
+	}
+
+	var n int
+	_ = s.db.QueryRow(
+		`SELECT COUNT(*) FROM attention_items WHERE kind = 'permission_prompt'`,
+	).Scan(&n)
+	if n != 0 {
+		t.Errorf("AskUserQuestion gate should NOT create attention; got %d row(s)", n)
+	}
+}
+
+// ADR-027 W4: ExitPlanMode escalates regardless of tier; the resolver
+// renders the proposed plan as markdown (dialog_type=plan_approval,
+// plan_body from tool_input.plan).
+func TestMCP_PermissionPrompt_ExitPlanModeParksWithPlanApproval(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, agentID := seedChannelAndAgent(t, s, "", "")
+
+	planBody := "1. Sketch the API surface\n2. Land the migration\n3. Run the smoke tests"
+	args, _ := json.Marshal(map[string]any{
+		"tool_name": "ExitPlanMode",
+		"input":     map[string]any{"plan": planBody},
+	})
+
+	type res struct {
+		out  any
+		jerr *jrpcError
+	}
+	done := make(chan res, 1)
+	go func() {
+		o, e := s.mcpPermissionPrompt(context.Background(), defaultTeamID, agentID, args)
+		done <- res{out: o, jerr: e}
+	}()
+
+	var attnID, payloadJSON string
+	for i := 0; i < 50; i++ {
+		_ = s.db.QueryRow(
+			`SELECT id, pending_payload_json FROM attention_items WHERE kind = 'permission_prompt' ORDER BY created_at DESC LIMIT 1`,
+		).Scan(&attnID, &payloadJSON)
+		if attnID != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if attnID == "" {
+		t.Fatal("attention_items row never appeared for ExitPlanMode")
+	}
+	if !strings.Contains(payloadJSON, `"dialog_type":"plan_approval"`) {
+		t.Errorf("payload missing dialog_type=plan_approval: %s", payloadJSON)
+	}
+	if !strings.Contains(payloadJSON, "Sketch the API surface") {
+		t.Errorf("payload missing plan_body content: %s", payloadJSON)
+	}
+
+	decisions, _ := json.Marshal([]map[string]any{{
+		"at": "now", "by": "@principal", "decision": "approve",
+	}})
+	if _, err := s.db.Exec(
+		`UPDATE attention_items SET status='resolved', decisions_json = ? WHERE id = ?`,
+		string(decisions), attnID,
+	); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	r := <-done
+	if r.jerr != nil {
+		t.Fatalf("permission_prompt: %+v", r.jerr)
+	}
+	body := mcpResultTextBody(t, r.out)
+	if !strings.Contains(body, `"behavior": "allow"`) {
+		t.Errorf("expected allow after plan approval, got %s", body)
+	}
+}
+
 func mcpResultTextBody(t *testing.T, out any) string {
 	t.Helper()
 	m, ok := out.(map[string]any)

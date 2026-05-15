@@ -1035,6 +1035,31 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		return nil, &jrpcError{Code: -32602, Message: "input required"}
 	}
 
+	// ADR-027 W4: per-tool dispatch for two special cases that don't
+	// fit the tier ladder.
+	//
+	// AskUserQuestion: claude-code routes this through the permission
+	// prompt because it's "a tool that takes user attention" — but the
+	// actual UX is a TUI picker rendered by claude itself, driven by
+	// arrow-key send-keys from mobile (ADR-027 D-amend-4 / plan §5.B.1).
+	// The permission gate is purely a "is this allowed?" check, which
+	// for AskUserQuestion is always yes; the structured questionnaire
+	// is handled separately via the host-runner hook surface (W5b).
+	// Auto-allow here so the gate doesn't block the picker rendering.
+	if a.ToolName == "AskUserQuestion" {
+		s.recordAudit(ctx, team, "permission_prompt.auto_allowed",
+			"agent", fromID,
+			"AskUserQuestion gate auto-allowed; picker via hook surface",
+			map[string]any{
+				"tool_name": a.ToolName,
+				"reason":    "askuserquestion_picker_via_hook",
+			})
+		return mcpResultJSON(map[string]any{
+			"behavior":     "allow",
+			"updatedInput": json.RawMessage(a.Input),
+		}), nil
+	}
+
 	// Tier gate (W1.A): only escalate to a user prompt for tier ≥
 	// significant. Trivial reads (file/glob/web search) and routine
 	// writes (edits in scope, journal_append, etc.) auto-allow with
@@ -1043,8 +1068,12 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 	// read" promise from docs/steward-sessions.md §6.5 real — under
 	// --permission-prompt-tool the agent would otherwise prompt on
 	// every tool call.
+	//
+	// ExitPlanMode is exempt from tier auto-allow: it always carries
+	// dialog_type=plan_approval so mobile can render the proposed plan
+	// as markdown rather than a tool-input preview. See dispatch below.
 	tier := tierFor(a.ToolName)
-	if tier == TierTrivial || tier == TierRoutine {
+	if a.ToolName != "ExitPlanMode" && (tier == TierTrivial || tier == TierRoutine) {
 		s.recordAudit(ctx, team, "permission_prompt.auto_allowed",
 			"agent", fromID,
 			"tier="+tier+" auto-allowed "+a.ToolName,
@@ -1058,23 +1087,36 @@ func (s *Server) mcpPermissionPrompt(ctx context.Context, team, fromID string, r
 		}), nil
 	}
 
-	// pending_payload_json carries the data the resolver UI needs to render
-	// a meaningful approve/deny prompt (tool name + redacted input preview).
-	// agent_id lets the mobile inbox associate the prompt with the calling
-	// agent for back-navigation into its transcript. `tier` is resolved
-	// server-side from the tool name (see tiers.go) so the mobile approval
-	// card can pick the right card class without re-deriving the tier
-	// itself — and so the agent can't reclassify its own actions by
-	// claiming a lower tier.
-	payload, _ := json.Marshal(map[string]any{
+	// Per-tool payload + summary shaping. dialog_type drives the mobile
+	// approval-card branch (plan_approval | tool_permission). plan_body
+	// is set only for ExitPlanMode so the renderer can show the proposed
+	// plan as markdown without re-deriving from input.
+	dialogType := "tool_permission"
+	summary := "tool: " + a.ToolName
+	payloadMap := map[string]any{
 		"tool_name":   a.ToolName,
 		"input":       a.Input,
 		"agent_id":    fromID,
 		"tool_use_id": a.ToolUseID,
 		"tier":        tier,
-	})
+		"dialog_type": dialogType,
+	}
+	if a.ToolName == "ExitPlanMode" {
+		dialogType = "plan_approval"
+		payloadMap["dialog_type"] = dialogType
+		summary = "plan-mode exit: review proposed plan"
+		// Extract the plan body from claude-code's ExitPlanMode
+		// tool_input. Schema (per docs/reference/claude-code-hook-schema.md):
+		// {"plan": "<markdown body>"}. We surface it as plan_body so the
+		// mobile renderer can show it as markdown without re-deriving.
+		var inp struct {
+			Plan string `json:"plan"`
+		}
+		_ = json.Unmarshal(a.Input, &inp)
+		payloadMap["plan_body"] = inp.Plan
+	}
+	payload, _ := json.Marshal(payloadMap)
 
-	summary := "tool: " + a.ToolName
 	id := NewID()
 	now := NowUTC()
 	actorHandle, _ := s.lookupHandleByID(ctx, team, fromID)

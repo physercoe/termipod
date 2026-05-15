@@ -188,6 +188,55 @@ func (s *Server) handleListAttention(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleGetAttention returns a single attention_items row. Added in
+// ADR-027 W2i so host-runner's parked-hook coordination can poll a
+// specific row by id without filtering through handleListAttention's
+// broad scan. Auth follows the same team-scope chain as the other
+// handlers in this file.
+func (s *Server) handleGetAttention(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, "id required")
+		return
+	}
+	var a attentionOut
+	var assignees, decisions, esc, pending string
+	var resolvedAt sql.NullString
+	err := s.db.QueryRowContext(r.Context(), `
+		SELECT id, COALESCE(project_id, ''), scope_kind, COALESCE(scope_id, ''), kind,
+		       COALESCE(ref_event_id, ''), COALESCE(ref_task_id, ''),
+		       summary, severity,
+		       COALESCE(actor_kind, ''), COALESCE(actor_handle, ''),
+		       COALESCE(session_id, ''),
+		       current_assignees_json, decisions_json, escalation_history_json,
+		       status, created_at, resolved_at, COALESCE(resolved_by, ''),
+		       COALESCE(pending_payload_json, '')
+		FROM attention_items WHERE id = ?`, id).Scan(
+		&a.ID, &a.ProjectID, &a.ScopeKind, &a.ScopeID, &a.Kind,
+		&a.RefEventID, &a.RefTaskID, &a.Summary, &a.Severity,
+		&a.ActorKind, &a.ActorHandle, &a.SessionID,
+		&assignees, &decisions, &esc, &a.Status, &a.CreatedAt,
+		&resolvedAt, &a.ResolvedBy, &pending)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "attention not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.Assignees = json.RawMessage(assignees)
+	a.Decisions = json.RawMessage(decisions)
+	a.Escalation = json.RawMessage(esc)
+	if pending != "" {
+		a.PendingPayload = json.RawMessage(pending)
+	}
+	if resolvedAt.Valid {
+		a.ResolvedAt = &resolvedAt.String
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
 type attentionDecideIn struct {
 	Decision string `json:"decision"` // 'approve' | 'reject'
 	By       string `json:"by,omitempty"`

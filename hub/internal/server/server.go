@@ -457,6 +457,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		r.Route("/attention", func(r chi.Router) {
 			r.Post("/", s.handleCreateAttention)
 			r.Get("/", s.handleListAttention)
+			r.Get("/{id}", s.handleGetAttention)
 			r.Get("/{id}/context", s.handleAttentionContext)
 			r.Post("/{id}/resolve", s.handleResolveAttention)
 			r.Post("/{id}/decide", s.handleDecideAttention)

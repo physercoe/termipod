@@ -2,6 +2,8 @@ package claudecode
 
 import (
 	"context"
+	"errors"
+	"time"
 )
 
 // dispatchHook is called by Adapter.OnHook (W2e+f wiring lives in
@@ -101,24 +103,83 @@ func (a *Adapter) hookNotification(ctx context.Context, p map[string]any) (map[s
 func (a *Adapter) hookPreToolUse(ctx context.Context, p map[string]any) (map[string]any, error) {
 	tool, _ := p["tool_name"].(string)
 	if tool == "AskUserQuestion" {
-		// W2e stub for parking — return {} immediately to allow the
-		// picker to render. W2i replaces this with: emit
-		// approval_request{user_question}, park on attention_items,
-		// return after mobile decides + send-keys nav fires.
-		if a.fsm != nil {
-			a.fsm.Transition(StateAwaitingDecision, "PreToolUse(AskUserQuestion)")
-		}
-		_ = a.post(ctx, "approval_request", "agent", map[string]any{
-			"dialog_type": "user_question",
-			"questions":   p["tool_input"],
-			"tool_use_id": p["tool_use_id"],
-		})
-		return map[string]any{}, nil
+		return a.parkAskUserQuestion(ctx, p)
 	}
 	if a.fsm != nil {
 		a.fsm.Transition(StateStreaming, "PreToolUse")
 	}
 	return map[string]any{}, nil
+}
+
+// parkAskUserQuestion implements the plan §5.B.1 flow:
+//
+//  1. Transition FSM → awaiting_decision.
+//  2. Emit approval_request{dialog_type:user_question} so mobile
+//     renders the picker card.
+//  3. Block on the pickerDone channel; HandleInput("pick_option")
+//     closes it after send-keys nav has fired.
+//  4. Return {} so claude proceeds with its TUI picker (send-keys
+//     has already selected the option for it).
+//
+// Unlike PreCompact, the picker DOES NOT use attention_items —
+// claude is going to render the picker for itself either way and we
+// just need to drive arrow nav from mobile's input. The in-process
+// channel keeps the hook → send-keys → unblock sequence race-free
+// without involving the hub.
+func (a *Adapter) parkAskUserQuestion(ctx context.Context, p map[string]any) (map[string]any, error) {
+	if a.fsm != nil {
+		a.fsm.Transition(StateAwaitingDecision, "PreToolUse(AskUserQuestion)")
+	}
+	_ = a.post(ctx, "approval_request", "agent", map[string]any{
+		"dialog_type": "user_question",
+		"questions":   p["tool_input"],
+		"tool_use_id": p["tool_use_id"],
+	})
+
+	a.pickerMu.Lock()
+	done := make(chan struct{})
+	a.pickerDone = done
+	a.pickerMu.Unlock()
+
+	timeout := time.Duration(a.Knobs.HookParkDefaultMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+
+	select {
+	case <-done:
+		// Picker resolved by HandleInput("pick_option"). FSM resets
+		// to streaming so claude can finish the turn.
+		if a.fsm != nil {
+			a.fsm.Transition(StateStreaming, "AskUserQuestion picker resolved")
+		}
+		return map[string]any{}, nil
+	case <-ctx.Done():
+		// Gateway closed or claude killed — release the picker
+		// channel without nav firing. Claude's TUI will sit waiting
+		// for input from the operator-at-keyboard.
+		a.clearPickerDone(done)
+		return map[string]any{}, ctx.Err()
+	case <-time.After(timeout):
+		// Mobile never resolved. Return {} so claude proceeds with
+		// its TUI picker (operator-at-keyboard handles it). Log so
+		// operators can spot stuck-picker patterns.
+		a.clearPickerDone(done)
+		a.Log.Warn("claude-code adapter: AskUserQuestion picker timed out",
+			"agent_id", a.AgentID, "timeout_ms", a.Knobs.HookParkDefaultMs)
+		return map[string]any{}, nil
+	}
+}
+
+// clearPickerDone resets the picker channel iff it's still the one
+// we created, so a late-arriving HandleInput("pick_option") doesn't
+// confuse a subsequent picker session.
+func (a *Adapter) clearPickerDone(done chan struct{}) {
+	a.pickerMu.Lock()
+	if a.pickerDone == done {
+		a.pickerDone = nil
+	}
+	a.pickerMu.Unlock()
 }
 
 func (a *Adapter) hookPostToolUse(_ context.Context, _ map[string]any) (map[string]any, error) {
@@ -138,8 +199,58 @@ func (a *Adapter) hookPreCompact(ctx context.Context, p map[string]any) (map[str
 		"custom_instructions": custom,
 		"options":             []string{"compact", "defer"},
 	})
-	// W2e stub: return {} (allow compaction) immediately. W2i swaps
-	// this for the real attention_items + /decide block-or-allow.
+
+	// W2i parking: surface the row + poll until mobile decides. No
+	// Attention client → fall back to W2e stub behaviour (return {}
+	// immediately = let compaction proceed) so spawns running without
+	// the W7 launch-glue wiring don't deadlock.
+	if a.Attention == nil {
+		if a.fsm != nil {
+			a.fsm.Transition(StateStreaming, "PreCompact (no Attention; auto-allow)")
+		}
+		return map[string]any{}, nil
+	}
+	timeout := time.Duration(a.Knobs.HookParkDefaultMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	result, err := a.Attention.Park(ctx, ParkRequest{
+		Kind:     "permission_prompt",
+		Summary:  "compact context?",
+		Severity: "minor",
+		PendingPayload: map[string]any{
+			"dialog_type":         "compaction",
+			"trigger":             trigger,
+			"custom_instructions": custom,
+			"agent_id":            a.AgentID,
+		},
+	}, timeout)
+	if err != nil {
+		if errors.Is(err, ErrParkTimeout) {
+			// Timeout = fail closed = block compaction. claude can
+			// retry later; better than collapsing context the
+			// operator never approved.
+			if a.fsm != nil {
+				a.fsm.Transition(StateStreaming, "PreCompact timeout")
+			}
+			return map[string]any{"decision": "block"}, nil
+		}
+		// Other errors (HTTP failure, ctx cancel) — let compaction
+		// proceed so a transient hub blip doesn't strand the agent.
+		// Log + reset FSM.
+		a.Log.Warn("claude-code adapter: PreCompact park failed; allowing compaction",
+			"agent_id", a.AgentID, "err", err)
+		if a.fsm != nil {
+			a.fsm.Transition(StateStreaming, "PreCompact park error")
+		}
+		return map[string]any{}, nil
+	}
+	if a.fsm != nil {
+		a.fsm.Transition(StateStreaming, "PreCompact decided")
+	}
+	if result.Decision != "approve" {
+		return map[string]any{"decision": "block"}, nil
+	}
 	return map[string]any{}, nil
 }
 

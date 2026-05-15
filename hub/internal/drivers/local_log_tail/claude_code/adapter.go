@@ -103,6 +103,11 @@ type Adapter struct {
 	// inject a fake so the test binary doesn't need real tmux/ps on
 	// PATH. Production leaves this nil.
 	CmdRunner CmdRunner
+	// Attention is the hub-side parking client (W2i). Nil disables
+	// real parking; parked hooks fall back to the W2e stub of
+	// returning {} immediately. The W7 launch glue wires a real
+	// HubAttentionClient when constructing the adapter.
+	Attention *HubAttentionClient
 
 	mu      sync.Mutex
 	started bool
@@ -111,6 +116,15 @@ type Adapter struct {
 	wg      sync.WaitGroup
 	tailer  *Tailer
 	fsm     *FSM
+
+	// pickerMu guards pickerDone. The AskUserQuestion picker uses
+	// an in-process channel (not the attention_items table) for
+	// hook-unblock signalling: mobile picks an option via
+	// HandleInput("pick_option") which sends-keys then closes
+	// pickerDone, allowing the parked PreToolUse hook to return.
+	// Plan §5.B.1.
+	pickerMu   sync.Mutex
+	pickerDone chan struct{}
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early

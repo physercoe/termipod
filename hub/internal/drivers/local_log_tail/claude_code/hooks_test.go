@@ -167,18 +167,35 @@ func TestOnHook_PreToolUseOther_TransitionsToStreaming(t *testing.T) {
 	}
 }
 
+// W2i: PreToolUse(AskUserQuestion) now blocks on the picker channel.
+// Verify it (a) emits the approval_request event + transitions FSM
+// before blocking, (b) returns when the picker channel closes, (c)
+// the picker_done channel is set so inputPickOption can find it.
 func TestOnHook_PreToolUse_AskUserQuestion_ParksAndEmitsApprovalRequest(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)
-	resp, _ := a.OnHook(context.Background(), "PreToolUse", map[string]any{
-		"tool_name": "AskUserQuestion",
-		"tool_input": map[string]any{
-			"questions": []map[string]any{{"question": "Color?", "options": []map[string]any{{"label": "Red"}}}},
-		},
-		"tool_use_id": "t9",
-	})
-	if resp == nil {
-		t.Errorf("nil response")
+	a.Knobs.HookParkDefaultMs = 5000 // long enough not to fire mid-test
+
+	respCh := make(chan map[string]any, 1)
+	go func() {
+		resp, _ := a.OnHook(context.Background(), "PreToolUse", map[string]any{
+			"tool_name": "AskUserQuestion",
+			"tool_input": map[string]any{
+				"questions": []map[string]any{{"question": "Color?", "options": []map[string]any{{"label": "Red"}}}},
+			},
+			"tool_use_id": "t9",
+		})
+		respCh <- resp
+	}()
+
+	// Wait for the parked hook to emit its approval_request and set
+	// pickerDone.
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := findFirstByKind(p.snapshot(), "approval_request"); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if a.fsm.State() != StateAwaitingDecision {
 		t.Errorf("state = %v, want StateAwaitingDecision", a.fsm.State())
@@ -193,17 +210,117 @@ func TestOnHook_PreToolUse_AskUserQuestion_ParksAndEmitsApprovalRequest(t *testi
 	if ev.payload["tool_use_id"] != "t9" {
 		t.Errorf("tool_use_id = %v", ev.payload["tool_use_id"])
 	}
+
+	// Verify pickerDone is set (so inputPickOption can find it).
+	a.pickerMu.Lock()
+	done := a.pickerDone
+	a.pickerMu.Unlock()
+	if done == nil {
+		t.Fatal("pickerDone not set; AskUserQuestion didn't park")
+	}
+	// Closing the channel must unblock OnHook.
+	close(done)
+	a.pickerMu.Lock()
+	a.pickerDone = nil
+	a.pickerMu.Unlock()
+
+	select {
+	case <-respCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("OnHook did not return after pickerDone closed")
+	}
+	// FSM should be back to streaming.
+	if a.fsm.State() != StateStreaming {
+		t.Errorf("state after unpark = %v, want StateStreaming", a.fsm.State())
+	}
 }
 
-func TestOnHook_PreCompactParks(t *testing.T) {
+// Picker times out — hook returns {}, FSM doesn't change back (timeout
+// is treated as no-op so claude's TUI is left for operator-at-keyboard).
+func TestOnHook_PreToolUse_AskUserQuestion_TimeoutReturnsEmpty(t *testing.T) {
 	p := &hooksTestPoster{}
 	a := hooksTestAdapter(t, p)
-	_, _ = a.OnHook(context.Background(), "PreCompact", map[string]any{
+	a.Knobs.HookParkDefaultMs = 50 // fire fast
+
+	start := time.Now()
+	resp, err := a.OnHook(context.Background(), "PreToolUse", map[string]any{
+		"tool_name":   "AskUserQuestion",
+		"tool_input":  map[string]any{},
+		"tool_use_id": "t10",
+	})
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
+	}
+	if resp == nil {
+		t.Errorf("nil response on timeout; want empty map")
+	}
+	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
+		t.Errorf("returned in %v before 50ms timeout", elapsed)
+	}
+}
+
+// inputPickOption closes pickerDone after send-keys — verifies the
+// hook → send-keys → unblock loop completes.
+func TestPickOption_ClosesPickerDone(t *testing.T) {
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	a.Knobs.HookParkDefaultMs = 5000
+	a.PaneID = "%42"
+	r := &recordingRunner{}
+	a.CmdRunner = r
+
+	respCh := make(chan map[string]any, 1)
+	go func() {
+		resp, _ := a.OnHook(context.Background(), "PreToolUse", map[string]any{
+			"tool_name":   "AskUserQuestion",
+			"tool_input":  map[string]any{},
+			"tool_use_id": "t11",
+		})
+		respCh <- resp
+	}()
+	// Wait for pickerDone to be set.
+	deadline := time.Now().Add(1 * time.Second)
+	for time.Now().Before(deadline) {
+		a.pickerMu.Lock()
+		set := a.pickerDone != nil
+		a.pickerMu.Unlock()
+		if set {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Send pick_option index=1: Down + Enter, then close pickerDone.
+	if err := a.HandleInput(context.Background(), "pick_option", map[string]any{"index": float64(1)}); err != nil {
+		t.Fatalf("HandleInput pick_option: %v", err)
+	}
+	select {
+	case <-respCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("OnHook did not return after pick_option")
+	}
+	calls := r.snapshot()
+	if len(calls) != 2 {
+		t.Fatalf("send-keys calls = %d, want 2 (Down + Enter)", len(calls))
+	}
+}
+
+// W2i: PreCompact with no Attention client auto-allows (returns {}
+// immediately so the hook contract is satisfied) but still emits the
+// approval_request agent_event so mobile can render an info card.
+// FSM ends up at streaming after the fallthrough.
+func TestOnHook_PreCompact_NoAttentionAutoAllows(t *testing.T) {
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	resp, err := a.OnHook(context.Background(), "PreCompact", map[string]any{
 		"trigger":             "manual",
 		"custom_instructions": "be brief",
 	})
-	if a.fsm.State() != StateAwaitingDecision {
-		t.Errorf("state = %v, want StateAwaitingDecision", a.fsm.State())
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Errorf("resp = %v, want {} (auto-allow without Attention)", resp)
 	}
 	ev, ok := findFirstByKind(p.snapshot(), "approval_request")
 	if !ok {
@@ -214,6 +331,101 @@ func TestOnHook_PreCompactParks(t *testing.T) {
 	}
 	if ev.payload["trigger"] != "manual" {
 		t.Errorf("trigger = %v", ev.payload["trigger"])
+	}
+	if a.fsm.State() != StateStreaming {
+		t.Errorf("state = %v, want StateStreaming (no-Attention fallthrough)", a.fsm.State())
+	}
+}
+
+// W2i: PreCompact with a real Attention client parks until mobile
+// decides. Approve → resp empty (compaction proceeds). Reject →
+// resp carries decision:block.
+func TestOnHook_PreCompact_ParkedApprovePath(t *testing.T) {
+	c, hub, cleanup := newTestClient(t)
+	defer cleanup()
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	a.Attention = c
+	a.Knobs.HookParkDefaultMs = 3000
+
+	respCh := make(chan map[string]any, 1)
+	go func() {
+		resp, _ := a.OnHook(context.Background(), "PreCompact", map[string]any{
+			"trigger": "manual",
+		})
+		respCh <- resp
+	}()
+	// Wait for the row to land, then resolve.
+	deadline := time.Now().Add(2 * time.Second)
+	var id string
+	for time.Now().Before(deadline) {
+		if id = hub.lastID(); id != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if id == "" {
+		t.Fatal("attention row never landed on mock hub")
+	}
+	hub.resolve(id, "approve", "ok")
+	select {
+	case resp := <-respCh:
+		if len(resp) != 0 {
+			t.Errorf("approve resp = %v, want {}", resp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnHook did not return after approve")
+	}
+}
+
+func TestOnHook_PreCompact_ParkedRejectPath(t *testing.T) {
+	c, hub, cleanup := newTestClient(t)
+	defer cleanup()
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	a.Attention = c
+	a.Knobs.HookParkDefaultMs = 3000
+
+	respCh := make(chan map[string]any, 1)
+	go func() {
+		resp, _ := a.OnHook(context.Background(), "PreCompact", map[string]any{
+			"trigger": "auto",
+		})
+		respCh <- resp
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	var id string
+	for time.Now().Before(deadline) {
+		if id = hub.lastID(); id != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	hub.resolve(id, "reject", "defer for now")
+	select {
+	case resp := <-respCh:
+		if resp["decision"] != "block" {
+			t.Errorf("reject resp = %v, want decision:block", resp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnHook did not return after reject")
+	}
+}
+
+func TestOnHook_PreCompact_TimeoutBlocks(t *testing.T) {
+	c, _, cleanup := newTestClient(t)
+	defer cleanup()
+	p := &hooksTestPoster{}
+	a := hooksTestAdapter(t, p)
+	a.Attention = c
+	a.Knobs.HookParkDefaultMs = 100
+
+	resp, err := a.OnHook(context.Background(), "PreCompact", map[string]any{"trigger": "auto"})
+	if err != nil {
+		t.Fatalf("OnHook: %v", err)
+	}
+	if resp["decision"] != "block" {
+		t.Errorf("timeout resp = %v, want decision:block (fail closed)", resp)
 	}
 }
 

@@ -146,6 +146,11 @@ func (a *Adapter) inputHardCancel(ctx context.Context) error {
 //
 // Index 0 is the default-highlighted option, so no Down keystrokes
 // are needed before Enter.
+//
+// Picker unblock (W2i): after send-keys nav has fired, closes the
+// pickerDone channel so the parked PreToolUse(AskUserQuestion) hook
+// returns {} to claude. The hook is responsible for transitioning
+// the FSM back to streaming.
 func (a *Adapter) inputPickOption(ctx context.Context, idx int) error {
 	if err := a.requirePane(); err != nil {
 		return err
@@ -156,8 +161,21 @@ func (a *Adapter) inputPickOption(ctx context.Context, idx int) error {
 			return err
 		}
 	}
-	_, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter")
-	return err
+	if _, err := runner.Run(ctx, "tmux", "send-keys", "-t", a.PaneID, "Enter"); err != nil {
+		return err
+	}
+	// Signal the parked PreToolUse(AskUserQuestion) hook that the
+	// picker is resolved. nil pickerDone means there's no parked
+	// hook waiting (e.g. mobile sent pick_option without a prior
+	// PreToolUse — defensive no-op).
+	a.pickerMu.Lock()
+	done := a.pickerDone
+	a.pickerDone = nil
+	a.pickerMu.Unlock()
+	if done != nil {
+		close(done)
+	}
+	return nil
 }
 
 // HandleInput is the locallogtail.Adapter entry; routes to

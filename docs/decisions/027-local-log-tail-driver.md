@@ -1,7 +1,7 @@
 # 027. LocalLogTailDriver replaces agent-mode M4
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-15) — Amended (2026-05-15) per on-device hook probe; see `## Amendment` below
+> **Status:** Accepted (2026-05-15) — Amended (2026-05-15) per on-device hook probe + D-amend-6 (host-runner UDS gateway as hook surface; D-amend-5 superseded); see `## Amendment` below
 > **Audience:** contributors
 > **Last verified vs code:** claude-code 2.1.129, 200k-line live JSONL sample + 9-hook payload corpus on 2026-05-15
 
@@ -257,14 +257,20 @@ At spawn time, host-runner writes
 `<workdir>/.claude/settings.local.json` registering 9 hooks
 (`PreToolUse`, `PostToolUse`, `Notification`, `UserPromptSubmit`,
 `Stop`, `SubagentStop`, `PreCompact`, `SessionStart`, `SessionEnd`)
-as `type:"mcp_tool"` targets on the per-spawn host-runner UDS MCP
-gateway — same transport `mcp__termipod__permission_prompt` uses
-today. Host-runner gains 9 new MCP tool handlers (mirroring the
-parking pattern of `mcpPermissionPrompt`); each maps the hook
-payload to an `agent_event`, parks the MCP call when a mobile
-decision is needed, and unblocks claude-code with the appropriate
-`permissionDecision` / `decision` return when the user resolves the
-attention.
+as `type:"mcp_tool"` targets pointing at the per-spawn host-runner
+UDS gateway (namespace `mcp__termipod-host__hook_*`), reached via a
+small `host-runner mcp-uds-stdio` multicall subcommand that
+claude-code spawns from `.mcp.json`. The 9 new MCP tool handlers
+live on the gateway in `hub/internal/hostrunner/mcp_gateway.go`,
+giving the LocalLogTailDriver first read of every hook payload
+before the hub records the derived `agent_event`. Parked handlers
+(`PreCompact`, `PreToolUse(AskUserQuestion)`) coordinate with the
+hub via the existing `attention_items` + `/decide` flow that
+`mcpPermissionPrompt` already drives — host-runner inserts the row,
+long-polls for resolution, and returns the appropriate
+`permissionDecision` / `decision` to claude-code. (Placement
+re-anchored in D-amend-6; earlier draft D-amend-5 misjudged that
+hooks could live entirely on the hub.)
 
 Empirical confirmations from the probe corpus (probe artefacts +
 analysis at
@@ -395,6 +401,78 @@ with a "Phase 2" message and defers to the TUI.
 | Send-keys role | text + cancel + escape + slash + (mode-cycle) | + AskUserQuestion option navigation |
 
 The 9 MCP hook tool handlers (D-amend-1) collapse to **6 purely-observational handlers + 1 parked handler** (PreCompact): `hook_notification`, `hook_stop`, `hook_subagent_stop`, `hook_user_prompt`, `hook_session_start`, `hook_session_end` (observational) + `hook_pre_compact` (parked). PreToolUse and PostToolUse can still be installed if mobile wants activity-timeline previews, but they're not load-bearing for the approval surface anymore.
+
+**D-amend-5. ~~Hook handlers live in the hub MCP catalog~~ —
+SUPERSEDED by D-amend-6.** The reasoning behind D-amend-5 was
+incomplete: it correctly identified `egress_proxy.go` as the
+hub-URL-masking bridge but did not account for the fact that hook
+events feed the LocalLogTailDriver's state machine, which lives on
+host-runner. If hook calls land on the hub, the driver only sees
+them via SSE round-trip — too late for state coordination
+(idle/streaming/awaiting_decision transitions) and for the
+send-keys timing AskUserQuestion picker arrow navigation depends
+on. Re-anchored in D-amend-6.
+
+**D-amend-6. Hook handlers live in the host-runner per-spawn UDS
+MCP gateway; reachable via a second `mcp__termipod-host__*`
+namespace in `.mcp.json`.** Two architectural facts force this:
+
+1. **Driver needs first read of hook events.** The
+   LocalLogTailDriver runs on host-runner (plan §4). `Stop`,
+   `PreToolUse`, `Notification{idle_prompt}`, and especially
+   `PreToolUse(AskUserQuestion)` drive its state machine and its
+   send-keys timing. The driver must be the first consumer; the
+   hub is downstream (records `agent_events`, owns
+   `attention_items`, relays to mobile via SSE).
+2. **Namespace split keeps `permission_prompt` invariant.** The
+   hub-side authority surface (`permission_prompt`, `delegate`,
+   `request_*`, `agents.fanout`, …) stays under `termipod`.
+   Host-runner-local tools (the 9 hook handlers) live under
+   `termipod-host`. Two server entries in `.mcp.json` make the
+   layering explicit; no churn to existing M1/M2 spawns.
+
+Spawn-time wiring (claude-code M4 only):
+
+- Host-runner calls `StartGateway(ctx, agentID, hubClient)` in
+  `runner.go::launchOne` when the resolved mode is M4 +
+  LocalLogTailDriver. The UDS gateway in
+  `hub/internal/hostrunner/mcp_gateway.go` finally gets a wire
+  (file-comment "exposed but not wired" no longer holds for this
+  binding; M1/M2/M4-non-claude paths are unchanged).
+- A new multicall subcommand `host-runner mcp-uds-stdio
+  --socket <path>` pumps stdio ↔ the per-spawn UDS. Claude-code's
+  `.mcp.json` invokes it as the `termipod-host` server. **No new
+  binary required** — host-runner is already a multicall binary
+  (`cmd/host-runner/main.go:36-45`).
+- `writeMCPConfigClaudeCodeM4` writes the dual-server `.mcp.json`:
+  `termipod` (egress → hub, unchanged from M1/M2) +
+  `termipod-host` (UDS gateway shim, new).
+- `<workdir>/.claude/settings.local.json` hook entries reference
+  `mcp__termipod-host__hook_*` (not `mcp__termipod__hook_*` as the
+  pre-amendment plan said).
+
+**Effect on M1/M2 and other M4 bindings: zero.** They keep their
+single-server `.mcp.json` (`termipod` only); their drivers are
+untouched; no extra UDS socket is bound for those spawns.
+
+**Effect on user install/launch: zero.** Host-runner is already
+multicall; the new `mcp-uds-stdio` subcommand is part of the same
+binary. The one-line install (`host-runner` + optional symlink for
+`hub-mcp-bridge`) is unchanged; `host-runner run --hub … --token …`
+takes no new flags.
+
+**Parked hook handlers** (`PreCompact` always, `PreToolUse(AskUserQuestion)`)
+park on host-runner with the `Driver` updating state, while a hub
+HTTP call inserts the `attention_items` row and long-polls
+`/decide` for resolution. No new hub endpoints required — reuses
+the existing `attention_items` table + `decide` flow that
+`mcpPermissionPrompt` already drives.
+
+**Implementation checklist W5 in plan §11** expands to five
+sub-wedges (W5a wiring, W5b 9 handlers + driver registry,
+W5c `mcp-uds-stdio` subcommand, W5d dual-server `.mcp.json`
+writer, W5e parked-hook hub coordination). Plan §12.3 is
+re-rewritten in the same commit.
 
 ## References
 

@@ -1,7 +1,7 @@
 # LocalLogTailDriver — claude-code adapter
 
 > **Type:** plan
-> **Status:** Draft (2026-05-15) — spec frozen; hook surface empirically validated against claude-code 2.1.129; implementation not started; ADR-027 amended same day
+> **Status:** Draft (2026-05-15) — spec frozen; hook surface empirically validated against claude-code 2.1.129; implementation not started; ADR-027 amended same day incl. D-amend-6 (host-runner UDS gateway as hook surface, dual-namespace `.mcp.json`; supersedes D-amend-5)
 > **Audience:** contributors
 > **Last verified vs code:** claude-code 2.1.129, JSONL 200k-line live sample + 9-hook payload corpus on 2026-05-15
 
@@ -13,18 +13,25 @@ signal sources**:
    transcript content (text / thinking / tool_use / tool_result /
    attachment).
 2. **`--permission-prompt-tool` MCP path** (existing infrastructure
-   in `hub/internal/server/mcp_more.go::mcpPermissionPrompt`) —
-   covers ALL approval gates including `ExitPlanMode` and
-   non-bypass tool-permission requests. Per-tool dispatch in the
-   handler emits the right `dialog_type` (plan_approval /
-   tool_permission). Same parking model the M1/M2 stewards
-   already use; **no new approval-routing code**.
-3. **Hook surface** (via the per-spawn host-runner UDS MCP gateway,
-   `type:"mcp_tool"`) — covers TUI-interactive state events not
+   in `hub/internal/server/mcp_more.go::mcpPermissionPrompt`,
+   namespace `mcp__termipod__*`, reached via the existing
+   bridge → egress-proxy → hub chain) — covers ALL approval gates
+   including `ExitPlanMode` and non-bypass tool-permission requests.
+   Per-tool dispatch in the handler emits the right `dialog_type`
+   (plan_approval / tool_permission). Same parking model the M1/M2
+   stewards already use; **no new approval-routing code**.
+3. **Hook surface** (via `<workdir>/.claude/settings.local.json`
+   with `type:"mcp_tool"`, namespace `mcp__termipod-host__*`,
+   resolved by a SECOND server entry in `.mcp.json` pointing at the
+   per-spawn host-runner UDS gateway via `host-runner mcp-uds-stdio
+   --socket <path>`) — covers TUI-interactive state events not
    served by the approval channel: idle / turn-end / subagent-stop
    / session-lifecycle (purely observational) + compaction (parked)
    + AskUserQuestion picker content (parked + send-keys for the
-   actual choice).
+   actual choice). The host-runner gateway needs first read because
+   hook payloads drive the LocalLogTailDriver's state machine
+   (idle/streaming/awaiting_decision) and the AskUserQuestion
+   send-keys timing.
 
 Mobile input flows back via `tmux send-keys` for free-text + cancel
 + escape + the AskUserQuestion picker's arrow-navigation. The
@@ -222,13 +229,40 @@ selects the appropriate body+options rendering.
 ### 5.B Observation channel — hook surface
 
 Hooks installed via `<workdir>/.claude/settings.local.json` with
-`type:"mcp_tool"` routing through the per-spawn host-runner UDS
-MCP gateway (same transport as the approval channel). Host-runner
-gains **9 new MCP tool handlers** in `hub/internal/hostrunner/mcp_gateway.go`,
-one per hook event. Of those, only `hook_pre_compact` parks
-unconditionally, and `hook_pre_tool_use` parks only when
-`tool_name=="AskUserQuestion"`; the other 7 return `{}` immediately
-and forward an observational `agent_event` to hub.
+`type:"mcp_tool"`, resolved through a **second** MCP server entry
+in `.mcp.json` named `termipod-host` (alongside the existing
+`termipod` entry that carries `permission_prompt` to the hub). The
+second entry points at the per-spawn host-runner UDS gateway
+(`hub/internal/hostrunner/mcp_gateway.go`, brought live for M4
+LocalLogTail spawns by ADR-027 D-amend-6) via a small multicall
+subcommand:
+
+```
+claude-code (mcp__termipod-host__hook_*)
+  → host-runner mcp-uds-stdio --socket /tmp/termipod-agent-<id>.sock
+  → UDS gateway (in-process; same host-runner that owns the driver)
+  → hook handler → drives LocalLogTailDriver state, posts
+                   agent_event to hub via existing forwardJSON,
+                   for parked tools inserts attention_items + polls
+```
+
+The gateway is wired only for M4 LocalLogTail spawns; M1/M2/other-M4
+spawns keep their single-server `.mcp.json` and never start a
+gateway.
+
+The **9 new MCP tool handlers** register on the host-runner
+gateway in `gatewayToolDefs()` + `dispatchTool()`. Of those, only
+`hook_pre_compact` parks unconditionally, and `hook_pre_tool_use`
+parks only when `tool_name=="AskUserQuestion"`; the other 7 return
+`{}` immediately and post an observational `agent_event` to hub.
+
+Why two namespaces instead of one: keeping `permission_prompt` on
+the `termipod` (hub) namespace means M1/M2 spawns and the
+`--permission-prompt-tool` flag work byte-identically; only the
+new M4 LocalLogTail path materializes the second `termipod-host`
+entry. Trying to fold both under `mcp__termipod__*` would require
+the host-runner gateway to also proxy every hub-authority tool —
+much larger surface for no behavioural gain.
 
 | Hook | Payload | AgentEvent emission | Parks? |
 |---|---|---|---|
@@ -389,7 +423,7 @@ hub config without recompile.
   codex's `~/.codex/sessions/<date>/...jsonl`, kimi's
   `~/.kimi/sessions/<hash>/<uuid>/context.jsonl`.
 - Scroll-up pagination beyond the 5-turn catchup.
-- Q3 + Q5 from ADR-027 — `mcp_tool` long-park behavior and `PreToolUse permissionDecision:"allow"` overriding plan-mode prompt. Tested separately when hub-side hook handlers exist.
+- Q3 + Q5 from ADR-027 — `mcp_tool` long-park behavior and `PreToolUse permissionDecision:"allow"` overriding plan-mode prompt. Tested separately once the host-runner gateway hook handlers (W5b) exist.
 - New hook events beyond the 9 listed in §5.1 (e.g. `WorktreeCreate`, `Elicitation` — documented but not in 2.1.129).
 - Auto-recovery when the agent's pane is closed.
 - xterm-VT fallback when JSONL or hook schema drifts (see §9).
@@ -409,11 +443,38 @@ Wedge-sized; each line is its own commit / test pass:
   with per-tool dispatch: `ExitPlanMode → dialog_type:"plan_approval"
   + body: tool_input.plan`; `AskUserQuestion → auto-allow gate`;
   default → existing tier-based path
-- [ ] `hub/internal/hostrunner/mcp_gateway.go` — 9 new MCP tool
-  handlers (`hook_pre_tool_use` parks only for AskUserQuestion,
-  `hook_pre_compact` parks always; the other 7 are purely
-  observational). Reuse the parking pattern from
-  `mcpPermissionPrompt`.
+- [ ] **W5a** — Wire `mcp_gateway.StartGateway` into
+  `runner.go::launchOne` for M4 LocalLogTail spawns only. Track
+  the active gateway alongside `a.drivers[sp.ChildID]` so cleanup
+  is symmetric with `stopDriver`. M1 / M2 / other-M4 paths
+  untouched.
+- [ ] **W5b** — Extend `hub/internal/hostrunner/mcp_gateway.go`:
+  add 9 entries to `gatewayToolDefs()`, 9 dispatch cases in
+  `dispatchTool()`, and a per-spawn driver registry the handlers
+  consult to update LocalLogTailDriver state. `hook_pre_tool_use`
+  parks only for `AskUserQuestion`; `hook_pre_compact` parks
+  always; the other 7 return `{}` immediately. Observational
+  handlers post the derived `agent_event` to hub via existing
+  `forwardJSON`. Parking reuses the `mcpPermissionPrompt` pattern
+  but coordinates with hub through HTTP (insert attention_item,
+  long-poll `/decide`).
+- [ ] **W5c** — Add `mcp-uds-stdio` multicall subcommand in
+  `cmd/host-runner/main.go` (alongside the existing `mcp-bridge`
+  / `hub-mcp-bridge` basename multicall). Stdio in/out pump
+  against the supplied UDS socket; one goroutine each direction;
+  exit on either side closing.
+- [ ] **W5d** — Dual-server `.mcp.json` writer for claude-code M4
+  spawns: extend (or branch) `writeMCPConfig` so the M4
+  LocalLogTail path adds a `termipod-host` server entry pointing
+  at `host-runner mcp-uds-stdio --socket <path>`. M1/M2 / other-M4
+  paths continue writing the single-server config.
+- [ ] **W5e** — Parked-hook hub coordination helper (host-runner
+  side): given a hook payload + dialog_type, POST
+  `/v1/teams/<team>/attention` to insert the row, then long-poll
+  `/v1/teams/<team>/attention/<id>` (or equivalent) until
+  resolved; return the decision. No new hub endpoints if the
+  existing `attention_items` POST / `/decide` flow suffices —
+  verify during coding; otherwise scope a small wedge.
 - [ ] `hub/internal/hostrunner/hooks_install.go` — spawn-time writer
   that merges the hooks block into `<workdir>/.claude/settings.local.json`
 - [ ] `hub/internal/agentfamilies/agent_families.yaml` — switch
@@ -472,27 +533,57 @@ Existing renderer already handles `kind == "approval_request"` at
 | `user_question` (new) | One question at a time from `payload.questions[i]`; render options as a radio list | `Submit` (sends the chosen index); `Skip to TUI` (cancels park, lets user-at-terminal handle) |
 | `compaction` (new) | `Compact context now?` + trigger source | `Compact`, `Defer` |
 
-### 12.3 MCP gateway tool registration
+### 12.3 Host-runner UDS gateway tool registration
 
-Adding 9 entries to `gatewayToolDefs()` in
-`hub/internal/hostrunner/mcp_gateway.go` (alongside existing
-`host.ping`, `hub.agent_event_post`, etc.):
+The 9 hook tools register on the **host-runner per-spawn UDS
+gateway** (`hub/internal/hostrunner/mcp_gateway.go`) so the
+LocalLogTailDriver sees every hook payload first and can drive its
+state machine + AskUserQuestion send-keys timing. Claude-code
+reaches the gateway via a SECOND server entry in `.mcp.json` named
+`termipod-host` (the existing `termipod` entry, carrying
+`permission_prompt` to the hub via the egress proxy, stays
+unchanged). The namespace split keeps M1/M2 spawn config invariant.
 
-| Tool name (in catalog) | claude-code-side name (in settings.local.json) | Parks? |
+Registration in three pieces:
+
+1. **Tool catalog.** Add 9 entries to `gatewayToolDefs()` in
+   `mcp_gateway.go` (each with input schema sourced from
+   `docs/reference/claude-code-hook-schema.md`).
+2. **Dispatcher.** Add 9 cases to `dispatchTool()` in the same
+   file. Each case looks up the active LocalLogTailDriver for the
+   gateway's `AgentID`, calls into it to update state + derive an
+   `agent_event` payload, posts the event to the hub via
+   `forwardJSON("POST", agentEventPath, payload)`, and returns
+   `{}` (observational) or parks (parked).
+3. **Driver registry.** A per-spawn handle from gateway →
+   `*locallogtail.Driver`. The runner wires this when constructing
+   the driver, before `StartGateway` returns. Cleared on driver
+   stop.
+
+| Tool name (in gateway catalog) | claude-code-side name (in settings.local.json) | Parks? |
 |---|---|---|
-| `hook_pre_tool_use` | `mcp__termipod__hook_pre_tool_use` | only for AskUserQuestion |
-| `hook_post_tool_use` | `mcp__termipod__hook_post_tool_use` | no |
-| `hook_notification` | `mcp__termipod__hook_notification` | no |
-| `hook_pre_compact` | `mcp__termipod__hook_pre_compact` | yes |
-| `hook_stop` | `mcp__termipod__hook_stop` | no |
-| `hook_subagent_stop` | `mcp__termipod__hook_subagent_stop` | no |
-| `hook_user_prompt` | `mcp__termipod__hook_user_prompt` | no |
-| `hook_session_start` | `mcp__termipod__hook_session_start` | no |
-| `hook_session_end` | `mcp__termipod__hook_session_end` | no |
+| `hook_pre_tool_use` | `mcp__termipod-host__hook_pre_tool_use` | only for AskUserQuestion |
+| `hook_post_tool_use` | `mcp__termipod-host__hook_post_tool_use` | no |
+| `hook_notification` | `mcp__termipod-host__hook_notification` | no |
+| `hook_pre_compact` | `mcp__termipod-host__hook_pre_compact` | yes |
+| `hook_stop` | `mcp__termipod-host__hook_stop` | no |
+| `hook_subagent_stop` | `mcp__termipod-host__hook_subagent_stop` | no |
+| `hook_user_prompt` | `mcp__termipod-host__hook_user_prompt` | no |
+| `hook_session_start` | `mcp__termipod-host__hook_session_start` | no |
+| `hook_session_end` | `mcp__termipod-host__hook_session_end` | no |
 
-Each handler's input schema is the corresponding hook payload from
-`docs/reference/claude-code-hook-schema.md` (referenced by section
-anchor).
+Parked handlers (`hook_pre_compact` always, `hook_pre_tool_use` for
+AskUserQuestion) coordinate parking with the hub via HTTP:
+host-runner POSTs an `attention_items` row, long-polls `/decide`
+for resolution (reuses the existing flow `mcpPermissionPrompt`
+drives — no new hub endpoints unless verification during W5e
+discovers a gap), and returns the `{}` / `{"decision":"block"}`
+shape claude-code's hook contract expects.
+
+Observational handlers (the other 7) post the derived
+`agent_event` row to hub via existing `forwardJSON` and return
+`{}`. The agent_id is the gateway's `AgentID` field (set when
+StartGateway is wired in W5a).
 
 ### 12.4 Hook merge strategy in `hooks_install.go`
 
@@ -561,7 +652,11 @@ When the next session starts implementing, these are the load-bearing existing f
 | File | What to learn from it |
 |---|---|
 | `hub/internal/hostrunner/driver_acp.go` | AgentEvent emission shape, host-runner driver interface |
-| `hub/internal/hostrunner/mcp_gateway.go` | Per-spawn UDS MCP gateway, tool catalog, JSON-RPC handling |
+| `hub/internal/server/mcp_more.go::mcpPermissionPrompt` | Reference parking pattern (hub side); the gateway's parked-hook handlers mirror this against hub HTTP |
+| `hub/internal/hostrunner/egress_proxy.go` | The 127.0.0.1:41825 reverse proxy hiding the hub URL from agents (already wired for `permission_prompt`; unchanged by this ADR) |
+| `hub/internal/hostrunner/mcp_gateway.go` | Per-spawn UDS gateway — **the host of the 9 hook handlers** (W5b). File comment line 21–22 said "exposed but not wired"; W5a wires it for M4 LocalLogTail spawns. |
+| `cmd/host-runner/main.go` | Multicall entry; W5c adds the `mcp-uds-stdio` subcommand here |
+| `hub/internal/hostrunner/launch_m2.go::writeMCPConfig` | Reference for `.mcp.json` materialiser; W5d adds a sibling for the M4 LocalLogTail dual-server variant |
 | `hub/internal/server/mcp_more.go::mcpPermissionPrompt` | Parking model + attention_items insertion |
 | `hub/internal/server/handlers_attention.go` | Attention item schema, kind values, resolve flow |
 | `hub/internal/server/tiers.go` | Tier-based auto-allow for non-claude-code tools |
@@ -594,4 +689,5 @@ None of these block implementing the plan as written. Each becomes a small follo
 - Existing parking model: `hub/internal/server/mcp_more.go::mcpPermissionPrompt` — the parked-MCP-call pattern this driver's hook handlers reuse verbatim
 - ADR-010 frame-profiles-as-data: the per-engine adapter pattern inside `local_log_tail/` mirrors the YAML-profile model used for ACP frame profiles
 - Existing M1 driver: `hub/internal/hostrunner/driver_acp.go` — reference for AgentEvent emission shape
-- Hub-side MCP gateway: `hub/internal/hostrunner/mcp_gateway.go` — the per-spawn UDS transport that hook MCP tools route through
+- Host-runner egress proxy: `hub/internal/hostrunner/egress_proxy.go` — the 127.0.0.1:41825 reverse proxy that hides the hub URL from claude-code; the actual transport `permission_prompt` routes through (unchanged by this ADR)
+- Per-spawn UDS MCP gateway: `hub/internal/hostrunner/mcp_gateway.go` — host of the 9 hook MCP tools; wired into the M4 LocalLogTail spawn path by W5a (per D-amend-6)

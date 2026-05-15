@@ -1,9 +1,9 @@
 # 027. LocalLogTailDriver replaces agent-mode M4
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-15)
+> **Status:** Accepted (2026-05-15) — Amended (2026-05-15) per on-device hook probe; see `## Amendment` below
 > **Audience:** contributors
-> **Last verified vs code:** claude-code 2.1.129, 200k-line live JSONL sample on 2026-05-15
+> **Last verified vs code:** claude-code 2.1.129, 200k-line live JSONL sample + 9-hook payload corpus on 2026-05-15
 
 **TL;DR.** Replace the agent-mode M4 driving mode — which currently
 renders an interactive agent's TUI by piping the PTY screen through
@@ -233,12 +233,96 @@ adapters only provide the schema map, the permission-rule reader
   each per-engine adapter is the JSONL analog of an ACP frame
   profile. No new abstraction.
 
+## Amendment (2026-05-15)
+
+Same-day refinement triggered by the on-device hook probe
+(`hub/cmd/probe-claude-hooks/`) run against claude-code 2.1.129.
+The original D4 (permission state co-determined from disk rules +
+capture-pane) and D5 (arrow-key send-keys for approvals) were
+predicated on JSONL being the *only* structured signal the adapter
+could read in M4. The probe established that claude-code's hook
+surface — delivered through the existing host-runner MCP gateway
+UDS transport — provides every TUI-interactive signal the adapter
+needs as structured payloads, including the load-bearing
+**plan-mode approval** case which fires even with
+`--dangerously-skip-permissions`. The principal also clarified
+that M4 in real-world usage runs bypass-permissions or
+acceptEdits, so the disk-rule-prediction layer was solving a
+non-problem; what remains is plan-mode + compaction + idle +
+turn-end + subagent-stop — all hook-addressable.
+
+**D-amend-1. Hook-driven event surface replaces capture-pane.**
+
+At spawn time, host-runner writes
+`<workdir>/.claude/settings.local.json` registering 9 hooks
+(`PreToolUse`, `PostToolUse`, `Notification`, `UserPromptSubmit`,
+`Stop`, `SubagentStop`, `PreCompact`, `SessionStart`, `SessionEnd`)
+as `type:"mcp_tool"` targets on the per-spawn host-runner UDS MCP
+gateway — same transport `mcp__termipod__permission_prompt` uses
+today. Host-runner gains 9 new MCP tool handlers (mirroring the
+parking pattern of `mcpPermissionPrompt`); each maps the hook
+payload to an `agent_event`, parks the MCP call when a mobile
+decision is needed, and unblocks claude-code with the appropriate
+`permissionDecision` / `decision` return when the user resolves the
+attention.
+
+Empirical confirmations from the probe corpus (probe artefacts +
+analysis at
+[discussions/local-log-tail-m4-replacement.md §8](../discussions/local-log-tail-m4-replacement.md)):
+
+- `Notification.notification_type` is a structured categorical
+  field (`idle_prompt` / `permission_prompt`); no regex routing.
+- `PreToolUse(ExitPlanMode).tool_input.plan` carries the full plan
+  body; no JSONL cross-reference required.
+- Every hook payload includes `permission_mode`, eliminating the
+  need to track Shift+Tab mode cycling via JSONL `permission-mode`
+  events.
+- `SubagentStop` fires both for real Task subagents (with
+  `agent_type` set) and at parent turn end (with empty
+  `agent_type`); the adapter filters the empty-agent_type variant
+  to avoid double-firing alongside `Stop`.
+- `Stop.last_assistant_message` is the canonical parent-turn
+  final-message field.
+
+This amendment supersedes the §4 state machine's
+`awaiting_approval` capture-pane branch, the §5 permission-rule
+prediction + grace timer, and the §7 capture-pane probe entirely
+in the companion plan. The plan's §4 collapses to
+`idle`/`streaming`/`awaiting_decision`; §5 becomes "Hook event
+surface" with the 9-tool MCP handler list; §7 is removed.
+
+**D-amend-2. Send-keys narrowed to non-approval surfaces.**
+
+D5's arrow-key navigation (`Enter` / `Down Enter` / `Down Down Enter`)
+for the three approval rows is no longer needed. Mobile approve /
+deny / always-allow decisions route via hook-return values
+(`permissionDecision:"allow"|"deny"`); claude-code's permission
+engine receives them directly without keystroke synthesis.
+`tmux send-keys` is retained for free-text input, cancel (`C-c` /
+`kill -INT`), escape, slash commands, and mode-cycle (`S-Tab`)
+only.
+
+D5's "highlight-position arithmetic" (Down × `target - highlighted`)
+likewise becomes vestigial — the hook surface delivers the
+structured decision without TUI-row navigation. The empirical
+finding that digit-key shortcuts (`1`/`2`/`3`) are not bound on
+the permission prompt remains true (and remains a useful warning
+for anyone tempted to revert to send-keys-driven approvals).
+
+**Test steward update.** `steward.claude-m4.v1.yaml`'s
+`backend.cmd` updated to include `--dangerously-skip-permissions`
+to mirror M4's real-world default. The prompt re-framed to
+exercise plan-mode approval + compaction + idle signals (the
+hook-driven surfaces) rather than the three-row tool-permission
+loop (which doesn't fire in bypass mode).
+
 ## References
 
-- [discussions/local-log-tail-m4-replacement.md](../discussions/local-log-tail-m4-replacement.md) — comparative interception-layer survey, empirical findings, open questions for on-device verification.
-- [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md) — frozen contract for the claude-code adapter (schema map, state machine, key tables, capture-pane regex, MVP knobs, implementation checklist).
+- [discussions/local-log-tail-m4-replacement.md](../discussions/local-log-tail-m4-replacement.md) — comparative interception-layer survey, empirical findings, design-evolution audit trail.
+- [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md) — frozen contract for the claude-code adapter (JSONL schema map, hook event surface §5, key tables, MVP knobs, implementation checklist).
 - [decisions/010-frame-profiles-as-data.md](010-frame-profiles-as-data.md) — the per-engine YAML-profile pattern this driver mirrors.
 - [decisions/014-claude-code-resume-cursor.md](014-claude-code-resume-cursor.md) — claude-code session model that the JSONL path resolver depends on.
 - [decisions/021-acp-capability-surface.md](021-acp-capability-surface.md) — capability surface shared across drivers; this one adds a row.
 - [decisions/026-kimi-code-engine.md](026-kimi-code-engine.md) — kimi-code engine definition; this ADR's Phase 3 adapter targets it.
-- `hub/cmd/probe-claude-jsonl/main.go` (committed `48c6a93`) — empirical validation against a live 200k-line / 773 MB JSONL.
+- `hub/cmd/probe-claude-jsonl/` (committed `48c6a93`) — JSONL schema validation against a live 200k-line / 773 MB session.
+- `hub/cmd/probe-claude-hooks/` (committed `a45d24f`) — hook payload empirical corpus + on-device test plan; the 2026-05-15 evidence behind D-amend-1.

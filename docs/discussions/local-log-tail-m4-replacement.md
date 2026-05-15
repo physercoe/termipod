@@ -1,9 +1,9 @@
 # M4 replacement — local log tail vs other interception layers
 
 > **Type:** discussion
-> **Status:** Active (2026-05-15) — design locked through 2026-05-15 thread; spec frozen in [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md); ADR pending. Flip to Resolved once the ADR lands.
+> **Status:** Active (2026-05-15) — design locked + empirically validated 2026-05-15; spec frozen in [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md); ADR-027 accepted + amended same day. Flip to Resolved once the adapter ships.
 > **Audience:** principal · contributors · reviewers
-> **Last verified vs code:** claude-code 2.1.129; 200k-line live JSONL sample on 2026-05-15
+> **Last verified vs code:** claude-code 2.1.129; 200k-line live JSONL sample + 9-hook payload corpus on 2026-05-15
 
 **TL;DR.** The current M4 [driving mode](../reference/glossary.md#driving-mode)
 renders an interactive agent's TUI by piping the PTY screen through
@@ -12,11 +12,23 @@ result is a messy text dump that lacks the semantic cards M1/M2
 produce. The principal asked: can we tap a deeper, more structured
 layer than the terminal screen? This doc records the comparative
 survey (PTY screen-scrape vs network/TLS interception vs on-disk
-session logs), why on-disk JSONL tailing won, the empirical findings
-that shaped the input-action and approval-state design, and the
+session logs), why on-disk JSONL tailing won as the **transcript**
+source, why claude-code's **hook surface** (via the existing
+host-runner MCP gateway) won as the **TUI-interactive-state**
+source, the empirical validation that proved both, and the
 trade-offs we explicitly accept. The plan is in
 [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md);
 this doc is the *why* behind it.
+
+**Design evolution within the same day (2026-05-15):** an earlier
+draft of this doc proposed a capture-pane regex probe to detect
+"awaiting approval" state. The on-device probe (`hub/cmd/probe-claude-hooks/`)
+established that claude-code's hook surface provides this signal
+**structurally** — `Notification.notification_type:"permission_prompt"` +
+`PreToolUse(ExitPlanMode).tool_input.plan` carry every field the
+adapter needs without regex. Capture-pane is removed entirely; the
+sections below that reference it are kept for the historical record
+of *why* it was considered and *why* we abandoned it.
 
 ---
 
@@ -99,46 +111,55 @@ Phase 2/3 adapters of the same shape.
 
 ---
 
-## 3. Why we don't replicate claude-code's permission engine
+## 3. Permission detection — from disk-rule prediction to hook structural signal
 
-The principal raised: *"claude-code has a programmed permission
-system to decide which tool call needs user decision — can we
-extract that from JSONL?"*
+**The original framing** (early 2026-05-15 thread) treated permission
+detection as a JSONL-vs-screen problem. Findings at that stage:
 
-What we found in the binary (`/home/ubuntu/.local/share/claude/versions/2.1.129`):
+1. The `tool_use` JSONL block carries no approval-state flag —
+   fields are `{type, id, name, input, caller:{type:"direct"}}`.
+2. claude-code's permission rules live on disk (`~/.claude/settings.json`
+   + `<cwd>/.claude/settings.local.json`) and are live-written when
+   the user picks "always allow."
 
-1. **The tool_use JSONL block carries no approval-state flag.**
-   Fields are `{type, id, name, input, caller:{type:"direct"}}` —
-   identical whether approval is needed, was granted, or was
-   auto-allowed.
-2. **The decision is computed from disk rules at runtime.** The
-   rules live in `~/.claude/settings.json` (global) and
-   `<cwd>/.claude/settings.local.json` (project-local). Patterns
-   like `Bash(git push *)` auto-allow exact-prefix matches.
-3. **`settings.local.json` is *live-written* by claude-code.** When
-   the user picks row 2 ("Yes, and don't ask again"), claude-code
-   appends a new pattern to the allow list. We confirmed this by
-   observing patterns matching commands the principal had just
-   approved in this very session.
+This led to a design that **predicted** approval-required from disk
+rules + a 600 ms grace + a `tmux capture-pane` probe to confirm
+the prompt was visible.
 
-This shifts the design:
+**The principal then redirected the goal:** M4 in real usage runs
+`--dangerously-skip-permissions` or `acceptEdits` — permissions are
+bypassed, so this whole pipeline was solving the wrong problem.
+The *interactive* events that DO fire even in bypass mode (plan-mode
+approval, compaction, idle wait) come from a different surface:
+claude-code's hook system.
 
-- **The adapter reads the rules from disk on each tool_use and
-  predicts approval-needed.** If a rule matches → no card, skip the
-  whole approval flow.
-- **It does *not* re-implement claude-code's decision logic.** That
-  would couple us to a vendor-internal contract and break on every
-  upstream change. Instead, prediction-via-rules is best-effort;
-  the empirical signal (capture-pane) is the source of truth.
-- **"Always allow" via mobile** flows through naturally: the user
-  taps row 2 → adapter sends `Down Enter` → claude-code writes the
-  pattern itself. No custom writer needed.
+**The on-device probe (2026-05-15, `hub/cmd/probe-claude-hooks/`)
+established that the hook surface gives us the signal structurally**:
 
-The 600 ms grace window absorbs the gap between "tool_use lands"
-and "we know whether the rule actually matched." If `tool_result`
-arrives inside the grace, our prediction was right (or the rule
-matcher was wrong-and-tolerant); if not, capture-pane confirms the
-prompt is up and we emit the approval card.
+| Hook payload field | Value |
+|---|---|
+| `Notification.notification_type` | structured categorical: `idle_prompt` \| `permission_prompt` (no regex needed) |
+| `PreToolUse.tool_name` | structured discriminator: `ExitPlanMode` for plan-approval, `Bash`/`Write`/`Edit`/… for tool-permission |
+| `PreToolUse(ExitPlanMode).tool_input.plan` | full plan body (~600 chars markdown, observed); no JSONL cross-reference needed |
+| `PreCompact.trigger` | `manual` \| `auto` |
+| every hook payload | includes `permission_mode` — tracks Shift+Tab mode cycling without JSONL parsing |
+
+So the disk-rule prediction layer and the capture-pane probe are
+both **superseded**. The hook surface delivers structured payloads
+through the existing host-runner MCP gateway (same UDS transport
+`mcp__termipod__permission_prompt` uses today), with parked-MCP-call
+semantics for awaiting mobile decisions. This is empirically simpler
+and structurally cleaner than what the early-thread design proposed.
+
+The **"always allow" path** still works exactly as before: the user
+taps row 2 on mobile → adapter returns `permissionDecision:"allow"`
+from the PreToolUse hook → claude-code writes the new allow pattern
+to `settings.local.json` itself. No custom writer needed.
+
+This section is retained as the audit trail of the design evolution
+within 2026-05-15; the load-bearing decisions are in
+[plans/local-log-tail-claude-code-adapter.md §5](../plans/local-log-tail-claude-code-adapter.md)
+and ADR-027 D-amend-1.
 
 ---
 
@@ -168,14 +189,14 @@ No partial-collapse logic. No deduplication of card kinds. Just emit.
 
 ---
 
-## 5. Input — arrow keys, not digits
+## 5. Input — narrowed to non-approval surfaces
 
-The principal flagged a likely assumption:
+The principal flagged a likely assumption mid-thread:
 
 > *"I'm not sure whether typing 1, 2, 3 is equivalent to Enter
 > (default Yes row), Down Enter, Down Down Enter."*
 
-Empirical answer from the claude-code binary:
+Empirical answer from the claude-code binary inspection:
 
 - **Library used:** Ink (React for CLI), via `useInput` hook
 - **Digit-key bindings on the prompt:** none (`grep` returned zero
@@ -184,27 +205,35 @@ Empirical answer from the claude-code binary:
   letter shortcuts (`Y`, `N`, `j`, `k`) in some prompts but not
   uniformly on the permission prompt
 
-So sending `"1"` does not select row 1. The principal's hunch was
-right: the design must use arrow navigation. The adapter sends
-`Enter` for row 1 (default highlighted), `Down Enter` for row 2,
-`Down Down Enter` for row 3.
+Sending `"1"` does not select row 1 — arrow navigation is the
+TUI's wire format for selection.
 
-### 5.1 Highlight-position arithmetic
+**However**, the hook-driven design (§3) means the adapter doesn't
+need to send arrow keys for approve/deny **at all**. The hook
+surface delivers the structured payload; mobile resolves; the
+adapter returns `permissionDecision` to the hook, which routes back
+into claude-code's permission engine. claude-code's TUI gets the
+result through its own internal channel — no keystrokes synthesized.
 
-Claude-code remembers the user's last choice on similar prompts —
-the *default-highlighted* row may not always be row 1. To stay
-robust, the capture-pane probe returns `(options[], highlighted_index)`
-and the adapter computes `Down × (target − highlighted) + Enter`.
-Hard-coded `Down Enter` is just the common-case shortcut.
+The `tmux send-keys` path is **output-only direction** and covers
+only the surfaces hooks can't reach:
 
-### 5.2 Why this matters more than the wire format
+| Mobile surface | tmux send-keys |
+|---|---|
+| Compose box → text | `send-keys -l <text>` + `Enter` (or paste-buffer for long/multiline) |
+| Cancel | `send-keys C-c` (soft) → `kill -INT <pid>` (hard fallback) |
+| Escape | `send-keys Escape` |
+| Slash command | `send-keys "/clear" Enter` (or similar) |
+| Mode cycle (Shift+Tab) | `send-keys S-Tab` (optional; usually user does this in TUI) |
 
-The action table (compose → text, approval → arrows + Enter, etc.)
-is small. The intelligence is in *knowing what state the prompt is
-in*. That state lives only on the TUI screen — JSONL has no
-"awaiting decision" event — so capture-pane is unavoidable as the
-state probe. It's not a wire-format question; it's a state-machine
-question.
+**Removed from the action table compared to the early-thread draft:**
+`Down Enter`, `Down Down Enter`, `Down Down Down Enter`, all the
+highlight-position arithmetic, and the Y/N letter-shortcut probing.
+Those collapse to the parked-hook decision path (§3).
+
+The early-thread observation that "send-keys is dumb; the
+intelligence is the state machine" still holds — except the state
+machine is now the hook surface, not capture-pane regex.
 
 ---
 
@@ -236,57 +265,50 @@ no change to the SSH terminal viewer, the M4 swap is per-engine.
 ## 7. Trade-offs we explicitly accept
 
 - **Schema is observed, not contractual.** No vendor publishes the
-  JSONL spec. We pin against current versions, add a schema-drift
-  fallback (unknown types render as muted system cards, not silent
-  drops), and version-probe per engine.
+  JSONL or hook payload spec. We pin against current versions, add
+  a schema-drift fallback (unknown types render as muted system
+  cards, not silent drops), and version-probe per engine.
 - **File size grows unbounded.** The principal's current claude-code
   session JSONL is 773 MB. The adapter tails from a remembered byte
   offset, never re-reads from byte 0.
 - **No flock, no rotation.** Multiple concurrent claude-code
   sessions on the same cwd write to different files (UUID per
   session). Adapter picks the newest mtime under the project dir.
-- **Capture-pane introduces a 200 ms poll for each approval moment.**
-  Acceptable; only triggers on unmatched-rule tool_uses; auto-allow
-  paths skip it entirely (zero added latency).
-- **Highlight-index arithmetic depends on capture-pane regex
-  fidelity.** A claude-code TUI redesign could break it. The
-  fallback when the regex doesn't recognize the prompt: render the
-  raw screen slice as a muted system card so the user can manually
-  use the action bar's arrow keys.
+- **Hook payloads may add fields across claude-code releases.**
+  Adapter reads only the keys it knows about; extra fields are
+  ignored. New `Notification.notification_type` values degrade to
+  `system{subtype:"unknown_notification"}` rather than misroute.
 - **Gemini's full coverage depends on its JSONL adapter landing.**
   Per the principal's path correction, gemini does have a JSONL
   stream — we just don't ship its adapter in MVP.
 
 ---
 
-## 8. Open questions (to lock during on-device verification)
+## 8. Open questions — resolved by the 2026-05-15 probe
 
-1. **`grace_ms` = 600 default.** Is this comfortable on real hardware?
-   If approval prompts visibly lag, drop to 300. If auto-allows
-   regularly miss the window, raise to 900.
-2. **Capture-pane glyph for highlight.** Spec says `❯ \d+\.`; this
-   must be verified against the user's terminal font / Ink theme.
-   Falls back gracefully (treat all rows as unhighlighted, default
-   to row 1) if the glyph differs.
-3. **Pane lookup by `claude` PID.** Multiple `claude` processes on
-   the same host (rare but possible — split-pane workflow) means
-   the PID→pane mapping needs a session-ID disambiguator. MVP
-   picks the most-recently-active pane; revisit if collision
-   surfaces.
-4. **Y/N letter shortcuts on the permission prompt.** Binary has
-   `key==="Y"` / `key==="N"` handlers in non-permission contexts.
-   If they also work on the permission prompt, `Y` could replace
-   `Enter` (one keystroke instead of two for row 1). Cosmetic; do
-   not block MVP.
-5. **MCP tool prompts.** Claude-code's MCP tools may render
-   permission prompts with different option text. MVP's regex
-   library covers numbered-select and y/n-inline; MCP-specific
-   prompts may need a Phase 2 regex.
-6. **Plan-mode prompts.** When the user activates `acceptEdits`
-   permissionMode, edit-tool prompts disappear but other tools
-   still gate. The state machine should be robust to permissionMode
-   shifts mid-session (the JSONL emits a `permission-mode` event
-   each time).
+Most questions from the pre-probe draft were answered by the
+`hub/cmd/probe-claude-hooks/` corpus on 2026-05-15. Summary:
+
+| Question | Resolution |
+|---|---|
+| Plan-mode prompts even with `--dangerously-skip-permissions`? | ✅ **Yes** — confirmed: ExitPlanMode tool_use → Notification{notification_type:"permission_prompt"} fires even in bypass mode |
+| Does `PreToolUse(ExitPlanMode).tool_input` carry the plan body? | ✅ **Yes** — full markdown plan in `tool_input.plan` (~600 chars observed) + `planFilePath` field |
+| Notification message vocabulary | ✅ **Better than expected** — `notification_type` is a structured categorical field, not a free-form message. Observed values: `idle_prompt`, `permission_prompt` |
+| SubagentStop payload completeness | ✅ **Yes** — `agent_id`, `agent_type`, `last_assistant_message`, `agent_transcript_path`, `permission_mode`. Fires twice per Task call: once for the subagent (agent_type set), once at parent turn end (agent_type empty — adapter must filter) |
+| PreCompact payload | ✅ `{trigger:"manual"\|"auto", custom_instructions}` confirmed |
+| Stop payload | ✅ `last_assistant_message` is the canonical final-message-of-turn signal |
+| Every hook carries `permission_mode` | ✅ Confirmed — no JSONL parsing needed for mode tracking |
+
+### Still open (Probe v2 territory)
+
+1. **`mcp_tool`-type hook long-park behavior** — need a hub-side MCP tool that takes >30s to return; confirm claude-code doesn't time out the hook before mobile resolves.
+2. **`PreToolUse permissionDecision:"allow"` skip of plan-mode-exit prompt** — does returning `"allow"` from the hook bypass plan-mode's separate gate, or does plan-mode still prompt? Affects whether the mobile decision can fully replace the TUI prompt.
+3. **`SessionStart.source` vocabulary** — only `startup` observed; probe needs `claude --resume` and `/clear` runs to capture other values.
+4. **Auto-compaction trigger** — only manual `/compact` was tested; force context-fill to observe `PreCompact{trigger:"auto"}`.
+5. **Write-tool overwrite in default mode** — confirm the Write-permission Notification's discriminator (was `permission_prompt` in the observed sample but check the full PreToolUse context).
+
+These don't block MVP design — they're tuning details for the
+implementation pass.
 
 ---
 
@@ -316,7 +338,9 @@ For each, the deliberate reason:
 ## 10. Cross-references
 
 - [plans/local-log-tail-claude-code-adapter.md](../plans/local-log-tail-claude-code-adapter.md) — frozen contract for the adapter (this discussion's *what*).
+- [decisions/027-local-log-tail-driver.md](../decisions/027-local-log-tail-driver.md) — the ADR (Accepted 2026-05-15, amended same day with the hook surface).
 - [decisions/010-frame-profiles-as-data.md](../decisions/010-frame-profiles-as-data.md) — the per-engine adapter pattern (YAML profiles); same shape applies to LocalLogTailDriver's engine sub-adapters.
 - [decisions/014-claude-code-resume-cursor.md](../decisions/014-claude-code-resume-cursor.md) — claude-code session model that the JSONL path resolver relies on.
 - [decisions/021-acp-capability-surface.md](../decisions/021-acp-capability-surface.md) — per-driver capability surface; this driver shares the shape.
-- `hub/cmd/probe-claude-jsonl/main.go` (committed `48c6a93`) — the empirical validation that grounded every decision in this doc.
+- `hub/cmd/probe-claude-jsonl/main.go` (committed `48c6a93`) — JSONL schema validation.
+- `hub/cmd/probe-claude-hooks/` (committed `a45d24f`) — hook payload empirical corpus + on-device test plan; the 2026-05-15 evidence that drove the capture-pane→hook swap.

@@ -107,10 +107,13 @@ func TestAdapter_OnHookStubReturnsEmpty(t *testing.T) {
 	}
 }
 
-func TestAdapter_HandleInputStubRejects(t *testing.T) {
+// W2h replaced the W2a stub with a real router; without a PaneID
+// the router still errors (different message, same outcome). Real
+// HandleInput coverage lives in sendkeys_test.go.
+func TestAdapter_HandleInputErrorsWithoutPane(t *testing.T) {
 	a, _ := NewAdapter(Config{AgentID: "a", Workdir: "/tmp/p", Poster: &stubPoster{}})
 	if err := a.HandleInput(context.Background(), "text", map[string]any{"body": "hi"}); err == nil {
-		t.Error("HandleInput stub returned nil; want not-yet-wired error")
+		t.Error("HandleInput with empty PaneID returned nil; want error")
 	}
 }
 

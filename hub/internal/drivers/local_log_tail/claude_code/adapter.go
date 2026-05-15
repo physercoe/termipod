@@ -94,6 +94,15 @@ type Adapter struct {
 	// (StartFromBeginning) replays the existing transcript before
 	// switching to live tail.
 	TailMode StartMode
+	// PaneID is the tmux pane id the claude process is running in
+	// (resolved by W7's launch glue via ResolvePane). Required for
+	// any tmux-driven input kind; empty means HandleInput will
+	// return an error rather than send-keys to a wrong target.
+	PaneID string
+	// CmdRunner overrides the default exec-backed CmdRunner. Tests
+	// inject a fake so the test binary doesn't need real tmux/ps on
+	// PATH. Production leaves this nil.
+	CmdRunner CmdRunner
 
 	mu      sync.Mutex
 	started bool
@@ -277,13 +286,7 @@ func (a *Adapter) Stop() {
 	a.wg.Wait()
 }
 
-// HandleInput translates a mobile input event into an engine-side
-// action. W2a stub: returns a not-implemented error so the test in
-// W1 documenting that Input() flows here doesn't silently succeed
-// for kinds the real adapter (W2h) hasn't wired yet.
-func (a *Adapter) HandleInput(_ context.Context, kind string, _ map[string]any) error {
-	return fmt.Errorf("claude-code adapter: input kind %q not yet wired (W2h pending)", kind)
-}
+// HandleInput is now implemented in sendkeys.go (W2h).
 
 // OnHook routes a hook MCP call from the host-runner gateway to the
 // per-event handler in hooks.go. Each handler updates the FSM and

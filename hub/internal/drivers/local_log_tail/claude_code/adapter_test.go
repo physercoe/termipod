@@ -3,6 +3,7 @@ package claudecode
 import (
 	"context"
 	"testing"
+	"time"
 
 	locallogtail "github.com/termipod/hub/internal/drivers/local_log_tail"
 )
@@ -72,16 +73,27 @@ func TestKnobs_CustomValuesPreserved(t *testing.T) {
 	}
 }
 
-func TestAdapter_StartStopIdempotent(t *testing.T) {
-	a, _ := NewAdapter(Config{AgentID: "a", Workdir: "/tmp/p", Poster: &stubPoster{}})
-	if err := a.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
+// Idempotency under the real W2d wiring is covered by the
+// integration test TestAdapter_StopDrainsRunLoop; here we only
+// verify that Start() short-circuits without re-running its wiring
+// when called twice. We exercise that by pointing Workdir at a
+// project dir with no session file and using a short
+// SessionWaitTimeout so the first Start fails fast — without an
+// idempotency guard the second Start would block again.
+func TestAdapter_StartIsIdempotent_OnFailure(t *testing.T) {
+	a, _ := NewAdapter(Config{AgentID: "a", Workdir: "/nonexistent", Poster: &stubPoster{}})
+	a.HomeDir = t.TempDir()
+	a.SessionWaitTimeout = 50 * time.Millisecond
+
+	if err := a.Start(context.Background()); err == nil {
+		t.Fatal("first Start: want timeout error")
 	}
+	// Second Start sees `started=true` and returns nil immediately.
 	if err := a.Start(context.Background()); err != nil {
-		t.Fatalf("second Start: %v", err)
+		t.Fatalf("second Start: want nil (idempotent), got %v", err)
 	}
 	a.Stop()
-	a.Stop() // second Stop is a no-op
+	a.Stop()
 }
 
 func TestAdapter_OnHookStubReturnsEmpty(t *testing.T) {

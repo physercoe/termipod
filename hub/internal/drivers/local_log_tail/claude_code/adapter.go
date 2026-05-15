@@ -101,6 +101,7 @@ type Adapter struct {
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
 	tailer  *Tailer
+	fsm     *FSM
 }
 
 // NewAdapter constructs a claude-code Adapter. Returns an error early
@@ -182,6 +183,7 @@ func (a *Adapter) Start(parent context.Context) error {
 
 	ctx, cancel := context.WithCancel(parent)
 	a.cancel = cancel
+	a.fsm = NewFSM(a.AgentID, a.Poster, a.Log, ctx)
 
 	a.tailer = &Tailer{Path: jsonlPath, Mode: a.TailMode}
 	lines, err := a.tailer.Start(ctx)
@@ -240,6 +242,13 @@ func (a *Adapter) runLoop(ctx context.Context, lines <-chan Line) {
 					a.Log.Debug("claude-code adapter: post failed",
 						"agent_id", a.AgentID, "kind", ev.Kind, "err", err)
 				}
+				// JSONL-driven FSM transitions: a tool_call means
+				// claude is actively producing output — promote to
+				// streaming so the busy pill renders. Plan §4 second
+				// trigger arrow.
+				if a.fsm != nil && ev.Kind == "tool_call" {
+					a.fsm.Transition(StateStreaming, "JSONL tool_use")
+				}
 			}
 		}
 	}
@@ -277,12 +286,22 @@ func (a *Adapter) HandleInput(_ context.Context, kind string, _ map[string]any) 
 }
 
 // OnHook routes a hook MCP call from the host-runner gateway to the
-// per-event handler. W2a stub: returns an empty response so the
-// gateway can complete the call; later wedges (W2e/i) translate
-// payloads into FSM transitions + AgentEvents + parked-attention
-// coordination.
-func (a *Adapter) OnHook(_ context.Context, _ string, _ map[string]any) (map[string]any, error) {
-	return map[string]any{}, nil
+// per-event handler in hooks.go. Each handler updates the FSM and
+// emits any derived AgentEvent. W2e wires the 7 observational hooks
+// + stub responses for the 2 parked ones (PreCompact, AskUserQuestion);
+// W2i fills in real parking via attention_items + /decide.
+//
+// Pre-Start safety: OnHook may legitimately fire BEFORE Start
+// completes — the gateway's accept loop and our Start are racing.
+// Return a benign {} in that window so claude isn't blocked on us.
+func (a *Adapter) OnHook(ctx context.Context, name string, payload map[string]any) (map[string]any, error) {
+	a.mu.Lock()
+	started := a.started
+	a.mu.Unlock()
+	if !started {
+		return map[string]any{}, nil
+	}
+	return a.dispatchHook(ctx, name, payload)
 }
 
 // Compile-time assertion: *Adapter satisfies locallogtail.Adapter

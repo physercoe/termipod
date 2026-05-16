@@ -57,6 +57,41 @@ func (s *Server) handleOpenSession(w http.ResponseWriter, r *http.Request) {
 	if scopeKind == "" {
 		scopeKind = "team"
 	}
+	// ADR-025 project-binding guard: a project-scoped session must be
+	// backed by an agent that is itself bound to the same project.
+	// Without this, the mobile path can (and did, pre-v1.0.609) create
+	// a sessions row whose scope=(project, X) but current_agent_id=
+	// <general_steward>. lookupSessionForAgent then picks the freshly-
+	// opened row as the agent's "current" session and starts stamping
+	// the general steward's transcript with the project session_id —
+	// observable as "general session stops updating, a phantom project
+	// session shows all the general history". Fixing the mobile caller
+	// alone leaves the next caller (REST script, MCP tool, ops tool)
+	// free to repeat the same data corruption, so we gate it here.
+	if scopeKind == "project" && in.AgentID != "" {
+		if in.ScopeID == "" {
+			writeErr(w, http.StatusBadRequest,
+				"scope_kind=project requires scope_id")
+			return
+		}
+		var agentProjectID sql.NullString
+		err := s.db.QueryRowContext(r.Context(),
+			`SELECT project_id FROM agents WHERE team_id = ? AND id = ?`,
+			team, in.AgentID).Scan(&agentProjectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeErr(w, http.StatusBadRequest, "agent not found in team")
+			return
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !agentProjectID.Valid || agentProjectID.String != in.ScopeID {
+			writeErr(w, http.StatusBadRequest,
+				"agent not bound to project; cross-scope session refused (ADR-025)")
+			return
+		}
+	}
 	id := NewID()
 	now := NowUTC()
 	_, err := s.db.ExecContext(r.Context(), `
@@ -615,15 +650,35 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 // Cheap: indexed lookup keyed by current_agent_id. Used by the
 // event-insert path to stamp session_id without the caller having to
 // know about sessions.
+//
+// Scope preference (added v1.0.609 alongside the openSession guard):
+// when an agent has multiple live sessions, prefer the one whose
+// scope matches the agent's intrinsic binding — project-bound agents
+// prefer matching project-scoped sessions; non-project agents prefer
+// team/null-scoped sessions. This is defense-in-depth against the
+// pre-guard data corruption where a stray cross-scope session row
+// could "win" the last_active_at race and capture future events.
+// Same ordering by last_active_at within the preferred bucket so
+// existing behavior is preserved for the common single-session case.
 func (s *Server) lookupSessionForAgent(ctx context.Context, agentID string) string {
 	if s.db == nil || agentID == "" {
 		return ""
 	}
 	var id string
 	_ = s.db.QueryRowContext(ctx, `
-		SELECT id FROM sessions
-		 WHERE current_agent_id = ? AND status IN ('active','paused')
-		 ORDER BY last_active_at DESC LIMIT 1`, agentID).Scan(&id)
+		SELECT s.id FROM sessions s
+		 LEFT JOIN agents a ON a.id = s.current_agent_id
+		 WHERE s.current_agent_id = ? AND s.status IN ('active','paused')
+		 ORDER BY
+		   CASE
+		     WHEN a.project_id IS NOT NULL AND a.project_id != ''
+		          AND s.scope_kind = 'project' AND s.scope_id = a.project_id THEN 0
+		     WHEN (a.project_id IS NULL OR a.project_id = '')
+		          AND (s.scope_kind = 'team' OR s.scope_kind IS NULL) THEN 0
+		     ELSE 1
+		   END,
+		   s.last_active_at DESC
+		 LIMIT 1`, agentID).Scan(&id)
 	return id
 }
 

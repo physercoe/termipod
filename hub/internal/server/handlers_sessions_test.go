@@ -98,6 +98,86 @@ func TestSessions_OpenListGetClose(t *testing.T) {
 	}
 }
 
+// ADR-025 cross-scope guard: a project-scoped session must be backed
+// by an agent that is itself bound to the same project. Without this,
+// the mobile StewardStrip's pre-v1.0.609 path could open a session
+// with scope=(project, X) but current_agent_id=<general_steward>,
+// which lookupSessionForAgent then picked as the agent's "current"
+// session and broke the general steward's transcript. Regression
+// here would re-open the same data-corruption hole, so we test all
+// three rejection paths plus the happy case.
+func TestSessions_RejectCrossScopeProjectSession(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	_, generalAgentID := seedChannelAndAgent(t, s, "", "host-a")
+	// generalAgentID has project_id NULL (the general steward shape).
+
+	// 1. scope=project, agent has no project_id → 400.
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "cross-scope",
+			"agent_id":   generalAgentID,
+			"scope_kind": "project",
+			"scope_id":   "proj-x",
+		})
+	if status != http.StatusBadRequest {
+		t.Fatalf("cross-scope (NULL project_id) should 400; got %d %s",
+			status, body)
+	}
+
+	// 2. scope=project, agent bound to a different project → 400.
+	if _, err := s.db.Exec(
+		`INSERT INTO projects (id, team_id, name, status, created_at)
+		 VALUES ('proj-y', ?, 'p-y', 'active', ?)`,
+		defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed proj-y: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE agents SET project_id='proj-y' WHERE id=?`,
+		generalAgentID); err != nil {
+		t.Fatalf("bind agent to proj-y: %v", err)
+	}
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "cross-scope-mismatch",
+			"agent_id":   generalAgentID,
+			"scope_kind": "project",
+			"scope_id":   "proj-x",
+		})
+	if status != http.StatusBadRequest {
+		t.Fatalf("cross-scope (mismatched project_id) should 400; got %d %s",
+			status, body)
+	}
+
+	// 3. scope=project, no scope_id → 400.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "missing-scope-id",
+			"agent_id":   generalAgentID,
+			"scope_kind": "project",
+		})
+	if status != http.StatusBadRequest {
+		t.Fatalf("project scope without scope_id should 400; got %d %s",
+			status, body)
+	}
+
+	// 4. Happy case: agent bound to the matching project → 201.
+	status, body = doReq(t, s, token, http.MethodPost,
+		"/v1/teams/"+defaultTeamID+"/sessions",
+		map[string]any{
+			"title":      "happy",
+			"agent_id":   generalAgentID,
+			"scope_kind": "project",
+			"scope_id":   "proj-y",
+		})
+	if status != http.StatusCreated {
+		t.Fatalf("matching project scope should 201; got %d %s",
+			status, body)
+	}
+}
+
 // Two open sessions sharing a worktree_path violate the partial
 // unique index. The schema is the load-bearing guard against
 // trampling each other's edits, so a regression here would be a
@@ -497,8 +577,22 @@ func TestSessions_Fork(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "host-x")
 	// Mark the seeded agent as a running steward so the auto-resolve
 	// fallback path can find it.
+	// Seed the project row + bind the agent to it so the cross-scope
+	// guard (handleOpenSession, ADR-025) accepts the project-scoped
+	// session below. Pre-v1.0.609 tests opened project-scoped sessions
+	// against project-NULL agents — the guard now blocks that, so we
+	// mirror what the spawn path does today (agents.project_id stamped
+	// at spawn time per ADR-025 W2).
 	if _, err := s.db.Exec(
-		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		`INSERT INTO projects (id, team_id, name, status, created_at)
+		 VALUES ('proj-abc', ?, 'p-abc', 'active', ?)`,
+		defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running',
+		                   project_id='proj-abc'
+		 WHERE id=?`,
 		agentID); err != nil {
 		t.Fatalf("promote agent to steward: %v", err)
 	}

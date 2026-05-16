@@ -5,6 +5,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../screens/sessions/sessions_screen.dart';
 import '../../screens/team/spawn_steward_sheet.dart';
+import '../../widgets/spawn_project_steward_sheet.dart';
 import '../steward_handle.dart';
 
 /// Routes a "talk to the steward" intent to the right surface in the
@@ -72,6 +73,38 @@ Future<void> openStewardSession(
     if (status == 'running' || status == 'pending') {
       liveStewards.add(a);
     }
+  }
+  // ADR-025 project-binding rule: a project-scoped session must be
+  // backed by an agent that is itself bound to the same project.
+  // Without this filter, tapping the StewardStrip on a project that
+  // has no live project steward would create a session whose
+  // scope=(project, X) but current_agent_id=<general_steward> — a
+  // cross-scope row that breaks the general steward's own session
+  // (next event gets stamped with the new project session_id because
+  // lookupSessionForAgent picks the newest-touched one). When no
+  // project-bound steward is live, route to the W7 spawn sheet so
+  // the principal materializes one through the consent flow.
+  if (scopeKind == 'project' &&
+      scopeId != null &&
+      scopeId.isNotEmpty) {
+    final projectBound = <Map<String, dynamic>>[];
+    for (final a in liveStewards) {
+      if ((a['project_id'] ?? '').toString() == scopeId) {
+        projectBound.add(a);
+      }
+    }
+    if (projectBound.isEmpty) {
+      if (context.mounted) {
+        await showSpawnProjectStewardSheet(context, projectId: scopeId);
+      }
+      return;
+    }
+    // Only consider project-bound stewards from here on — the
+    // single-steward path below must never reach for the general one
+    // when the caller asked for a project session.
+    liveStewards
+      ..clear()
+      ..addAll(projectBound);
   }
   if (liveStewards.isEmpty) {
     if (context.mounted) {

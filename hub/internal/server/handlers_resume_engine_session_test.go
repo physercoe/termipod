@@ -750,9 +750,20 @@ func TestSessions_ForkDoesNotInheritEngineSessionID(t *testing.T) {
 	_, agentID := seedChannelAndAgent(t, s, "", "host-fork")
 
 	// Promote the seeded agent to a steward shape so the source
-	// session can be opened against it.
+	// session can be opened against it. project_id binding mirrors
+	// ADR-025 W2 (spawn-time stamping) — the v1.0.609 cross-scope
+	// guard on handleOpenSession requires the agent to be project-
+	// bound when scope_kind=project.
 	if _, err := s.db.Exec(
-		`UPDATE agents SET handle='steward', status='running' WHERE id=?`,
+		`INSERT INTO projects (id, team_id, name, status, created_at)
+		 VALUES ('proj-fork-guard', ?, 'p-fg', 'active', ?)`,
+		defaultTeamID, NowUTC()); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	if _, err := s.db.Exec(
+		`UPDATE agents SET handle='steward', status='running',
+		                   project_id='proj-fork-guard'
+		 WHERE id=?`,
 		agentID); err != nil {
 		t.Fatalf("promote agent: %v", err)
 	}

@@ -485,7 +485,10 @@ class _HostTile extends ConsumerWidget {
                   ],
                 ),
               ),
-              _ScopeBadge(scope: row.scope),
+              _ScopeBadge(
+                scope: row.scope,
+                hostStatus: (row.hubHost?['status'] ?? '').toString(),
+              ),
               const SizedBox(width: 4),
               if (row.connection != null)
                 IconButton(
@@ -615,17 +618,42 @@ class _HostTile extends ConsumerWidget {
 
 class _ScopeBadge extends StatelessWidget {
   final HostScope scope;
-  const _ScopeBadge({required this.scope});
+  // Hub-host status string ('online' / 'offline' / 'pending' / '');
+  // empty for personal-scope rows that have no hub presence.
+  final String hostStatus;
+  const _ScopeBadge({required this.scope, this.hostStatus = ''});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final (label, color) = switch (scope) {
+    final (label, baseColor) = switch (scope) {
       HostScope.personal => (l10n.hostScopePersonal, DesignColors.terminalCyan),
       HostScope.team => (l10n.hostScopeTeam, DesignColors.success),
       HostScope.teamPersonal =>
         (l10n.hostScopeTeamPersonal, DesignColors.terminalMagenta),
     };
+    // For hub-registered rows (team / teamPersonal), the chip mirrors
+    // host liveness so the user sees at a glance which boxes can take
+    // work. Personal-only rows have no hub status, so they keep the
+    // intrinsic cyan. 'pending' is a transient post-registration
+    // state — warning amber matches the StewardStrip's awaiting-
+    // director treatment.
+    Color color = baseColor;
+    if (scope != HostScope.personal) {
+      switch (hostStatus) {
+        case 'offline':
+          color = DesignColors.terminalRed;
+          break;
+        case 'pending':
+          color = DesignColors.warning;
+          break;
+        case 'online':
+        case '':
+        default:
+          // online or unknown → keep the scope's intrinsic color.
+          break;
+      }
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

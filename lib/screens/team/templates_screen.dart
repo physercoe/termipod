@@ -812,16 +812,25 @@ class _NewTemplateSheetState extends ConsumerState<_NewTemplateSheet> {
     final id = base.isEmpty ? 'untitled' : base;
     switch (_category) {
       case 'agents':
+        // Mirrors hub/templates/agents/coder.v1.yaml — the canonical
+        // worker template — so a user-authored agent has the same
+        // required fields a steward expects (driving_mode resolves the
+        // launcher's mode plumbing; without it the steward reports
+        // "missing driving_mode" at spawn time). default_workdir is
+        // intentionally absent so the launcher auto-derives
+        // ~/hub-work/<pid8>/<handle> per project (v1.0.595).
         return '''# Custom agent template. Edit freely — user files always win
 # over the embedded built-ins.
 template: agents.$id
 version: 1
 extends: null
 
+driving_mode: M2
+fallback_modes: [M4]
+
 backend:
   kind: claude-code
   model: claude-sonnet-4-6
-  default_workdir: ~/hub-work
   permission_modes:
     skip: "--dangerously-skip-permissions"
     prompt: "--permission-prompt-tool mcp__termipod__permission_prompt"

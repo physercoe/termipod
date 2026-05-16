@@ -114,18 +114,26 @@ func templateListTool(toolPrefix, dirName string) toolDef {
 
 func templateGetTool(toolPrefix, dirName string) toolDef {
 	return toolDef{
-		Name:        "templates." + toolPrefix + ".get",
-		Description: "Fetch a " + toolPrefix + " template's raw content. Returns {category, name, content} where content is the full file body.",
-		InputSchema: schema(`{"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"file name including extension"}}}`),
+		Name: "templates." + toolPrefix + ".get",
+		// Defaulting raw=false (i.e. merge=1) means the steward always
+		// sees the embedded built-in's required fields (driving_mode,
+		// backend.cmd, …) even when a user's on-disk overlay was
+		// authored before those fields were required. Opt out with
+		// raw=true when you want the unmerged disk body (e.g. for an
+		// editor that will overwrite verbatim).
+		Description: "Fetch a " + toolPrefix + " template. Returns {category, name, content}. By default the on-disk overlay is merged with the embedded built-in so the returned body is always schema-complete (a stale overlay can't hide required fields like driving_mode). Pass raw=true to skip the merge.",
+		InputSchema: schema(`{"type":"object","required":["name"],"properties":{"name":{"type":"string","description":"file name including extension"},"raw":{"type":"boolean","description":"skip the embedded-built-in merge and return the on-disk body verbatim","default":false}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			name, _ := args["name"].(string)
 			if name == "" {
 				return nil, fmt.Errorf("name is required")
 			}
-			// The GET handler returns raw bytes (not JSON-wrapped).
-			// We surface it to the agent inside a small JSON envelope
-			// so the MCP tool result shape is consistent across tools.
-			body, err := c.doRaw("GET", c.teamPath("/templates/"+dirName+"/"+url.PathEscape(name)), nil)
+			raw, _ := args["raw"].(bool)
+			path := c.teamPath("/templates/" + dirName + "/" + url.PathEscape(name))
+			if !raw {
+				path += "?merge=1"
+			}
+			body, err := c.doRaw("GET", path, nil)
 			if err != nil {
 				return nil, err
 			}

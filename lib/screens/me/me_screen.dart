@@ -354,6 +354,12 @@ class _MeItem {
       case 'help_request':
       case 'elicit':
       case 'template_proposal':
+      // ADR-025 W4: the principal-action on this kind is "spawn the
+      // project steward" (handled by InlineApprovalActions in v1.0.601).
+      // Promoting to the approvals filter surfaces that inline button on
+      // the Me-page card itself; without this it only renders after
+      // tapping Details, which is one tap too many for a primary action.
+      case 'project_steward_request':
         return _Filter.approvals;
       case 'idle':
       case 'agent_error':

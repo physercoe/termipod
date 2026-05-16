@@ -179,6 +179,16 @@ class _ApprovalDetailScreenState extends ConsumerState<ApprovalDetailScreen> {
             ),
           if (kind == 'revision_requested') const SizedBox(height: 16),
 
+          // The agent has proposed a template body. Without a preview
+          // the principal would be approving raw YAML blind — surface
+          // the proposed body, the agent's rationale, and a diff hint
+          // against the currently-installed template so the choice is
+          // informed. Inline Approve/Reject below still resolves the
+          // attention; this block is read-only context.
+          if (kind == 'template_proposal' && pending != null)
+            _TemplateProposalPreview(payload: pending),
+          if (kind == 'template_proposal') const SizedBox(height: 16),
+
           // --- Inline actions: same widgets as the Me-page card. ---
           // Hidden once the attention is resolved — the decision history
           // section below carries the audit trail instead.
@@ -1146,5 +1156,250 @@ class _LinkedAnnotationRow extends StatelessWidget {
       default:
         return Icons.chat_bubble_outline;
     }
+  }
+}
+
+/// Read-only preview block for kind=`template_proposal`. The proposer
+/// (an agent calling `templates.propose`) supplies a blob containing
+/// the new template body; this widget fetches and renders it so the
+/// principal can read what they're approving instead of trusting the
+/// summary line. Also shows the rationale, proposed-by handle, and a
+/// "same as current" / "differs from current" hint against the
+/// installed template at `<category>/<name>` so the user can tell a
+/// new-template create apart from an in-place revision.
+class _TemplateProposalPreview extends ConsumerStatefulWidget {
+  final Map<String, dynamic> payload;
+  const _TemplateProposalPreview({required this.payload});
+
+  @override
+  ConsumerState<_TemplateProposalPreview> createState() =>
+      _TemplateProposalPreviewState();
+}
+
+class _TemplateProposalPreviewState
+    extends ConsumerState<_TemplateProposalPreview> {
+  bool _loading = true;
+  String? _error;
+  String? _proposed;
+  String? _current;
+  bool _currentMissing = false;
+
+  String get _category => (widget.payload['category'] ?? '').toString();
+  String get _name => (widget.payload['name'] ?? '').toString();
+  String get _sha => (widget.payload['blob_sha256'] ?? '').toString();
+  String get _rationale => (widget.payload['rationale'] ?? '').toString();
+  String get _proposedBy => (widget.payload['proposed_by'] ?? '').toString();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null || _sha.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = 'Hub not configured or proposal missing blob_sha256.';
+      });
+      return;
+    }
+    try {
+      // Fetch the proposed body via the content-addressed blob.
+      final bytes = await client.downloadBlob(_sha);
+      _proposed = utf8.decode(bytes, allowMalformed: true);
+      // Best-effort: fetch the currently-installed template for a same-
+      // /differs hint. 404 means this is a create rather than a revise —
+      // surfaced via _currentMissing so the user knows.
+      if (_category.isNotEmpty && _name.isNotEmpty) {
+        try {
+          _current = await client.getTemplate(_category, _name);
+        } catch (e) {
+          if (e.toString().contains('404')) {
+            _currentMissing = true;
+          }
+          // Other errors fall through — preview without diff hint.
+        }
+      }
+      if (!mounted) return;
+      setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = 'Failed to load proposal: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight;
+    final border =
+        isDark ? DesignColors.borderDark : DesignColors.borderLight;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: border),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.description_outlined,
+                  size: 16, color: DesignColors.primary),
+              const SizedBox(width: 6),
+              Text(
+                'Template proposal',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.3,
+                ),
+              ),
+              const Spacer(),
+              if (!_loading && _proposed != null)
+                _DiffStatusChip(
+                  isCreate: _currentMissing,
+                  hasCurrent: _current != null,
+                  isSame: _current != null && _current == _proposed,
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '$_category/$_name',
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (_proposedBy.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Proposed by $_proposedBy',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                color: muted,
+              ),
+            ),
+          ],
+          if (_rationale.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Rationale',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: muted,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _rationale,
+              style: GoogleFonts.spaceGrotesk(fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Text(
+            'Proposed body',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: muted,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            )
+          else if (_error != null)
+            Text(
+              _error!,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: DesignColors.error,
+              ),
+            )
+          else
+            Container(
+              constraints: const BoxConstraints(maxHeight: 320),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? DesignColors.backgroundDark
+                    : DesignColors.backgroundLight,
+                border: Border.all(color: border),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  _proposed ?? '',
+                  style: GoogleFonts.jetBrainsMono(fontSize: 11),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Status chip in the proposal header row: create / same / differs.
+/// Drives the principal toward the right mental model at a glance —
+/// "this is a brand-new template" reads differently than "this revises
+/// an existing template" or "this is identical to what's already on
+/// disk" (a no-op proposal worth rejecting).
+class _DiffStatusChip extends StatelessWidget {
+  final bool isCreate;
+  final bool hasCurrent;
+  final bool isSame;
+  const _DiffStatusChip({
+    required this.isCreate,
+    required this.hasCurrent,
+    required this.isSame,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    String label;
+    Color color;
+    if (isCreate) {
+      label = 'NEW';
+      color = DesignColors.terminalCyan;
+    } else if (!hasCurrent) {
+      label = 'unknown';
+      color = DesignColors.textMuted;
+    } else if (isSame) {
+      label = 'no change';
+      color = DesignColors.textMuted;
+    } else {
+      label = 'revise';
+      color = Colors.orange;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.jetBrainsMono(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
   }
 }

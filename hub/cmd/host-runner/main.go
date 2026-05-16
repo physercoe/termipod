@@ -18,6 +18,23 @@
 //     spawns for `mcp__termipod-host__hook_*` tools (ADR-027 W5c).
 //
 // One install covers all roles.
+//
+// Exit-code contract (ADR-028 D-2). The systemd unit shipped at
+// hub/deploy/systemd/termipod-host@.service uses Restart=on-failure,
+// which means systemd respawns only on NON-ZERO exits. host-runner's
+// callers rely on this split:
+//
+//   - exit 0   — true shutdown (`host.shutdown` verb). Systemd does
+//                NOT respawn. Operator brings the host back manually
+//                with `systemctl start termipod-host@<id>`.
+//   - exit 75  — bounce (EX_TEMPFAIL). Systemd respawns with whatever
+//                binary is now at the install path (used by Phase 2
+//                `host.update` and Phase 3 `host.restart`).
+//   - exit 1+  — failure path. Systemd respawns the same binary.
+//
+// Keep these contracts stable: the orchestrator (`hub-server
+// shutdown-all`, future `update-all`, `restart-all`) and operator
+// docs (docs/how-to/install-host-runner.md) both depend on them.
 package main
 
 import (

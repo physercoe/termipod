@@ -44,14 +44,22 @@ type TunnelManager struct {
 	metrics *RelayMetrics
 }
 
-// tunnelRequest is one queued A2A request awaiting a host-runner dispatch.
+// tunnelRequest is one queued envelope awaiting a host-runner dispatch.
+//
+// Kind discriminates two traffic classes on the same tunnel (ADR-028 D-1):
+//   - "" or "a2a" → A2A relay; the host-runner's local A2A handler reads
+//     Method/Path/Headers/BodyB64.
+//   - "host.<verb>" → control-plane verb; the host-runner routes by Kind
+//     and reads Payload (opaque, verb-specific JSON).
 type tunnelRequest struct {
-	ReqID   string            `json:"req_id"`
-	Method  string            `json:"method"`
-	Path    string            `json:"path"`            // the /a2a/<agent>/... tail, i.e. what the local A2A handler sees
-	RawQuery string           `json:"raw_query,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	BodyB64 string            `json:"body_b64,omitempty"`
+	ReqID    string            `json:"req_id"`
+	Kind     string            `json:"kind,omitempty"`
+	Method   string            `json:"method,omitempty"`
+	Path     string            `json:"path,omitempty"` // the /a2a/<agent>/... tail, i.e. what the local A2A handler sees
+	RawQuery string            `json:"raw_query,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
+	BodyB64  string            `json:"body_b64,omitempty"`
+	Payload  json.RawMessage   `json:"payload,omitempty"`
 }
 
 // tunnelResponse is the host-runner's reply, addressed by ReqID.
@@ -113,6 +121,23 @@ func (m *TunnelManager) enqueueAndWait(ctx context.Context, hostID string, req *
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// enqueueHostVerb pushes a control-plane envelope onto the host's queue
+// and blocks until the host-runner posts the response or ctx is done.
+// ADR-028 D-1: the same channel as A2A relay, discriminated by Kind.
+//
+// Callers stamp the verb name (e.g. "host.shutdown") and verb-specific
+// args (as JSON); the host-runner side routes by Kind and decodes
+// Payload. An unrecognised verb comes back as
+// {"error":"unknown_verb","verb":...,"host_version":...} with status 400.
+func (m *TunnelManager) enqueueHostVerb(ctx context.Context, hostID, kind string, payload json.RawMessage) (*tunnelResponse, error) {
+	req := &tunnelRequest{
+		ReqID:   NewID(),
+		Kind:    kind,
+		Payload: payload,
+	}
+	return m.enqueueAndWait(ctx, hostID, req)
 }
 
 // nextForHost blocks for up to wait on the host's queue. Returns nil on
@@ -258,6 +283,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 
 	req := &tunnelRequest{
 		ReqID:    NewID(),
+		Kind:     "a2a",
 		Method:   r.Method,
 		Path:     localPath,
 		RawQuery: r.URL.RawQuery,

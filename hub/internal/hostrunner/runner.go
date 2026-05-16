@@ -15,6 +15,7 @@ import (
 
 	hub "github.com/termipod/hub"
 	"github.com/termipod/hub/internal/agentfamilies"
+	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/hostrunner/tbreader"
 	"github.com/termipod/hub/internal/hostrunner/trackio"
@@ -327,7 +328,12 @@ func (a *Runner) Start(ctx context.Context) error {
 		// requests via the hub. Dispatches come straight into the local
 		// a2a.Server.Handler() so relayed calls hit the exact same routes
 		// a direct peer would.
-		go a2a.RunTunnel(ctx, a.Client, a.HostID, srv.Handler(), a.Log)
+		//
+		// The same tunnel also carries host.<verb> control traffic
+		// (ADR-028); a.handleHostVerb routes those. Unknown verbs return
+		// the typed unknown_verb response automatically — see RunTunnel.
+		go a2a.RunTunnel(ctx, a.Client, a.HostID, srv.Handler(),
+			a.handleHostVerb, buildinfo.Version, a.Log)
 	}
 
 	if a.TrackioDir != "" {

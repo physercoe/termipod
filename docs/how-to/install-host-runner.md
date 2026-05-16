@@ -661,6 +661,47 @@ This trips people up after a host-runner upgrade. Quick reference:
 
 If you upgrade host-runner often, the cleanest workflow is: close all open steward sessions in mobile → restart host-runner → wait ~5s for reconcile → spawn fresh stewards via `Replace steward` or session resume.
 
+## 9.5. Exit-code contract (systemd respawn rules)
+
+The shipped unit at `hub/deploy/systemd/termipod-host@.service` uses
+`Restart=on-failure`, which is the load-bearing knob behind the
+fleet-control verbs in
+[ADR-028](../decisions/028-host-control-via-tunnel-and-cli.md). Two
+exit codes encode two distinct operator intents:
+
+| `host-runner` exits | systemd behavior | When it happens |
+|---|---|---|
+| **0** | Does **not** respawn — host stays DOWN | `hub-server shutdown-all` (`host.shutdown` verb), or operator-initiated `systemctl stop` |
+| **75** (`EX_TEMPFAIL`) | Respawns with whatever binary is now at `/usr/local/bin/host-runner` | Phase 2 `host.update` verb (after writing a new binary), Phase 3 `host.restart` verb |
+| **1+** | Respawns with the **same** binary | Genuine crash; the supervisor recovers automatically |
+
+**Why operators should care.** After `hub-server shutdown-all`, every
+host-runner exits 0, sessions are flipped to `paused` (resumable), and
+hosts stay DOWN. To bring the fleet back, run on each host:
+
+```
+sudo systemctl start termipod-host@<user>
+```
+
+— sessions can then be resumed from mobile (the existing `Resume`
+affordance in the Sessions list) without restarting any agents from
+scratch.
+
+**Verifying the contract.** A quick smoke test on a single host:
+
+```
+# Trigger a clean exit via the verb path
+sudo journalctl -fu termipod-host@<user>     # in one terminal
+hub-server shutdown-all                       # from the hub side
+
+# After ack: journald shows "host.shutdown exiting code=0"; the unit
+# is "inactive (dead)" and stays that way until you `systemctl start`.
+```
+
+If `Restart=on-failure` were `Restart=always`, exit 0 would still
+respawn — that's exactly the lever ADR-028 D-2 preserves, so don't
+flip it without revisiting that decision.
+
 ## 10. Troubleshooting
 
 - **Host never appears in `GET /hosts`.** Token is wrong or scoped to

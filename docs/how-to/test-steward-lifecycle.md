@@ -1381,6 +1381,95 @@ deferred until users could run claude 2.1.x on a real host.
 
 ---
 
+## Scenario 25 — Fleet shutdown via `hub-server shutdown-all` (ADR-028 Phase 1)
+
+**Goal:** confirm `hub-server shutdown-all` stops every active
+session on every live host, fires the `host.shutdown` verb so each
+host-runner exits 0, and that `Restart=on-failure` leaves the hosts
+DOWN until the operator manually starts them again. Sessions stay
+at `paused` and remain resumable via the existing route.
+
+**Pre-conditions:** the smoke-test fleet has at least **two hosts**
+running under systemd (Track B install per
+[`install-host-runner.md`](install-host-runner.md)), each with an
+active steward session. The hub-server is reachable; `HUB_TOKEN`
+holds an owner-scope bearer.
+
+**Steps:**
+
+1. From a third box (or the hub host itself), run:
+
+   ```
+   hub-server shutdown-all --reason "lifecycle-scenario-25"
+   ```
+
+2. Watch hub-server's stdout: it prints a per-host row showing
+   `sessions_stopped`, `acked=yes`, and an empty error column.
+3. On each affected host (e.g. `journalctl -fu termipod-host@<user>`):
+   - Expect log line `host.shutdown received reason=lifecycle-scenario-25`.
+   - Followed by `host.shutdown exiting code=0`.
+   - Followed by systemd marking the unit `inactive (dead)` and **not**
+     respawning it (`Restart=on-failure` only kicks on non-zero exits).
+4. In mobile (or `GET /v1/teams/{team}/sessions`), confirm each prior
+   active session shows `status=paused` rather than `active` or
+   `closed`.
+5. Inspect the audit log for the team:
+   ```
+   GET /v1/teams/{team}/audit?action=host.shutdown
+   GET /v1/teams/{team}/audit?action=session.stop
+   ```
+   Each host gets one `host.shutdown` row (meta carries
+   `sessions_stopped`, `force_kill`, `reason`, `acked`); each stopped
+   session gets one `session.stop` row (meta carries the agent_id and
+   the same reason); each terminated agent keeps its existing
+   `agent.terminate` row for activity-feed continuity.
+6. Bring the fleet back manually:
+   ```
+   sudo systemctl start termipod-host@<user>     # on each host
+   ```
+   Hosts heartbeat; the mobile sessions list shows **Resume** for
+   each prior session. Tapping Resume re-spawns a fresh agent inside
+   the same session (engine_session_id preserved when the engine
+   supports it).
+
+**Expected:**
+
+- Each host's systemd unit exits 0 and stays `inactive (dead)` until
+  the operator starts it again.
+- `hub-server` itself stays up across the whole flow — never restarts
+  (ADR-028 D-2 keeps hub out of the host-fleet exit loop).
+- Sessions resume cleanly post-bringup; the chat AppBar shows
+  Resume, not "session ended."
+- `--force-kill` flag: re-run shutdown-all on one host with the flag
+  and confirm the `audit_events` row's meta carries `force_kill=true`
+  (visible behavior depends on the agent driver's SIGKILL handling).
+
+**Failure modes:**
+
+- **`acked=no` for a live host** → host-runner didn't respond within
+  60s. Check the host's journald — most likely the tunnel long-poll
+  was wedged. The hub-side rows still land (operator intent is what
+  the audit cares about); just `systemctl restart` the host and
+  re-run.
+- **Host respawns after exit** → the unit's `Restart=` is set to
+  `always` rather than `on-failure`. Fix the unit and re-test;
+  ADR-028 D-2 requires `on-failure` so exit 0 is a true off.
+- **Session ends up `closed`** → stopSessionInternal is being given a
+  wrong status target. Inspect the `UPDATE sessions` in
+  `hub/internal/server/stop_session.go` — it must set `status='paused'`.
+- **Hub-server exited too** → the orchestrator confused itself for a
+  host. Re-read ADR-028 D-2; hub-server's exit is gated only by its
+  own `self-update` (Phase 2), never by `shutdown-all`.
+
+**Why this scenario:** it's the smoke test for the
+`hub-server shutdown-all` ship in v1.0.610. The exit-code-0 →
+systemd-leaves-it-down contract is the load-bearing piece behind
+Phase 2's `update-all` (which switches to exit 75 → systemd respawns
+the new binary). Verifying the contract here catches the cliff
+*before* operators run `update-all` on a real fleet.
+
+---
+
 ## Scenario 30 — Spawn-with-task surfaces on the Tasks tab (ADR-029)
 
 **Goal:** confirm that asking a project steward to spawn a worker

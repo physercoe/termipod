@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -22,14 +24,31 @@ type TunnelClient interface {
 
 // TunnelEnvelope mirrors the host-runner client's wire type. Redeclared
 // here to keep the a2a package free of an upstream dep.
+//
+// Kind discriminates two traffic classes on the same tunnel (ADR-028 D-1):
+//   - "" or "a2a" → A2A relay, dispatched through the local http.Handler.
+//   - "host.<verb>" → control-plane verb, dispatched through HostVerbHandler.
+//
+// For Kind=="host.*" the relay fields (Method/Path/Headers/BodyB64) are
+// unused; verb args ride in Payload as opaque JSON.
 type TunnelEnvelope struct {
 	ReqID    string            `json:"req_id"`
-	Method   string            `json:"method"`
-	Path     string            `json:"path"`
+	Kind     string            `json:"kind,omitempty"`
+	Method   string            `json:"method,omitempty"`
+	Path     string            `json:"path,omitempty"`
 	RawQuery string            `json:"raw_query,omitempty"`
 	Headers  map[string]string `json:"headers,omitempty"`
 	BodyB64  string            `json:"body_b64,omitempty"`
+	Payload  json.RawMessage   `json:"payload,omitempty"`
 }
+
+// HostVerbHandler dispatches a host.<verb> envelope to its local handler
+// and returns the canonical response envelope. Implementations should
+// never block longer than a few seconds — verbs like host.shutdown ack
+// synchronously and then SIGTERM after the response is posted.
+//
+// Returning nil tells the loop to emit the typed unknown_verb response.
+type HostVerbHandler func(ctx context.Context, env *TunnelEnvelope) *TunnelResponseEnvelope
 
 type TunnelResponseEnvelope struct {
 	ReqID   string            `json:"req_id"`
@@ -39,14 +58,22 @@ type TunnelResponseEnvelope struct {
 }
 
 // RunTunnel loops forever (until ctx cancels) long-polling the hub for
-// queued A2A requests, dispatching them through the supplied handler,
-// and posting the resulting response back. The handler is typically the
-// host-runner's own a2a.Server.Handler(), so relayed calls land on the
-// exact same routes a direct peer would hit.
+// queued envelopes, routing each by Kind, and posting the resulting
+// response back.
+//
+//   - Kind == "" or "a2a" → dispatched through handler (typically the
+//     host-runner's own a2a.Server.Handler()) so relayed calls land on
+//     the exact same routes a direct peer would hit.
+//   - Kind == "host.<verb>" → dispatched through verbs. If verbs is nil
+//     or returns nil, the loop emits a typed unknown_verb response.
 //
 // Errors are logged and retried with a small backoff; the loop never
 // exits on transient failures. Only ctx.Done() terminates it.
-func RunTunnel(ctx context.Context, cli TunnelClient, hostID string, handler http.Handler, log *slog.Logger) {
+//
+// hostVersion is stamped into the unknown_verb response body so the
+// orchestrator can report "this host is too old for this verb" cleanly.
+// Pass an empty string to omit the field.
+func RunTunnel(ctx context.Context, cli TunnelClient, hostID string, handler http.Handler, verbs HostVerbHandler, hostVersion string, log *slog.Logger) {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -72,10 +99,41 @@ func RunTunnel(ctx context.Context, cli TunnelClient, hostID string, handler htt
 		if req == nil {
 			continue
 		}
-		resp := dispatchLocal(ctx, handler, req)
+		var resp *TunnelResponseEnvelope
+		switch {
+		case req.Kind == "" || req.Kind == "a2a":
+			resp = dispatchLocal(ctx, handler, req)
+		case strings.HasPrefix(req.Kind, "host."):
+			verb := strings.TrimPrefix(req.Kind, "host.")
+			if verbs != nil {
+				resp = verbs(ctx, req)
+			}
+			if resp == nil {
+				resp = unknownVerbEnvelope(req.ReqID, verb, hostVersion)
+			}
+		default:
+			resp = unknownVerbEnvelope(req.ReqID, req.Kind, hostVersion)
+		}
 		if err := cli.PostTunnelResponse(ctx, hostID, resp); err != nil {
 			log.Warn("tunnel response post failed", "req_id", req.ReqID, "err", err)
 		}
+	}
+}
+
+// unknownVerbEnvelope returns the typed 400 response per ADR-028 D-1.
+// Callers (the dispatcher loop, or a HostVerbHandler that recognises
+// the kind prefix but not the specific verb) can construct it directly.
+func unknownVerbEnvelope(reqID, verb, hostVersion string) *TunnelResponseEnvelope {
+	body := map[string]any{"error": "unknown_verb", "verb": verb}
+	if hostVersion != "" {
+		body["host_version"] = hostVersion
+	}
+	b, _ := json.Marshal(body)
+	return &TunnelResponseEnvelope{
+		ReqID:   reqID,
+		Status:  http.StatusBadRequest,
+		Headers: map[string]string{"Content-Type": "application/json"},
+		BodyB64: base64.StdEncoding.EncodeToString(b),
 	}
 }
 

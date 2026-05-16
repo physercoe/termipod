@@ -305,12 +305,46 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 	// pointing at it has no live process to talk to and must auto-pause
 	// so the session list shows a Resume affordance instead of a dead
 	// row that still claims to be active. ADR-009 D6 / the mobile Stop
-	// session contract both depend on this — without the flip, the
-	// chat AppBar keeps offering Stop after the agent is already gone.
-	// The status flip is idempotent (the WHERE clause anchors to active),
-	// so repeated patches stay at paused until resume or archive.
-	if in.Status != nil &&
-		(*in.Status == "terminated" || *in.Status == "crashed" || *in.Status == "failed") {
+	// session contract both depend on this.
+	//
+	// 'terminated' is the operator-driven stop — it goes through
+	// stopSessionInternal so the audit trail matches the shutdown-all
+	// fleet path (ADR-028 W2.5). 'crashed' / 'failed' are agent-side
+	// outcomes (no host command, no agent.terminate audit) so the
+	// session-paused + token-revoke logic stays inline.
+	if in.Status != nil && *in.Status == "terminated" {
+		// Resolve the session that points at this agent so the helper
+		// can do its session-keyed work. Some agents have no live
+		// session (rare — typically already-archived) in which case the
+		// inline branch below handles the side-effects.
+		var sessionID string
+		_ = s.db.QueryRowContext(r.Context(),
+			`SELECT id FROM sessions
+			  WHERE team_id = ? AND current_agent_id = ? AND status = 'active'
+			  LIMIT 1`, team, id).Scan(&sessionID)
+		if sessionID != "" {
+			_, _ = s.stopSessionInternal(r.Context(), team, sessionID, StopSessionOpts{
+				Reason: "agent terminated via PATCH",
+			})
+		} else {
+			// No live session — preserve the legacy side-effects so
+			// PATCH-to-terminated on a session-less agent still revokes
+			// tokens and fires the agent.terminate audit + host kill.
+			_, _ = auth.RevokeAgentTokens(r.Context(), s.db, id, NowUTC())
+			var hostID, paneID sql.NullString
+			var handle string
+			qerr := s.db.QueryRowContext(r.Context(),
+				`SELECT host_id, pane_id, handle FROM agents WHERE team_id = ? AND id = ?`,
+				team, id).Scan(&hostID, &paneID, &handle)
+			if qerr == nil && hostID.Valid && hostID.String != "" {
+				_, _ = s.enqueueHostCommand(r.Context(), hostID.String, id,
+					"terminate", map[string]any{"pane_id": paneID.String})
+			}
+			s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
+				"terminate "+handle, map[string]any{"handle": handle})
+		}
+	} else if in.Status != nil &&
+		(*in.Status == "crashed" || *in.Status == "failed") {
 		_, _ = s.db.ExecContext(r.Context(), `
 			UPDATE sessions
 			   SET status = 'paused', last_active_at = ?
@@ -318,36 +352,16 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 			   AND current_agent_id = ?
 			   AND status = 'active'`,
 			NowUTC(), team, id)
-		// Revoke the dead agent's MCP bearer so the (now orphaned)
-		// token can't authorize further /mcp/{token} calls. Without
-		// this, every spawn → terminate cycle accumulates a still-valid
-		// token row, and resume mints another on top — the Auth screen
-		// fills with stale entries indefinitely.
 		_, _ = auth.RevokeAgentTokens(r.Context(), s.db, id, NowUTC())
-	}
-	// A status=terminated PATCH from the UI marks the row, but without
-	// also enqueuing a host-side kill the pane stays alive. Mirror the
-	// MCP shutdown_self path so both entrypoints converge on the same
-	// host-runner cleanup.
-	if in.Status != nil && *in.Status == "terminated" {
-		var hostID, paneID sql.NullString
-		var handle string
-		qerr := s.db.QueryRowContext(r.Context(),
-			`SELECT host_id, pane_id, handle FROM agents WHERE team_id = ? AND id = ?`,
-			team, id).Scan(&hostID, &paneID, &handle)
-		if qerr == nil && hostID.Valid && hostID.String != "" {
-			_, _ = s.enqueueHostCommand(r.Context(), hostID.String, id,
-				"terminate", map[string]any{"pane_id": paneID.String})
-		}
-		s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
-			"terminate "+handle, map[string]any{"handle": handle})
 	}
 	// ADR-029 D-3: auto-derive the linked task's status from the
 	// agent's terminal transition. Most-recent-spawn drives; older
 	// spawns for the same task stay in the audit chain. Skips when
 	// task.status='cancelled' (terminal override that auto-derive
-	// must never overwrite).
-	if in.Status != nil {
+	// must never overwrite). stopSessionInternal calls this too with
+	// 'terminated'; the non-terminated path (crashed/failed) needs
+	// the explicit call here so its task moves to blocked.
+	if in.Status != nil && *in.Status != "terminated" {
 		_ = s.deriveTaskStatusFromAgent(r.Context(), team, id, *in.Status)
 	}
 	w.WriteHeader(http.StatusNoContent)

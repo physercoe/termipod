@@ -6,6 +6,7 @@ import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
 import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
+import '../../services/id_format.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/agent_config_sheet.dart';
@@ -1619,15 +1620,19 @@ class _SessionTileState extends ConsumerState<_SessionTile> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(
-        [
-          status,
-          if (scopeKind.isNotEmpty) scopeKind,
-          if (worktree.isNotEmpty) _shortPath(worktree),
-        ].join(' · '),
-        style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      subtitle: GestureDetector(
+        onLongPress: id.isEmpty ? null : () => copyIdToClipboard(context, id),
+        child: Text(
+          [
+            status,
+            if (scopeKind.isNotEmpty) scopeKind,
+            if (worktree.isNotEmpty) _shortPath(worktree),
+            if (id.isNotEmpty) formatId(idKindFor('session'), id),
+          ].join(' · '),
+          style: GoogleFonts.jetBrainsMono(fontSize: 11, color: muted),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       trailing: inSelect
           ? null

@@ -6,6 +6,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/insights_provider.dart';
+import '../../services/id_format.dart';
 import '../../theme/design_colors.dart';
 import '../../widgets/activity_digest_card.dart';
 import '../../widgets/hub_offline_banner.dart';
@@ -622,10 +623,10 @@ class _DetailView extends StatelessWidget {
           (data['actor_handle'] ?? '').toString(),
           (data['actor_kind'] ?? '').toString(),
         ].where((s) => s.isNotEmpty).join('  ·  ')),
-        _kv(context, 'Target', [
-          (data['target_kind'] ?? '').toString(),
-          (data['target_id'] ?? '').toString(),
-        ].where((s) => s.isNotEmpty).join(' ')),
+        _TargetKv(
+          targetKind: (data['target_kind'] ?? '').toString(),
+          targetId: (data['target_id'] ?? '').toString(),
+        ),
         _kv(context, 'Time', (data['ts'] ?? '').toString()),
         if (meta is Map && meta.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -663,6 +664,79 @@ class _DetailView extends StatelessWidget {
             child: SelectableText(
               v,
               style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Target row in the audit detail panel. Renders the kind plus a
+/// type-prefixed short form of the id (e.g. `project · prj-01KRN…N4M0`)
+/// with the full ULID below in a muted mono font. SelectableText on the
+/// long form lets users grep server logs without juggling clipboard
+/// gestures; long-pressing the short pill copies the same string.
+class _TargetKv extends StatelessWidget {
+  final String targetKind;
+  final String targetId;
+  const _TargetKv({required this.targetKind, required this.targetId});
+
+  @override
+  Widget build(BuildContext context) {
+    if (targetKind.isEmpty && targetId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final short =
+        targetId.isEmpty ? '' : formatId(idKindFor(targetKind), targetId);
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              'Target',
+              style: TextStyle(fontSize: 12, color: muted),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (targetKind.isNotEmpty) ...[
+                      Text(targetKind, style: const TextStyle(fontSize: 13)),
+                      const SizedBox(width: 8),
+                    ],
+                    if (short.isNotEmpty)
+                      GestureDetector(
+                        onLongPress: () =>
+                            copyIdToClipboard(context, targetId),
+                        child: Text(
+                          short,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: muted,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                if (targetId.isNotEmpty)
+                  SelectableText(
+                    targetId,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: muted,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

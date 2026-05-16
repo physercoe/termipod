@@ -7,6 +7,7 @@ import 'package:termipod/l10n/app_localizations.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../providers/sessions_provider.dart';
+import '../../services/id_format.dart';
 import '../sessions/sessions_screen.dart' show SessionChatScreen;
 import '../../theme/design_colors.dart';
 import '../../theme/task_priority_style.dart';
@@ -1151,10 +1152,29 @@ class _AgentsView extends ConsumerWidget {
                           size: 18, color: DesignColors.primary),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(
-                          (a['handle'] ?? a['id'] ?? '?').toString(),
-                          style: GoogleFonts.spaceGrotesk(
-                              fontSize: 13, fontWeight: FontWeight.w600),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              (a['handle'] ?? a['id'] ?? '?').toString(),
+                              style: GoogleFonts.spaceGrotesk(
+                                  fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                            GestureDetector(
+                              onLongPress: () => copyIdToClipboard(
+                                  context, (a['id'] ?? '').toString()),
+                              child: Text(
+                                formatId(idKindFor('agent'),
+                                    (a['id'] ?? '').toString()),
+                                style: GoogleFonts.jetBrainsMono(
+                                  fontSize: 10,
+                                  color: isDark
+                                      ? DesignColors.textMuted
+                                      : DesignColors.textMutedLight,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       Text((a['status'] ?? '').toString(),

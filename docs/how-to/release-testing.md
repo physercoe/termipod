@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-14)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.583 (per-section version markers below pin steps individually; §5.1a added for settings IA refactor W1+W2; §7.7 added for ADR-026 kimi-code)
+> **Last verified vs code:** v1.0.599 (per-section version markers below pin steps individually; §5.1a added for settings IA refactor W1+W2; §7.7 added for ADR-026 kimi-code; v1.0.592 closed the request_project_steward catalog gap that §7.3 used to hit; v1.0.594-599 ships covered in companion `test-steward-lifecycle.md` scenarios 12-16)
 
 **TL;DR.** Evergreen manual test plan covering the mobile app +
 Termipod Hub surfaces. Update in place when behavior changes; the
@@ -590,6 +590,15 @@ The end-to-end spawn flow now has three layered surfaces:
      Me tab, severity major; OR
    - (when a project steward already exists) send an A2A message
      to that steward.
+
+   *Note (v1.0.592 fix):* up to v1.0.591 the `request_project_steward`
+   MCP tool was registered in the dispatcher but missing from
+   `tools/list`, so claude-code returned "No such tool available"
+   and the steward fell back to a generic `request_approval` +
+   `agents.spawn` sequence that the W9 gate then rejected. If you
+   reproduce that symptom, the catalog regressed — the
+   `TestEveryDispatcherCaseAdvertised` safety test should have
+   caught it in CI.
 3. Tap the attention item → **Expected:** opens the host-picker
    sheet pre-filled with the suggestion. Continuing from there
    reaches §7.1 step 3.

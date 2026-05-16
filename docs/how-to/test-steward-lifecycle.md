@@ -1,9 +1,9 @@
 # Test the steward-driven project lifecycle (write + A2A)
 
 > **Type:** how-to
-> **Status:** Current (2026-05-14)
+> **Status:** Current (2026-05-16)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.579 (Scenario 7 + Scenario 7.5 reflect ADR-025; kimi-code prereq added per ADR-026; older scenarios pinned to v1.0.500)
+> **Last verified vs code:** v1.0.599 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -497,7 +497,18 @@ lifecycle --reset` if a previous run left one behind).
   steward's prompt update didn't take. Confirm the deployed
   `steward.general.v1.md` includes the
   `## Project work — delegate to the project steward`
-  section (added in v1.0.573-alpha).
+  section (added in v1.0.573-alpha). **Common cause until
+  v1.0.592:** the tool was registered in the dispatcher but
+  missing from `tools/list` (`mcpToolDefsExtra()` skipped
+  the entry), so claude-code returned "No such tool available"
+  and the steward fell back to a generic `request_approval` +
+  `agents.spawn` sequence (which the W9 gate then rejected
+  with `general steward must delegate via request_project_steward`).
+  Fixed in v1.0.592. Verify via the catalog directly:
+  `tools/list` on the steward's MCP path should include
+  `request_project_steward`. The
+  `TestEveryDispatcherCaseAdvertised` safety test (also
+  v1.0.592) makes regressions of this class fail in CI.
 - **No worker session in project Agents tab** → DoSpawn's
   auto-open for project_id didn't fire. Check hub logs for
   `INSERT INTO sessions ... scope_kind='project'`. If the
@@ -674,6 +685,209 @@ If any of the three fault-injection scenarios surfaces a
 *different* failure than this doc says it should, fix the doc
 or fix the surface — don't ship the wedge with a stale failure
 guide.
+
+---
+
+## Scenario 12 — Project Agents detail sheet has SessionInitChip + overflow (v1.0.594)
+
+**Goal:** confirm the project Agents detail sheet now matches
+the Session-chat surface.
+
+**Steps:**
+
+1. Open Projects → `research-method-demo` → Agents.
+2. Tap a live project steward row (after spawning one per
+   Scenario 7.5). The `_AgentDetailSheet` opens.
+
+**Expected:**
+
+- Header row shows: handle · mode chip · status chip · (overflow
+  menu icon — three dots) · close (X).
+- A second row directly below the header shows a
+  `SessionInitChip` if the agent has emitted `session.init`:
+  engine kind pill (`claude`) + model pill (`opus 4.7`) +
+  permission mode pill + tools count + mcp-server count. Tap
+  opens the session-details sheet.
+- The overflow menu (three dots) carries: **View agent config**
+  (opens `showAgentConfigSheet`), **Pause/Resume** (if live +
+  has pane), **Respawn** (if spec available), **Terminate** /
+  **Delete** (state-aware).
+- No flat row of action buttons below the header — those
+  collapsed into the overflow in v1.0.594.
+
+**Failure modes:**
+
+- **SessionInitChip never appears:** agent hasn't emitted
+  `session.init` yet (cold spawn). Send the agent one input,
+  wait ~3 s, reopen the sheet.
+- **Overflow menu missing pause/resume:** agent is dead (status
+  terminated/failed/crashed) or paneless — expected.
+
+---
+
+## Scenario 13 — Spawn-steward sheet engine row reads YAML mode + model (v1.0.597)
+
+**Goal:** confirm the engine info row reflects what the YAML
+actually configures.
+
+**Steps:**
+
+1. Open the Library tab → Templates → tap `steward.v1.yaml` →
+   editor. Change `driving_mode: M2` to `driving_mode: M4`. Save.
+2. Pop back to Home → tap **Spawn steward** card.
+3. Pick `steward.v1.yaml` in the template dropdown.
+
+**Expected:**
+
+- Engine info row reads `Claude Code` + `M4 · opus 4.7 · JSONL
+  tail · MCP permission gate`. Pre-v1.0.597 it would have read
+  `Claude Code · opus-4-7 · stream-json · MCP permission gate`
+  — hardcoded regardless of YAML.
+- Repeat for `steward.codex.v1.yaml`, `steward.gemini.v1.yaml`,
+  `steward.kimi.v1.yaml`: each engine row shows the correct
+  label + driving-mode-aware transport hint. Kimi-code used to
+  fall through to "Unknown engine" / "kind=kimi-code"; now has
+  its own entry.
+
+**Cleanup:** revert the `driving_mode` edit on `steward.v1.yaml`
+or reset via `Restore built-in` so other scenarios start from
+known state.
+
+---
+
+## Scenario 14 — Project-bound steward workdir isolation (v1.0.595)
+
+**Goal:** prove two project stewards on the same host no longer
+collide on `~/hub-work`.
+
+**Steps:**
+
+1. Reset the seed: `hub-server seed-demo --shape lifecycle --reset`.
+2. Spawn a project steward on `research-method-demo` via the
+   project's Agents tab "Spawn project steward" CTA.
+3. Spawn a second project steward on
+   `research-experiment-demo` from its Agents tab — same host.
+4. On the host, run: `ls -d ~/hub-work/*/*` (or `find ~/hub-work
+   -maxdepth 3 -name .mcp.json`).
+
+**Expected:**
+
+- Two distinct `~/hub-work/<pid8>/<handle>` directories appear,
+  each with its own `.mcp.json` and `.claude/settings.local.json`.
+- Neither overwrites the other. Pre-v1.0.595 both project
+  stewards (using bundled `steward.v1.yaml` with hardcoded
+  `default_workdir: ~/hub-work`) would have shared `~/hub-work`
+  and silently overwritten each other's per-spawn config —
+  the root cause of the "phantom kimi steward" symptom where
+  taps on one project's steward strip routed to a different
+  project's session.
+
+**Failure modes:**
+
+- **Both stewards still in `~/hub-work` directly:** the project
+  steward template wasn't refreshed. Check
+  `hub/templates/agents/steward.v1.yaml` (or the team-overlay
+  copy under `<DataRoot>/team/templates/agents/`) — should NOT
+  carry `default_workdir:` (left to launcher to auto-derive).
+  Re-init the hub or delete the team-overlay file to fall
+  back to the bundled v1.0.595+ shape.
+
+---
+
+## Scenario 15 — Template scaffold tools + scope filter (v1.0.596-598)
+
+**Goal:** exercise the agent-driven template-authoring loop
+end-to-end.
+
+**Pre:** the principal token must have MCP access (default for
+the test team).
+
+**Steps:**
+
+1. Open the General Steward overlay.
+2. Type: *"Author a new worker template for a 'reading-list-curator'
+   role. Use the scaffold tool to make sure the schema is right."*
+3. Wait for the steward to call `templates.agent.scaffold(kind=worker)`.
+4. Watch the chat — the scaffold body should appear in a
+   tool_result card, then the steward customises it and calls
+   `templates.agent.create(name=reading-list-curator.v1.yaml,
+   content=<modified>)`.
+
+**Expected (scaffold flow):**
+
+- The scaffold result carries: `{category, suggested_name,
+  content}` where `content` includes all schema-mandated fields
+  (template, version, driving_mode, backend.{kind, model, cmd,
+  permission_modes}, default_role, default_capabilities, skills,
+  default_channels) and NO persona-specific carryover (no
+  `agents.coder`, no `display_label: "Coder"`, etc.).
+- The steward modifies in place and writes back via `.create`.
+  No "I can't author a YAML template" or improvised non-schema
+  output.
+
+5. Edit the new YAML: add `applicable_to:\n  template_ids:
+   [research-project.v1]\n` at the top level. Save.
+6. Open Projects → `research-method-demo` → tap **Spawn worker**
+   FAB → template picker.
+
+**Expected (applicable_to filter):**
+
+- The picker shows: every template with no `applicable_to:`
+  (team-shared) PLUS `reading-list-curator.v1.yaml` (because
+  it's scoped to `research-project.v1`, which
+  `research-method-demo`'s `template_id` matches).
+- Open Projects → `research-paper-demo` → Spawn worker picker.
+  Expected: `reading-list-curator.v1.yaml` does NOT appear
+  (different project template).
+
+**Failure modes:**
+
+- **`templates.agent.scaffold` returns "tool not found":**
+  catalog registration regressed. The dispatcher safety test
+  `TestEveryCatalogEntryHasTier` should fail in CI before this
+  reaches you — if it didn't, the test is broken.
+- **Picker shows the scoped template in every project:** the
+  filter wasn't applied. Check `lib/services/template_filter.dart`
+  imports in `spawn_agent_sheet.dart` and `plan_create_sheet.dart`.
+
+---
+
+## Scenario 16 — Library tab collapsible + search (v1.0.599)
+
+**Goal:** verify the new Library UX affordances.
+
+**Steps:**
+
+1. Open Settings → Library (or the Settings entry that opens
+   `TemplatesScreen`).
+2. On the Templates tab, tap the chevron next to "agents" —
+   expected: section collapses; chevron rotates from `expand_more`
+   to `chevron_right`; tile count next to the section name
+   stays visible.
+3. Tap the search icon in the AppBar.
+
+**Expected:**
+
+- AppBar title swaps to a `TextField` with hint
+  "Search templates and engines". Type `steward`.
+- Templates tab filters to rows where the name or category
+  contains `steward`. The agents section forces open (search
+  overrides collapse).
+- Switch to the Engines tab while search is active. Same query
+  filters by family + bin + supports — only families whose
+  fields contain `steward` appear (likely none — try `claude`
+  or `gemini` for a hit).
+- Tap the close icon in the AppBar — search clears, prior
+  collapse state restored (your earlier collapse of "agents"
+  is still in effect).
+
+**Failure modes:**
+
+- **Search box doesn't autofocus:** check the
+  `TextField(autofocus: true)` flag in `templates_screen.dart`.
+- **Collapse state lost on tab swap:** the `_collapsed` set
+  must live on `_TemplatesScreenState`, not on the inner body
+  builder. Regression from v1.0.599's design.
 
 ---
 

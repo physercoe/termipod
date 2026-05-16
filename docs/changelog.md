@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-12)
+> **Status:** Current (2026-05-16)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.544
+> **Last verified vs code:** v1.0.599
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,230 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.599-alpha — 2026-05-16
+
+### Added
+
+- **Library tab gains collapsible category sections + cross-tab
+  search.** The Library AppBar gets a search icon that swaps the
+  title for a `TextField`; the query filters both Templates (by
+  name + category) and Engines (by family + bin + supports). Each
+  Templates category now renders as a `_CategoryGroup` with a
+  tappable header (chevron + name + tile count); user collapse
+  state persists in-memory across tab swaps. Search overrides
+  collapse — every section with a match is forced open while a
+  query is active. Default state matches prior behavior
+  (everything expanded), so users who don't touch the new
+  affordance see no behavioral change. Engines tab gets the same
+  filter — flat list, no groups.
+
+---
+
+## v1.0.598-alpha — 2026-05-16
+
+### Added
+
+- **`projects.create` MCP tool now advertises `is_template` +
+  template-shape fields.** The tool's description distinguishes
+  the two authoring paths (concrete project vs reusable project
+  template) and the InputSchema gains `is_template`,
+  `parameters_json`, `on_create_template_id`, `steward_agent_id`,
+  `policy_overrides_json` with role descriptions. The REST handler
+  always accepted these — only the MCP advertisement was missing,
+  so stewards weren't including them. Stewards can now author
+  project templates without server-side changes.
+- **Steward prompts disambiguate plan-template vs project-template.**
+  `steward.general.v1.md` bootstrap splits the old step 6 into
+  two: "plan template" (YAML file via `templates.plan.create`) and
+  "project template" (`projects.create({is_template:true,
+  on_create_template_id:<plan-name>})`). `steward.v1.md` authority
+  section gains the same disambiguation for runtime template
+  revision.
+- **`applicable_to.template_ids:` schema field on agent / prompt /
+  plan templates.** Hub-side: `handlers_templates.go` parses the
+  field during list and surfaces it as `applicable_template_ids`
+  on each row (single-roundtrip filtering). Mobile-side: new
+  `lib/services/template_filter.dart` + filter applied in
+  `spawn_agent_sheet._loadTemplate` and `plan_create_sheet`.
+  Templates without the field stay team-shared (the back-compat
+  default — every bundled template remains visible until a
+  steward explicitly scopes new ones).
+
+---
+
+## v1.0.597-alpha — 2026-05-16
+
+### Fixed
+
+- **Spawn-steward sheet engine row reflects YAML `driving_mode` +
+  `backend.model`.** The chip used to read `backend.kind` only and
+  stamp a hardcoded per-engine description, so a template with
+  `driving_mode: M4` still claimed `stream-json · MCP gate` (the
+  M2 claude-code default) and a model swap never surfaced. Now
+  parses both fields on every template-picker change. Mode-aware
+  transport hint for claude-code (M1=ACP stdio, M2=stream-json,
+  M4=JSONL tail). `kimi-code` added to the engine table (was
+  previously falling through to the "custom template" default
+  with a useless `kind=kimi-code` blurb).
+
+---
+
+## v1.0.596-alpha — 2026-05-16
+
+### Added
+
+- **`templates.{agent,prompt,plan}.scaffold` MCP tools.** Server
+  returns a clean skeleton with all schema-mandated fields
+  populated and persona-specific bits stripped. Args:
+  `{kind: worker|steward, engine: claude-code|codex|gemini-cli|kimi-code}`
+  for agents, `{kind: worker|steward}` for prompts, `{phases: N}`
+  for plans. Engine arg swaps the cmd line + permission gating
+  per the bundled `steward.<engine>.v1.yaml` conventions. Read-
+  only — no side effects.
+- **Steward prompts gain a "never improvise YAML" rule with two
+  named discovery paths.** `steward.general.v1.md` bootstrap
+  step 3 (new) and `steward.v1.md` authority section both
+  explicitly teach: call `templates.<cat>.scaffold` for a clean
+  skeleton, OR `templates.<cat>.list + .get` on the closest
+  bundled template. The bundled templates are the schema reference.
+
+### Changed
+
+- **`templates.{cat}.create` description enriched** with a one-
+  paragraph scaffold-then-modify hint pointing at both discovery
+  paths. The MCP tool description is read at every call so this
+  is the highest-leverage spot for the schema-discovery problem
+  that caused stewards to author non-functional templates.
+
+---
+
+## v1.0.595-alpha — 2026-05-15
+
+### Fixed
+
+- **Project-scoped stewards (`steward.v1`, `steward.codex.v1`,
+  `steward.gemini.v1`, `steward.kimi.v1`) lose their hardcoded
+  `default_workdir: ~/hub-work`.** They now auto-derive
+  `~/hub-work/<pid8>/<handle>` from the spawn — same fallback
+  the launcher already applied for worker templates. Two project
+  stewards on the same host used to silently collide on the same
+  `.mcp.json` / `.claude/settings.local.json` / `CLAUDE.md` per-
+  spawn config; this was the root of the "phantom kimi steward"
+  user-report on `research-method-demo`.
+- **`launch_m4_locallogtail.go` gains the same auto-derive
+  fallback** so the LocalLogTailDriver isn't a regression. New
+  regression test
+  `TestLaunchM4LocalLogTail_AutoDerivesWorkdirFromProjectAndHandle`
+  verifies `.mcp.json` + `settings.local.json` materialize at
+  the derived path when the template omits `default_workdir`.
+
+### Unchanged (by design)
+
+- `briefing.v1`, `ml-worker.v1` keep their explicit
+  `~/hub-work` — their YAML comments document the
+  "team-shared scratch" intent.
+- Persona stewards (`general`, `infra`, `research`, `m4-test`)
+  keep their sub-paths (`~/hub-work/<persona>`) — already
+  disambiguates per persona.
+
+---
+
+## v1.0.594-alpha — 2026-05-15
+
+### Added
+
+- **Project Agents detail sheet header now matches the team
+  Session-chat surface.** Backfilled the latest `session.init`
+  for the agent via a one-shot
+  `listAgentEvents(tail: true, limit: 200)` scan on sheet open
+  (same pattern AgentFeed uses internally). When found, the
+  header renders a `SessionInitChip` underneath the title row:
+  engine kind + model + permission mode + tools count + mcp
+  count. Tap opens the same details sheet the team session uses.
+  Best-effort: silent miss for agents that never emitted
+  `session.init` (e.g. exec-per-turn engines mid-warm-up).
+- **"View agent config" overflow item.** Reuses the existing
+  `showAgentConfigSheet` (persona kind, derived role, driving
+  mode, parent, host, status, raw `spawn_spec_yaml`).
+
+### Changed
+
+- **Pause / Terminate / Respawn collapsed into a
+  `PopupMenuButton`.** The full-width action `Wrap` is gone.
+  New `_ActionsMenu` widget carries the same actions plus the
+  config entry. State-aware: Pause/Resume only when live + has
+  pane; Respawn only when spec is available; Terminate vs
+  Delete depending on whether the agent is dead. Mirrors the
+  `SessionChatScreen` overflow shape so both surfaces feel like
+  one product.
+
+---
+
+## v1.0.593-alpha — 2026-05-15
+
+### Added
+
+- **Type-prefixed short ids on sessions list, project Agents
+  tab, and audit detail Target row.** Hub primary keys are
+  26-char Crockford-base32 ULIDs — visually indistinguishable
+  across entity types. New `lib/services/id_format.dart` with
+  `formatId(kind, id)` returns
+  `'<kind>-<head8>…<tail4>'`, e.g.
+  `'prj-01KRNVJT…N4M0'`. `idKindFor()` maps target_kind /
+  scope_kind strings to display tokens (`prj`, `sess`, `agt`,
+  `att`, `audit`, `evt`, `run`, `plan`, `doc`, `art`, `ch`,
+  `host`, `task`). `copyIdToClipboard` is the long-press
+  affordance. Full id stays selectable in the audit detail
+  panel for `grep`-able server logs. ULIDs remain verbatim in
+  storage — no schema migration.
+
+---
+
+## v1.0.592-alpha — 2026-05-15
+
+### Added
+
+- **ADR-027 LocalLogTailDriver shipped.** Claude-code M4 swap
+  from raw-PTY/xterm-VT to JSONL tail + per-spawn host-runner
+  UDS gateway hosting 9 hook MCP tools (`mcp__termipod-host__hook_*`).
+  Mobile renders M4 claude-code agents as typed cards
+  (text/thinking/tool_call/tool_result/approval) instead of TUI
+  text dump. Plan-approval card + compaction card surface as
+  attention items. Egress proxy preserves hub-URL masking. 20
+  wedges across 12 new Go files; see ADR-027 + plan in
+  `docs/decisions/` / `docs/plans/`.
+
+### Fixed (between v1.0.592 and v1.0.593)
+
+- **`request_project_steward` registered in `tools/list`.**
+  ADR-025 W4 handler shipped but the catalog entry was never
+  added, so claude-code reported "No such tool available"
+  when the general steward followed its prompt. Now visible.
+- **`--a2a-addr` defaults to `127.0.0.1:0`** (loopback auto-
+  pick). The hub-side relay rewrites the public card URL
+  regardless, so loopback bind works behind NAT. Prior
+  empty-string default silently disabled the entire A2A
+  subsystem on stock installs — every `a2a.invoke` returned
+  "no A2A agent found". New explicit opt-out:
+  `--a2a-addr=disabled`.
+- **`project.update` audit meta captures new scalar values**
+  (goal, steward_agent_id, on_create_template_id, budget_cents).
+  Activity timeline finally answers "what was it set to?"
+  instead of only "which column changed?".
+- **Tier-table misclassifications fixed.** Explicit rows for
+  `agents.terminate` (Significant), `templates.{agent,prompt,
+  plan}.{create,update,delete}` (Significant) +
+  `.list/.get` (Trivial), `hosts/agents.list/get` (Trivial),
+  `mobile.navigate` (Trivial), `request_project_steward`
+  (Routine). Eight tools were silently defaulting to Routine.
+- **Two new safety tests.** `TestEveryCatalogEntryHasTier`
+  rewritten to read `toolTiers` directly (the old check was
+  toothless because `tierFor()` always returns non-empty).
+  `TestEveryDispatcherCaseAdvertised` asserts every dispatcher
+  case appears in `tools/list` with a documented alias allowlist.
 
 ---
 

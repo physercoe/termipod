@@ -50,6 +50,14 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
   bool _selecting = false;
   final Set<String> _selectedIds = <String>{};
 
+  // Categories the user has manually collapsed. Detached is collapsed
+  // by default because it's history/diagnostic content — users with
+  // many orphan sessions don't want it dominating the scroll. Other
+  // categories default to expanded.
+  final Set<_StewardCategory> _collapsedCategories = <_StewardCategory>{
+    _StewardCategory.detached,
+  };
+
   // Enter select mode from a long-press on a tile. Pre-selects the
   // tile so the gesture has the same feel as Gmail/Photos: long-press
   // = "select this and turn on multi-pick".
@@ -250,6 +258,23 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             }
             return const _EmptyState();
           }
+          // Cluster groups by category so multi-steward setups don't
+          // render as one flat list. Each category gets a collapsible
+          // header above its sections; collapse state lives on the
+          // screen (so swapping tabs and coming back preserves it).
+          final byCategory = <_StewardCategory, List<_StewardGroup>>{};
+          for (final g in groups) {
+            byCategory.putIfAbsent(_categorize(g), () => []).add(g);
+          }
+          const order = [
+            _StewardCategory.general,
+            _StewardCategory.project,
+            _StewardCategory.domain,
+            _StewardCategory.detached,
+          ];
+          final orderedCats = order
+              .where((c) => byCategory.containsKey(c))
+              .toList(growable: false);
           return RefreshIndicator(
             onRefresh: () async {
               await ref.read(sessionsProvider.notifier).refresh();
@@ -258,14 +283,29 @@ class _SessionsScreenState extends ConsumerState<SessionsScreen> {
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
-                for (final g in groups)
-                  _StewardSection(
-                    group: g,
-                    selecting: _selecting,
-                    selectedIds: _selectedIds,
-                    onLongPressTile: _enterSelectWith,
-                    onToggleTile: _toggleSelect,
+                for (final cat in orderedCats) ...[
+                  _CategoryHeader(
+                    label: _categoryLabel(cat),
+                    count: byCategory[cat]!.length,
+                    collapsed: _collapsedCategories.contains(cat),
+                    onToggle: () => setState(() {
+                      if (_collapsedCategories.contains(cat)) {
+                        _collapsedCategories.remove(cat);
+                      } else {
+                        _collapsedCategories.add(cat);
+                      }
+                    }),
                   ),
+                  if (!_collapsedCategories.contains(cat))
+                    for (final g in byCategory[cat]!)
+                      _StewardSection(
+                        group: g,
+                        selecting: _selecting,
+                        selectedIds: _selectedIds,
+                        onLongPressTile: _enterSelectWith,
+                        onToggleTile: _toggleSelect,
+                      ),
+                ],
                 if (_selecting) const SizedBox(height: 80),
               ],
             ),
@@ -465,6 +505,44 @@ class _StewardGroup {
   String get agentId => (agent['id'] ?? '').toString();
   String get kind => (agent['kind'] ?? '').toString();
   String get status => (agent['status'] ?? '').toString();
+  String get projectId => (agent['project_id'] ?? '').toString();
+}
+
+/// Categories the steward sections cluster under in the Sessions list.
+/// User has multiple stewards (general + per-project + domain) and a
+/// flat list hides the hierarchy. Each category renders a collapsible
+/// header so the user can hide categories they aren't actively using.
+enum _StewardCategory { general, project, domain, detached }
+
+/// Classify a group by its agent's handle/kind/project shape. The
+/// classification mirrors how stewards are spawned:
+///   - General: the team-singleton concierge (`@steward`)
+///   - Project: stewards bound to a project (`@steward.<pid8>` or kind
+///     starts with `steward.` + project_id non-empty)
+///   - Domain: long-lived role stewards (`research-steward`,
+///     `infra-steward`, …) — handle ends with `-steward` and not
+///     project-bound
+///   - Detached: synthetic group with empty agentId (orphan sessions)
+_StewardCategory _categorize(_StewardGroup g) {
+  if (g.agentId.isEmpty) return _StewardCategory.detached;
+  if (isGeneralStewardHandle(g.handle)) return _StewardCategory.general;
+  final isProjectBound = g.handle.startsWith('@steward.') ||
+      g.projectId.isNotEmpty;
+  if (isProjectBound) return _StewardCategory.project;
+  return _StewardCategory.domain;
+}
+
+String _categoryLabel(_StewardCategory c) {
+  switch (c) {
+    case _StewardCategory.general:
+      return 'General steward';
+    case _StewardCategory.project:
+      return 'Project stewards';
+    case _StewardCategory.domain:
+      return 'Domain stewards';
+    case _StewardCategory.detached:
+      return 'Detached sessions';
+  }
 }
 
 /// Build one section per live steward + one section per "orphan"
@@ -486,11 +564,19 @@ List<_StewardGroup> _groupByStateward(
   final groups = <_StewardGroup>[];
   for (final a in agents) {
     final handle = (a['handle'] ?? '').toString();
-    // Include the team-scoped general steward (`@steward`, which
-    // isStewardHandle deliberately excludes for spawn / collision
-    // semantics) so its sessions get a proper group instead of
-    // falling through to "Detached".
-    if (!isStewardHandle(handle) && !isGeneralStewardHandle(handle)) continue;
+    final kind = (a['kind'] ?? '').toString();
+    // Steward predicates by handle don't catch project stewards —
+    // they're spawned with @steward.<pid8> (handlers_project_steward.go
+    // line 46) which isStewardHandle deliberately excludes. Use the
+    // `kind` column as the authoritative steward signal alongside the
+    // handle-based predicates so general + domain + project stewards
+    // all surface in the Sessions list.
+    final isStewardKind = kind == 'steward.v1' || kind.startsWith('steward.');
+    if (!isStewardHandle(handle) &&
+        !isGeneralStewardHandle(handle) &&
+        !isStewardKind) {
+      continue;
+    }
     final status = (a['status'] ?? '').toString();
     if (status != 'running' &&
         status != 'pending' &&
@@ -1297,6 +1383,63 @@ List<Widget> _buildScopeGroupedPrevious(
     }
   }
   return out;
+}
+
+/// Collapsible header row above a steward category. Tap toggles the
+/// expansion state in the parent screen; the chevron mirrors the
+/// state. Visually quieter than the steward section cards below it so
+/// the eye still lands on the per-steward content first.
+class _CategoryHeader extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool collapsed;
+  final VoidCallback onToggle;
+  const _CategoryHeader({
+    required this.label,
+    required this.count,
+    required this.collapsed,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return InkWell(
+      onTap: onToggle,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Row(
+          children: [
+            Icon(
+              collapsed ? Icons.chevron_right : Icons.expand_more,
+              size: 18,
+              color: muted,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+                color: muted,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '($count)',
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11,
+                color: muted,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {

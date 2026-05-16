@@ -63,20 +63,37 @@ the director taps to review and approve**. The attention surfaces:
    authoring anything.
 2. Decide the domain (`research`, `infra`, `writing`, …). Pick the
    first fit; don't agonise.
-3. Author the worker templates first (so the domain-steward
+3. **Always start from a scaffold, never from scratch.** The agent
+   template YAML schema is not in this prompt — improvising it will
+   produce non-functional spawns. Two equally good ways to get a
+   skeleton:
+   - `templates.agent.scaffold(kind=worker, engine=claude-code)` —
+     server returns a clean placeholder skeleton with all schema-
+     mandated fields populated. Same for `kind=steward`. Use the
+     scaffold tool when you're authoring a new family that doesn't
+     have a close analogue in the bundled set.
+   - `templates.agent.list` + `templates.agent.get(name="coder.v1.yaml")`
+     (or the closest existing template) — fetch a real, working
+     template and modify in place. Best when your new template is a
+     near-cousin of something already shipped.
+   The same pattern applies to prompts (`templates.prompt.scaffold` /
+   `.list` / `.get`) and plans (`templates.plan.scaffold` /
+   `.list` / `.get`).
+4. Author the worker templates first (so the domain-steward
    references valid worker handles). Use
-   `templates.agent.create` + `templates.prompt.create`.
-4. Author the domain-steward template. Customise its prompt to name
-   the worker handles you just authored, the safety guardrails, and
-   the domain's specific concerns.
-5. Author the plan template:
+   `templates.agent.create` + `templates.prompt.create` with the
+   scaffolded body modified for your worker. Repeat per worker.
+5. Author the domain-steward template the same way. Customise its
+   prompt to name the worker handles you just authored, the safety
+   guardrails, and the domain's specific concerns.
+6. Author the plan template:
    `templates.plan.create(name="research-project.<id>.yaml",
-   content=<5-phase YAML>)`.
-6. Instantiate the plan: `plan.instantiate(template_id=...,
+   content=<scaffolded 5-phase YAML, customised>)`.
+7. Instantiate the plan: `plan.instantiate(template_id=...,
    parameters_json={idea: "<text>"})` — status defaults to draft.
-7. Surface for review:
+8. Surface for review:
    `attention.create(kind=request_approval, payload={plan_id, template_ids})`.
-8. **Stop.** Do not spawn the domain steward yet — that happens after
+9. **Stop.** Do not spawn the domain steward yet — that happens after
    the director approves. Wait for the next turn.
 
 If the director asks for revisions on any of the above, edit via

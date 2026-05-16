@@ -35,7 +35,7 @@ func templateToolDefs() []toolDef {
 		{"prompt", "prompts", ".md"},
 		{"plan", "plans", ".yaml"},
 	}
-	out := make([]toolDef, 0, len(cats)*5)
+	out := make([]toolDef, 0, len(cats)*6)
 	for _, c := range cats {
 		out = append(out,
 			templateCreateTool(c.toolPrefix, c.dirName, c.ext),
@@ -43,6 +43,7 @@ func templateToolDefs() []toolDef {
 			templateDeleteTool(c.toolPrefix, c.dirName),
 			templateListTool(c.toolPrefix, c.dirName),
 			templateGetTool(c.toolPrefix, c.dirName),
+			scaffoldToolFor(c.toolPrefix, c.dirName, c.ext),
 		)
 	}
 	return out
@@ -56,7 +57,7 @@ func templateToolDefs() []toolDef {
 func templateCreateTool(toolPrefix, dirName, ext string) toolDef {
 	return toolDef{
 		Name:        "templates." + toolPrefix + ".create",
-		Description: "Create a new " + toolPrefix + " template at <DataRoot>/team/templates/" + dirName + "/<name>. `name` should include the canonical extension (e.g. \"my-worker.v1" + ext + "\"). `content` is the raw file body. Returns 201 on first write, 200 on overwrite.",
+		Description: "Create a new " + toolPrefix + " template at <DataRoot>/team/templates/" + dirName + "/<name>. `name` should include the canonical extension (e.g. \"my-worker.v1" + ext + "\"). `content` is the raw file body. Returns 201 on first write, 200 on overwrite. SCHEMA: bundled templates ARE the schema reference — call `templates." + toolPrefix + ".scaffold` for an empty skeleton, or `templates." + toolPrefix + ".list` + `templates." + toolPrefix + ".get` on the closest existing template (e.g. `steward.v1.yaml` for a steward, `coder.v1.yaml` for a worker) and modify in place. Don't author from scratch — the YAML schema isn't in any prompt.",
 		InputSchema: schema(`{"type":"object","required":["name","content"],"properties":{"name":{"type":"string","description":"file name including extension, e.g. \"my-worker.v1` + ext + `\""},"content":{"type":"string","description":"raw file body (YAML/Markdown/JSON)"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			return templatePutCall(c, dirName, args)
@@ -67,7 +68,7 @@ func templateCreateTool(toolPrefix, dirName, ext string) toolDef {
 func templateUpdateTool(toolPrefix, dirName, ext string) toolDef {
 	return toolDef{
 		Name:        "templates." + toolPrefix + ".update",
-		Description: "Update an existing " + toolPrefix + " template. Same wire shape as templates." + toolPrefix + ".create — both PUT to the same path; the server distinguishes 200 (overwrite) from 201 (new).",
+		Description: "Update an existing " + toolPrefix + " template. Same wire shape as templates." + toolPrefix + ".create — both PUT to the same path; the server distinguishes 200 (overwrite) from 201 (new). Fetch the current `content` via `templates." + toolPrefix + ".get` first; the body is a full overwrite, not a patch.",
 		InputSchema: schema(`{"type":"object","required":["name","content"],"properties":{"name":{"type":"string","description":"file name including extension, e.g. \"my-worker.v1` + ext + `\""},"content":{"type":"string","description":"raw file body (YAML/Markdown/JSON)"}}}`),
 		call: func(c *hubClient, args map[string]any) (any, error) {
 			return templatePutCall(c, dirName, args)

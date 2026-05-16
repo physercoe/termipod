@@ -140,6 +140,13 @@ var toolTiers = map[string]string{
 	"templates.plan.list":     TierTrivial,
 	"templates.plan.get":      TierTrivial,
 
+	// Scaffold tools — read-only data, no side effect. Returns a
+	// skeleton the caller customises before calling the matching
+	// `*.create` write. Open to anyone with the *.create tool.
+	"templates.agent.scaffold":  TierTrivial,
+	"templates.prompt.scaffold": TierTrivial,
+	"templates.plan.scaffold":   TierTrivial,
+
 	// --- claude-code's own tool surface ---
 	"Read":           TierTrivial,
 	"Glob":           TierTrivial,

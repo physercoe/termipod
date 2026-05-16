@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/termipod/hub"
@@ -88,12 +90,37 @@ func launchM4LocalLogTail(ctx context.Context, cfg M4LocalLogTailLaunchConfig) (
 	}
 
 	spec, _ := ParseSpec(cfg.Spawn.SpawnSpec)
-	if spec.Backend.DefaultWorkdir == "" {
-		return nil, fmt.Errorf("locallogtail M4: backend.default_workdir is required (JSONL path resolves under <workdir>)")
+	// Workdir resolution mirrors launch_m2.go (ADR-025 W6):
+	//   1. spec.Backend.DefaultWorkdir   — explicit template field wins.
+	//   2. cfg.Spawn.ProjectID set        — derive ~/hub-work/<pid8>/<handle>
+	//      so per-project claude-code stewards stay isolated on shared
+	//      hosts. Without this, two project stewards using steward.v1
+	//      would collide on .mcp.json / .claude/settings.local.json.
+	//   3. neither                        — error: M4 needs a stable
+	//      workdir to anchor the JSONL path lookup, no host-cwd fallback.
+	rawWD := spec.Backend.DefaultWorkdir
+	if rawWD == "" && cfg.Spawn.ProjectID != "" {
+		pid := cfg.Spawn.ProjectID
+		if len(pid) > 8 {
+			pid = pid[:8]
+		}
+		handle := cfg.Spawn.Handle
+		if handle == "" {
+			handle = cfg.Spawn.ChildID
+		}
+		rawWD = filepath.Join("~", "hub-work", pid, handle)
 	}
-	workdir, err := expandHome(spec.Backend.DefaultWorkdir)
+	if rawWD == "" {
+		return nil, fmt.Errorf("locallogtail M4: backend.default_workdir empty and no project_id to derive (JSONL path resolves under <workdir>)")
+	}
+	workdir, err := expandHome(rawWD)
 	if err != nil {
 		return nil, fmt.Errorf("locallogtail M4: expand default_workdir: %w", err)
+	}
+	// Auto-derive paths may not exist yet on first launch; ensure the
+	// directory before .mcp.json / settings.local.json materialization.
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		return nil, fmt.Errorf("locallogtail M4: mkdir workdir %q: %w", workdir, err)
 	}
 	if cfg.Spawn.MCPToken == "" {
 		return nil, fmt.Errorf("locallogtail M4: MCPToken is required (claude needs it to reach permission_prompt)")

@@ -31,7 +31,9 @@ fallback_modes: [M2, M4]
 
 backend:
   kind: gemini-cli
-  default_workdir: ~/hub-work
+  # default_workdir intentionally omitted — auto-derives
+  # ~/hub-work/<pid8>/<handle> from the spawn so per-project gemini
+  # stewards stay isolated on shared hosts.
   # cmd is what host-runner executes via `bash -c "cd <workdir> &&
   # <cmd>"`. The --acp flag puts gemini into Agent Client Protocol
   # mode (Zed spec, JSON-RPC over stdio); ACPDriver speaks the rest.

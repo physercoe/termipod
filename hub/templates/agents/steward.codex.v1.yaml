@@ -24,7 +24,9 @@ backend:
   # override). We don't bake a model name into cmd because the
   # protocol picks per-turn — leaving it open lets the steward
   # promote/demote without re-spawning.
-  default_workdir: ~/hub-work
+  # default_workdir intentionally omitted — auto-derives
+  # ~/hub-work/<pid8>/<handle> from the spawn so per-project codex
+  # stewards stay isolated on shared hosts.
   # No permission_modes map: codex's per-tool-call gate is in-stream
   # via item/*/requestApproval JSON-RPC requests (ADR-012 D3 / slice
   # 4 bridge), not a flag. The bridge runs on every spawn whose

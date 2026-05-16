@@ -43,7 +43,9 @@ fallback_modes: [M4]
 
 backend:
   kind: kimi-code
-  default_workdir: ~/hub-work
+  # default_workdir intentionally omitted — auto-derives
+  # ~/hub-work/<pid8>/<handle> from the spawn so per-project kimi
+  # stewards stay isolated on shared hosts.
   # cmd is what host-runner executes via `bash -c "cd <workdir> &&
   # <cmd>"`. Two top-level kimi flags precede the `acp` subcommand:
   #

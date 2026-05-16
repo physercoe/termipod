@@ -20,7 +20,11 @@ backend:
   # extend permission_modes and pass that key as permission_mode in the
   # spawn request.
   model: claude-opus-4-7
-  default_workdir: ~/hub-work
+  # default_workdir intentionally omitted. The launcher derives
+  # ~/hub-work/<pid8>/<handle> from project_id + handle so two project
+  # stewards on one host don't collide on the same .mcp.json /
+  # .claude/settings.local.json. Templates that need a stable shared
+  # path (general steward, infra steward) opt back in by setting it.
   permission_modes:
     # "skip" = PC-style auto-allow, used by the demo bootstrap sheet.
     skip: "--dangerously-skip-permissions"

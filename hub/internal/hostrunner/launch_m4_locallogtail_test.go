@@ -155,11 +155,11 @@ func TestLaunchM4LocalLogTail_RejectsNonClaudeCode(t *testing.T) {
 	}
 }
 
-func TestLaunchM4LocalLogTail_RejectsMissingWorkdir(t *testing.T) {
+func TestLaunchM4LocalLogTail_RejectsMissingWorkdirAndNoProject(t *testing.T) {
 	tl := &trackingLauncher{}
 	sp := Spawn{
 		ChildID:   "x", Kind: "claude-code", MCPToken: "tok",
-		SpawnSpec: "backend:\n  cmd: claude\n", // no default_workdir
+		SpawnSpec: "backend:\n  cmd: claude\n", // no default_workdir, no project_id
 	}
 	_, err := launchM4LocalLogTail(context.Background(), M4LocalLogTailLaunchConfig{
 		Spawn: sp, Launcher: tl, HubURL: "http://x",
@@ -169,6 +169,77 @@ func TestLaunchM4LocalLogTail_RejectsMissingWorkdir(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "default_workdir") {
 		t.Errorf("err = %v; want mention of default_workdir", err)
+	}
+}
+
+// When the template omits default_workdir but the spawn carries a
+// project_id, the launcher derives ~/hub-work/<pid8>/<handle>. Same
+// rule M2 already enforces (launch_m2.go:198-209). Without this,
+// project-scoped claude-code stewards on a shared host would have to
+// hardcode unique workdirs in every overlay or collide on the same
+// .mcp.json — see ADR-025 W6 + the workdir-scoping audit note.
+func TestLaunchM4LocalLogTail_AutoDerivesWorkdirFromProjectAndHandle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const projectID = "01KRP01BY6G6G6Y9T0QQG615AQ"
+	const handle = "@steward.01KRP01B"
+	const pid8 = "01KRP01B"
+	derivedWD := filepath.Join(home, "hub-work", pid8, handle)
+
+	// Pre-seed the JSONL under the path the launcher will derive so
+	// the adapter's WaitForSession returns immediately.
+	projectDir := claudecode.ProjectDirFor(home, derivedWD)
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "test-session.jsonl"),
+		[]byte(`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o644,
+	); err != nil {
+		t.Fatalf("seed jsonl: %v", err)
+	}
+
+	tl := &trackingLauncher{paneID: "%9"}
+	poster := &recordingAgentPoster{}
+	sp := Spawn{
+		ChildID:   "agent-y1",
+		Handle:    handle,
+		Kind:      "claude-code",
+		MCPToken:  "tok-xyz",
+		ProjectID: projectID,
+		SpawnSpec: "backend:\n  cmd: claude --dangerously-skip-permissions\n", // no default_workdir
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := launchM4LocalLogTail(ctx, M4LocalLogTailLaunchConfig{
+		Spawn:            sp,
+		Launcher:         tl,
+		Client:           poster,
+		HubURL:           "http://127.0.0.1:41825",
+		GatewayHubClient: &Client{Team: "team-1", Token: "host-token", BaseURL: "http://hub"},
+	})
+	if err != nil {
+		t.Fatalf("launchM4LocalLogTail: %v", err)
+	}
+	defer func() {
+		if res.Gateway != nil {
+			_ = res.Gateway.Close()
+		}
+		if res.Driver != nil {
+			res.Driver.Stop()
+		}
+	}()
+
+	// .mcp.json should land at the derived workdir, proving the auto-derive
+	// fired — not at any template-supplied path.
+	if _, err := os.Stat(filepath.Join(derivedWD, ".mcp.json")); err != nil {
+		t.Errorf("expected .mcp.json at derived workdir %s; stat err=%v",
+			derivedWD, err)
+	}
+	if _, err := os.Stat(filepath.Join(derivedWD, ".claude", "settings.local.json")); err != nil {
+		t.Errorf("expected settings.local.json at derived workdir %s; stat err=%v",
+			derivedWD, err)
 	}
 }
 

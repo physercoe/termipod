@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-16)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.607 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenario 17 added 2026-05-16 for the agents.fanout/gather/reports.post orchestration triad; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
+> **Last verified vs code:** v1.0.607 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenarios 17-20 added 2026-05-16 to close gaps from the comprehensive coverage audit: fanout/gather/reports.post, agents.list live + a2a.cards.list + terminate, templates.propose + preview approval, request_select round-trip; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -973,6 +973,211 @@ one-sentence summary keeps each worker's turn cheap enough that
 the gather long-poll resolves in seconds, isolating "did
 fanout/gather wire correctly" from "did the workers do good
 work".
+
+---
+
+## Scenario 18 — Worker discovery + termination (`agents.list live=true` + `a2a.cards.list` + `agents.terminate`)
+
+**The worker-housekeeping triad** (v1.0.606 ships +
+pre-existing terminate). Without these the multi-worker
+scenarios accumulate cruft and the agent's view of its peers
+gets noisy. Closes the v1.0.606 + cleanup gap surfaced by the
+2026-05-16 coverage audit.
+
+**Pre-condition:** the demo project `research-method-demo`
+has a live project steward AND at least one fanout from
+Scenario 17 has run (so there's something to discover and
+terminate). If you skipped 17, spawn a single unbound worker
+the same way Scenario 7 does.
+
+**Steps:**
+
+1. Open the project steward's overlay chat.
+2. Type: `Show me all currently-live agents on this team — call agents.list with live=true. Then show me the A2A directory via a2a.cards.list (no handle filter). Finally pick one of the fanout workers and call agents.terminate on it.`
+3. Wait up to **30 s** — three tool calls plus the
+   terminate's audit + a2a card removal.
+4. Re-run step 2 (or just `agents.list live=true` again) and
+   confirm the terminated worker is gone from the response.
+
+**Expected:**
+
+- First `agents.list` returns a clean roster — no
+  `terminated/failed/crashed` rows. Each row carries `handle`,
+  `kind`, `status`, `project_id`, `parent_agent_id`. The
+  fanout workers from Scenario 17 should be visible.
+- `a2a.cards.list` returns the per-handle directory; the URL
+  field on each card points at the hub's `/a2a/relay/<host>/<agent>`
+  path (not the host-runner direct address — confirms the
+  v1.0.394+ relay rewrite).
+- `agents.terminate` returns success. Activity tab shows an
+  `agents.terminate` audit row with the worker's id.
+- Re-running `agents.list live=true` no longer includes the
+  terminated worker. Mobile project Agents tab also drops it
+  (or marks it terminated, depending on hub default for the
+  archive-on-terminate flag).
+
+**Failure modes (and what each one tells you):**
+
+- **`agents.list` still shows terminated rows** → the v1.0.606
+  default-hide isn't applied. Either the hub on the test bed is
+  pre-v1.0.606 or the request lost the `live=true` flag through
+  the MCP layer. Verify the rendered tool args via the hub's
+  audit log.
+- **`a2a.cards.list` returns empty** → no host-runner has
+  pushed cards yet. Check `--a2a-addr` (must not be `disabled`)
+  and the host-runner logs for `a2a cards published count=N
+  hash=...`.
+- **Card URLs point at the worker host, not the hub relay** →
+  `s.publicBase` is returning the wrong base URL. Operator
+  needs to set `--public-url` so off-box clients resolve the
+  cards correctly.
+- **`agents.terminate` succeeds but row stays `running`** →
+  host-runner didn't pick up the terminate command. The agents
+  table will show `pause_state='terminating'`; the row stays
+  there until the host-runner's command queue drains. Inspect
+  host logs.
+
+---
+
+## Scenario 19 — Template proposal end-to-end (`templates.propose` + director preview + approve)
+
+**The agent-authored template flow.** A worker proposes a new
+template (e.g. a tweak to a worker prompt). The hub raises a
+`template_proposal` attention item. The director sees the
+v1.0.602 preview block — proposed YAML body, rationale,
+status chip (NEW / revise / no change) — and approves. The
+blob lands on disk under `team/templates/<cat>/`.
+
+Closes the "approve sight-unseen" gap that motivated the
+v1.0.602 preview wedge.
+
+**Pre-condition:** any live steward or worker that the
+director's overlay/chat can address. Project steward is
+easiest — Scenario 7.5 covers the spawn.
+
+**Steps:**
+
+1. In the steward's overlay chat, type: `Propose a new prompt template under category=prompts named "demo-proposal.v1.md" with content: "You are a demo agent for {{principal.handle}}. Reply with a one-line greeting." Rationale: "smoke-test the proposal flow." Call templates.propose.`
+2. Wait ~5 s for the attention to land.
+3. Open the **Me** tab — a `template_proposal` attention card
+   appears in the Approvals filter. Tap **Details**.
+4. On the approval detail screen, verify the preview block
+   above the action buttons.
+5. Tap **Approve**.
+
+**Expected:**
+
+- Me-page card shows `template_proposal` chip, severity
+  `minor`, summary `Template proposal: prompts/demo-proposal.v1.md — smoke-test the proposal flow`.
+- Detail screen renders the preview block:
+  - Header reads `Template proposal` with status chip = **NEW**
+    (no existing template at that path).
+  - `prompts/demo-proposal.v1.md` in mono on its own line.
+  - `Proposed by` shows the steward's handle.
+  - **Rationale** section shows `smoke-test the proposal flow.`
+  - **Proposed body** renders the markdown content in a mono
+    code block, scrollable.
+- Approve → snackbar `Decision recorded: approve`, attention
+  drops from the open list.
+- A `team/templates/prompts/demo-proposal.v1.md` file lands on
+  the hub data root (or run `templates.prompt.get
+  name="demo-proposal.v1.md"` from any agent to verify).
+
+**Variation: revise vs no-change chip.** Re-run the same
+prompt with the SAME template body but a different name like
+`coder.v1.md` (which already exists). On the detail screen the
+status chip should read **no change** (body identical) or
+**revise** (body differs) — depending on whether you tweaked
+the content. Validates the diff hint logic in the preview
+block.
+
+**Failure modes:**
+
+- **No `template_proposal` attention surfaces** — the
+  `templates.propose` tool wasn't found in the agent's
+  catalog. Check the MCP-bridge logs for `unknown tool:
+  templates.propose`. v1.0.295 renamed it to `templates_propose`;
+  the dispatcher accepts both as aliases.
+- **Preview block renders but body is empty** — `downloadBlob`
+  failed silently. Check the network tab for the
+  `/v1/blobs/<sha>` request and the hub's `blobs` table for
+  the sha.
+- **Approve succeeds but no file lands on disk** — the
+  attention-resolve code path that installs the template is
+  broken (the `decide(approve)` handler is supposed to read
+  the blob and PUT it under `team/templates/`). Inspect the
+  hub's audit_events for an `attention.resolved` row + the
+  follow-up `templates.create`/`templates.update`. If the
+  follow-up is missing, file a hub follow-up.
+
+---
+
+## Scenario 20 — Interactive request from agent (`request_select` round-trip)
+
+**The agent-asks, principal-answers loop.** Whole class of
+attention kinds (`approval_request`, `select`, `help_request`,
+`elicit`) share this shape — the steward asks the director a
+question via MCP, the director answers from the Me-page card,
+the steward's long-poll receives the verdict. Scenario 20
+exercises the `request_select` (multi-option pick) path as
+representative; the `approval_request` (yes/no) path is the
+degenerate case.
+
+**Pre-condition:** a live steward addressable from the
+overlay chat. General steward is fine — `request_select` isn't
+gated by the W9 project-binding rule.
+
+**Steps:**
+
+1. Open the steward's chat (Me FAB → tap into general
+   steward, or any project steward).
+2. Type: `Use request_select to ask me which of these three colors I prefer: ["red", "green", "blue"]. Wait for my answer, then say it back to me.`
+3. Wait ~5 s for the attention card to land on the Me page.
+4. Open the **Me** tab — a `select` attention should be in the
+   Approvals filter. The Me-page card renders the three
+   options as **inline buttons** (no Details drill-in needed
+   — `select` is in the approvals filter and the per-option
+   buttons are rendered directly).
+5. Tap **green** (or any option).
+6. Watch the steward chat — the steward should post a follow-up
+   text bubble naming the chosen color within ~10 s.
+
+**Expected:**
+
+- Attention card title contains the question text. Three
+  inline `OutlinedButton`s labelled `red`, `green`, `blue`
+  plus a fourth `Reject` button.
+- Tapping `green` → snackbar `Picked: green`, attention drops
+  from the open list, audit row records `decision=approve,
+  option_id=green`.
+- Steward's session shows the verdict arrive (`request_select`
+  long-poll resolves with `option_id=green`); the steward
+  posts a final text bubble like `You picked green.`
+
+**Failure modes:**
+
+- **Card shows generic Approve/Reject instead of per-option
+  buttons** → the `options` array isn't surviving the
+  pending_payload round-trip. Inspect the
+  `pending_payload_json` on the attention row.
+- **Tap an option, attention resolves, but steward never
+  follows up** → the steward's long-poll on
+  `request_select` either timed out or isn't being awaited.
+  Common cause: the steward called `request_select` and then
+  bailed before reading the response. Re-prompt with explicit
+  "wait for my answer."
+- **`Reject` button does nothing distinct from `Approve`** →
+  the inline action wiring is correct only when an
+  `option_id` is passed. Reject without an option should record
+  `decision=reject` (no option_id); the agent's long-poll
+  resolves with the rejection.
+
+**Why `request_select` not `approval_request`:** the select
+shape exercises both the option-rendering code path and the
+plain reject path in one scenario. An `approval_request`
+scenario would be near-identical to Scenario 7.5's W7 host-
+picker (which IS an approval round-trip — just framed as
+project-steward materialization).
 
 ---
 

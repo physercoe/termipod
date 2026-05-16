@@ -1,9 +1,9 @@
 # Decisions (ADRs)
 
 > **Type:** axiom
-> **Status:** Current (2026-04-28)
+> **Status:** Current (2026-05-16)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.316
+> **Last verified vs code:** v1.0.610
 
 **TL;DR.** The decision log. Each numbered file records one
 architectural choice, why we made it, and what followed. Append-only:
@@ -46,6 +46,8 @@ next sequential number — don't reserve, don't skip.
 | [025](025-project-steward-accountability.md) | Project steward accountability — workers, scope, lazy materialization, director consent | Accepted 2026-05-13 | — |
 | [026](026-kimi-code-engine.md) | Kimi Code CLI is the fourth engine, M1-only | Accepted 2026-05-14 | — |
 | [027](027-local-log-tail-driver.md) | LocalLogTailDriver replaces agent-mode M4 (claude-code first) | Accepted 2026-05-15 | — |
+| [028](028-host-control-via-tunnel-and-cli.md) | Host control via the tunnel + a CLI ops surface | Proposed 2026-05-16 | — |
+| [029](029-tasks-as-first-class-primitive.md) | Tasks as the first-class primitive for steward-dispatched work | Proposed 2026-05-16 (Phase 1 shipped v1.0.610-alpha) | — |
 
 ---
 

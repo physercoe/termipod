@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-16)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.608
+> **Last verified vs code:** v1.0.610
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,124 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.610-alpha — 2026-05-16
+
+### Added
+
+- **Tasks as first-class primitive (ADR-029 Phase 1).** Closes the
+  empty Tasks-tab bug when the project steward spawned a worker.
+  - `agents.spawn` (REST + MCP) accepts `task_id` to link to an
+    existing task **or** an inline `task: {title, body_md,
+    priority, parent_task_id, milestone_id}` object to materialize
+    one in the same transaction. Mutual exclusion is a 400; spawn
+    against a `done` / `cancelled` task is a 409 with a hint to flip
+    to `in_progress` first; `blocked` stays valid (a fresh spawn is
+    the canonical unblock path).
+  - Inline-create stamps `assignee_id = new agent`,
+    `created_by_id = parent_agent_id` (NULL when the caller is
+    principal-direct), `status = 'in_progress'`, `started_at = now`.
+    `agent_spawns.task_id` carries the linkage.
+  - Flip-on-spawn for the linkage path: `todo` / `blocked` /
+    unset → `in_progress`, `started_at` stamped if not already.
+    `in_progress` is left intact so the most-recent-spawn rule
+    still drives lifecycle.
+  - `deriveTaskStatusFromAgent` auto-derive on agent terminal
+    transition: `terminated` → `done` + `completed_at`,
+    `crashed` / `failed` → `blocked`. Most-recent-spawn drives.
+    `cancelled` is the sticky terminal override — auto-derive
+    never enters or leaves it.
+- **`tasks.delete` MCP wrapper + REST handler.** `tier=Routine`,
+  steward-only via `roles.yaml` (workers can `tasks.update` but
+  not delete). Distinct from `tasks.update status='cancelled'`:
+  delete drops the row, cancelled keeps it for the audit trail.
+- **`cancelled` task status** added to the documented vocabulary
+  (no migration; status column has no CHECK constraint).
+  `handlePatchTask` stamps `completed_at` on `done` | `cancelled`.
+- **Task audit at six sites** (ADR-029 D-4) with a `source` axis:
+  create (`ad_hoc` / `plan` / `spawn`), status-flip
+  (`principal` / `steward` / `worker` / `plan_step` / `spawn`),
+  non-status update (`changed_fields`), delete, plan-step
+  materialise, plan-step sync auto-flip, and the W3 auto-derive.
+- **0041 migration** — `agent_spawns.task_id` (FK to `tasks` with
+  `ON DELETE SET NULL` + partial index) and `tasks.started_at` /
+  `completed_at` / `result_summary`.
+
+### Changed
+
+- **`NoteKind.todo` → `NoteKind.reminder`** (mobile). Resolves the
+  on-device collision with the hub-side `tasks.status='todo'`.
+  sqflite schema bumped v1 → v2 with `onUpgrade` rebuild-the-table
+  + rewrite `todo` → `reminder`. Note editor ChoiceChip label
+  "Todo" → "Reminder". `_kindFromString` accepts both for
+  defence-in-depth.
+- **Glossary** — extended `### task` with the full ADR-029 vocabulary
+  (`todo` / `in_progress` / `blocked` / `done` / `cancelled`), the
+  auto-derive vs manual-override semantics, and the linkage triad
+  pointer; new `### note` entry (device-local, never synced); new
+  `### todo` disambiguation pointer (hub-side `task.status='todo'`
+  vs the retired `NoteKind.todo`).
+
+### Deferred / pending
+
+- ADR-029 Phase 2 (mobile triad rendering — assignee chip + assigner
+  attribution + relative timestamp on the Tasks-tab tile; task
+  detail screen surfaces linked spawn/session/audit; LEFT JOIN
+  denormalisation in `handleListTasks`; pull-to-refresh) is
+  documented in `plans/tasks-first-class-rollout.md` §3 but not
+  started.
+
+### Why
+
+- The bug surfaced 2026-05-16: when the project steward spawned a
+  worker "for a task," the Tasks tab stayed empty. Schema had
+  `assignee_id` + `created_by_id` but no edge from `agent_spawns`,
+  no auto-derive on agent lifecycle, no audit at the task surface,
+  and an on-device "todo" name collision with the hub primitive.
+  Phase 1 closes the four gaps end-to-end on the hub.
+
+---
+
+## v1.0.609-alpha — 2026-05-16
+
+### Fixed
+
+- **Cross-scope session guard** — three-layer fix to the bug where
+  asking the general steward to spawn a project worker created a
+  phantom "proj steward session" stamped with the general steward's
+  history.
+  - Mobile `open_steward_session.dart`: when `scopeKind='project'`
+    and no live project-bound steward exists, route to
+    `showSpawnProjectStewardSheet` instead of creating a cross-scope
+    session against the general steward.
+  - Hub guard `handlers_sessions.go::handleOpenSession`: reject 400
+    when `scope_kind='project'` and `agent.project_id` doesn't
+    match `scope_id`. Closes the hole for any REST / MCP caller.
+  - Hub `lookupSessionForAgent`: when an agent has multiple live
+    sessions, prefer one matching the agent's intrinsic scope.
+    Defense-in-depth.
+- **Offline host chip on the Hosts screen** — `_ScopeBadge` rows in
+  the Hub group now reflect `hub_host.status`: `offline` → red,
+  `pending` → warning, `online` → intrinsic green/magenta.
+  Personal-only rows stay cyan. Previously all rows showed
+  green regardless of status.
+
+### Added
+
+- **Test coverage for the cross-scope guard.**
+  `TestSessions_RejectCrossScopeProjectSession` walks four paths
+  (NULL `project_id`, mismatched `project_id`, missing `scope_id`,
+  happy case). Two existing fork tests were updated — they were
+  silently exercising the bug being fixed.
+
+### Why
+
+- The phantom-session report broke the steward → project-steward
+  delegation handshake described in ADR-025. The fix layers the
+  guard at the mobile, hub, and lookup paths so the same root cause
+  can't re-surface via a different entry point.
 
 ---
 

@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-05-08)
+> **Status:** Current (2026-05-16)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.463
+> **Last verified vs code:** v1.0.610
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -68,7 +68,7 @@ run is the actual milestone).
 
 ## Phases (big picture)
 
-The blueprint defines five phases. Status as of v1.0.435:
+The blueprint defines five phases. Status as of v1.0.610:
 
 | Phase | Title | Status |
 |---|---|---|
@@ -129,6 +129,8 @@ working list — what's actually moving this week or next.
 
 | Item | Why | Trigger |
 |---|---|---|
+| **ADR-028 host control CLI — Phase 1 `shutdown-all`** | Hands-off binary upgrades need a way to drain stewards on host-runners + restart hosts from the principal's seat. (`decisions/028-host-control-via-tunnel-and-cli.md`, `plans/hub-host-control-cli.md`) | Whenever the next host-runner upgrade is queued |
+| **ADR-029 tasks Phase 2 — mobile triad rendering** | Phase 1 shipped the hub-side spawn↔task linkage; the mobile Tasks tab still renders without assignee + assigner + relative time. (`decisions/029-tasks-as-first-class-primitive.md`, `plans/tasks-first-class-rollout.md` §3) | After v1.0.610 device verification |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
 | **Cross-vendor integration smoke (slice 7 × 2)** | `request_help` end-to-end against a live codex binary AND a live gemini binary on a real test host — validates the vendor-neutral attention surface for both ADR-012 and ADR-013. Tests today use fakes for both protocols (JSON-RPC for codex, exec-per-turn JSONL for gemini); slice 7 closes the loop on real upstream binaries | Real codex + gemini binaries available in a test host |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
@@ -175,6 +177,8 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.610-alpha | ADR-029 Phase 1 — tasks first-class. `agents.spawn` accepts `task_id` or inline `task`; flip-on-spawn + most-recent-spawn auto-derive on agent terminal status; `tasks.delete` MCP wrapper; `cancelled` terminal status (sticky against auto-derive); audit at six task-mutation sites; `NoteKind.todo` → `NoteKind.reminder` rename with on-device migration; glossary entries for task/note/todo |
+| v1.0.609-alpha | Cross-scope session guard — three-layer fix to the StewardStrip-tap-creates-phantom-project-session bug (mobile route guard + hub 400 + scope-preferred lookup). Plus offline host chip color on the Hosts screen |
 | v1.0.444-462 | ADR-022 observability — `/v1/hub/stats` + scope-parameterized `/v1/insights` (project/team/agent/engine/host) + A2A relay throughput + 6 mobile entry points (Hosts tab Hub group, Hub Detail, Activity AppBar, Me Stats card, Agent Detail tab, Host Detail button) + Tier-2 drilldowns (engine arbitrage, multi-host distribution, tool-call efficiency, lifecycle flow). W5e ($/X) / W5f (snippet) / W6 (rollup trigger) deferred post-MVP |
 | v1.0.430-435 | ADR-021 Phase 4 — cross-engine image content block inputs (hub `images:[]` contract + claude/codex/ACP wire shapes + gemini-exec strip-and-warn + mobile attach UI w/ thumbnail strip) |
 | v1.0.420-424 | ADR-021 Phase 2 — mode/model picker (cross-engine wire-path fan-out: M1 ACP rpc / claude+codex respawn / gemini-exec per-turn argv) + mobile chip strip |

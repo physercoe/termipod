@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-16)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.599 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
+> **Last verified vs code:** v1.0.607 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenario 17 added 2026-05-16 for the agents.fanout/gather/reports.post orchestration triad; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -888,6 +888,91 @@ the test team).
 - **Collapse state lost on tab swap:** the `_collapsed` set
   must live on `_TemplatesScreenState`, not on the inner body
   builder. Regression from v1.0.599's design.
+
+---
+
+## Scenario 17 — Fan-out / fan-in orchestration (`agents.fanout` + `agents.gather` + `reports.post`)
+
+**The orchestrator-worker primitive.** Exercises the
+fan-out/fan-in pattern (`hub/internal/server/mcp_orchestrate.go`)
+end-to-end: project steward spawns N trivial workers under one
+`correlation_id`, each worker posts a typed `reports.post` on
+completion, and the steward's `agents.gather` long-poll returns
+the consolidated result list. The whole loop is parallel — the
+steward doesn't drive each worker by hand.
+
+**Pre-condition:** the demo project `research-method-demo` has a
+live project steward (run Scenario 7.5 first, or `hub-server
+seed-demo --shape lifecycle --reset` followed by an
+`@steward.<pid8>` ensure flow). Without a project steward the
+fan-out's spawns will hit the W9 gate.
+
+**Steps:**
+
+1. Open the project steward's overlay chat for
+   `research-method-demo`.
+2. Type: `Fan out two trivial workers under correlation_id "demo-fanout-1". Worker "title-1" writes a 5-word title for this project; worker "summary-1" writes a one-sentence summary. After both report back, gather the results and post them as a single text reply in chat.`
+3. Wait up to **3 min** — two spawns + two engine warms + two
+   trivial outputs + the gather long-poll.
+4. Read the steward's reply in the overlay.
+
+**Expected:**
+
+- Steward chat shows a system row referencing `agents.fanout`
+  (two worker handles visible — `title-1`, `summary-1`). Their
+  `project_id` column matches `research-method-demo`.
+- Within ~90-120 s of the fanout, both workers' rows in the
+  project Agents tab show `worker_report` activity (visible
+  via Activity tab → filter to project, OR via the per-agent
+  detail sheet's transcript view).
+- The steward posts a final text bubble containing **both
+  workers' outputs** — the 5-word title from `title-1` AND the
+  one-sentence summary from `summary-1`. The text is short,
+  on-topic, clearly two distinct contributions.
+- Hub activity feed shows one `agents.fanout` row and one
+  `agents.gather` row tagged with `correlation_id=demo-fanout-1`.
+
+**Failure modes (and what each one tells you):**
+
+- **Steward calls `agents.spawn` twice instead of `agents.fanout`** —
+  the orchestration primitive isn't being discovered. Check that
+  `orchestrationToolDefs()` is in the steward's MCP catalog
+  (`templates.{cat}.list` from the steward should show
+  `agents.fanout` / `agents.gather` / `reports.post`). If missing
+  it's a tool-advertisement bug.
+- **Fanout returns `error: spawn ok but input post failed`** for
+  one or both workers → the worker spawned but its first
+  `input.text` event didn't land. Check
+  `hub/.../audit_events` for the spawn row + a missing
+  matching `input.text` row. Common cause: session not auto-opened
+  (verify `auto_open_session: true` on the fanout spawn path).
+- **`agents.gather` times out (~10 min)** → one or both workers
+  never posted `reports.post`. Their transcripts will show the
+  worker waiting on something (often an approval). Pre-condition
+  6 (auto-allow tier ≥ moderate) should cover this; otherwise
+  the worker is parked on a tool-permission prompt.
+- **Gather returns partial results (`done: false` for one worker)** —
+  one worker terminated/crashed before posting. The session in
+  the Sessions list shows it as paused; the agent's transcript
+  has the engine-side stderr.
+- **Steward reply doesn't include both worker texts** → the
+  steward gathered the reports but paraphrased instead of
+  surfacing the raw `report.summary_md` field. Inspect the
+  gather response payload in the steward's session for the
+  actual worker text and report this as a steward-prompt
+  follow-up (the orchestration mechanism worked; the rendering
+  is the gap).
+- **`agents.fanout` denied by W9 gate** — the project steward
+  isn't bound to `research-method-demo` (or you're testing in
+  the general steward's overlay by mistake). Run Scenario 7.5
+  first to materialize the project steward.
+
+**Why the trivial tasks:** the scenario tests the
+orchestration plumbing, not the work content. A 5-word title +
+one-sentence summary keeps each worker's turn cheap enough that
+the gather long-poll resolves in seconds, isolating "did
+fanout/gather wire correctly" from "did the workers do good
+work".
 
 ---
 

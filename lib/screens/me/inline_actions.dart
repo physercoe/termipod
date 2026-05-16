@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/spawn_project_steward_sheet.dart';
 
 /// Inline action widgets for attention items, shared between the
 /// Me-page card and the approval-detail screen so a resolution from
@@ -39,6 +40,32 @@ class InlineApprovalActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final options = _options();
+    // ADR-025 W4 — the general steward raises this when it can't operate
+    // inside a project without a project-bound steward. The principal's
+    // approval IS the spawn action: open the W7 host picker prefilled
+    // with the suggested host, then resolve the attention item with the
+    // resulting agent id so the audit trail links the two.
+    if (kind == 'project_steward_request') {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          FilledButton.icon(
+            icon: const Icon(Icons.bolt, size: 16),
+            label: const Text('Spawn project steward'),
+            onPressed: () => _openProjectStewardSpawn(context, ref),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.close, size: 16),
+            label: const Text('Reject'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: DesignColors.error,
+            ),
+            onPressed: () => _decide(context, ref, 'reject'),
+          ),
+        ],
+      );
+    }
     if (kind == 'select' && options.isNotEmpty) {
       // Per-option buttons + Reject. Picking an option flows through
       // `decide(decision='approve', option_id=...)` so the hub's quorum
@@ -112,6 +139,51 @@ class InlineApprovalActions extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Decide failed: $e')),
+        );
+      }
+    }
+  }
+
+  /// Opens the W7 host-picker prefilled from this attention item's
+  /// pending payload. On a successful spawn the attention is resolved
+  /// via decide(approve, body=agent_id) so the audit row links to the
+  /// agent the general steward just got. Dismissing the sheet leaves
+  /// the attention open — the user can retry.
+  Future<void> _openProjectStewardSpawn(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final projectId = (pendingPayload?['project_id'] ?? '').toString();
+    if (projectId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Missing project_id on this request.'),
+      ));
+      return;
+    }
+    final suggested = (pendingPayload?['suggested_host_id'] ?? '').toString();
+    final agentId = await showSpawnProjectStewardSheet(
+      context,
+      projectId: projectId,
+      suggestedHostId: suggested.isEmpty ? null : suggested,
+    );
+    if (agentId == null || agentId.isEmpty) return;
+    try {
+      await ref.read(hubProvider.notifier).decide(
+            id,
+            'approve',
+            by: '@mobile',
+            body: agentId,
+          );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Project steward spawned.')),
+        );
+      }
+      onResolved?.call();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Spawned, but resolve failed: $e')),
         );
       }
     }

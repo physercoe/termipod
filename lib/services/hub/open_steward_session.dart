@@ -58,9 +58,16 @@ Future<void> openStewardSession(
   // Calling out the "1 with no session" case to SessionsScreen is
   // deliberate: the user might want Resume, or might want to spawn
   // another steward — either path lives on that surface now.
+  // Include `@steward` (the general team concierge) alongside the
+  // project / domain stewards. isStewardHandle deliberately excludes
+  // `@steward` because the two roles diverge for project pages — but
+  // the Me FAB and other entry-points want a single "talk to any live
+  // steward" path. Without this, a user whose only steward is the
+  // general one sees the spawn sheet instead of the chat.
   final liveStewards = <Map<String, dynamic>>[];
   for (final a in hub.agents) {
-    if (!isStewardHandle((a['handle'] ?? '').toString())) continue;
+    final handle = (a['handle'] ?? '').toString();
+    if (!isStewardHandle(handle) && !isGeneralStewardHandle(handle)) continue;
     final status = (a['status'] ?? '').toString();
     if (status == 'running' || status == 'pending') {
       liveStewards.add(a);

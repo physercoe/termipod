@@ -63,10 +63,13 @@ Wants=network-online.target
 Type=simple
 User=%i
 EnvironmentFile=/etc/termipod-host/%i.env
-# Optional A2A agent-card server (blueprint §5.4). To enable: set
-# A2A_ADDR (e.g. ":47821") and A2A_PUBLIC_URL in /etc/termipod-host/%i.env,
-# replace this ExecStart line with the A2A variant below, then reload +
-# restart the unit. Leave disabled if you're not running multi-host yet.
+# A2A agent-card server (blueprint §5.4). Default: 127.0.0.1:0 — the
+# host-runner binds an auto-picked loopback port and the hub-side relay
+# rewrites the public card URL, so a2a.invoke works out of the box
+# without extra config. Override with A2A_ADDR / A2A_PUBLIC_URL in
+# /etc/termipod-host/%i.env if you want a fixed port or a non-relayed
+# direct URL. Pass `--a2a-addr=disabled` (uncomment the disabled
+# variant below) to opt out entirely.
 ExecStart=/usr/local/bin/host-runner run \
           --hub ${HUB_URL} \
           --team ${HUB_TEAM} \
@@ -74,7 +77,7 @@ ExecStart=/usr/local/bin/host-runner run \
           --name %H-%i \
           --launcher tmux \
           --tmux-session hub-agents
-# A2A variant (uncomment, remove the non-A2A ExecStart above):
+# Explicit-A2A variant (fixed port / public URL):
 # ExecStart=/usr/local/bin/host-runner run \
 #           --hub ${HUB_URL} \
 #           --team ${HUB_TEAM} \
@@ -84,6 +87,15 @@ ExecStart=/usr/local/bin/host-runner run \
 #           --tmux-session hub-agents \
 #           --a2a-addr ${A2A_ADDR} \
 #           --a2a-public-url ${A2A_PUBLIC_URL}
+# A2A-disabled variant (no agent discovery):
+# ExecStart=/usr/local/bin/host-runner run \
+#           --hub ${HUB_URL} \
+#           --team ${HUB_TEAM} \
+#           --token ${HUB_TOKEN} \
+#           --name %H-%i \
+#           --launcher tmux \
+#           --tmux-session hub-agents \
+#           --a2a-addr=disabled
 Restart=on-failure
 RestartSec=3s
 

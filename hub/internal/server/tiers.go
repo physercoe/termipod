@@ -53,11 +53,12 @@ var toolTiers = map[string]string{
 	"get_attention":          TierTrivial,
 	"post_excerpt":           TierSignificant, // team-visible broadcast
 	"delegate":               TierSignificant, // redirects another agent's work
-	"request_approval":       TierRoutine,     // meta — wrapped action carries real tier
-	"request_select":         TierRoutine,     // meta — same
-	"request_help":           TierRoutine,     // meta — same
-	"request_decision":       TierRoutine,     // meta — same
-	"attach":                 TierRoutine,
+	"request_approval":         TierRoutine,   // meta — wrapped action carries real tier
+	"request_select":           TierRoutine,   // meta — same
+	"request_help":             TierRoutine,   // meta — same
+	"request_decision":         TierRoutine,   // meta — same
+	"request_project_steward":  TierRoutine,   // meta — raises attention item, no direct effect
+	"attach":                   TierRoutine,
 	"get_event":              TierTrivial,
 	"get_task":               TierTrivial,
 	"get_parent_thread":      TierTrivial,
@@ -98,6 +99,11 @@ var toolTiers = map[string]string{
 	"artifacts.get":           TierTrivial,
 	"artifacts.create":        TierRoutine,
 	"agents.spawn":            TierSignificant, // spawns a worker
+	"agents.terminate":        TierSignificant, // kills a worker (mirror of spawn)
+	"agents.list":             TierTrivial,
+	"agents.get":              TierTrivial,
+	"hosts.list":              TierTrivial,
+	"hosts.get":               TierTrivial,
 	"channels.post_event":     TierRoutine,
 	"a2a.invoke":              TierSignificant, // peer message
 	"hosts.update_ssh_hint":   TierSignificant, // host config change
@@ -113,6 +119,26 @@ var toolTiers = map[string]string{
 	"schedules.delete":        TierRoutine,
 	"schedules.run":           TierSignificant, // manual fire of a schedule
 	"audit.read":              TierTrivial,
+	"mobile.navigate":         TierTrivial, // UI navigation hint, no state change
+
+	// --- template overlay fan-out (templates.{agent,prompt,plan}.* per
+	//     ADR-016 D2). Mirrors templates_propose: writes are Significant
+	//     because they alter team-wide overlay; reads are Trivial. ---
+	"templates.agent.create":  TierSignificant,
+	"templates.agent.update":  TierSignificant,
+	"templates.agent.delete":  TierSignificant,
+	"templates.agent.list":    TierTrivial,
+	"templates.agent.get":     TierTrivial,
+	"templates.prompt.create": TierSignificant,
+	"templates.prompt.update": TierSignificant,
+	"templates.prompt.delete": TierSignificant,
+	"templates.prompt.list":   TierTrivial,
+	"templates.prompt.get":    TierTrivial,
+	"templates.plan.create":   TierSignificant,
+	"templates.plan.update":   TierSignificant,
+	"templates.plan.delete":   TierSignificant,
+	"templates.plan.list":     TierTrivial,
+	"templates.plan.get":      TierTrivial,
 
 	// --- claude-code's own tool surface ---
 	"Read":           TierTrivial,

@@ -605,7 +605,34 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 			changed = append(changed, s[:i])
 		}
 	}
+	// Surface new values for identifying scalar fields so the audit row
+	// answers "what was it set to?" not just "which column changed?".
+	// Skips JSON-blob columns (parameters_json, policy_overrides_json,
+	// *_overrides_json) — those are too noisy to embed inline and the
+	// detail-view diff is better fetched from the row itself.
+	meta := map[string]any{"fields": changed}
+	if in.Goal != nil {
+		meta["goal"] = truncForAudit(*in.Goal, 120)
+	}
+	if in.StewardAgentID != nil {
+		meta["steward_agent_id"] = *in.StewardAgentID
+	}
+	if in.OnCreateTemplateID != nil {
+		meta["on_create_template_id"] = *in.OnCreateTemplateID
+	}
+	if in.BudgetCents != nil {
+		meta["budget_cents"] = *in.BudgetCents
+	}
 	s.recordAudit(r.Context(), team, "project.update", "project", proj,
-		"update project", map[string]any{"fields": changed})
+		"update project", meta)
 	s.handleGetProject(w, r)
+}
+
+// truncForAudit shortens long free-text fields for audit meta. The full
+// value still lives on the project row; meta is for at-a-glance debug.
+func truncForAudit(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }

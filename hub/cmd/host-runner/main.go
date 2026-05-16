@@ -135,7 +135,15 @@ func runDaemon(args []string) {
 	launcher := fs.String("launcher", "tmux", "launcher kind: stub|tmux")
 	session := fs.String("tmux-session", "hub-agents", "tmux session name (tmux launcher)")
 	backendCmd := fs.String("backend-cmd", "", "command to run in each pane (tmux launcher); empty = built-in placeholder")
-	a2aAddr := fs.String("a2a-addr", "", "bind address for the A2A server (e.g. :8801); empty disables")
+	// A2A defaults to a loopback auto-pick port so agents on the host are
+	// reachable via `a2a.invoke` out of the box. The hub-side card rewrite
+	// (handlers_a2a.go::rewriteCardURL) overrides `url` to its public relay
+	// regardless of what we bind, so a 127.0.0.1 bind works fine behind NAT.
+	// Pass `--a2a-addr=disabled` to suppress (and skip the A2A subsystem
+	// entirely — the prior empty-string semantics).
+	a2aAddr := fs.String("a2a-addr", "127.0.0.1:0",
+		"bind address for the A2A server (e.g. :8801, 127.0.0.1:0 for auto-pick); "+
+			"'disabled' suppresses the A2A server + directory publish")
 	a2aPublicURL := fs.String("a2a-public-url", "", "base URL advertised in agent-cards; falls back to request Host header")
 	egressProxyAddr := fs.String("egress-proxy-addr", hostrunner.DefaultEgressProxyAddr,
 		"bind address for the in-process reverse proxy that masks the hub URL from spawned agents; "+
@@ -169,6 +177,18 @@ func runDaemon(args []string) {
 		die("unknown --launcher: " + *launcher)
 	}
 
+	// Translate the explicit opt-out sentinel into the empty string the
+	// Runner's existing `if A2AAddr != ""` gate already understands, so
+	// the on/off plumbing inside hostrunner stays unchanged.
+	resolvedA2AAddr := *a2aAddr
+	if resolvedA2AAddr == "disabled" {
+		resolvedA2AAddr = ""
+		log.Warn("a2a server disabled by --a2a-addr=disabled; " +
+			"agents on this host will not be reachable via a2a.invoke")
+	} else {
+		log.Info("a2a server enabled", "addr", resolvedA2AAddr)
+	}
+
 	r := &hostrunner.Runner{
 		Client:          hostrunner.NewClient(*hub, *token, *team),
 		HostName:        *name,
@@ -176,7 +196,7 @@ func runDaemon(args []string) {
 		Launcher:        lnch,
 		Log:             log,
 		StateDir:        *stateDir,
-		A2AAddr:         *a2aAddr,
+		A2AAddr:         resolvedA2AAddr,
 		A2APublicURL:    *a2aPublicURL,
 		EgressProxyAddr: *egressProxyAddr,
 		TrackioDir:      *trackioDir,

@@ -77,10 +77,11 @@ func TestTierFor(t *testing.T) {
 	}
 }
 
-// Catalog assertions: every entry in mcpToolDefs() must have a
-// resolved tier embedded in its def map (the field added at the
-// top of mcpToolDefs). Catches a future PR that adds a new tool
-// without registering it in toolTiers.
+// Every entry in mcpToolDefs() must have an explicit row in toolTiers.
+// The previous version of this test read def["tier"] (which tierFor
+// always populates via its TierRoutine fallback), so a new tool that
+// no one classified shipped silent. We now check toolTiers directly
+// so the test fails when a new entry slips past the table.
 func TestEveryCatalogEntryHasTier(t *testing.T) {
 	for _, def := range mcpToolDefs() {
 		name, _ := def["name"].(string)
@@ -88,14 +89,84 @@ func TestEveryCatalogEntryHasTier(t *testing.T) {
 			t.Errorf("tool def has no name: %v", def)
 			continue
 		}
-		tier, _ := def["tier"].(string)
-		if tier == "" {
-			t.Errorf("tool %q has no tier", name)
+		// Read the table directly — bypass the TierRoutine fallback.
+		tier, present := toolTiers[name]
+		if !present {
+			t.Errorf("tool %q registered in tools/list but missing from "+
+				"toolTiers (add an explicit row to tiers.go)", name)
+			continue
 		}
 		switch tier {
 		case TierTrivial, TierRoutine, TierSignificant, TierStrategic:
 		default:
 			t.Errorf("tool %q has unknown tier %q", name, tier)
+		}
+	}
+}
+
+// Every case in dispatchTool's switch must appear in mcpToolDefs(),
+// otherwise the agent's MCP client sees "no such tool". The bug that
+// caught us was request_project_steward — dispatcher case + handler
+// both shipped (ADR-025 W4) but the tools/list entry was missed, so
+// claude-code reported "No such tool available". The list below
+// mirrors dispatchTool in mcp.go; aliases are documented separately.
+func TestEveryDispatcherCaseAdvertised(t *testing.T) {
+	// Canonical names: every entry must appear in mcpToolDefs().
+	dispatcherCases := []string{
+		// mcpToolDefsBase
+		"post_message",
+		"get_feed",
+		"list_channels",
+		"search",
+		"journal_append",
+		"journal_read",
+		"get_project_doc",
+		"get_attention",
+		"post_excerpt",
+		// mcpToolDefsExtra
+		"delegate",
+		"request_approval",
+		"request_select",
+		"request_help",
+		"request_project_steward",
+		"attach",
+		"get_event",
+		"get_task",
+		"get_parent_thread",
+		"list_agents",
+		"update_own_task_status",
+		"templates_propose",
+		"pause_self",
+		"shutdown_self",
+		"get_audit",
+		"permission_prompt",
+		// orchestrationToolDefs
+		"agents.fanout",
+		"agents.gather",
+		"reports.post",
+	}
+	// Back-compat aliases the dispatcher accepts but the registry does
+	// not advertise (advertising them would surface duplicates in the
+	// agent's tool picker). Keep tightly scoped — every entry needs a
+	// rename trail in code comments.
+	knownAliases := map[string]struct{}{
+		"request_decision":  {}, // legacy alias for request_select (v1.0.295 rename)
+		"templates.propose": {}, // legacy alias for templates_propose (dot/underscore)
+	}
+
+	advertised := map[string]struct{}{}
+	for _, def := range mcpToolDefs() {
+		if name, _ := def["name"].(string); name != "" {
+			advertised[name] = struct{}{}
+		}
+	}
+	for _, name := range dispatcherCases {
+		if _, ok := advertised[name]; !ok {
+			t.Errorf("dispatcher routes %q but tools/list does not advertise it "+
+				"(add an entry in mcp.go / mcp_more.go / mcp_orchestrate.go)", name)
+		}
+		if _, isAlias := knownAliases[name]; isAlias {
+			t.Errorf("alias %q listed as canonical — move it to knownAliases", name)
 		}
 	}
 }

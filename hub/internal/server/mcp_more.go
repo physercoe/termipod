@@ -113,6 +113,25 @@ func mcpToolDefsExtra() []map[string]any {
 			},
 		},
 		{
+			"name": "request_project_steward",
+			"description": "General-steward delegation channel (ADR-025 W4). Use when " +
+				"asked to operate inside a project that has no live steward yet — you " +
+				"are blocked from `agents.spawn` with a project_id (ADR-025 D2). This " +
+				"raises a `project_steward_request` attention item the director taps to " +
+				"materialize the project steward via the host-picker sheet. " +
+				"`suggested_host_id` prefills the sheet. Returns immediately with " +
+				"`{id, status: \"awaiting_response\"}`; END YOUR TURN AFTER CALLING.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"project_id":        map[string]any{"type": "string", "description": "Target project's id."},
+					"reason":            map[string]any{"type": "string", "description": "Why a steward is needed for this project."},
+					"suggested_host_id": map[string]any{"type": "string", "description": "Optional — prefill the host picker."},
+				},
+				"required": []string{"project_id", "reason"},
+			},
+		},
+		{
 			"name": "attach",
 			"description": "Upload a small file as a content-addressed blob. Accepts either " +
 				"content_base64 (inline) or path (server reads — only blessed paths).",

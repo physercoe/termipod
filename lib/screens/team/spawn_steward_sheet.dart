@@ -181,30 +181,65 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
   }
 
   /// Parse `backend.kind: <value>` out of a steward template body.
-  /// We only need this single field, so a tiny regex is enough — adding
-  /// the `yaml` package just for one read would be overkill.
+  /// We only need a few fields, so tiny regexes are enough — adding
+  /// the `yaml` package for read-only inspection would be overkill.
   /// Returns null when the field can't be located (e.g. malformed YAML
   /// or template that doesn't follow the convention).
-  String? _parseBackendKind(String yaml) {
+  String? _parseBackendKind(String yaml) =>
+      _parseNestedString(yaml, 'backend', 'kind');
+
+  /// `backend.model: <value>` — only set on engines that pin the model
+  /// at template time (claude-code). codex/gemini/kimi negotiate the
+  /// model server-side and leave this field empty.
+  String? _parseBackendModel(String yaml) =>
+      _parseNestedString(yaml, 'backend', 'model');
+
+  /// Top-level `driving_mode: <M1|M2|M4>`. Surfaced on the engine row
+  /// so a YAML-side mode swap (M2→M4) is visible without opening the
+  /// editor — the BackendRadio used to hardcode the per-engine mode
+  /// blurb regardless of what the YAML actually said.
+  String? _parseDrivingMode(String yaml) =>
+      _parseTopLevelString(yaml, 'driving_mode');
+
+  // Block-aware parser: find a parent key (e.g. `backend:`), then look
+  // for an indented `<child>:` whose value is a single token. Resets
+  // when a new top-level key appears so we don't bleed across blocks.
+  String? _parseNestedString(String yaml, String parent, String child) {
     final lines = yaml.split('\n');
-    var inBackend = false;
+    final childRe = RegExp('^\\s+' + RegExp.escape(child) +
+        r':\s*([A-Za-z0-9_.-]+)\s*$');
+    var inBlock = false;
     for (final line in lines) {
       final trimmed = line.trimRight();
-      if (trimmed == 'backend:') {
-        inBackend = true;
+      if (trimmed == '$parent:') {
+        inBlock = true;
         continue;
       }
-      // A new top-level key resets the backend block.
-      if (inBackend && trimmed.isNotEmpty && !trimmed.startsWith(' ')) {
-        inBackend = false;
+      if (inBlock && trimmed.isNotEmpty && !trimmed.startsWith(' ')) {
+        inBlock = false;
       }
-      if (inBackend) {
-        final m = RegExp(r'^\s+kind:\s*([A-Za-z0-9_.-]+)\s*$').firstMatch(line);
+      if (inBlock) {
+        final m = childRe.firstMatch(line);
         if (m != null) return m.group(1);
       }
     }
     return null;
   }
+
+  // Top-level `<key>: <value>` parser. Stops at the first match or EOF;
+  // the YAML schema doesn't repeat top-level keys.
+  String? _parseTopLevelString(String yaml, String key) {
+    final re = RegExp('^' + RegExp.escape(key) +
+        r':\s*([A-Za-z0-9_.-]+)\s*$', multiLine: true);
+    final m = re.firstMatch(yaml);
+    return m?.group(1);
+  }
+
+  // The latest YAML body for the selected template. Cached so
+  // _BackendInfo's detail derivation doesn't refire the network on
+  // every rebuild. Cleared whenever _refreshKindFor starts a new fetch.
+  String? _currentDrivingMode;
+  String? _currentModel;
 
   Future<void> _refreshKindFor(String templateName) async {
     final client = ref.read(hubProvider.notifier).client;
@@ -217,9 +252,13 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
         merged: true,
       );
       final kind = _parseBackendKind(yaml) ?? 'claude-code';
+      final mode = _parseDrivingMode(yaml);
+      final model = _parseBackendModel(yaml);
       if (!mounted) return;
       setState(() {
         _currentKind = kind;
+        _currentDrivingMode = mode;
+        _currentModel = model;
         _kindLoading = false;
       });
     } catch (_) {
@@ -525,7 +564,12 @@ class _SpawnStewardSheetState extends ConsumerState<_SpawnStewardSheet> {
                 // gemini-cli today (steward.{codex,gemini}.v1.yaml ship
                 // bundled). The widget shows whichever one this template
                 // wires up; the spawn submits the same kind on the wire.
-                _BackendInfo(kind: _currentKind, loading: _kindLoading),
+                _BackendInfo(
+                  kind: _currentKind,
+                  drivingMode: _currentDrivingMode,
+                  model: _currentModel,
+                  loading: _kindLoading,
+                ),
                 const SizedBox(height: 12),
                 _PermissionModeSelector(
                   value: _permissionMode,
@@ -702,18 +746,28 @@ class _PermissionModeSelector extends StatelessWidget {
 }
 
 /// Static info row showing the backend that the selected steward
-/// template wires up. The kind comes from the template's `backend.kind`;
-/// the operator changes it by picking a different template, not a
-/// separate radio. Engines we ship today: claude-code, codex, gemini-cli.
+/// template wires up. Reads `backend.kind`, `driving_mode`, and
+/// `backend.model` from the YAML so a YAML-side mode swap (M2→M4) or
+/// model swap is visible without opening the editor. The operator
+/// changes engine by picking a different template, not a separate
+/// radio. Engines we ship today: claude-code, codex, gemini-cli,
+/// kimi-code.
 class _BackendInfo extends StatelessWidget {
   final String kind;
+  final String? drivingMode;
+  final String? model;
   final bool loading;
-  const _BackendInfo({required this.kind, required this.loading});
+  const _BackendInfo({
+    required this.kind,
+    required this.loading,
+    this.drivingMode,
+    this.model,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final info = _engineInfoFor(kind);
+    final info = _engineInfoFor(kind, drivingMode, model);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -764,34 +818,104 @@ class _BackendInfo extends StatelessWidget {
 
   /// Per-engine display values. `kind` matches the value the hub stamps
   /// on `agents.kind` and what the spawn endpoint expects on the wire.
-  static _EngineInfo _engineInfoFor(String kind) {
+  /// `mode` and `model` are pulled from the template YAML so a swap
+  /// in either field surfaces immediately.
+  static _EngineInfo _engineInfoFor(String kind, String? mode, String? model) {
+    final modeBlurb = _modeBlurb(kind, mode);
     switch (kind) {
       case 'codex':
-        return const _EngineInfo(
+        return _EngineInfo(
           label: 'Codex',
-          detail: 'app-server JSON-RPC · per-tool approval bridge',
+          detail: _joinDetail([
+            modeBlurb,
+            'app-server JSON-RPC',
+            'per-tool approval bridge',
+          ]),
           icon: Icons.smart_toy_outlined,
         );
       case 'gemini-cli':
-        return const _EngineInfo(
+        return _EngineInfo(
           label: 'Gemini CLI',
-          detail: 'exec-per-turn with --resume · MCP via settings.json',
+          detail: _joinDetail([
+            modeBlurb,
+            'exec-per-turn with --resume',
+            'MCP via settings.json',
+          ]),
           icon: Icons.auto_awesome_motion_outlined,
         );
+      case 'kimi-code':
+        return _EngineInfo(
+          label: 'Kimi Code',
+          detail: _joinDetail([
+            modeBlurb,
+            'ACP over stdio',
+            'permission_prompt MCP gate',
+          ]),
+          icon: Icons.bolt_outlined,
+        );
       case 'claude-code':
-        return const _EngineInfo(
+        return _EngineInfo(
           label: 'Claude Code',
-          detail: 'opus-4-7 · stream-json · MCP permission gate',
+          detail: _joinDetail([
+            modeBlurb,
+            (model == null || model.isEmpty) ? null : _shortModel(model),
+            // Mode-derived transport hint: M2 streams stdio, M4 tails
+            // a JSONL log. Without the mode-aware branch the chip used
+            // to claim "stream-json" even on an M4 spawn.
+            _transportFor(mode),
+            'MCP permission gate',
+          ]),
           icon: Icons.radio_button_checked,
         );
       default:
         return _EngineInfo(
           label: kind.isEmpty ? 'Unknown engine' : kind,
-          detail: 'kind=$kind (custom template)',
+          detail: _joinDetail([
+            modeBlurb,
+            'kind=$kind (custom template)',
+          ]),
           icon: Icons.help_outline,
         );
     }
   }
+
+  // Display the driving mode as the leading blurb so it's the first
+  // signal the user reads. Falls back to the kind's typical mode when
+  // the YAML doesn't set one explicitly (templates that omit it
+  // inherit the launcher's per-engine default).
+  static String? _modeBlurb(String kind, String? mode) {
+    if (mode == null || mode.isEmpty) return null;
+    return mode;
+  }
+
+  // Per-mode transport hint for claude-code. Other engines have a
+  // single transport so we don't render a placeholder.
+  static String? _transportFor(String? mode) {
+    switch (mode) {
+      case 'M1':
+        return 'ACP stdio';
+      case 'M2':
+        return 'stream-json';
+      case 'M4':
+        return 'JSONL tail';
+      default:
+        return null;
+    }
+  }
+
+  // Trim long claude model strings ("claude-opus-4-7-20260101") down
+  // to family + version so the chip stays readable.
+  static String _shortModel(String raw) {
+    if (raw.startsWith('claude-')) {
+      final parts = raw.split('-');
+      if (parts.length >= 4) return '${parts[1]} ${parts[2]}.${parts[3]}';
+    }
+    return raw;
+  }
+
+  // Join with the canonical separator, dropping null/empty fragments.
+  static String _joinDetail(List<String?> parts) =>
+      parts.where((s) => s != null && s.isNotEmpty).join(' · ');
 }
 
 class _EngineInfo {

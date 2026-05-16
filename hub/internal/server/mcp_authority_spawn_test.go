@@ -175,3 +175,38 @@ func TestAuthorizeAgentsSpawn_BodyFieldFallback(t *testing.T) {
 		t.Errorf("YAML-wins: gate should evaluate against projOther (no steward) and deny")
 	}
 }
+
+func TestInjectParentAgentID(t *testing.T) {
+	// Empty args / empty parent: no-op.
+	if _, ok := injectParentAgentID(nil, "agent_x"); ok {
+		t.Error("nil args should not inject")
+	}
+	if _, ok := injectParentAgentID([]byte(`{}`), ""); ok {
+		t.Error("empty parent should not inject")
+	}
+	// Happy path: missing key → injected.
+	in := []byte(`{"child_handle":"w","kind":"claude-code","spawn_spec_yaml":"x"}`)
+	out, ok := injectParentAgentID(in, "steward_42")
+	if !ok {
+		t.Fatal("expected inject on missing key")
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("rewritten args parse: %v", err)
+	}
+	if got["parent_agent_id"] != "steward_42" {
+		t.Errorf("parent_agent_id = %v, want steward_42", got["parent_agent_id"])
+	}
+	if got["child_handle"] != "w" {
+		t.Error("existing keys should survive")
+	}
+	// Caller-supplied wins (REST callers passing a different parent).
+	in = []byte(`{"parent_agent_id":"caller_pick","child_handle":"w"}`)
+	if _, ok := injectParentAgentID(in, "steward_42"); ok {
+		t.Error("non-empty parent should NOT be overwritten")
+	}
+	// Malformed JSON: no-op (let downstream surface the error).
+	if _, ok := injectParentAgentID([]byte(`{not json`), "steward_42"); ok {
+		t.Error("malformed args should not inject")
+	}
+}

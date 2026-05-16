@@ -97,6 +97,36 @@ func (s *Server) authorizeAgentsSpawn(agentID string, raw json.RawMessage) *jrpc
 	return nil
 }
 
+// injectParentAgentID stamps `parent_agent_id` into the spawn args
+// when the caller didn't supply one. Returns (rewrittenJSON, true) on
+// inject, or (nil, false) when args already carry a non-empty
+// parent_agent_id (caller-supplied wins) or on parse failure (let the
+// downstream handler surface the malformed-args error).
+//
+// Needed because the MCP `agents.spawn` tool's args schema lists
+// parent_agent_id as optional, and no agent template asks the steward
+// to pass it. Without the injection, agent_spawns.parent_agent_id
+// lands NULL and downstream lookups (get_parent_thread, the a2a
+// worker→parent permission check) treat the worker as parent-less.
+func injectParentAgentID(raw []byte, parentID string) ([]byte, bool) {
+	if len(raw) == 0 || parentID == "" {
+		return nil, false
+	}
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, false
+	}
+	if existing, _ := args["parent_agent_id"].(string); existing != "" {
+		return nil, false
+	}
+	args["parent_agent_id"] = parentID
+	out, err := json.Marshal(args)
+	if err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
 // pickProjectIDFromArgs returns the spawn's project binding from the
 // raw MCP args. Mirrors the precedence DoSpawn applies: YAML wins
 // over body. Returns "" when neither carries a binding.

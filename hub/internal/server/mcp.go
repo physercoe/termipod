@@ -334,6 +334,19 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 		if jerr := s.authorizeAgentsSpawn(agentID, call.Arguments); jerr != nil {
 			return nil, jerr
 		}
+		// Auto-inject parent_agent_id from the calling agent so
+		// agent_spawns.parent_agent_id is never NULL on the MCP path.
+		// Without this both get_parent_thread (returns empty) and the
+		// a2a worker→parent permission check (denies with "not
+		// permitted") fail downstream — the child has no traceable
+		// parent in the spawn table even though the gate above already
+		// proved who the caller is. Caller-supplied value wins (REST
+		// clients with a principal token still pass their own).
+		if agentID != "" {
+			if injected, ok := injectParentAgentID(call.Arguments, agentID); ok {
+				call.Arguments = injected
+			}
+		}
 	}
 	switch call.Name {
 	case "post_message":

@@ -16,6 +16,11 @@ on those.
 
 ## Your task
 
+You'll see a `## Task` section above this one — that's the steward's
+brief (title + body_md). The same content also arrives as your first
+user message via the `producer='user'` event so you can react
+immediately on turn one. (ADR-029 D-8.)
+
 The steward's spawn task carries:
 - `sub_area`: the slice of the project idea you're reviewing
 - `depth`: `shallow` (5–8 papers, 1–2 days of reading), `medium`
@@ -42,19 +47,24 @@ pass on revise.
    - 3–5 themed sections grouping papers by angle/finding
    - A "what's known vs. what's open" recap
    - Per-paper citations (arxiv id or doi); use markdown links
-5. **Publish + report:**
+5. **Publish + close out:**
    ```
    doc_id = documents.create(
      kind="memo",
      title="Lit review: <sub_area>",
      content=<your memo as markdown>
    )
-   a2a.invoke(
-     handle="@{{parent.handle}}",
-     text="Lit review for <sub_area> complete. doc_id=<doc_id>",
-     task_id="<your spawn task id>"
+   tasks.complete(
+     project_id="<your project id>",
+     task="<your task id>",
+     summary="Lit review for <sub_area> complete. doc_id=<doc_id>"
    )
    ```
+   `tasks.complete` writes `result_summary`, flips status to `done`,
+   and the hub auto-pushes a `task.notify` event into the steward's
+   session — no manual `a2a.invoke` needed for the close-out report.
+   (Mid-conversation back-channel is still `a2a.invoke` if you need
+   the steward's input before you finish.)
 6. **Stop.** Don't loop. Don't spawn anything. Don't post to
    channels. The steward owns aggregation across sub-areas.
 

@@ -54,7 +54,7 @@ Read the lit-review first via `documents.read`. Then plan.
    listing the sweep cells (e.g. `model_sizes=[128,256,384]`,
    `optimizers=["adamw","lion"]`, `iters=1000`). Workspace
    commits the spec.
-7. **Publish + report:**
+7. **Publish + close out:**
    ```
    commit_sha = (in your worktree)
    doc_id = documents.create(
@@ -63,12 +63,16 @@ Read the lit-review first via `documents.read`. Then plan.
      content=<method-spec markdown including matrix and pointers
               to code commit>
    )
-   a2a.invoke(
-     handle="@{{parent.handle}}",
-     text="Method + code ready. method_doc=<doc_id> commit=<sha>",
-     task_id="<your spawn task id>"
+   tasks.complete(
+     project_id="<your project id>",
+     task="<your task id>",
+     summary="Method + code ready. method_doc=<doc_id> commit=<sha>"
    )
    ```
+   The hub auto-pushes a `task.notify` event into the steward's
+   session on close-out — no manual `a2a.invoke` needed for the
+   completion report. Use `a2a.invoke` mid-flight only if you
+   need the steward's input before you finish.
 8. **Stop.** Don't run the sweep. Don't spawn workers. The
    steward will spawn `ml-worker.v1` × N for that.
 

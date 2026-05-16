@@ -436,6 +436,11 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 			"source": "spawn",
 			"agent":  agentID,
 		})
+	// W2.9: surface the auto-derived flip in the assigner's chat too.
+	// The agent-terminated case is the canonical "worker finished and
+	// the steward needs to know" path; without this, the steward only
+	// sees the agent disappear from the live list with no narrative.
+	s.notifyTaskAssigner(ctx, team, taskID, curStatus, newStatus)
 	return nil
 }
 
@@ -558,6 +563,63 @@ type spawnIn struct {
 	// template definition. Ignored when SessionID is set (the swap
 	// path already updates the named session in-tx).
 	AutoOpenSession bool `json:"auto_open_session,omitempty"`
+}
+
+// buildTaskInstructions returns the "## Task" body that should land in
+// the worker's CLAUDE.md when the spawn carries an ADR-029 task linkage.
+// Without this the body_md the steward typed into `task: {…}` would never
+// reach the worker — the steward would have to follow up with an
+// `a2a.invoke` text="do this" call, defeating the point of the inline-
+// create shape (D-2 A3). The returned string is empty when neither
+// linkage shape is present or when the linked task has no body. The
+// `task_id` branch reads from the existing tasks row; the inline branch
+// reads from the spawnTaskInline carried on the request. Failures (DB
+// hiccup, deleted task) silently degrade to an empty string — the spawn
+// still succeeds, the worker just lacks the instructions, and the
+// principal sees the gap on the Tasks tab.
+func buildTaskInstructions(ctx context.Context, db *sql.DB, in spawnIn) string {
+	if in.Task != nil {
+		title := strings.TrimSpace(in.Task.Title)
+		body := strings.TrimSpace(in.Task.BodyMD)
+		return renderTaskInstructions(title, body)
+	}
+	if in.TaskID != "" && db != nil {
+		var title, body sql.NullString
+		err := db.QueryRowContext(ctx,
+			`SELECT title, COALESCE(body_md, '') FROM tasks WHERE id = ?`,
+			in.TaskID).Scan(&title, &body)
+		if err != nil {
+			return ""
+		}
+		return renderTaskInstructions(title.String, body.String)
+	}
+	return ""
+}
+
+// renderTaskInstructions formats title + body_md for the CLAUDE.md
+// "## Task" section. Title becomes the first H1; body_md follows as
+// the rest. If only title is set, the body is the title line alone.
+// If neither is set returns "" so the header is omitted.
+func renderTaskInstructions(title, body string) string {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if title == "" && body == "" {
+		return ""
+	}
+	var out strings.Builder
+	if title != "" {
+		out.WriteString("# ")
+		out.WriteString(title)
+		out.WriteString("\n")
+	}
+	if body != "" {
+		if title != "" {
+			out.WriteString("\n")
+		}
+		out.WriteString(body)
+		out.WriteString("\n")
+	}
+	return out.String()
 }
 
 // spawnTaskInline is the fields accepted on `agents.spawn`'s `task` body
@@ -694,7 +756,8 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}
-	rendered, err = s.resolveContextFiles(rendered, vars, in.PersonaSeed)
+	taskInstructions := buildTaskInstructions(ctx, s.db, in)
+	rendered, err = s.resolveContextFiles(rendered, vars, in.PersonaSeed, taskInstructions)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}
@@ -1036,6 +1099,20 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 					"agent_id": agentID,
 					"spawn_id": spawnID,
 				})
+		}
+	}
+	// ADR-029 W2.7: auto-post the task body as the worker's first user
+	// input so it starts the turn without waiting for an `a2a.invoke`
+	// follow-up. CLAUDE.md (W2.6) carries the standing reference; this
+	// event is the actual trigger via InputRouter. Best-effort: a post
+	// failure leaves the spawn intact and the principal can fire input
+	// manually from mobile. taskInstructions was computed pre-tx from
+	// either the inline Task or a SELECT on TaskID, so this works for
+	// both linkage shapes.
+	if taskInstructions != "" {
+		if perr := s.postSyntheticUserInput(ctx, agentID, taskInstructions); perr != nil {
+			s.log.Warn("post task input failed",
+				"agent_id", agentID, "task_id", linkedTaskID, "err", perr)
 		}
 	}
 	return spawnOut{SpawnID: spawnID, AgentID: agentID, SpawnedAt: now, Mode: mode}, http.StatusCreated, nil

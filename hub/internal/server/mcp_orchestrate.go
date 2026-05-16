@@ -192,7 +192,7 @@ func (s *Server) mcpAgentsFanout(ctx context.Context, team string, raw json.RawM
 		// Post the task as the worker's first input so it starts
 		// processing without waiting for an external nudge. Same
 		// /agents/{id}/input wire-shape the mobile + A2A use.
-		if perr := s.postFanoutInput(ctx, spawn.AgentID, w.Task); perr != nil {
+		if perr := s.postSyntheticUserInput(ctx, spawn.AgentID, w.Task); perr != nil {
 			// Spawn succeeded but input failed — return both so the
 			// steward knows the worker is alive but hasn't received
 			// its task. They can resend.
@@ -222,11 +222,14 @@ func (s *Server) mcpAgentsFanout(ctx context.Context, team string, raw json.RawM
 	}), nil
 }
 
-// postFanoutInput writes a producer='user' input.text event so the
-// worker's InputRouter delivers it on the next tick. The hub records
-// it under the new session_id via the existing handlePostAgentInput
-// path; we go directly to the SQL to stay in-process.
-func (s *Server) postFanoutInput(ctx context.Context, agentID, body string) error {
+// postSyntheticUserInput writes a producer='user' input.text event so
+// the worker's InputRouter delivers it as the next user message on its
+// next tick — same wire-shape mobile + A2A use, but injected by the
+// hub itself so a spawn can start working without an external nudge.
+// Shared by agents.fanout (one input per worker in the burst) and
+// ADR-029 spawn-with-task (the steward's task body becomes the first
+// turn for the new worker). Goes directly to SQL to stay in-process.
+func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body string) error {
 	if body == "" {
 		return errors.New("empty task body")
 	}

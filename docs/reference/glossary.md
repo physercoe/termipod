@@ -804,7 +804,21 @@ D-2), `priority`, `body_md`, and `status` ∈
   being stopped intentionally, vs `done` which means "the agent
   terminated"). Auto-derive never enters or leaves `cancelled`.
 - `tasks.started_at` / `completed_at` are auto-stamped at the same
-  flips; `result_summary` is steward-supplied.
+  flips; `result_summary` is worker-supplied (typically via
+  `tasks.complete`).
+
+**Information-flow edges (ADR-029 D-8):**
+- **Down (steward → worker):** `agents.spawn task: {…}` materializes
+  the task row, inlines title + body_md into the worker's
+  `context_files.CLAUDE.md` under a `## Task` section, and posts a
+  `producer='user' kind='input.text'` event immediately after the
+  spawn commits so the worker's first turn fires automatically.
+- **Up (worker → assigner):** terminal status flips (done / blocked
+  / cancelled) post a `kind='task.notify' producer='system'` event
+  into the assigner's most-recent active session carrying title +
+  from → to + result_summary. Fired by both manual updates
+  (`tasks.update`, `tasks.complete`, mobile flips) and auto-derive
+  (worker terminate / crash / fail).
 
 Tasks are **independent of plan** — they don't share rows or schemas
 with `plan_steps`. Tasks exist for human-tracked work; plan-steps
@@ -818,6 +832,52 @@ exist for chassis-driven execution.
   agent work and audit.
 - *Canonical:* migration `0001_initial.up.sql` (`CREATE TABLE tasks`)
   + `0021_tasks_priority` + `0041_tasks_spawn_lifecycle`.
+
+### task.notify
+The agent_events row that lands in an assigner's session when a task
+they delegated reaches a terminal state (done / blocked / cancelled).
+`kind='task.notify'`, `producer='system'`. Payload carries
+`{task_id, title, from, to, result_summary, body}`; the prerendered
+`body` field is what the mobile chat surface displays. Best-effort —
+NULL `created_by_id` (principal-direct task) and no live session for
+the assigner both silently degrade; the audit row remains the durable
+record. See ADR-029 D-8.
+- *Distinguish from:* **task.status** — `task.status` is an
+  `audit_events.action`, written for every status flip including
+  non-terminal ones (`in_progress`); `task.notify` is an
+  `agent_events.kind`, written only for terminal flips and only when
+  there's a live assigner session to push into.
+- *Canonical:* `hub/internal/server/task_notify.go`.
+
+### run.notify
+The agent_events row that lands in the owning worker's session when a
+run reaches a terminal state (completed / failed / cancelled).
+`kind='run.notify'`, `producer='system'`. Payload carries
+`{run_id, project_id, status, started_at, body}`. Closes the gap
+where ML engineers running sweeps had no push signal — `runs.update
+status='completed'` previously wrote audit only. The worker, which
+may have async-waited on the run via trackio polling, sees the
+terminal signal immediately. Standalone runs (NULL `agent_id`)
+silently degrade.
+- *Distinguish from:* **run.complete** — `run.complete` is the
+  `audit_events.action` written on the same flip; `run.notify` is
+  the in-session push. Both fire from `handleCompleteRun`.
+- *Canonical:* `hub/internal/server/run_notify.go`.
+
+### a2a.received
+The agent_events row that lands in a receiving agent's session every
+time a successful A2A relay delivers (status < 400).
+`kind='a2a.received'`, `producer='system'`. Payload carries
+`{from_handle, from_agent_id, preview, body}`. The receiver no longer
+pays the host-runner `InputRouter` poll latency for inbound peer
+messages — the chat surface gets an immediate signal alongside the
+actual A2A turn the host runner delivers a moment later. Unauthed
+peer relays (no resolvable bearer) render as "A2A peer message" with
+empty attribution.
+- *Distinguish from:* **a2a.message_sent** — `a2a.message_sent` is
+  the `audit_events.action` written by `recordA2ARelayAudit` on the
+  same delivery; `a2a.received` is the receiver-side push.
+- *Canonical:* `hub/internal/server/a2a_notify.go`.
 
 ### note
 A device-local personal scratch entry (`note` or `reminder` kind),

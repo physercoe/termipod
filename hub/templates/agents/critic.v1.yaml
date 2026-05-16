@@ -43,6 +43,7 @@ default_capabilities:
   - a2a.invoke              # parent-steward target only (D4)
   - tasks.create
   - tasks.update
+  - tasks.complete           # ADR-029 W2.8 close-out verb
   - journal_append
   - journal_read
   - get_attention

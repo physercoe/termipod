@@ -25,7 +25,8 @@ locked decisions are in
 | Phase | Ship | Approx LOC | Depends on |
 |---|---|---|---|
 | 1 | Hub: spawn↔task edge + status auto-derive + `tasks.delete` MCP + `cancelled` status + task audit + `NoteKind` rename + glossary | ~380 | — |
-| 2 | Mobile: `_TaskTile` triad + task detail surfaces linked spawn/session + `cancelled` rendering | ~250 | Phase 1 schema |
+| 1.5 | Hub: worker delivery + assigner notification (CLAUDE.md `## Task` section, auto-posted first input, `tasks.complete` verb + `result_summary`, `task.notify` event) | ~280 | Phase 1 |
+| 2 | Mobile: `_TaskTile` triad + task detail surfaces linked spawn/session + `cancelled` rendering + render `task.notify` events in chat | ~280 | Phases 1 and 1.5 |
 
 Phase 1 closes the empty-Tasks-tab bug end-to-end (every
 project-steward-dispatched worker materializes a task row).
@@ -210,6 +211,106 @@ codebase.
   **task with status='todo'**; the local primitive (renamed in
   v1.0.610) was `NoteKind.todo`, now `NoteKind.reminder`."
 
+**W2.6. Worker delivery — task body into CLAUDE.md (~40 LOC).**
+- Closes the gap where `agents.spawn task: {…}` materializes the task
+  row but `body_md` never reaches the worker. Without this, the
+  steward has to follow up with `a2a.invoke` just to deliver the
+  instructions.
+- Extend `resolveContextFiles` (`hub/internal/server/template.go`)
+  with a fourth arg `taskInstructions`. When non-empty, the rendered
+  CLAUDE.md gains a `## Task` section after any persona override.
+- Add `buildTaskInstructions(ctx, db, spawnIn)` helper that loads
+  title + body_md from either the inline `Task` or a `SELECT` on
+  `TaskID`, formats as `# {title}\n\n{body_md}`, and returns the
+  string. Empty when neither linkage shape is present or both fields
+  are blank.
+- DoSpawn calls the helper before `resolveContextFiles`.
+- The MCP `agents.spawn` description gains a "Worker delivery" note:
+  the linked task's title + body_md are inlined into CLAUDE.md so
+  the worker reads the work on first turn — no follow-up
+  `a2a.invoke` is required just to deliver the initial instructions.
+
+**W2.7. Worker trigger — auto-posted first user input (~30 LOC).**
+- W2.6 gives the worker context but no trigger. claude-code (and
+  similar engines) read CLAUDE.md as a system-prompt-like file and
+  then wait for input; the actual first turn fires when a
+  `producer='user'` agent_event lands and the host-runner's
+  `InputRouter` delivers it.
+- Reuse the `agents.fanout` pattern: rename `postFanoutInput` →
+  `postSyntheticUserInput` (function body unchanged; rename clarifies
+  it's shared) and call it from `DoSpawn` after the post-commit
+  audit block when `taskInstructions != ""`.
+- Best-effort: a post failure leaves the spawn intact and the
+  principal can fire input manually from mobile.
+- Ad-hoc spawns (no `task_id` and no inline `task`) do NOT auto-post
+  — preserves the steward's fire-and-forget escape hatch.
+
+**W2.8. Worker close-out — `tasks.complete` MCP verb (~60 LOC).**
+- Schema already has `tasks.result_summary` (W1) but no code path
+  writes to it. Extend `taskPatchIn` with `ResultSummary *string`;
+  PATCH stamps `result_summary = NULLIF(?, '')` alongside the
+  existing terminal-status `completed_at` stamp.
+- Add `tasks.complete` MCP tool — args `{project_id, task, summary?}`,
+  calls PATCH with `status='done'` + `result_summary=summary`.
+  Tier=Routine. Description tells the worker this is the canonical
+  close-out verb (vs `tasks.update` for partial edits).
+- Update `tasks.update` description to mention `result_summary` is
+  also accepted directly, and to point workers at `tasks.complete`
+  as the bundled close-out.
+
+**W2.9, W2.10, W2.11 — assigner / run owner / A2A receiver notifications.**
+
+These three wedges share the same "inject a `producer='system'`
+event into the receiver's most-recent active session" shape and ship
+together; details collapse into one header for brevity.
+
+**W2.9 (`task.notify`, ~120 LOC).**
+- New helper
+  `notifyTaskAssigner(ctx, team, taskID, fromStatus, toStatus)` in
+  `hub/internal/server/task_notify.go`. Gates on `toStatus IN
+  ('done','blocked','cancelled')`; lookups the task's
+  `created_by_id`, `title`, `result_summary`; finds the assigner's
+  most-recent `status='active'` session; inserts a
+  `kind='task.notify' producer='system'` `agent_events` row carrying
+  `{task_id, title, from, to, result_summary, body}`; publishes to
+  `agentBusKey(assigner_id)`; `touchSession`. Best-effort —
+  principal-direct tasks (NULL `created_by_id`), no live session,
+  and DB errors all silently degrade.
+- Called from two sites:
+  - `handlePatchTask` after the `task.status` audit row (manual
+    flips: principal via mobile, worker via `tasks.complete` /
+    `tasks.update`).
+  - `deriveTaskStatusFromAgent` after its own audit row (auto-derive
+    on agent terminate / crash / fail).
+- Body shape: `"Task **<title>** <from> → <to>."` with the
+  `result_summary` appended on a new paragraph when present.
+- Mobile renders the new `kind='task.notify'` event in the chat
+  surface (lands in Phase 2 W12.5 — for now the steward sees it as
+  a generic system-producer row, which is the same treatment used
+  by `system.mode_changed` etc.).
+
+**W2.10 (`run.notify`, ~120 LOC).** Same shape applied to runs:
+when `runs.status` flips to `completed` / `failed` / `cancelled`,
+inject `kind='run.notify' producer='system'` into the run's
+`agent_id`'s active session. Helper:
+`hub/internal/server/run_notify.go:notifyRunOwner`. Called from
+`handleCompleteRun` after the existing `recordAudit("run.complete")`.
+Closes the ML-engineer-polling gap surfaced by the 2026-05-16
+notification audit. Standalone runs (NULL `agent_id`) silently
+degrade.
+
+**W2.11 (`a2a.received`, ~120 LOC).** Every successful A2A relay
+(status < 400) injects `kind='a2a.received' producer='system'` into
+the receiver's active session. Receiver no longer pays
+host-runner InputRouter poll latency for inbound peer messages.
+Helper: `hub/internal/server/a2a_notify.go:notifyA2AReceived`.
+Sender attribution piggybacks on `resolveA2ASender` shared with the
+audit row; unauthed peer calls render as "A2A peer message: …".
+
+The broader audit that produced W2.10 + W2.11 (and the remaining
+unscheduled gaps) lives at
+[../discussions/auto-notification-coverage.md](../discussions/auto-notification-coverage.md).
+
 **W7. Lifecycle test scenario (~30 LOC of doc).**
 - Add Scenario 30 to `docs/how-to/test-steward-lifecycle.md`:
   project steward spawns a worker with inline `task: {…}` →
@@ -250,6 +351,20 @@ codebase.
   device notes are migrated on first open.
 - Glossary lints clean (`lint-glossary.sh`).
 - Lifecycle test Scenario 30 walks the happy path.
+- **W2.6**: spawn-with-inline-task renders a `## Task` section in the
+  worker's CLAUDE.md. Round-trip test asserts the title + body land
+  in `agent_spawns.spawn_spec_yaml` after `resolveContextFiles`.
+- **W2.7**: spawn-with-task lands a `producer='user' kind='input.text'`
+  row in `agent_events` for the new worker; ad-hoc spawn does not.
+- **W2.8**: `tasks.complete summary="..."` stamps `result_summary`,
+  flips status to `done`, fires the same audit + assigner-notify
+  edges as a `tasks.update status='done'` call would.
+- **W2.9**: any terminal flip (manual or auto-derived) writes a
+  `kind='task.notify' producer='system'` row into the assigner's
+  most-recent active session with title + from → to + result_summary
+  in the payload. Non-terminal flips (todo → in_progress) do not
+  fire. NULL `created_by_id` and missing live session silently
+  degrade.
 
 ---
 

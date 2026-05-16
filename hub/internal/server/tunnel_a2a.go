@@ -352,11 +352,37 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// invalid bearer leaves actor_kind='peer' and from_agent_id empty
 	// in meta. Only fired when the upstream returned a 2xx — failed
 	// relays are tracked via tunnel.metrics.Dropped() above.
+	//
+	// W2.11 piggybacks on the same 2xx gate: push a kind='a2a.received'
+	// system event into the receiver's session so the in-chat surface
+	// gets a real-time signal rather than waiting for the host-runner
+	// InputRouter to deliver the message body on its next poll.
 	if status < 400 {
+		fromHandle, fromAgentID := s.resolveA2ASender(r)
 		s.recordA2ARelayAudit(r, body, host, agent)
+		s.notifyA2AReceived(r.Context(), agent, body, fromHandle, fromAgentID)
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(bodyBytes)
+}
+
+// resolveA2ASender returns the (handle, agent_id) of the A2A caller
+// when they forwarded their bearer token, or ("", "") for unauthed
+// peer calls. Shared by the audit row + W2.11 notification path so
+// both surfaces attribute the sender consistently.
+func (s *Server) resolveA2ASender(r *http.Request) (handle, agentID string) {
+	tok, _ := auth.ResolveBearer(r.Context(), s.db, r)
+	if tok == nil {
+		return "", ""
+	}
+	var scope struct {
+		AgentID string `json:"agent_id"`
+		Handle  string `json:"handle"`
+	}
+	if err := json.Unmarshal([]byte(tok.ScopeJSON), &scope); err != nil {
+		return "", ""
+	}
+	return strings.TrimPrefix(scope.Handle, "@"), scope.AgentID
 }
 
 // recordA2ARelayAudit writes a hub-side audit row for one successful

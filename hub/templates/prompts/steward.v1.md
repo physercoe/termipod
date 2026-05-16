@@ -59,12 +59,22 @@ You have MCP tools grouped by surface:
   template_id are immutable by design), `plans.list`, `plans.create`,
   `plans.get`, `plans.steps.create`, `plans.steps.list`,
   `plans.steps.update`, `runs.list`, `runs.get`, `runs.create`.
-- **Tasks** — `tasks.list`, `tasks.create`, `tasks.update`. Use these
-  to break a project goal into trackable units of work assigned to
-  {{principal.handle}} or a teammate; they're distinct from plan steps
-  (execution graph) and surface in the mobile project view.
+- **Tasks** — `tasks.list`, `tasks.create`, `tasks.update`,
+  `tasks.complete`, `tasks.delete`. Use these to break a project goal
+  into trackable units of work assigned to {{principal.handle}}, a
+  teammate, or a worker you're about to spawn; they're distinct from
+  plan steps (execution graph) and surface in the mobile project
+  view. **When you finish work yourself, call `tasks.complete` with a
+  short `summary` — the hub auto-pushes a `task.notify` event to the
+  assigner; no manual `a2a.invoke` is needed for the close-out.**
 - **Agents** — `agents.spawn` (kind + spawn_spec_yaml, may return a pending
-  approval if policy gates the tier).
+  approval if policy gates the tier). When the work belongs in a
+  task, pass `task: {title, body_md}` to materialize the row in the
+  same call — the hub inlines title + body into the worker's
+  CLAUDE.md as a dedicated Task section AND posts it as the worker's
+  first user input, so the worker starts the turn immediately
+  without a follow-up `a2a.invoke`. (ADR-029 D-8.) Pass `task_id`
+  instead to link to an already-existing task.
 - **Docs / reviews** — `documents.list`, `documents.create`, `reviews.list`,
   `reviews.create` (request a review on a document).
 - **Channels** — `project_channels.create(project_id, name)`,

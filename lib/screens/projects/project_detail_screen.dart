@@ -30,6 +30,7 @@ import 'docs_section.dart';
 import 'projects_screen.dart' show openAgentDetail;
 import 'overview_widgets/portfolio_header.dart';
 import 'overview_widgets/registry.dart';
+import 'overview_widgets/workspace_overview.dart' show formatRelative;
 import 'overview_widgets/workspace_overview.dart';
 import 'project_create_sheet.dart';
 import 'project_edit_sheet.dart';
@@ -697,10 +698,26 @@ class _TasksViewState extends ConsumerState<_TasksView> {
 
   Widget _buildTaskList() {
     if (_tasks.isEmpty) {
-      return _Placeholder(
-        text: _statusFilter == null
-            ? 'No tasks yet — tap + to create'
-            : 'No $_statusFilter tasks.',
+      // W11: pull-to-refresh works in the empty state too, so a user
+      // who just created a task elsewhere can pull the list down to
+      // see it without leaving + re-entering the tab.
+      return RefreshIndicator(
+        onRefresh: _load,
+        child: ListView(
+          // AlwaysScrollable so the gesture has surface area to drag
+          // even when the placeholder occupies less than a screen.
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: MediaQuery.of(context).size.height * 0.5,
+              child: _Placeholder(
+                text: _statusFilter == null
+                    ? 'No tasks yet — tap + to create'
+                    : 'No $_statusFilter tasks.',
+              ),
+            ),
+          ],
+        ),
       );
     }
     // Status-filtered view: flat list — status is implicit, so no
@@ -974,11 +991,25 @@ class _TaskTile extends StatelessWidget {
     final preview = _previewLine((task['body_md'] ?? '').toString());
     final fromPlan = (task['source'] ?? 'ad_hoc').toString() == 'plan';
     final priority = parseTaskPriority(task['priority']);
-    // Per-row redesign (v1.0.499 issue 4): drop the leading status
-    // dot AND the trailing status text. Status is conveyed by the
-    // section header (no-filter view) or the active filter pill
-    // (filtered view). The only color cue per row is the priority
-    // dot, which is genuinely per-row signal.
+    final status = (task['status'] ?? '').toString();
+    final isCancelled = status == 'cancelled';
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    // ADR-029 D-6 + W8 triad: assignee chip (handle + status pip),
+    // assigner attribution, and a relative-time line. Hub denormalizes
+    // the JOIN onto agents (W10) so no per-row lookup is needed.
+    final assigneeHandle = (task['assignee_handle'] ?? '').toString();
+    final assigneeStatus = (task['assignee_status'] ?? '').toString();
+    final assignerHandle = (task['assigner_handle'] ?? '').toString();
+    final startedAt = _parseIsoTs((task['started_at'] ?? '').toString());
+    final completedAt = _parseIsoTs((task['completed_at'] ?? '').toString());
+    // cancelled paints over completed_at-as-finish since the cancelled
+    // path doesn't always stamp completed_at; fall back to updated_at.
+    final cancelledAt = isCancelled
+        ? (completedAt ??
+            _parseIsoTs((task['updated_at'] ?? '').toString()))
+        : null;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {
@@ -1024,7 +1055,11 @@ class _TaskTile extends StatelessWidget {
                         child: Text(title,
                             style: GoogleFonts.spaceGrotesk(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w600)),
+                                fontWeight: FontWeight.w600,
+                                color: isCancelled ? muted : null,
+                                decoration: isCancelled
+                                    ? TextDecoration.lineThrough
+                                    : null)),
                       ),
                       if (fromPlan) ...[
                         const SizedBox(width: 6),
@@ -1033,9 +1068,7 @@ class _TaskTile extends StatelessWidget {
                           child: Icon(
                             Icons.playlist_play_outlined,
                             size: 13,
-                            color: isDark
-                                ? DesignColors.textMuted
-                                : DesignColors.textMutedLight,
+                            color: muted,
                           ),
                         ),
                       ],
@@ -1049,10 +1082,30 @@ class _TaskTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 11,
-                        color: isDark
-                            ? DesignColors.textMuted
-                            : DesignColors.textMutedLight,
+                        color: muted,
+                        decoration: isCancelled
+                            ? TextDecoration.lineThrough
+                            : null,
                       ),
+                    ),
+                  ],
+                  // Triad row — only renders when at least one of the
+                  // three pieces has content; preserves the existing
+                  // visual budget for pre-ADR-029 tasks.
+                  if (assigneeHandle.isNotEmpty ||
+                      assignerHandle.isNotEmpty ||
+                      startedAt != null ||
+                      cancelledAt != null) ...[
+                    const SizedBox(height: 4),
+                    _TaskTileAttribution(
+                      assigneeHandle: assigneeHandle,
+                      assigneeStatus: assigneeStatus,
+                      assignerHandle: assignerHandle,
+                      startedAt: startedAt,
+                      completedAt: completedAt,
+                      cancelledAt: cancelledAt,
+                      status: status,
+                      muted: muted,
                     ),
                   ],
                 ],
@@ -1062,6 +1115,13 @@ class _TaskTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Parse an ISO-8601 timestamp from the hub; returns null on empty
+  /// or malformed input so callers can render "no time yet".
+  DateTime? _parseIsoTs(String raw) {
+    if (raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
   }
 
   /// First non-empty line of the body with common markdown leaders
@@ -1081,6 +1141,138 @@ class _TaskTile extends StatelessWidget {
     }
     return '';
   }
+}
+
+/// Renders the ADR-029 W8 triad: assignee chip with status pip,
+/// assigner attribution, and a relative-time line. Pieces are dropped
+/// individually when their backing field is empty; the row only
+/// renders at all when at least one piece has content (the parent
+/// gates on that). Stays within the existing tile vertical budget by
+/// using compact text sizes and a single Wrap-style row.
+class _TaskTileAttribution extends StatelessWidget {
+  final String assigneeHandle;
+  final String assigneeStatus;
+  final String assignerHandle;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+  final DateTime? cancelledAt;
+  final String status;
+  final Color muted;
+
+  const _TaskTileAttribution({
+    required this.assigneeHandle,
+    required this.assigneeStatus,
+    required this.assignerHandle,
+    required this.startedAt,
+    required this.completedAt,
+    required this.cancelledAt,
+    required this.status,
+    required this.muted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final pieces = <Widget>[];
+
+    if (assigneeHandle.isNotEmpty) {
+      pieces.add(_assigneeChip(context));
+    }
+    if (assignerHandle.isNotEmpty) {
+      if (pieces.isNotEmpty) pieces.add(_sep());
+      pieces.add(Text(
+        'by @${_stripAt(assignerHandle)}',
+        style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+      ));
+    }
+    final timeText = _timeLabel();
+    if (timeText.isNotEmpty) {
+      if (pieces.isNotEmpty) pieces.add(_sep());
+      pieces.add(Text(
+        timeText,
+        style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+      ));
+    }
+    if (pieces.isEmpty) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: pieces,
+    );
+  }
+
+  Widget _assigneeChip(BuildContext context) {
+    final color = _pipColor(assigneeStatus);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '@${_stripAt(assigneeHandle)}',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: muted,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sep() => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Text(
+          '·',
+          style: GoogleFonts.spaceGrotesk(fontSize: 10, color: muted),
+        ),
+      );
+
+  /// Picks the most informative timestamp + framing for the current
+  /// status. Cancelled paths get "cancelled <ago>" using the resolved
+  /// cancelledAt; done gets "done <ago>"; in-progress gets "started
+  /// <ago>"; everything else returns empty so the column collapses.
+  String _timeLabel() {
+    if (cancelledAt != null) {
+      return 'cancelled ${formatRelative(cancelledAt!)} ago';
+    }
+    if (completedAt != null && status == 'done') {
+      return 'done ${formatRelative(completedAt!)} ago';
+    }
+    if (startedAt != null) {
+      return 'started ${formatRelative(startedAt!)} ago';
+    }
+    return '';
+  }
+
+  /// Maps agent.status → pip color. Hub denormalized this from the
+  /// agents table; values follow ADR-009's terminal/live vocabulary.
+  /// Reuses the design system's status palette so the pip stays in
+  /// sync with other live-state surfaces (agent feed, sessions list).
+  Color _pipColor(String agentStatus) {
+    switch (agentStatus) {
+      case 'running':
+        return DesignColors.success;
+      case 'idle':
+        return DesignColors.terminalCyan;
+      case 'paused':
+        return DesignColors.warning;
+      case 'crashed':
+      case 'failed':
+        return DesignColors.error;
+      case 'terminated':
+      default:
+        return muted;
+    }
+  }
+
+  String _stripAt(String h) =>
+      h.startsWith('@') ? h.substring(1) : h;
 }
 
 // ---- Agents (filtered to this project) ----

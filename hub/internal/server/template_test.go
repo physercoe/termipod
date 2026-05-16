@@ -167,7 +167,7 @@ func TestResolveContextFiles_InlinesPromptFromEmbedded(t *testing.T) {
 	s, _ := newTestServer(t)
 	rendered := "kind: claude-code\nprompt: steward.v1.md\n"
 	vars := map[string]string{"principal.handle": "physercoe"}
-	got, err := s.resolveContextFiles(rendered, vars, "")
+	got, err := s.resolveContextFiles(rendered, vars, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestResolveContextFiles_DiskOverlayWins(t *testing.T) {
 
 	rendered := "prompt: steward.v1.md\n"
 	got, err := s.resolveContextFiles(rendered,
-		map[string]string{"principal.handle": "alice"}, "")
+		map[string]string{"principal.handle": "alice"}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestResolveContextFiles_AppendsPersonaSeed(t *testing.T) {
 	rendered := "prompt: steward.v1.md\n"
 	got, err := s.resolveContextFiles(rendered,
 		map[string]string{"principal.handle": "alice"},
-		"You are terse. Always cite line numbers.")
+		"You are terse. Always cite line numbers.", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -258,12 +258,108 @@ func TestResolveContextFiles_AppendsPersonaSeed(t *testing.T) {
 	}
 }
 
+func TestResolveContextFiles_AppendsTaskSection(t *testing.T) {
+	// ADR-029 W2.6: when a spawn carries an inline task (or a task_id
+	// linkage), the rendered task instructions must land in CLAUDE.md
+	// under a `## Task` section so the worker reads them on first turn
+	// without needing a follow-up a2a.invoke. The section sits AFTER
+	// any persona override (persona = who, task = what to do).
+	s, _ := newTestServer(t)
+	rendered := "prompt: steward.v1.md\n"
+	got, err := s.resolveContextFiles(rendered,
+		map[string]string{"principal.handle": "alice"},
+		"You are terse.",
+		"# Investigate 502 spike\n\nLook at the last hour of logs and report findings.")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	body := parsed.ContextFiles["CLAUDE.md"]
+	if !strings.Contains(body, "## Task") {
+		t.Fatalf("task header missing:\n%s", body)
+	}
+	if !strings.Contains(body, "Investigate 502 spike") {
+		t.Errorf("task title missing:\n%s", body)
+	}
+	if !strings.Contains(body, "last hour of logs") {
+		t.Errorf("task body missing:\n%s", body)
+	}
+	if strings.Index(body, "## Persona override") > strings.Index(body, "## Task") {
+		t.Errorf("task should come after persona override:\n%s", body)
+	}
+}
+
+func TestResolveContextFiles_TaskWithoutPromptOrSeed(t *testing.T) {
+	// A spawn with neither prompt: nor persona seed should still
+	// materialize a CLAUDE.md when a task is provided — otherwise the
+	// worker boots into a blank workdir and the user's "spawn-for-task"
+	// gesture silently dies.
+	s, _ := newTestServer(t)
+	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "",
+		"# Just the task title\n")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	body := parsed.ContextFiles["CLAUDE.md"]
+	if !strings.Contains(body, "## Task") {
+		t.Fatalf("task header missing:\n%s", body)
+	}
+	if !strings.Contains(body, "Just the task title") {
+		t.Errorf("task content missing:\n%s", body)
+	}
+}
+
+func TestRenderTaskInstructions_Shapes(t *testing.T) {
+	cases := []struct {
+		name        string
+		title, body string
+		wantEmpty   bool
+		wantHas     []string
+	}{
+		{"both", "Investigate 502s", "Look at the logs.", false,
+			[]string{"# Investigate 502s", "Look at the logs."}},
+		{"title only", "Investigate 502s", "", false,
+			[]string{"# Investigate 502s"}},
+		{"body only", "", "Look at the logs.", false,
+			[]string{"Look at the logs."}},
+		{"neither", "", "", true, nil},
+		{"whitespace only", "   ", "\n\n", true, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := renderTaskInstructions(tc.title, tc.body)
+			if tc.wantEmpty {
+				if got != "" {
+					t.Errorf("want empty; got %q", got)
+				}
+				return
+			}
+			for _, w := range tc.wantHas {
+				if !strings.Contains(got, w) {
+					t.Errorf("missing %q in %q", w, got)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
 	// Even when the template has no prompt: field, supplying a seed
 	// should still produce a CLAUDE.md so a hand-rolled spawn can
 	// author its persona inline.
 	s, _ := newTestServer(t)
-	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "be terse")
+	got, err := s.resolveContextFiles("kind: x\n", map[string]string{}, "be terse", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -281,7 +377,7 @@ func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
 func TestResolveContextFiles_NoPromptFieldUnchanged(t *testing.T) {
 	s, _ := newTestServer(t)
 	in := "backend:\n  cmd: echo hi\n"
-	got, err := s.resolveContextFiles(in, map[string]string{}, "")
+	got, err := s.resolveContextFiles(in, map[string]string{}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -296,7 +392,7 @@ func TestResolveContextFiles_ExplicitOverrideWins(t *testing.T) {
 	// the templated body silently re-merged in.
 	s, _ := newTestServer(t)
 	in := "prompt: steward.v1.md\ncontext_files:\n  CLAUDE.md: \"my override\"\n"
-	got, err := s.resolveContextFiles(in, map[string]string{}, "")
+	got, err := s.resolveContextFiles(in, map[string]string{}, "", "")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -310,7 +406,7 @@ func TestResolveContextFiles_MissingPromptErrors(t *testing.T) {
 	// surface it loudly rather than silently spawning a contextless agent.
 	s, _ := newTestServer(t)
 	in := "prompt: does-not-exist.md\n"
-	_, err := s.resolveContextFiles(in, map[string]string{}, "")
+	_, err := s.resolveContextFiles(in, map[string]string{}, "", "")
 	if err == nil {
 		t.Fatal("want error for missing prompt; got nil")
 	}

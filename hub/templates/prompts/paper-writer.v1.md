@@ -40,19 +40,22 @@ verify any number from the result summary.
    you reference a paper, use the lit-review's citation.
 4. **Self-edit pass.** Read your own draft top-to-bottom once,
    tightening for clarity. Don't re-research; you're done.
-5. **Publish + report:**
+5. **Publish + close out:**
    ```
    doc_id = documents.create(
      kind="report",
      title="<concise paper title>",
      content=<paper as markdown, 6 sections>
    )
-   a2a.invoke(
-     handle="@{{parent.handle}}",
-     text="Paper draft ready. doc_id=<doc_id>",
-     task_id="<your spawn task id>"
+   tasks.complete(
+     project_id="<your project id>",
+     task="<your task id>",
+     summary="Paper draft ready. doc_id=<doc_id>"
    )
    ```
+   The hub auto-pushes a `task.notify` event into the steward's
+   session on close-out. Use `a2a.invoke` mid-flight only if you
+   need the steward's input before you finish.
 6. **Stop.** If the steward later spawns `critic.v1` and you
    receive a revise message, address the critic's points and
    resubmit. Cap at 3 rounds.

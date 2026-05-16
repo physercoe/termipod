@@ -46,19 +46,23 @@ The steward's spawn task tells you which:
    - **revise** — multiple ⚠ or one ❌, but issues are addressable
    - **reject** — fundamental problems (e.g. method doesn't
      actually answer the question; paper invents citations)
-5. **Publish + report:**
+5. **Publish + close out:**
    ```
    doc_id = documents.create(
      kind="review",
      title="Review: <target title>",
      content=<your review markdown>
    )
-   a2a.invoke(
-     handle="@{{parent.handle}}",
-     text="Review of <target_doc>: <verdict>. doc_id=<doc_id>",
-     task_id="<your spawn task id>"
+   tasks.complete(
+     project_id="<your project id>",
+     task="<your task id>",
+     summary="Review of <target_doc>: <verdict>. doc_id=<doc_id>"
    )
    ```
+   `tasks.complete` writes `result_summary`, flips status to `done`,
+   and the hub auto-pushes a `task.notify` event into the steward's
+   session — no manual `a2a.invoke` for the close-out. Use
+   `a2a.invoke` only when you need the steward's input mid-review.
 
 ---
 

@@ -57,6 +57,17 @@ type taskOut struct {
 	Source       string `json:"source"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// ADR-029 W10: denormalized lifecycle + attribution fields so the
+	// mobile _TaskTile (W8) doesn't have to N+1-lookup against agents
+	// just to render a chip. All four are LEFT-JOIN derived and may be
+	// empty when the assignee/assigner agent row is missing or the
+	// task hasn't started/completed yet.
+	StartedAt       string `json:"started_at,omitempty"`
+	CompletedAt     string `json:"completed_at,omitempty"`
+	ResultSummary   string `json:"result_summary,omitempty"`
+	AssigneeHandle  string `json:"assignee_handle,omitempty"`
+	AssigneeStatus  string `json:"assignee_status,omitempty"`
+	AssignerHandle  string `json:"assigner_handle,omitempty"`
 }
 
 // taskPriorities is the closed enum accepted on create/update. Mirrors
@@ -185,9 +196,15 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
 		       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
 		       COALESCE(ps.plan_id, ''),
-		       t.created_at, t.updated_at
+		       t.created_at, t.updated_at,
+		       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
+		       COALESCE(t.result_summary, ''),
+		       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
+		       COALESCE(ar.handle, '')
 		FROM tasks t
 		LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
+		LEFT JOIN agents ae ON ae.id = t.assignee_id
+		LEFT JOIN agents ar ON ar.id = t.created_by_id
 		WHERE t.project_id = ?`
 	args := []any{proj}
 	if status != "" {
@@ -222,7 +239,9 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		var t taskOut
 		if err := rows.Scan(&t.ID, &t.ProjectID, &t.ParentTaskID, &t.Title, &t.BodyMD,
 			&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
-			&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt,
+			&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
+			&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -238,6 +257,14 @@ type taskPatchIn struct {
 	Status     *string `json:"status,omitempty"`
 	AssigneeID *string `json:"assignee_id,omitempty"`
 	Priority   *string `json:"priority,omitempty"`
+	// ResultSummary lets the closing call (typically `tasks.complete`
+	// via MCP, or a manual mobile flip-to-done) record what the worker
+	// actually did. Stamped into the existing `tasks.result_summary`
+	// column. The W2.9 assigner notification reads this so the steward's
+	// session shows the summary inline. Empty/nil leaves the prior
+	// value alone; an explicit empty string clears it. ADR-029 D-3 +
+	// W2.8.
+	ResultSummary *string `json:"result_summary,omitempty"`
 }
 
 func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +322,11 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *in.Priority)
 		changedFields = append(changedFields, "priority")
 	}
+	if in.ResultSummary != nil {
+		sets = append(sets, "result_summary = NULLIF(?, '')")
+		args = append(args, *in.ResultSummary)
+		changedFields = append(changedFields, "result_summary")
+	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no fields to update")
 		return
@@ -324,6 +356,12 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 				"to":     *in.Status,
 				"source": source,
 			})
+		// W2.9: when the manual flip lands a terminal state, push a
+		// system message into the assigner's chat so the steward
+		// doesn't have to poll. notifyTaskAssigner gates on terminal
+		// toStatus itself; non-terminal status changes (e.g.
+		// todo→in_progress) silently no-op.
+		s.notifyTaskAssigner(r.Context(), team, id, priorStatus, *in.Status)
 	}
 	if len(changedFields) > 0 {
 		s.recordAudit(r.Context(), team, "task.update", "task", id,
@@ -386,13 +424,21 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
 		       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
 		       COALESCE(ps.plan_id, ''),
-		       t.created_at, t.updated_at
+		       t.created_at, t.updated_at,
+		       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
+		       COALESCE(t.result_summary, ''),
+		       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
+		       COALESCE(ar.handle, '')
 		FROM tasks t
 		LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
+		LEFT JOIN agents ae ON ae.id = t.assignee_id
+		LEFT JOIN agents ar ON ar.id = t.created_by_id
 		WHERE t.project_id = ? AND t.id = ?`, proj, id).Scan(
 		&t.ID, &t.ProjectID, &t.ParentTaskID, &t.Title, &t.BodyMD,
 		&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
-		&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt)
+		&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt,
+		&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
+		&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return

@@ -1566,6 +1566,120 @@ styling.
 
 ---
 
+## Scenario 31 — Tasks tab triad + task detail surfaces (ADR-029 Phase 2)
+
+**Goal:** confirm that after Phase 2 ships, the Tasks tab and Task
+Detail screen render every ADR-029 attribution field, the worker
+delivery + notification edges (W2.6–W2.9) are visible end-to-end,
+and the linked-work navigation works.
+
+**Pre-conditions:**
+
+- Build under test is post-Phase-2 (Tasks tab `_TaskTile` extends
+  to assignee chip + assigner + relative time per ADR-029 D-6).
+- Project steward is live with a worker template installed
+  (lit-reviewer.v1 / critic.v1 / coder.v1 work; their MCP allow-
+  list now includes `tasks.complete`).
+- Hub at version that includes the hub-side denormalized JOIN
+  (W10) — `tasks.list` returns `assignee_handle`,
+  `assignee_status`, `assigner_handle`, `started_at`,
+  `completed_at`, `result_summary`.
+
+**Steps:**
+
+1. **Trigger a spawn-with-inline-task via the project steward.**
+   Ask the steward something like *"Spawn lit-reviewer to survey
+   the literature on retrieval-augmented decoding; depth=shallow."*
+   The steward should call `agents.spawn` with both
+   `parent_agent_id` (itself) and inline `task: {title, body_md}`.
+2. **Open the project's Tasks tab.** Confirm a new tile appears
+   with **all four** triad pieces rendering:
+   - **Assignee chip** — `@<worker-handle>` with a green status pip
+     while the worker is `running`.
+   - **Assigner attribution** — "by @<project-steward-handle>" on a
+     muted line beneath the title.
+   - **Relative time** — "started <N>m ago" reading from
+     `started_at`.
+   - **No strikethrough** — title renders normally while
+     `status='in_progress'`.
+3. **Pull-to-refresh** the Tasks tab. The list reloads via the
+   read-through cache; the freshly-spawned task may have moved
+   tiles if status flipped in the meantime (W11).
+4. **Tap the task tile.** The Task Detail screen opens.
+5. **Verify the W9 surface elements:**
+   - **Attribution block** (under the status/priority chips):
+     assignee chip with status pip + "assigned by @<steward>" line +
+     "started <N>m ago" line, all icons-prefixed.
+   - **Linked-work pane**: "Worker session: <session-title>" with
+     an **Open** button. Tap it → the receiver's `SessionChatScreen`
+     opens, scrolled to the live tail.
+   - **Activity timeline** (bottom): rows for `task.create`
+     (source=spawn), `task.status` (todo → in_progress
+     source=spawn).
+6. **Wait for the worker to finish** and call `tasks.complete
+   summary="..."`. The hub W2.8 stamps `result_summary`; W2.9
+   fires a `task.notify` event into the steward's session.
+7. **Confirm the W2.9 notification:** in the steward's chat
+   surface, a `kind='task.notify'` event appears with the body
+   "Task **<title>** in_progress → done." plus the result summary
+   on a new line.
+8. **Re-open the task detail screen.** Confirm:
+   - Attribution block now shows "done <N>m ago" instead of
+     "started <N>m ago".
+   - Result summary panel renders below the metadata rows
+     containing the worker's `tasks.complete` summary verbatim.
+   - Activity timeline gained a `task.status` row (in_progress →
+     done) and the latest entries are reverse-chronological.
+9. **Cancel coda:** manually call `tasks.update
+   status='cancelled'` from the steward's chat on a different
+   task. In the Tasks tab, the cancelled task's title now renders
+   **strikethrough + muted**, and the relative-time line reads
+   "cancelled <N>m ago". The task detail screen's status chip row
+   shows `cancelled` selected.
+
+**Expected:**
+
+- All triad fields populate from the hub-denormalized JOIN — no
+  N+1 lookups on mobile.
+- Worker session "Open" button always lands on the correct chat
+  (matches by `assignee_id` against `sessionsProvider.active +
+  .previous`).
+- Audit timeline never empties on a transient network failure
+  (`_audit` retains its prior value if `listAuditEventsCached`
+  errors).
+- Pull-to-refresh works in both populated and empty states.
+
+**Failure modes:**
+
+- **Assignee chip missing** → hub didn't denormalize. Check
+  `handleListTasks` SELECT for the `LEFT JOIN agents ae` clause
+  and confirm `tasks.list` returns `assignee_handle` in JSON.
+- **"started <N>m ago" reads "started 0s ago" indefinitely** →
+  `started_at` isn't being stamped at spawn time. The W1 migration
+  added the column; the flip-on-spawn logic in `DoSpawn` should
+  stamp it. Inspect the row directly: `SELECT started_at FROM
+  tasks WHERE id=?`.
+- **Linked-work pane reads "no live session"** even though the
+  worker is alive → `sessionsProvider` cache is stale. The
+  provider rebuilds on `hubProvider` invalidation; force a hub
+  refresh and retry.
+- **Activity timeline empty** → either the task was created
+  pre-W4 audit (legacy data) or the client-side filter is wrong.
+  Inspect `audit_events WHERE target_kind='task' AND
+  target_id=<id>` directly.
+- **Cancelled title is not strikethrough** → mobile is reading
+  `status` from a stale tile payload. Pull-to-refresh; if still
+  wrong, the `_TaskTile` `decoration` branch isn't reading the
+  status string correctly.
+
+**Why this scenario:** it's the end-to-end exercise of ADR-029
+Phase 2. Phase 1 (W1–W7 + W2.6–W2.11) makes the data structure
+right; Phase 2 (W8–W12) makes the user surface answer "who is
+doing this, when did it start, what did they conclude" without
+leaving the Tasks tab.
+
+---
+
 ## When you're done
 
 - Tick the checkboxes in

@@ -173,17 +173,25 @@ func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, p
 // up both the templated body and the operator's customization. Empty
 // seed = no addendum.
 //
+// taskInstructions is the ADR-029 task body that the steward delegated
+// to this worker. When non-empty it lands in a `## Task` section after
+// any persona seed so the worker reads "what to do" the first time it
+// opens CLAUDE.md — without this, the body_md the steward passed into
+// `agents.spawn task: {…}` would silently die on the hub side and the
+// steward would have to follow up with `a2a.invoke` to actually deliver
+// the work. Empty string = no task section.
+//
 // Behaviour:
-//   - No `prompt:` field, no override, no seed → return unchanged.
+//   - No `prompt:` field, no override, no seed, no task → return unchanged.
 //   - Spec already declares `context_files.CLAUDE.md` → respect it (an
-//     explicit override beats the templated default). The seed is
-//     ignored in this branch — explicit override means the operator
+//     explicit override beats the templated default). The seed and task
+//     are ignored in this branch — explicit override means the operator
 //     wrote CLAUDE.md by hand and shouldn't get surprise concatenation.
 //   - Otherwise: read the prompt body (from disk overlay → embedded FS),
-//     expand vars, optionally append the seed, and emit a context_files
-//     block.
+//     expand vars, optionally append the seed, optionally append the
+//     task, and emit a context_files block.
 //   - Prompt file not found on disk overlay or embedded FS → error.
-func (s *Server) resolveContextFiles(rendered string, vars map[string]string, personaSeed string) (string, error) {
+func (s *Server) resolveContextFiles(rendered string, vars map[string]string, personaSeed, taskInstructions string) (string, error) {
 	var head struct {
 		Prompt       string            `yaml:"prompt"`
 		ContextFiles map[string]string `yaml:"context_files"`
@@ -197,7 +205,8 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 		return rendered, nil
 	}
 	hasSeed := strings.TrimSpace(personaSeed) != ""
-	if head.Prompt == "" && !hasSeed {
+	hasTask := strings.TrimSpace(taskInstructions) != ""
+	if head.Prompt == "" && !hasSeed && !hasTask {
 		return rendered, nil
 	}
 
@@ -212,6 +221,9 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 	if hasSeed {
 		body = appendPersonaSeed(body, personaSeed)
 	}
+	if hasTask {
+		body = appendTaskSection(body, taskInstructions)
+	}
 
 	extra, err := yaml.Marshal(map[string]any{
 		"context_files": map[string]string{"CLAUDE.md": body},
@@ -224,6 +236,29 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 		sep = ""
 	}
 	return rendered + sep + string(extra), nil
+}
+
+// appendTaskSection concatenates the ADR-029 task instructions onto the
+// templated CLAUDE.md under a dedicated `## Task` header. The header is
+// distinct from `## Persona override` so the worker (and a human reading
+// the materialized file) can tell "who I am" from "what to do". Called
+// by resolveContextFiles only when the spawn carries a task linkage.
+func appendTaskSection(body, instructions string) string {
+	instructions = strings.TrimSpace(instructions)
+	if instructions == "" {
+		return body
+	}
+	const header = "## Task"
+	if body == "" {
+		return header + "\n\n" + instructions + "\n"
+	}
+	sep := "\n\n"
+	if strings.HasSuffix(body, "\n\n") {
+		sep = ""
+	} else if strings.HasSuffix(body, "\n") {
+		sep = "\n"
+	}
+	return body + sep + header + "\n\n" + instructions + "\n"
 }
 
 // appendPersonaSeed concatenates the operator's seed onto the templated

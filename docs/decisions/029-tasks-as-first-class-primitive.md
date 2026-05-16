@@ -1,9 +1,9 @@
 # 029. Tasks as the first-class primitive for steward-dispatched work
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-16) — D-1 through D-7 locked in the 2026-05-16 design conversation; awaiting Phase 1 implementation
+> **Status:** Proposed (2026-05-16) — D-1 through D-8 locked in the 2026-05-16 design conversation; Phase 1 (D-1 through D-7) shipped v1.0.610-alpha; Phase 1.5 (D-8) shipped post-v1.0.610-alpha
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.609-alpha
+> **Last verified vs code:** v1.0.610-alpha
 
 **TL;DR.** Promote `tasks` from "kanban side-table the principal
 can use" to the canonical surface for any steward-dispatched
@@ -294,6 +294,95 @@ because "we'll come back to this later" is what `todo` already
 means — re-decorating it adds vocabulary without adding
 discriminator value. If a real use case surfaces (e.g. "blocked
 on external dependency, distinct from blocked-by-crash"), revisit.
+
+### D-8. Worker delivery + assigner notification are first-class edges
+
+D-1 through D-7 established the task primitive but left the
+information-flow edges underspecified: a steward could call
+`agents.spawn task: {…}`, the task row landed, and the worker
+spawned — but `body_md` never reached the worker, and when the
+worker finished the steward had no push signal. Workers learned
+about their assignment via an out-of-band `a2a.invoke`, and
+stewards learned about completion via polling. Both edges were
+manual conventions, not enforced by the primitive.
+
+Promote them to load-bearing properties of the task linkage:
+
+**Down (steward → worker) has two delivery channels.** A task body
+lands in the worker before its first turn:
+
+1. **Standing context in CLAUDE.md.** The rendered `## Task`
+   section under `context_files.CLAUDE.md` carries the task title
+   (as an H1) and body_md. Worker re-reads this any time it needs
+   to recall what it's been asked to do — same surface the persona
+   override uses.
+2. **First-turn trigger via InputRouter.** A
+   `producer='user' kind='input.text'` row is inserted into
+   `agent_events` immediately after the spawn commits, carrying
+   the same title + body string as the user-message payload. The
+   host-runner's `InputRouter` delivers it to the driver on the
+   next tick. The worker starts the turn without waiting for an
+   external nudge.
+
+CLAUDE.md alone is insufficient (engines treat it as system
+context, not a trigger), and the auto-input alone is insufficient
+(workers need a re-readable reference, not just a message in
+history). Both edges ship together.
+
+**Up (worker → assigner) is a single notification channel.** When
+`tasks.status` transitions to a terminal state (done / blocked /
+cancelled), the hub posts a `kind='task.notify' producer='system'`
+event into the assigner's most-recent active session. Payload
+carries `task_id`, `title`, `from`, `to`, `result_summary`, and a
+prerendered `body` string. The steward sees it inline in chat
+without polling.
+
+Triggered from both flip sites:
+- Manual updates via `handlePatchTask` (MCP `tasks.update` /
+  `tasks.complete`, mobile UI flip).
+- Auto-derive via `deriveTaskStatusFromAgent` (worker terminates,
+  crashes, or fails).
+
+Best-effort: NULL `created_by_id` (principal-direct task) and no
+live session for the assigner both silently degrade. The audit row
+remains the durable record; the notification is the push convenience.
+
+**`tasks.complete` is the worker's close-out verb.** Adds an MCP
+tool with shape `{project_id, task, summary?}` that bundles
+`status='done'` + `completed_at` + `result_summary` in one call.
+The MCP description steers workers here (rather than generic
+`tasks.update`) for the close-out path; `tasks.update` remains the
+verb for blocked / cancelled / re-opens / mid-flight edits.
+`result_summary` lands in the schema column added by W1 (which had
+been provisioned but never written until this decision).
+
+**Why a system event, not an A2A back-channel.** A2A requires the
+assigner to expose an A2A card and the hub to resolve it, plus a
+sender identity. For hub-driven notifications (auto-derive on
+agent terminate) there's no natural sender — the worker is dead,
+the hub itself has no agent_id. A system-attributed
+`producer='system'` event renders cleanly in the existing chat
+surface (same treatment as `system.mode_changed`) and doesn't
+require sender plumbing. A2A stays available for ad-hoc
+mid-conversation traffic in either direction.
+
+**Why not also auto-fire on `task.create` or `in_progress` flips.**
+Considered. Rejected because the steward already knows it just
+created the task (it's the caller) or that work has started (it
+just spawned the worker). The notification is for transitions the
+assigner cannot infer from its own actions.
+
+**Notification primitive generalises beyond tasks.** The
+`producer='system' kind='<x>.notify'` pattern introduced by W2.9
+is now the canonical "push to a specific agent's session" channel
+on the hub. A 2026-05-16 audit
+([discussions/auto-notification-coverage.md](../discussions/auto-notification-coverage.md))
+enumerated the other lifecycle events that should ride the same
+primitive; W2.10 (`run.notify` on terminal run transitions) and
+W2.11 (`a2a.received` on peer message delivery) ship the next two
+incrementally. Remaining gaps (host health, project phase
+transitions, ad-hoc agent terminate, document/artifact publish)
+are scheduled out of that discussion, not this ADR.
 
 ## Alternatives considered
 

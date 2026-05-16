@@ -294,6 +294,11 @@ func (s *Server) handleCompleteRun(w http.ResponseWriter, r *http.Request) {
 	}
 	s.recordAudit(r.Context(), team, "run.complete", "run", runID,
 		"run "+in.Status, map[string]any{"status": in.Status})
+	// W2.10: push a system event into the owning agent's session so a
+	// worker that async-waited on the sweep gets the terminal signal
+	// without polling. Best-effort; standalone runs (no agent_id) and
+	// dead workers silently degrade.
+	s.notifyRunOwner(r.Context(), team, runID, in.Status)
 	w.WriteHeader(http.StatusNoContent)
 }
 

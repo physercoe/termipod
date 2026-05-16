@@ -1,9 +1,9 @@
 # Tasks as the first-class primitive for steward-dispatched work
 
 > **Type:** discussion
-> **Status:** Open (2026-05-16) — opened from the conversation that started "Tasks tab is empty when project steward spawns a worker". Resolves once ADR-029 is Accepted and `plans/tasks-first-class-rollout.md` Phase 1 ships.
+> **Status:** Open (2026-05-16) — opened from the conversation that started "Tasks tab is empty when project steward spawns a worker". D-1 through D-7 ratified in ADR-029 Phase 1 (v1.0.610-alpha). D-8 added post-implementation when the principal asked "the worker doesn't receive the task body — what's the actual info-flow?". Resolves once mobile Phase 2 ships and the rendered notification lands.
 > **Audience:** principal · contributors · reviewers
-> **Last verified vs code:** v1.0.609-alpha
+> **Last verified vs code:** v1.0.610-alpha
 
 **TL;DR.** When the project steward spawns a worker today, the
 worker shows in the Agents tab but the Tasks tab stays empty —
@@ -266,6 +266,63 @@ Tap → task detail with linked spawn (agent feed) + linked
 session (chat) + audit timeline. Tasks tab becomes the
 operational dashboard rather than a checklist.
 
+### 6.5 Information-flow edges (added post-Phase-1, 2026-05-16)
+
+Once Phase 1 shipped the schema + audit + auto-derive, the principal
+asked: *"the steward spawns a worker for a task and the worker doesn't
+receive anything — what's the actual flow?"* Tracing it revealed the
+ADR locked the **state** of a task but left the **edges** (how the
+task content reaches the worker, how completion reaches the steward)
+underspecified. Both edges existed only as conventions on top of
+`a2a.invoke`, not as guaranteed properties of the linkage.
+
+**The down-edge (steward → worker) has two channels, not one.**
+Engines like claude-code distinguish:
+- *Standing context* — files read at startup as system-prompt-like
+  references (CLAUDE.md). The worker can re-read these any time.
+- *Turn-1 input* — a user message that triggers the first turn.
+  Without one, the worker boots, reads CLAUDE.md, and **waits**.
+
+Putting `body_md` only in CLAUDE.md gives the worker context but no
+trigger; putting it only in a posted input gives a trigger but no
+re-readable reference. Both channels ship together: a `## Task`
+section in CLAUDE.md (standing) + a `producer='user' kind='input.text'`
+event injected right after the spawn commits (trigger).
+
+**The up-edge (worker → steward) is a system event, not A2A.**
+Considered three shapes:
+
+1. **Worker calls `a2a.invoke @parent.steward` manually** — current
+   convention. Easy to forget; not enforced. Workers without
+   discoverable assigner cards (rare but possible) can't deliver.
+2. **Hub auto-fires A2A** to the assigner's card. Cleaner
+   architecturally but requires a sender identity. Auto-derive on
+   agent terminate has no sender (worker is dead, hub has no
+   agent_id); A2A would need a synthetic system-actor.
+3. **Hub injects a `producer='system'` event** into the assigner's
+   session, same wire shape as `system.mode_changed` and the
+   `agents.fanout` first-input. No card lookup, no synthetic sender,
+   renders inline in the existing chat surface.
+
+Option 3 was the choice. A2A remains the path for ad-hoc
+mid-conversation back-channel; the lifecycle edge is system-driven.
+
+**The worker close-out verb.** `tasks.update` already covered the
+mechanics — but a worker calling it as a close-out has to remember
+to set `status='done'` AND `result_summary='...'` together. Adding
+`tasks.complete` is sugar: one verb, one purpose, with a description
+that steers workers to it. `tasks.update` stays for everything else
+(partial edits, blocked / cancelled, re-opens).
+
+**Why not also auto-fire on `task.create` or `in_progress`.** The
+assigner just created the task or just spawned the worker — they
+know. The notification edge is for transitions the assigner cannot
+infer from its own actions: terminal flips.
+
+These are D-8 in the ADR; the wedges are W2.6 (CLAUDE.md), W2.7
+(first input), W2.8 (`tasks.complete` + `result_summary`), W2.9
+(`task.notify` event).
+
 ---
 
 ## 7. Resolved decisions — summary
@@ -304,6 +361,15 @@ Accepted. Bullets here pre-mirror the ADR-029 D-N's.
   `cancelled` terminal status (auto-derive never produces it).
   Schema needs no migration (the status column has no CHECK
   constraint); the addition is docs/glossary/mobile rendering.
+- **D-8.** Information-flow edges are first-class. **Down**: task
+  body lands in CLAUDE.md (`## Task`) as standing context AND in a
+  `producer='user'` event as the first-turn trigger. **Up**:
+  terminal status flips post a `kind='task.notify' producer='system'`
+  event into the assigner's active session — no polling required.
+  Worker close-out is `tasks.complete summary='...'` (sugar over
+  `tasks.update`), populating the previously-unwritten
+  `result_summary` column. Added post-Phase-1 after the
+  worker-doesn't-receive-anything gap surfaced; wedges W2.6–W2.9.
 
 ---
 

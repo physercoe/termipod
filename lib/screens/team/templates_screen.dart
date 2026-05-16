@@ -37,6 +37,18 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
   String? _error;
   bool _loading = true;
 
+  // Search + collapse state lives on the parent so a single AppBar
+  // search field covers both tabs and so collapse persists across
+  // tab swaps (going to Engines and back doesn't blow away which
+  // Templates categories the user has expanded).
+  bool _searching = false;
+  String _query = '';
+  late final TextEditingController _searchCtl;
+  // Categories the user has explicitly collapsed. Default = empty
+  // (everything expanded on first open). Persists in-memory for the
+  // life of the screen; resetting requires re-opening the Library.
+  final Set<String> _collapsed = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -46,13 +58,25 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
       // Rebuild AppBar so the action buttons swap to the active tab.
       setState(() {});
     });
+    _searchCtl = TextEditingController();
     _load();
   }
 
   @override
   void dispose() {
     _tabs.dispose();
+    _searchCtl.dispose();
     super.dispose();
+  }
+
+  void _toggleSearch() {
+    setState(() {
+      _searching = !_searching;
+      if (!_searching) {
+        _searchCtl.clear();
+        _query = '';
+      }
+    });
   }
 
   Future<void> _load() async {
@@ -98,12 +122,28 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     final onTemplates = _tabs.index == 0;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Library',
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 18, fontWeight: FontWeight.w700),
-        ),
+        title: _searching
+            ? TextField(
+                controller: _searchCtl,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search templates and engines',
+                  border: InputBorder.none,
+                ),
+                style: GoogleFonts.spaceGrotesk(fontSize: 16),
+                onChanged: (v) => setState(() => _query = v),
+              )
+            : Text(
+                'Library',
+                style: GoogleFonts.spaceGrotesk(
+                    fontSize: 18, fontWeight: FontWeight.w700),
+              ),
         actions: [
+          IconButton(
+            tooltip: _searching ? 'Close search' : 'Search',
+            icon: Icon(_searching ? Icons.close : Icons.search),
+            onPressed: _toggleSearch,
+          ),
           IconButton(
             tooltip: onTemplates ? 'New template' : 'New family',
             icon: const Icon(Icons.add),
@@ -130,7 +170,7 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
         controller: _tabs,
         children: [
           _body(),
-          AgentFamiliesTab(key: _familiesKey),
+          AgentFamiliesTab(key: _familiesKey, query: _query),
         ],
       ),
     );
@@ -171,42 +211,130 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
         ),
       );
     }
-    final rows = _rows ?? const <Map<String, dynamic>>[];
-    if (rows.isEmpty) {
+    final allRows = _rows ?? const <Map<String, dynamic>>[];
+    if (allRows.isEmpty) {
       return Center(
         child: Text('No templates seeded yet.',
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted)),
       );
     }
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? allRows
+        : allRows.where((row) {
+            final name = (row['name'] ?? '').toString().toLowerCase();
+            final cat = (row['category'] ?? '').toString().toLowerCase();
+            return name.contains(q) || cat.contains(q);
+          }).toList(growable: false);
+    if (filtered.isEmpty) {
+      return Center(
+        child: Text(
+          'No matches for "$_query".',
+          style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
+        ),
+      );
+    }
     final grouped = <String, List<Map<String, dynamic>>>{};
-    for (final row in rows) {
+    for (final row in filtered) {
       final cat = (row['category'] ?? '').toString();
       grouped.putIfAbsent(cat, () => []).add(row);
     }
+    final searching = q.isNotEmpty;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
         children: [
-          for (final entry in grouped.entries) ...[
-            Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(16, 12, 16, 6),
-              child: Text(
-                entry.key,
-                style: GoogleFonts.spaceGrotesk(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: muted,
-                  letterSpacing: 0.6,
-                ),
-              ),
+          for (final entry in grouped.entries)
+            _CategoryGroup(
+              category: entry.key,
+              rows: entry.value,
+              // During an active search, force every matching section
+              // open so the user sees the hits without manual taps.
+              expanded: searching || !_collapsed.contains(entry.key),
+              onToggle: searching
+                  ? null
+                  : () => setState(() {
+                        if (_collapsed.contains(entry.key)) {
+                          _collapsed.remove(entry.key);
+                        } else {
+                          _collapsed.add(entry.key);
+                        }
+                      }),
+              onChanged: _load,
             ),
-            for (final row in entry.value)
-              _TemplateTile(row: row, onChanged: _load),
-          ],
         ],
       ),
+    );
+  }
+}
+
+/// One collapsible category in the Library Templates tab. Hosts a
+/// tappable header row (category name + tile count + expand chevron)
+/// and the inline list of `_TemplateTile` entries when expanded. The
+/// expand state is driven by the parent — search forces all sections
+/// open regardless of the user's prior collapse, which is why this
+/// widget is dumb / stateless about expansion.
+class _CategoryGroup extends StatelessWidget {
+  final String category;
+  final List<Map<String, dynamic>> rows;
+  final bool expanded;
+  final VoidCallback? onToggle;
+  final VoidCallback onChanged;
+
+  const _CategoryGroup({
+    required this.category,
+    required this.rows,
+    required this.expanded,
+    required this.onChanged,
+    this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final muted =
+        isDark ? DesignColors.textMuted : DesignColors.textMutedLight;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: onToggle,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Row(
+              children: [
+                Icon(
+                  expanded ? Icons.expand_more : Icons.chevron_right,
+                  size: 18,
+                  color: muted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  category,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: muted,
+                    letterSpacing: 0.6,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${rows.length}',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11,
+                    color: muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (expanded)
+          for (final row in rows)
+            _TemplateTile(row: row, onChanged: onChanged),
+      ],
     );
   }
 }

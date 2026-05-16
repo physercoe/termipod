@@ -18,7 +18,12 @@ import '../../theme/design_colors.dart';
 /// host-runner probe (≈30s) publishes the change to capabilities — no
 /// host-runner restart.
 class AgentFamiliesTab extends ConsumerStatefulWidget {
-  const AgentFamiliesTab({super.key});
+  /// Optional substring filter (case-insensitive) applied to `family`,
+  /// `bin`, and the joined `supports` list. Empty / null = show all.
+  /// Threaded from the parent Library AppBar's search field so one
+  /// search affordance covers both tabs.
+  final String query;
+  const AgentFamiliesTab({super.key, this.query = ''});
 
   @override
   ConsumerState<AgentFamiliesTab> createState() => AgentFamiliesTabState();
@@ -124,11 +129,33 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
         ),
       );
     }
-    final rows = _rows ?? const <Map<String, dynamic>>[];
-    if (rows.isEmpty) {
+    final allRows = _rows ?? const <Map<String, dynamic>>[];
+    if (allRows.isEmpty) {
       return Center(
         child: Text('No families registered.',
             style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted)),
+      );
+    }
+    final q = widget.query.trim().toLowerCase();
+    final rows = q.isEmpty
+        ? allRows
+        : allRows.where((r) {
+            final family = (r['family'] ?? '').toString().toLowerCase();
+            final bin = (r['bin'] ?? '').toString().toLowerCase();
+            final supports = (r['supports'] as List?)
+                    ?.map((e) => e.toString().toLowerCase())
+                    .join(' ') ??
+                '';
+            return family.contains(q) ||
+                bin.contains(q) ||
+                supports.contains(q);
+          }).toList(growable: false);
+    if (rows.isEmpty) {
+      return Center(
+        child: Text(
+          'No matches for "${widget.query}".',
+          style: GoogleFonts.spaceGrotesk(fontSize: 13, color: muted),
+        ),
       );
     }
     return RefreshIndicator(
@@ -136,13 +163,14 @@ class AgentFamiliesTabState extends ConsumerState<AgentFamiliesTab>
       child: ListView(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-            child: Text(
-              'Embedded defaults are read-only. Add a custom family or override an embedded one to change capability probing.',
-              style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
+          if (q.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Text(
+                'Embedded defaults are read-only. Add a custom family or override an embedded one to change capability probing.',
+                style: GoogleFonts.spaceGrotesk(fontSize: 12, color: muted),
+              ),
             ),
-          ),
           for (final row in rows) _FamilyTile(row: row, onChanged: load),
         ],
       ),

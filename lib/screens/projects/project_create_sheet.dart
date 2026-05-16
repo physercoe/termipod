@@ -30,11 +30,17 @@ class ProjectCreateSheet extends ConsumerStatefulWidget {
   /// sheet falls back to the raw id if absent.
   final String? parentProjectName;
 
+  /// When true, the new row is created with `is_template=1` so it shows up
+  /// as a reusable project template (the picker source for `template_id` /
+  /// `on_create_template_id`). Sub-projects can't be templates.
+  final bool isTemplate;
+
   const ProjectCreateSheet({
     super.key,
     this.initialKind = 'goal',
     this.parentProjectId,
     this.parentProjectName,
+    this.isTemplate = false,
   });
 
   @override
@@ -86,6 +92,11 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
         onCreateTemplateId: _onCreateTemplateId,
         parameters: _parameters,
         parentProjectId: widget.parentProjectId,
+        // Templates can't nest under a parent project — the field is meant
+        // for top-level creates and the server would reject the combo.
+        isTemplate: widget.isTemplate && widget.parentProjectId == null
+            ? true
+            : null,
         docsRoot: _docsRoot.text.trim().isEmpty ? null : _docsRoot.text.trim(),
         configYaml:
             _configYaml.text.trim().isEmpty ? null : _configYaml.text.trim(),
@@ -251,8 +262,11 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
               ],
               const SizedBox(height: 20),
               _TemplateField(
-                label: 'Steward template',
-                hint: 'Recipe that drives this project',
+                label: 'Project template',
+                // Both fields point at the same picker source (project rows
+                // with is_template=1). Different copy here distinguishes
+                // the *timing* — ongoing recipe vs. one-shot at create.
+                hint: 'Recipe the steward follows over the project lifetime',
                 value: _templateId,
                 onTap: () => _pickTemplate(forOnCreate: false),
                 onClear: _templateId == null
@@ -263,22 +277,6 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                             _parametersSourceId = null;
                           }
                           _templateId = null;
-                        }),
-              ),
-              const SizedBox(height: 12),
-              _TemplateField(
-                label: 'On-create template',
-                hint: 'Fires once when the project is created',
-                value: _onCreateTemplateId,
-                onTap: () => _pickTemplate(forOnCreate: true),
-                onClear: _onCreateTemplateId == null
-                    ? null
-                    : () => setState(() {
-                          if (_parametersSourceId == _onCreateTemplateId) {
-                            _parameters = null;
-                            _parametersSourceId = null;
-                          }
-                          _onCreateTemplateId = null;
                         }),
               ),
               if (_parameters != null) ...[
@@ -301,6 +299,22 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
                 ),
                 children: [
                   const SizedBox(height: 4),
+                  _TemplateField(
+                    label: 'On-create template',
+                    hint: 'Optional — fires once when the project is created',
+                    value: _onCreateTemplateId,
+                    onTap: () => _pickTemplate(forOnCreate: true),
+                    onClear: _onCreateTemplateId == null
+                        ? null
+                        : () => setState(() {
+                              if (_parametersSourceId == _onCreateTemplateId) {
+                                _parameters = null;
+                                _parametersSourceId = null;
+                              }
+                              _onCreateTemplateId = null;
+                            }),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _docsRoot,
                     decoration: const InputDecoration(
@@ -360,6 +374,11 @@ class _ProjectCreateSheetState extends ConsumerState<ProjectCreateSheet> {
   /// item. Copy tracks the child's kind so a Workspace child reads as
   /// "New sub-Workspace", not "New sub-project" (W1 rename respected).
   String _subProjectTitle(AppLocalizations l10n) {
+    if (widget.isTemplate) {
+      return _kind == 'standing'
+          ? 'New workspace template'
+          : 'New project template';
+    }
     if (widget.parentProjectId == null) {
       return _kind == 'standing' ? l10n.newWorkspace : l10n.newProject;
     }

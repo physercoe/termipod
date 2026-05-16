@@ -545,7 +545,14 @@ class _ProjectsTab extends ConsumerWidget {
                 : 'No projects match the current filter.',
           )
         : RefreshIndicator(
-            onRefresh: () => ref.read(hubProvider.notifier).refreshAll(),
+            onRefresh: () async {
+              await ref.read(hubProvider.notifier).refreshAll();
+              // Phase/progress on each row reads from
+              // insightsProvider(InsightsScope.team(teamId)) — a separate
+              // FutureProvider that refreshAll doesn't touch. Invalidate
+              // the family so the next watch refetches /v1/insights.
+              ref.invalidate(insightsProvider);
+            },
             child: CustomScrollView(
               slivers: [
                 if (goalRows.isNotEmpty) ...[

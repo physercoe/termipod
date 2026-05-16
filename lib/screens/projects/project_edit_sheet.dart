@@ -201,7 +201,7 @@ class _ProjectEditSheetState extends ConsumerState<ProjectEditSheet> {
               maxLines: 4,
             ),
             _field(
-              label: 'Steward template',
+              label: 'Project template',
               controller: _template,
               hint: 'e.g. agents/steward.v1.yaml',
               mono: true,

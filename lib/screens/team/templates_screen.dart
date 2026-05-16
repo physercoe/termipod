@@ -6,8 +6,23 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../projects/project_create_sheet.dart';
 import 'agent_families_screen.dart';
 import 'template_icon.dart';
+
+/// Canonical category order across the Library Templates tab and the
+/// New-template sheet. Mental flow: who runs it (agents) → what it says
+/// (prompts) → how the project unfolds (plans) → which project shape
+/// (projects) → guardrails (policies). Server may return categories in
+/// any order; this list pins ordering for both the section list and the
+/// category chip strip.
+const _kTemplateCategoryOrder = <String>[
+  'agents',
+  'prompts',
+  'plans',
+  'projects',
+  'policies',
+];
 
 /// Browser + editor for team templates (agents / prompts / policies)
 /// plus the agent-family registry. Hub seeds templates on first init
@@ -106,6 +121,18 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
       builder: (_) => const _NewTemplateSheet(),
     );
     if (created == null || !mounted) return;
+    // Project templates live in the projects table (DB row, is_template=1),
+    // not on the filesystem like the other categories — route to the
+    // project create sheet with isTemplate:true rather than the YAML editor.
+    if (created.category == 'projects') {
+      await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => const ProjectCreateSheet(isTemplate: true),
+      );
+      await _load();
+      return;
+    }
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => TemplateEditorScreen(
         category: created.category,
@@ -239,26 +266,38 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
       final cat = (row['category'] ?? '').toString();
       grouped.putIfAbsent(cat, () => []).add(row);
     }
+    // Sort sections by the canonical order. Unknown categories sink to
+    // the bottom in alpha order so a future server-added kind still
+    // surfaces without a mobile bump.
+    int sectionRank(String cat) {
+      final i = _kTemplateCategoryOrder.indexOf(cat);
+      return i < 0 ? _kTemplateCategoryOrder.length : i;
+    }
+    final orderedKeys = grouped.keys.toList()
+      ..sort((a, b) {
+        final r = sectionRank(a).compareTo(sectionRank(b));
+        return r != 0 ? r : a.compareTo(b);
+      });
     final searching = q.isNotEmpty;
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
         children: [
-          for (final entry in grouped.entries)
+          for (final key in orderedKeys)
             _CategoryGroup(
-              category: entry.key,
-              rows: entry.value,
+              category: key,
+              rows: grouped[key]!,
               // During an active search, force every matching section
               // open so the user sees the hits without manual taps.
-              expanded: searching || !_collapsed.contains(entry.key),
+              expanded: searching || !_collapsed.contains(key),
               onToggle: searching
                   ? null
                   : () => setState(() {
-                        if (_collapsed.contains(entry.key)) {
-                          _collapsed.remove(entry.key);
+                        if (_collapsed.contains(key)) {
+                          _collapsed.remove(key);
                         } else {
-                          _collapsed.add(entry.key);
+                          _collapsed.add(key);
                         }
                       }),
               onChanged: _load,
@@ -731,18 +770,31 @@ class _NewTemplateRequest {
   _NewTemplateRequest(this.category, this.name, this.body);
 }
 
-class _NewTemplateSheet extends StatefulWidget {
+class _NewTemplateSheet extends ConsumerStatefulWidget {
   const _NewTemplateSheet();
 
   @override
-  State<_NewTemplateSheet> createState() => _NewTemplateSheetState();
+  ConsumerState<_NewTemplateSheet> createState() => _NewTemplateSheetState();
 }
 
-class _NewTemplateSheetState extends State<_NewTemplateSheet> {
-  static const _categories = ['agents', 'prompts', 'policies'];
+class _NewTemplateSheetState extends ConsumerState<_NewTemplateSheet> {
+  // Filesystem categories — order matches the canonical Library order so
+  // the chip strip and the section list visually agree. 'projects' is
+  // appended last because it's a special-cased route (DB row, not a
+  // filesystem write).
+  static const _fsCategories = ['agents', 'prompts', 'plans', 'policies'];
+  static const _categories = [..._fsCategories, 'projects'];
+
   String _category = 'agents';
   final _name = TextEditingController();
   String? _err;
+
+  // Clone source: when non-null, the new template's body is seeded from
+  // an existing template rather than the built-in starter. Cleared on
+  // category change so a "clone agent" pick doesn't leak into a "blank
+  // policy" intent.
+  String? _cloneSourceName;
+  String? _cloneSourceBody;
 
   @override
   void dispose() {
@@ -790,6 +842,15 @@ prompt: $id.v1.md
 You are an agent for {{principal.handle}}'s team. Describe your role,
 constraints, and the journal contract here.
 ''';
+      case 'plans':
+        return '''# Custom plan template. See docs/hub-plans.md for shape.
+template: plans.$id
+version: 1
+phases:
+  - id: p1
+    name: "Phase 1"
+    steps: []
+''';
       case 'policies':
         return '''# Custom policy. See docs/hub-policies.md for shape.
 version: 1
@@ -801,7 +862,72 @@ deny: []
     return '';
   }
 
+  /// Open a picker showing existing templates of the current category;
+  /// on pick, fetch the body via getTemplate and stash it as the clone
+  /// source. The submit path uses `_cloneSourceBody` over `_starterBody()`
+  /// when set so users can fork an existing template instead of editing
+  /// the built-in starter scaffold.
+  Future<void> _pickCloneSource() async {
+    if (_category == 'projects') return; // routed elsewhere
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    final rows = await client.listTemplates();
+    final inCat = rows
+        .where((r) => (r['category'] ?? '').toString() == _category)
+        .toList();
+    if (!mounted) return;
+    if (inCat.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('No existing $_category templates to clone from.'),
+      ));
+      return;
+    }
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _ClonePickerSheet(
+        category: _category,
+        rows: inCat,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    try {
+      final body = await client.getTemplate(_category, picked);
+      if (!mounted) return;
+      setState(() {
+        _cloneSourceName = picked;
+        _cloneSourceBody = body;
+        // Suggest a sensible default name = "<source>-copy" so the user
+        // isn't tempted to overwrite the bundled template (PUT to the
+        // same name would shadow the embedded one).
+        if (_name.text.trim().isEmpty) {
+          final stem = picked.replaceAll(RegExp(r'\.[^.]+$'), '');
+          _name.text = '$stem-copy';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Clone failed: $e'),
+      ));
+    }
+  }
+
+  void _clearClone() {
+    setState(() {
+      _cloneSourceName = null;
+      _cloneSourceBody = null;
+    });
+  }
+
   void _submit() {
+    // Project templates skip name/body collection here — the project
+    // create sheet owns those fields. Return a sentinel so the parent
+    // can dispatch the routing.
+    if (_category == 'projects') {
+      Navigator.of(context).pop(_NewTemplateRequest('projects', '', ''));
+      return;
+    }
     var name = _name.text.trim();
     if (name.isEmpty) {
       setState(() => _err = 'Name required.');
@@ -814,9 +940,8 @@ deny: []
       return;
     }
     if (!name.contains('.')) name = '$name${_suggestedExt()}';
-    Navigator.of(context).pop(
-      _NewTemplateRequest(_category, name, _starterBody()),
-    );
+    final body = _cloneSourceBody ?? _starterBody();
+    Navigator.of(context).pop(_NewTemplateRequest(_category, name, body));
   }
 
   @override
@@ -850,31 +975,154 @@ deny: []
                 ChoiceChip(
                   label: Text(c),
                   selected: _category == c,
-                  onSelected: (_) => setState(() => _category = c),
+                  onSelected: (_) => setState(() {
+                    _category = c;
+                    _clearClone();
+                  }),
                 ),
             ],
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _name,
-            inputFormatters: [
-              FilteringTextInputFormatter.deny(RegExp(r'[/\\]')),
-            ],
-            autofocus: true,
-            style: GoogleFonts.jetBrainsMono(fontSize: 13),
-            decoration: InputDecoration(
-              labelText: 'Name',
-              border: const OutlineInputBorder(),
-              isDense: true,
-              hintText: 'my-agent.v1${_suggestedExt()}',
-              errorText: _err,
+          if (_category == 'projects') ...[
+            // Project templates are DB rows, not files — the parent
+            // routes us to the project create sheet so name/goal/etc are
+            // collected there. Help text explains why this category
+            // skips the inline name field.
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: DesignColors.surfaceDark,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: DesignColors.borderDark),
+              ),
+              child: Text(
+                'Project templates live in the projects table. Continue '
+                'to the project create sheet to fill in name, goal, and '
+                'phase shape — it will be saved with is_template=1.',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 12,
+                  color: DesignColors.textMuted,
+                ),
+              ),
             ),
-            onSubmitted: (_) => _submit(),
-          ),
+          ] else ...[
+            // Clone affordance — surfaces above the name field so users
+            // see "fork an existing one" before they start typing a name
+            // and committing to the default scaffold.
+            if (_cloneSourceName == null)
+              OutlinedButton.icon(
+                onPressed: _pickCloneSource,
+                icon: const Icon(Icons.copy_outlined, size: 16),
+                label: Text('Clone from existing $_category template'),
+              )
+            else
+              Row(
+                children: [
+                  const Icon(Icons.content_copy, size: 14,
+                      color: DesignColors.textMuted),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cloning from $_cloneSourceName',
+                      style: GoogleFonts.jetBrainsMono(
+                          fontSize: 12, color: DesignColors.textMuted),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _clearClone,
+                    icon: const Icon(Icons.close, size: 14),
+                    label: const Text('Clear'),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _name,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[/\\]')),
+              ],
+              autofocus: true,
+              style: GoogleFonts.jetBrainsMono(fontSize: 13),
+              decoration: InputDecoration(
+                labelText: 'Name',
+                border: const OutlineInputBorder(),
+                isDense: true,
+                hintText: 'my-agent.v1${_suggestedExt()}',
+                errorText: _err,
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _submit,
-            child: const Text('Create + open editor'),
+            child: Text(_category == 'projects'
+                ? 'Continue'
+                : 'Create + open editor'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small picker bottom-sheet listing existing templates of a single
+/// category. Pops the chosen template's name (e.g. `coder.v1.yaml`) so
+/// the caller can fetch and clone the body.
+class _ClonePickerSheet extends StatelessWidget {
+  final String category;
+  final List<Map<String, dynamic>> rows;
+  const _ClonePickerSheet({required this.category, required this.rows});
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.55,
+      minChildSize: 0.3,
+      maxChildSize: 0.9,
+      builder: (_, controller) => Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Clone $category template',
+                    style: GoogleFonts.spaceGrotesk(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              controller: controller,
+              itemCount: rows.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final r = rows[i];
+                final name = (r['name'] ?? '').toString();
+                return ListTile(
+                  leading: TemplateIcon(category: category, name: name),
+                  title: Text(
+                    name,
+                    style: GoogleFonts.jetBrainsMono(fontSize: 13),
+                  ),
+                  onTap: () => Navigator.of(context).pop(name),
+                );
+              },
+            ),
           ),
         ],
       ),

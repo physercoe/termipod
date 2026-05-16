@@ -1440,7 +1440,7 @@ class _OverviewView extends ConsumerWidget {
       if ((project['goal'] ?? '').toString().isNotEmpty)
         MapEntry('Goal', (project['goal'] ?? '').toString()),
       if ((project['template_id'] ?? '').toString().isNotEmpty)
-        MapEntry('Steward template', (project['template_id'] ?? '').toString()),
+        MapEntry('Project template', (project['template_id'] ?? '').toString()),
       if ((project['on_create_template_id'] ?? '').toString().isNotEmpty)
         MapEntry('On-create template',
             (project['on_create_template_id'] ?? '').toString()),

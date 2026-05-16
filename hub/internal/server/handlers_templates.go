@@ -35,6 +35,12 @@ type templateOut struct {
 	Path     string `json:"path"`     // relative to team/templates
 	Size     int64  `json:"size"`
 	ModTime  string `json:"mod_time"`
+	// ApplicableTemplateIDs surfaces the template's `applicable_to.template_ids`
+	// list so the mobile project pickers can filter without round-tripping
+	// per file. Empty / absent = team-shared (visible everywhere — the
+	// back-compat default). Populated = scoped to projects whose
+	// `template_id` matches one of these ids.
+	ApplicableTemplateIDs []string `json:"applicable_template_ids,omitempty"`
 }
 
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
@@ -70,12 +76,18 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
+			// Parse `applicable_to.template_ids` once per template so the
+			// listing carries enough metadata for client-side filtering.
+			// Failure is silent: malformed YAML falls through with an
+			// empty list = team-shared (the safe default).
+			applicable := readApplicableTemplateIDs(filepath.Join(dir, e.Name()))
 			out = append(out, templateOut{
-				Category: cat,
-				Name:     e.Name(),
-				Path:     filepath.Join(cat, e.Name()),
-				Size:     info.Size(),
-				ModTime:  info.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+				Category:              cat,
+				Name:                  e.Name(),
+				Path:                  filepath.Join(cat, e.Name()),
+				Size:                  info.Size(),
+				ModTime:               info.ModTime().UTC().Format("2006-01-02T15:04:05Z07:00"),
+				ApplicableTemplateIDs: applicable,
 			})
 		}
 	}
@@ -520,4 +532,38 @@ func (s *Server) checkTemplateSelfModification(r *http.Request, cat, name string
 		return "self-modification guard (ADR-016 D7): agent kind=" + kind + " cannot edit its own template " + cat + "/" + name
 	}
 	return ""
+}
+
+// readApplicableTemplateIDs reads a template file and returns its
+// `applicable_to.template_ids` list. Empty / absent / malformed all
+// fall through to an empty slice — the safe default. Cheap full-YAML
+// parse because template files are tiny (~1 KB each) and the listing
+// is bounded by the template count (~tens, not thousands).
+func readApplicableTemplateIDs(path string) []string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		ApplicableTo struct {
+			TemplateIDs []string `yaml:"template_ids"`
+		} `yaml:"applicable_to"`
+	}
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		return nil
+	}
+	if len(doc.ApplicableTo.TemplateIDs) == 0 {
+		return nil
+	}
+	// Defensive copy + drop empty strings so the wire output is clean.
+	out := make([]string, 0, len(doc.ApplicableTo.TemplateIDs))
+	for _, id := range doc.ApplicableTo.TemplateIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

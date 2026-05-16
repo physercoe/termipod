@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
+import '../../services/template_filter.dart';
 import '../../theme/design_colors.dart';
 import '../team/template_icon.dart';
 
@@ -128,9 +129,23 @@ class _PlanCreateSheetState extends ConsumerState<PlanCreateSheet> {
     final templates = _templates ?? const [];
     // Agent-kind templates are the ones that expand into phased plans.
     // Prompts and policies aren't plan scaffolds, so filter them out.
-    final agentTemplates = templates
-        .where((t) => (t['category'] ?? '').toString() == 'agents')
-        .toList(growable: false);
+    // Then narrow by the selected project's template_id so the picker
+    // only shows agent templates relevant to that project's domain.
+    String? projectTemplateId;
+    if (_projectId != null && _projectId!.isNotEmpty) {
+      for (final p in projects) {
+        if ((p['id'] ?? '').toString() == _projectId) {
+          projectTemplateId = (p['template_id'] ?? '').toString();
+          break;
+        }
+      }
+    }
+    final agentTemplates = filterTemplatesForProject(
+      templates
+          .where((t) => (t['category'] ?? '').toString() == 'agents')
+          .toList(),
+      projectTemplateId,
+    );
 
     return ListView(
       controller: scroll,

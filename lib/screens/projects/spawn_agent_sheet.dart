@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../services/hub/spawn_preset_service.dart';
 import '../../services/steward_handle.dart';
+import '../../services/template_filter.dart';
 import '../team/template_icon.dart';
 
 /// Bottom-sheet editor for spawning an agent. Shared by the project detail
@@ -179,9 +180,27 @@ class _SpawnAgentDialogState extends ConsumerState<_SpawnAgentDialog> {
     if (client == null) return;
     try {
       _templates ??= await client.listTemplates();
-      final agentTemplates = _templates!
-          .where((t) => (t['category']?.toString() ?? '') == 'agents')
-          .toList();
+      // Resolve the project's template_id so applicable_to.template_ids
+      // can filter the picker. Falls back to "" when the spawn isn't
+      // project-scoped (legacy path) — filterTemplatesForProject then
+      // returns team-shared templates only, which is the right default.
+      final pid = widget.projectId ?? '';
+      final hub = ref.read(hubProvider).value;
+      String? projectTemplateId;
+      if (pid.isNotEmpty && hub != null) {
+        for (final p in hub.projects) {
+          if ((p['id'] ?? '').toString() == pid) {
+            projectTemplateId = (p['template_id'] ?? '').toString();
+            break;
+          }
+        }
+      }
+      final agentTemplates = filterTemplatesForProject(
+        _templates!
+            .where((t) => (t['category']?.toString() ?? '') == 'agents')
+            .toList(),
+        projectTemplateId,
+      );
       if (!mounted) return;
       if (agentTemplates.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(

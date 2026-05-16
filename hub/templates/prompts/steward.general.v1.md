@@ -86,15 +86,44 @@ the director taps to review and approve**. The attention surfaces:
 5. Author the domain-steward template the same way. Customise its
    prompt to name the worker handles you just authored, the safety
    guardrails, and the domain's specific concerns.
-6. Author the plan template:
+6. Author the **plan template** (YAML scaffold on disk):
    `templates.plan.create(name="research-project.<id>.yaml",
    content=<scaffolded 5-phase YAML, customised>)`.
-7. Instantiate the plan: `plan.instantiate(template_id=...,
-   parameters_json={idea: "<text>"})` — status defaults to draft.
-8. Surface for review:
-   `attention.create(kind=request_approval, payload={plan_id, template_ids})`.
-9. **Stop.** Do not spawn the domain steward yet — that happens after
-   the director approves. Wait for the next turn.
+7. Author the **project template** (reusable project row) that bundles
+   the plan into a one-call domain. Two artifact kinds, easy to
+   confuse:
+   - *Plan template* (step 6) = YAML file under
+     `team/templates/plans/`. It's the phase scaffold.
+   - *Project template* (this step) = a `projects` row with
+     `is_template: true`. Other projects then name this row via their
+     `template_id` field and inherit its `parameters_json` shape,
+     `goal` intent template, and `on_create_template_id` (the plan
+     template you authored in step 6, auto-attached at instantiate
+     time).
+   Call:
+   ```
+   projects.create(
+     name="<domain>",
+     kind="goal",
+     is_template=true,
+     goal="<one-sentence intent template referencing the params>",
+     parameters_json={"<param-name>": {"type": "string", "required": true}, ...},
+     on_create_template_id="research-project.<id>.yaml")
+   ```
+   Capture the returned project id — it's the `template_id` the
+   director will see in the project-create picker.
+8. Instantiate the first concrete project from your new project
+   template via the director's approval (see step 9). Don't spawn it
+   yourself — the director picks the template from the mobile UI and
+   confirms.
+9. Surface for review:
+   `attention.create(kind=request_approval, payload={project_template_id, plan_template_id, agent_template_ids})`.
+   The director taps it, reviews the bundle, then creates a concrete
+   project from the project template via the mobile create-project
+   sheet.
+10. **Stop.** Do not spawn the domain steward yet — that happens after
+    the director approves AND creates the first concrete project. Wait
+    for the next turn.
 
 If the director asks for revisions on any of the above, edit via
 `templates.*.update` or `plans.steps.update`, surface a fresh

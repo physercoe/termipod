@@ -65,9 +65,13 @@ func buildTools() []toolDef {
 			},
 		},
 		{
-			Name:        "projects.create",
-			Description: "Create a new project. Requires `name` and `kind` ('goal' or 'standing').",
-			InputSchema: schema(`{"type":"object","required":["name","kind"],"properties":{"name":{"type":"string"},"kind":{"type":"string","enum":["goal","standing"]},"goal":{"type":"string"},"docs_root":{"type":"string"},"config_yaml":{"type":"string"},"parent_project_id":{"type":"string"},"template_id":{"type":"string"}}}`),
+			Name: "projects.create",
+			Description: "Create a new project OR a reusable project template. Requires `name` and `kind` ('goal' = finite end-state / 'standing' = ongoing). " +
+				"Two distinct authoring paths: " +
+				"(1) CONCRETE project — omit `is_template`. Optionally pass `template_id` to instantiate from an existing project template (copies its `parameters_json` shape + binds `on_create_template_id` for auto-attached plans). " +
+				"(2) PROJECT TEMPLATE — pass `is_template: true`. The project becomes a row other concrete projects can name via their `template_id` field. Carry the per-domain shape in `parameters_json` (intent params), `goal` (intent statement template), `config_yaml` (phase declarations + acceptance criteria scaffolds), and `on_create_template_id` (auto-bound plan template). " +
+				"Project templates are distinct from plan templates (`templates.plan.create`) — plans are YAML scaffolds stored on disk that attach to a project's plans table; project templates are full project rows that other projects clone from. Use `templates.plan.scaffold` to author the plan; `projects.create({is_template: true, on_create_template_id: <plan-template-id>})` to bundle the project template that auto-attaches it.",
+			InputSchema: schema(`{"type":"object","required":["name","kind"],"properties":{"name":{"type":"string"},"kind":{"type":"string","enum":["goal","standing"]},"goal":{"type":"string","description":"Intent statement (for concrete) or intent template (for is_template=true)."},"docs_root":{"type":"string"},"config_yaml":{"type":"string","description":"Phase declarations + acceptance criteria scaffolds. Inspected by the project chassis for is_template=true rows."},"parent_project_id":{"type":"string","description":"Sub-project parent (max depth 2)."},"template_id":{"type":"string","description":"Source project template for instantiation. Mutually exclusive with is_template=true in practice."},"is_template":{"type":"boolean","description":"true = this row is a reusable project template; other projects name it via template_id. Default false."},"parameters_json":{"type":"object","description":"For is_template=true: the parameter shape projects-of-this-kind accept. For concrete: the bound values."},"on_create_template_id":{"type":"string","description":"Plan template id auto-attached when a concrete project is instantiated from this template."},"budget_cents":{"type":"integer"},"steward_agent_id":{"type":"string","description":"Bind a specific steward agent to this project (validated)."},"policy_overrides_json":{"type":"object"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				if _, ok := args["name"].(string); !ok {
 					return nil, fmt.Errorf("name is required")

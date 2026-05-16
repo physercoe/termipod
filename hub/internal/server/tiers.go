@@ -114,6 +114,7 @@ var toolTiers = map[string]string{
 	"tasks.get":               TierTrivial,
 	"tasks.create":            TierRoutine,
 	"tasks.update":            TierRoutine,
+	"tasks.delete":            TierRoutine,
 	"schedules.list":          TierTrivial,
 	"schedules.create":        TierSignificant, // scheduled side effects
 	"schedules.update":        TierRoutine,

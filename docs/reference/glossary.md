@@ -793,15 +793,49 @@ understands. Carries `spec_json` (kind-specific payload),
 
 ### task
 A project-scoped kanban entity. No phase column. Has a `parent_task_id`
-(subtasks), optional `milestone_id`, `assignee_id` (agent), `status`
-(`todo` / `in_progress` / `done`), and `body_md`. **Independent of
-plan** — tasks don't share rows or schemas with `plan_steps`. Tasks
-exist for human-tracked work; plan-steps exist for chassis-driven
-execution.
+(subtasks), optional `milestone_id`, `assignee_id` (agent doing the
+work), `created_by_id` (agent or NULL=principal-direct, see ADR-029
+D-2), `priority`, `body_md`, and `status` ∈
+`todo` / `in_progress` / `blocked` / `done` / `cancelled`. ADR-029:
+- `in_progress` and `done` are auto-derived from the linked
+  `agent_spawns.task_id` lifecycle — `in_progress` on spawn (flip-on-
+  spawn), `done` on agent terminated, `blocked` on crashed/failed.
+- `cancelled` is an explicit human/steward override (the work is
+  being stopped intentionally, vs `done` which means "the agent
+  terminated"). Auto-derive never enters or leaves `cancelled`.
+- `tasks.started_at` / `completed_at` are auto-stamped at the same
+  flips; `result_summary` is steward-supplied.
+
+Tasks are **independent of plan** — they don't share rows or schemas
+with `plan_steps`. Tasks exist for human-tracked work; plan-steps
+exist for chassis-driven execution.
+
 - *Distinguish from:* **plan-step** — different table, different
   purpose, different schema. They can coexist on the same project
   (e.g. plan-step "spawn critic.v1" + task "babysit the 384-d sweep").
-- *Canonical:* migration `0001_initial.up.sql` (`CREATE TABLE tasks`).
+- *Distinguish from:* **note** — a note is a device-local scratch
+  entry, never synced; a task is a hub-side primitive that drives
+  agent work and audit.
+- *Canonical:* migration `0001_initial.up.sql` (`CREATE TABLE tasks`)
+  + `0021_tasks_priority` + `0041_tasks_spawn_lifecycle`.
+
+### note
+A device-local personal scratch entry (`note` or `reminder` kind),
+backed by sqflite in `lib/services/notes/notes_db.dart`. Never synced
+to the hub in v1 — see the file header for the v2 sync story. Surfaced
+on the Me page.
+- *Distinguish from:* **task** — tasks are hub-side, project-scoped,
+  drive agents, and write audit rows; notes are private to the device.
+
+### todo
+Two distinct senses in the codebase; both are valid in their own
+scope but the lint pin requires disambiguation in prose.
+
+1. **Task status `todo`** — a `tasks.status` value meaning "created,
+   not yet executing." See [task](#task).
+2. **(deprecated) NoteKind.todo** — the on-device note kind was named
+   `todo` until v1.0.610; ADR-029 W5 renamed it to `NoteKind.reminder`
+   to free up the name. Existing on-device rows migrate automatically.
 
 ### document
 A single body of prose (markdown) attached to a project. Carries a

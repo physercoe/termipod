@@ -407,8 +407,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "agents.spawn",
-			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode, project_id (binds the agent to a project per ADR-025; the YAML `project_id:` is the canonical site, this body field is a fallback). May return 202 + attention_id if policy gates the spawn on approval. Project-bound spawns require the caller to be that project's steward (ADR-025 W9); the general steward must delegate via `request_project_steward`.",
-			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"},"project_id":{"type":"string"}}}`),
+			Description: "Spawn a child agent. Requires `child_handle`, `kind`, `spawn_spec_yaml`. Optional: host_id, parent_agent_id, worktree_path, budget_cents, mode, project_id (binds the agent to a project per ADR-025; the YAML `project_id:` is the canonical site, this body field is a fallback). May return 202 + attention_id if policy gates the spawn on approval. Project-bound spawns require the caller to be that project's steward (ADR-025 W9); the general steward must delegate via `request_project_steward`.\n\nADR-029: link the spawn to a task. Pass `task_id` to attach to an existing task (flips status to 'in_progress' and stamps started_at if not already running; 409 if task is 'done' or 'cancelled' — call tasks.update status='in_progress' first to reopen). Or pass `task` (object with title, body_md, parent_task_id, milestone_id, priority) to materialize a fresh task in the same transaction, assignee = the new agent, created_by = parent_agent_id. `task_id` and `task` are mutually exclusive (400).",
+			InputSchema: schema(`{"type":"object","required":["child_handle","kind","spawn_spec_yaml"],"properties":{"child_handle":{"type":"string"},"kind":{"type":"string"},"spawn_spec_yaml":{"type":"string"},"host_id":{"type":"string"},"parent_agent_id":{"type":"string"},"worktree_path":{"type":"string"},"budget_cents":{"type":"integer"},"mode":{"type":"string"},"project_id":{"type":"string"},"task_id":{"type":"string"},"task":{"type":"object","properties":{"title":{"type":"string"},"body_md":{"type":"string"},"parent_task_id":{"type":"string"},"milestone_id":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]}},"required":["title"]}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				for _, k := range []string{"child_handle", "kind", "spawn_spec_yaml"} {
 					if v, _ := args[k].(string); v == "" {
@@ -779,8 +779,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.update",
-			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `status`, `priority` (low|med|high|urgent), `assignee_id` may be supplied.",
-			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string"},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"}}}`),
+			Description: "Patch a task. Requires `project_id` and `task`. Any of `title`, `body_md`, `status` (todo|in_progress|blocked|done|cancelled), `priority` (low|med|high|urgent), `assignee_id` may be supplied. ADR-029: `cancelled` is the explicit override path when the work should be stopped (vs. `done` which is auto-derived from agent termination); auto-derive never enters or leaves `cancelled`.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"},"title":{"type":"string"},"body_md":{"type":"string"},"status":{"type":"string","enum":["todo","in_progress","blocked","done","cancelled"]},"priority":{"type":"string","enum":["low","med","high","urgent"]},"assignee_id":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				p, _ := args["project_id"].(string)
 				id, _ := args["task"].(string)
@@ -798,6 +798,22 @@ func buildTools() []toolDef {
 					return nil, fmt.Errorf("at least one field to update is required")
 				}
 				if err := c.do("PATCH", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, body, nil); err != nil {
+					return nil, err
+				}
+				return map[string]any{"ok": true, "project_id": p, "task": id}, nil
+			},
+		},
+		{
+			Name:        "tasks.delete",
+			Description: "Delete a task (ADR-029 D-7). Requires `project_id` and `task`. Drops the row; agent_spawns rows that linked to the task survive with task_id NULL. Distinct from `tasks.update status='cancelled'`, which keeps the task for the audit trail. Use delete for tasks created in error; use update→cancelled when the work was real but is being abandoned.",
+			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				p, _ := args["project_id"].(string)
+				id, _ := args["task"].(string)
+				if p == "" || id == "" {
+					return nil, fmt.Errorf("project_id and task are required")
+				}
+				if err := c.do("DELETE", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, nil, nil); err != nil {
 					return nil, err
 				}
 				return map[string]any{"ok": true, "project_id": p, "task": id}, nil

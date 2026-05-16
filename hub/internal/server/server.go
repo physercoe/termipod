@@ -314,6 +314,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 					r.Route("/{task}", func(r chi.Router) {
 						r.Get("/", s.handleGetTask)
 						r.Patch("/", s.handlePatchTask)
+						r.Delete("/", s.handleDeleteTask)
 					})
 				})
 				r.Route("/docs", func(r chi.Router) {

@@ -1381,6 +1381,102 @@ deferred until users could run claude 2.1.x on a real host.
 
 ---
 
+## Scenario 30 — Spawn-with-task surfaces on the Tasks tab (ADR-029)
+
+**Goal:** confirm that asking a project steward to spawn a worker
+for a task materialises a row on the Tasks tab with the assignee /
+assigner / time attribution, that the task auto-flips to `done` on
+agent terminate, that `tasks.delete` drops a row created in error,
+and that `tasks.update status='cancelled'` is sticky against the
+auto-derive.
+
+**Setup.** Land on a project's detail screen, ensure a project
+steward is alive (Scenario 7.5 covers the spawn).
+
+**Steps (happy path — inline-create + auto-derive):**
+
+1. In the project steward's chat, send:
+   `Please spawn a worker for me to "Investigate the loss spike",
+   using the @critic.v1 template. Make it a real task on the
+   Tasks tab.`
+2. The steward calls `agents.spawn` with `task: {title:
+   "Investigate the loss spike"}`. Confirm:
+   - A 201 spawn response with `agent_id` + `spawn_id`.
+   - `audit_events` table has a `task.create` row with
+     `meta.source='spawn'`.
+3. Open the project detail → **Tasks** tab. Confirm a tile reads:
+   - title: "Investigate the loss spike"
+   - status: `in_progress`
+   - assignee chip: the new worker's handle
+   - assigner attribution: the project steward's handle
+   - "started 0m ago"
+4. Send to the steward: `Terminate that worker — it's done.`
+5. Steward calls `agents.terminate` (or `agents.patch
+   status='terminated'`). Confirm on the Tasks tab the tile
+   auto-flips to `done` with "done 0m ago". `audit_events` has a
+   `task.status` row with `meta.source='spawn'`,
+   `meta.from='in_progress'`, `meta.to='done'`.
+
+**Coda 1 — `tasks.delete`:**
+
+6. Ask the steward: `Actually that wasn't a real task. Please
+   delete it.`
+7. Steward calls `tasks.delete`. Confirm:
+   - The tile disappears from the Tasks tab.
+   - `audit_events` has a `task.delete` row.
+   - The `agent_spawns` row that drove the task survives with
+     `task_id` NULL (visible via `/v1/teams/{team}/agents/spawns`).
+
+**Coda 2 — `cancelled` is sticky against auto-derive:**
+
+8. Repeat steps 1-3 with a fresh inline task ("Investigate the
+   memory regression").
+9. Before the worker terminates, send to the steward:
+   `Please cancel that task — we're not going to ship this.`
+   Steward calls `tasks.update status='cancelled'`. Confirm
+   the tile renders muted with a strikethrough title (Phase 2
+   wedge W8 once shipped; pre-Phase 2 the tile still flips
+   visually, just without the muted styling).
+10. Now terminate the worker. Confirm the task **stays
+    `cancelled`** — auto-derive must not overwrite it.
+    `audit_events` has the `task.status` row with
+    `meta.to='cancelled'`, **no follow-up `task.status` row**
+    with `meta.to='done'`.
+
+**Expected outputs:**
+
+- `audit_events.action` values land for every transition:
+  `task.create source=spawn`, `task.status source=spawn` (auto-
+  derive), `task.delete`, `task.status source=steward`
+  (cancel-override).
+- The Tasks tab tile attribution matches the agent_spawns row's
+  assignee + parent_agent_id.
+
+**Failure modes:**
+
+- **Tasks tab empty after spawn-with-task** → either
+  `agent_spawns.task_id` wasn't stamped (check the migration ran),
+  or the mobile tile isn't reading the linked task. Inspect the
+  `/v1/teams/{team}/projects/{proj}/tasks` response for the
+  freshly-created row.
+- **Status auto-flip doesn't fire on terminate** → the W3
+  `deriveTaskStatusFromAgent` helper isn't being invoked. The
+  PATCH agent handler must call it on every status flip; check
+  the handler logs.
+- **`cancelled` gets overwritten by auto-derive** → the
+  cancelled-is-sticky guard in `deriveTaskStatusFromAgent` is
+  missing or the comparison is wrong.
+
+**Why this scenario:** it's the end-to-end exercise of ADR-029
+Phase 1. The four steps cover the four gaps the ADR closed
+(spawn↔task linkage, status auto-derive, audit, cancelled
+explicit-override). Mobile rendering of the triad lands in
+Phase 2 — pre-Phase 2 the tile shows the same status flip but
+without the assignee chip / assigner line / muted-cancelled
+styling.
+
+---
+
 ## When you're done
 
 - Tick the checkboxes in

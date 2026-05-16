@@ -342,7 +342,87 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 		s.recordAudit(r.Context(), team, "agent.terminate", "agent", id,
 			"terminate "+handle, map[string]any{"handle": handle})
 	}
+	// ADR-029 D-3: auto-derive the linked task's status from the
+	// agent's terminal transition. Most-recent-spawn drives; older
+	// spawns for the same task stay in the audit chain. Skips when
+	// task.status='cancelled' (terminal override that auto-derive
+	// must never overwrite).
+	if in.Status != nil {
+		_ = s.deriveTaskStatusFromAgent(r.Context(), team, id, *in.Status)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// deriveTaskStatusFromAgent implements ADR-029 D-3 auto-derive. Called
+// from any code path that flips an agent's status; safe to call with
+// non-terminal statuses (returns nil without touching the task). Looks
+// up the agent's most-recent spawn's task_id, and:
+//
+//   - 'terminated' (any cause)  → task.status='done', completed_at=now
+//   - 'crashed' / 'failed'      → task.status='blocked'
+//   - other agent statuses      → no-op
+//
+// Cancelled tasks are skipped (terminal override). Audit row is
+// written with source='spawn' per ADR-029 D-4 W4.
+func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, agentStatus string) error {
+	var newStatus string
+	switch agentStatus {
+	case "terminated":
+		newStatus = "done"
+	case "crashed", "failed":
+		newStatus = "blocked"
+	default:
+		return nil
+	}
+	var taskID, curStatus string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(sp.task_id, ''), COALESCE(t.status, '')
+		  FROM agent_spawns sp
+		  LEFT JOIN tasks t ON t.id = sp.task_id
+		 WHERE sp.child_agent_id = ?
+		 ORDER BY sp.spawned_at DESC
+		 LIMIT 1`, agentID).Scan(&taskID, &curStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if taskID == "" {
+		return nil
+	}
+	// Cancelled is the explicit terminal override; never overwrite.
+	if curStatus == "cancelled" {
+		return nil
+	}
+	// Idempotent: don't re-stamp done over an already-done row.
+	if curStatus == newStatus {
+		return nil
+	}
+	now := NowUTC()
+	if newStatus == "done" {
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE tasks
+			   SET status = 'done', completed_at = ?, updated_at = ?
+			 WHERE id = ?`, now, now, taskID); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
+			newStatus, now, taskID); err != nil {
+			return err
+		}
+	}
+	s.recordAudit(ctx, team, "task.status", "task", taskID,
+		"auto-derive: "+curStatus+" → "+newStatus,
+		map[string]any{
+			"from":   curStatus,
+			"to":     newStatus,
+			"source": "spawn",
+			"agent":  agentID,
+		})
+	return nil
 }
 
 // handleArchiveAgent soft-deletes a terminated/failed/crashed agent so
@@ -400,7 +480,26 @@ type spawnIn struct {
 	ProjectID    string          `json:"project_id,omitempty"`
 	SpawnSpec    string          `json:"spawn_spec_yaml"`
 	Authority    json.RawMessage `json:"spawn_authority,omitempty"`
-	Task         json.RawMessage `json:"task,omitempty"`
+	// LegacyTaskJSON is the pre-ADR-029 orchestrator-worker handoff blob
+	// that lands in `agent_spawns.task_json`. No caller populates it today
+	// (mcp_orchestrate uses its own DoSpawn shape). Kept on the struct so
+	// the existing column write stays safe; the wire name is renamed so
+	// the post-ADR-029 `task` JSON field can carry the inline-task
+	// semantics below.
+	LegacyTaskJSON json.RawMessage `json:"legacy_task_json,omitempty"`
+	// TaskID links this spawn to an existing tasks row (ADR-029 D-2).
+	// Mutually exclusive with Task below. The hub validates the task
+	// belongs to the same project as the spawn (400 on mismatch) and that
+	// the task is not in a terminal status (409 with hint to update
+	// status='in_progress' first; `blocked` is exempt — a fresh spawn is
+	// the canonical unblock path).
+	TaskID string `json:"task_id,omitempty"`
+	// Task, when set, asks the hub to materialize a fresh tasks row in
+	// the same transaction as the spawn (ADR-029 D-2). Assignee is the
+	// new agent; created_by_id is parent_agent_id (NULL when the caller
+	// is principal-direct — i.e., no parent_agent_id on the request).
+	// Mutually exclusive with TaskID.
+	Task *spawnTaskInline `json:"task,omitempty"`
 	WorktreePath string          `json:"worktree_path,omitempty"`
 	BudgetCents  *int            `json:"budget_cents,omitempty"`
 	// Mode is an optional override of the template's driving_mode.
@@ -445,6 +544,20 @@ type spawnIn struct {
 	// template definition. Ignored when SessionID is set (the swap
 	// path already updates the named session in-tx).
 	AutoOpenSession bool `json:"auto_open_session,omitempty"`
+}
+
+// spawnTaskInline is the fields accepted on `agents.spawn`'s `task` body
+// field. Mirrors taskIn minus the assignee/created_by axes — those are
+// derived from the spawn itself (assignee=new agent, created_by=parent
+// agent). Status defaults to `in_progress` (the spawn is starting the
+// work) and priority defaults to `med` if absent, matching taskIn's
+// HTTP create path. ADR-029 D-2.
+type spawnTaskInline struct {
+	Title        string `json:"title"`
+	BodyMD       string `json:"body_md,omitempty"`
+	ParentTaskID string `json:"parent_task_id,omitempty"`
+	MilestoneID  string `json:"milestone_id,omitempty"`
+	Priority     string `json:"priority,omitempty"`
 }
 
 type spawnOut struct {
@@ -589,6 +702,56 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		projectID = y.ProjectID
 	}
 
+	// ADR-029 D-2: validate the task linkage before opening the tx so
+	// 4xx exits cleanly. Mutual exclusion (TaskID vs inline Task) is
+	// 400; spawn against a terminal task (done/cancelled) is 409 with
+	// a hint to flip status='in_progress' first (blocked is exempt —
+	// a fresh spawn is the canonical unblock path).
+	if in.TaskID != "" && in.Task != nil {
+		return spawnOut{}, http.StatusBadRequest,
+			errors.New("task_id and task are mutually exclusive")
+	}
+	if (in.TaskID != "" || in.Task != nil) && projectID == "" {
+		return spawnOut{}, http.StatusBadRequest,
+			errors.New("project_id required when linking a task")
+	}
+	if in.Task != nil && strings.TrimSpace(in.Task.Title) == "" {
+		return spawnOut{}, http.StatusBadRequest,
+			errors.New("task.title required")
+	}
+	if in.Task != nil && in.Task.Priority != "" && !taskPriorities[in.Task.Priority] {
+		return spawnOut{}, http.StatusBadRequest,
+			errors.New("task.priority must be one of low|med|high|urgent")
+	}
+	var linkedTaskExistingStatus string
+	if in.TaskID != "" {
+		var taskProj, taskStatus string
+		err := s.db.QueryRowContext(ctx, `
+			SELECT project_id, status FROM tasks WHERE id = ?`,
+			in.TaskID).Scan(&taskProj, &taskStatus)
+		if errors.Is(err, sql.ErrNoRows) {
+			return spawnOut{}, http.StatusNotFound,
+				errors.New("task_id not found")
+		}
+		if err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+		if taskProj != projectID {
+			return spawnOut{}, http.StatusBadRequest,
+				errors.New("task_id project mismatch with spawn")
+		}
+		if taskStatus == "done" || taskStatus == "cancelled" {
+			return spawnOut{}, http.StatusConflict,
+				errors.New("task is " + taskStatus + "; call tasks.update status='in_progress' first to reopen")
+		}
+		linkedTaskExistingStatus = taskStatus
+	}
+	if in.Task != nil {
+		if err := s.validateProjectInTeam(ctx, team, projectID); err != nil {
+			return spawnOut{}, http.StatusBadRequest, err
+		}
+	}
+
 	// Validate the session-swap path before opening the tx so a 4xx
 	// exits without a rollback. SessionID is the W2 follow-up that
 	// lets "Recreate steward" or "Switch engine" land the new agent
@@ -713,16 +876,62 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusInternalServerError, err
 	}
 
+	// ADR-029 D-2 + D-3: materialize or flip the linked task in-tx so
+	// the spawn either lands a (task, agent, spawn) triad or rolls back
+	// all three. Mobile sees a consistent Tasks tab from the very first
+	// poll after the spawn returns.
+	linkedTaskID := in.TaskID
+	if in.Task != nil {
+		linkedTaskID = NewID()
+		priority := in.Task.Priority
+		if priority == "" {
+			priority = "med"
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO tasks (id, project_id, parent_task_id, title, body_md,
+			                   status, priority, assignee_id, created_by_id,
+			                   milestone_id, started_at, created_at, updated_at)
+			VALUES (?, ?, NULLIF(?, ''), ?, ?,
+			        'in_progress', ?, ?, NULLIF(?, ''),
+			        NULLIF(?, ''), ?, ?, ?)`,
+			linkedTaskID, projectID, in.Task.ParentTaskID, in.Task.Title, in.Task.BodyMD,
+			priority, agentID, in.ParentID,
+			in.Task.MilestoneID, now, now, now,
+		); err != nil {
+			return spawnOut{}, http.StatusInternalServerError, err
+		}
+	} else if linkedTaskID != "" {
+		// Existing-task flip-on-spawn: deterministic per ADR-029 D-3.
+		// 'todo' / 'blocked' / unset all advance to 'in_progress' and
+		// stamp started_at if not already set. 'in_progress' keeps the
+		// original started_at (resume-onto-running-task case).
+		// 'done' / 'cancelled' were rejected pre-tx.
+		switch linkedTaskExistingStatus {
+		case "todo", "blocked", "":
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE tasks
+				   SET status = 'in_progress',
+				       started_at = COALESCE(started_at, ?),
+				       updated_at = ?
+				 WHERE id = ?`, now, now, linkedTaskID); err != nil {
+				return spawnOut{}, http.StatusInternalServerError, err
+			}
+		}
+		// in_progress: stamp neither status nor started_at; the
+		// most-recent-spawn rule (W3) still routes terminal events
+		// through this task.
+	}
+
 	authority := defaultRawObject(in.Authority)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_spawns (
 			id, parent_agent_id, child_agent_id, spawn_spec_yaml,
 			spawn_authority_json, task_json, spawned_at, worktree_path,
-			mcp_token_plaintext
-		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), ?)`,
+			mcp_token_plaintext, task_id
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''))`,
 		spawnID, in.ParentID, agentID, in.SpawnSpec,
-		string(authority), nullBytes(in.Task), now, in.WorktreePath,
-		mcpTokenPlaintext); err != nil {
+		string(authority), nullBytes(in.LegacyTaskJSON), now, in.WorktreePath,
+		mcpTokenPlaintext, linkedTaskID); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
 	}
 
@@ -784,6 +993,36 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 
 	if err := tx.Commit(); err != nil {
 		return spawnOut{}, http.StatusInternalServerError, err
+	}
+	// ADR-029 D-4 W4: audit the task lifecycle hook from this spawn.
+	// Inline-create lands `task.create source=spawn`; existing-task
+	// flip-on-spawn lands `task.status source=spawn`. Both happen
+	// post-commit so a tx rollback leaves no orphan audit row.
+	if in.Task != nil && linkedTaskID != "" {
+		s.recordAudit(ctx, team, "task.create", "task", linkedTaskID,
+			in.Task.Title, map[string]any{
+				"project_id": projectID,
+				"agent_id":   agentID,
+				"spawn_id":   spawnID,
+				"source":     "spawn",
+			})
+	} else if in.TaskID != "" {
+		// Only audit a flip when the existing-task path actually
+		// flipped (todo/blocked → in_progress). The early branch in
+		// the in-tx code keeps in_progress untouched, so re-emitting
+		// here would be noise.
+		switch linkedTaskExistingStatus {
+		case "todo", "blocked", "":
+			s.recordAudit(ctx, team, "task.status", "task", linkedTaskID,
+				linkedTaskExistingStatus+" → in_progress",
+				map[string]any{
+					"from":     linkedTaskExistingStatus,
+					"to":       "in_progress",
+					"source":   "spawn",
+					"agent_id": agentID,
+					"spawn_id": spawnID,
+				})
+		}
 	}
 	return spawnOut{SpawnID: spawnID, AgentID: agentID, SpawnedAt: now, Mode: mode}, http.StatusCreated, nil
 }

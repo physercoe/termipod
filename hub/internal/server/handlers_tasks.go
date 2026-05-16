@@ -9,13 +9,26 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/termipod/hub/internal/auth"
 )
 
 // Tasks are the universal human-reviewable work atom (blueprint §6.1). They
 // are created either ad-hoc by users (POST /tasks) or materialized by the
 // plan-step executor when a step needs human visibility (human_decision
-// gates, agent_spawn launches). The `plan_step_id` link and derived
-// `source` field let the UI tell the two apart without another round-trip.
+// gates, agent_spawn launches) or by `agents.spawn` itself when the
+// caller links a fresh task to the spawn (ADR-029 D-2). The `plan_step_id`
+// link and derived `source` field let the UI tell the materialised cases
+// apart from user-created ones without another round-trip.
+//
+// Status vocabulary (no CHECK constraint — enforced in handlers + ADR-029):
+//
+//   - todo         — created, not yet executing.
+//   - in_progress  — flipped on spawn or by explicit update.
+//   - blocked      — auto-flip on agent crashed/failed; new spawn unblocks.
+//   - done         — auto-flip on agent terminated (any cause, ADR-029 D-3).
+//   - cancelled    — terminal, explicit human/steward override only.
+//                    Auto-derive never enters or leaves this state.
 
 type taskIn struct {
 	Title        string `json:"title"`
@@ -97,6 +110,13 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.recordAudit(r.Context(), teamFromProject(r), "task.create", "task", id,
+		in.Title, map[string]any{
+			"project_id": proj,
+			"status":     status,
+			"priority":   priority,
+			"source":     "ad_hoc",
+		})
 	writeJSON(w, http.StatusCreated, taskOut{
 		ID: id, ProjectID: proj, ParentTaskID: in.ParentTaskID, Title: in.Title,
 		BodyMD: in.BodyMD, Status: status, Priority: priority,
@@ -105,6 +125,50 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Source:    "ad_hoc",
 		CreatedAt: now, UpdatedAt: now,
 	})
+}
+
+// teamFromProject is a chi-URL helper: the task handlers live under
+// `/v1/teams/{team}/projects/{project}/tasks/...`, so audit needs the
+// team id from the same chi router. Returning the empty string makes
+// recordAudit a no-op (team_id is the partition key).
+func teamFromProject(r *http.Request) string {
+	return chi.URLParam(r, "team")
+}
+
+// resolveTaskAuditSource maps the request context's actor to the
+// `source` axis the mobile Tasks tab + audit timeline use to colour
+// the icon: principal-direct, steward-driven, worker-driven, or
+// background/system. Detects steward by `agent.kind` per
+// feedback_steward_detection_by_kind_not_handle.
+func (s *Server) resolveTaskAuditSource(r *http.Request) string {
+	_, actorKind, _ := actorFromContext(r.Context())
+	switch actorKind {
+	case "principal", "user":
+		return "principal"
+	case "agent":
+		tok, ok := auth.FromContext(r.Context())
+		if !ok {
+			return "agent"
+		}
+		var scope struct {
+			AgentID string `json:"agent_id"`
+		}
+		_ = json.Unmarshal([]byte(tok.ScopeJSON), &scope)
+		if scope.AgentID == "" {
+			return "agent"
+		}
+		var kind string
+		if err := s.db.QueryRowContext(r.Context(),
+			`SELECT kind FROM agents WHERE id = ?`, scope.AgentID).Scan(&kind); err == nil {
+			if strings.HasPrefix(kind, "steward.") {
+				return "steward"
+			}
+			return "worker"
+		}
+		return "agent"
+	default:
+		return "system"
+	}
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +241,7 @@ type taskPatchIn struct {
 }
 
 func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
+	team := teamFromProject(r)
 	proj := chi.URLParam(r, "project")
 	id := chi.URLParam(r, "task")
 	var in taskPatchIn
@@ -184,22 +249,42 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	// Snapshot the prior status if we're about to change it, so the
+	// W4 audit row can record from→to. Done in a single round-trip
+	// before the UPDATE; cheap (covering index on project_id+status).
+	var priorStatus string
+	if in.Status != nil {
+		_ = s.db.QueryRowContext(r.Context(),
+			`SELECT status FROM tasks WHERE project_id = ? AND id = ?`,
+			proj, id).Scan(&priorStatus)
+	}
 	sets, args := []string{}, []any{}
+	changedFields := []string{}
 	if in.Title != nil {
 		sets = append(sets, "title = ?")
 		args = append(args, *in.Title)
+		changedFields = append(changedFields, "title")
 	}
 	if in.BodyMD != nil {
 		sets = append(sets, "body_md = ?")
 		args = append(args, *in.BodyMD)
+		changedFields = append(changedFields, "body_md")
 	}
 	if in.Status != nil {
 		sets = append(sets, "status = ?")
 		args = append(args, *in.Status)
+		// Stamp completed_at when the patch lands a terminal status, so
+		// the mobile tile can render "done 3m ago" / "cancelled 1h ago"
+		// without joining audit. Idempotent: re-stamping just refreshes.
+		if *in.Status == "done" || *in.Status == "cancelled" {
+			sets = append(sets, "completed_at = ?")
+			args = append(args, NowUTC())
+		}
 	}
 	if in.AssigneeID != nil {
 		sets = append(sets, "assignee_id = NULLIF(?, '')")
 		args = append(args, *in.AssigneeID)
+		changedFields = append(changedFields, "assignee_id")
 	}
 	if in.Priority != nil {
 		if !taskPriorities[*in.Priority] {
@@ -208,6 +293,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		}
 		sets = append(sets, "priority = ?")
 		args = append(args, *in.Priority)
+		changedFields = append(changedFields, "priority")
 	}
 	if len(sets) == 0 {
 		writeErr(w, http.StatusBadRequest, "no fields to update")
@@ -226,11 +312,68 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
 	}
+	// ADR-029 D-4 W4: split audit. Status change is its own row so the
+	// timeline can render the from→to chip; other fields land as a
+	// generic `task.update` with the changed_fields list.
+	source := s.resolveTaskAuditSource(r)
+	if in.Status != nil && *in.Status != priorStatus {
+		s.recordAudit(r.Context(), team, "task.status", "task", id,
+			priorStatus+" → "+*in.Status,
+			map[string]any{
+				"from":   priorStatus,
+				"to":     *in.Status,
+				"source": source,
+			})
+	}
+	if len(changedFields) > 0 {
+		s.recordAudit(r.Context(), team, "task.update", "task", id,
+			"update "+strings.Join(changedFields, ","),
+			map[string]any{
+				"changed_fields": changedFields,
+				"source":         source,
+			})
+	}
 	// Note: closing a plan-linked task manually does NOT cascade into the
 	// plan step. Executor-driven transitions own the plan_steps table.
 	// The `plan_step_id` link surfaced on the task payload lets the UI warn
 	// the user when they are about to manually close a plan-materialized
 	// task.
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDeleteTask drops a task row. Per ADR-029 D-7 this is the
+// "I created the task in error" escape hatch; the audit trail
+// preserves the task.delete row but the task itself is gone. Cf.
+// `tasks.update status='cancelled'` which keeps the row.
+// ON DELETE SET NULL on agent_spawns.task_id means any spawn that
+// drove the task survives the delete with task_id NULL.
+func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
+	team := teamFromProject(r)
+	proj := chi.URLParam(r, "project")
+	id := chi.URLParam(r, "task")
+	// Capture the title before the row goes away so the audit summary
+	// is readable later. Missing title (NULL or row already gone) is
+	// fine — the audit row still resolves via target_id.
+	var title string
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT title FROM tasks WHERE project_id = ? AND id = ?`,
+		proj, id).Scan(&title)
+	res, err := s.db.ExecContext(r.Context(),
+		`DELETE FROM tasks WHERE project_id = ? AND id = ?`, proj, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		writeErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	s.recordAudit(r.Context(), team, "task.delete", "task", id, title,
+		map[string]any{
+			"project_id": proj,
+			"source":     s.resolveTaskAuditSource(r),
+		})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -280,8 +423,8 @@ func (s *Server) materializePlanStepTask(
 	ctx context.Context,
 	tx execer,
 	projectID, planStepID, stepKind, stepSpec, agentID string,
-) (string, error) {
-	var title, taskStatus, assignee string
+) (taskID, title string, err error) {
+	var taskStatus, assignee string
 	switch stepKind {
 	case "human_decision":
 		title = planStepTitle(stepSpec, "Review plan gate")
@@ -291,9 +434,9 @@ func (s *Server) materializePlanStepTask(
 		taskStatus = "in_progress"
 		assignee = agentID
 	default:
-		return "", nil
+		return "", "", nil
 	}
-	taskID := NewID()
+	taskID = NewID()
 	now := NowUTC()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO tasks (id, project_id, title, body_md, status,
@@ -301,9 +444,9 @@ func (s *Server) materializePlanStepTask(
 		VALUES (?, ?, ?, '', ?, NULLIF(?, ''), ?, ?, ?)`,
 		taskID, projectID, title, taskStatus, assignee, planStepID, now, now,
 	); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return taskID, nil
+	return taskID, title, nil
 }
 
 // syncPlanStepTaskStatus keeps any task linked to the given plan step in

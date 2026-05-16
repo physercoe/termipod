@@ -175,15 +175,15 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
-                    label: const Text('Todo'),
-                    selected: _kind == NoteKind.todo,
+                    label: const Text('Reminder'),
+                    selected: _kind == NoteKind.reminder,
                     onSelected: (_) => setState(() {
-                      _kind = NoteKind.todo;
+                      _kind = NoteKind.reminder;
                       _dirty = true;
                     }),
                   ),
                   const Spacer(),
-                  if (_kind == NoteKind.todo)
+                  if (_kind == NoteKind.reminder)
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [

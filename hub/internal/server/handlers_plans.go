@@ -335,13 +335,25 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 	// the Kanban shows plan work alongside ad-hoc tasks. Deterministic
 	// steps (llm_call, shell, mcp_call) skip task creation — see
 	// materializePlanStepTask for the policy matrix.
-	if _, err := s.materializePlanStepTask(r.Context(), tx, projectID, id, in.Kind, spec, ""); err != nil {
+	matTaskID, matTitle, err := s.materializePlanStepTask(r.Context(), tx, projectID, id, in.Kind, spec, "")
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if err := tx.Commit(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// ADR-029 D-4 W4: audit the materialised task. source=plan flags
+	// the plan-step executor as the originator so the Tasks-tab icon
+	// distinguishes it from ad-hoc + spawn-driven rows.
+	if matTaskID != "" {
+		s.recordAudit(r.Context(), team, "task.create", "task", matTaskID,
+			matTitle, map[string]any{
+				"project_id":   projectID,
+				"plan_step_id": id,
+				"source":       "plan",
+			})
 	}
 	writeJSON(w, http.StatusCreated, planStepOut{
 		ID: id, PlanID: plan, PhaseIdx: in.PhaseIdx, StepIdx: in.StepIdx,
@@ -457,7 +469,23 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 	// owns the source of truth; the task row mirrors status so the Kanban
 	// reflects reality and propagates the steward assignee once the agent
 	// has been spawned.
+	//
+	// ADR-029 D-4 W4: snapshot the linked task + its prior status pre-sync
+	// so we can audit `task.status` (from→to) after commit. The sync
+	// itself stays in-tx for atomicity with the plan_step UPDATE.
+	var syncedTaskID, syncedTaskFrom, syncedTaskTo string
 	if in.Status != nil {
+		mapped := planStepStatusToTask(*in.Status)
+		if mapped != "" {
+			_ = tx.QueryRowContext(r.Context(),
+				`SELECT id, status FROM tasks WHERE plan_step_id = ?`,
+				step).Scan(&syncedTaskID, &syncedTaskFrom)
+			if syncedTaskID != "" && syncedTaskFrom != mapped && syncedTaskFrom != "cancelled" {
+				syncedTaskTo = mapped
+			} else {
+				syncedTaskID = ""
+			}
+		}
 		if err := s.syncPlanStepTaskStatus(r.Context(), tx, step, *in.Status); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -481,6 +509,23 @@ func (s *Server) handleUpdatePlanStep(w http.ResponseWriter, r *http.Request) {
 		summary = "update plan_step " + step + " \u2192 " + *in.Status
 	}
 	s.recordAudit(r.Context(), team, "plan_step.update", "plan_step", step, summary, auditMeta)
+	// ADR-029 D-4 W4: audit the cascaded task.status flip with
+	// source='plan_step' so the timeline reflects "this transition came
+	// from the executor, not a human/agent override". Plan-step sync
+	// also bypasses the auto-derive's cancelled-is-sticky rule (the
+	// executor owns the plan's notion of truth), but we still skip the
+	// audit when the prior status was 'cancelled' to avoid the noisy
+	// audit-then-no-op pattern.
+	if syncedTaskID != "" {
+		s.recordAudit(r.Context(), team, "task.status", "task", syncedTaskID,
+			syncedTaskFrom+" \u2192 "+syncedTaskTo,
+			map[string]any{
+				"from":         syncedTaskFrom,
+				"to":           syncedTaskTo,
+				"source":       "plan_step",
+				"plan_step_id": step,
+			})
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

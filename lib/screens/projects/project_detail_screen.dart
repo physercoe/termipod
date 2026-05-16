@@ -1114,20 +1114,38 @@ class _AgentsView extends ConsumerWidget {
     // CTA. Workspaces (standing projects) follow the same pattern but
     // the framing copy reads differently; we share the CTA either way
     // since `ensureProjectSteward` is project-kind-agnostic.
+    // Pull-to-refresh re-fetches the hub fan-out so agent status (and
+    // any pending project_steward materializations) update without
+    // bouncing out of the project. The empty-state branch wraps the CTA
+    // in a ListView so the gesture is reachable even when no agents
+    // exist yet — RefreshIndicator needs a scrollable child.
+    Future<void> onRefresh() =>
+        ref.read(hubProvider.notifier).refreshAll();
     final body = rows.isEmpty
-        ? _AgentsEmptyStateCta(
-            projectId: projectId,
-            isWorkspace: isWorkspace,
-            hasHost: hosts.isNotEmpty,
-            placeholderText: isWorkspace
-                ? l10n.workspaceNoAgents
-                : l10n.projectNoAgents,
+        ? RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                _AgentsEmptyStateCta(
+                  projectId: projectId,
+                  isWorkspace: isWorkspace,
+                  hasHost: hosts.isNotEmpty,
+                  placeholderText: isWorkspace
+                      ? l10n.workspaceNoAgents
+                      : l10n.projectNoAgents,
+                ),
+              ],
+            ),
           )
-        : ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-            itemCount: rows.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (_, i) {
+        : RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: rows.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (_, i) {
               final a = rows[i];
               return InkWell(
                 onTap: () => openAgentDetail(context, a),
@@ -1188,7 +1206,8 @@ class _AgentsView extends ConsumerWidget {
                 ),
               );
             },
-          );
+          ),
+        );
     return Stack(
       children: [
         Column(

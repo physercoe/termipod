@@ -41,7 +41,13 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
       return;
     }
     try {
-      final all = await client.listAgents(includeArchived: true);
+      // Archived rows are typically also terminated; without
+      // includeTerminated the post-v1.0.606 default hides them and
+      // the screen renders empty.
+      final all = await client.listAgents(
+        includeArchived: true,
+        includeTerminated: true,
+      );
       final archived = [
         for (final a in all)
           if (a['archived_at'] != null) a,

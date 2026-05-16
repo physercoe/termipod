@@ -124,9 +124,26 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 		q += " AND host_id = ?"
 		args = append(args, host)
 	}
-	if st := r.URL.Query().Get("status"); st != "" {
+	// `status` is the most specific filter — when set it pins to exactly
+	// one engine state, regardless of live / include_terminated defaults.
+	// `live=1` is a convenience superset for the canonical "alive" set
+	// (running/idle/paused); useful from the MCP path where workers want
+	// "anyone I could plausibly talk to" without enumerating each state.
+	// When neither is set the default hides terminated/failed/crashed —
+	// stale rows pile up in long-running teams and clutter the response.
+	// Operators who want the full history pass include_terminated=1.
+	st := r.URL.Query().Get("status")
+	live := r.URL.Query().Get("live") == "1" || r.URL.Query().Get("live") == "true"
+	includeTerminated := r.URL.Query().Get("include_terminated") == "1" ||
+		r.URL.Query().Get("include_terminated") == "true"
+	switch {
+	case st != "":
 		q += " AND status = ?"
 		args = append(args, st)
+	case live:
+		q += " AND status IN ('running','idle','paused')"
+	case !includeTerminated:
+		q += " AND status NOT IN ('terminated','failed','crashed')"
 	}
 	if pid := r.URL.Query().Get("project_id"); pid != "" {
 		q += " AND project_id = ?"

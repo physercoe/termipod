@@ -106,6 +106,7 @@ var toolTiers = map[string]string{
 	"hosts.get":               TierTrivial,
 	"channels.post_event":     TierRoutine,
 	"a2a.invoke":              TierSignificant, // peer message
+	"a2a.cards.list":          TierTrivial,     // directory read
 	"hosts.update_ssh_hint":   TierSignificant, // host config change
 	"project_channels.create": TierRoutine,
 	"team_channels.create":    TierRoutine,

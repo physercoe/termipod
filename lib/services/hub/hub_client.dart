@@ -318,10 +318,17 @@ class HubClient {
 
   Future<List<Map<String, dynamic>>> listAgents({
     bool includeArchived = false,
+    // Default hides terminated/failed/crashed rows so long-running teams
+    // don't accumulate clutter in the agent list (v1.0.606). Pass true
+    // for surfaces that need historical agents — Budget rollups need
+    // them for accurate spend, the Archived screen needs them because
+    // archived rows are usually terminal.
+    bool includeTerminated = false,
     String? projectId,
   }) {
     final q = <String, String>{};
     if (includeArchived) q['include_archived'] = '1';
+    if (includeTerminated) q['include_terminated'] = '1';
     if (projectId != null && projectId.isNotEmpty) {
       q['project_id'] = projectId;
     }
@@ -335,10 +342,12 @@ class HubClient {
   /// offline-fallback contract.
   Future<CachedResponse<List<Map<String, dynamic>>>> listAgentsCached({
     bool includeArchived = false,
+    bool includeTerminated = false,
     String? projectId,
   }) {
     final q = <String, String>{};
     if (includeArchived) q['include_archived'] = '1';
+    if (includeTerminated) q['include_terminated'] = '1';
     if (projectId != null && projectId.isNotEmpty) {
       q['project_id'] = projectId;
     }
@@ -349,6 +358,7 @@ class HubClient {
       endpoint: buildEndpointKey('/v1/teams/${cfg.teamId}/agents', query),
       fetch: () => listAgents(
         includeArchived: includeArchived,
+        includeTerminated: includeTerminated,
         projectId: projectId,
       ),
       decode: _decodeListMaps,

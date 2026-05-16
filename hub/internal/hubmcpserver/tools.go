@@ -514,6 +514,22 @@ func buildTools() []toolDef {
 			},
 		},
 		{
+			Name:        "a2a.cards.list",
+			Description: "List A2A agent cards registered in the team — the directory `a2a.invoke` resolves handles against. Each row carries `handle`, `agent_id`, `host_id`, `registered_at`, and the rewritten `card` (with `url` pointing at the hub's relay path). Optional `handle` argument scopes to one entry, useful for confirming a specific handle is callable. Workers should call this (rather than `agents.list`) to discover which siblings/parents are reachable over A2A — `agents.list` returns everything in the team including agents that don't expose A2A.",
+			InputSchema: schema(`{"type":"object","properties":{"handle":{"type":"string","description":"optional — restrict to one handle"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				q := url.Values{}
+				if h, ok := args["handle"].(string); ok && h != "" {
+					q.Set("handle", h)
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/a2a/cards"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
 			Name:        "projects.update",
 			Description: "Patch a project's mutable fields. Requires `project`. Any of `goal`, `parameters_json` (object), `budget_cents`, `policy_overrides_json` (object), `steward_agent_id`, `on_create_template_id` may be supplied. Create-time fields (kind, template_id, parent_project_id) are immutable by design.",
 			InputSchema: schema(`{"type":"object","required":["project"],"properties":{"project":{"type":"string"},"goal":{"type":"string"},"parameters_json":{"type":"object"},"budget_cents":{"type":"integer"},"policy_overrides_json":{"type":"object"},"steward_agent_id":{"type":"string"},"on_create_template_id":{"type":"string"}}}`),
@@ -572,8 +588,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "agents.list",
-			Description: "List agents in the team. Optional `host_id` filters to agents on one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed); optional `project_id` filters to agents bound to one project (per ADR-025 — the steward + its workers). By default archived rows are hidden — pass `include_archived: true` to include them. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `project_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate.",
-			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string"},"project_id":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
+			Description: "List agents in the team. **By default terminal-status rows (terminated/failed/crashed) are hidden** so the response stays focused on live work; pass `include_terminated: true` to bring them back. Optional `host_id` filters to one host; optional `status` filters to one engine state (running/idle/paused/terminated/failed/crashed) — when set, overrides the `live` and `include_terminated` defaults; optional `live: true` is a superset shortcut for `status IN (running, idle, paused)`; optional `project_id` filters to agents bound to one project (per ADR-025 — the steward + its workers); optional `include_archived: true` un-hides archived rows. Each row carries `id`, `handle`, `kind`, `status`, `pause_state`, `host_id`, `parent_agent_id`, `project_id`, `created_at`, `last_event_at`. Use this to check what's already running before spawning a duplicate; pair with `a2a.cards.list` to discover which handles are reachable over A2A.",
+			InputSchema: schema(`{"type":"object","properties":{"host_id":{"type":"string"},"status":{"type":"string","description":"single engine state; takes precedence over live/include_terminated"},"live":{"type":"boolean","description":"shortcut for status IN (running, idle, paused)"},"include_terminated":{"type":"boolean","description":"include terminated/failed/crashed rows (default false)"},"project_id":{"type":"string"},"include_archived":{"type":"boolean"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
 				if h, ok := args["host_id"].(string); ok && h != "" {
@@ -581,6 +597,12 @@ func buildTools() []toolDef {
 				}
 				if st, ok := args["status"].(string); ok && st != "" {
 					q.Set("status", st)
+				}
+				if live, ok := args["live"].(bool); ok && live {
+					q.Set("live", "1")
+				}
+				if inc, ok := args["include_terminated"].(bool); ok && inc {
+					q.Set("include_terminated", "1")
 				}
 				if pid, ok := args["project_id"].(string); ok && pid != "" {
 					q.Set("project_id", pid)

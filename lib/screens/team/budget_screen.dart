@@ -34,7 +34,9 @@ class _BudgetScreenState extends ConsumerState<BudgetScreen> {
       _error = null;
     });
     try {
-      final rows = await client.listAgents();
+      // Budget rollups need terminated rows too — spend doesn't refund
+      // when an agent stops. Post-v1.0.606 the default hides them.
+      final rows = await client.listAgents(includeTerminated: true);
       if (!mounted) return;
       setState(() {
         _rows = rows;

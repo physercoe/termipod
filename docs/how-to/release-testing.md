@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-14)
 > **Audience:** operators
-> **Last verified vs code:** v1.0.599 (per-section version markers below pin steps individually; §5.1a added for settings IA refactor W1+W2; §7.7 added for ADR-026 kimi-code; v1.0.592 closed the request_project_steward catalog gap that §7.3 used to hit; v1.0.594-599 ships covered in companion `test-steward-lifecycle.md` scenarios 12-16)
+> **Last verified vs code:** v1.0.608 (per-section version markers below pin steps individually; §5.1a added for settings IA refactor W1+W2; §7.7 added for ADR-026 kimi-code; v1.0.592 closed the request_project_steward catalog gap that §7.3 used to hit; v1.0.594-608 ships covered in companion `test-steward-lifecycle.md` scenarios 12-24; v1.0.608 adds the hub-side `a2a.message_sent` audit row Scenario 7 used to reference but the hub didn't write)
 
 **TL;DR.** Evergreen manual test plan covering the mobile app +
 Termipod Hub surfaces. Update in place when behavior changes; the

@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-16)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.599
+> **Last verified vs code:** v1.0.608
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,241 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.608-alpha — 2026-05-16
+
+### Added
+
+- **Hub-side `a2a.message_sent` audit row.** `/a2a/relay/{host}/{agent}`
+  was pure pass-through — engine JSONLs were the only record of who
+  messaged whom over A2A. Now writes one row to `audit_events` per
+  successful 2xx forward: `action=a2a.message_sent`, target =
+  receiving agent, summary truncates the first text part to 200
+  chars, meta carries `host_id`, `recv_agent_id`, `recv_agent_handle`,
+  `body_bytes`, plus `from_agent_id` / `from_agent_handle` when
+  sender attribution is available. Surfaces on the existing audit
+  feed (mobile Activity tab, `GET /v1/teams/{team}/audit`).
+- **Optional sender attribution on the unauthed relay path.**
+  `hubmcpserver/client.go::doAbsolute()` now forwards the caller's
+  bearer when the absolute URL points back at our hub baseURL.
+  External A2A peers (no bearer) still relay fine — the relay
+  remains unauthed per A2A v0.3 spec; the bearer is informational
+  attribution only. New `auth.ResolveBearer()` helper does the
+  lookup-without-enforce dance for unauthed endpoints.
+
+### Why
+
+- Lifecycle test Scenario 7 used to instruct the operator to inspect
+  `audit_events` for an `a2a.message_sent` row that **didn't exist**.
+  That mismatch was the audit gap — closed.
+
+---
+
+## v1.0.607-alpha — 2026-05-16
+
+### Fixed
+
+- **Project stewards now visible on the Sessions screen.** Filter at
+  `sessions_screen.dart:493` used `isStewardHandle()`, which only
+  matches `steward` or `*-steward`. Project stewards spawn with
+  handle `@steward.<pid8>` (`handlers_project_steward.go:46`) — those
+  fell through. Now also accepts agents whose `kind == 'steward.v1'`
+  or `kind.startsWith('steward.')` so general + domain + project
+  stewards all surface.
+
+### Added
+
+- **Sessions screen groups stewards by category** with collapsible
+  headers: **General steward** / **Project stewards** /
+  **Domain stewards** / **Detached sessions**. Each header
+  (chevron + label + count) toggles its section. Detached defaults
+  to collapsed (history/diagnostic). Collapse state lives on the
+  screen so swapping tabs preserves it.
+
+---
+
+## v1.0.606-alpha — 2026-05-16
+
+### Added
+
+- **`a2a.cards.list` MCP tool.** Wraps `GET /v1/teams/{team}/a2a/cards`
+  so agents can discover which handles are callable over A2A.
+  Optional `handle=` arg scopes to one entry. Worker role manifest
+  already allows `*.list`, so no role change needed.
+- **`agents.list` gains a `live: true` shortcut** (maps to
+  `status IN (running, idle, paused)`) and an `include_terminated`
+  flag. The default behavior changes to **hide terminated /
+  failed / crashed rows** unless `include_terminated=true` is
+  passed. `status=X` still takes precedence. Mobile aligned:
+  Budget + Archived screens pass `include_terminated: true` to
+  preserve their current behavior; project Agents tab and steward
+  overlay inherit the cleaner default.
+
+### Why
+
+- Long-running teams accumulated terminated rows and workers calling
+  `agents.list` saw mostly noise. The new defaults + `live` shortcut
+  cover the canonical "who could I plausibly talk to right now"
+  query without enumerating each state.
+
+---
+
+## v1.0.605-alpha — 2026-05-16
+
+### Fixed
+
+- **Auto-inject `parent_agent_id` on the MCP `agents.spawn` path.**
+  The tool's schema lists `parent_agent_id` as optional and no
+  template prompts the steward to pass it. Result:
+  `agent_spawns.parent_agent_id` landed NULL even though the W9
+  gate immediately above already proved who the caller is.
+  Downstream broke in two places — `a2a.invoke` denied with -32601
+  "a2a target not permitted: workers may only invoke parent steward"
+  (`authorizeA2ATarget` resolves caller's parent via this column),
+  and `get_parent_thread` returned empty. Fix: in the MCP
+  dispatcher, after the W9 gate passes, inject
+  `parent_agent_id = callerAgentID` when the caller didn't supply
+  one. Caller-supplied wins; principal-token MCP calls
+  (`agentID == ""`) skip — those are the bypass path.
+
+### Why
+
+- W9 gate proved who the caller is but didn't enrich downstream
+  state — a class of bug similar to v1.0.591's dispatcher × catalog
+  symmetry gap (handler present, advertisement missing). Lesson
+  added to memory: when a gate proves identity, propagate that
+  identity to every consumer that re-derives it.
+
+---
+
+## v1.0.604-alpha — 2026-05-16
+
+### Fixed
+
+- **Mobile new-template starter has `driving_mode` + `fallback_modes`.**
+  The agent starter body shipped in v1.0.600 omitted these required
+  fields. Any user creating a new agent template from the Library
+  → New template sheet got a body the launcher's spawn-mode
+  resolver couldn't satisfy; the steward then flagged it at spawn
+  time. Aligned to the canonical `coder.v1.yaml` shape:
+  `driving_mode: M2`, `fallback_modes: [M4]`. Also dropped
+  `default_workdir` so the launcher's per-project auto-derive
+  (`~/hub-work/<pid8>/<handle>`, v1.0.595) still applies to
+  user-authored templates.
+- **`templates.{cat}.get` MCP tool defaults to merged response.**
+  Returned the on-disk overlay verbatim before, so a stale
+  pre-v1.0.520ish disk copy of e.g. `coder.v1.yaml` would have
+  the steward see holes (missing `driving_mode`) when fetching
+  via MCP — even though the embedded built-in was complete. Now
+  defaults to `merge=1`; new `raw=true` argument restores the
+  prior behavior for editor-overwrite paths.
+
+### Audit
+
+- Bundled templates (14 agents, 15 prompts, 1 plan, 3 project
+  shapes) audited end-to-end against the current schema. All
+  complete; the upstream gaps are the two fixed above.
+
+---
+
+## v1.0.603-alpha — 2026-05-16
+
+### Fixed
+
+- **Pull-to-refresh on the project Agents tab.** Was the only
+  sibling tab without a `RefreshIndicator` — Overview / Activity /
+  Tasks already had one. Wrap both the empty-state and populated
+  branches; empty state uses a `ListView` with
+  `AlwaysScrollableScrollPhysics` so the gesture is reachable even
+  when no agents exist (common case right after spawning a project
+  steward and waiting for the row to land).
+
+---
+
+## v1.0.602-alpha — 2026-05-16
+
+### Added
+
+- **`template_proposal` preview block on `ApprovalDetailScreen`.**
+  Closes the "approve sight-unseen" gap — agents could submit
+  arbitrary template body via `templates.propose` and the principal
+  had no preview before approving. New `_TemplateProposalPreview`
+  fetches the proposed body via `downloadBlob(blob_sha256)`,
+  fetches the currently-installed template via `getTemplate()`,
+  and renders: category/name header with a status chip
+  (**NEW** / **revise** / **no change**), `proposed_by` handle,
+  rationale, and the proposed YAML in a mono code view.
+- **`project_steward_request` inline action on Me-page card.**
+  Promoted to the `_Filter.approvals` filter so the
+  "Spawn project steward" + "Reject" buttons render directly on
+  the card instead of requiring a Details drill-in. Details
+  remains available for full context.
+
+---
+
+## v1.0.601-alpha — 2026-05-16
+
+### Fixed
+
+- **Me FAB → general steward chat (not spawn sheet).**
+  `openStewardSession()` built `liveStewards` via
+  `isStewardHandle()`, which deliberately excludes `@steward` (the
+  team singleton). With only the general steward live, 0 stewards
+  matched → fell through to the spawn sheet. Fix: also accept
+  handles matching `isGeneralStewardHandle()` so the Me FAB's
+  "talk to any live steward" intent works for general-only setups.
+- **Approve `project_steward_request` actually does something.**
+  Mobile had **zero references** to this attention kind. The
+  generic Approve button just recorded an audit. New branch in
+  `InlineApprovalActions` for `kind == 'project_steward_request'`:
+  renders **"Spawn project steward"** that opens
+  `showSpawnProjectStewardSheet` prefilled with `project_id` +
+  `suggested_host_id` from `pendingPayload`. On successful spawn,
+  resolves the attention with `body=<agent_id>` so the audit row
+  links to the new agent.
+
+---
+
+## v1.0.600-alpha — 2026-05-16
+
+### Added
+
+- **Project list pull-to-refresh invalidates `insightsProvider`.**
+  Phase/progress on each row reads from a separate `FutureProvider`
+  family that `refreshAll()` didn't touch. Tapping into Insights
+  warmed it; pull-to-refresh on the list didn't. Fix is a
+  `ref.invalidate(insightsProvider)` next to the `refreshAll()` call.
+- **`ProjectCreateSheet` gets an `isTemplate` constructor param.**
+  When true, the title flips to "New project template" and the
+  payload sets `is_template: true` so the project lands as a
+  reusable template (DB row with `is_template=1`).
+- **Library New-template sheet: `plans` + `projects` categories +
+  Clone-from-existing.** Adds `plans` to the filesystem chip list
+  (writes a YAML file like other categories) and a `projects`
+  chip that routes to `ProjectCreateSheet(isTemplate: true)` since
+  project templates are DB rows, not files. Each filesystem
+  category gains a "Clone from existing" affordance — opens a
+  picker, fetches the picked template's body via `getTemplate()`,
+  and seeds the editor with a suggested `<source>-copy` name to
+  avoid shadowing built-ins.
+- **Library Templates section ordering pinned to canonical list:**
+  agents → prompts → plans → projects → policies. Unknown server
+  categories sink to the bottom in alpha order.
+
+### Changed
+
+- **Renamed "Steward template" → "Project template"** across
+  `project_create_sheet`, `project_detail_screen`,
+  `project_edit_sheet`. Both fields always pointed at project
+  rows with `is_template=1` (per blueprint §6.1) — the old label
+  read as "agent-of-kind-steward" and confused users. Added
+  helper text under each field clarifying the timing distinction
+  (`template_id` = ongoing recipe; `on_create_template_id` = fires
+  once at create).
+- **On-create template moved into Advanced expander** on
+  `ProjectCreateSheet` so the primary flow is one picker.
 
 ---
 

@@ -3,7 +3,7 @@
 > **Type:** how-to
 > **Status:** Current (2026-05-16)
 > **Audience:** principal · contributors · QA
-> **Last verified vs code:** v1.0.607 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenarios 17-20 added 2026-05-16 to close gaps from the comprehensive coverage audit: fanout/gather/reports.post, agents.list live + a2a.cards.list + terminate, templates.propose + preview approval, request_select round-trip; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
+> **Last verified vs code:** v1.0.607 (Scenarios 12-16 cover v1.0.592-v1.0.599 ships; Scenarios 17-20 added 2026-05-16 to close gaps from the comprehensive coverage audit: fanout/gather/reports.post, agents.list live + a2a.cards.list + terminate, templates.propose + preview approval, request_select round-trip; Scenarios 21-24 added 2026-05-16 for ADR-027 plan §11 M4 claude-code verifications: plan_approval, AskUserQuestion, /compact, pill on Stop hook + knob tuning; Scenario 7.5 failure-mode note refreshed for the v1.0.592 `request_project_steward` registration fix; older scenarios pinned to v1.0.500)
 
 **TL;DR.** Step-by-step QA walkthrough proving the floating
 steward overlay can drive a full research-project lifecycle —
@@ -1178,6 +1178,206 @@ plain reject path in one scenario. An `approval_request`
 scenario would be near-identical to Scenario 7.5's W7 host-
 picker (which IS an approval round-trip — just framed as
 project-steward materialization).
+
+---
+
+# ADR-027 M4 claude-code verifications (Scenarios 21-24)
+
+The next four scenarios exercise the LocalLogTailDriver (ADR-027)
+specific to **M4 claude-code spawns**. They're grouped here
+because they share the same pre-condition (a claude-code agent
+running on driving_mode M4) and the same failure-mode
+diagnostic ladder (the hub's `per-spawn UDS gateway` logs +
+the claude `~/.claude/projects/.../*.jsonl` tail).
+
+**Pre-condition for 21-24:** a live project steward (or any
+worker) spawned with `driving_mode: M4` against the
+`backend.kind: claude-code` engine. The bundled
+`steward.claude-m4.v1.yaml` template hardwires M4 — easiest
+seed. Verify via `agents.get` returning `driving_mode: M4`
+on the row.
+
+Phase 2/3 adapters (gemini-cli / codex / kimi-code on their
+own M4 paths) inherit the same wire shape; until they ship,
+21-24 stay claude-only.
+
+## Scenario 21 — Plan mode + ExitPlanMode → `plan_approval` card
+
+**Goal:** confirm the plan_approval attention card renders
+when claude's `ExitPlanMode` hook fires, and the principal's
+verdict round-trips back to claude.
+
+**Steps:**
+
+1. In the M4 steward's overlay chat, type: `I want to enter plan mode. Make a plan to refactor a small file, then call ExitPlanMode when ready so I can review the plan.`
+2. Wait up to **60 s** — claude warms, enters plan mode,
+   produces a plan, calls `ExitPlanMode`.
+3. Open the **Me** tab.
+
+**Expected:**
+
+- A `plan_approval` attention card appears in the Approvals
+  filter. Body widget renders the plan text claude proposed
+  (the `plan` field of the ExitPlanMode hook payload).
+- Inline action buttons: **Approve plan** / **Reject plan**.
+- Tap **Approve plan** → snackbar; attention drops from open
+  list; claude's next session/prompt unblocks (visible as
+  follow-up text in the steward's chat).
+- Audit feed shows the `plan_approval` resolved decision.
+
+**Failure modes:**
+
+- **No attention surfaces** → ExitPlanMode hook didn't reach
+  the host-runner's gateway. Tail
+  `~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl` for
+  an `ExitPlanMode` line; if present, the gateway socket
+  isn't hooked. Check `hub/internal/hostrunner/launch_m4_locallogtail.go`
+  log lines for `gateway listening on /tmp/termipod-host-*.sock`.
+- **Attention surfaces but body is empty** → the
+  `_PlanApprovalBody` widget didn't receive the `plan` field.
+  Inspect `pending_payload_json` on the attention row.
+- **Approve resolves attention but claude stays parked** →
+  the hub's `attention.reply` long-poll path didn't fire the
+  `mcp__termipod__permission_prompt` response back to claude.
+  Verify the dialog_type discriminator was `plan_approval`.
+
+## Scenario 22 — AskUserQuestion picker (operator-at-TUI)
+
+**Goal:** verify the mobile-side surface for AskUserQuestion
+hooks. **Inline picker on mobile is W8 follow-up** (deliberately
+deferred per the ADR-027 D-amend-6 commit `7129dea`); today
+the principal sees the request and the operator picks at the
+TUI.
+
+**Steps:**
+
+1. In the M4 steward's chat, type: `Call AskUserQuestion to ask me to pick between options "Option A" and "Option B". Treat my response (which I'll pick from your TUI) as the answer.`
+2. Wait ~5-10 s for the hook to fire.
+3. Open the **Me** tab — an `approval_request` agent_event
+   should be visible referencing AskUserQuestion. **No
+   mobile picker.**
+4. Switch to the host running claude-code (TUI). Use claude's
+   keyboard picker to choose Option A.
+5. Watch the steward chat for the follow-up.
+
+**Expected:**
+
+- Mobile sees the question text and the candidate options
+  (read-only — no inline pick).
+- TUI picker accepts the keystroke; the picker's
+  `pickerDone` channel resolves.
+- Steward posts a follow-up acknowledging the chosen option.
+- Audit feed shows the in-process resolution (no
+  `attention.resolved` row because mobile didn't act).
+
+**Failure modes:**
+
+- **No agent_event on mobile** → the `AskUserQuestion` hook
+  payload didn't post to `agent_events`. Inspect the
+  attentionclient logs.
+- **TUI pick doesn't resolve** → operator-at-keyboard timing.
+  The picker uses an in-process `pickerDone` channel; if
+  Claude's TUI is unfocused, the keystroke goes nowhere.
+- **Mobile shows the picker buttons (not deferred)** →
+  someone shipped the W8 follow-up since the audit was
+  written. Update this scenario and remove the "deferred" note.
+
+## Scenario 23 — `/compact` → compaction card + Compact/Defer
+
+**Goal:** confirm the PreCompact hook surfaces a typed
+attention with both verdicts wired correctly.
+
+**Steps:**
+
+1. In the M4 steward's chat, type a long-running prompt that
+   accumulates context (or just `/compact` in the TUI — same
+   trigger).
+2. Wait ~3-5 s for PreCompact to fire.
+3. Open the **Me** tab.
+
+**Expected:**
+
+- A `compaction` (or `permission_prompt` with
+  `dialog_type=compact`) attention card. Body widget
+  (`_CompactionBody`) shows the compaction summary claude
+  proposed.
+- Two inline action buttons: **Compact** / **Defer**.
+- **Compact** → claude proceeds with the compaction; chat
+  shows the compacted state.
+- **Defer** → claude resumes the prior conversation without
+  compacting; the attention drops from open list with a
+  decision of `defer` (or `reject` depending on wiring).
+
+**Failure modes:**
+
+- **Card shows generic Approve/Reject** → the dialog_type
+  routing in `mcpPermissionPrompt` (W4) didn't stamp the
+  right kind. Inspect the attention row's `kind` column.
+- **Defer behaves like Compact (or vice versa)** → the
+  decision/option_id contract isn't honored. Check the
+  attention-reply path — the principal's verdict should arrive
+  back at claude as the appropriate `permission` value.
+
+## Scenario 24 — Idle / streaming pill clears on Stop hook (+ knob tuning)
+
+**Goal:** confirm the mobile pill UI honors the LocalLogTailDriver's
+Stop hook so users don't see a stuck "streaming…" indicator
+after claude finishes its turn. Also tune the two timing knobs.
+
+**Steps:**
+
+1. In the M4 steward's chat, send any prompt that takes >2 s
+   (e.g. `Write me a 200-word essay about kittens.`).
+2. Watch the steward header / chat for an **idle/streaming
+   pill** during generation.
+3. Wait for the response to complete (claude posts the
+   final text frame and the Stop hook fires).
+4. Confirm the pill **clears** within ~1-2 s of the final
+   text frame.
+
+**Expected:**
+
+- During streaming: pill shows `streaming…` (or the project's
+  equivalent label).
+- After final text: pill clears. Header reverts to the
+  steward's idle state.
+
+**Knob tuning (operator activity):**
+
+- `hook_park_default_ms` defaults to **60000 ms** (60 s)
+  — how long a hook payload may park without resolving
+  before the driver gives up. If claude regularly hangs >60 s
+  on legitimate work, bump this; if it's frequently parking
+  unnecessarily, lower it.
+- `idle_threshold_ms` defaults to **2000 ms** (2 s) — how
+  long without a JSONL line constitutes "idle". On a slow
+  machine 2 s may flap; bump to 3-4 s if the pill toggles
+  visibly.
+- Both knobs live in
+  `hub/internal/hostrunner/launch_m4_locallogtail.go`
+  (LocalLogTailDriver config struct). After tuning, restart
+  the host-runner.
+
+**Failure modes:**
+
+- **Pill never appears** → the streaming-pill widget isn't
+  reading the driver's idle/streaming state. Inspect the
+  agent_events stream for `kind=lifecycle, state=streaming`
+  vs `state=idle` rows.
+- **Pill stays on after Stop** → Stop hook didn't reach the
+  driver, OR the agent_events `state=idle` row isn't being
+  published. Check the hook log payload schema in
+  `docs/reference/claude-code-hook-schema.md` matches what
+  the gateway emits.
+- **Pill flaps during generation** → `idle_threshold_ms` is
+  too tight relative to claude's actual inter-line latency.
+  Bump it 1-2 s and observe.
+
+**Why these specific verifications:** the four belong
+together because they're the post-merge on-device checks called
+out by ADR-027 plan §11. Mobile-side rendering ships in
+v1.0.592 with the M4 driver; the actual verification was
+deferred until users could run claude 2.1.x on a real host.
 
 ---
 

@@ -1114,7 +1114,11 @@ class _ClonePickerSheet extends StatelessWidget {
                 final r = rows[i];
                 final name = (r['name'] ?? '').toString();
                 return ListTile(
-                  leading: TemplateIcon(category: category, name: name),
+                  leading: templateIconWidget(
+                    idOrName: name,
+                    displayName: name,
+                    size: 24,
+                  ),
                   title: Text(
                     name,
                     style: GoogleFonts.jetBrainsMono(fontSize: 13),

@@ -280,3 +280,30 @@ func TestTunnel_Response_UnknownReqID_Gone(t *testing.T) {
 		t.Errorf("status=%d want 410", status)
 	}
 }
+
+func TestPreviewA2ABody(t *testing.T) {
+	// Happy path: JSON-RPC message/send envelope with a text part.
+	env := []byte(`{"jsonrpc":"2.0","id":"x","method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"hello world"}]}}}`)
+	if got := previewA2ABody(env); got != "hello world" {
+		t.Errorf("preview: got %q, want %q", got, "hello world")
+	}
+	// Truncation at 200 chars.
+	long := strings.Repeat("a", 250)
+	env2 := []byte(`{"params":{"message":{"parts":[{"kind":"text","text":"` + long + `"}]}}}`)
+	got := previewA2ABody(env2)
+	if len(got) != 201 || !strings.HasSuffix(got, "…") {
+		t.Errorf("truncation: len=%d suffix=%q", len(got), got[max(0, len(got)-5):])
+	}
+	// Empty / malformed inputs return "".
+	if previewA2ABody(nil) != "" {
+		t.Error("nil should return empty")
+	}
+	if previewA2ABody([]byte(`{not json`)) != "" {
+		t.Error("malformed JSON should return empty")
+	}
+	// No text part returns "".
+	envNoText := []byte(`{"params":{"message":{"parts":[{"kind":"image","text":"unused"}]}}}`)
+	if previewA2ABody(envNoText) != "" {
+		t.Error("non-text parts should return empty")
+	}
+}

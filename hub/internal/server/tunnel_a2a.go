@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/termipod/hub/internal/auth"
 )
 
 // P3.3b — A2A reverse tunnel.
@@ -317,8 +320,124 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// before writing the response — ensures the metrics tick before the
 	// client closes its end and a quick burst of subsequent calls.
 	s.tunnel.metrics.Record(host, agent, int64(len(body))+int64(len(bodyBytes)))
+	// Hub-side audit row for the A2A message — closes the
+	// "no audit trail outside engine JSONL" gap surfaced by the
+	// 2026-05-16 audit. Best-effort: relay is unauthed, so a missing /
+	// invalid bearer leaves actor_kind='peer' and from_agent_id empty
+	// in meta. Only fired when the upstream returned a 2xx — failed
+	// relays are tracked via tunnel.metrics.Dropped() above.
+	if status < 400 {
+		s.recordA2ARelayAudit(r, body, host, agent)
+	}
 	w.WriteHeader(status)
 	_, _ = w.Write(bodyBytes)
+}
+
+// recordA2ARelayAudit writes a hub-side audit row for one successful
+// A2A relay. Best-effort — never affects relay outcome.
+func (s *Server) recordA2ARelayAudit(r *http.Request, body []byte, hostID, recvAgentID string) {
+	// Resolve team via the receiving agent — the relay URL doesn't
+	// carry a team in the path, but the agents table is the source
+	// of truth for which team a given agent belongs to.
+	var teamID string
+	if err := s.db.QueryRowContext(r.Context(),
+		`SELECT team_id FROM agents WHERE id = ?`, recvAgentID).Scan(&teamID); err != nil {
+		return // no team → no audit row; the agent_id was bogus.
+	}
+	// Optional sender attribution: client may forward the same bearer
+	// it uses for authed endpoints (see doAbsolute). When present we
+	// resolve it to actor_handle/agent_id for the row; when absent
+	// the row records actor_kind='peer'.
+	var (
+		actorKind   = "peer"
+		actorHandle string
+		fromAgent   string
+	)
+	if tok, _ := auth.ResolveBearer(r.Context(), s.db, r); tok != nil {
+		actorKind = tok.Kind
+		var scope struct {
+			AgentID string `json:"agent_id"`
+			Handle  string `json:"handle"`
+		}
+		if err := json.Unmarshal([]byte(tok.ScopeJSON), &scope); err == nil {
+			fromAgent = scope.AgentID
+			actorHandle = strings.TrimPrefix(scope.Handle, "@")
+		}
+	}
+	// Extract a short body preview (JSON-RPC message text) without
+	// blowing the audit row up. A2A v0.3 envelopes carry
+	// params.message.parts[].text — we grab the first text part and
+	// truncate to 200 chars.
+	preview := previewA2ABody(body)
+	// Best-effort receiver handle lookup for the summary line.
+	var recvHandle string
+	_ = s.db.QueryRowContext(r.Context(),
+		`SELECT COALESCE(handle, '') FROM agents WHERE id = ?`, recvAgentID).Scan(&recvHandle)
+	summary := "a2a → " + recvHandle
+	if preview != "" {
+		summary += ": " + preview
+	}
+	meta := map[string]any{
+		"host_id":           hostID,
+		"recv_agent_id":     recvAgentID,
+		"recv_agent_handle": recvHandle,
+		"body_preview":      preview,
+		"body_bytes":        len(body),
+	}
+	if fromAgent != "" {
+		meta["from_agent_id"] = fromAgent
+	}
+	if actorHandle != "" {
+		meta["from_agent_handle"] = actorHandle
+	}
+	// Bypass recordAudit's actorFromContext (no auth ctx on this
+	// route) and stamp the resolved values directly.
+	metaJSON := "{}"
+	if b, err := json.Marshal(meta); err == nil {
+		metaJSON = string(b)
+	}
+	_, err := s.db.ExecContext(r.Context(), `
+		INSERT INTO audit_events (
+			id, team_id, ts, actor_token_id, actor_kind, actor_handle,
+			action, target_kind, target_id, summary, meta_json
+		) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+		NewID(), teamID, NowUTC(), actorKind, nullIfEmpty(actorHandle),
+		"a2a.message_sent", "agent", recvAgentID, summary, metaJSON)
+	if err != nil {
+		s.log.Warn("a2a audit insert", "err", err)
+	}
+}
+
+// previewA2ABody extracts the first text part from a JSON-RPC
+// `message/send` envelope's `params.message.parts[]` for the audit
+// summary line. Returns "" on any parse hiccup — the audit row still
+// lands with meta.body_bytes for size accounting.
+func previewA2ABody(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var env struct {
+		Params struct {
+			Message struct {
+				Parts []struct {
+					Kind string `json:"kind"`
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"message"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return ""
+	}
+	for _, p := range env.Params.Message.Parts {
+		if p.Kind == "text" && p.Text != "" {
+			if len(p.Text) > 200 {
+				return p.Text[:200] + "…"
+			}
+			return p.Text
+		}
+	}
+	return ""
 }
 
 // authorizeHostInTeam returns true iff the host row exists in the team.

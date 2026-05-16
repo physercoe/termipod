@@ -118,6 +118,19 @@ func extractBearer(r *http.Request) string {
 	return ""
 }
 
+// ResolveBearer resolves the request's Authorization bearer to a Token
+// without enforcing auth — used by unauthed endpoints (e.g. /a2a/relay)
+// that still want to attribute the caller when one is present. Returns
+// (nil, nil) when no bearer is supplied; (nil, err) on a malformed or
+// revoked token; (*Token, nil) on a valid one.
+func ResolveBearer(ctx context.Context, db *sql.DB, r *http.Request) (*Token, error) {
+	raw := extractBearer(r)
+	if raw == "" {
+		return nil, nil
+	}
+	return lookup(ctx, db, raw)
+}
+
 func lookup(ctx context.Context, db *sql.DB, raw string) (*Token, error) {
 	hash := HashToken(raw)
 	var (

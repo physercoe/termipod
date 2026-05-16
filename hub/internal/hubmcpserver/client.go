@@ -149,9 +149,12 @@ func (c *hubClient) doRawWithBody(method, path string, query url.Values, body []
 
 // doAbsolute issues a request to an arbitrary URL (not rooted at c.baseURL)
 // and decodes the JSON body into `out` (if non-nil). Used by a2a.invoke to
-// POST to the hub's unauthed /a2a/relay/... endpoint via the URL published
-// in an agent card. No bearer token is attached — per A2A v0.3 the relay
-// is a peer-to-peer surface whose authority is the URL path itself.
+// POST to the hub's /a2a/relay/... endpoint via the URL published in an
+// agent card. The relay surface is unauthed per A2A v0.3 (path is the
+// capability), so external peers MUST work without a bearer. But when the
+// absolute URL points back at OUR hub baseURL, we forward the bearer so
+// the hub's handleRelay can resolve it to a sender agent_id and write a
+// proper audit row — the auth is informational, not enforced.
 func (c *hubClient) doAbsolute(method, absURL string, body any, out any) error {
 	var reqBody io.Reader
 	if body != nil {
@@ -169,6 +172,9 @@ func (c *hubClient) doAbsolute(method, absURL string, body any, out any) error {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.token != "" && c.baseURL != "" && strings.HasPrefix(absURL, c.baseURL) {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err

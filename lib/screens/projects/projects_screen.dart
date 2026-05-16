@@ -15,9 +15,11 @@ import '../../providers/sessions_provider.dart';
 import '../../services/host_label.dart';
 import '../../services/steward_handle.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_config_sheet.dart';
 import '../../widgets/agent_feed.dart';
 import '../../widgets/hub_offline_banner.dart';
 import '../../widgets/insights_panel.dart';
+import '../../widgets/session_details_sheet.dart';
 import '../../widgets/team_switcher.dart';
 import '../connections/connection_form_screen.dart';
 import '../insights/insights_screen.dart';
@@ -1596,6 +1598,12 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
   // Full agent row (fetched via GET /agents/{id}) includes the
   // spawn_spec_yaml join; the list payload omits it to stay small.
   Map<String, dynamic>? _full;
+  // Latest session.init payload for this agent. Surfaced in the header
+  // as a SessionInitChip so the project agent detail sheet shows the
+  // same engine/model/perm/tools/mcp at a glance that the team session
+  // page does. Fetched via the same agent_events scan AgentFeed uses
+  // internally — best-effort, silent on failure (chip is decorative).
+  Map<String, dynamic>? _sessionInit;
 
   String get _id => widget.agent['id']?.toString() ?? '';
   String get _handle => widget.agent['handle']?.toString() ?? '?';
@@ -1620,6 +1628,7 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
     super.initState();
     _loadPane();
     _loadFull();
+    _loadSessionInit();
   }
 
   Future<void> _loadFull() async {
@@ -1631,6 +1640,28 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
       setState(() => _full = out);
     } catch (_) {
       // Spec-fetch failure is non-fatal — the sheet still works without it.
+    }
+  }
+
+  // Mirror AgentFeed._maybeBackfillSessionInit: scan recent agent_events
+  // for the latest session.init payload and stash it for the chip.
+  // Best-effort — claude only emits session.init once per process start
+  // so older agents may have it outside the page window.
+  Future<void> _loadSessionInit() async {
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null || _id.isEmpty) return;
+    try {
+      final events = await client.listAgentEvents(_id, tail: true, limit: 200);
+      if (!mounted) return;
+      for (final e in events.reversed) {
+        if ((e['kind'] ?? '').toString() != 'session.init') continue;
+        final p = e['payload'];
+        if (p is! Map) continue;
+        setState(() => _sessionInit = p.cast<String, dynamic>());
+        return;
+      }
+    } catch (_) {
+      // Silent — chip is decorative.
     }
   }
 
@@ -1873,6 +1904,25 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                     const SizedBox(width: 6),
                     const _Chip(text: 'paused', color: Colors.orange),
                   ],
+                  // Single overflow menu carrying the lifecycle actions
+                  // (pause/resume, terminate or delete, respawn) plus the
+                  // "View agent config" entry. Previously these were a
+                  // Wrap below the header that always claimed a full row;
+                  // the overflow keeps the sheet header compact and
+                  // mirrors the SessionChatScreen action-popup pattern.
+                  _ActionsMenu(
+                    busy: _busy,
+                    isPaused: _isPaused,
+                    isDead: _isDead,
+                    hasPane: _hasPane,
+                    canRespawn: _specYaml.isNotEmpty,
+                    onConfig: () =>
+                        showAgentConfigSheet(context, agentId: _id),
+                    onPauseResume: _pauseOrResume,
+                    onTerminate: _terminate,
+                    onArchive: _archive,
+                    onRespawn: _respawn,
+                  ),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.pop(context),
@@ -1880,6 +1930,23 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                 ],
               ),
             ),
+            // SessionInitChip mirrors what the team session AppBar shows:
+            // engine kind + model + permission mode + tools/mcp counts,
+            // sourced from the agent's most recent session.init event.
+            // Tap opens the same details sheet the team session uses.
+            // Hidden until session.init has been fetched (best-effort —
+            // an agent that never emitted session.init just has no chip).
+            if (_sessionInit != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 16, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SessionInitChip(
+                    payload: _sessionInit!,
+                    agentKind: (widget.agent['kind'] ?? '').toString(),
+                  ),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
@@ -1907,50 +1974,6 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
                     style: const TextStyle(color: DesignColors.error)),
               ),
             const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: (_busy || _isDead || !_hasPane)
-                        ? null
-                        : _pauseOrResume,
-                    icon: Icon(
-                        _isPaused ? Icons.play_arrow : Icons.pause),
-                    label: Text(_isPaused ? 'Resume' : 'Pause'),
-                  ),
-                  if (!_isDead)
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _terminate,
-                      style: FilledButton.styleFrom(
-                        backgroundColor:
-                            Theme.of(context).colorScheme.error,
-                      ),
-                      icon: const Icon(Icons.stop_circle_outlined),
-                      label: const Text('Terminate'),
-                    ),
-                  if (_isDead)
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _archive,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor:
-                            Theme.of(context).colorScheme.error,
-                      ),
-                      icon: const Icon(Icons.delete_outline),
-                      label: const Text('Delete'),
-                    ),
-                  if (_specYaml.isNotEmpty)
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _respawn,
-                      icon: const Icon(Icons.replay),
-                      label: const Text('Respawn'),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
             Expanded(
               child: DefaultTabController(
                 length: 4,
@@ -2126,6 +2149,122 @@ class _AgentDetailSheetState extends ConsumerState<_AgentDetailSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Overflow menu for the agent detail sheet header. Carries the
+/// destructive + lifecycle actions (pause/resume, terminate or delete,
+/// respawn) plus the read-only "View agent config" entry. Mirrors the
+/// SessionChatScreen action-popup pattern so the same gestures work
+/// from both surfaces. Collapsing these into one PopupMenuButton keeps
+/// the sheet header on a single row instead of forcing an action-bar
+/// row that re-flowed on narrow devices.
+class _ActionsMenu extends StatelessWidget {
+  final bool busy;
+  final bool isPaused;
+  final bool isDead;
+  final bool hasPane;
+  final bool canRespawn;
+  final VoidCallback onConfig;
+  final VoidCallback onPauseResume;
+  final VoidCallback onTerminate;
+  final VoidCallback onArchive;
+  final VoidCallback onRespawn;
+
+  const _ActionsMenu({
+    required this.busy,
+    required this.isPaused,
+    required this.isDead,
+    required this.hasPane,
+    required this.canRespawn,
+    required this.onConfig,
+    required this.onPauseResume,
+    required this.onTerminate,
+    required this.onArchive,
+    required this.onRespawn,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Agent actions',
+      enabled: !busy,
+      onSelected: (v) {
+        switch (v) {
+          case 'config':
+            onConfig();
+          case 'pause_resume':
+            onPauseResume();
+          case 'terminate':
+            onTerminate();
+          case 'archive':
+            onArchive();
+          case 'respawn':
+            onRespawn();
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'config',
+          child: ListTile(
+            leading: Icon(Icons.account_tree_outlined),
+            title: Text('View agent config'),
+            subtitle: Text('Kind, role, mode, spawn spec'),
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+          ),
+        ),
+        if (!isDead && hasPane)
+          PopupMenuItem(
+            value: 'pause_resume',
+            child: ListTile(
+              leading: Icon(isPaused ? Icons.play_arrow : Icons.pause),
+              title: Text(isPaused ? 'Resume' : 'Pause'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        if (canRespawn)
+          const PopupMenuItem(
+            value: 'respawn',
+            child: ListTile(
+              leading: Icon(Icons.replay),
+              title: Text('Respawn'),
+              subtitle: Text('Spawn a new agent from the same spec'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        if (!isDead)
+          PopupMenuItem(
+            value: 'terminate',
+            child: ListTile(
+              leading: Icon(Icons.stop_circle_outlined,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('Terminate',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.error)),
+              subtitle: const Text('Kills the pane; clean worktrees swept'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        if (isDead)
+          PopupMenuItem(
+            value: 'archive',
+            child: ListTile(
+              leading: Icon(Icons.delete_outline,
+                  color: Theme.of(context).colorScheme.error),
+              title: Text('Delete',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.error)),
+              subtitle: const Text('Hide from live list; row preserved'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+      ],
     );
   }
 }

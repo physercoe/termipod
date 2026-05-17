@@ -160,13 +160,33 @@ func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, p
 	return expandVars(in.SpawnSpec, vars), nil
 }
 
+// contextFileNameForKind returns the on-disk filename the given engine
+// reads as its persona-memory file. Different engines have different
+// conventions — Claude Code reads CLAUDE.md, Codex + Kimi read
+// AGENTS.md (per the AGENTS.md cross-engine spec), Gemini CLI reads
+// GEMINI.md. Hub's job is to land the prompt body under the name the
+// engine will actually open; otherwise the materialized file is dead
+// weight in the workdir and the persona / task body never reaches the
+// running engine. Empty or unknown kind falls back to CLAUDE.md so a
+// hand-rolled spec without a backend block keeps its prior behaviour.
+func contextFileNameForKind(kind string) string {
+	switch kind {
+	case "codex", "kimi-code":
+		return "AGENTS.md"
+	case "gemini-cli":
+		return "GEMINI.md"
+	default:
+		return "CLAUDE.md"
+	}
+}
+
 // resolveContextFiles loads the prompt file referenced by a rendered spawn
 // spec (`prompt: <filename>`), expands {{var}} placeholders in it using the
 // same bindings as the spec, and inlines the result into the spec under
-// `context_files.CLAUDE.md`. The host-runner launcher writes context_files
-// entries to the agent's workdir before launch — that's how Claude Code
-// (and any other agent that reads CLAUDE.md on startup) sees the steward
-// persona without the hub having to copy files around itself.
+// the engine-specific memory filename (see contextFileNameForKind). The
+// host-runner launcher writes context_files entries to the agent's
+// workdir before launch — that's how every supported engine sees the
+// steward persona without the hub having to copy files around itself.
 //
 // personaSeed is a user-supplied addendum (typed into the mobile bootstrap
 // sheet) appended under a "Persona override" section so the agent picks
@@ -176,32 +196,39 @@ func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, p
 // taskInstructions is the ADR-029 task body that the steward delegated
 // to this worker. When non-empty it lands in a `## Task` section after
 // any persona seed so the worker reads "what to do" the first time it
-// opens CLAUDE.md — without this, the body_md the steward passed into
-// `agents.spawn task: {…}` would silently die on the hub side and the
-// steward would have to follow up with `a2a.invoke` to actually deliver
-// the work. Empty string = no task section.
+// opens its memory file — without this, the body_md the steward passed
+// into `agents.spawn task: {…}` would silently die on the hub side and
+// the steward would have to follow up with `a2a.invoke` to actually
+// deliver the work. Empty string = no task section.
 //
 // Behaviour:
 //   - No `prompt:` field, no override, no seed, no task → return unchanged.
-//   - Spec already declares `context_files.CLAUDE.md` → respect it (an
-//     explicit override beats the templated default). The seed and task
-//     are ignored in this branch — explicit override means the operator
-//     wrote CLAUDE.md by hand and shouldn't get surprise concatenation.
+//   - Spec already declares the engine's memory file under
+//     `context_files` (e.g. `context_files.AGENTS.md` for a codex spawn)
+//     → respect it. Explicit override beats the templated default. The
+//     seed and task are ignored in this branch — explicit override
+//     means the operator wrote the memory file by hand and shouldn't
+//     get surprise concatenation.
 //   - Otherwise: read the prompt body (from disk overlay → embedded FS),
 //     expand vars, optionally append the seed, optionally append the
-//     task, and emit a context_files block.
+//     task, and emit a context_files block keyed by the engine's
+//     memory filename.
 //   - Prompt file not found on disk overlay or embedded FS → error.
 func (s *Server) resolveContextFiles(rendered string, vars map[string]string, personaSeed, taskInstructions string) (string, error) {
 	var head struct {
 		Prompt       string            `yaml:"prompt"`
 		ContextFiles map[string]string `yaml:"context_files"`
+		Backend      struct {
+			Kind string `yaml:"kind"`
+		} `yaml:"backend"`
 	}
 	if err := yaml.Unmarshal([]byte(rendered), &head); err != nil {
 		// Spec isn't shaped like our header — leave it alone rather than
 		// 400'ing a spawn that may parse fine on the host-runner side.
 		return rendered, nil
 	}
-	if _, hasOverride := head.ContextFiles["CLAUDE.md"]; hasOverride {
+	fname := contextFileNameForKind(head.Backend.Kind)
+	if _, hasOverride := head.ContextFiles[fname]; hasOverride {
 		return rendered, nil
 	}
 	hasSeed := strings.TrimSpace(personaSeed) != ""
@@ -226,7 +253,7 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 	}
 
 	extra, err := yaml.Marshal(map[string]any{
-		"context_files": map[string]string{"CLAUDE.md": body},
+		"context_files": map[string]string{fname: body},
 	})
 	if err != nil {
 		return "", err
@@ -239,10 +266,12 @@ func (s *Server) resolveContextFiles(rendered string, vars map[string]string, pe
 }
 
 // appendTaskSection concatenates the ADR-029 task instructions onto the
-// templated CLAUDE.md under a dedicated `## Task` header. The header is
-// distinct from `## Persona override` so the worker (and a human reading
-// the materialized file) can tell "who I am" from "what to do". Called
-// by resolveContextFiles only when the spawn carries a task linkage.
+// templated agent-memory file (CLAUDE.md / AGENTS.md / GEMINI.md
+// depending on engine — see contextFileNameForKind) under a dedicated
+// `## Task` header. The header is distinct from `## Persona override`
+// so the worker (and a human reading the materialized file) can tell
+// "who I am" from "what to do". Called by resolveContextFiles only
+// when the spawn carries a task linkage.
 func appendTaskSection(body, instructions string) string {
 	instructions = strings.TrimSpace(instructions)
 	if instructions == "" {
@@ -262,8 +291,10 @@ func appendTaskSection(body, instructions string) string {
 }
 
 // appendPersonaSeed concatenates the operator's seed onto the templated
-// CLAUDE.md under a clearly-labeled section so the agent (and a human
-// reading the materialized file) can tell the two apart.
+// agent-memory file (CLAUDE.md / AGENTS.md / GEMINI.md depending on
+// engine — see contextFileNameForKind) under a clearly-labeled section
+// so the agent (and a human reading the materialized file) can tell the
+// two apart.
 func appendPersonaSeed(body, seed string) string {
 	seed = strings.TrimSpace(seed)
 	if seed == "" {

@@ -810,16 +810,19 @@ D-2), `priority`, `body_md`, and `status` ∈
 **Information-flow edges (ADR-029 D-8):**
 - **Down (steward → worker):** `agents.spawn task: {…}` materializes
   the task row, inlines title + body_md into the worker's
-  `context_files.CLAUDE.md` under a `## Task` section (with a
-  system-rendered "Task close-out protocol" footer carrying the
-  literal `project_id` + `task_id` so the worker can call
-  `tasks.complete` without looking itself up — W2.6.1,
-  v1.0.614-alpha), and posts a `producer='user' kind='input.text'`
-  event immediately after the spawn commits so the worker's first
-  turn fires automatically. The footer's prose explicitly overrides
-  any `TOOLS:` / `BOUNDARIES:` restrictions a steward might write
-  into `body_md`: close-out verbs are orchestration protocol, not
-  domain tools.
+  engine-specific agent-memory file under a `## Task` section
+  (`CLAUDE.md` for claude-code, `AGENTS.md` for codex/kimi-code,
+  `GEMINI.md` for gemini-cli — see `contextFileNameForKind` in
+  `hub/internal/server/template.go`, v1.0.615-alpha). The section
+  carries a system-rendered "Task close-out protocol" footer with
+  the literal `project_id` + `task_id` so the worker can call
+  `tasks.complete` without looking itself up (W2.6.1,
+  v1.0.614-alpha). The spawn also posts a `producer='user'
+  kind='input.text'` event immediately after commit so the worker's
+  first turn fires automatically. The footer's prose explicitly
+  overrides any `TOOLS:` / `BOUNDARIES:` restrictions a steward
+  might write into `body_md`: close-out verbs are orchestration
+  protocol, not domain tools.
 - **Up (worker → assigner):** terminal status flips (done / blocked
   / cancelled) post a `kind='task.notify' producer='system'` event
   into the assigner's most-recent active session carrying title +

@@ -381,6 +381,92 @@ func TestRenderTaskInstructions_Shapes(t *testing.T) {
 	}
 }
 
+// Per-engine memory file routing: the persona/task body must land
+// under the filename the engine actually opens. Hardcoding CLAUDE.md
+// was the original bug — codex/kimi never read it, gemini-cli prefers
+// GEMINI.md.
+func TestResolveContextFiles_PerEngineMemoryFilename(t *testing.T) {
+	cases := []struct {
+		name        string
+		backendKind string
+		wantFile    string
+	}{
+		{"claude-code → CLAUDE.md", "claude-code", "CLAUDE.md"},
+		{"codex → AGENTS.md", "codex", "AGENTS.md"},
+		{"kimi-code → AGENTS.md", "kimi-code", "AGENTS.md"},
+		{"gemini-cli → GEMINI.md", "gemini-cli", "GEMINI.md"},
+		{"empty/unknown → CLAUDE.md (legacy default)", "", "CLAUDE.md"},
+		{"future-unknown → CLAUDE.md (legacy default)", "totally-new-engine", "CLAUDE.md"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := newTestServer(t)
+			spec := "backend:\n  kind: " + tc.backendKind + "\nprompt: steward.v1.md\n"
+			got, err := s.resolveContextFiles(spec,
+				map[string]string{"principal.handle": "alice"},
+				"You are terse.", "")
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			var parsed struct {
+				ContextFiles map[string]string `yaml:"context_files"`
+			}
+			if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if _, ok := parsed.ContextFiles[tc.wantFile]; !ok {
+				t.Errorf("missing %q in context_files: %v", tc.wantFile, parsed.ContextFiles)
+			}
+			// For non-default kinds we also expect the legacy CLAUDE.md
+			// key to NOT be present (otherwise we'd double-write).
+			if tc.wantFile != "CLAUDE.md" {
+				if _, present := parsed.ContextFiles["CLAUDE.md"]; present {
+					t.Errorf("CLAUDE.md present alongside %q — should be one or the other: %v",
+						tc.wantFile, parsed.ContextFiles)
+				}
+			}
+		})
+	}
+}
+
+// Override gate must use the engine-aware filename too — a codex spec
+// that hand-rolls AGENTS.md should be respected, not overwritten.
+func TestResolveContextFiles_RespectsEngineSpecificOverride(t *testing.T) {
+	s, _ := newTestServer(t)
+	spec := "backend:\n  kind: codex\nprompt: steward.v1.md\n" +
+		"context_files:\n  AGENTS.md: |\n    hand-rolled body\n"
+	got, err := s.resolveContextFiles(spec, map[string]string{}, "ignored", "ignored task")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !strings.Contains(got, "hand-rolled body") {
+		t.Errorf("operator-authored AGENTS.md got overwritten:\n%s", got)
+	}
+	if strings.Contains(got, "## Persona override") || strings.Contains(got, "## Task") {
+		t.Errorf("seed/task leaked into a spec that already provided AGENTS.md:\n%s", got)
+	}
+}
+
+// Pure-function unit test for the lookup table; keeps the matrix
+// visible without needing to spin up a server.
+func TestContextFileNameForKind(t *testing.T) {
+	cases := map[string]string{
+		"claude-code":         "CLAUDE.md",
+		"codex":               "AGENTS.md",
+		"kimi-code":           "AGENTS.md",
+		"gemini-cli":          "GEMINI.md",
+		"":                    "CLAUDE.md",
+		"totally-new-engine":  "CLAUDE.md",
+	}
+	for kind, want := range cases {
+		t.Run(kind, func(t *testing.T) {
+			if got := contextFileNameForKind(kind); got != want {
+				t.Errorf("kind=%q → %q; want %q", kind, got, want)
+			}
+		})
+	}
+}
+
 func TestResolveContextFiles_PersonaSeedWithoutPrompt(t *testing.T) {
 	// Even when the template has no prompt: field, supplying a seed
 	// should still produce a CLAUDE.md so a hand-rolled spawn can

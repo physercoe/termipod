@@ -1721,14 +1721,17 @@ the worker crashed, or because the steward mis-scoped the task),
 the steward has a clean recovery path via `tasks.update` and the
 task row never silently rots in `in_progress`. This is the negative
 counterpart to Scenario 31's happy path — it's what motivated the
-hub-rendered close-out protocol footer in CLAUDE.md (the "Task
-close-out protocol" footer the hub appends to `body_md` per
-ADR-029 W2.6.1).
+hub-rendered close-out protocol footer in the worker's agent-memory
+file (the "Task close-out protocol" footer the hub appends to
+`body_md` per ADR-029 W2.6.1).
 
 **Pre-conditions:** same as Scenario 31. Build under test includes
-the W2.6.1 footer (post v1.0.613-alpha — verify by `agents.spawn`
-on a test project + reading `agent_spawns.spawn_spec_yaml` for
-"Task close-out protocol" in `context_files.CLAUDE.md`).
+the W2.6.1 footer (v1.0.614-alpha+) AND the per-engine memory-file
+fix (v1.0.615-alpha+ — hub writes `CLAUDE.md` for claude-code,
+`AGENTS.md` for codex/kimi, `GEMINI.md` for gemini-cli). Verify by
+`agents.spawn` on a test project + reading
+`agent_spawns.spawn_spec_yaml` for "Task close-out protocol" in
+`context_files.<engine memory file>`.
 
 **Steps:**
 
@@ -1791,11 +1794,19 @@ on a test project + reading `agent_spawns.spawn_spec_yaml` for
 
 **Failure modes:**
 
-- **W2.6.1 footer missing from CLAUDE.md** → the worker has nothing
-  overriding the body's ban. Inspect
-  `agent_spawns.spawn_spec_yaml` → `context_files.CLAUDE.md` →
-  search for "Task close-out protocol". If absent, the build is
-  pre-v1.0.613-alpha; bump and re-deploy.
+- **W2.6.1 footer missing from the worker's memory file** → the
+  worker has nothing overriding the body's ban. Inspect
+  `agent_spawns.spawn_spec_yaml` → `context_files.<engine memory
+  file>` (CLAUDE.md / AGENTS.md / GEMINI.md by backend) → search
+  for "Task close-out protocol". If absent, the build is
+  pre-v1.0.614-alpha; bump and re-deploy.
+- **Footer present under CLAUDE.md but engine is codex/kimi/gemini
+  and engine isn't reading it** → pre-v1.0.615-alpha build with the
+  per-engine memory-filename fix missing. The hub wrote to
+  CLAUDE.md, the engine reads AGENTS.md/GEMINI.md, so the entire
+  persona+task body is invisible. Confirm: inspect
+  `context_files.AGENTS.md` (codex/kimi) or `context_files.GEMINI.md`
+  (gemini-cli). If those keys aren't present, bump to v1.0.615-alpha+.
 - **Worker still skips `tasks.complete` despite the footer** →
   either the worker's prompt template doesn't tell it to read the
   footer, or `coder.v1.md` step 7's wording is being out-prioritized

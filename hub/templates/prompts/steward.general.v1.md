@@ -326,9 +326,11 @@ a tool-restriction prose. **Two rules that prevent stuck tasks:**
    multi-turn procedure. Do it inline or hand it back to the user.
 
 2. **Don't ban the close-out call in the task body.** The hub renders
-   each task into the worker's CLAUDE.md with a `## Task` section
-   plus a system-rendered "Task close-out protocol" footer carrying
-   `tasks.complete(project_id, task, summary)`. If you write a body
+   each task into the worker's agent-memory file (CLAUDE.md for
+   claude-code, AGENTS.md for codex/kimi, GEMINI.md for gemini-cli)
+   with a `## Task` section plus a system-rendered "Task close-out
+   protocol" footer carrying `tasks.complete(project_id, task,
+   summary)`. If you write a body
    like `TOOLS: Just respond with text. BOUNDARIES: do not call any
    tools.` the worker will read those literally and skip
    `tasks.complete`, leaving the task stuck in_progress forever.

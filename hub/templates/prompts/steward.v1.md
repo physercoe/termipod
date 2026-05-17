@@ -71,10 +71,12 @@ You have MCP tools grouped by surface:
   approval if policy gates the tier). When the work belongs in a
   task, pass `task: {title, body_md}` to materialize the row in the
   same call — the hub inlines title + body into the worker's
-  CLAUDE.md as a dedicated Task section AND posts it as the worker's
-  first user input, so the worker starts the turn immediately
-  without a follow-up `a2a.invoke`. (ADR-029 D-8.) Pass `task_id`
-  instead to link to an already-existing task.
+  agent-memory file (CLAUDE.md for claude-code, AGENTS.md for
+  codex/kimi, GEMINI.md for gemini-cli) as a dedicated Task section
+  AND posts it as the worker's first user input, so the worker
+  starts the turn immediately without a follow-up `a2a.invoke`.
+  (ADR-029 D-8.) Pass `task_id` instead to link to an
+  already-existing task.
 - **Docs / reviews** — `documents.list`, `documents.create`, `reviews.list`,
   `reviews.create` (request a review on a document).
 - **Channels** — `project_channels.create(project_id, name)`,

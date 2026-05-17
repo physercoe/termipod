@@ -256,12 +256,15 @@ func mcpToolDefsBase() []map[string]any {
 		},
 		{
 			"name":        "get_project_doc",
-			"description": "Fetch a file from a project's docs_root (shared context).",
+			"description": "Fetch a FILE from the project's `docs_root` (a filesystem directory of shared human-authored context, e.g. `plans/research-plan.md`). `path` is a FILESYSTEM PATH relative to `docs_root` — NOT a document id. Returns the raw file body.\n\nThis is NOT the tool to read documents created via `documents.create` (those live in the database, not the filesystem) — use `documents.get` with the ULID returned by `documents.create` instead.\n\nReturns 404 if `docs_root` is unset, or if the file doesn't exist within it.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"project_id": map[string]any{"type": "string"},
-					"path":       map[string]any{"type": "string"},
+					"path": map[string]any{
+						"type":        "string",
+						"description": "filesystem path relative to project's docs_root (e.g. 'plans/research.md'); NOT a document ULID",
+					},
 				},
 				"required": []string{"project_id", "path"},
 			},

@@ -274,6 +274,20 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// v1.0.630: decorate the message body with sender attribution before
+	// forwarding to the recipient's host-runner. Without this, the
+	// receiver gets `{"role":"user","parts":[{"text":"<msg>"}]}` with no
+	// indication that (a) this came from another agent, (b) who sent it,
+	// or (c) that the right reply mechanism is `a2a.invoke` back to
+	// sender. Pre-bundle: workers receiving steward A2A messages
+	// would reply as if to a direct user prompt — communication stuck.
+	// Decoration only fires when the caller forwarded their bearer
+	// (so we can resolve sender via resolveA2ASender); legacy unauthed
+	// peer relays keep the original body unchanged.
+	if senderHandle, _ := s.resolveA2ASender(r); senderHandle != "" {
+		body = decorateA2ABodyWithSender(body, senderHandle)
+	}
+
 	// Reconstruct the path the host-runner's A2A handler expects:
 	// /a2a/<agent_id>[/<tail>]
 	localPath := "/a2a/" + agent
@@ -498,6 +512,80 @@ func previewA2ABody(raw []byte) string {
 		}
 	}
 	return ""
+}
+
+// decorateA2ABodyWithSender rewrites a JSON-RPC `message/send` envelope's
+// `params.message.parts[]` to prepend sender attribution to each text
+// part. The receiving worker then sees a body like:
+//
+//	[A2A from @research-steward]
+//	<original message>
+//
+//	To reply: a2a.invoke(handle="research-steward", text=...)
+//
+// Without this the receiver gets parts=[{text:"<msg>"}] with role="user"
+// and has no way to know (a) this came from another agent, (b) who sent
+// it, or (c) that the right reply mechanism is `a2a.invoke` back to
+// sender rather than typing into the chat surface.
+//
+// Best-effort: any parse failure returns the raw body unchanged so the
+// relay still works (a legacy peer with a non-JSON-RPC body, or a
+// non-message/send method like tasks/get, must keep flowing). The
+// audit row still records the ORIGINAL body via the audit path's
+// own decode at recordA2ARelayAudit, so the sender's audit shows
+// what they actually typed; only the receiver's view is decorated.
+func decorateA2ABodyWithSender(raw []byte, senderHandle string) []byte {
+	if len(raw) == 0 || senderHandle == "" {
+		return raw
+	}
+	var env map[string]any
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return raw
+	}
+	method, _ := env["method"].(string)
+	if method != "message/send" {
+		return raw // tasks/get and similar pass through untouched
+	}
+	params, _ := env["params"].(map[string]any)
+	if params == nil {
+		return raw
+	}
+	msg, _ := params["message"].(map[string]any)
+	if msg == nil {
+		return raw
+	}
+	partsAny, ok := msg["parts"].([]any)
+	if !ok {
+		return raw
+	}
+	changed := false
+	for i, partAny := range partsAny {
+		part, _ := partAny.(map[string]any)
+		if part == nil {
+			continue
+		}
+		kind, _ := part["kind"].(string)
+		text, _ := part["text"].(string)
+		if kind != "text" || text == "" {
+			continue
+		}
+		part["text"] = "[A2A from @" + senderHandle + "]\n" +
+			text +
+			"\n\nTo reply: a2a.invoke(handle=\"" + senderHandle + "\", text=...)"
+		partsAny[i] = part
+		changed = true
+	}
+	if !changed {
+		return raw
+	}
+	msg["parts"] = partsAny
+	params["message"] = msg
+	env["params"] = params
+	out, err := json.Marshal(env)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 // authorizeHostInTeam returns true iff the host row exists in the team.

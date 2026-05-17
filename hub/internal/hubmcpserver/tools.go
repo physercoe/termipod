@@ -242,7 +242,7 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "documents.list",
-			Description: "List documents. Optional `project` filters by project.",
+			Description: "List documents in the team. Optional `project` filters by project id. Returns rows with `id`, `project_id`, `kind`, `title`, `created_at`, etc — NOT the document body. Use `documents.get` to fetch a single doc's full body.\n\nNote: this is the documents-TABLE listing (rows authored via `documents.create`). It is NOT the same as `get_project_doc` which reads files from the project's filesystem `docs_root` (shared human-authored context). The two surfaces don't overlap.",
 			InputSchema: schema(`{"type":"object","properties":{"project":{"type":"string"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
@@ -251,6 +251,22 @@ func buildTools() []toolDef {
 				}
 				var out json.RawMessage
 				if err := c.do("GET", c.teamPath("/documents"), q, nil, &out); err != nil {
+					return nil, err
+				}
+				return out, nil
+			},
+		},
+		{
+			Name:        "documents.get",
+			Description: "Fetch a single document by id, including its full body (`content_inline`). Required: `document_id` — the ULID returned by `documents.create`. Returns the full document row: `id`, `project_id`, `kind`, `title`, `content_inline`, `author_agent_id`, `created_at`, `prev_version_id`, etc.\n\nWhen the steward needs to read back a memo a worker just produced (via the doc_id the worker reported in tasks.complete `summary`), this is the tool — NOT `get_project_doc` (which reads filesystem files, not document-table rows) and NOT `documents.list` (which omits the body to stay cheap).\n\nExample:\n```json\n{\"document_id\": \"01KRV5387MK8WT6BB9DZ9TEE73\"}\n```\n\n404 if the document id is unknown; the error names the id so the caller can verify they passed the right value.",
+			InputSchema: schema(`{"type":"object","required":["document_id"],"properties":{"document_id":{"type":"string","description":"ULID returned by documents.create"}}}`),
+			call: func(c *hubClient, args map[string]any) (any, error) {
+				docID, _ := args["document_id"].(string)
+				if docID == "" {
+					return nil, fmt.Errorf("document_id is required")
+				}
+				var out json.RawMessage
+				if err := c.do("GET", c.teamPath("/documents/"+docID), nil, nil, &out); err != nil {
 					return nil, err
 				}
 				return out, nil

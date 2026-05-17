@@ -115,6 +115,79 @@ func TestToolsCall_ProjectsList(t *testing.T) {
 	}
 }
 
+// v1.0.630: documents.get must GET /v1/teams/{team}/documents/{doc}
+// and return the full document body. Pre-bundle there was no MCP tool
+// to read back a document by id — only documents.list (which omits
+// body) and documents.create existed. Stewards reading back a memo a
+// worker just produced via doc_id had to misuse get_project_doc
+// (filesystem files) and got "file not found".
+func TestToolsCall_DocumentsGet(t *testing.T) {
+	var sawPath string
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"01KRV538","title":"Briefing","content_inline":"# Body\n\nText..."}`))
+	})
+	tools := buildTools()
+
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents.get","arguments":{"document_id":"01KRV538"}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	if sawPath != "/v1/teams/team-alpha/documents/01KRV538" {
+		t.Errorf("hub saw path %q; want /v1/teams/team-alpha/documents/01KRV538", sawPath)
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+		Error *jsonrpcError `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal: %v (%s)", err, raw)
+	}
+	if resp.Error != nil {
+		t.Fatalf("rpc error: %+v", resp.Error)
+	}
+	if resp.Result.IsError {
+		t.Fatalf("tool reported isError: %+v", resp.Result.Content)
+	}
+	if !strings.Contains(resp.Result.Content[0].Text, `"content_inline"`) {
+		t.Errorf("expected document body in response: %q", resp.Result.Content[0].Text)
+	}
+}
+
+// Missing document_id arg = client error, not silent forwarding.
+func TestToolsCall_DocumentsGet_MissingArg(t *testing.T) {
+	c := newTestHub(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("hub must not be called when document_id is missing; got %s", r.URL.Path)
+	})
+	tools := buildTools()
+	line := []byte(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"documents.get","arguments":{}}}` + "\n")
+	raw, ok := handleLine(c, tools, line)
+	if !ok {
+		t.Fatalf("expected a response")
+	}
+	var resp struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !resp.Result.IsError {
+		t.Errorf("expected isError=true for missing document_id; got %+v", resp.Result)
+	}
+}
+
 // TestToolsCall_UnknownTool: calling a tool that isn't in the dispatch table
 // must produce a method-not-found JSON-RPC error rather than a panic or a
 // silent empty result, because that is the only signal an MCP client gets

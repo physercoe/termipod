@@ -307,3 +307,55 @@ func TestPreviewA2ABody(t *testing.T) {
 		t.Error("non-text parts should return empty")
 	}
 }
+
+// v1.0.630: A2A message bodies are decorated with sender attribution
+// before being forwarded to the recipient's host-runner, so the
+// receiving worker knows (a) the message came from another agent,
+// (b) who sent it, and (c) the right reply mechanism is a2a.invoke
+// back. Pre-bundle, the receiver got an undifferentiated text part
+// and treated A2A messages as direct user prompts — communication
+// stuck because workers replied "to the user" instead of back to
+// the sending steward.
+func TestDecorateA2ABodyWithSender(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":"x","method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"please review the memo"}]}}}`)
+	out := decorateA2ABodyWithSender(body, "research-steward")
+	got := string(out)
+	if !strings.Contains(got, "[A2A from @research-steward]") {
+		t.Errorf("decorated body missing sender prefix: %s", got)
+	}
+	if !strings.Contains(got, "please review the memo") {
+		t.Errorf("decorated body lost original text: %s", got)
+	}
+	if !strings.Contains(got, "a2a.invoke(handle=\\\"research-steward\\\"") {
+		t.Errorf("decorated body missing reply hint: %s", got)
+	}
+}
+
+// Non-message/send methods (tasks/get, tasks/cancel, etc) must pass
+// through unchanged — only the user-text payload gets decorated.
+func TestDecorateA2ABodyWithSender_OtherMethods(t *testing.T) {
+	body := []byte(`{"jsonrpc":"2.0","id":"x","method":"tasks/get","params":{"id":"t1"}}`)
+	out := decorateA2ABodyWithSender(body, "steward")
+	if string(out) != string(body) {
+		t.Errorf("tasks/get body must pass through unchanged; got %s", string(out))
+	}
+}
+
+// Empty sender handle = no decoration (legacy unauthed peer path).
+func TestDecorateA2ABodyWithSender_EmptyHandle(t *testing.T) {
+	body := []byte(`{"method":"message/send","params":{"message":{"parts":[{"kind":"text","text":"hi"}]}}}`)
+	out := decorateA2ABodyWithSender(body, "")
+	if string(out) != string(body) {
+		t.Errorf("empty handle must pass through; got %s", string(out))
+	}
+}
+
+// Malformed envelope: pass through unchanged so a legacy peer with a
+// non-JSON-RPC body still relays (best-effort).
+func TestDecorateA2ABodyWithSender_Malformed(t *testing.T) {
+	body := []byte(`not valid json`)
+	out := decorateA2ABodyWithSender(body, "steward")
+	if string(out) != string(body) {
+		t.Errorf("malformed body must pass through; got %s", string(out))
+	}
+}

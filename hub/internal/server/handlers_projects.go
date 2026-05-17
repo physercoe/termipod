@@ -223,6 +223,18 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "kind must be 'goal' or 'standing'")
 		return
 	}
+	// Reject malformed config_yaml early. Empty/absent is OK (simple
+	// ad-hoc projects); is_template requires `phases:` ≥ 1.
+	if reason := validateProjectConfigYAML(in.ConfigYML, in.IsTemplate); reason != "" {
+		writeErr(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
+	// Same shape check on policy_overrides_json — keep the column
+	// queryable by rejecting non-object JSON before insert.
+	if reason := validatePolicyOverridesJSON(in.PolicyOverridesJSON); reason != "" {
+		writeErr(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
 	// Enforce max tree depth = 2 (Blueprint §6.1 / IA §6.2 W5). A sub-project
 	// may only parent off a top-level project: if the proposed parent already
 	// has its own parent, reject the create. This keeps mobile UI flat enough
@@ -561,6 +573,10 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *in.BudgetCents)
 	}
 	if in.PolicyOverridesJSON != nil {
+		if reason := validatePolicyOverridesJSON(*in.PolicyOverridesJSON); reason != "" {
+			writeErr(w, http.StatusUnprocessableEntity, reason)
+			return
+		}
 		sets = append(sets, "policy_overrides_json = ?")
 		args = append(args, nullRawJSON(*in.PolicyOverridesJSON))
 	}

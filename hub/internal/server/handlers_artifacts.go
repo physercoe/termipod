@@ -109,15 +109,12 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if reason := validateLineageJSON(in.LineageJSON); reason != "" {
+		writeErr(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
 	lineage := ""
 	if len(in.LineageJSON) > 0 {
-		// Validate shape to keep the column queryable later. We don't
-		// enforce any particular schema — just that it parses.
-		var tmp any
-		if err := json.Unmarshal(in.LineageJSON, &tmp); err != nil {
-			writeErr(w, http.StatusBadRequest, "lineage_json must be valid JSON")
-			return
-		}
 		lineage = string(in.LineageJSON)
 	}
 

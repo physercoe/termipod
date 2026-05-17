@@ -39,6 +39,10 @@ func (s *Server) handlePostEvent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "type required")
 		return
 	}
+	if reason := validateEventParts(in.Parts); reason != "" {
+		writeErr(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
 
 	now := time.Now().UTC()
 	ts := now

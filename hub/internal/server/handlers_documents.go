@@ -81,6 +81,12 @@ func (s *Server) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "content_inline exceeds 256KB; use artifact_id instead")
 		return
 	}
+	if hasInline {
+		if reason := validateDocumentBody(in.ContentInline); reason != "" {
+			writeErr(w, http.StatusUnprocessableEntity, reason)
+			return
+		}
+	}
 	// If artifact_id is supplied, it must resolve to an artifact in the same
 	// project. Historically this column was a loose TEXT URI placeholder; now
 	// that the artifacts table exists (§6.6) we enforce the relation.

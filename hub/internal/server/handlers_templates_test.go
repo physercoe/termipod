@@ -387,7 +387,11 @@ func TestBuildSpawnVars_DataDriven_PermissionFlag(t *testing.T) {
 		{"skip", "--dangerously-skip-permissions"},
 		{"prompt", "--permission-prompt-tool mcp__termipod__permission_prompt"},
 		{"custom", "--my-future-flag"}, // would have been impossible with the old Go switch
-		{"", ""},
+		// v1.0.617: empty mode rewrites to "skip" so callers that
+		// forget to pass permission_mode (notably the MCP agents.spawn
+		// path before the schema added the field) still get a runnable
+		// worker instead of a stalled one.
+		{"", "--dangerously-skip-permissions"},
 		{"unknown", ""},
 	}
 	for _, c := range cases {
@@ -401,5 +405,78 @@ func TestBuildSpawnVars_DataDriven_PermissionFlag(t *testing.T) {
 		if vars["permission_flag"] != c.want {
 			t.Errorf("mode=%q: flag=%q, want %q", c.mode, vars["permission_flag"], c.want)
 		}
+	}
+}
+
+// TestTemplates_ResetOverwritesUserEdits exercises the v1.0.617 reset
+// endpoint: a user edits a bundled template (steward.v1.yaml), the
+// reset endpoint overwrites it back to the embedded body, and the
+// audit row records the count.
+func TestTemplates_ResetOverwritesUserEdits(t *testing.T) {
+	c := newE2E(t)
+
+	// 1. Overwrite a bundled template with a sentinel body.
+	path := filepath.Join(c.dataRoot, "team", "templates", "agents", "steward.v1.yaml")
+	if err := os.WriteFile(path, []byte("# user-edited\n"), 0o600); err != nil {
+		t.Fatalf("seed user edit: %v", err)
+	}
+
+	// 2. Call reset.
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/reset"
+	status, raw := rawCallRaw(t, c.token, url, "POST", "", nil)
+	if status != 200 {
+		t.Fatalf("reset = %d body=%s", status, raw)
+	}
+	if !bytes.Contains(raw, []byte(`"overwritten":`)) {
+		t.Errorf("response missing overwritten count: %s", raw)
+	}
+
+	// 3. Confirm the file content is back to the bundled body (the
+	// sentinel is gone) and at least mentions the steward template
+	// identifier — we don't pin exact bytes since the bundled file
+	// evolves, just confirm the user edit was clobbered.
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after reset: %v", err)
+	}
+	if bytes.Contains(after, []byte("# user-edited")) {
+		t.Errorf("user edit survived reset:\n%s", after)
+	}
+	if !bytes.Contains(after, []byte("template:")) {
+		t.Errorf("bundled template body missing yaml header:\n%s", after)
+	}
+
+	// 4. Audit row landed.
+	var action string
+	if err := c.s.db.QueryRow(
+		`SELECT action FROM audit_events
+		 WHERE action = 'template.reset' AND team_id = ?
+		 ORDER BY ts DESC LIMIT 1`, c.teamID).Scan(&action); err != nil {
+		t.Fatalf("audit lookup: %v", err)
+	}
+}
+
+// User-only files (no embedded counterpart) survive a reset — the
+// contract is "restore bundled defaults", not "delete everything not
+// embedded". Protects custom team templates from being wiped.
+func TestTemplates_ResetPreservesUserOnlyFiles(t *testing.T) {
+	c := newE2E(t)
+	custom := filepath.Join(c.dataRoot, "team", "templates", "agents", "my-custom.v1.yaml")
+	if err := os.WriteFile(custom, []byte("# custom\n"), 0o600); err != nil {
+		t.Fatalf("seed custom: %v", err)
+	}
+
+	url := c.srv.URL + "/v1/teams/" + c.teamID + "/templates/reset"
+	status, _ := rawCallRaw(t, c.token, url, "POST", "", nil)
+	if status != 200 {
+		t.Fatalf("reset = %d", status)
+	}
+
+	got, err := os.ReadFile(custom)
+	if err != nil {
+		t.Fatalf("custom file gone after reset: %v", err)
+	}
+	if !bytes.Contains(got, []byte("# custom")) {
+		t.Errorf("custom file body altered:\n%s", got)
 	}
 }

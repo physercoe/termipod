@@ -804,6 +804,19 @@ class HubClient {
     return (jsonDecode(raw) as Map).cast<String, dynamic>();
   }
 
+  /// Re-walks the embedded templates FS and overwrites the on-disk copy
+  /// with the bundled bytes. Use case: after a hub upgrade ships a fixed
+  /// bundled template (e.g. ADR-029's close-out footer), the operator
+  /// taps "Reset bundled templates" to pick up the new version without
+  /// per-file deletes. User-only files (no embedded counterpart) are
+  /// preserved — see hub-side `handleResetBundledTemplates` for the
+  /// contract. Returns `{overwritten, created}` counts.
+  Future<Map<String, dynamic>> resetBundledTemplates() async {
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/templates/reset', const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
+  }
+
   /// Deletes a template file. The bundled defaults live in the embedded
   /// FS, so deleting a disk file falls back to the built-in on next read.
   Future<void> deleteTemplate(String category, String name) async {
@@ -867,6 +880,18 @@ class HubClient {
       throw HubApiError(resp.statusCode, raw);
     }
     return (jsonDecode(raw) as Map).cast<String, dynamic>();
+  }
+
+  /// Wipes every agent-family override file so the team falls back to
+  /// the embedded defaults. Counterpart to [resetBundledTemplates] —
+  /// same "restore bundled defaults" semantic. Operator-authored
+  /// custom families (no embedded counterpart) ARE deleted too; the
+  /// mobile UI surfaces this in the confirmation dialog. Returns
+  /// `{removed}` count.
+  Future<Map<String, dynamic>> resetAgentFamilies() async {
+    final out = await _post(
+        '/v1/teams/${cfg.teamId}/agent-families/reset', const <String, dynamic>{});
+    return (out as Map).cast<String, dynamic>();
   }
 
   /// Deletes an agent-family override file. 409 from the backend means

@@ -540,10 +540,18 @@ type spawnIn struct {
 	//                permission_prompt` (route every tool call through the
 	//                hub MCP gateway → attention_items). Only useful once
 	//                that MCP tool is registered.
-	//   - ""       → empty expansion, falls through to whatever default
-	//                claude does in stream-json --print mode.
-	// The mobile bootstrap sheet defaults to "skip" so the demo flow
-	// works without W2 plumbing.
+	//   - ""       → backendVarsFromSpec rewrites to "skip". The earlier
+	//                "empty expansion, claude defaults" behaviour broke any
+	//                caller that forgot to pass the field: claude in
+	//                stream-json --print mode with no permission flag
+	//                denies destructive tools (Write/Edit/Bash) and the
+	//                worker stalls with no attention_item to surface.
+	//                v1.0.617 made "" ≡ "skip" so the demo flow works
+	//                whether the caller is explicit or not.
+	// The mobile bootstrap sheet, general-steward bootstrap, and
+	// project-steward delegation all set "skip" explicitly; the MCP
+	// `agents.spawn` schema exposes the field so stewards can override
+	// to "prompt" when they want the per-tool attention gate.
 	PermissionMode string `json:"permission_mode,omitempty"`
 	// SessionID, when set, attaches this spawn to an existing session
 	// rather than creating a free-standing agent. Used by the

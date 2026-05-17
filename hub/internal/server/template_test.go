@@ -560,5 +560,56 @@ func TestRenderSpawnSpec_FixedPointMCPNamespace(t *testing.T) {
 	}
 }
 
+// TestBackendVarsFromSpec_EmptyModeDefaultsToSkip locks v1.0.617's fix
+// for the worker-can't-write bug: when the caller passes an empty
+// PermissionMode (notably the MCP `agents.spawn` path before the schema
+// added the field), the helper must rewrite to "skip" so the rendered
+// cmd lands `--dangerously-skip-permissions`. The earlier "fall through
+// to claude default" behaviour caused stream-json --print to deny
+// Write/Edit/Bash with no attention_item to surface, stalling tasks.
+func TestBackendVarsFromSpec_EmptyModeDefaultsToSkip(t *testing.T) {
+	spec := strings.Join([]string{
+		"backend:",
+		"  model: claude-opus-4-7",
+		"  permission_modes:",
+		"    skip: --dangerously-skip-permissions",
+		"    prompt: --permission-prompt-tool mcp__{{mcp_namespace}}__permission_prompt",
+		"",
+	}, "\n")
+	model, flag := backendVarsFromSpec(spec, "")
+	if model != "claude-opus-4-7" {
+		t.Errorf("model = %q; want claude-opus-4-7", model)
+	}
+	if flag != "--dangerously-skip-permissions" {
+		t.Errorf("empty mode → flag = %q; want --dangerously-skip-permissions", flag)
+	}
+
+	// Explicit skip continues to resolve to the same flag (no regression).
+	_, flag = backendVarsFromSpec(spec, "skip")
+	if flag != "--dangerously-skip-permissions" {
+		t.Errorf(`explicit "skip" mode → flag = %q; want --dangerously-skip-permissions`, flag)
+	}
+
+	// Explicit prompt still works (no regression on the override path).
+	_, flag = backendVarsFromSpec(spec, "prompt")
+	if !strings.Contains(flag, "--permission-prompt-tool") {
+		t.Errorf(`explicit "prompt" mode → flag = %q; want --permission-prompt-tool`, flag)
+	}
+
+	// Unknown mode → empty lookup (no skip fallback for typo'd modes;
+	// the safety hatch is only for the empty-string default case).
+	_, flag = backendVarsFromSpec(spec, "bogus")
+	if flag != "" {
+		t.Errorf(`unknown mode "bogus" → flag = %q; want ""`, flag)
+	}
+
+	// Spec with no permission_modes block → empty, regardless of mode.
+	bareSpec := "backend:\n  model: claude-opus-4-7\n"
+	_, flag = backendVarsFromSpec(bareSpec, "")
+	if flag != "" {
+		t.Errorf("spec without permission_modes → flag = %q; want \"\"", flag)
+	}
+}
+
 // sanity: the server helper above should not leak a closed DB.
 var _ = sql.ErrNoRows

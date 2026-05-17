@@ -567,3 +567,94 @@ func readApplicableTemplateIDs(path string) []string {
 	}
 	return out
 }
+
+// handleResetBundledTemplates re-walks the embedded templates FS and
+// overwrites the on-disk copy under <dataRoot>/team/templates with the
+// bundled bytes. Use case: after a hub upgrade adds new fields to a
+// prompt/agent template (e.g. ADR-029 W2.6.1's close-out protocol
+// footer, ml-worker.v1's new tasks.complete capability), the on-disk
+// copy still carries the older version because writeBuiltinTemplates
+// at boot is no-overwrite. The operator-driven "reset" is the
+// escape hatch.
+//
+// Behaviour:
+//   - For every file in the embedded templates/ tree, overwrite the
+//     matching on-disk file (or create it). User-only files (no
+//     embedded counterpart) are LEFT IN PLACE — the contract is
+//     "restore bundled defaults", not "delete everything the user has".
+//   - Returns counts so the mobile UI can show "23 templates restored".
+//   - Audited as `template.reset` with the count in meta.
+//
+// Auth: same as the rest of /templates — any caller with team scope
+// can call. The blast radius is limited to the team's own on-disk
+// template tree; bundled templates are public (they ship in the
+// binary).
+func (s *Server) handleResetBundledTemplates(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	base := filepath.Join(s.cfg.DataRoot, "team")
+	overwritten := 0
+	created := 0
+	var firstErr error
+	err := fs.WalkDir(hub.TemplatesFS, "templates", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == "templates" {
+			return nil
+		}
+		target := filepath.Join(base, path)
+		if d.IsDir() {
+			if mkErr := os.MkdirAll(target, 0o700); mkErr != nil && firstErr == nil {
+				firstErr = mkErr
+			}
+			return nil
+		}
+		data, readErr := fs.ReadFile(hub.TemplatesFS, path)
+		if readErr != nil {
+			if firstErr == nil {
+				firstErr = readErr
+			}
+			return nil
+		}
+		exists := false
+		if _, statErr := os.Stat(target); statErr == nil {
+			exists = true
+		}
+		if writeErr := os.WriteFile(target, data, 0o600); writeErr != nil {
+			if firstErr == nil {
+				firstErr = writeErr
+			}
+			return nil
+		}
+		if exists {
+			overwritten++
+		} else {
+			created++
+		}
+		return nil
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if firstErr != nil {
+		writeErr(w, http.StatusInternalServerError, firstErr.Error())
+		return
+	}
+
+	actor := ""
+	if tok, ok := auth.FromContext(r.Context()); ok {
+		actor = principalFromScope(tok.ScopeJSON)
+	}
+	s.recordAudit(r.Context(), team, "template.reset", "team", team,
+		"reset bundled templates",
+		map[string]any{
+			"overwritten": overwritten,
+			"created":     created,
+			"by":          actor,
+		})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"overwritten": overwritten,
+		"created":     created,
+	})
+}

@@ -96,6 +96,17 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 // best-effort: if the spec isn't shaped like a backend block we return
 // empty strings rather than failing, since renderSpawnSpec must stay
 // usable for ad-hoc specs the operator types directly.
+//
+// Empty `mode` is rewritten to "skip" before the lookup. Earlier
+// behaviour (empty mode → empty permFlag → claude denies Write/Edit/Bash
+// in --print stream-json mode because there is neither a permission
+// prompt tool nor --dangerously-skip-permissions) silently broke any
+// caller that forgot to pass `permission_mode`: notably the
+// `agents.spawn` MCP path stewards use, where the schema lacked the
+// field entirely until v1.0.617. The mobile spawn sheet,
+// general-steward bootstrap, and project-steward delegation all already
+// default to "skip"; making the helper match removes the foot-gun
+// without changing any explicit caller's behaviour.
 func backendVarsFromSpec(spec, mode string) (model, permFlag string) {
 	var head struct {
 		Backend struct {
@@ -106,9 +117,10 @@ func backendVarsFromSpec(spec, mode string) (model, permFlag string) {
 	if err := yaml.Unmarshal([]byte(spec), &head); err != nil {
 		return "", ""
 	}
-	if mode != "" {
-		permFlag = head.Backend.PermissionModes[mode]
+	if mode == "" {
+		mode = "skip"
 	}
+	permFlag = head.Backend.PermissionModes[mode]
 	return head.Backend.Model, permFlag
 }
 

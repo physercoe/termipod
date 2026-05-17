@@ -286,6 +286,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		})
 		r.Route("/templates", func(r chi.Router) {
 			r.Get("/", s.handleListTemplates)
+			r.Post("/reset", s.handleResetBundledTemplates)
 			r.Get("/{category}/{name}", s.handleGetTemplate)
 			r.Put("/{category}/{name}", s.handlePutTemplate)
 			r.Delete("/{category}/{name}", s.handleDeleteTemplate)
@@ -293,6 +294,7 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		})
 		r.Route("/agent-families", func(r chi.Router) {
 			r.Get("/", s.handleListAgentFamilies)
+			r.Post("/reset", s.handleResetAgentFamilies)
 			r.Get("/{family}", s.handleGetAgentFamily)
 			r.Put("/{family}", s.handlePutAgentFamily)
 			r.Delete("/{family}", s.handleDeleteAgentFamily)

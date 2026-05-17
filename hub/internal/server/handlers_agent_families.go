@@ -277,3 +277,54 @@ func validateFamilyYAML(body []byte) (agentfamilies.Family, error) {
 	}
 	return f, nil
 }
+
+// handleResetAgentFamilies wipes every override file in the agent-
+// families overlay directory so the team falls back to the embedded
+// defaults. Counterpart to handleResetBundledTemplates — same UX
+// motivation (after a hub upgrade adds a new field or fixes a bug
+// in a bundled family, operators want a one-tap "go back to bundled"
+// without per-file deletes).
+//
+// Files with no embedded counterpart (operator-authored custom
+// families) ARE deleted too — this is the explicit semantic of
+// "reset to bundled". The mobile UI surfaces this in the
+// confirmation dialog so the operator can't be surprised.
+func (s *Server) handleResetAgentFamilies(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	overlayDir := s.agentFamilies.OverlayDir()
+	if overlayDir == "" {
+		writeErr(w, http.StatusInternalServerError,
+			"server has no DataRoot configured for overlay storage")
+		return
+	}
+	removed := 0
+	entries, err := os.ReadDir(overlayDir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// Overlay dir doesn't exist yet — nothing to remove, embedded
+		// already wins. Audit a no-op and return cleanly.
+		entries = nil
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		path := filepath.Join(overlayDir, name)
+		if rmErr := os.Remove(path); rmErr == nil {
+			removed++
+		}
+	}
+	s.agentFamilies.Invalidate()
+	s.recordAudit(r.Context(), team, "agent_family.reset", "team", team,
+		"reset agent-family overrides",
+		map[string]any{"removed": removed},
+	)
+	writeJSON(w, http.StatusOK, map[string]any{"removed": removed})
+}

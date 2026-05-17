@@ -24,6 +24,12 @@ const _kTemplateCategoryOrder = <String>[
   'policies',
 ];
 
+/// Which half of the Library to reset. Picked from the overflow menu;
+/// each lands on a different hub endpoint and shows a different
+/// confirmation copy. Templates restore-from-embedded; families
+/// delete-overrides (embedded already takes over).
+enum _ResetKind { templates, families }
+
 /// Browser + editor for team templates (agents / prompts / policies)
 /// plus the agent-family registry. Hub seeds templates on first init
 /// from the embedded FS; the user owns them after that. The mobile
@@ -144,6 +150,84 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
     await _load();
   }
 
+  /// Two destructive operations share the same confirmation shape, so
+  /// this single method dispatches to the right hub call based on
+  /// [kind]. The dialog body reads the description verbatim from each
+  /// branch so the operator sees exactly what's about to be lost or
+  /// overwritten before confirming.
+  Future<void> _confirmAndReset({required _ResetKind kind}) async {
+    final isTemplates = kind == _ResetKind.templates;
+    final title = isTemplates
+        ? 'Reset bundled templates?'
+        : 'Reset agent-family overrides?';
+    final body = isTemplates
+        ? 'Every on-disk template that ships with the hub will be '
+            'overwritten with the bundled version. Files you authored '
+            'yourself (no embedded counterpart) are kept as-is.\n\n'
+            'Use this after a hub upgrade adds new fields or fixes a '
+            'bundled template — your custom templates survive; only '
+            'the shipped ones reset.'
+        : 'Every agent-family override file will be deleted, so the '
+            'embedded defaults take over. Custom families you authored '
+            'that have no embedded counterpart WILL be deleted too.\n\n'
+            'Use this when you want a clean engine list straight from '
+            'the shipped defaults.';
+    final confirmLabel = isTemplates ? 'Reset templates' : 'Reset families';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(title),
+        content: Text(body, style: GoogleFonts.spaceGrotesk(fontSize: 13, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: DesignColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final client = ref.read(hubProvider.notifier).client;
+    if (client == null) return;
+    try {
+      final result = isTemplates
+          ? await client.resetBundledTemplates()
+          : await client.resetAgentFamilies();
+      if (!mounted) return;
+      String summary;
+      if (isTemplates) {
+        final ow = (result['overwritten'] ?? 0).toString();
+        final created = (result['created'] ?? 0).toString();
+        summary = 'Reset done — overwritten: $ow, created: $created';
+      } else {
+        final removed = (result['removed'] ?? 0).toString();
+        summary = 'Reset done — removed: $removed override(s)';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(summary)));
+      // Refresh whichever tab the operator was looking at so the
+      // visible list reflects the new disk state immediately.
+      if (isTemplates) {
+        await _load();
+      } else {
+        await _familiesKey.currentState?.load();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Reset failed: $e'),
+        backgroundColor: DesignColors.error,
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final onTemplates = _tabs.index == 0;
@@ -183,6 +267,42 @@ class _TemplatesScreenState extends ConsumerState<TemplatesScreen>
             onPressed: onTemplates
                 ? (_loading ? null : _load)
                 : () => _familiesKey.currentState?.load(),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'More actions',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (v) {
+              switch (v) {
+                case 'reset_templates':
+                  _confirmAndReset(kind: _ResetKind.templates);
+                  break;
+                case 'reset_families':
+                  _confirmAndReset(kind: _ResetKind.families);
+                  break;
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'reset_templates',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.restart_alt, size: 20),
+                  title: Text('Reset bundled templates'),
+                  subtitle: Text('Overwrite on-disk copies with shipped defaults'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'reset_families',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.restart_alt, size: 20),
+                  title: Text('Reset agent-family overrides'),
+                  subtitle: Text('Delete every override; embedded defaults win'),
+                ),
+              ),
+            ],
           ),
         ],
         bottom: TabBar(

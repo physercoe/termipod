@@ -126,3 +126,27 @@ func TestValidateAgentTemplateNameMatch_NoVersionSuffixTolerated(t *testing.T) {
 		t.Errorf("file with no .v<N> should be tolerated by name-match check; got %q", reason)
 	}
 }
+
+// v1.0.625 var-reference audit: bundled templates + prompts must
+// not reference any {{var}} unbound by buildSpawnVars.
+func TestAuditBundledTemplateVarRefs_AllBundledAssetsBound(t *testing.T) {
+	if err := auditBundledTemplateVarRefs(); err != nil {
+		t.Fatalf("bundled-template var-reference audit failed: %v", err)
+	}
+}
+
+// extractTmplVarRefs is the regex extractor the audit walks against.
+// Lock its dedup + ordering so audit error messages stay readable.
+func TestExtractTmplVarRefs_DeduplicatesAndPreservesOrder(t *testing.T) {
+	in := []byte("hi {{a}} then {{b}} and {{a}} again {{c.d}}")
+	got := extractTmplVarRefs(in)
+	want := []string{"a", "b", "c.d"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("got[%d]=%q, want %q", i, got[i], want[i])
+		}
+	}
+}

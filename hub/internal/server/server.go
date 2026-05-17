@@ -73,6 +73,16 @@ func New(cfg Config) (*Server, error) {
 	if err := auditBundledAgentTemplates(); err != nil {
 		return nil, fmt.Errorf("bundled-template audit: %w", err)
 	}
+	// W10d (v1.0.625): the var-reference audit catches `{{var}}`
+	// references in bundled templates / prompts that would silently
+	// expand to "" at render time — the v1.0.625 incident class
+	// (steward.research.v1.md used `{{project_id}}` unbound; four
+	// worker prompts used `{{parent.handle}}` while the bound key
+	// was `parent_handle`). See
+	// docs/discussions/validate-at-every-boundary.md §3 (Layer 4).
+	if err := auditBundledTemplateVarRefs(); err != nil {
+		return nil, fmt.Errorf("bundled-template var-reference audit: %w", err)
+	}
 	db, err := OpenDB(cfg.DBPath)
 	if err != nil {
 		return nil, err

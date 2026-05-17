@@ -87,6 +87,15 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		"principal.handle": strings.TrimPrefix(resolvedPrincipal, "@"),
 		"model":            model,
 		"permission_flag":  permFlag,
+		// project_id binds to the spawn request's ProjectID (empty for
+		// unscoped spawns). Stewards under ADR-025 are always
+		// project-scoped, so their prompt templates can reference
+		// {{project_id}} and have the literal project id baked into
+		// their materialized CLAUDE.md/AGENTS.md — that's what the
+		// steward.research.v1 prompt's `spawn_spec_yaml="template:
+		// agents.coder\nproject_id: {{project_id}}\n"` examples need
+		// to render correctly. v1.0.625 binding.
+		"project_id": in.ProjectID,
 		// MCP server namespace is a wire-protocol constant, owned by the
 		// hub root package so server + hostrunner agree. Templates that
 		// build claude flags like --permission-prompt-tool need it
@@ -99,7 +108,17 @@ func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, pr
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
+		// Bind under BOTH `parent_handle` (underscore) and `parent.handle`
+		// (dotted) so prompts that use either form expand correctly. The
+		// dotted form matches `{{principal.handle}}` which is the more
+		// common convention — every bundled worker prompt
+		// (coder.v1.md, critic.v1.md, lit-reviewer.v1.md,
+		// paper-writer.v1.md) used `{{parent.handle}}` and silently
+		// expanded to empty before v1.0.625 because only the underscore
+		// form was bound. Keep both for any operator-authored prompt
+		// that picked the underscore form by reading the source.
 		vars["parent_handle"] = parentHandle
+		vars["parent.handle"] = parentHandle
 		vars["journal"] = journal
 	}
 	return vars, nil

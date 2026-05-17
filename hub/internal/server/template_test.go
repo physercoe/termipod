@@ -648,5 +648,72 @@ func TestRenderSpawnSpec_TemplateIndirectionExpandsModel(t *testing.T) {
 	}
 }
 
+// TestBuildSpawnVars_BindsProjectID locks the v1.0.625 binding fix.
+// {{project_id}} is referenced by steward.research.v1.md's spawn_spec
+// examples (`project_id: {{project_id}}`). Pre-v1.0.625 the var was
+// unbound → expanded to "" → steward saw malformed `project_id: ` in
+// its persona and propagated empty values into worker spawns.
+func TestBuildSpawnVars_BindsProjectID(t *testing.T) {
+	s, _ := newTestServer(t)
+	in := spawnIn{
+		ChildHandle: "w",
+		Kind:        "coder.v1",
+		SpawnSpec:   "backend:\n  model: claude-opus-4-7\n",
+		ProjectID:   "01KPROJECT12345",
+	}
+	vars, err := s.buildSpawnVars(context.Background(), defaultTeamID, in, "@p")
+	if err != nil {
+		t.Fatalf("buildSpawnVars: %v", err)
+	}
+	if vars["project_id"] != "01KPROJECT12345" {
+		t.Errorf("project_id = %q, want 01KPROJECT12345", vars["project_id"])
+	}
+	// Unscoped spawn → empty is acceptable; just confirm the key is
+	// always present so expandVars never leaves the placeholder behind.
+	in.ProjectID = ""
+	vars, _ = s.buildSpawnVars(context.Background(), defaultTeamID, in, "@p")
+	if _, ok := vars["project_id"]; !ok {
+		t.Errorf("project_id key missing for unscoped spawn (would leave {{project_id}} unsubstituted? — no: empty key still expands to empty)")
+	}
+	if vars["project_id"] != "" {
+		t.Errorf("project_id = %q, want empty for unscoped spawn", vars["project_id"])
+	}
+}
+
+// TestBuildSpawnVars_BindsParentHandleDotted locks the v1.0.625 fix
+// for the {{parent.handle}} → "" silent-empty bug. Four bundled
+// worker prompts (coder.v1.md, critic.v1.md, lit-reviewer.v1.md,
+// paper-writer.v1.md) reference the dotted form. The bound key was
+// `parent_handle` (underscore) only, so every "@{{parent.handle}}"
+// in those prompts rendered to "@" — the worker's persona never
+// learned its steward's handle.
+func TestBuildSpawnVars_BindsParentHandleDotted(t *testing.T) {
+	s, _ := newTestServer(t)
+	parentID := "01KPARENT01"
+	_, err := s.db.Exec(
+		`INSERT INTO agents (id, team_id, handle, kind, status, created_at) `+
+			`VALUES (?, ?, ?, 'steward.v1', 'running', ?)`,
+		parentID, defaultTeamID, "research-steward", "2026-05-17T00:00:00Z")
+	if err != nil {
+		t.Fatalf("seed parent: %v", err)
+	}
+	in := spawnIn{
+		ChildHandle: "w",
+		Kind:        "coder.v1",
+		SpawnSpec:   "backend:\n  model: claude-opus-4-7\n",
+		ParentID:    parentID,
+	}
+	vars, err := s.buildSpawnVars(context.Background(), defaultTeamID, in, "@p")
+	if err != nil {
+		t.Fatalf("buildSpawnVars: %v", err)
+	}
+	if vars["parent.handle"] != "research-steward" {
+		t.Errorf("parent.handle = %q, want research-steward", vars["parent.handle"])
+	}
+	if vars["parent_handle"] != "research-steward" {
+		t.Errorf("parent_handle = %q, want research-steward (back-compat)", vars["parent_handle"])
+	}
+}
+
 // sanity: the server helper above should not leak a closed DB.
 var _ = sql.ErrNoRows

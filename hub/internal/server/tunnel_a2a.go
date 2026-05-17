@@ -353,14 +353,22 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	// in meta. Only fired when the upstream returned a 2xx — failed
 	// relays are tracked via tunnel.metrics.Dropped() above.
 	//
-	// W2.11 piggybacks on the same 2xx gate: push a kind='a2a.received'
-	// system event into the receiver's session so the in-chat surface
-	// gets a real-time signal rather than waiting for the host-runner
-	// InputRouter to deliver the message body on its next poll.
+	// W2.11 piggybacks on the same 2xx gate: push a kind='a2a.sent'
+	// system event into the SENDER's session so its chat surfaces what
+	// it just dispatched. The receiver doesn't get a sibling banner —
+	// the host-runner's a2aHubDispatcher already POSTs the message body
+	// as an input.text producer='a2a' event, which renders as the
+	// actual A2A turn in the receiver's chat.
 	if status < 400 {
-		fromHandle, fromAgentID := s.resolveA2ASender(r)
+		_, fromAgentID := s.resolveA2ASender(r)
 		s.recordA2ARelayAudit(r, body, host, agent)
-		s.notifyA2AReceived(r.Context(), agent, body, fromHandle, fromAgentID)
+		if fromAgentID != "" {
+			var recvHandle string
+			_ = s.db.QueryRowContext(r.Context(),
+				`SELECT COALESCE(handle, '') FROM agents WHERE id = ?`, agent,
+			).Scan(&recvHandle)
+			s.notifyA2ASent(r.Context(), fromAgentID, body, recvHandle, agent)
+		}
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(bodyBytes)

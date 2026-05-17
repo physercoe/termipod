@@ -864,19 +864,24 @@ silently degrade.
   the in-session push. Both fire from `handleCompleteRun`.
 - *Canonical:* `hub/internal/server/run_notify.go`.
 
-### a2a.received
-The agent_events row that lands in a receiving agent's session every
+### a2a.sent
+The agent_events row that lands in a *sending* agent's session every
 time a successful A2A relay delivers (status < 400).
-`kind='a2a.received'`, `producer='system'`. Payload carries
-`{from_handle, from_agent_id, preview, body}`. The receiver no longer
-pays the host-runner `InputRouter` poll latency for inbound peer
-messages — the chat surface gets an immediate signal alongside the
-actual A2A turn the host runner delivers a moment later. Unauthed
-peer relays (no resolvable bearer) render as "A2A peer message" with
-empty attribution.
+`kind='a2a.sent'`, `producer='system'`. Payload carries
+`{to_handle, to_agent_id, preview, body}`. The sender's chat surfaces
+what it just dispatched — without this push the outbound turn was
+invisible (the MCP call returns the receiver's reply, but the chat
+showed nothing for the request itself).
+- *Why no receiver-side sibling?* The host-runner's
+  `a2aHubDispatcher` already POSTs the message body to the hub as an
+  `input.text producer='a2a'` event, which renders as the actual A2A
+  turn in the receiver's chat. A receiver banner on top would
+  double-render the same content.
 - *Distinguish from:* **a2a.message_sent** — `a2a.message_sent` is
   the `audit_events.action` written by `recordA2ARelayAudit` on the
-  same delivery; `a2a.received` is the receiver-side push.
+  same delivery; `a2a.sent` is the sender-side in-chat push.
+- *Sender unknown* (unauthed peer call with no forwarded bearer) →
+  notification is skipped; only the audit row records the relay.
 - *Canonical:* `hub/internal/server/a2a_notify.go`.
 
 ### note

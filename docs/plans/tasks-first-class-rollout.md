@@ -299,13 +299,17 @@ Closes the ML-engineer-polling gap surfaced by the 2026-05-16
 notification audit. Standalone runs (NULL `agent_id`) silently
 degrade.
 
-**W2.11 (`a2a.received`, ~120 LOC).** Every successful A2A relay
-(status < 400) injects `kind='a2a.received' producer='system'` into
-the receiver's active session. Receiver no longer pays
-host-runner InputRouter poll latency for inbound peer messages.
-Helper: `hub/internal/server/a2a_notify.go:notifyA2AReceived`.
-Sender attribution piggybacks on `resolveA2ASender` shared with the
-audit row; unauthed peer calls render as "A2A peer message: …".
+**W2.11 (`a2a.sent`, ~120 LOC; sender-side, v1.0.613-alpha flip).**
+Every successful A2A relay (status < 400) injects
+`kind='a2a.sent' producer='system'` into the **sender's** active
+session so its chat surfaces what it just dispatched. Helper:
+`hub/internal/server/a2a_notify.go:notifyA2ASent`. Sender identity
+piggybacks on `resolveA2ASender` shared with the audit row; unauthed
+peer calls (no resolvable bearer) skip the push — only the audit row
+records the relay. Receiver-side push deliberately omitted: the
+host-runner's `a2aHubDispatcher` already POSTs the message body as
+`input.text producer='a2a'`, which renders as the actual A2A turn
+in the receiver's chat — a sibling banner would just double-render.
 
 The broader audit that produced W2.10 + W2.11 (and the remaining
 unscheduled gaps) lives at

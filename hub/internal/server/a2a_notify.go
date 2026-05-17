@@ -8,43 +8,42 @@ import (
 	"strings"
 )
 
-// notifyA2AReceived posts a kind='a2a.received' producer='system' event
-// into the receiving agent's most-recent active session every time an
-// A2A relay successfully delivers (status < 400). Closes the gap where
-// peer-to-peer messages were audit-only — the receiver only discovered
-// them on its next `InputRouter` poll, adding host-runner heartbeat
-// latency (up to several seconds) to multi-agent coordination.
+// notifyA2ASent posts a kind='a2a.sent' producer='system' event into the
+// SENDING agent's most-recent active session every time an A2A relay
+// successfully delivers (status < 400). Closes the gap where the sender
+// (e.g. the general steward calling a2a.invoke) had no in-chat trace of
+// what it just dispatched — the MCP call returns the receiver's reply
+// synchronously, but the sender's session showed nothing for the
+// outbound turn.
 //
-// The receiving agent's driver subscribes to its `agentBusKey` channel
-// and re-renders the chat surface immediately on push, so the message
-// preview surfaces inline alongside the actual A2A turn that the host
-// runner delivers a moment later. The event is informational — it
-// records that an inbound A2A message was received and gives the
-// receiver's UI a hook to badge the session.
+// The receiver does NOT need a sibling notification: the host-runner's
+// a2aHubDispatcher already POSTs the message body to the hub as an
+// input.text producer='a2a' event, so the receiver sees the actual A2A
+// turn render in its chat as a real user message. A receiver-side
+// banner on top of that would just double-render the same content.
 //
 // Best-effort:
-//   - no live session for the receiver → skip (audit row remains)
+//   - sender unknown (peer call without a forwarded bearer) → skip
+//     (audit row remains the only trace; the sender isn't ours to ping)
+//   - no live session for the sender → skip
 //   - DB errors → logged at warn
-//   - empty body → still push (the event records arrival; consumers
-//     can decide how to render an empty preview)
 //
-// fromHandle / fromAgentID may be empty when the peer's bearer didn't
-// resolve to a known agent (e.g. an external A2A caller). Mirror the
-// audit row's "actor_kind='peer'" semantic — body still says "A2A
-// message received" with whatever attribution was available.
-func (s *Server) notifyA2AReceived(ctx context.Context, recvAgentID string, body []byte, fromHandle, fromAgentID string) {
-	if recvAgentID == "" {
+// recvHandle / recvAgentID identify the destination for the rendered
+// chat preview. When recvHandle is empty (legacy / un-handle'd agent),
+// the body falls back to the agent_id.
+func (s *Server) notifyA2ASent(ctx context.Context, senderAgentID string, body []byte, recvHandle, recvAgentID string) {
+	if senderAgentID == "" {
 		return
 	}
 	var teamID string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT team_id FROM agents WHERE id = ?`, recvAgentID).Scan(&teamID)
+		`SELECT team_id FROM agents WHERE id = ?`, senderAgentID).Scan(&teamID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return
 	}
 	if err != nil {
-		s.log.Warn("notify a2a received: team lookup",
-			"recv_agent_id", recvAgentID, "err", err)
+		s.log.Warn("notify a2a sent: team lookup",
+			"sender_agent_id", senderAgentID, "err", err)
 		return
 	}
 	var sessionID string
@@ -53,23 +52,23 @@ func (s *Server) notifyA2AReceived(ctx context.Context, recvAgentID string, body
 		  FROM sessions
 		 WHERE team_id = ? AND current_agent_id = ? AND status = 'active'
 		 ORDER BY last_active_at DESC
-		 LIMIT 1`, teamID, recvAgentID).Scan(&sessionID)
+		 LIMIT 1`, teamID, senderAgentID).Scan(&sessionID)
 	if errors.Is(err, sql.ErrNoRows) || sessionID == "" {
 		return
 	}
 	if err != nil {
-		s.log.Warn("notify a2a received: session lookup",
-			"recv_agent_id", recvAgentID, "err", err)
+		s.log.Warn("notify a2a sent: session lookup",
+			"sender_agent_id", senderAgentID, "err", err)
 		return
 	}
 
 	preview := previewA2ABody(body)
-	rendered := a2aNotifyBody(fromHandle, fromAgentID, preview)
+	rendered := a2aSentBody(recvHandle, recvAgentID, preview)
 	payload := map[string]any{
-		"from_handle":   fromHandle,
-		"from_agent_id": fromAgentID,
-		"preview":       preview,
-		"body":          rendered,
+		"to_handle":   recvHandle,
+		"to_agent_id": recvAgentID,
+		"preview":     preview,
+		"body":        rendered,
 	}
 	payloadBytes, _ := json.Marshal(payload)
 	id := NewID()
@@ -77,45 +76,46 @@ func (s *Server) notifyA2AReceived(ctx context.Context, recvAgentID string, body
 	var seq int64
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'a2a.received', 'system', ?, ?
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'a2a.sent', 'system', ?, ?
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
-		id, recvAgentID, ts, string(payloadBytes), sessionID, recvAgentID).
+		id, senderAgentID, ts, string(payloadBytes), sessionID, senderAgentID).
 		Scan(&seq)
 	if err != nil {
-		s.log.Warn("notify a2a received: insert event",
-			"recv_agent_id", recvAgentID, "err", err)
+		s.log.Warn("notify a2a sent: insert event",
+			"sender_agent_id", senderAgentID, "err", err)
 		return
 	}
 	s.touchSession(ctx, sessionID)
-	s.bus.Publish(agentBusKey(recvAgentID), map[string]any{
+	s.bus.Publish(agentBusKey(senderAgentID), map[string]any{
 		"id":         id,
-		"agent_id":   recvAgentID,
+		"agent_id":   senderAgentID,
 		"seq":        seq,
 		"ts":         ts,
-		"kind":       "a2a.received",
+		"kind":       "a2a.sent",
 		"producer":   "system",
 		"payload":    json.RawMessage(payloadBytes),
 		"session_id": sessionID,
 	})
 }
 
-// a2aNotifyBody formats the inline chat preview. "A2A from @sender:
-// <text>" when sender is known; "A2A peer message: <text>" otherwise.
-// Empty preview produces "A2A from @sender." with no trailing colon.
-func a2aNotifyBody(fromHandle, fromAgentID, preview string) string {
+// a2aSentBody formats the inline chat preview for the sender's session.
+// "→ A2A to @receiver: <text>" when handle known; "→ A2A to `<id>`: <text>"
+// when only the agent_id is known. Empty preview → "→ A2A to @receiver."
+// with no trailing colon.
+func a2aSentBody(recvHandle, recvAgentID, preview string) string {
 	var b strings.Builder
-	b.WriteString("A2A ")
+	b.WriteString("→ A2A to ")
 	switch {
-	case fromHandle != "":
-		b.WriteString("from @")
-		b.WriteString(strings.TrimPrefix(fromHandle, "@"))
-	case fromAgentID != "":
-		b.WriteString("from `")
-		b.WriteString(fromAgentID)
+	case recvHandle != "":
+		b.WriteString("@")
+		b.WriteString(strings.TrimPrefix(recvHandle, "@"))
+	case recvAgentID != "":
+		b.WriteString("`")
+		b.WriteString(recvAgentID)
 		b.WriteString("`")
 	default:
-		b.WriteString("peer message")
+		b.WriteString("peer")
 	}
 	preview = strings.TrimSpace(preview)
 	if preview != "" {

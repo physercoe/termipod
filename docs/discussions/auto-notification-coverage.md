@@ -10,7 +10,7 @@
 `agent_events` `producer='system'` rows injected into a specific
 agent's active session. A 2026-05-16 audit found that only four event
 classes route through one of these primitives; the rest are silent
-audit-only. Two more (`run.notify`, `a2a.received`) just shipped in
+audit-only. Two more (`run.notify`, `a2a.sent`) just shipped in
 W2.10/W2.11; this discussion enumerates the remaining gaps so we can
 schedule the rest deliberately rather than discover them one bug
 report at a time.
@@ -49,7 +49,8 @@ of whichever hub-side event it's listening to.
 | Mode / model change | `handlers_sessions.go:868` | ✓ agent_events (`system`) |
 | **Task terminal (W2.9)** | `task_notify.go` | ✓ agent_events (`task.notify`) |
 | **Run terminal (W2.10)** | `run_notify.go` | ✓ agent_events (`run.notify`) |
-| **A2A received (W2.11)** | `a2a_notify.go` | ✓ agent_events (`a2a.received`) |
+| **A2A sent (W2.11, sender-side)** | `a2a_notify.go` | ✓ agent_events (`a2a.sent`) |
+| A2A received (receiver-side) | `hostrunner/a2a_dispatcher.go` | ✓ agent_events (`input.text producer='a2a'`) |
 | Agent terminate (no task linkage) | `handlers_agents.go:343` | ⚠ audit only |
 | Agent archive | `handlers_agents.go:482` | ⚠ audit only |
 | Session open / fork / archive / delete | `handlers_sessions.go` | ⚠ audit only |
@@ -224,7 +225,7 @@ events to the local notifications path. That's a separate concern
   (training 100 runs in a row) could spam its parent steward. No
   rate-limiting today. Worth revisiting once 4.1 lands.
 - **Mobile rendering of new system event kinds.** `task.notify`,
-  `run.notify`, `a2a.received` all use `producer='system'` but
+  `run.notify`, `a2a.sent` all use `producer='system'` but
   different `kind` values. Mobile chat surface needs per-kind
   rendering (icon, color, action chip). Currently they render as
   generic system rows. ADR-029 Phase 2 W8/W9 cover `task.notify`;
@@ -237,7 +238,7 @@ events to the local notifications path. That's a separate concern
 - Audit conducted: 2026-05-16 (this doc captures the result)
 - W2.9 `task.notify`: shipped post-v1.0.610-alpha
 - W2.10 `run.notify`: shipped (unpushed at write time)
-- W2.11 `a2a.received`: shipped (unpushed at write time)
+- W2.11 `a2a.sent`: shipped v1.0.611-alpha as `a2a.received` (receiver-side); flipped sender-side v1.0.613-alpha after the receiver-side push was found to duplicate `input.text producer='a2a'`
 - Host health (§3.1), project phase (§3.2), ad-hoc agent terminate
   (§3.3): unscheduled
 - Document / artifact / deliverable push (§4.1): unscheduled

@@ -379,8 +379,9 @@ on the hub. A 2026-05-16 audit
 ([discussions/auto-notification-coverage.md](../discussions/auto-notification-coverage.md))
 enumerated the other lifecycle events that should ride the same
 primitive; W2.10 (`run.notify` on terminal run transitions) and
-W2.11 (`a2a.received` on peer message delivery) ship the next two
-incrementally. Remaining gaps (host health, project phase
+W2.11 (`a2a.sent` on outbound peer message — sender-side push;
+the receiver already gets the body via `input.text producer='a2a'`
+through the host-runner dispatcher) ship the next two incrementally. Remaining gaps (host health, project phase
 transitions, ad-hoc agent terminate, document/artifact publish)
 are scheduled out of that discussion, not this ADR.
 

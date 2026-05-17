@@ -3,12 +3,22 @@ package server
 import (
 	"fmt"
 	"io/fs"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	hub "github.com/termipod/hub"
 	"gopkg.in/yaml.v3"
 )
+
+// agentTemplateVersionSuffix matches the trailing `.v<N>` segment of
+// a bundled agent-template filename so the audit can derive the
+// basename (e.g. `coder.v1` → `coder`, `steward.general.v1` →
+// `steward.general`). The corresponding internal `template:` field
+// must be `agents.<basename>` per
+// `docs/reference/agent-template-naming.md`.
+var agentTemplateVersionSuffix = regexp.MustCompile(`\.v\d+$`)
 
 // W10b: bundled-template audit. Called from server.New on every hub
 // start. Walks every `templates/agents/*.yaml` in the embedded FS,
@@ -62,6 +72,14 @@ func auditBundledAgentTemplates() error {
 			reason := validateBundledAgentTemplate(data)
 			if reason != "" {
 				broken = append(broken, brokenTemplate{Path: path, Reason: reason})
+				return nil
+			}
+			// Filename↔internal-id match check. Per
+			// docs/reference/agent-template-naming.md the file
+			// `<basename>.v<N>.yaml` must declare
+			// `template: agents.<basename>`.
+			if mismatch := validateAgentTemplateNameMatch(path, data); mismatch != "" {
+				broken = append(broken, brokenTemplate{Path: path, Reason: mismatch})
 			}
 			return nil
 		})
@@ -104,6 +122,46 @@ func validateBundledAgentTemplate(data []byte) string {
 	}
 	if strings.TrimSpace(doc.Backend.Cmd) == "" {
 		return "missing or empty `backend.cmd` field"
+	}
+	return ""
+}
+
+// validateAgentTemplateNameMatch enforces the file-to-internal-id
+// match documented in `docs/reference/agent-template-naming.md`:
+//
+//	hub/templates/agents/<basename>.v<N>.yaml
+//	          ⇡⇡⇡⇡⇡⇡⇡⇡⇡
+//	internal `template:` MUST equal `agents.<basename>`
+//
+// The basename is the filename without the trailing `.v<N>.yaml`.
+// Returns "" when the names match, a structured message otherwise.
+// The check is intentionally separate from
+// validateBundledAgentTemplate so it can be invoked only for files
+// under templates/agents/ (project templates have a different
+// convention — no `agents.` prefix; see template-yaml-schema.md).
+func validateAgentTemplateNameMatch(path string, data []byte) string {
+	var doc struct {
+		Template string `yaml:"template"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		// Already reported by validateBundledAgentTemplate; skip.
+		return ""
+	}
+	filename := filepath.Base(path)
+	noYAML := strings.TrimSuffix(filename, ".yaml")
+	basename := agentTemplateVersionSuffix.ReplaceAllString(noYAML, "")
+	if basename == noYAML {
+		// File didn't end in `.v<N>` — the naming spec requires it,
+		// but tolerate (other validators will flag missing fields).
+		// Return "" so we don't double-report.
+		return ""
+	}
+	expected := "agents." + basename
+	if doc.Template != expected {
+		return fmt.Sprintf(
+			"`template:` field %q does not match filename basename — expected %q "+
+				"(see docs/reference/agent-template-naming.md)",
+			doc.Template, expected)
 	}
 	return ""
 }

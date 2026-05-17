@@ -16,7 +16,7 @@ import (
 
 func TestMergeTemplateReference_LoadsBundledTemplate(t *testing.T) {
 	s, _ := newTestServer(t)
-	merged, err := s.mergeTemplateReference("template: coder.v1\n")
+	merged, err := s.mergeTemplateReference("template: agents.coder\n")
 	if err != nil {
 		t.Fatalf("mergeTemplateReference: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestMergeTemplateReference_SpecOverridesTemplate(t *testing.T) {
 	// field. The merge keeps the template's other backend fields and
 	// only swaps the overridden one.
 	s, _ := newTestServer(t)
-	spec := "template: coder.v1\nbackend:\n  model: claude-haiku-4-5-20251001\n"
+	spec := "template: agents.coder\nbackend:\n  model: claude-haiku-4-5-20251001\n"
 	merged, err := s.mergeTemplateReference(spec)
 	if err != nil {
 		t.Fatalf("mergeTemplateReference: %v", err)
@@ -83,19 +83,37 @@ func TestMergeTemplateReference_RejectsPathTraversal(t *testing.T) {
 	}
 }
 
-// End-to-end: the original incident's spec now succeeds.
+// End-to-end: the original incident's spec now succeeds (using the
+// canonical form `agents.coder`; the v1.0.620 band-aid that accepted
+// `coder.v1` as well was removed in v1.0.621 — stewards now reach for
+// the documented form per docs/reference/agent-template-naming.md).
 func TestDoSpawn_TemplateOnlySpec_Succeeds(t *testing.T) {
 	s, _ := newTestServer(t)
 	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "summarizer-2",
 		Kind:        "claude-code",
-		SpawnSpec:   "template: coder.v1\n",
+		SpawnSpec:   "template: agents.coder\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
 	}
 	if out.AgentID == "" {
 		t.Error("expected non-empty AgentID after successful template-only spawn")
+	}
+}
+
+// File-basename form (`coder.v1`) was a v1.0.620 band-aid; v1.0.621
+// removed it. Stewards now MUST use the canonical id `agents.coder`.
+// This test pins the rejection so a future reintroduction of the
+// dual-form lookup would fail loudly.
+func TestMergeTemplateReference_FileBasenameFormRejected(t *testing.T) {
+	s, _ := newTestServer(t)
+	_, err := s.mergeTemplateReference("template: coder.v1\n")
+	if err == nil {
+		t.Fatal("expected error for file-basename form `coder.v1`; canonical id is `agents.coder`")
+	}
+	if !strings.Contains(err.Error(), "coder.v1") {
+		t.Errorf("error should name the invalid reference: %q", err.Error())
 	}
 }
 

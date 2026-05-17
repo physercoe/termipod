@@ -268,13 +268,13 @@ func deepMergeYAMLMaps(base, over map[string]any) map[string]any {
 }
 
 // readAgentTemplate finds the template whose internal `template:`
-// field matches `name` (e.g. `coder.v1` or `agents.steward.general`)
-// and returns its body. The lookup is name-based not filename-based
-// because the file naming convention (`steward.general.v1.yaml`)
-// differs from the internal id convention (`agents.steward.general`).
+// field matches `name` (e.g. `agents.coder`, `agents.steward.general`)
+// and returns its body. The lookup is canonical-form only: callers
+// reference templates by the internal id documented in
+// `docs/reference/agent-template-naming.md`, not by file basename.
 // This mirrors the host-runner template loader at
-// `hub/internal/hostrunner/templates.go` which already indexes by
-// `doc.Template`.
+// `hub/internal/hostrunner/templates.go` which also keys on the
+// internal `template:` field.
 //
 // Lookup order: user-overlaid templates at <dataRoot>/team/templates/
 // agents/ win over bundled ones at hub.TemplatesFS:templates/agents/.
@@ -338,22 +338,15 @@ func scanEmbeddedForTemplate(name string) (string, bool) {
 	return "", false
 }
 
-// templateMatches accepts EITHER:
-//   - the internal `template:` field (e.g. `agents.coder`,
-//     `agents.steward.general`) — canonical form used by `templates_propose`
-//   - the file basename without `.yaml` (e.g. `coder.v1`,
-//     `steward.general.v1`) — natural form stewards reach for when
-//     referencing a template they've seen on disk
-//
-// Both forms resolve to the same template. The v1.0.619 incident
-// reproduced exactly because a steward sent the basename form and the
-// system silently failed; accepting both forms is the defensive
-// answer rather than forcing stewards to discover the dotted-form
-// convention via tool error messages.
-func templateMatches(body []byte, fileBase, query string) bool {
-	if fileBase == query {
-		return true
-	}
+// templateMatches checks whether the file body declares an internal
+// `template:` field equal to `query`. The lookup is canonical-form
+// only: agent templates MUST be referenced by their internal id
+// (e.g. `agents.coder`), not by file basename — see
+// `docs/reference/agent-template-naming.md` for why the `agents.`
+// prefix is load-bearing. v1.0.620 briefly accepted both forms as a
+// band-aid for an undocumented convention; v1.0.621 removed the
+// dual-form lookup once the spec was formalised.
+func templateMatches(body []byte, _, query string) bool {
 	var head struct {
 		Template string `yaml:"template"`
 	}

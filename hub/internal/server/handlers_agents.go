@@ -1002,7 +1002,7 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 		return spawnOut{}, http.StatusUnprocessableEntity,
 			errors.New("rendered spawn_spec_yaml has no backend.cmd; " +
 				"spec must declare `backend.cmd` directly or reference a " +
-				"template with backend.cmd (e.g. `template: coder.v1`)")
+				"template with backend.cmd (e.g. `template: agents.coder`)")
 	}
 	// Inline the agent's CLAUDE.md (resolved from the template's `prompt:`
 	// field). The host-runner launcher writes context_files entries into

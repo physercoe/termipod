@@ -70,39 +70,23 @@ func TestDoSpawn_FailFast_BackendBlockNoCmd(t *testing.T) {
 	}
 }
 
-func TestDoSpawn_FailFast_TemplateReferenceAloneRejectedPreW1(t *testing.T) {
-	// This test pins the BUG the incident reproduced: a bare
-	// `template: coder.v1` spec is rejected by W4 because
-	// renderSpawnSpec (pre-W1) does NOT load the template's
-	// backend.cmd. After W1 lands, this test should be updated to
-	// expect success (template merge populates backend.cmd).
-	//
-	// The point of keeping this test even after W1: if W1 ever
-	// regresses, W4 still catches it and the steward sees 422
-	// instead of bash-pane-respawn-loop.
+func TestDoSpawn_FailFast_TemplateReferenceCanonicalForm(t *testing.T) {
+	// The canonical agent-template reference per
+	// docs/reference/agent-template-naming.md is the prefixed form
+	// `agents.<basename>`. The hub-side W1 merge loads the template
+	// and populates backend.cmd, so this spec passes the W4 gate and
+	// the spawn succeeds.
 	s, _ := newTestServer(t)
 	_, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
-		ChildHandle: "ff-template-only",
+		ChildHandle: "ff-template-canonical",
 		Kind:        "claude-code",
-		SpawnSpec:   "template: coder.v1\n",
+		SpawnSpec:   "template: agents.coder\n",
 	})
-	// Pre-W1: rejected by W4 with 422. Post-W1: succeeds with 201
-	// because the template merge populates backend.cmd before W4 runs.
-	// What's NOT acceptable is the pre-bundle silent fall-through to
-	// bash. Assert one of {422 with backend.cmd error, 2xx success}.
-	switch {
-	case status == http.StatusUnprocessableEntity:
-		if !strings.Contains(err.Error(), "backend.cmd") {
-			t.Errorf("status=422 error = %q; should name backend.cmd", err.Error())
-		}
-	case status >= 200 && status < 300:
-		if err != nil {
-			t.Errorf("status=%d but err = %v", status, err)
-		}
-		// W1 landed; template merge populated backend.cmd.
-	default:
-		t.Errorf("unexpected status = %d (err=%v); want 422 (pre-W1) or 2xx (post-W1)",
-			status, err)
+	if err != nil {
+		t.Fatalf("canonical template form rejected: status=%d err=%v", status, err)
+	}
+	if status < 200 || status >= 300 {
+		t.Errorf("unexpected status = %d (err=%v); want 2xx", status, err)
 	}
 }
 

@@ -59,7 +59,23 @@ var tmplVarRe = regexp.MustCompile(`\{\{\s*([a-z_][a-z0-9_.]*)\s*\}\}`)
 // Missing entries collapse to empty strings so a partially-filled
 // template still spawns without 400ing on placeholder expansion.
 func (s *Server) buildSpawnVars(ctx context.Context, team string, in spawnIn, principal string) (map[string]string, error) {
-	model, permFlag := backendVarsFromSpec(in.SpawnSpec, in.PermissionMode)
+	// Resolve `template: <name>` indirection before reading backend vars
+	// so {{model}} and {{permission_flag}} see the same backend block
+	// that renderSpawnSpec ultimately substitutes into. Without this
+	// merge, a steward that sends `spawn_spec_yaml: "template: agents.coder"`
+	// gets an empty {{model}} → the rendered cmd becomes
+	// `claude --model --print …` → the claude CLI treats `--print` as
+	// the model value → API returns 400 "passed --print" and the
+	// worker dies on its first turn (v1.0.624 incident; the v1.0.620
+	// W1 merge fixed the spec path but missed the var-extraction path).
+	// Merge failures fall through to the unmerged spec so callers that
+	// embed backend.model inline keep working; renderSpawnSpec re-runs
+	// the same merge and surfaces any real error with full context.
+	specForVars := in.SpawnSpec
+	if merged, err := s.mergeTemplateReference(in.SpawnSpec); err == nil {
+		specForVars = merged
+	}
+	model, permFlag := backendVarsFromSpec(specForVars, in.PermissionMode)
 
 	resolvedPrincipal := firstNonEmpty(principal, "@principal")
 	vars := map[string]string{

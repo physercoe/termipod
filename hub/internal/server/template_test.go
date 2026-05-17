@@ -611,5 +611,42 @@ func TestBackendVarsFromSpec_EmptyModeDefaultsToSkip(t *testing.T) {
 	}
 }
 
+// TestRenderSpawnSpec_TemplateIndirectionExpandsModel locks the
+// v1.0.624 fix: when the caller passes `spawn_spec_yaml: "template:
+// agents.coder"`, the rendered cmd MUST embed the template's
+// backend.model (`claude-opus-4-7`), not an empty string. The earlier
+// behaviour read backend vars from the pre-merge spec (which only
+// had `template:` and no `backend:`), expanded `{{model}}` to "" and
+// produced `claude --model --print …`. The claude CLI then
+// swallowed `--print` as the model value, the API rejected
+// "--print" as a model name, and the worker died on its first turn.
+// The fix moves the template merge into buildSpawnVars so var
+// extraction sees the same backend block renderSpawnSpec does.
+func TestRenderSpawnSpec_TemplateIndirectionExpandsModel(t *testing.T) {
+	s, _ := newTestServer(t)
+	in := spawnIn{
+		ChildHandle: "w",
+		Kind:        "coder.v1",
+		SpawnSpec:   "template: agents.coder\n",
+	}
+	rendered, err := s.renderSpawnSpec(context.Background(), defaultTeamID, in, "@p")
+	if err != nil {
+		t.Fatalf("renderSpawnSpec: %v", err)
+	}
+	// Model must be substituted from the template's backend.model.
+	if !strings.Contains(rendered, "--model claude-opus-4-7") {
+		t.Errorf("rendered cmd missing --model claude-opus-4-7:\n%s", rendered)
+	}
+	// And the broken adjacency (`--model --print`) must not appear.
+	if strings.Contains(rendered, "--model --print") {
+		t.Errorf("rendered cmd has broken `--model --print` adjacency (empty model var):\n%s", rendered)
+	}
+	// Default permission mode ("" → "skip") must also resolve so the
+	// worker can actually write files — same bug class.
+	if !strings.Contains(rendered, "--dangerously-skip-permissions") {
+		t.Errorf("rendered cmd missing --dangerously-skip-permissions (empty permission_flag):\n%s", rendered)
+	}
+}
+
 // sanity: the server helper above should not leak a closed DB.
 var _ = sql.ErrNoRows

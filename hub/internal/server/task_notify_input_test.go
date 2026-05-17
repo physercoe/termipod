@@ -173,6 +173,49 @@ func TestNotifyTaskAssigner_BodyUsesCorrectVerb_OnCancelled(t *testing.T) {
 	}
 }
 
+// v1.0.628: auto-derive must NOT overwrite a worker's explicit
+// `blocked` declaration when the operator manually terminates the
+// agent for cleanup. Pre-bundle, manual stop on a blocked worker
+// flipped the task to `cancelled` (or `done` if any summary was
+// present) — erasing the worker's verdict and posting a misleading
+// "Task X cancelled" wake to the steward. Same protection that
+// `cancelled` already had.
+func TestDeriveTaskStatus_PreservesBlockedOnManualTerminate(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-preserve-blocked")
+	_, taskID := seedAssignerAndTask(t, s, proj, "Try projects.update")
+	// Worker explicitly declares blocked via tasks.update.
+	if _, err := s.db.Exec(
+		`UPDATE tasks SET status = 'blocked', body_md = ? WHERE id = ?`,
+		"Hub denied projects.update for worker role.", taskID,
+	); err != nil {
+		t.Fatalf("set blocked: %v", err)
+	}
+	// Operator manually stops the worker — find the worker's agent id
+	// (assignee_id on the task row) and run auto-derive as
+	// stopSessionInternal does.
+	var workerID string
+	if err := s.db.QueryRow(
+		`SELECT assignee_id FROM tasks WHERE id = ?`, taskID).
+		Scan(&workerID); err != nil {
+		t.Fatalf("find worker: %v", err)
+	}
+	if err := s.deriveTaskStatusFromAgent(
+		context.Background(), defaultTeamID, workerID, "terminated"); err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+	// Task status must STILL be blocked — operator cleanup did not
+	// erase the worker's verdict.
+	var got string
+	if err := s.db.QueryRow(
+		`SELECT status FROM tasks WHERE id = ?`, taskID).Scan(&got); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if got != "blocked" {
+		t.Errorf("task status = %q after manual terminate; want blocked (operator cleanup must not overwrite worker's explicit verdict)", got)
+	}
+}
+
 func TestNotifyTaskAssigner_NoInputEvent_ForNonTerminalTransition(t *testing.T) {
 	s, _ := newTestServer(t)
 	proj := seedProjectInTeam(t, s, "proj-no-input-on-running")

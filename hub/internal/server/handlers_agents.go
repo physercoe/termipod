@@ -411,7 +411,14 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 		return nil
 	}
 	// Cancelled is the explicit terminal override; never overwrite.
-	if curStatus == "cancelled" {
+	// Blocked is the worker's explicit "I can't finish" declaration —
+	// also never overwrite. v1.0.628: pre-bundle, manually stopping a
+	// blocked worker for cleanup would flip the task to cancelled (no
+	// summary) or done (summary present), erasing the worker's verdict
+	// and posting a misleading "Task X cancelled" wake to the steward.
+	// The operator's cleanup is cleanup; the worker's verdict is the
+	// task outcome.
+	if curStatus == "cancelled" || curStatus == "blocked" {
 		return nil
 	}
 

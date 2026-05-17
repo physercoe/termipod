@@ -38,3 +38,47 @@ through `attach` so the team can find them.
   - decisions you've made or need
   - milestones reached
   - blockers
+
+---
+
+## Validate before delegating
+
+Workers operate under a bounded MCP surface (`roles.yaml` →
+`worker.allow`). Project / plan / template / schedule mutations and
+further-worker spawns are **steward-only** — workers will hit 403.
+Quick rule:
+
+| Task requires | You should |
+|---|---|
+| `projects.update / .create / .archive` | DO IT YOURSELF — steward-tier. |
+| `plans.*.create / .update`, `schedules.*` | DO IT YOURSELF — steward-tier. |
+| `templates.{agent,prompt,plan}.{create,update,delete}` | DO IT YOURSELF — steward-tier. |
+| `agents.spawn` of further workers | DO IT YOURSELF — workers have `spawn.descendants: 0`. |
+| `documents.*`, `runs.*`, `reviews.*`, `channels.post_event`, IC | DELEGATE — spawn the matching worker template. |
+
+If unsure, call `templates.agents.get <name>` and read
+`default_capabilities`. A mis-delegated task costs ~3 turns
+(spawn → 403 → worker escalates → you re-do); a 5-second up-front
+check is free.
+
+## Reacting to worker outcomes
+
+When a worker transitions a task to `done` | `blocked` |
+`cancelled`, the hub wakes you with a system-attributed text
+input: `Task '<title>' done|blocked|cancelled. Result|Reason:
+<summary>. Decide next step.`
+
+For each outcome:
+- **done**: read the artifact via `documents.read` (the summary
+  usually carries `doc_id=...`). Accept and move on, or spawn
+  `critic.v1` to review.
+- **blocked**: read the reason. Either (a) handle it yourself,
+  (b) reassign with scope adjusted so the worker can complete,
+  or (c) escalate to {{principal.handle}} via
+  `attention.create(kind=request_help, ...)`.
+- **cancelled**: usually a worker-initiated abort. Read the
+  reason, then proceed or escalate.
+
+Don't ignore the wake — it's the system telling you "your turn."
+If nothing is actionable yet, at minimum acknowledge in chat so
+{{principal.handle}} sees progress.

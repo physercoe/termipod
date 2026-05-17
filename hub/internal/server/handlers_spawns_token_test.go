@@ -28,7 +28,7 @@ func TestListSpawns_McpTokenGatedByHostKind(t *testing.T) {
 		ChildHandle: "tok-test",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	}); err != nil {
 		t.Fatalf("DoSpawn: %v", err)
 	}

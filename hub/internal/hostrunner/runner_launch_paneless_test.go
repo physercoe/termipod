@@ -274,3 +274,159 @@ func TestTerminatePane_PanelessNoDriverIsNoop(t *testing.T) {
 		t.Errorf("terminatePane: %v; want nil for already-stopped paneless agent", err)
 	}
 }
+
+// TestLaunchOne_RefusesEmptyBackendCmd pins the W7 refusal. Pre-bundle
+// the M4 PaneDriver fallback at runner.go's `cmd == ""` branch invoked
+// `a.Launcher.Launch(ctx, sp)` — the launcher default placeholder
+// (interactive bash) — which then accepted keystroke-pumped task
+// prompt input. Post-W7 this branch refuses to launch, marks the
+// agent failed via PATCH, and creates no tmux pane. See
+// docs/discussions/validate-at-every-boundary.md §1.
+func TestLaunchOne_RefusesEmptyBackendCmd(t *testing.T) {
+	type recordedPatch struct {
+		AgentID string
+		Body    AgentPatch
+	}
+	var (
+		mu      sync.Mutex
+		patches []recordedPatch
+	)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/agents/") {
+			parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+			if len(parts) < 5 {
+				http.Error(w, "bad path", http.StatusBadRequest)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			var p AgentPatch
+			_ = json.Unmarshal(body, &p)
+			mu.Lock()
+			patches = append(patches, recordedPatch{AgentID: parts[4], Body: p})
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "unhandled", http.StatusNotFound)
+	}))
+	t.Cleanup(hub.Close)
+
+	r := &Runner{
+		Client:    NewClient(hub.URL, "tok", "default"),
+		HostID:    "host-x",
+		Launcher:  StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+		templates: &agentTemplates{},
+	}
+	r.agentPoster = r.Client
+	r.inputs = NewInputRouter(r.Client, r.Log)
+
+	sp := Spawn{
+		ChildID: "agent-no-cmd",
+		Handle:  "no-cmd-worker",
+		Kind:    "claude-code",
+		Mode:    "M4",
+		// SpawnSpec has no backend.cmd at all; templates index also
+		// returns "" for unknown kind. This is the W7 trigger condition.
+		SpawnSpec: "driving_mode: M4\n",
+	}
+
+	r.launchOne(context.Background(), sp)
+
+	mu.Lock()
+	defer mu.Unlock()
+	var sawFailed bool
+	for _, p := range patches {
+		if p.AgentID == sp.ChildID && p.Body.Status != nil && *p.Body.Status == "failed" {
+			sawFailed = true
+		}
+	}
+	if !sawFailed {
+		t.Errorf("W7 refusal failed: expected PATCH status=failed; got patches=%+v", patches)
+	}
+	if _, ok := r.drivers[sp.ChildID]; ok {
+		t.Error("W7 refusal failed: driver should not be registered after refuse-to-launch")
+	}
+}
+
+// TestLaunchOne_SkipsWhenDriverAlreadyRegistered pins the W3 dedup
+// guard. The respawn-loop bug in the coder.v1 incident (v1.0.619)
+// reproduced as follows: a malformed spawn fell through to the
+// launcher placeholder (interactive bash), the engine never produced
+// output, the reconciler couldn't flip status pending → running, and
+// the next tickPoll re-saw the spawn in pending and re-fired
+// launchOne — creating a fresh tmux pane every interval. The guard
+// returns immediately when a.drivers[ChildID] already exists; this
+// test asserts no PATCH or driver registration happens on the second
+// call.
+func TestLaunchOne_SkipsWhenDriverAlreadyRegistered(t *testing.T) {
+	var (
+		mu          sync.Mutex
+		patchCount  int
+		eventCount  int
+	)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && strings.Contains(r.URL.Path, "/agents/") {
+			mu.Lock()
+			patchCount++
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/events") {
+			mu.Lock()
+			eventCount++
+			mu.Unlock()
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "unhandled", http.StatusNotFound)
+	}))
+	t.Cleanup(hub.Close)
+
+	r := &Runner{
+		Client:    NewClient(hub.URL, "tok", "default"),
+		HostID:    "host-x",
+		Launcher:  StubLauncher{Log: slog.New(slog.NewTextHandler(io.Discard, nil))},
+		Log:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers:   map[string]Driver{},
+		tailers:   map[string]*Tailer{},
+		worktrees: map[string]WorktreeSpec{},
+		panes:     map[string]paneState{},
+		templates: &agentTemplates{},
+	}
+	r.agentPoster = r.Client
+	r.inputs = NewInputRouter(r.Client, r.Log)
+
+	// Pre-register a driver as if a prior launchOne already ran.
+	stub := &stubDriver{}
+	r.drivers["agent-dup"] = stub
+
+	sp := Spawn{
+		ChildID: "agent-dup",
+		Handle:  "dup-worker",
+		Kind:    "claude-code",
+		Mode:    "M4",
+		// SpawnSpec doesn't matter; the guard fires before we look at it.
+		SpawnSpec: "backend:\n  cmd: echo test\n",
+	}
+
+	r.launchOne(context.Background(), sp)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if patchCount != 0 {
+		t.Errorf("dedup guard failed: got %d PATCH calls, want 0", patchCount)
+	}
+	if eventCount != 0 {
+		t.Errorf("dedup guard failed: got %d event posts, want 0", eventCount)
+	}
+	if stub.wasStopped() {
+		t.Error("pre-existing driver should not have been touched by skipped launchOne")
+	}
+}

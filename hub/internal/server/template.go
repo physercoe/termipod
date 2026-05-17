@@ -161,15 +161,218 @@ func expandVars(s string, vars map[string]string) string {
 // Context is used for DB reads (journal lookup); on any sub-lookup failure we
 // substitute the empty string and keep going — partial data beats a spawn
 // hard-failing because the parent happens to have no journal yet.
+//
+// Pre-{{var}}-expansion, if the spec contains a `template: <name>` key,
+// W1 loads that template file and deep-merges its contents under the
+// spec (spec values override template values; nested maps merge
+// recursively). This lets a steward send `spawn_spec_yaml: "template:
+// coder.v1"` as shorthand for "use this template's full backend
+// config" — without this merge, the spec arrives at host-runner with
+// `backend.cmd == ""` and falls through to the launcher placeholder
+// (the v1.0.619 incident). See
+// docs/discussions/validate-at-every-boundary.md §1.
 func (s *Server) renderSpawnSpec(ctx context.Context, team string, in spawnIn, principal string) (string, error) {
-	if !strings.Contains(in.SpawnSpec, "{{") {
-		return in.SpawnSpec, nil
+	spec, err := s.mergeTemplateReference(in.SpawnSpec)
+	if err != nil {
+		return "", err
+	}
+	if !strings.Contains(spec, "{{") {
+		return spec, nil
 	}
 	vars, err := s.buildSpawnVars(ctx, team, in, principal)
 	if err != nil {
 		return "", err
 	}
-	return expandVars(in.SpawnSpec, vars), nil
+	return expandVars(spec, vars), nil
+}
+
+// mergeTemplateReference: if the spec carries `template: <name>`, load
+// that agent template and deep-merge it under the spec. Spec values
+// always win over template values; nested maps merge recursively so
+// the steward can override e.g. backend.model while keeping the
+// template's backend.cmd. Missing template name is a 400. No
+// `template:` key → spec returned unchanged.
+func (s *Server) mergeTemplateReference(spec string) (string, error) {
+	if spec == "" {
+		return spec, nil
+	}
+	var head struct {
+		Template string `yaml:"template"`
+	}
+	if err := yaml.Unmarshal([]byte(spec), &head); err != nil {
+		// Spec doesn't parse as YAML — leave it for downstream to
+		// reject with a more specific error.
+		return spec, nil
+	}
+	if head.Template == "" {
+		return spec, nil
+	}
+	tmplBody, err := s.readAgentTemplate(head.Template)
+	if err != nil {
+		return "", fmt.Errorf("template %q referenced by spawn spec not found: %w",
+			head.Template, err)
+	}
+	// Decode both into untyped maps for deep merge.
+	var tmplMap, specMap map[string]any
+	if err := yaml.Unmarshal([]byte(tmplBody), &tmplMap); err != nil {
+		return "", fmt.Errorf("template %q has invalid YAML: %w", head.Template, err)
+	}
+	if err := yaml.Unmarshal([]byte(spec), &specMap); err != nil {
+		// Already tried above; this branch only fires if spec parsed
+		// for `head` extraction but not as a full map (e.g. a list).
+		return spec, nil
+	}
+	if specMap == nil {
+		specMap = map[string]any{}
+	}
+	if tmplMap == nil {
+		tmplMap = map[string]any{}
+	}
+	merged := deepMergeYAMLMaps(tmplMap, specMap)
+	// Drop the `template:` indirection field from the merged output
+	// so host-runner doesn't see it (the spec it persists is the
+	// fully-resolved one).
+	delete(merged, "template")
+	out, err := yaml.Marshal(merged)
+	if err != nil {
+		return "", fmt.Errorf("re-encode merged spec: %w", err)
+	}
+	return string(out), nil
+}
+
+// deepMergeYAMLMaps merges `over` into `base`, returning a new map.
+// For each key in `over`:
+//   - if both `base[k]` and `over[k]` are maps, merge recursively
+//   - otherwise, `over[k]` wins (including the case where `over[k]`
+//     is nil — explicit clearing)
+// Keys only in `base` are preserved. Lists are replaced, not merged
+// (a spec's `fallback_modes: [M4]` overrides the template's, doesn't
+// append).
+func deepMergeYAMLMaps(base, over map[string]any) map[string]any {
+	out := make(map[string]any, len(base)+len(over))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, vOver := range over {
+		if vBase, ok := out[k]; ok {
+			bm, baseIsMap := vBase.(map[string]any)
+			om, overIsMap := vOver.(map[string]any)
+			if baseIsMap && overIsMap {
+				out[k] = deepMergeYAMLMaps(bm, om)
+				continue
+			}
+		}
+		out[k] = vOver
+	}
+	return out
+}
+
+// readAgentTemplate finds the template whose internal `template:`
+// field matches `name` (e.g. `coder.v1` or `agents.steward.general`)
+// and returns its body. The lookup is name-based not filename-based
+// because the file naming convention (`steward.general.v1.yaml`)
+// differs from the internal id convention (`agents.steward.general`).
+// This mirrors the host-runner template loader at
+// `hub/internal/hostrunner/templates.go` which already indexes by
+// `doc.Template`.
+//
+// Lookup order: user-overlaid templates at <dataRoot>/team/templates/
+// agents/ win over bundled ones at hub.TemplatesFS:templates/agents/.
+// Within each tier we scan all .yaml files and match on the internal
+// `template:` field.
+func (s *Server) readAgentTemplate(name string) (string, error) {
+	if !safeAgentTemplateName(name) {
+		return "", fmt.Errorf("invalid template name %q", name)
+	}
+	// User overlay first.
+	overlayDir := filepath.Join(s.cfg.DataRoot, "team", "templates", "agents")
+	if body, ok := scanOverlayForTemplate(overlayDir, name); ok {
+		return body, nil
+	}
+	// Bundled fallback.
+	if body, ok := scanEmbeddedForTemplate(name); ok {
+		return body, nil
+	}
+	return "", fmt.Errorf("template %q not found in overlay (%s) or bundled templates", name, overlayDir)
+}
+
+func scanOverlayForTemplate(dir, name string) (string, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".yaml")
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		if templateMatches(data, base, name) {
+			return string(data), true
+		}
+	}
+	return "", false
+}
+
+func scanEmbeddedForTemplate(name string) (string, bool) {
+	entries, err := fs.ReadDir(hub.TemplatesFS, "templates/agents")
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		base := strings.TrimSuffix(e.Name(), ".yaml")
+		data, err := fs.ReadFile(hub.TemplatesFS, "templates/agents/"+e.Name())
+		if err != nil {
+			continue
+		}
+		if templateMatches(data, base, name) {
+			return string(data), true
+		}
+	}
+	return "", false
+}
+
+// templateMatches accepts EITHER:
+//   - the internal `template:` field (e.g. `agents.coder`,
+//     `agents.steward.general`) — canonical form used by `templates_propose`
+//   - the file basename without `.yaml` (e.g. `coder.v1`,
+//     `steward.general.v1`) — natural form stewards reach for when
+//     referencing a template they've seen on disk
+//
+// Both forms resolve to the same template. The v1.0.619 incident
+// reproduced exactly because a steward sent the basename form and the
+// system silently failed; accepting both forms is the defensive
+// answer rather than forcing stewards to discover the dotted-form
+// convention via tool error messages.
+func templateMatches(body []byte, fileBase, query string) bool {
+	if fileBase == query {
+		return true
+	}
+	var head struct {
+		Template string `yaml:"template"`
+	}
+	if err := yaml.Unmarshal(body, &head); err != nil {
+		return false
+	}
+	return head.Template == query
+}
+
+// safeAgentTemplateName rejects names that could be exploited if a
+// future code path ever does a filename-based lookup. Today's lookup
+// is name-based (scans for internal `template:` field match) so path
+// traversal is structurally impossible — but the predicate is cheap
+// insurance.
+func safeAgentTemplateName(n string) bool {
+	if n == "" || strings.ContainsAny(n, `/\`) || strings.HasPrefix(n, ".") {
+		return false
+	}
+	return true
 }
 
 // contextFileNameForKind returns the on-disk filename the given engine

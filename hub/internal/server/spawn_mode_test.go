@@ -33,7 +33,7 @@ func TestDoSpawn_ModeFromYAML_PersistsResolvedMode(t *testing.T) {
 		ChildHandle: "w1",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\nfallback_modes: [M4]\n",
+		SpawnSpec:   "driving_mode: M2\nfallback_modes: [M4]\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
@@ -68,7 +68,7 @@ func TestDoSpawn_ModeOverride_Strict(t *testing.T) {
 		ChildHandle: "w2",
 		Kind:        "codex",
 		HostID:      hostID,
-		SpawnSpec:   "fallback_modes: [M4]\n",
+		SpawnSpec:   "fallback_modes: [M4]\nbackend:\n  cmd: echo test\n",
 		Mode:        "M1",
 	})
 	if err == nil {
@@ -97,7 +97,7 @@ func TestDoSpawn_BillingConflict_ClaudeCodeM1Subscription(t *testing.T) {
 		ChildHandle: "w3",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M1\nfallback_modes: [M2]\n",
+		SpawnSpec:   "driving_mode: M1\nfallback_modes: [M2]\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -114,7 +114,7 @@ func TestDoSpawn_NoModeDeclared_LeavesEmpty(t *testing.T) {
 	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "w4",
 		Kind:        "claude-code",
-		SpawnSpec:   "name: w4\n",
+		SpawnSpec:   "name: w4\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -144,7 +144,7 @@ func TestDoSpawn_UnprobedHost_PermissiveFallback(t *testing.T) {
 		ChildHandle: "w5",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -176,7 +176,7 @@ func TestDoSpawn_ModeFromBackendKind_TemplateIdAsKind(t *testing.T) {
 		HostID:      hostID,
 		SpawnSpec: "driving_mode: M2\n" +
 			"fallback_modes: [M4]\n" +
-			"backend:\n  kind: claude-code\n",
+			"backend:\n  kind: claude-code\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)

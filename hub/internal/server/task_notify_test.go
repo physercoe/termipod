@@ -137,7 +137,7 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 		Kind:        "claude-code",
 		ParentID:    stewardID,
 		ProjectID:   proj,
-		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
 		Task: &spawnTaskInline{
 			Title:  "Run the migration",
 			BodyMD: "Apply migration 0042 and confirm row count.",
@@ -205,7 +205,7 @@ func TestNotifyTaskAssigner_AutoDeriveAbandonedTerminate_Cancels(t *testing.T) {
 		Kind:        "claude-code",
 		ParentID:    stewardID,
 		ProjectID:   proj,
-		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
 		Task: &spawnTaskInline{
 			Title:  "Investigate the regression",
 			BodyMD: "Find why p99 latency tripled.",
@@ -293,7 +293,7 @@ func TestDeriveTaskStatus_BlankSummaryStillCancels(t *testing.T) {
 		Kind:        "claude-code",
 		ParentID:    stewardID,
 		ProjectID:   proj,
-		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
 		Task:        &spawnTaskInline{Title: "Quick task", BodyMD: "x"},
 	})
 	if err != nil {

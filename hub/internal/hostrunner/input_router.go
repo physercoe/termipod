@@ -178,11 +178,16 @@ func (r *InputRouter) tick(ctx context.Context, agentID string, driver Inputter,
 		if ev.Seq > loop.lastSeq {
 			loop.lastSeq = ev.Seq
 		}
-		// Dispatch both user-originated and a2a-originated input to the
-		// driver — the hub stamps the producer column so the audit trail
-		// preserves the origin, but at the driver layer both paths are
-		// equivalent "something external wants the agent to act."
-		if ev.Producer != "user" && ev.Producer != "a2a" {
+		// Dispatch user-originated, a2a-originated, and system-originated
+		// input events to the driver — the hub stamps the producer column
+		// so the audit trail preserves the origin, but at the driver layer
+		// all three paths are equivalent "something external wants the
+		// agent to act." W5 of the spawn-robustness bundle extended the
+		// allowlist to include `producer=system` so events like
+		// `input.task_completed` (emitted by task_notify.go when a
+		// worker finishes) can drive a steward turn without being mis-
+		// classified as render-only signals.
+		if ev.Producer != "user" && ev.Producer != "a2a" && ev.Producer != "system" {
 			continue
 		}
 		if !strings.HasPrefix(ev.Kind, "input.") {

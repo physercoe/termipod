@@ -53,6 +53,25 @@ func parseSpawnModeYAML(text string) spawnModeYAML {
 	return s
 }
 
+// parsedBackendCmd extracts backend.cmd from a rendered spawn spec
+// for the W4 fail-fast gate. Lenient parse — unknown keys, errors,
+// and missing backend block all yield "". Callers treat "" as
+// "spec is missing the load-bearing field and must be rejected."
+func parsedBackendCmd(text string) string {
+	if text == "" {
+		return ""
+	}
+	var head struct {
+		Backend struct {
+			Cmd string `yaml:"cmd"`
+		} `yaml:"backend"`
+	}
+	if err := yaml.Unmarshal([]byte(text), &head); err != nil {
+		return ""
+	}
+	return head.Backend.Cmd
+}
+
 // hostCapsJSON is the slice of hosts.capabilities_json we read for
 // resolution. billing_declarations is an optional extension — if the
 // host embeds a per-agent billing decl there, we honor it; otherwise

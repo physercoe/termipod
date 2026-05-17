@@ -29,7 +29,18 @@ func NewTmuxLauncher(session, defaultCmd string, log *slog.Logger) *TmuxLauncher
 		session = "hub-agents"
 	}
 	if defaultCmd == "" {
-		defaultCmd = `bash -c 'echo "[host-runner] pane ready; no backend configured"; exec bash'`
+		// W8: harden the default placeholder. Pre-bundle the default
+		// ended with `exec bash`, leaving an interactive shell that
+		// PaneDriver subsequently keystroke-pumped the task prompt
+		// into — see the v1.0.619 incident in
+		// docs/discussions/validate-at-every-boundary.md §1. The
+		// upstream W7 hostrunner refusal should prevent this path
+		// from being reached for malformed spawns, but if it ever IS
+		// reached (legitimate placeholder use, future code path,
+		// regression), the pane exits immediately so the reconciler
+		// observes a dead pane instead of a bash prompt that looks
+		// alive but isn't.
+		defaultCmd = `bash -c 'echo "[host-runner] FATAL: launcher reached without backend.cmd. This is a bug; refusing to start interactive shell. See logs."; exit 1'`
 	}
 	return &TmuxLauncher{Session: session, DefaultCmd: defaultCmd, Log: log}
 }

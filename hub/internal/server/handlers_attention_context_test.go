@@ -32,7 +32,7 @@ func TestAttentionContext_RoundTripFromHelpRequest(t *testing.T) {
 		ChildHandle:     "ctx-asker",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {

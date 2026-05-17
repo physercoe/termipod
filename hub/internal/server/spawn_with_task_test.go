@@ -29,7 +29,7 @@ func TestDoSpawn_WithInlineTask_PostsFirstUserInput(t *testing.T) {
 		ChildHandle: "@worker.task",
 		Kind:        "claude-code",
 		ProjectID:   proj,
-		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
 		Task: &spawnTaskInline{
 			Title:  "Investigate 502 spike",
 			BodyMD: "Look at the last hour of logs and report findings.",
@@ -100,7 +100,7 @@ func TestDoSpawn_WithInlineTask_RendersClaudeMdTaskSection(t *testing.T) {
 		Kind:        "claude-code",
 		ProjectID:   proj,
 		SpawnSpec: "project_id: " + proj + "\n" +
-			"kind: claude-code\n" +
+			"kind: claude-code\nbackend:\n  cmd: echo test\n" +
 			"prompt: steward.v1.md\n",
 		Task: &spawnTaskInline{
 			Title:  "Look at the metrics dashboard",
@@ -157,7 +157,7 @@ func TestDoSpawn_WithTaskID_PostsFirstUserInput(t *testing.T) {
 		ChildHandle: "@worker.byid",
 		Kind:        "claude-code",
 		ProjectID:   proj,
-		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\nbackend:\n  cmd: echo test\n",
 		TaskID:      taskID,
 	})
 	if err != nil {
@@ -212,7 +212,7 @@ func TestDoSpawn_WithInlineTask_RendersCloseOutFooterWithIDs(t *testing.T) {
 		Kind:        "claude-code",
 		ProjectID:   proj,
 		SpawnSpec: "project_id: " + proj + "\n" +
-			"kind: claude-code\n" +
+			"kind: claude-code\nbackend:\n  cmd: echo test\n" +
 			"prompt: steward.v1.md\n",
 		Task: &spawnTaskInline{
 			Title:  "Write a one-line project title",
@@ -288,7 +288,7 @@ func TestDoSpawn_WithTaskID_RendersCloseOutFooterWithIDs(t *testing.T) {
 		ProjectID:   proj,
 		TaskID:      taskID,
 		SpawnSpec: "project_id: " + proj + "\n" +
-			"kind: claude-code\n" +
+			"kind: claude-code\nbackend:\n  cmd: echo test\n" +
 			"prompt: steward.v1.md\n",
 	})
 	if err != nil {
@@ -330,7 +330,7 @@ func TestDoSpawn_NoTask_DoesNotAutoPostInput(t *testing.T) {
 	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "@adhoc.worker",
 		Kind:        "claude-code",
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)

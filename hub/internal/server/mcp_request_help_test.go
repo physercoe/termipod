@@ -34,7 +34,7 @@ func TestRequestHelp_ReturnsAwaitingResponseImmediately(t *testing.T) {
 		ChildHandle: "help-asker",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -86,7 +86,7 @@ func TestDecide_HelpRequestFansOutAttentionReply(t *testing.T) {
 		ChildHandle:     "fanout-asker",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {

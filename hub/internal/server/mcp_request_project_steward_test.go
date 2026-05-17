@@ -24,7 +24,7 @@ func TestMcpRequestProjectSteward_CreatesAttention(t *testing.T) {
 		ChildHandle: "general-steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -150,7 +150,7 @@ func TestDecide_ProjectStewardRequestFansOutAttentionReply(t *testing.T) {
 		ChildHandle:     "general-steward",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {
@@ -253,7 +253,7 @@ func TestDecide_ProjectStewardRequestRejectFansOut(t *testing.T) {
 		ChildHandle:     "general-steward",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {

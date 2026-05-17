@@ -307,6 +307,15 @@ func (s *Server) handleCreatePlanStep(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid kind")
 		return
 	}
+	// W10a: typed validation of spec_json per kind. Pre-bundle the
+	// spec was passed through unchecked, leaving stalled plan steps
+	// when a steward sent under-documented JSON (e.g. an `agent_spawn`
+	// step with no `child_handle`). See
+	// docs/discussions/validate-at-every-boundary.md §3 Layer 1.
+	if reason := validatePlanStepSpec(in.Kind, in.SpecJSON); reason != "" {
+		writeErr(w, http.StatusUnprocessableEntity, reason)
+		return
+	}
 	projectID, err := s.planProjectForTeam(r, team, plan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -31,7 +31,7 @@ func TestListAgentEvents_SessionScoped_SpansResumedAgents(t *testing.T) {
 		ChildHandle:     "resume-test",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestListAgentEvents_SessionScoped_SpansResumedAgents(t *testing.T) {
 		ChildHandle: "resume-test-2",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn second: %v", err)
@@ -125,7 +125,7 @@ func TestListAgentEvents_SessionScoped_BeforeTsPaginates(t *testing.T) {
 		ChildHandle:     "page-test",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {

@@ -43,7 +43,7 @@ func TestDoSpawn_ProjectID_FromYAML(t *testing.T) {
 	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "yaml-worker",
 		Kind:        "claude-code",
-		SpawnSpec:   "project_id: " + proj + "\n",
+		SpawnSpec:   "project_id: " + proj + "\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
@@ -64,7 +64,7 @@ func TestDoSpawn_ProjectID_FromBodyFallback(t *testing.T) {
 		ChildHandle: "body-worker",
 		Kind:        "claude-code",
 		ProjectID:   proj,
-		SpawnSpec:   "handle: body-worker\n",
+		SpawnSpec:   "handle: body-worker\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
@@ -84,7 +84,7 @@ func TestDoSpawn_ProjectID_YAMLBeatsBody(t *testing.T) {
 		ChildHandle: "conflict-worker",
 		Kind:        "claude-code",
 		ProjectID:   projBody,
-		SpawnSpec:   "project_id: " + projYaml + "\n",
+		SpawnSpec:   "project_id: " + projYaml + "\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
@@ -102,7 +102,7 @@ func TestDoSpawn_ProjectID_NoneStaysNull(t *testing.T) {
 	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "unbound-worker",
 		Kind:        "claude-code",
-		SpawnSpec:   "handle: unbound-worker\n",
+		SpawnSpec:   "handle: unbound-worker\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
@@ -124,7 +124,7 @@ func TestDoSpawn_ProjectID_AutoOpensProjectSession(t *testing.T) {
 	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "auto-session-worker",
 		Kind:        "claude-code",
-		SpawnSpec:   "project_id: " + proj + "\n",
+		SpawnSpec:   "project_id: " + proj + "\nbackend:\n  cmd: echo test\n",
 		// Explicitly false; the project_id binding must override.
 		AutoOpenSession: false,
 	})
@@ -180,7 +180,7 @@ func TestDoSpawn_ProjectID_NoAutoOpenOnSwap(t *testing.T) {
 	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
 		ChildHandle: "swap-worker",
 		Kind:        "claude-code",
-		SpawnSpec:   "project_id: " + proj + "\n",
+		SpawnSpec:   "project_id: " + proj + "\nbackend:\n  cmd: echo test\n",
 		SessionID:   priorSessionID,
 	})
 	if err != nil {

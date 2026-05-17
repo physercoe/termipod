@@ -28,7 +28,7 @@ func TestDecide_PermissionPromptFansOutAttentionReply(t *testing.T) {
 		ChildHandle:     "codex-steward",
 		Kind:            "codex",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {

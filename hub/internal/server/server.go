@@ -59,6 +59,20 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	// W10b: startup-time bundled-template audit. Refuse to start if
+	// any bundled agent template can't produce a launchable spec —
+	// e.g. backend.cmd is empty after the file's intended structure.
+	// Pre-bundle the loader silent-skipped semantically-broken
+	// templates (defensible for parse errors; insufficient for
+	// missing-required-field), so a regression in a template file
+	// only surfaced when a steward tried to spawn from it (the
+	// v1.0.619 incident). The audit catches the regression at hub
+	// start where operators can act on it. See
+	// docs/discussions/validate-at-every-boundary.md §3 (Layer 2)
+	// and plans/spawn-robustness-and-validators.md W10b.
+	if err := auditBundledAgentTemplates(); err != nil {
+		return nil, fmt.Errorf("bundled-template audit: %w", err)
+	}
 	db, err := OpenDB(cfg.DBPath)
 	if err != nil {
 		return nil, err

@@ -46,7 +46,7 @@ func TestPatchAgent_TerminateRevokesMCPToken(t *testing.T) {
 		ChildHandle: "revoke-test",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("DoSpawn: %v", err)
@@ -94,7 +94,7 @@ func TestSpawn_SessionSwapRevokesPriorAgentToken(t *testing.T) {
 		ChildHandle:     "swap-steward",
 		Kind:            "claude-code",
 		HostID:          hostID,
-		SpawnSpec:       "driving_mode: M2\n",
+		SpawnSpec:       "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		AutoOpenSession: true,
 	})
 	if err != nil {
@@ -114,7 +114,7 @@ func TestSpawn_SessionSwapRevokesPriorAgentToken(t *testing.T) {
 		ChildHandle: "swap-steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "driving_mode: M2\n",
+		SpawnSpec:   "driving_mode: M2\nbackend:\n  cmd: echo test\n",
 		SessionID:   sessionID,
 	})
 	if err != nil {

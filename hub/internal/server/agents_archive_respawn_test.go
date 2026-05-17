@@ -69,7 +69,7 @@ func TestDoSpawn_RespawnAfterArchive_SameHandle(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("first spawn: %v (status=%d)", err, status)
@@ -87,7 +87,7 @@ func TestDoSpawn_RespawnAfterArchive_SameHandle(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("respawn after archive: %v (status=%d)", err, status)
@@ -115,7 +115,7 @@ func TestDoSpawn_RespawnAfterTerminate_NotArchived(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("first spawn: %v (status=%d)", err, status)
@@ -134,7 +134,7 @@ func TestDoSpawn_RespawnAfterTerminate_NotArchived(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err != nil {
 		t.Fatalf("respawn after terminate: %v (status=%d)", err, status)
@@ -159,7 +159,7 @@ func TestDoSpawn_DuplicateHandle_LiveAgent_StillRejected(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	}); err != nil {
 		t.Fatalf("first spawn: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestDoSpawn_DuplicateHandle_LiveAgent_StillRejected(t *testing.T) {
 		ChildHandle: "steward",
 		Kind:        "claude-code",
 		HostID:      hostID,
-		SpawnSpec:   "kind: claude-code\n",
+		SpawnSpec:   "kind: claude-code\nbackend:\n  cmd: echo test\n",
 	})
 	if err == nil {
 		t.Fatal("want error on duplicate live handle; got nil")

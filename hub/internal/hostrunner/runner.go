@@ -450,6 +450,20 @@ func (a *Runner) tickPoll(ctx context.Context) {
 }
 
 func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
+	// Dedup: tickPoll re-fires every interval against the pending-spawn
+	// list, and the pending → running transition is owned by the
+	// reconcile tick. If a previous launch already registered a driver
+	// for this agent (e.g. launcher placeholder pane that the
+	// reconciler hasn't been able to mark running because the engine
+	// never produced output), don't relaunch — that path leaks tmux
+	// panes one-per-tick until the agent is manually terminated. See
+	// docs/plans/spawn-robustness-and-validators.md W3.
+	if _, ok := a.drivers[sp.ChildID]; ok {
+		a.Log.Debug("launchOne skip: driver already registered",
+			"agent", sp.ChildID, "handle", sp.Handle)
+		return
+	}
+
 	// Parse the spec up front; ChannelID binding (tailer) and Worktree are
 	// both optional and we want to reason about them together.
 	spec, err := ParseSpec(sp.SpawnSpec)
@@ -622,18 +636,32 @@ func (a *Runner) launchOne(ctx context.Context, sp Spawn) {
 		if cmd != "" {
 			p, err = a.Launcher.LaunchCmd(ctx, sp, cmd)
 		} else {
-			// Falling all the way through to the launcher's "no backend
-			// configured" placeholder almost always means the spawn YAML
-			// reached the runner with an empty `backend.cmd` AND no
-			// matching per-kind template. Surface both inputs so an
-			// operator can tell *which* layer dropped the cmd: a stale
-			// team-local template, a renderer that produced empty output,
-			// or a kind-keyed lookup that doesn't have the spawn's kind.
-			a.Log.Warn("no backend.cmd in spawn spec or template; using launcher default",
+			// W7: refuse-to-launch. Pre-bundle behaviour fell through to
+			// the launcher placeholder (interactive bash) and pumped the
+			// task prompt into a shell prompt via tmux send-keys — see
+			// docs/discussions/validate-at-every-boundary.md §1. The hub-
+			// side W4 fail-fast should reject specs that would reach this
+			// branch, but defense-in-depth requires this layer to also
+			// refuse rather than launching a placeholder pane that the
+			// PaneDriver will subsequently corrupt.
+			reason := "no backend.cmd resolved from spawn spec or template"
+			a.Log.Error("launch refused: "+reason,
 				"handle", sp.Handle, "kind", sp.Kind,
 				"spec_backend_cmd_empty", spec.Backend.Cmd == "",
 				"template_kinds_known", a.templates != nil)
-			p, err = a.Launcher.Launch(ctx, sp)
+			// Emit lifecycle.failed so W9's sync-wait observer (and the
+			// activity feed) sees the failure reason — PATCH alone only
+			// updates the status column. Best-effort; ignore errors.
+			_ = a.agentPoster.PostAgentEvent(ctx, sp.ChildID, "lifecycle", "system",
+				map[string]any{
+					"phase":  "failed",
+					"reason": reason,
+					"handle": sp.Handle,
+					"kind":   sp.Kind,
+				})
+			status := "failed"
+			_ = a.Client.PatchAgent(ctx, sp.ChildID, AgentPatch{Status: &status})
+			return
 		}
 		if err != nil {
 			a.Log.Error("launch failed", "handle", sp.Handle, "err", err)

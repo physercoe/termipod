@@ -104,6 +104,78 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		"payload":    json.RawMessage(payloadBytes),
 		"session_id": sessionID,
 	})
+
+	// W5: also emit an `input.task_completed` event so the InputRouter
+	// dispatches a fresh turn to the steward's engine. Pre-bundle,
+	// task.notify rendered as a card on mobile but the steward's
+	// engine never received it — the InputRouter filtered system-
+	// producer events. Result: stuck steward, compose-box-busy with
+	// no progress. See docs/discussions/validate-at-every-boundary.md
+	// §1 (stuck-steward symptom). The InputRouter now allowlists
+	// system-producer events whose kind starts with `input.`; we mint
+	// such an event here.
+	//
+	// Body shape matches option (i) from the design discussion: a
+	// short imperative that gives the steward enough context to
+	// decide its next move, without prescribing how.
+	inputBody := taskCompletedInputBody(title, summary.String)
+	inputPayload := map[string]any{
+		"text":           inputBody,
+		"task_id":        taskID,
+		"task_title":     title,
+		"result_summary": summary.String,
+		"from":           fromStatus,
+		"to":             toStatus,
+	}
+	inputBytes, _ := json.Marshal(inputPayload)
+	inputID := NewID()
+	inputTS := NowUTC()
+	var inputSeq int64
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.task_completed', 'system', ?, ?
+		  FROM agent_events WHERE agent_id = ?
+		RETURNING seq`,
+		inputID, assignerID.String, inputTS, string(inputBytes), sessionID,
+		assignerID.String).Scan(&inputSeq)
+	if err != nil {
+		// Best-effort: render-only path already fired. Log and move on.
+		s.log.Warn("notify assigner: insert input.task_completed",
+			"assigner_id", assignerID.String, "err", err)
+		return
+	}
+	s.bus.Publish(agentBusKey(assignerID.String), map[string]any{
+		"id":         inputID,
+		"agent_id":   assignerID.String,
+		"seq":        inputSeq,
+		"ts":         inputTS,
+		"kind":       "input.task_completed",
+		"producer":   "system",
+		"payload":    json.RawMessage(inputBytes),
+		"session_id": sessionID,
+	})
+}
+
+// taskCompletedInputBody is the short input.text body the steward
+// receives after a worker finishes a delegated task. Option (i) from
+// the design discussion — minimal imperative, steward decides next
+// step via natural reasoning.
+func taskCompletedInputBody(title, summary string) string {
+	var b strings.Builder
+	b.WriteString("Task ")
+	if title != "" {
+		b.WriteString("'")
+		b.WriteString(title)
+		b.WriteString("' ")
+	}
+	b.WriteString("completed.")
+	summary = strings.TrimSpace(summary)
+	if summary != "" {
+		b.WriteString(" Result: ")
+		b.WriteString(summary)
+	}
+	b.WriteString(" Decide next step.")
+	return b.String()
 }
 
 // taskNotifyBody formats the inline chat message the steward sees. The

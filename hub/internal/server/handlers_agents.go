@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -612,6 +613,25 @@ type spawnIn struct {
 	// template definition. Ignored when SessionID is set (the swap
 	// path already updates the named session in-tx).
 	AutoOpenSession bool `json:"auto_open_session,omitempty"`
+	// Wait, when true (the default for the agents.spawn MCP path),
+	// asks handleSpawn to block until the new agent reaches `running`
+	// or `failed`, bounded by WaitSeconds. The response Status field
+	// then carries one of {running, failed, pending} reflecting the
+	// real engine state — not the pre-bundle misleading "spawned"
+	// label that fired the moment the spawn row was inserted. W9 of
+	// docs/plans/spawn-robustness-and-validators.md.
+	//
+	// Wait is a *pointer* so the absence of the field on the wire
+	// distinguishes "explicit false" from "default behavior." The
+	// MCP path treats nil + true identically (sync wait); the legacy
+	// REST path keeps the prior async behavior unless the caller
+	// explicitly opts in.
+	Wait *bool `json:"wait,omitempty"`
+	// WaitSeconds caps the wait window. Default 30, hard-capped at
+	// 50 by handleSpawn to stay below Claude Code's 60-second MCP
+	// tool timeout (MCP_TOOL_TIMEOUT) with margin for transport
+	// latency. Values >50 silently cap; values <=0 use the default.
+	WaitSeconds int `json:"wait_seconds,omitempty"`
 }
 
 // buildTaskInstructions returns the "## Task" body that should land in
@@ -726,16 +746,28 @@ type spawnTaskInline struct {
 }
 
 type spawnOut struct {
-	SpawnID     string `json:"spawn_id,omitempty"`
-	AgentID     string `json:"agent_id,omitempty"`
-	SpawnedAt   string `json:"spawned_at,omitempty"`
-	Status      string `json:"status,omitempty"`          // "spawned" | "pending_approval"
-	AttentionID string `json:"attention_id,omitempty"`    // set when gated on approval
+	SpawnID   string `json:"spawn_id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	SpawnedAt string `json:"spawned_at,omitempty"`
+	// Status reflects the agent's real lifecycle state at response
+	// time. Post-W9 (v1.0.620+) one of:
+	//   - "running"          — engine confirmed alive within the wait window
+	//   - "failed"           — hostrunner refused or engine crashed; FailureReason populated
+	//   - "pending"          — wait window expired without state transition; caller polls agents.get
+	//   - "spawned"          — legacy async return (caller passed wait=false or via REST without wait)
+	//   - "pending_approval" — gated by spawn-approval policy; AttentionID populated
+	Status      string `json:"status,omitempty"`
+	AttentionID string `json:"attention_id,omitempty"` // set when gated on approval
 	Tier        string `json:"tier,omitempty"`
 	// Mode is the concrete driving mode the resolver picked (M1|M2|M4).
 	// Empty when no mode info was declared anywhere — host-runner stays
 	// on its default M4 in that case.
 	Mode string `json:"mode,omitempty"`
+	// FailureReason carries the lifecycle.failed payload.reason when
+	// Status == "failed". Empty otherwise. W9 surfaces this so the
+	// steward calling agents.spawn knows WHY the spawn failed without
+	// a follow-up agents.get round-trip.
+	FailureReason string `json:"failure_reason,omitempty"`
 }
 
 // handleSpawn creates a pending agent + an agent_spawns audit row, unless
@@ -778,7 +810,128 @@ func (s *Server) handleSpawn(w http.ResponseWriter, r *http.Request) {
 		"spawn "+in.ChildHandle+" ("+in.Kind+")",
 		map[string]any{"handle": in.ChildHandle, "kind": in.Kind, "host_id": in.HostID},
 	)
+	// W9: sync-wait three-state return. When the caller opts in
+	// (in.Wait == true, which is the default for the agents.spawn
+	// MCP path — wrapper sets it explicitly), tail the new agent's
+	// event bus for lifecycle.started → "running" or lifecycle.failed
+	// → "failed". Timeout → "pending"; caller polls agents.get to
+	// learn final state. See docs/discussions/validate-at-every-boundary.md
+	// §1 for the misleading "spawned" return that motivated this.
+	if in.Wait != nil && *in.Wait {
+		final, reason := s.waitForSpawnOutcome(r.Context(), out.AgentID, in.WaitSeconds)
+		out.Status = final
+		if reason != "" {
+			out.FailureReason = reason
+		}
+	}
 	writeJSON(w, status, out)
+}
+
+// waitForSpawnOutcome blocks until the agent emits a terminal
+// lifecycle event (`phase: "started"` → "running", `phase: "failed"`
+// → "failed") or the wait window expires (→ "pending"). The window
+// defaults to 30s when waitSeconds <= 0 and is hard-capped at 50s to
+// stay below Claude Code's 60s MCP_TOOL_TIMEOUT with margin for
+// transport latency.
+//
+// reason is non-empty only on the "failed" path; the value is the
+// `payload.reason` field of the observed lifecycle.failed event when
+// present, else a generic "agent reached terminal status" string.
+func (s *Server) waitForSpawnOutcome(parent context.Context, agentID string, waitSeconds int) (status, reason string) {
+	if waitSeconds <= 0 {
+		waitSeconds = 30
+	}
+	if waitSeconds > 50 {
+		waitSeconds = 50
+	}
+	deadline := time.Now().Add(time.Duration(waitSeconds) * time.Second)
+	ctx, cancel := context.WithDeadline(parent, deadline)
+	defer cancel()
+
+	// Subscribe BEFORE checking current status: prevents missing a
+	// lifecycle event that races the subscribe call.
+	key := agentBusKey(agentID)
+	sub := s.bus.Subscribe(key)
+	defer s.bus.Unsubscribe(key, sub)
+
+	// Catch the case where the agent already failed before subscribe
+	// (W7 hostrunner refusal fires synchronously from launchOne).
+	if cur := s.lookupAgentStatus(ctx, agentID); cur == "failed" {
+		return "failed", s.lookupRecentLifecycleReason(ctx, agentID)
+	}
+	if cur := s.lookupAgentStatus(ctx, agentID); cur == "running" {
+		return "running", ""
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "pending", ""
+		case evt, ok := <-sub:
+			if !ok {
+				return "pending", ""
+			}
+			kind, _ := evt["kind"].(string)
+			if kind != "lifecycle" {
+				continue
+			}
+			payload, _ := evt["payload"].(map[string]any)
+			// Some publishers wrap payload as json.RawMessage; decode if so.
+			if payload == nil {
+				if raw, ok := evt["payload"].(json.RawMessage); ok {
+					_ = json.Unmarshal(raw, &payload)
+				}
+			}
+			phase, _ := payload["phase"].(string)
+			switch phase {
+			case "started":
+				return "running", ""
+			case "failed":
+				r, _ := payload["reason"].(string)
+				if r == "" {
+					r = "agent reached terminal status"
+				}
+				return "failed", r
+			}
+		}
+	}
+}
+
+// lookupAgentStatus reads agents.status for the given agent.
+// Returns "" on any error so callers fall through to the bus-wait
+// path rather than failing the spawn response on a DB hiccup.
+func (s *Server) lookupAgentStatus(ctx context.Context, agentID string) string {
+	var st string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT status FROM agents WHERE id = ?`, agentID).Scan(&st); err != nil {
+		return ""
+	}
+	return st
+}
+
+// lookupRecentLifecycleReason fetches payload.reason from the most
+// recent lifecycle.failed agent_event for the given agent. Returns
+// "" when no such event exists or on any decode error.
+func (s *Server) lookupRecentLifecycleReason(ctx context.Context, agentID string) string {
+	var payload string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT payload_json FROM agent_events
+		 WHERE agent_id = ? AND kind = 'lifecycle'
+		 ORDER BY seq DESC LIMIT 1`, agentID).Scan(&payload)
+	if err != nil {
+		return ""
+	}
+	var p struct {
+		Phase  string `json:"phase"`
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return ""
+	}
+	if p.Phase != "failed" {
+		return ""
+	}
+	return p.Reason
 }
 
 // createSpawnApproval inserts an attention_items row tagged with tier and a
@@ -835,6 +988,21 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	rendered, err := s.renderSpawnSpec(ctx, team, in, principal)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
+	}
+	// W4 fail-fast: reject if the rendered spec has no backend.cmd.
+	// Before this gate the spec would reach host-runner with an empty
+	// Backend.Cmd, M4 LocalLogTail would hard-fail, PaneDriver fallback
+	// would land on the launcher placeholder (interactive bash), and
+	// the rendered task prompt would be keystroke-pumped into a shell
+	// → "tasks.complete: command not found" + respawn loop. See
+	// docs/discussions/validate-at-every-boundary.md §1 for the
+	// incident; docs/plans/spawn-robustness-and-validators.md W4 for
+	// the wedge.
+	if cmd := parsedBackendCmd(rendered); cmd == "" {
+		return spawnOut{}, http.StatusUnprocessableEntity,
+			errors.New("rendered spawn_spec_yaml has no backend.cmd; " +
+				"spec must declare `backend.cmd` directly or reference a " +
+				"template with backend.cmd (e.g. `template: coder.v1`)")
 	}
 	// Inline the agent's CLAUDE.md (resolved from the template's `prompt:`
 	// field). The host-runner launcher writes context_files entries into

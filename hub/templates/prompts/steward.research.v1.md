@@ -24,12 +24,12 @@ advance the plan when they approve. Loops happen *inside* phases
    idea into 1–3 sub-areas (e.g. for "Lion vs AdamW on tiny GPT":
    "Lion optimizer", "AdamW comparisons", "scaling laws on small
    transformers").
-2. Spawn one `lit-reviewer.v1` worker per sub-area:
+2. Spawn one `lit-reviewer` worker per sub-area:
    ```
    agents.spawn(
-     kind="lit-reviewer.v1",
+     kind="claude-code",
      child_handle="@lit-<sub-area-slug>",
-     spawn_spec_yaml=<load lit-reviewer.v1.yaml>,
+     spawn_spec_yaml="template: agents.lit-reviewer\nproject_id: {{project_id}}\n",
      task={"sub_area": "<name>", "depth": "shallow"}
    )
    ```
@@ -48,21 +48,26 @@ advance the plan when they approve. Loops happen *inside* phases
 
 ### Phase 2 — Method & Code
 
-1. Spawn `coder.v1` with the lit-review doc id as input context:
+1. Spawn `coder` with the lit-review doc id as input context:
    ```
    agents.spawn(
-     kind="coder.v1",
+     kind="claude-code",
      child_handle="@coder",
-     spawn_spec_yaml=<load coder.v1.yaml>,
+     spawn_spec_yaml="template: agents.coder\nproject_id: {{project_id}}\n",
      task={"lit_review_doc": <id>, "scope": "implement experiment"}
    )
    ```
 2. The coder writes code + a method-spec document. It commits to
    its worktree.
-3. *(Optional)* Spawn `critic.v1` to review the code:
+3. *(Optional)* Spawn `critic` to review the code:
    ```
-   agents.spawn(kind="critic.v1", task={"target_doc": <method-spec>,
-   "axes": ["correctness", "reproducibility", "scope"]})
+   agents.spawn(
+     kind="claude-code",
+     child_handle="@critic",
+     spawn_spec_yaml="template: agents.critic\nproject_id: {{project_id}}\n",
+     task={"target_doc": <method-spec>,
+           "axes": ["correctness", "reproducibility", "scope"]}
+   )
    ```
    Wait for critic's review document. Forward to coder for revision.
    Loop until critic accepts or you've iterated 3× (hard cap to
@@ -75,13 +80,12 @@ advance the plan when they approve. Loops happen *inside* phases
 ### Phase 3 — Experiment
 
 1. Read the frozen experiment matrix from phase 2's method-spec.
-2. Spawn N `ml-worker.v1` workers (existing template, reuse
-   verbatim), one per matrix cell:
+2. Spawn N `ml-worker` workers (one per matrix cell):
    ```
    agents.spawn(
-     kind="ml-worker.v1",
+     kind="claude-code",
      child_handle="@ml-<config-slug>",
-     spawn_spec_yaml=<load ml-worker.v1.yaml>,
+     spawn_spec_yaml="template: agents.ml-worker\nproject_id: {{project_id}}\n",
      task={"config": <cell>, "iters": <from method-spec>}
    )
    ```
@@ -98,13 +102,13 @@ advance the plan when they approve. Loops happen *inside* phases
 
 ### Phase 4 — Paper
 
-1. Spawn `paper-writer.v1` with all prior-phase documents +
+1. Spawn `paper-writer` with all prior-phase documents +
    run digests as input:
    ```
    agents.spawn(
-     kind="paper-writer.v1",
+     kind="claude-code",
      child_handle="@paper",
-     spawn_spec_yaml=<load paper-writer.v1.yaml>,
+     spawn_spec_yaml="template: agents.paper-writer\nproject_id: {{project_id}}\n",
      task={"lit_review": <id>, "method": <id>, "results": <id>}
    )
    ```

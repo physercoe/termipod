@@ -160,6 +160,14 @@ func (a *Runner) terminatePane(ctx context.Context, cmd HostCommand) error {
 			delete(a.worktrees, cmd.AgentID)
 		}
 	}
+	// Final "request done" log line — symmetric with runner.go's
+	// `agent pane created` log at spawn time. Operators tailing
+	// journalctl now see a clear before/after pair per agent without
+	// having to grep the per-agent cosmetic log file. Pane id may be
+	// empty for paneless terminates (already-torn-down agents).
+	if a.Log != nil {
+		a.Log.Info("agent terminated", "agent_id", cmd.AgentID, "pane", pane)
+	}
 	return nil
 }
 

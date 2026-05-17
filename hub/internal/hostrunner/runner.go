@@ -805,10 +805,24 @@ func (a *Runner) stopTailer(agentID string) {
 
 // stopDriver tears down the M4 driver (or whichever mode is wired) for an
 // agent leaving the running set. Emits lifecycle.stopped as a side effect.
+//
+// Logs at INFO level on entry and exit so journalctl shows clear
+// evidence the operator's terminate request was received and processed
+// — symmetric with the existing "agent pane created" line emitted at
+// spawn time. Prior to this, only the agent's cosmetic per-spawn log
+// file got a "[host-runner] M2 stopped at <ts>" footer; the host-runner's
+// own log stream was silent, leaving operators with no easy way to
+// confirm "did the kill actually run?" without per-agent log diving.
 func (a *Runner) stopDriver(agentID string) {
 	d, ok := a.drivers[agentID]
 	if !ok {
+		if a.Log != nil {
+			a.Log.Debug("stopDriver no-op (driver not registered)", "agent_id", agentID)
+		}
 		return
+	}
+	if a.Log != nil {
+		a.Log.Info("stopping agent driver", "agent_id", agentID)
 	}
 	// Detach the input router first so no more Input calls land on a
 	// driver that's about to Stop. Detach blocks until the router's
@@ -824,6 +838,9 @@ func (a *Runner) stopDriver(agentID string) {
 	if gw, ok := a.gateways[agentID]; ok && gw != nil {
 		_ = gw.Close()
 		delete(a.gateways, agentID)
+	}
+	if a.Log != nil {
+		a.Log.Info("agent driver stopped", "agent_id", agentID)
 	}
 }
 

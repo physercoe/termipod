@@ -136,6 +136,52 @@ func TestInputRouter_DispatchesUserEvents(t *testing.T) {
 	}
 }
 
+// TestInputRouter_DispatchesSystemInputText pins the v1.0.626 corrective
+// fix: task_notify.go emits `input.text` with producer="system" to wake
+// the steward's engine when a worker transitions a task to a terminal
+// status. Pre-v1.0.626 the kind was `input.task_completed`, which the
+// allowlist accepted but every driver's switch rejected as "unsupported
+// input kind". The fix unifies on `input.text` (the canonical text
+// shape every driver handles); this test locks that dispatch shape so
+// future drivers can't quietly stop accepting system-produced text
+// without an explicit decision.
+func TestInputRouter_DispatchesSystemInputText(t *testing.T) {
+	lister := &fakeInputLister{
+		first: []AgentEvent{
+			ev(1, "system", "input.text", `{"body":"Task 'X' completed. Decide next step.","task_id":"t1"}`),
+		},
+	}
+	drv := &capturingInputter{}
+	r := NewInputRouter(lister, silentLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.Attach(ctx, "steward-1", drv, 0)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(drv.snapshot()) >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	r.Detach("steward-1")
+
+	calls := drv.snapshot()
+	if len(calls) != 1 {
+		t.Fatalf("want 1 dispatch; got %d (%+v)", len(calls), calls)
+	}
+	if calls[0].kind != "text" {
+		t.Errorf("system input dispatched as kind=%q; want \"text\" (the canonical kind every driver's switch handles — pre-v1.0.626 was \"task_completed\", which fell through every driver's default branch)", calls[0].kind)
+	}
+	if body, _ := calls[0].payload["body"].(string); body == "" {
+		t.Errorf("body missing from dispatched payload: %+v", calls[0].payload)
+	}
+	if calls[0].payload["task_id"] != "t1" {
+		t.Errorf("sidecar context lost: %+v", calls[0].payload)
+	}
+}
+
 // TestInputRouter_AdvancesSeqOnError: if Input returns an error, the
 // router must still advance its seq cursor so it doesn't retry the same
 // failing event forever. (Logged as a warn so the operator can see it.)

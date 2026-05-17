@@ -105,22 +105,34 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		"session_id": sessionID,
 	})
 
-	// W5: also emit an `input.task_completed` event so the InputRouter
-	// dispatches a fresh turn to the steward's engine. Pre-bundle,
-	// task.notify rendered as a card on mobile but the steward's
-	// engine never received it — the InputRouter filtered system-
-	// producer events. Result: stuck steward, compose-box-busy with
-	// no progress. See docs/discussions/validate-at-every-boundary.md
-	// §1 (stuck-steward symptom). The InputRouter now allowlists
-	// system-producer events whose kind starts with `input.`; we mint
-	// such an event here.
+	// W5 (corrected v1.0.626): also emit an `input.text` event so the
+	// InputRouter dispatches a fresh turn to the steward's engine.
+	// Pre-W5 the steward saw the card on mobile but its engine never
+	// received it — InputRouter filtered system-producer events. W5
+	// (v1.0.611) added the allowlist and emitted `input.task_completed`
+	// — but no driver handles that kind. Every driver's switch
+	// (driver_appserver.go, driver_pane.go, driver_exec_resume.go,
+	// claude_code/sendkeys.go) falls through to `default:` and returns
+	// "unsupported input kind". Same single-boundary validation gap
+	// as v1.0.619: the DB-level unit test passed; the driver-dispatch
+	// path was never exercised end-to-end.
 	//
-	// Body shape matches option (i) from the design discussion: a
-	// short imperative that gives the steward enough context to
-	// decide its next move, without prescribing how.
-	inputBody := taskCompletedInputBody(title, summary.String)
+	// Corrective fix: use `input.text` with the canonical `body`
+	// payload field every driver's text branch already reads. The
+	// task_id / task_title / from / to sidecar fields stay for
+	// inspection; the body is the actual text delivered to the
+	// engine. For blocked / cancelled transitions the body reflects
+	// the real status — previously the W5 body always said
+	// "completed" regardless of toStatus.
+	//
+	// Audit trail unaffected: the `task.notify` event (first INSERT
+	// above) is still the render-only card mobile shows on the
+	// steward feed. The `input.text` event is purely the wake
+	// mechanism; producer=system + the sidecar fields preserve the
+	// origin for debug/audit.
+	inputBody := taskOutcomeInputBody(title, summary.String, toStatus)
 	inputPayload := map[string]any{
-		"text":           inputBody,
+		"body":           inputBody,
 		"task_id":        taskID,
 		"task_title":     title,
 		"result_summary": summary.String,
@@ -133,14 +145,14 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 	var inputSeq int64
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
-		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.task_completed', 'system', ?, ?
+		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, 'input.text', 'system', ?, ?
 		  FROM agent_events WHERE agent_id = ?
 		RETURNING seq`,
 		inputID, assignerID.String, inputTS, string(inputBytes), sessionID,
 		assignerID.String).Scan(&inputSeq)
 	if err != nil {
 		// Best-effort: render-only path already fired. Log and move on.
-		s.log.Warn("notify assigner: insert input.task_completed",
+		s.log.Warn("notify assigner: insert input.text (task outcome)",
 			"assigner_id", assignerID.String, "err", err)
 		return
 	}
@@ -149,18 +161,19 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 		"agent_id":   assignerID.String,
 		"seq":        inputSeq,
 		"ts":         inputTS,
-		"kind":       "input.task_completed",
+		"kind":       "input.text",
 		"producer":   "system",
 		"payload":    json.RawMessage(inputBytes),
 		"session_id": sessionID,
 	})
 }
 
-// taskCompletedInputBody is the short input.text body the steward
-// receives after a worker finishes a delegated task. Option (i) from
-// the design discussion — minimal imperative, steward decides next
-// step via natural reasoning.
-func taskCompletedInputBody(title, summary string) string {
+// taskOutcomeInputBody is the short input.text body the steward
+// receives after a worker transitions a delegated task to a terminal
+// status. Minimal imperative; steward decides next step via natural
+// reasoning. The verb reflects toStatus so blocked / cancelled
+// tasks read accurately (pre-v1.0.626 always said "completed").
+func taskOutcomeInputBody(title, summary, toStatus string) string {
 	var b strings.Builder
 	b.WriteString("Task ")
 	if title != "" {
@@ -168,10 +181,27 @@ func taskCompletedInputBody(title, summary string) string {
 		b.WriteString(title)
 		b.WriteString("' ")
 	}
-	b.WriteString("completed.")
+	switch toStatus {
+	case "done":
+		b.WriteString("completed.")
+	case "blocked":
+		b.WriteString("blocked.")
+	case "cancelled":
+		b.WriteString("cancelled.")
+	default:
+		// Defensive: notifyTaskAssigner already gates on these three.
+		b.WriteString("status=")
+		b.WriteString(toStatus)
+		b.WriteString(".")
+	}
 	summary = strings.TrimSpace(summary)
 	if summary != "" {
-		b.WriteString(" Result: ")
+		switch toStatus {
+		case "blocked":
+			b.WriteString(" Reason: ")
+		default:
+			b.WriteString(" Result: ")
+		}
 		b.WriteString(summary)
 	}
 	b.WriteString(" Decide next step.")

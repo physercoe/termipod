@@ -322,23 +322,46 @@ func TestResolveContextFiles_TaskWithoutPromptOrSeed(t *testing.T) {
 
 func TestRenderTaskInstructions_Shapes(t *testing.T) {
 	cases := []struct {
-		name        string
-		title, body string
-		wantEmpty   bool
-		wantHas     []string
+		name                  string
+		title, body           string
+		projectID, taskID     string
+		wantEmpty             bool
+		wantHas               []string
+		wantFooter            bool
 	}{
-		{"both", "Investigate 502s", "Look at the logs.", false,
-			[]string{"# Investigate 502s", "Look at the logs."}},
-		{"title only", "Investigate 502s", "", false,
-			[]string{"# Investigate 502s"}},
-		{"body only", "", "Look at the logs.", false,
-			[]string{"Look at the logs."}},
-		{"neither", "", "", true, nil},
-		{"whitespace only", "   ", "\n\n", true, nil},
+		{"both no IDs", "Investigate 502s", "Look at the logs.", "", "", false,
+			[]string{"# Investigate 502s", "Look at the logs."}, false},
+		{"title only no IDs", "Investigate 502s", "", "", "", false,
+			[]string{"# Investigate 502s"}, false},
+		{"body only no IDs", "", "Look at the logs.", "", "", false,
+			[]string{"Look at the logs."}, false},
+		{"neither", "", "", "", "", true, nil, false},
+		{"whitespace only", "   ", "\n\n", "", "", true, nil, false},
+		// With IDs the footer renders carrying both literal values + the
+		// protocol-not-domain framing that overrides task-body restrictions.
+		{"both with IDs", "Investigate 502s", "Look at the logs.",
+			"01PROJ", "01TASK", false,
+			[]string{
+				"# Investigate 502s",
+				"Look at the logs.",
+				"Task close-out protocol",
+				"tasks.complete(",
+				"project_id=\"01PROJ\"",
+				"task=\"01TASK\"",
+				"tasks.update(",
+				"status=\"blocked\"",
+				"orchestration protocol, not",
+				"task.notify",
+			}, true},
+		// IDs present but one missing → no footer (defensive).
+		{"only project_id", "T", "", "01PROJ", "", false,
+			[]string{"# T"}, false},
+		{"only task_id", "T", "", "", "01TASK", false,
+			[]string{"# T"}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := renderTaskInstructions(tc.title, tc.body)
+			got := renderTaskInstructions(tc.title, tc.body, tc.projectID, tc.taskID)
 			if tc.wantEmpty {
 				if got != "" {
 					t.Errorf("want empty; got %q", got)
@@ -349,6 +372,10 @@ func TestRenderTaskInstructions_Shapes(t *testing.T) {
 				if !strings.Contains(got, w) {
 					t.Errorf("missing %q in %q", w, got)
 				}
+			}
+			hasFooter := strings.Contains(got, "Task close-out protocol")
+			if hasFooter != tc.wantFooter {
+				t.Errorf("footer presence = %v; want %v\n---\n%s", hasFooter, tc.wantFooter, got)
 			}
 		})
 	}

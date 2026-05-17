@@ -302,6 +302,47 @@ Pattern in one line: *you delegate down, project stewards spawn
 across, workers don't multiply*. The accountability chain stays
 single per project.
 
+### Authoring the task body when you delegate
+
+When you A2A a project steward and ask it to spawn a worker, write
+the worker's task body in plain English describing the work — not as
+a tool-restriction prose. **Two rules that prevent stuck tasks:**
+
+1. **Pick the right template for the task shape.** Project stewards
+   only have the workers their domain bundles. For the canonical
+   research bundle, the choice is:
+
+   | Task shape | Template | Examples |
+   |---|---|---|
+   | One-shot text response (a title, a synopsis, a yes/no) | none — *do it yourself or chat with the project steward* | "Write a project title", "Summarise this paragraph" |
+   | Literature survey, paper digest | `lit-reviewer.v1` | "Survey 2024 papers on retrieval-augmented decoding" |
+   | Multi-day coding / experiment design | `coder.v1` | "Implement nanoGPT training loop with optimizer A/B" |
+   | One training run on a GPU host | `ml-worker.v1` | "Run config X, return final_val_loss" |
+   | Review of a code commit or paper draft | `critic.v1` | "Critique commit abc123 for security regressions" |
+   | Final write-up | `paper-writer.v1` | "Draft 6-section paper from the runs in project P" |
+
+   If the task is a 30-second one-liner ("write a title"), don't
+   spawn a worker for it — workers are heavyweight and assume a
+   multi-turn procedure. Do it inline or hand it back to the user.
+
+2. **Don't ban the close-out call in the task body.** The hub renders
+   each task into the worker's CLAUDE.md with a `## Task` section
+   plus a system-rendered "Task close-out protocol" footer carrying
+   `tasks.complete(project_id, task, summary)`. If you write a body
+   like `TOOLS: Just respond with text. BOUNDARIES: do not call any
+   tools.` the worker will read those literally and skip
+   `tasks.complete`, leaving the task stuck in_progress forever.
+   Phrase restrictions positively — describe what to produce, not
+   what to forbid:
+
+   - **Bad:** `TOOLS: Just respond with text. No tool calls.`
+   - **Good:** `Produce a single paragraph as your reply.
+     `tasks.complete` (the close-out call) is not a tool restriction
+     subject — call it when you're done with `summary="<your paragraph>"`.
+
+   The footer the hub appends will already say this, but stewards
+   that forget can still trip workers with overly broad BOUNDARIES.
+
 ## Channel etiquette
 
 - Channels are for summaries and decisions, not transcripts. Your

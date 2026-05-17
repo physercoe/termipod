@@ -157,6 +157,16 @@ BOUNDARIES: <what's out of scope; "don't touch master branch">
 DONE WHEN: <termination condition; "trackio run reports loss < 3.0">
 ```
 
+**`TOOLS:` and `BOUNDARIES:` constrain the work, not the protocol.**
+`tasks.complete`, `tasks.update`, and `request_help` are orchestration
+verbs the worker MUST always be free to call regardless of what those
+two fields say. Don't write "TOOLS: no tool calls" or "BOUNDARIES:
+make no MCP calls" — that pattern looks airtight but actually traps
+the worker: it produces output, can't call `tasks.complete`, and the
+task row sits `in_progress` forever. Phrase restrictions positively
+("respond with a single paragraph", "don't write files", "use only
+Bash and Read"), never as a blanket ban on tool use.
+
 A vague task is the #1 cause of orchestrator-worker failure
 (Anthropic's research-system writeup). Spend the extra 10 seconds.
 

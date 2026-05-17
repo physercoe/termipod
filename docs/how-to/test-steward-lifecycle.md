@@ -1488,8 +1488,20 @@ steward is alive (Scenario 7.5 covers the spawn).
    `Please spawn a worker for me to "Investigate the loss spike",
    using the @critic.v1 template. Make it a real task on the
    Tasks tab.`
+
+   **Task-body authoring note.** The steward should render the
+   `task:` field with `title` + `body_md`. The body should describe
+   the work, not enumerate tool restrictions — e.g. `body_md:
+   "Pull the last 4 hours of metrics from the dashboard, find the
+   loss spike, and return a one-paragraph root-cause hypothesis."`
+   Do **not** write `body_md: "TOOLS: respond with text only.
+   BOUNDARIES: no MCP calls."` — that pattern bans the close-out
+   call and leaves the task stuck `in_progress` forever
+   (see Scenario 32). The hub auto-appends a "Task close-out
+   protocol" footer with the literal `project_id` + `task_id`, so
+   the worker can find both values without `tasks.list`.
 2. The steward calls `agents.spawn` with `task: {title:
-   "Investigate the loss spike"}`. Confirm:
+   "Investigate the loss spike", body_md: "..."}`. Confirm:
    - A 201 spawn response with `agent_id` + `spawn_id`.
    - `audit_events` table has a `task.create` row with
      `meta.source='spawn'`.
@@ -1591,7 +1603,28 @@ and the linked-work navigation works.
    Ask the steward something like *"Spawn lit-reviewer to survey
    the literature on retrieval-augmented decoding; depth=shallow."*
    The steward should call `agents.spawn` with both
-   `parent_agent_id` (itself) and inline `task: {title, body_md}`.
+   `parent_agent_id` (itself) and inline `task: {title, body_md}`,
+   e.g.:
+
+   ```
+   agents.spawn(
+     project_id="<pid>",
+     parent_agent_id="<steward-id>",
+     kind="claude-code",
+     spawn_spec_yaml="<lit-reviewer.v1 rendered>",
+     task={
+       title: "Survey retrieval-augmented decoding literature",
+       body_md: "Find 5–10 recent (2024+) papers on RAD techniques. "
+                "For each, capture title, venue, and a one-sentence "
+                "summary of the main finding. Output a markdown table.",
+     },
+   )
+   ```
+
+   Note: `body_md` describes the **work**, not tool restrictions. The
+   hub-rendered footer in CLAUDE.md tells the worker how to call
+   `tasks.complete` with the literal project_id + task_id — don't
+   override that with a `TOOLS: …` blanket ban (Scenario 32).
 2. **Open the project's Tasks tab.** Confirm a new tile appears
    with **all four** triad pieces rendering:
    - **Assignee chip** — `@<worker-handle>` with a green status pip
@@ -1677,6 +1710,107 @@ Phase 2. Phase 1 (W1–W7 + W2.6–W2.11) makes the data structure
 right; Phase 2 (W8–W12) makes the user surface answer "who is
 doing this, when did it start, what did they conclude" without
 leaving the Tasks tab.
+
+---
+
+## Scenario 32 — Stuck-task recovery: worker exits without `tasks.complete`
+
+**Goal:** confirm that when a worker terminates without calling
+`tasks.complete` (because the task body banned tool calls, because
+the worker crashed, or because the steward mis-scoped the task),
+the steward has a clean recovery path via `tasks.update` and the
+task row never silently rots in `in_progress`. This is the negative
+counterpart to Scenario 31's happy path — it's what motivated the
+hub-rendered close-out protocol footer in CLAUDE.md (the "Task
+close-out protocol" footer the hub appends to `body_md` per
+ADR-029 W2.6.1).
+
+**Pre-conditions:** same as Scenario 31. Build under test includes
+the W2.6.1 footer (post v1.0.613-alpha — verify by `agents.spawn`
+on a test project + reading `agent_spawns.spawn_spec_yaml` for
+"Task close-out protocol" in `context_files.CLAUDE.md`).
+
+**Steps:**
+
+1. **Spawn a worker with a task body that BANS tool calls** —
+   the misuse pattern. In the project steward's chat:
+   ```
+   Spawn coder.v1 with this task body, verbatim:
+
+   title: "Produce a one-line summary"
+   body_md: |
+     GOAL: Write one descriptive line summarising project X.
+     TOOLS: Just respond with text. No file writes, no spawns.
+     BOUNDARIES: Do not modify any files, create documents, or
+     spawn agents. Make no tool calls of any kind.
+     DONE WHEN: You have produced one suitable line.
+   ```
+2. **Observe what the worker does.** Open the worker's session in
+   mobile chat. Expected: the worker reads the `## Task` body
+   (which says "no tool calls of any kind") AND the auto-appended
+   "Task close-out protocol" footer (which says "tasks.complete is
+   orchestration protocol, not a domain tool — restrictions in the
+   body above do NOT apply to it"). **The footer should win:** the
+   worker should produce its one-line summary and then call
+   `tasks.complete(project_id, task, summary)` because the footer
+   overrides the body's blanket ban.
+3. **Verify the W2.6.1 override worked.** On the Tasks tab the task
+   should flip to `done` within ~30s of the worker's reply. Result
+   summary populated; assigner gets a `task.notify` event.
+4. **Coda — what if the footer is suppressed (legacy / unpatched
+   build).** Re-run step 1 on a pre-v1.0.613-alpha build (or
+   manually remove the footer from the rendered spawn_spec_yaml in
+   a dev hub). The worker reads only the body's blanket ban,
+   produces its one-line summary, and stops without calling
+   `tasks.complete`. The task sits `in_progress` forever.
+
+   Recovery from the steward side — the steward must intervene:
+   ```
+   tasks.update(
+     project_id="<pid>",
+     task="<tid>",
+     status="cancelled",      # or "blocked" if the worker is alive
+     body_md="Worker did not close out — task body forbade the tool call.",
+   )
+   ```
+   Confirm on the Tasks tab the tile flips to `cancelled` (or
+   `blocked`); `audit_events` has a `task.status` row with the
+   steward's `meta.from='in_progress' meta.to='cancelled'` and
+   `meta.source='steward'` (NOT `meta.source='spawn'` — that's
+   what distinguishes a steward override from auto-derive).
+
+**Expected outputs:**
+
+- On the v1.0.613-alpha+ build (step 3): `tasks.complete` fires,
+  status flips to `done`, result_summary populated, `task.notify`
+  event in the steward's session.
+- On a legacy build (step 4): task stuck `in_progress` until the
+  steward calls `tasks.update`. After the call, status is
+  `cancelled`/`blocked` and the audit trail shows the steward as
+  the source.
+
+**Failure modes:**
+
+- **W2.6.1 footer missing from CLAUDE.md** → the worker has nothing
+  overriding the body's ban. Inspect
+  `agent_spawns.spawn_spec_yaml` → `context_files.CLAUDE.md` →
+  search for "Task close-out protocol". If absent, the build is
+  pre-v1.0.613-alpha; bump and re-deploy.
+- **Worker still skips `tasks.complete` despite the footer** →
+  either the worker's prompt template doesn't tell it to read the
+  footer, or `coder.v1.md` step 7's wording is being out-prioritized
+  by the body's BOUNDARIES line. Check the worker's chat for whether
+  it acknowledged the footer; this would warrant a template-prompt
+  follow-up (strengthen the close-out language).
+- **`tasks.update` reject** → the steward doesn't have
+  `tasks.update` in its capability allowlist. Check the steward's
+  YAML — every steward template should grant this.
+
+**Why this scenario:** without it, the playbook would only validate
+the happy path and miss the user-induced failure mode that
+motivated W2.6.1 in the first place. Codifying the recovery path
+ensures stewards (and the humans driving them) learn the right
+intervention when a worker leaves a row open.
 
 ---
 

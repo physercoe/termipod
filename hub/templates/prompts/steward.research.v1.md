@@ -130,17 +130,27 @@ advance the plan when they approve. Loops happen *inside* phases
 - A2A: workers may invoke you (their parent steward); you may
   invoke any peer steward.
 
-## Worker handoff via A2A
+## Worker handoff — close-out is via `tasks.complete`
 
-Workers report results to you by `a2a.invoke(handle="@<your-handle>",
-text="<task done>", task_id=<the spawn id you assigned>)`. You read
-the inbound message and proceed. Don't poll workers; they push to
-you when they're ready.
+Workers you spawned with an inline `task: {title, body_md}` close
+out by calling `tasks.complete(project_id, task, summary)`. The hub
+flips the task to `done`, stamps `result_summary`, and pushes a
+`task.notify` event into your active session — you don't need to poll
+and they don't need to A2A. Read the notification body to see what
+they produced, then proceed.
 
-If a worker is stuck or has been silent past its expected duration,
-read its agent feed via the host's structured input endpoint and
-either un-stick it (chat) or terminate via `agents.archive` and
-respawn.
+A2A is **only** for mid-flight check-ins (clarifying questions,
+intermediate findings, "should I keep going?" branches). It is **not**
+the close-out channel. If a worker A2A's you "I'm done" without
+calling `tasks.complete`, the task row stays `in_progress` forever —
+treat that as a worker bug and either chat them through the close-out
+call or call `tasks.update(status='cancelled', body_md='<why>')` on
+their behalf so the row is clean.
+
+If a worker is silent past its expected duration: open its session in
+the mobile UI to inspect its chat, or call `tasks.update(status=
+'blocked', body_md='<why>')` to mark the row + then either chat to
+un-stick it or terminate via `agents.archive` and respawn fresh.
 
 ## Plan advancement
 

@@ -198,6 +198,129 @@ func TestDoSpawn_WithTaskID_PostsFirstUserInput(t *testing.T) {
 	}
 }
 
+// W2.6.1: the rendered CLAUDE.md task section must carry a close-out
+// protocol footer with the LITERAL project_id + task_id the worker
+// needs to call tasks.complete. The pre-minted inline task ID must
+// match the tasks row that DoSpawn writes in-tx (one source of truth
+// for the same ID, both the CLAUDE.md and the row).
+func TestDoSpawn_WithInlineTask_RendersCloseOutFooterWithIDs(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-close-out-footer")
+
+	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@worker.closeout",
+		Kind:        "claude-code",
+		ProjectID:   proj,
+		SpawnSpec: "project_id: " + proj + "\n" +
+			"kind: claude-code\n" +
+			"prompt: steward.v1.md\n",
+		Task: &spawnTaskInline{
+			Title:  "Write a one-line project title",
+			BodyMD: "Respond with a single descriptive line.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+
+	// Pull the task row created by the in-tx INSERT so we can assert
+	// its id is the same value that appears in CLAUDE.md.
+	var taskID string
+	if err := s.db.QueryRow(
+		`SELECT id FROM tasks WHERE project_id = ? AND assignee_id = ?`,
+		proj, out.AgentID,
+	).Scan(&taskID); err != nil {
+		t.Fatalf("query tasks row: %v", err)
+	}
+
+	var renderedSpec string
+	if err := s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns WHERE child_agent_id = ?`,
+		out.AgentID,
+	).Scan(&renderedSpec); err != nil {
+		t.Fatalf("query spawn_spec_yaml: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(renderedSpec), &parsed); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	body := parsed.ContextFiles["CLAUDE.md"]
+
+	wants := []string{
+		"Task close-out protocol",
+		"tasks.complete(",
+		`project_id="` + proj + `"`,
+		`task="` + taskID + `"`,
+		"tasks.update(",
+		`status="blocked"`,
+		"orchestration protocol, not",
+		"BOUNDARIES",
+		"task.notify",
+	}
+	for _, w := range wants {
+		if !strings.Contains(body, w) {
+			t.Errorf("CLAUDE.md missing %q\n---\n%s", w, body)
+		}
+	}
+}
+
+// task_id linkage path: when the spawn carries an existing task_id,
+// the footer must use that task_id verbatim. No pre-mint involved.
+func TestDoSpawn_WithTaskID_RendersCloseOutFooterWithIDs(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-close-out-task-id")
+
+	taskID := NewID()
+	now := NowUTC()
+	if _, err := s.db.Exec(`
+		INSERT INTO tasks (id, project_id, title, body_md, status, priority, created_at, updated_at)
+		VALUES (?, ?, 'Existing task title', 'Existing task body.', 'todo', 'med', ?, ?)`,
+		taskID, proj, now, now,
+	); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+
+	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@worker.taskid",
+		Kind:        "claude-code",
+		ProjectID:   proj,
+		TaskID:      taskID,
+		SpawnSpec: "project_id: " + proj + "\n" +
+			"kind: claude-code\n" +
+			"prompt: steward.v1.md\n",
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+
+	var renderedSpec string
+	if err := s.db.QueryRow(
+		`SELECT spawn_spec_yaml FROM agent_spawns WHERE child_agent_id = ?`,
+		out.AgentID,
+	).Scan(&renderedSpec); err != nil {
+		t.Fatalf("query spawn_spec_yaml: %v", err)
+	}
+	var parsed struct {
+		ContextFiles map[string]string `yaml:"context_files"`
+	}
+	if err := yaml.Unmarshal([]byte(renderedSpec), &parsed); err != nil {
+		t.Fatalf("parse spec: %v", err)
+	}
+	body := parsed.ContextFiles["CLAUDE.md"]
+
+	for _, w := range []string{
+		`project_id="` + proj + `"`,
+		`task="` + taskID + `"`,
+		"Task close-out protocol",
+	} {
+		if !strings.Contains(body, w) {
+			t.Errorf("CLAUDE.md missing %q\n---\n%s", w, body)
+		}
+	}
+}
+
 // W2.7: ad-hoc spawn with neither inline task nor task_id does NOT
 // auto-post any input — the steward sends the first message through
 // the regular channels (mobile chat / a2a.invoke).

@@ -37,6 +37,8 @@ default_capabilities:
   - decision.vote: minor
   - spawn.descendants: 0
   - tasks.create
+  - tasks.update         # ADR-029: status='blocked' when a run can't proceed
+  - tasks.complete       # ADR-029 W2.8 close-out verb
   - runs.create
   - runs.attach_metric_uri
   # No project/template/policy writes — workers execute, not govern.

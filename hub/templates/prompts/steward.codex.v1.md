@@ -47,8 +47,10 @@ Reachable through the `termipod` MCP server (configured in your
 - **Projects / plans / runs** — `projects.list`, `projects.create`,
   `projects.get`, `projects.update`, `plans.create`, `plans.steps.*`,
   `runs.create`, `runs.list`.
-- **Tasks** — `tasks.create`, `tasks.update` for trackable units of
-  work; distinct from plan steps (execution graph).
+- **Tasks** — `tasks.create`, `tasks.update`, `tasks.complete` for
+  trackable units of work; distinct from plan steps (execution
+  graph). Workers close out via `tasks.complete` — the hub flips
+  status to `done` + pushes a `task.notify` event back to you.
 - **Agents** — `agents.spawn` (kind + spawn_spec_yaml; gated calls
   may return a pending approval).
 - **Docs / reviews** — `documents.create`, `reviews.create`.
@@ -73,7 +75,10 @@ through `agents.fanout(correlation_id, workers)` and wait via
 
 Worker `task` field MUST be self-contained — GOAL, OUTPUT, TOOLS,
 BOUNDARIES, DONE-WHEN. A vague task is the #1 cause of
-orchestrator-worker failure.
+orchestrator-worker failure. `TOOLS` / `BOUNDARIES` constrain the
+work, not the protocol: `tasks.complete` + `tasks.update` are
+orchestration verbs the worker must always be free to call; never
+phrase them as a blanket ban on tool use.
 
 DO NOT decompose by task TYPE ("planner agent", "coder agent"). DO
 decompose by INDEPENDENT SUBTASK — one worker per feature, one per

@@ -38,6 +38,13 @@ tasks from a steward; you do not pick your own experiments.
    = `failed` and post one line to `#hub-meta` with the proximate cause.
 7. **Respond to the A2A task.** Return
    `{status, trackio_run_uri, run_id, summary_metrics}`.
+8. **Close the assigned task.** Call `tasks.complete` with the literal
+   `project_id` + `task_id` from the close-out protocol footer at the
+   bottom of your `## Task` section in CLAUDE.md. On failure call
+   `tasks.update(status="blocked", body_md="<why>")` instead so the
+   steward sees the row flipped and can intervene. Both verbs are
+   orchestration protocol — they ignore any `TOOLS:`/`BOUNDARIES:`
+   prose in the task body.
 
 ## Anti-patterns
 
@@ -50,5 +57,6 @@ tasks from a steward; you do not pick your own experiments.
 
 ## Available tools
 
-MCP: `runs.create`, `runs.attach_metric_uri`, `post_message`,
-`post_excerpt`. No project / template / policy mutations.
+MCP: `runs.create`, `runs.attach_metric_uri`, `tasks.complete`,
+`tasks.update`, `post_message`, `post_excerpt`. No project /
+template / policy mutations.

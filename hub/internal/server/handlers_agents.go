@@ -577,11 +577,16 @@ type spawnIn struct {
 // hiccup, deleted task) silently degrade to an empty string — the spawn
 // still succeeds, the worker just lacks the instructions, and the
 // principal sees the gap on the Tasks tab.
-func buildTaskInstructions(ctx context.Context, db *sql.DB, in spawnIn) string {
+//
+// projectID + inlineTaskID feed the close-out protocol footer rendered
+// by renderTaskInstructions: workers need the literal IDs to call
+// tasks.complete / tasks.update without first running tasks.list. The
+// caller pre-mints inlineTaskID for the inline branch (so the same ID
+// is reused when the in-tx INSERT runs); for the task_id branch the
+// caller passes in.TaskID.
+func buildTaskInstructions(ctx context.Context, db *sql.DB, in spawnIn, projectID, inlineTaskID string) string {
 	if in.Task != nil {
-		title := strings.TrimSpace(in.Task.Title)
-		body := strings.TrimSpace(in.Task.BodyMD)
-		return renderTaskInstructions(title, body)
+		return renderTaskInstructions(in.Task.Title, in.Task.BodyMD, projectID, inlineTaskID)
 	}
 	if in.TaskID != "" && db != nil {
 		var title, body sql.NullString
@@ -591,7 +596,7 @@ func buildTaskInstructions(ctx context.Context, db *sql.DB, in spawnIn) string {
 		if err != nil {
 			return ""
 		}
-		return renderTaskInstructions(title.String, body.String)
+		return renderTaskInstructions(title.String, body.String, projectID, in.TaskID)
 	}
 	return ""
 }
@@ -600,7 +605,16 @@ func buildTaskInstructions(ctx context.Context, db *sql.DB, in spawnIn) string {
 // "## Task" section. Title becomes the first H1; body_md follows as
 // the rest. If only title is set, the body is the title line alone.
 // If neither is set returns "" so the header is omitted.
-func renderTaskInstructions(title, body string) string {
+//
+// When projectID + taskID are both non-empty, a "Task close-out
+// protocol" footer is appended carrying the literal IDs the worker
+// needs to call tasks.complete / tasks.update. The footer's
+// "protocol-not-domain" framing is load-bearing: it overrides any
+// `TOOLS:` / `BOUNDARIES:` lines a steward might write into body_md
+// that would otherwise forbid the close-out call (the bug that
+// motivated W2.6.1). With empty IDs the footer is omitted so legacy
+// call sites that pass only title+body still render cleanly.
+func renderTaskInstructions(title, body, projectID, taskID string) string {
 	title = strings.TrimSpace(title)
 	body = strings.TrimSpace(body)
 	if title == "" && body == "" {
@@ -618,6 +632,32 @@ func renderTaskInstructions(title, body string) string {
 		}
 		out.WriteString(body)
 		out.WriteString("\n")
+	}
+	if projectID != "" && taskID != "" {
+		out.WriteString("\n---\n\n")
+		out.WriteString("### Task close-out protocol (system-rendered)\n\n")
+		out.WriteString("When you finish your assigned task, close it out by calling:\n\n")
+		out.WriteString("```\n")
+		out.WriteString("tasks.complete(\n")
+		out.WriteString("  project_id=\"" + projectID + "\",\n")
+		out.WriteString("  task=\"" + taskID + "\",\n")
+		out.WriteString("  summary=\"<one-line summary of what you produced>\",\n")
+		out.WriteString(")\n")
+		out.WriteString("```\n\n")
+		out.WriteString("If you cannot complete the task, call instead:\n\n")
+		out.WriteString("```\n")
+		out.WriteString("tasks.update(\n")
+		out.WriteString("  project_id=\"" + projectID + "\",\n")
+		out.WriteString("  task=\"" + taskID + "\",\n")
+		out.WriteString("  status=\"blocked\",\n")
+		out.WriteString("  body_md=\"<short note on why you are stuck>\",\n")
+		out.WriteString(")\n")
+		out.WriteString("```\n\n")
+		out.WriteString("`tasks.complete` and `tasks.update` are orchestration protocol, not\n")
+		out.WriteString("domain tools — any `TOOLS:` / `BOUNDARIES:` restrictions written into\n")
+		out.WriteString("the task body above do NOT apply to them. The hub flips the task to\n")
+		out.WriteString("`done`, stamps `result_summary`, and pushes a `task.notify` event into\n")
+		out.WriteString("your assigner's session automatically when you call `tasks.complete`.\n")
 	}
 	return out.String()
 }
@@ -756,7 +796,27 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
 	}
-	taskInstructions := buildTaskInstructions(ctx, s.db, in)
+	// Resolve project_id per ADR-025 W2: YAML wins (canonical site
+	// every template + mobile sheet writes to), body field is the
+	// precedence-low fallback for callers that don't render YAML.
+	// Resolved BEFORE buildTaskInstructions so the close-out protocol
+	// footer can carry the literal project_id the worker needs to
+	// call tasks.complete.
+	projectID := in.ProjectID
+	if y := parseSpawnModeYAML(rendered); y.ProjectID != "" {
+		projectID = y.ProjectID
+	}
+
+	// Pre-mint the inline task ID so the same ID is both rendered into
+	// the CLAUDE.md close-out footer AND used by the in-tx INSERT below.
+	// For the task_id linkage branch the caller already supplied the ID;
+	// buildTaskInstructions reads it from in.TaskID directly.
+	inlineTaskID := ""
+	if in.Task != nil {
+		inlineTaskID = NewID()
+	}
+
+	taskInstructions := buildTaskInstructions(ctx, s.db, in, projectID, inlineTaskID)
 	rendered, err = s.resolveContextFiles(rendered, vars, in.PersonaSeed, taskInstructions)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
@@ -769,14 +829,6 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	mode, err := s.resolveSpawnMode(ctx, in)
 	if err != nil {
 		return spawnOut{}, http.StatusBadRequest, err
-	}
-
-	// Resolve project_id per ADR-025 W2: YAML wins (canonical site
-	// every template + mobile sheet writes to), body field is the
-	// precedence-low fallback for callers that don't render YAML.
-	projectID := in.ProjectID
-	if y := parseSpawnModeYAML(in.SpawnSpec); y.ProjectID != "" {
-		projectID = y.ProjectID
 	}
 
 	// ADR-029 D-2: validate the task linkage before opening the tx so
@@ -959,7 +1011,9 @@ func (s *Server) DoSpawn(ctx context.Context, team string, in spawnIn) (spawnOut
 	// poll after the spawn returns.
 	linkedTaskID := in.TaskID
 	if in.Task != nil {
-		linkedTaskID = NewID()
+		// Reuse the ID pre-minted above so the same value lands in both
+		// the CLAUDE.md close-out footer and the tasks row.
+		linkedTaskID = inlineTaskID
 		priority := in.Task.Priority
 		if priority == "" {
 			priority = "med"

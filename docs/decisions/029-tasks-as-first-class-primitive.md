@@ -313,9 +313,17 @@ lands in the worker before its first turn:
 
 1. **Standing context in CLAUDE.md.** The rendered `## Task`
    section under `context_files.CLAUDE.md` carries the task title
-   (as an H1) and body_md. Worker re-reads this any time it needs
-   to recall what it's been asked to do — same surface the persona
-   override uses.
+   (as an H1) and body_md, plus a system-rendered "Task close-out
+   protocol" footer (W2.6.1, v1.0.614-alpha) that prints the
+   literal `tasks.complete(project_id, task, summary)` and
+   `tasks.update(status='blocked')` calls with the worker's own
+   IDs baked in. The footer prose explicitly overrides any
+   `TOOLS:` / `BOUNDARIES:` restrictions a steward might write into
+   `body_md`: close-out verbs are orchestration protocol, not
+   domain tools, so a task body that bans tool calls still doesn't
+   ban the close-out. Worker re-reads this section any time it
+   needs to recall what it's been asked to do — same surface the
+   persona override uses.
 2. **First-turn trigger via InputRouter.** A
    `producer='user' kind='input.text'` row is inserted into
    `agent_events` immediately after the spawn commits, carrying

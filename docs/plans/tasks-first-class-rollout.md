@@ -230,6 +230,31 @@ codebase.
   the worker reads the work on first turn — no follow-up
   `a2a.invoke` is required just to deliver the initial instructions.
 
+**W2.6.1. Close-out protocol footer in CLAUDE.md (~60 LOC, v1.0.614-alpha).**
+- Follow-up to W2.6 after a real bug: a coder.v1 worker received a
+  task body that said `TOOLS: Just respond with text. BOUNDARIES:
+  do not modify any files, create documents, or spawn agents.` The
+  worker followed it literally and produced output but never called
+  `tasks.complete`; the task sat `in_progress` forever.
+- `renderTaskInstructions(title, body, projectID, taskID)` gains
+  two ID args. When both non-empty, a system-rendered footer is
+  appended after `body_md` showing the literal `tasks.complete(...)`
+  and `tasks.update(status='blocked', ...)` calls with the IDs
+  baked in. Footer prose explicitly states close-out verbs are
+  orchestration protocol — task-body `TOOLS:` / `BOUNDARIES:`
+  restrictions do NOT apply to them.
+- DoSpawn pre-mints the inline task_id before `buildTaskInstructions`
+  so the same ID lands in both the CLAUDE.md footer and the in-tx
+  `tasks` INSERT. Eliminates the bootstrap problem where the worker
+  would have had to run `tasks.list assignee=self` just to find its
+  own task_id.
+- Closes the gap by overriding the body's restrictive prose at the
+  one place every worker reads first: the CLAUDE.md `## Task`
+  section. Per-template prompt nudges (`coder.v1.md` step 7 etc.)
+  remain in place as defense-in-depth, but the footer is now the
+  load-bearing fix that works even for templates we haven't shipped
+  yet.
+
 **W2.7. Worker trigger — auto-posted first user input (~30 LOC).**
 - W2.6 gives the worker context but no trigger. claude-code (and
   similar engines) read CLAUDE.md as a system-prompt-like file and

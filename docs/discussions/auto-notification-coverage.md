@@ -3,7 +3,7 @@
 > **Type:** discussion
 > **Status:** Open (2026-05-16) — written after the ADR-029 D-8 wedges (W2.6–W2.11) shipped, when the principal asked "are there other automatic notifications we're missing?" Resolves into one or more follow-up ADRs as the load-bearing gaps get scheduled.
 > **Audience:** contributors · principal
-> **Last verified vs code:** v1.0.610-alpha (post-W2.11, unpushed)
+> **Last verified vs code:** v1.0.612-alpha (post-project_steward_request fan-back)
 
 **TL;DR.** Termipod has two push-notification primitives today:
 `attention_items` rows for the principal/steward inbox, and
@@ -43,7 +43,8 @@ of whichever hub-side event it's listening to.
 | Permission prompt | `mcp_more.go:handlePermissionPrompt` | ✓ attention_items |
 | Budget exceeded | `budget.go:accumulateSpend` | ✓ attention_items |
 | Deliverable send-back | `handlers_deliverables.go:1019` | ✓ attention_items |
-| Approval resolved | `handlers_attention.go:695` | ✓ agent_events |
+| Approval / help / select / permission_prompt / elicit resolved | `handlers_attention.go:dispatchAttentionReply` | ✓ agent_events |
+| **project_steward_request resolved** | `handlers_attention.go` allowlist (added v1.0.612-alpha) | ✓ agent_events |
 | Session resume | `handlers_sessions.go:634` | ✓ agent_events |
 | Mode / model change | `handlers_sessions.go:868` | ✓ agent_events (`system`) |
 | **Task terminal (W2.9)** | `task_notify.go` | ✓ agent_events (`task.notify`) |

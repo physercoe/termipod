@@ -433,9 +433,15 @@ func (s *Server) handleDecideAttention(w http.ResponseWriter, r *http.Request) {
 	// hook) won't reach this branch because Claude resolves via
 	// waitForAttentionDecision and never lands in /decide for a
 	// pending hook — see ADR-011 D6.
+	// project_steward_request joins this allowlist because the general
+	// steward parks on the resolution: approve fans `body=<new agent id>`
+	// back so it can A2A the project steward it just got; reject lets it
+	// back off cleanly instead of waiting forever. session_id is recorded
+	// at request time (mcpRequestProjectSteward), so dispatchAttentionReply
+	// already knows where to deliver.
 	if resolved && (kind == "approval_request" || kind == "select" ||
 		kind == "help_request" || kind == "permission_prompt" ||
-		kind == "elicit") {
+		kind == "elicit" || kind == "project_steward_request") {
 		_ = s.dispatchAttentionReply(r.Context(), id, kind, &in)
 	}
 	s.recordAudit(r.Context(), team, "attention.decide", "attention", id,

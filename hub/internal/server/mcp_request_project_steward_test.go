@@ -11,6 +11,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -129,6 +130,203 @@ func TestMcpRequestProjectSteward_RejectsUnknownProject(t *testing.T) {
 	}
 	if jerr.Code != -32602 {
 		t.Errorf("code=%d; want -32602", jerr.Code)
+	}
+}
+
+// /decide on a project_steward_request must wake the requesting general
+// steward with an input.attention_reply carrying the principal's body
+// (the spawned project steward's agent_id on approve, empty on reject).
+// Without this fan-out the general steward parks forever waiting on a
+// signal that never arrives.
+func TestDecide_ProjectStewardRequestFansOutAttentionReply(t *testing.T) {
+	c := newE2E(t)
+	srv := httptest.NewServer(c.s.router)
+	t.Cleanup(srv.Close)
+
+	hostID := seedHostCaps(t, c.s, `{
+		"agents": {"claude-code": {"installed": true, "supports": ["M2"]}}
+	}`)
+	out, _, err := c.s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle:     "general-steward",
+		Kind:            "claude-code",
+		HostID:          hostID,
+		SpawnSpec:       "driving_mode: M2\n",
+		AutoOpenSession: true,
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+	proj := seedProjectInTeam(t, c.s, "delegation-target")
+
+	args, _ := json.Marshal(map[string]any{
+		"project_id":        proj,
+		"reason":            "Need a project steward to draft the coder.",
+		"suggested_host_id": hostID,
+	})
+	if _, jerr := c.s.mcpRequestProjectSteward(
+		context.Background(), defaultTeamID, out.AgentID, args,
+	); jerr != nil {
+		t.Fatalf("mcpRequestProjectSteward: %s", jerr.Message)
+	}
+
+	var attentionID string
+	if err := c.s.db.QueryRow(`
+		SELECT id FROM attention_items
+		 WHERE kind = 'project_steward_request' AND actor_handle = ?
+		 ORDER BY created_at DESC LIMIT 1`, "general-steward",
+	).Scan(&attentionID); err != nil {
+		t.Fatalf("attention lookup: %v", err)
+	}
+
+	var seqBefore int64
+	_ = c.s.db.QueryRow(`
+		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
+		out.AgentID,
+	).Scan(&seqBefore)
+
+	const spawnedAgentID = "project-steward-new-id"
+	status, _ := c.call("POST",
+		"/v1/teams/"+c.teamID+"/attention/"+attentionID+"/decide",
+		map[string]any{
+			"decision": "approve",
+			"by":       "@mobile",
+			"body":     spawnedAgentID,
+		})
+	if status != 200 {
+		t.Fatalf("decide = %d", status)
+	}
+
+	rows, err := c.s.db.Query(`
+		SELECT kind, producer, payload_json
+		  FROM agent_events
+		 WHERE agent_id = ? AND seq > ?
+		 ORDER BY seq ASC`, out.AgentID, seqBefore)
+	if err != nil {
+		t.Fatalf("agent_events query: %v", err)
+	}
+	defer rows.Close()
+	var matched bool
+	for rows.Next() {
+		var kind, producer, payload string
+		if err := rows.Scan(&kind, &producer, &payload); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if kind != "input.attention_reply" {
+			continue
+		}
+		if producer != "user" {
+			t.Errorf("attention_reply producer = %q; want user", producer)
+		}
+		var p map[string]any
+		_ = json.Unmarshal([]byte(payload), &p)
+		if p["request_id"] != attentionID {
+			t.Errorf("attention_reply.request_id = %v; want %s", p["request_id"], attentionID)
+		}
+		if p["kind"] != "project_steward_request" {
+			t.Errorf("attention_reply.kind = %v; want project_steward_request", p["kind"])
+		}
+		if p["decision"] != "approve" {
+			t.Errorf("attention_reply.decision = %v; want approve", p["decision"])
+		}
+		if p["body"] != spawnedAgentID {
+			t.Errorf("attention_reply.body = %v; want %s", p["body"], spawnedAgentID)
+		}
+		matched = true
+		break
+	}
+	if !matched {
+		t.Fatal("no input.attention_reply event posted to general steward after /decide")
+	}
+}
+
+// Reject must also fan out so the general steward can back off cleanly
+// rather than waiting forever for an approval that won't come.
+func TestDecide_ProjectStewardRequestRejectFansOut(t *testing.T) {
+	c := newE2E(t)
+	srv := httptest.NewServer(c.s.router)
+	t.Cleanup(srv.Close)
+
+	hostID := seedHostCaps(t, c.s, `{
+		"agents": {"claude-code": {"installed": true, "supports": ["M2"]}}
+	}`)
+	out, _, err := c.s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle:     "general-steward",
+		Kind:            "claude-code",
+		HostID:          hostID,
+		SpawnSpec:       "driving_mode: M2\n",
+		AutoOpenSession: true,
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+	proj := seedProjectInTeam(t, c.s, "rejected-delegation")
+
+	args, _ := json.Marshal(map[string]any{
+		"project_id": proj,
+		"reason":     "Probably out of scope.",
+	})
+	if _, jerr := c.s.mcpRequestProjectSteward(
+		context.Background(), defaultTeamID, out.AgentID, args,
+	); jerr != nil {
+		t.Fatalf("mcpRequestProjectSteward: %s", jerr.Message)
+	}
+
+	var attentionID string
+	if err := c.s.db.QueryRow(`
+		SELECT id FROM attention_items
+		 WHERE kind = 'project_steward_request' AND actor_handle = ?
+		 ORDER BY created_at DESC LIMIT 1`, "general-steward",
+	).Scan(&attentionID); err != nil {
+		t.Fatalf("attention lookup: %v", err)
+	}
+
+	var seqBefore int64
+	_ = c.s.db.QueryRow(`
+		SELECT COALESCE(MAX(seq), 0) FROM agent_events WHERE agent_id = ?`,
+		out.AgentID,
+	).Scan(&seqBefore)
+
+	status, _ := c.call("POST",
+		"/v1/teams/"+c.teamID+"/attention/"+attentionID+"/decide",
+		map[string]any{
+			"decision": "reject",
+			"by":       "@mobile",
+			"reason":   "Not the right time.",
+		})
+	if status != 200 {
+		t.Fatalf("decide = %d", status)
+	}
+
+	rows, err := c.s.db.Query(`
+		SELECT kind, payload_json FROM agent_events
+		 WHERE agent_id = ? AND seq > ?
+		 ORDER BY seq ASC`, out.AgentID, seqBefore)
+	if err != nil {
+		t.Fatalf("agent_events query: %v", err)
+	}
+	defer rows.Close()
+	var matched bool
+	for rows.Next() {
+		var kind, payload string
+		if err := rows.Scan(&kind, &payload); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if kind != "input.attention_reply" {
+			continue
+		}
+		var p map[string]any
+		_ = json.Unmarshal([]byte(payload), &p)
+		if p["decision"] != "reject" {
+			t.Errorf("attention_reply.decision = %v; want reject", p["decision"])
+		}
+		if p["reason"] != "Not the right time." {
+			t.Errorf("attention_reply.reason = %v; want the reject reason", p["reason"])
+		}
+		matched = true
+		break
+	}
+	if !matched {
+		t.Fatal("no input.attention_reply event posted after reject")
 	}
 }
 

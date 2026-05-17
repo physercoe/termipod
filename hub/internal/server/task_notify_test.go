@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -146,6 +147,17 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
 	}
 
+	// Worker called tasks.complete first (populated result_summary)
+	// then was terminated. This is the canonical happy path: result is
+	// real, auto-derive flips to done. v1.0.619: empty result_summary
+	// would flip to cancelled instead (see _CancelledOnAbandon below).
+	if _, err := s.db.Exec(
+		`UPDATE tasks SET result_summary = ? WHERE assignee_id = ?`,
+		"Migration applied; 12 318 rows.", out.AgentID,
+	); err != nil {
+		t.Fatalf("seed result_summary: %v", err)
+	}
+
 	// Flip the worker to terminated — the agent-side path the host
 	// runner takes when claude exits cleanly. This triggers
 	// deriveTaskStatusFromAgent which auto-flips the task to done
@@ -174,6 +186,136 @@ func TestNotifyTaskAssigner_AutoDeriveOnAgentTerminate(t *testing.T) {
 	}
 	if p.Title != "Run the migration" {
 		t.Errorf("payload title = %q, want Run the migration", p.Title)
+	}
+}
+
+// v1.0.619 rule refinement: a worker terminated WITHOUT having called
+// tasks.complete (result_summary still empty) means the task was
+// abandoned, not finished. Auto-derive must flip to `cancelled`, not
+// `done` — otherwise the activity feed lies about successful
+// completion. The audit summary tags it `(no result_summary; worker
+// abandoned)` so feed readers can distinguish from operator cancel.
+func TestNotifyTaskAssigner_AutoDeriveAbandonedTerminate_Cancels(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-notify-abandoned")
+	stewardID := seedAgentWithActiveSession(t, s, "@steward.proj", "steward.v1")
+
+	out, status, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@worker.stuck",
+		Kind:        "claude-code",
+		ParentID:    stewardID,
+		ProjectID:   proj,
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		Task: &spawnTaskInline{
+			Title:  "Investigate the regression",
+			BodyMD: "Find why p99 latency tripled.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v (status=%d)", err, status)
+	}
+
+	// Critically: do NOT seed result_summary. The worker got stuck;
+	// the steward is killing it without a completion report.
+	if _, err := s.db.Exec(
+		`UPDATE agents SET status = 'terminated' WHERE id = ?`, out.AgentID,
+	); err != nil {
+		t.Fatalf("terminate worker: %v", err)
+	}
+	if err := s.deriveTaskStatusFromAgent(context.Background(),
+		defaultTeamID, out.AgentID, "terminated"); err != nil {
+		t.Fatalf("deriveTaskStatusFromAgent: %v", err)
+	}
+
+	// Task must be cancelled, not done.
+	var taskStatus string
+	if err := s.db.QueryRow(
+		`SELECT status FROM tasks WHERE assignee_id = ?`, out.AgentID,
+	).Scan(&taskStatus); err != nil {
+		t.Fatalf("read task: %v", err)
+	}
+	if taskStatus != "cancelled" {
+		t.Errorf("task status = %q, want cancelled (no result_summary on terminate)", taskStatus)
+	}
+
+	// completed_at should be stamped so the Tasks tab reads
+	// "cancelled <N>m ago" without falling back to updated_at.
+	var completedAt sql.NullString
+	if err := s.db.QueryRow(
+		`SELECT completed_at FROM tasks WHERE assignee_id = ?`, out.AgentID,
+	).Scan(&completedAt); err != nil {
+		t.Fatalf("read completed_at: %v", err)
+	}
+	if !completedAt.Valid || completedAt.String == "" {
+		t.Errorf("completed_at not stamped on abandoned cancellation")
+	}
+
+	// Audit row carries abandoned=true so feed readers can tell auto-
+	// derived abandonment from explicit operator cancellation.
+	var meta string
+	if err := s.db.QueryRow(`
+		SELECT meta_json FROM audit_events
+		 WHERE action = 'task.status' AND target_id = (
+		   SELECT id FROM tasks WHERE assignee_id = ?
+		 )
+		 ORDER BY ts DESC LIMIT 1`, out.AgentID,
+	).Scan(&meta); err != nil {
+		t.Fatalf("audit lookup: %v", err)
+	}
+	if !strings.Contains(meta, `"abandoned":true`) {
+		t.Errorf("audit meta missing abandoned flag: %s", meta)
+	}
+
+	// Steward gets the task.notify with to=cancelled — not done.
+	got := lastTaskNotifyEvent(t, s, stewardID)
+	if got.Kind != "task.notify" {
+		t.Fatalf("expected task.notify; got %+v", got)
+	}
+	var p struct {
+		To string `json:"to"`
+	}
+	_ = json.Unmarshal([]byte(got.Payload), &p)
+	if p.To != "cancelled" {
+		t.Errorf("payload to = %q, want cancelled", p.To)
+	}
+}
+
+// White-space-only result_summary still counts as "no real result" for
+// the abandonment rule. Pins TrimSpace behaviour so a worker that
+// stamps `summary=" "` doesn't accidentally claim completion.
+func TestDeriveTaskStatus_BlankSummaryStillCancels(t *testing.T) {
+	s, _ := newTestServer(t)
+	proj := seedProjectInTeam(t, s, "proj-blank-summary")
+	stewardID := seedAgentWithActiveSession(t, s, "@steward.proj", "steward.v1")
+
+	out, _, err := s.DoSpawn(context.Background(), defaultTeamID, spawnIn{
+		ChildHandle: "@worker.blank",
+		Kind:        "claude-code",
+		ParentID:    stewardID,
+		ProjectID:   proj,
+		SpawnSpec:   "project_id: " + proj + "\nkind: claude-code\n",
+		Task:        &spawnTaskInline{Title: "Quick task", BodyMD: "x"},
+	})
+	if err != nil {
+		t.Fatalf("DoSpawn: %v", err)
+	}
+
+	if _, err := s.db.Exec(
+		`UPDATE tasks SET result_summary = ? WHERE assignee_id = ?`,
+		"   \n  \t  ", out.AgentID,
+	); err != nil {
+		t.Fatalf("seed blank summary: %v", err)
+	}
+	_, _ = s.db.Exec(`UPDATE agents SET status = 'terminated' WHERE id = ?`, out.AgentID)
+	if err := s.deriveTaskStatusFromAgent(context.Background(),
+		defaultTeamID, out.AgentID, "terminated"); err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+
+	var taskStatus string
+	_ = s.db.QueryRow(`SELECT status FROM tasks WHERE assignee_id = ?`, out.AgentID).Scan(&taskStatus)
+	if taskStatus != "cancelled" {
+		t.Errorf("blank summary → status %q, want cancelled", taskStatus)
 	}
 }
 

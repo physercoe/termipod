@@ -1410,11 +1410,12 @@ class _AgentsView extends ConsumerWidget {
                 children: [
                   const Spacer(),
                   IconButton(
-                    tooltip: 'Archived agents',
-                    icon: const Icon(Icons.inventory_2_outlined),
+                    tooltip: 'Agent history (terminated + archived)',
+                    icon: const Icon(Icons.history),
                     onPressed: () => Navigator.of(context)
                         .push(MaterialPageRoute(
-                      builder: (_) => const ArchivedAgentsScreen(),
+                      builder: (_) =>
+                          ArchivedAgentsScreen(projectId: projectId),
                     )),
                   ),
                 ],

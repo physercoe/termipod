@@ -5,11 +5,19 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
 
-/// Read-only list of archived agents. Operators archive terminated agents
-/// from the detail sheet to declutter the live list; the rows stay in the
-/// DB so spawn history and audit rows continue to resolve.
+/// Read-only list of historical agents. Two modes:
+/// - Global (default; projectId null): shows agents with
+///   `archived_at != null` across the whole team. Operators reach this
+///   from Settings to audit cross-project agent history.
+/// - Project-scoped (projectId set, v1.0.619): shows every non-live
+///   agent that ever belonged to one project — terminated, crashed,
+///   failed, AND archived. This is what the project detail page's
+///   "Agent history" button opens; an operator who terminated a worker
+///   moments ago expects to see it here without having to manually
+///   archive it first.
 class ArchivedAgentsScreen extends ConsumerStatefulWidget {
-  const ArchivedAgentsScreen({super.key});
+  final String? projectId;
+  const ArchivedAgentsScreen({super.key, this.projectId});
 
   @override
   ConsumerState<ArchivedAgentsScreen> createState() =>
@@ -20,6 +28,9 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
   List<Map<String, dynamic>> _rows = const [];
   bool _loading = false;
   String? _error;
+
+  bool get _projectScoped =>
+      widget.projectId != null && widget.projectId!.isNotEmpty;
 
   @override
   void initState() {
@@ -43,18 +54,41 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
     try {
       // Archived rows are typically also terminated; without
       // includeTerminated the post-v1.0.606 default hides them and
-      // the screen renders empty.
+      // the screen renders empty. Project-scoped mode broadens the
+      // filter to include every non-live agent (terminated / crashed
+      // / failed / archived) for the named project.
       final all = await client.listAgents(
         includeArchived: true,
         includeTerminated: true,
+        projectId: _projectScoped ? widget.projectId : null,
       );
-      final archived = [
-        for (final a in all)
-          if (a['archived_at'] != null) a,
-      ];
+      final filtered = <Map<String, dynamic>>[];
+      for (final a in all) {
+        if (_projectScoped) {
+          if ((a['project_id'] ?? '').toString() != widget.projectId) continue;
+          final status = (a['status'] ?? '').toString();
+          final archivedAt = (a['archived_at'] ?? '').toString();
+          final isTerminal = status == 'terminated' ||
+              status == 'crashed' ||
+              status == 'failed';
+          if (!isTerminal && archivedAt.isEmpty) continue;
+          filtered.add(a);
+        } else {
+          if (a['archived_at'] == null) continue;
+          filtered.add(a);
+        }
+      }
+      // Most-recent first so a freshly-terminated worker is at the top.
+      filtered.sort((a, b) {
+        final ka = (a['terminated_at'] ?? a['archived_at'] ?? a['created_at'] ?? '')
+            .toString();
+        final kb = (b['terminated_at'] ?? b['archived_at'] ?? b['created_at'] ?? '')
+            .toString();
+        return kb.compareTo(ka);
+      });
       if (!mounted) return;
       setState(() {
-        _rows = archived;
+        _rows = filtered;
         _loading = false;
       });
     } catch (e) {
@@ -71,7 +105,7 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Archived agents',
+          _projectScoped ? 'Agent history' : 'Archived agents',
           style: GoogleFonts.spaceGrotesk(
               fontSize: 18, fontWeight: FontWeight.w700),
         ),
@@ -104,10 +138,17 @@ class _ArchivedAgentsScreenState extends ConsumerState<ArchivedAgentsScreen> {
     }
     if (_rows.isEmpty) {
       return Center(
-        child: Text(
-          'No archived agents.\nTerminate an agent, then tap Delete on its detail sheet to move it here.',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.spaceGrotesk(color: DesignColors.textMuted),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            _projectScoped
+                ? 'No past agents on this project yet.\n'
+                    'Terminated, crashed, failed, and archived agents will appear here.'
+                : 'No archived agents.\n'
+                    'Terminate an agent, then tap Archive on its detail sheet to move it here.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.spaceGrotesk(color: DesignColors.textMuted),
+          ),
         ),
       );
     }
@@ -142,6 +183,22 @@ class _ArchivedTile extends StatelessWidget {
     final kind = (row['kind'] ?? '').toString();
     final status = (row['status'] ?? '').toString();
     final archivedAt = (row['archived_at'] ?? '').toString();
+    final terminatedAt = (row['terminated_at'] ?? '').toString();
+    // Subtitle line: kind + the most relevant timestamp. For
+    // archived-but-also-terminated rows we prefer the archived
+    // timestamp (operator-driven event). Pure-terminated rows fall
+    // back to terminated_at.
+    final tsLabel = archivedAt.isNotEmpty
+        ? 'archived ${_trim(archivedAt)}'
+        : terminatedAt.isNotEmpty
+            ? 'terminated ${_trim(terminatedAt)}'
+            : '';
+    // Icon hints at provenance: archive bin for archived, ghost for
+    // terminal-without-archive. Both share the same muted opacity so
+    // the visual weight stays consistent.
+    final leadIcon = archivedAt.isNotEmpty
+        ? Icons.inventory_2_outlined
+        : Icons.power_settings_new;
     return Opacity(
       opacity: 0.72,
       child: Material(
@@ -168,7 +225,7 @@ class _ArchivedTile extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.inventory_2_outlined,
+                    Icon(leadIcon,
                         size: 18, color: DesignColors.textMuted),
                     const SizedBox(width: 8),
                     Expanded(
@@ -186,11 +243,9 @@ class _ArchivedTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  [
-                    kind,
-                    if (archivedAt.isNotEmpty)
-                      'archived ${archivedAt.substring(0, archivedAt.length >= 19 ? 19 : archivedAt.length)}',
-                  ].where((s) => s.isNotEmpty).join(' · '),
+                  [kind, if (tsLabel.isNotEmpty) tsLabel]
+                      .where((s) => s.isNotEmpty)
+                      .join(' · '),
                   style: GoogleFonts.jetBrainsMono(
                       fontSize: 11, color: DesignColors.textMuted),
                 ),
@@ -201,6 +256,8 @@ class _ArchivedTile extends StatelessWidget {
       ),
     );
   }
+
+  String _trim(String iso) => iso.length >= 19 ? iso.substring(0, 19) : iso;
 }
 
 /// Tombstone detail for an archived agent. Fetches the full agent row

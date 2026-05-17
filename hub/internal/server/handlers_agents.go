@@ -372,30 +372,34 @@ func (s *Server) handlePatchAgent(w http.ResponseWriter, r *http.Request) {
 // non-terminal statuses (returns nil without touching the task). Looks
 // up the agent's most-recent spawn's task_id, and:
 //
-//   - 'terminated' (any cause)  → task.status='done', completed_at=now
-//   - 'crashed' / 'failed'      → task.status='blocked'
-//   - other agent statuses      → no-op
+//   - 'terminated' AND result_summary populated  → task.status='done'
+//   - 'terminated' AND result_summary empty      → task.status='cancelled'
+//                                                  (worker never called
+//                                                  tasks.complete — task
+//                                                  was abandoned, not
+//                                                  finished; recording it
+//                                                  as 'done' would be a
+//                                                  lie. v1.0.619 rule.)
+//   - 'crashed' / 'failed'                       → task.status='blocked'
+//   - other agent statuses                       → no-op
 //
-// Cancelled tasks are skipped (terminal override). Audit row is
-// written with source='spawn' per ADR-029 D-4 W4.
+// Cancelled tasks are skipped (terminal override the operator picked).
+// Audit row is written with source='spawn' per ADR-029 D-4 W4; the
+// summary line names the trigger so feed readers can tell auto-derived
+// 'cancelled' apart from explicit operator cancellation.
 func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, agentStatus string) error {
-	var newStatus string
-	switch agentStatus {
-	case "terminated":
-		newStatus = "done"
-	case "crashed", "failed":
-		newStatus = "blocked"
-	default:
-		return nil
-	}
-	var taskID, curStatus string
+	var (
+		taskID, curStatus string
+		resultSummary     sql.NullString
+	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COALESCE(sp.task_id, ''), COALESCE(t.status, '')
+		SELECT COALESCE(sp.task_id, ''), COALESCE(t.status, ''),
+		       t.result_summary
 		  FROM agent_spawns sp
 		  LEFT JOIN tasks t ON t.id = sp.task_id
 		 WHERE sp.child_agent_id = ?
 		 ORDER BY sp.spawned_at DESC
-		 LIMIT 1`, agentID).Scan(&taskID, &curStatus)
+		 LIMIT 1`, agentID).Scan(&taskID, &curStatus, &resultSummary)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -409,7 +413,25 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 	if curStatus == "cancelled" {
 		return nil
 	}
-	// Idempotent: don't re-stamp done over an already-done row.
+
+	// Map agent status → task status. Terminated splits by
+	// result_summary presence so abandoned tasks don't look completed.
+	var newStatus string
+	hasSummary := resultSummary.Valid && strings.TrimSpace(resultSummary.String) != ""
+	switch agentStatus {
+	case "terminated":
+		if hasSummary {
+			newStatus = "done"
+		} else {
+			newStatus = "cancelled"
+		}
+	case "crashed", "failed":
+		newStatus = "blocked"
+	default:
+		return nil
+	}
+
+	// Idempotent: don't re-stamp the same status over an already-equal row.
 	if curStatus == newStatus {
 		return nil
 	}
@@ -421,6 +443,16 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 			 WHERE id = ?`, now, now, taskID); err != nil {
 			return err
 		}
+	} else if newStatus == "cancelled" {
+		// Stamp completed_at on cancellation too so the time line on
+		// the Tasks tab reads "cancelled <N>m ago" without falling back
+		// to updated_at (which moves on every patch).
+		if _, err := s.db.ExecContext(ctx, `
+			UPDATE tasks
+			   SET status = 'cancelled', completed_at = ?, updated_at = ?
+			 WHERE id = ?`, now, now, taskID); err != nil {
+			return err
+		}
 	} else {
 		if _, err := s.db.ExecContext(ctx, `
 			UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`,
@@ -428,14 +460,23 @@ func (s *Server) deriveTaskStatusFromAgent(ctx context.Context, team, agentID, a
 			return err
 		}
 	}
+	auditSummary := "auto-derive: " + curStatus + " → " + newStatus
+	auditMeta := map[string]any{
+		"from":   curStatus,
+		"to":     newStatus,
+		"source": "spawn",
+		"agent":  agentID,
+	}
+	// Distinguish abandoned-task cancellation from operator cancellation
+	// in the feed so the user can tell "I gave up on a stuck worker"
+	// from "the worker reported its result." Activity readers and
+	// future replay tools can grep on the abandoned flag.
+	if newStatus == "cancelled" && agentStatus == "terminated" {
+		auditSummary += " (no result_summary; worker abandoned)"
+		auditMeta["abandoned"] = true
+	}
 	s.recordAudit(ctx, team, "task.status", "task", taskID,
-		"auto-derive: "+curStatus+" → "+newStatus,
-		map[string]any{
-			"from":   curStatus,
-			"to":     newStatus,
-			"source": "spawn",
-			"agent":  agentID,
-		})
+		auditSummary, auditMeta)
 	// W2.9: surface the auto-derived flip in the assigner's chat too.
 	// The agent-terminated case is the canonical "worker finished and
 	// the steward needs to know" path; without this, the steward only

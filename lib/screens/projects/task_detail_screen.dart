@@ -41,14 +41,6 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   // timeline never erases itself on a transient blip.
   List<Map<String, dynamic>> _audit = const [];
 
-  static const _statuses = [
-    'todo',
-    'in_progress',
-    'blocked',
-    'done',
-    'cancelled',
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -220,56 +212,31 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final s in _statuses)
-                ChoiceChip(
-                  label: Text(s),
-                  selected: status == s,
-                  onSelected: (sel) {
-                    if (sel) _setStatus(s);
-                  },
-                ),
-            ],
+          const SizedBox(height: 12),
+          // Compact state row: status + priority side-by-side as
+          // popup pickers. Replaces the two stacked ChoiceChip rows
+          // that ate ~140px of vertical space for fields users
+          // typically read but rarely change.
+          _StateRow(
+            status: status,
+            priority: priority,
+            onStatus: _setStatus,
+            onPriority: _setPriority,
+            isDark: isDark,
           ),
-          const SizedBox(height: 10),
-          _PriorityLabel(isDark: isDark),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final p in TaskPriority.values)
-                ChoiceChip(
-                  avatar: TaskPriorityDot(priority: p, size: 12),
-                  label: Text(p.label),
-                  selected: priority == p,
-                  onSelected: (sel) {
-                    if (sel) _setPriority(p);
-                  },
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _SourceSection(
+          const SizedBox(height: 12),
+          // Unified attribution card: collapses the prior triplet
+          // (Source / Attribution / Worker session) into one bordered
+          // card that answers who-and-when in 2–4 icon rows. The
+          // worker-session Open button rides on the assignee row.
+          _AttributionCard(
+            task: task,
             source: source,
             planId: planId,
             planStepId: planStepId,
             projectId: widget.projectId,
+            isDark: isDark,
           ),
-          const SizedBox(height: 16),
-          // ADR-029 W9 attribution block: assignee + assigner + time
-          // + result_summary surfaced together so the detail screen
-          // answers "who, when, what happened" before the body.
-          _TaskAttributionBlock(task: task, isDark: isDark),
-          const SizedBox(height: 16),
-          // W9 linked-work pane: jumps to the worker's session chat.
-          // Hub denormalizes assignee_id; we resolve session_id from
-          // the local sessions provider.
-          _LinkedWorkSection(task: task, isDark: isDark),
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
@@ -297,24 +264,187 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   }
 }
 
-/// ADR-029 W9: stacked metadata block for the task detail header.
-/// Shows the assignee chip with status pip, assigner attribution,
-/// the lifecycle timestamp (started / done / cancelled), and the
-/// worker-supplied result summary when present. Each piece is
-/// individually optional so pre-ADR-029 tasks still render cleanly.
-class _TaskAttributionBlock extends StatelessWidget {
-  final Map<String, dynamic> task;
+/// Compact state row: status + priority as side-by-side popup pickers.
+/// Replaces the prior stacked ChoiceChip Wraps. Each picker shows the
+/// selected value with a dropdown arrow; tapping opens a small menu.
+/// Saves ~140px vertical; reads as a header rather than a control panel.
+class _StateRow extends StatelessWidget {
+  final String status;
+  final TaskPriority priority;
+  final ValueChanged<String> onStatus;
+  final ValueChanged<TaskPriority> onPriority;
   final bool isDark;
-  const _TaskAttributionBlock({required this.task, required this.isDark});
+  const _StateRow({
+    required this.status,
+    required this.priority,
+    required this.onStatus,
+    required this.onPriority,
+    required this.isDark,
+  });
+
+  static const _statuses = [
+    'todo',
+    'in_progress',
+    'blocked',
+    'done',
+    'cancelled',
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final assigneeHandle =
-        (task['assignee_handle'] ?? '').toString();
-    final assigneeStatus =
-        (task['assignee_status'] ?? '').toString();
-    final assignerHandle =
-        (task['assigner_handle'] ?? '').toString();
+    return Row(
+      children: [
+        Expanded(child: _statusPicker(context)),
+        const SizedBox(width: 8),
+        Expanded(child: _priorityPicker(context)),
+      ],
+    );
+  }
+
+  Widget _statusPicker(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Change status',
+      itemBuilder: (_) => [
+        for (final s in _statuses)
+          PopupMenuItem<String>(
+            value: s,
+            child: Text(
+              s,
+              style: GoogleFonts.spaceGrotesk(
+                fontWeight:
+                    s == status ? FontWeight.w700 : FontWeight.w400,
+              ),
+            ),
+          ),
+      ],
+      onSelected: onStatus,
+      child: _pickerChip(label: 'STATUS', value: status),
+    );
+  }
+
+  Widget _priorityPicker(BuildContext context) {
+    return PopupMenuButton<TaskPriority>(
+      tooltip: 'Change priority',
+      itemBuilder: (_) => [
+        for (final p in TaskPriority.values)
+          PopupMenuItem<TaskPriority>(
+            value: p,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TaskPriorityDot(priority: p, size: 10),
+                const SizedBox(width: 8),
+                Text(
+                  p.label,
+                  style: GoogleFonts.spaceGrotesk(
+                    fontWeight:
+                        p == priority ? FontWeight.w700 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+      onSelected: onPriority,
+      child: _pickerChip(
+        label: 'PRIORITY',
+        value: priority.label,
+        leading: TaskPriorityDot(priority: priority, size: 8),
+      ),
+    );
+  }
+
+  Widget _pickerChip({
+    required String label,
+    required String value,
+    Widget? leading,
+  }) {
+    final muted = isDark
+        ? DesignColors.textMuted
+        : DesignColors.textMutedLight;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark
+            ? DesignColors.surfaceDark
+            : DesignColors.surfaceLight,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isDark
+              ? DesignColors.borderDark
+              : DesignColors.borderLight,
+        ),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.jetBrainsMono(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+              color: muted,
+            ),
+          ),
+          const SizedBox(width: 10),
+          if (leading != null) ...[leading, const SizedBox(width: 6)],
+          Expanded(
+            child: Text(
+              value,
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          Icon(Icons.arrow_drop_down, size: 18, color: muted),
+        ],
+      ),
+    );
+  }
+}
+
+/// Unified attribution card. Collapses what used to be three separate
+/// bordered sections (_SourceSection, _TaskAttributionBlock,
+/// _LinkedWorkSection) into one card whose rows answer who-and-when:
+///
+/// - Assignee row: `@worker · running` plus the worker-session Open
+///   button on the right (the Open is unique to the assignee, so it
+///   belongs on that row, not in its own card).
+/// - Provenance row: `assigned by @steward` for spawn/ad-hoc tasks
+///   with an assigner; `Generated by plan step …` (tappable, opens
+///   PlanViewer) for plan-derived tasks; `Created manually` only when
+///   neither applies — this fixes the v1.0.614 mislabel where every
+///   spawn-created task read "Created manually" because hub's `source`
+///   field is plan-vs-ad_hoc, not spawn-vs-human.
+/// - Time row: started / done / cancelled (relative).
+/// - Optional result summary panel below a divider when populated.
+///
+/// Each row is individually optional so pre-ADR-029 tasks render
+/// cleanly (or hide the whole card when nothing applies).
+class _AttributionCard extends ConsumerWidget {
+  final Map<String, dynamic> task;
+  final String source;
+  final String planId;
+  final String planStepId;
+  final String projectId;
+  final bool isDark;
+  const _AttributionCard({
+    required this.task,
+    required this.source,
+    required this.planId,
+    required this.planStepId,
+    required this.projectId,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final assigneeID = (task['assignee_id'] ?? '').toString();
+    final assigneeHandle = (task['assignee_handle'] ?? '').toString();
+    final assigneeStatus = (task['assignee_status'] ?? '').toString();
+    final assignerHandle = (task['assigner_handle'] ?? '').toString();
     final startedRaw = (task['started_at'] ?? '').toString();
     final completedRaw = (task['completed_at'] ?? '').toString();
     final updatedRaw = (task['updated_at'] ?? '').toString();
@@ -325,14 +455,44 @@ class _TaskAttributionBlock extends StatelessWidget {
     final cancelled = status == 'cancelled'
         ? (completed ?? DateTime.tryParse(updatedRaw))
         : null;
+    final isPlan = source == 'plan' && planStepId.isNotEmpty;
+
+    // Resolve linked session for the Open button (rides on the
+    // assignee row). The provider read is no-op when assigneeID is
+    // empty, which avoids spurious rebuilds for unassigned tasks.
+    String sessionId = '';
+    String sessionTitle = '';
+    if (assigneeID.isNotEmpty) {
+      final sessionsState = ref.watch(sessionsProvider).value;
+      final allSessions = <Map<String, dynamic>>[
+        ...?sessionsState?.active,
+        ...?sessionsState?.previous,
+      ];
+      final session = allSessions.firstWhere(
+        (s) => (s['current_agent_id'] ?? '').toString() == assigneeID,
+        orElse: () => const <String, dynamic>{},
+      );
+      final sid = (session['id'] ?? '').toString();
+      if (sid.isNotEmpty) {
+        sessionId = sid;
+        sessionTitle = (session['title'] ?? '').toString().isNotEmpty
+            ? (session['title']).toString()
+            : '@${_stripAt(assigneeHandle)}';
+      }
+    }
+
+    // Hide the entire card when there's nothing useful to show.
+    // Pre-ADR-029 tasks land here.
     if (assigneeHandle.isEmpty &&
         assignerHandle.isEmpty &&
+        !isPlan &&
         started == null &&
         completed == null &&
         cancelled == null &&
         summary.isEmpty) {
       return const SizedBox.shrink();
     }
+
     final muted = isDark
         ? DesignColors.textMuted
         : DesignColors.textMutedLight;
@@ -353,59 +513,44 @@ class _TaskAttributionBlock extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (assigneeHandle.isNotEmpty)
-            _row(
+            _assigneeRow(
               context,
-              icon: Icons.person_outline,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _statusColor(assigneeStatus, muted),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '@${_stripAt(assigneeHandle)}',
-                    style: GoogleFonts.spaceGrotesk(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (assigneeStatus.isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      '· $assigneeStatus',
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 11,
-                        color: muted,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
+              handle: assigneeHandle,
+              workerStatus: assigneeStatus,
+              muted: muted,
+              sessionId: sessionId,
+              sessionTitle: sessionTitle,
+              assigneeID: assigneeID,
             ),
-          if (assignerHandle.isNotEmpty)
-            _row(
-              context,
-              icon: Icons.swap_horiz,
-              child: Text(
-                'assigned by @${_stripAt(assignerHandle)}',
-                style: GoogleFonts.spaceGrotesk(fontSize: 12),
-              ),
-            ),
+          _provenanceRow(
+            context,
+            isPlan: isPlan,
+            assignerHandle: assignerHandle,
+            muted: muted,
+          ),
           if (started != null || completed != null || cancelled != null)
-            _row(
-              context,
+            _iconRow(
               icon: Icons.schedule,
               child: Text(
                 _timeLine(started, completed, cancelled, status),
                 style: GoogleFonts.spaceGrotesk(fontSize: 12),
               ),
+              muted: muted,
             ),
+          if (isPlan) ...[
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(left: 22),
+              child: Text(
+                'Closing this task manually does not complete the '
+                'plan step; the executor owns that transition.',
+                style: GoogleFonts.spaceGrotesk(
+                  fontSize: 11,
+                  color: muted,
+                ),
+              ),
+            ),
+          ],
           if (summary.isNotEmpty) ...[
             const SizedBox(height: 8),
             const Divider(height: 1),
@@ -430,11 +575,172 @@ class _TaskAttributionBlock extends StatelessWidget {
     );
   }
 
-  Widget _row(BuildContext context,
-      {required IconData icon, required Widget child}) {
-    final muted = isDark
-        ? DesignColors.textMuted
-        : DesignColors.textMutedLight;
+  Widget _assigneeRow(
+    BuildContext context, {
+    required String handle,
+    required String workerStatus,
+    required Color muted,
+    required String sessionId,
+    required String sessionTitle,
+    required String assigneeID,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(Icons.person_outline, size: 14, color: muted),
+          const SizedBox(width: 8),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _statusColor(workerStatus, muted),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              '@${_stripAt(handle)}',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (workerStatus.isNotEmpty) ...[
+            const SizedBox(width: 6),
+            Text(
+              '· $workerStatus',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                color: muted,
+              ),
+            ),
+          ],
+          const Spacer(),
+          if (sessionId.isNotEmpty)
+            TextButton.icon(
+              icon: const Icon(Icons.forum_outlined, size: 14),
+              label: const Text('Open'),
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SessionChatScreen(
+                      sessionId: sessionId,
+                      agentId: assigneeID,
+                      title: sessionTitle,
+                    ),
+                  ),
+                );
+              },
+            )
+          else if (assigneeID.isNotEmpty)
+            Text(
+              'no live session',
+              style: GoogleFonts.spaceGrotesk(
+                fontSize: 11,
+                fontStyle: FontStyle.italic,
+                color: muted,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _provenanceRow(
+    BuildContext context, {
+    required bool isPlan,
+    required String assignerHandle,
+    required Color muted,
+  }) {
+    if (isPlan) {
+      return InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: planId.isEmpty
+            ? null
+            : () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => PlanViewerScreen(
+                      planId: planId,
+                      projectId: projectId,
+                    ),
+                  ),
+                ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            children: [
+              Icon(Icons.playlist_play_outlined,
+                  size: 14, color: DesignColors.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    style: GoogleFonts.spaceGrotesk(fontSize: 12),
+                    children: [
+                      const TextSpan(text: 'Generated by plan step '),
+                      TextSpan(
+                        text: planStepId,
+                        style: GoogleFonts.jetBrainsMono(
+                          fontSize: 11,
+                          color: DesignColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (planId.isNotEmpty)
+                Icon(Icons.chevron_right, size: 16, color: muted),
+            ],
+          ),
+        ),
+      );
+    }
+    if (assignerHandle.isNotEmpty) {
+      // For spawn-created or steward-created tasks we have an actual
+      // agent handle on the assigner side; surface it verbatim. The
+      // verb is the same for both ("assigned by") since spawn delegates
+      // and manual tasks.create both express "this agent originated
+      // the row" at the user-facing layer.
+      return _iconRow(
+        icon: Icons.swap_horiz,
+        child: Text(
+          'assigned by @${_stripAt(assignerHandle)}',
+          style: GoogleFonts.spaceGrotesk(fontSize: 12),
+        ),
+        muted: muted,
+      );
+    }
+    // Only reach here when source=ad_hoc AND no agent assigner: a
+    // human typed the task in directly via the mobile sheet. This is
+    // the case the legacy "Created manually" label actually
+    // described — keep it for that path only.
+    return _iconRow(
+      icon: Icons.person_outline,
+      child: Text(
+        'Created manually',
+        style: GoogleFonts.spaceGrotesk(fontSize: 12),
+      ),
+      muted: muted,
+    );
+  }
+
+  Widget _iconRow({
+    required IconData icon,
+    required Widget child,
+    required Color muted,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -478,88 +784,6 @@ class _TaskAttributionBlock extends StatelessWidget {
       default:
         return muted;
     }
-  }
-
-  String _stripAt(String h) => h.startsWith('@') ? h.substring(1) : h;
-}
-
-/// ADR-029 W9 linked-work pane. The assignee_id from the hub
-/// identifies the agent currently doing this task; we look up its
-/// session via the global sessions provider and provide a one-tap
-/// "Open worker session" affordance. Plan-bound tasks without an
-/// assignee fall back to a hint pointing at the plan viewer.
-class _LinkedWorkSection extends ConsumerWidget {
-  final Map<String, dynamic> task;
-  final bool isDark;
-  const _LinkedWorkSection({required this.task, required this.isDark});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final assigneeID = (task['assignee_id'] ?? '').toString();
-    final assigneeHandle = (task['assignee_handle'] ?? '').toString();
-    if (assigneeID.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final sessionsState = ref.watch(sessionsProvider).value;
-    final allSessions = <Map<String, dynamic>>[
-      ...?sessionsState?.active,
-      ...?sessionsState?.previous,
-    ];
-    final session = allSessions.firstWhere(
-      (s) => (s['current_agent_id'] ?? '').toString() == assigneeID,
-      orElse: () => const <String, dynamic>{},
-    );
-    final sessionId = (session['id'] ?? '').toString();
-    final sessionTitle =
-        (session['title'] ?? '').toString().isNotEmpty
-            ? (session['title']).toString()
-            : '@${_stripAt(assigneeHandle)}';
-    final muted = isDark
-        ? DesignColors.textMuted
-        : DesignColors.textMutedLight;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isDark
-            ? DesignColors.surfaceDark
-            : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isDark
-              ? DesignColors.borderDark
-              : DesignColors.borderLight,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.forum_outlined, size: 16, color: muted),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              sessionId.isEmpty
-                  ? 'Worker @${_stripAt(assigneeHandle)} has no live session.'
-                  : 'Worker session: $sessionTitle',
-              style: GoogleFonts.spaceGrotesk(fontSize: 12),
-            ),
-          ),
-          if (sessionId.isNotEmpty)
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SessionChatScreen(
-                      sessionId: sessionId,
-                      agentId: assigneeID,
-                      title: sessionTitle,
-                    ),
-                  ),
-                );
-              },
-              child: const Text('Open'),
-            ),
-        ],
-      ),
-    );
   }
 
   String _stripAt(String h) => h.startsWith('@') ? h.substring(1) : h;
@@ -748,148 +972,3 @@ class _TaskBody extends StatelessWidget {
   }
 }
 
-/// Small "PRIORITY" caption above the priority chip row. Matches the
-/// styling convention used by [_SourceSection]'s "SOURCE" header so the
-/// two section breaks line up visually.
-class _PriorityLabel extends StatelessWidget {
-  final bool isDark;
-  const _PriorityLabel({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      'PRIORITY',
-      style: GoogleFonts.jetBrainsMono(
-        fontSize: 10,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.5,
-        color: isDark ? DesignColors.textMuted : DesignColors.textMutedLight,
-      ),
-    );
-  }
-}
-
-/// Renders the task's origin: ad-hoc tasks get a muted "Created manually"
-/// line, plan-materialized ones show the owning plan and a tap target that
-/// opens the plan viewer. Matches the W2 wedge: tasks are the work atom,
-/// plans generate them, and the link must be visible in the detail view.
-class _SourceSection extends StatelessWidget {
-  final String source;
-  final String planId;
-  final String planStepId;
-  final String projectId;
-  const _SourceSection({
-    required this.source,
-    required this.planId,
-    required this.planStepId,
-    required this.projectId,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final isPlan = source == 'plan' && planStepId.isNotEmpty;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color:
-            isDark ? DesignColors.surfaceDark : DesignColors.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color:
-              isDark ? DesignColors.borderDark : DesignColors.borderLight,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'SOURCE',
-            style: GoogleFonts.jetBrainsMono(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
-              color: isDark
-                  ? DesignColors.textMuted
-                  : DesignColors.textMutedLight,
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (!isPlan)
-            Row(
-              children: [
-                Icon(
-                  Icons.person_outline,
-                  size: 16,
-                  color: isDark
-                      ? DesignColors.textMuted
-                      : DesignColors.textMutedLight,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Created manually',
-                  style: GoogleFonts.spaceGrotesk(fontSize: 13),
-                ),
-              ],
-            )
-          else
-            InkWell(
-              onTap: planId.isEmpty
-                  ? null
-                  : () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => PlanViewerScreen(
-                          planId: planId,
-                          projectId: projectId,
-                        ),
-                      )),
-              borderRadius: BorderRadius.circular(6),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.playlist_play_outlined,
-                      size: 16,
-                      color: DesignColors.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          style: GoogleFonts.spaceGrotesk(fontSize: 13),
-                          children: [
-                            const TextSpan(text: 'Generated by plan step '),
-                            TextSpan(
-                              text: planStepId,
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 12,
-                                color: DesignColors.primary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (planId.isNotEmpty)
-                      const Icon(Icons.chevron_right, size: 18),
-                  ],
-                ),
-              ),
-            ),
-          if (isPlan) ...[
-            const SizedBox(height: 4),
-            Text(
-              'Closing this task manually does not complete the plan step; the executor owns that transition.',
-              style: GoogleFonts.spaceGrotesk(
-                fontSize: 11,
-                color: isDark
-                    ? DesignColors.textMuted
-                    : DesignColors.textMutedLight,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}

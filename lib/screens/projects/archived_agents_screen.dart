@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/hub_provider.dart';
 import '../../theme/design_colors.dart';
+import '../../widgets/agent_feed.dart';
 
 /// Read-only list of historical agents. Two modes:
 /// - Global (default; projectId null): shows agents with
@@ -322,30 +323,58 @@ class _ArchivedAgentDetailScreenState
   @override
   Widget build(BuildContext context) {
     final handle = (widget.summary['handle'] ?? _id).toString();
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '@$handle',
-          style: GoogleFonts.spaceGrotesk(
-              fontSize: 16, fontWeight: FontWeight.w700),
+    // Tabs are wrapped in DefaultTabController so terminated agents
+    // get the same Feed / Summary / Journal split as live agents do
+    // in `_AgentDetailSheet` (projects_screen.dart:1985). v1.0.629
+    // closes the debugging gap where the archive screen only showed
+    // metadata + journal — operators investigating a failed run had
+    // to bounce to Me → Sessions to read the transcript.
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(
+            '@$handle',
+            style: GoogleFonts.spaceGrotesk(
+                fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          bottom: const TabBar(
+            isScrollable: true,
+            tabs: [
+              Tab(text: 'Feed'),
+              Tab(text: 'Summary'),
+              Tab(text: 'Journal'),
+            ],
+          ),
         ),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(_error!,
-                        style: GoogleFonts.jetBrainsMono(
-                            color: DesignColors.error, fontSize: 12)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(_error!,
+                          style: GoogleFonts.jetBrainsMono(
+                              color: DesignColors.error, fontSize: 12)),
+                    ),
+                  )
+                : TabBarView(
+                    children: [
+                      // Feed = agent_events stream the agent emitted in
+                      // its lifetime. Static for terminated agents (no
+                      // new rows arrive) but historical events render
+                      // identically to live ones. Same widget Me →
+                      // Sessions uses, so transcript parity is automatic.
+                      AgentFeed(agentId: _id),
+                      _summaryTab(),
+                      _journalTab(),
+                    ],
                   ),
-                )
-              : _body(),
+      ),
     );
   }
 
-  Widget _body() {
+  Widget _summaryTab() {
     final row = _full ?? widget.summary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final kind = (row['kind'] ?? '').toString();
@@ -379,8 +408,8 @@ class _ArchivedAgentDetailScreenState
           ),
           isDark: isDark,
         ),
-        const SizedBox(height: 16),
-        if (spawnSpec.isNotEmpty)
+        if (spawnSpec.isNotEmpty) ...[
+          const SizedBox(height: 16),
           _section(
             'Spawn spec',
             child: SelectableText(
@@ -389,7 +418,16 @@ class _ArchivedAgentDetailScreenState
             ),
             isDark: isDark,
           ),
-        if (spawnSpec.isNotEmpty) const SizedBox(height: 16),
+        ],
+      ],
+    );
+  }
+
+  Widget _journalTab() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
         _section(
           'Journal',
           child: (_journal ?? '').trim().isEmpty

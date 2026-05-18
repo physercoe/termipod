@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total. Reconciled against v1.0.630 code the same day (§0.1 catalog topology added; W1/W2/W4/W5 implementation sites corrected; W3 hint envelope aligned to ADR-031 D-3). **W1 shipped** — `tools.get` meta-tool added server-side over the composed catalog; the pre-existing `documents.get` missing-tier gap (a v1.0.630 catalog-lockstep miss) was closed alongside. **W2 is now gated on [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md)** — the naming convention + single registration point must land before W2 or fuse with it, since both rewrite every catalog entry (ADR-033 §5). Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 shipped** — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is now done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is small — emit `short` from the catalog functions, and add D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** v1.0.630-alpha
+> **Last verified vs code:** ADR-033 W6 teardown complete (HEAD `4a6e2ce`)
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -36,50 +36,57 @@ tail.
 
 | Phase | # | Wedge | Approx | Depends on |
 |---|---|---|---|---|
-| 1 | W1 | `tools.get` meta-tool | ~80 LOC | — |
-| 1 | W2 | Two-tier descriptions across catalog | ~250 LOC | W1 |
+| 1 | W1 | `tools.get` meta-tool | ~80 LOC | — — **✓ shipped** |
+| 1 | W2 | Two-tier descriptions + D-1 structured payload | ~150 LOC (data model done; see W2) | W1 |
 | 1 | W3 | Hint-bearing errors — top 5 paths | ~80 LOC | — |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2 |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
 
-Implementation order is **W1 → W2 (depends W1) → W3 (parallel) →
+Implementation order is **W1 ✓ → W2 → W3 (parallel) →
 W4 (depends W2) → W5 (depends all)**.
 
 ---
 
-## 0.1 Catalog topology — read before W1 / W2
+## 0.1 Catalog topology — read before W2 / W5
 
 The agent-facing MCP catalog is **composed**, not single.
-`mcpToolDefs()` in `hub/internal/server/mcp.go` concatenates four
-sources:
+`mcpToolDefs()` in `hub/internal/server/mcp.go` concatenates the two
+ADR-033 `ToolSpec` registries:
 
-| Source | Shape | Where |
+| Source | Tools | Where |
 |---|---|---|
-| `mcpToolDefsBase()` | `[]map[string]any` literals | `server/mcp.go` |
-| `mcpToolDefsExtra()` | `[]map[string]any` literals | `server/mcp_more.go` |
-| `orchestrationToolDefs()` | `[]map[string]any` literals | `server/mcp_orchestrate.go` |
-| `authorityToolDefs()` | typed `toolDef` → `[]map[string]any` via `hubmcpserver.ToolCatalog()` | `hubmcpserver/tools.go` (48 tools) |
+| `RegistryCatalogDefs()` — authority registry | 66 | `hubmcpserver/toolspec.go` |
+| `nativeRegistryCatalogDefs()` — native registry | 26 | `server/native_tools.go` |
+
+Each tool is one `ToolSpec` (`Name, Aliases, Short, Description,
+InputSchema, Tier, WorkerEligible, Backend`); the catalog functions
+project it to the `{name, description, inputSchema}` map shape — one
+entry per canonical name plus one `[DEPRECATED]` entry per alias. The
+legacy four `mcpToolDefsBase/Extra/orchestrationToolDefs` +
+`authorityToolDefs()` sources this plan was first written against
+were deleted by the ADR-033 W6 teardown.
 
 Consequences for the wedges:
 
-- **W1** — `tools.get` must resolve a name across the *composed*
-  catalog. It is registered **server-side** (an `extra` def in
-  `mcp_more.go` plus a `dispatchTool` case in `mcp.go`) so its
-  handler can enumerate `mcpToolDefs()`. A `tools.get` registered
-  inside `hubmcpserver` would see only the 48 authority tools and
-  miss base / extra / orchestration.
-- **W2** — the `short` field must be added in **two shapes**: a
-  `Short` struct field on `hubmcpserver`'s `toolDef` (projected into
-  the map by `ToolCatalog()`), and a `"short"` key on every
-  `map[string]any` literal in `mcp.go` / `mcp_more.go` /
-  `mcp_orchestrate.go`. Once both sources populate `short`, the W1
-  handler reads them uniformly off the composed catalog.
-- The standalone `hubmcpserver` daemon (`run.go` `tools/list`) serves
-  only its own 48 tools — a pre-existing thinner surface. Agents
-  reach the hub through the in-process server catalog (the
-  host-runner relay), so the composed catalog is the real agent
-  surface; the standalone daemon is the dev/debug path and is out of
-  scope for W1.
+- **W1 (shipped)** — `tools.get` resolves a name across the composed
+  `mcpToolDefs()`. ADR-033 W6.2 then folded it into the native
+  registry as `tools_get` (canonical) with `tools.get` a deprecated
+  alias; the handler `mcpToolsGet` (`server/mcp.go`) still reads the
+  composed catalog.
+- **W2** — the `Short` field already exists on `ToolSpec` and is
+  populated for all 92 tools. The work left is (a) make
+  `RegistryCatalogDefs()` / `nativeRegistryCatalogDefs()` emit
+  `short` (today they emit only the long `Description`), and (b) add
+  D-1's structured-payload fields — see W2 below.
+- **W5** — the catalog lint walks the composed `mcpToolDefs()`, now
+  exactly the two registries. ADR-033's CI-locks (`TestToolRegistry_*`,
+  `TestNativeRegistry_*`) already enforce catalog × dispatch lockstep,
+  so W5 layers the description/schema rules on top rather than
+  re-proving lockstep.
+- The standalone `hubmcpserver` daemon (`run.go` `tools/list`) now
+  serves `RegistryCatalogDefs()` too (ADR-033 W6.5) — authority-only
+  by construction but no longer name-divergent. Still the dev/debug
+  path; agents reach the full surface via the in-process catalog.
 
 ---
 
@@ -87,7 +94,13 @@ Consequences for the wedges:
 
 ### Phase 1 — Foundation
 
-#### W1 — `tools.get` meta-tool
+#### W1 — `tools.get` meta-tool — ✓ shipped
+
+> **Shipped** `dc38f37`; ADR-033 W6.2 (`e89fb6d`) later folded it into
+> the native registry as `tools_get` (canonical) with `tools.get` a
+> deprecated alias. Handler `mcpToolsGet` enumerates the composed
+> `mcpToolDefs()`. Tests `TestMCP_ToolsGet_*` in `mcp_tools_get_test.go`.
+> The section below is the original design, kept for context.
 
 A new MCP tool: given a name, return the full description body.
 Mirrors `tools/list` in shape; the difference is that
@@ -118,32 +131,48 @@ split, `tools.get` returns the single existing `description` field.
 `TestMCP_ToolsGet_Unknown` in `internal/server`
 (`mcp_tools_get_test.go`).
 
-#### W2 — Two-tier descriptions across catalog
+#### W2 — Two-tier descriptions + D-1 structured payload
 
-Every tool entry across the four catalog sources (§0.1) gains a
-`short` field. The existing `description` field becomes the `long`
-form. `tools/list` returns short; `tools.get` returns long.
+**Already done (rode in with ADR-033).** `ToolSpec` carries a `Short`
+field and it is populated for all 92 tools — the short ↔ long data
+model D-1 specifies exists. What is *not* done is emitting `short`
+and the rest of D-1's structured payload.
 
-**Convention for short:**
-- One sentence, present tense, contract only.
-- Names required params + canonical input type.
-- Example: `documents.get — Fetch a document by id. Required: document_id (ULID).`
+**W2.a — emit `short` so `tools/list` shrinks.** Today
+`RegistryCatalogDefs()` / `nativeRegistryCatalogDefs()` emit only the
+long `Description` into the catalog map. Change them to emit a
+`"short"` key (from `ToolSpec.Short`); the MCP `tools/list` response
+returns `short`, while `tools.get` (`mcpToolsGet`) keeps returning
+the long `Description`. This is the ~30KB → ~5KB win. Small — two
+functions, ~20 LOC.
 
-**Implementation site:** two shapes (§0.1). (a) `hubmcpserver`'s
-`toolDef` struct gains a `Short string` field; `ToolCatalog()`
-projects it into the `"short"` map key. (b) every `map[string]any`
-literal in `mcp.go` / `mcp_more.go` / `mcp_orchestrate.go` gains a
-`"short"` key. The MCP `tools/list` response then emits `short`;
-`tools.get` emits `description` (the existing long body).
+Convention for `short` (already followed by the populated fields,
+restated for new tools): one present-tense sentence, contract only,
+names required params + canonical input type; ≤ 200 chars. Example:
+`Fetch a document by id. Required: document_id (ULID).`
 
-**Acceptance:**
-- `tools/list` response is ≤ 5KB across all tools (down from
-  ~30KB today).
-- Each short line has the canonical input type named.
-- No short line exceeds 200 chars.
+**W2.b — D-1 structured payload.** D-1 specifies `tools.get` returns
+more than short + long: `examples`, `failure_modes`, `see_also`, and
+the operational metadata `concurrency_safe` / `side_effecting`
+(`permission_tier` is already covered by `ToolSpec.Tier`). Decide at
+W2 time whether to:
+  - add these as `ToolSpec` fields and populate per tool (full D-1,
+    but ~92 tools of authoring — large), or
+  - ship W2.a now and split the structured-payload authoring into its
+    own wedge sequenced after W4, since the per-persona index (W4) is
+    the higher-leverage discovery fix and does not depend on it.
 
-**Tests:** snapshot test that the tools/list payload size is
-bounded.
+Recommendation: the split. W2.a is the cheap catalog-size win;
+W2.b's `failure_modes` authoring naturally fuses with the W3 / W5
+hint work (same `{hint_text, see_tool}` shape).
+
+**Acceptance (W2.a):**
+- `tools/list` response is ≤ 5KB across all tools (down from ~30KB).
+- `tools.get` still returns the full long body.
+- No `Short` exceeds 200 chars (W5 lint enforces; spot-check here).
+
+**Tests:** a payload-size assertion on `tools/list`; `hubmcpserver`'s
+`TestToolsList_RoundTrip` updated for the `short` key.
 
 #### W3 — Hint-bearing errors — top 5 paths
 
@@ -224,25 +253,29 @@ files; the 10 *main* personas get the full index:
 ```markdown
 ## Tools at a glance
 
-Quick map from intent → tool. Call `tools.get(name)` for
+Quick map from intent → tool. Call `tools_get(name)` for
 shape + examples before invoking a tool you don't recall.
 
 | Intent | Tool |
 |---|---|
-| Read a doc by ULID | documents.get |
+| Read a doc by ULID | documents_get |
 | Read a filesystem file under project docs_root | get_project_doc |
 | List recent project activity | get_feed |
 | Search by text content | search |
 | Read this agent's journal | journal_read |
-| Read a delegated task's body | get_task |
+| Read a delegated task's body | tasks_get |
 | Read attention/approval queue | get_attention |
-| Look up an agent by handle | list_agents |
-| Update a task you assigned | tasks.update |
-| Read what a worker reported | documents.get with doc_id from tasks.complete summary |
-| Escalate something you can't decide | attention.create(kind=request_help) |
-| Direct-message a peer steward | a2a.invoke |
-| Spawn a worker | agents.spawn |
+| Look up an agent by handle | agents_list |
+| Update a task you assigned | tasks_update |
+| Read what a worker reported | documents_get with doc_id from tasks_complete summary |
+| Escalate something you can't decide | request_help |
+| Direct-message a peer steward | a2a_invoke |
+| Spawn a worker | agents_spawn |
 ```
+
+(Tool names above are the ADR-033 canonical `snake_case` forms — the
+W4 index must use these, not the deprecated dotted aliases, or the
+`TestBundledTemplatesUseCanonicalNames` drift-lock fails.)
 
 **Convention:**
 - ~15 lines max per index (don't enumerate all 50 tools).
@@ -286,8 +319,9 @@ finally lands.)
 
 **Implementation site:** new test file
 `hub/internal/server/tool_catalog_lint_test.go` — it walks the
-composed `mcpToolDefs()` (§0.1), so it sees every registered tool
-across all four sources, not just `hubmcpserver`'s 48.
+composed `mcpToolDefs()` (§0.1), i.e. both `ToolSpec` registries
+(92 tools). ADR-033's CI-locks already prove catalog × dispatch
+lockstep, so this lint adds only the description/schema rules.
 
 **Acceptance:** lint fails on any tool that violates one of
 the rules; passes for all bundled tools after the hint pass.

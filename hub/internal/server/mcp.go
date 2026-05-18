@@ -162,37 +162,27 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 // --- Tool catalog ---
 
 func mcpToolDefs() []map[string]any {
-	// ADR-033 W4n: native-registry tools (the switch-dispatched
-	// (*Server)-method tools) are served from the native registry,
-	// not from the base/extra/orchestration defs — drop them here so
-	// a migrated tool is not listed twice.
-	nativeMigrated := nativeRegistryBackends()
+	// ADR-033: the catalog is the four hand-written legacy sources
+	// (base / extra / orchestration / authority) minus every tool that
+	// has moved to a registry, plus the registries' own entries. A
+	// name served by either registry — under its canonical name or any
+	// deprecated alias — is dropped from the legacy sources here and
+	// re-emitted by RegistryCatalogDefs / nativeRegistryCatalogDefs, so
+	// each tool is listed exactly once. authorityToolDefs() is the
+	// rich-authority surface imported from hubmcpserver — the same
+	// catalog the standalone daemon exposes, served in-process so
+	// spawned agents need only the single bridge entry in .mcp.json.
+	served := registryServedNames()
 	var all []map[string]any
 	for _, group := range [][]map[string]any{
-		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(),
+		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(), authorityToolDefs(),
 	} {
 		for _, def := range group {
-			if name, _ := def["name"].(string); nativeMigrated[name] {
+			if name, _ := def["name"].(string); served[name] {
 				continue
 			}
 			all = append(all, def)
 		}
-	}
-	// Rich-authority surface (projects, plans, runs, agents.spawn,
-	// schedules, channels, a2a.invoke, …) imported from the
-	// hubmcpserver package — same catalog the standalone daemon
-	// exposes, served in-process so spawned agents only need the
-	// single bridge entry in .mcp.json.
-	//
-	// ADR-033 W1–W4: tools migrated to the unified ToolSpec registry
-	// are served from it, not from the authority catalog — drop them
-	// here so a migrated tool is not listed twice.
-	migrated := hubmcpserver.RegistryBackends()
-	for _, def := range authorityToolDefs() {
-		if name, _ := def["name"].(string); migrated[name] {
-			continue
-		}
-		all = append(all, def)
 	}
 	all = append(all, hubmcpserver.RegistryCatalogDefs()...)
 	all = append(all, nativeRegistryCatalogDefs()...)

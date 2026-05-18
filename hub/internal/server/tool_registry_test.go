@@ -71,6 +71,36 @@ func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
 	}
 }
 
+// ADR-033 W5 / D-4. The duplicate-pair twins list_agents and
+// get_audit are consolidated: each resolves — via alias — to the
+// authority tool that supersedes it, and no longer exists as a
+// standalone native-registry tool. (get_task / tasks_get is the third
+// pair; it is deferred — see the rollout plan — because tasks_get's
+// project-scoped input cannot yet accept get_task's bare id.)
+func TestDuplicatePairsConsolidated(t *testing.T) {
+	cases := []struct{ retired, canonical string }{
+		{"list_agents", "agents_list"},
+		{"get_audit", "audit_read"},
+	}
+	for _, c := range cases {
+		spec, found, viaAlias := lookupToolSpec(c.retired)
+		if !found {
+			t.Errorf("%q no longer resolves — a deprecated alias must keep working (D-2)", c.retired)
+			continue
+		}
+		if !viaAlias || spec.Name != c.canonical {
+			t.Errorf("%q resolved to %q (viaAlias=%v), want alias of %q", c.retired, spec.Name, viaAlias, c.canonical)
+		}
+		// The twin must be gone from the native registry — one
+		// operation, one tool.
+		if _, ok, _ := lookupNativeToolSpec(c.retired); ok {
+			if _, isNativeCanonical := nativeHandlers[c.retired]; isNativeCanonical {
+				t.Errorf("%q is still a native-registry tool — D-4 consolidation incomplete", c.retired)
+			}
+		}
+	}
+}
+
 // A registry tool resolves under its canonical name and each alias;
 // LookupToolSpec reports alias-ness so deprecation can be surfaced.
 func TestToolRegistry_AliasResolution(t *testing.T) {

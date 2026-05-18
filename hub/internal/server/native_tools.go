@@ -102,12 +102,10 @@ var nativeHandlers = map[string]nativeHandler{
 	"get_event":               argsOnly((*Server).mcpGetEvent),
 	"get_task":                argsOnly((*Server).mcpGetTask),
 	"get_parent_thread":       agentArgs((*Server).mcpGetParentThread),
-	"list_agents":             teamArgs((*Server).mcpListAgents),
 	"update_own_task_status":  agentArgs((*Server).mcpUpdateOwnTaskStatus),
 	"templates_propose":       teamAgentArgs((*Server).mcpTemplatesPropose),
 	"pause_self":              agentArgs((*Server).mcpPauseSelf),
 	"shutdown_self":           agentArgs((*Server).mcpShutdownSelf),
-	"get_audit":               teamArgs((*Server).mcpGetAudit),
 	"permission_prompt":       teamAgentArgs((*Server).mcpPermissionPrompt),
 	"agents_fanout":           teamArgs((*Server).mcpAgentsFanout),
 	"agents_gather":           teamArgs((*Server).mcpAgentsGather),
@@ -166,8 +164,6 @@ var nativeToolMeta = []nativeToolMetaEntry{
 		"Fetch a task by id.", TierTrivial, true},
 	{"get_parent_thread", "get_parent_thread", nil,
 		"Fetch the caller's parent-steward conversation thread.", TierTrivial, true},
-	{"list_agents", "list_agents", nil,
-		"List agents in the team.", TierTrivial, true},
 	{"update_own_task_status", "update_own_task_status", nil,
 		"Update the status of the task assigned to the caller.", TierRoutine, true},
 	{"templates_propose", "templates_propose", []string{"templates.propose"},
@@ -176,8 +172,6 @@ var nativeToolMeta = []nativeToolMetaEntry{
 		"Pause the calling agent.", TierRoutine, true},
 	{"shutdown_self", "shutdown_self", nil,
 		"Terminate the calling agent.", TierSignificant, true},
-	{"get_audit", "get_audit", nil,
-		"List audit events for the team.", TierTrivial, true},
 	{"permission_prompt", "permission_prompt", nil,
 		"The tool-call permission gate (used by --permission-prompt-tool).", TierTrivial, true},
 	{"agents_fanout", "agents.fanout", []string{"agents.fanout"},
@@ -271,15 +265,26 @@ func nativeHandlerFor(name string) (nativeHandler, bool) {
 	return h, ok
 }
 
-// nativeRegistryBackends returns the set of legacy catalog names the
-// native registry has taken over — mcpToolDefs() drops these from the
-// base/extra/orchestration defs so a migrated tool is not listed
-// twice.
-func nativeRegistryBackends() map[string]bool {
+// registryServedNames returns every tool name served by either
+// ADR-033 registry — canonical names and deprecated aliases, authority
+// and native. mcpToolDefs() drops these from the hand-written legacy
+// defs so a migrated tool is listed exactly once (the registry
+// re-emits it via RegistryCatalogDefs / nativeRegistryCatalogDefs).
+// Covering aliases — not just canonical names — is what lets a D-4
+// consolidation retire a twin: list_agents no longer appears as its
+// own legacy entry once it is an alias of agents_list.
+func registryServedNames() map[string]bool {
 	out := map[string]bool{}
-	for _, m := range nativeToolMeta {
-		out[m.legacyName] = true
+	add := func(specs []hubmcpserver.ToolSpec) {
+		for _, s := range specs {
+			out[s.Name] = true
+			for _, a := range s.Aliases {
+				out[a] = true
+			}
+		}
 	}
+	add(hubmcpserver.ToolRegistry())
+	add(nativeToolRegistry())
 	return out
 }
 

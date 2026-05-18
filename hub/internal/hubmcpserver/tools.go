@@ -987,8 +987,8 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "audit.read",
-			Description: "List audit events for the team. Supports optional `limit` and `since` query params.",
-			InputSchema: schema(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":1000},"since":{"type":"string","description":"RFC3339 timestamp"}}}`),
+			Description: "List audit events for the team. Supports optional `limit` (max 500), `since`, and `action` query params.",
+			InputSchema: schema(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":500},"since":{"type":"string","description":"RFC3339 timestamp"},"action":{"type":"string","description":"filter to one audit action"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				q := url.Values{}
 				if v, ok := args["limit"]; ok {
@@ -1003,6 +1003,9 @@ func buildTools() []toolDef {
 				}
 				if s, ok := args["since"].(string); ok && s != "" {
 					q.Set("since", s)
+				}
+				if a, ok := args["action"].(string); ok && a != "" {
+					q.Set("action", a)
 				}
 				var out json.RawMessage
 				if err := c.do("GET", c.teamPath("/audit"), q, nil, &out); err != nil {

@@ -55,6 +55,10 @@ func deprecatedPrefix(canonical string) string {
 // grants today (verified per tool) so authz behaviour is preserved.
 //
 //   W1 — documents.   W2 — projects / plans / runs / artifacts.
+//   W3 — agents / hosts / reviews / channels / a2a (authority-backed
+//        tools only; the native switch-dispatched tools in these
+//        domains — list_agents, agents.fanout/gather, list_channels —
+//        await the native-dispatch path and migrate in a later wedge).
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
 	// spec builds one ToolSpec for an authority-backed tool.
@@ -137,6 +141,47 @@ func toolRegistry() []ToolSpec {
 		spec("artifacts_create", "artifacts.create",
 			"Create an artifact record. Required: project_id, kind, name, uri.",
 			tierRoutine, false),
+		// --- agents (W3) ---
+		spec("agents_list", "agents.list",
+			"List agents in the team (terminal-status rows hidden by default). Optional: host_id, status, live, project_id, include_terminated, include_archived.",
+			tierTrivial, true),
+		spec("agents_get", "agents.get",
+			"Fetch one agent by id, with full detail. Required: agent (id).",
+			tierTrivial, true),
+		spec("agents_spawn", "agents.spawn",
+			"Spawn a child agent. Required: child_handle, kind, spawn_spec_yaml. Project-bound spawns require the caller to be that project's steward.",
+			tierSignificant, false),
+		spec("agents_terminate", "agents.terminate",
+			"Mark an agent terminated; the host-runner kills the process on its next loop. Required: agent (id).",
+			tierSignificant, false),
+		// --- hosts (W3) ---
+		spec("hosts_list", "hosts.list",
+			"List host-runners registered with the team (id, name, status, capabilities). No arguments.",
+			tierTrivial, true),
+		spec("hosts_get", "hosts.get",
+			"Fetch one host-runner by id. Required: host (id).",
+			tierTrivial, true),
+		spec("hosts_update_ssh_hint", "hosts.update_ssh_hint",
+			"Patch a host's non-secret ssh_hint_json. Required: host (id), ssh_hint (object). Secret-bearing keys are rejected.",
+			tierSignificant, false),
+		// --- reviews (W3) ---
+		spec("reviews_list", "reviews.list",
+			"List reviews. Optional: project (id).",
+			tierTrivial, true),
+		spec("reviews_create", "reviews.create",
+			"Create a review request. Typical fields: project, document_id, reviewer, question.",
+			tierRoutine, true),
+		// --- channels (W3) ---
+		spec("channels_post_event", "channels.post_event",
+			"Post an event to a channel. Required: channel, type, and a non-empty parts array.",
+			tierRoutine, true),
+		// --- a2a (W3) ---
+		spec("a2a_invoke", "a2a.invoke",
+			"Send an A2A message to another agent by handle. Required: handle, text. Workers may target only their parent steward.",
+			tierSignificant, true),
+		spec("a2a_cards_list", "a2a.cards.list",
+			"List A2A agent cards in the team — the directory a2a_invoke resolves handles against. Optional: handle (scope to one).",
+			tierTrivial, true),
 	}
 }
 

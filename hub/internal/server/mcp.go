@@ -329,10 +329,19 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	if jerr := s.authorizeMCPCall(ctx, agentID, scope.Role, call.Name); jerr != nil {
 		return nil, jerr
 	}
+	// Resolve the canonical tool name once. A registry tool (ADR-033)
+	// may be called by its canonical name or a deprecated alias; the
+	// security gates below key on the canonical name so they fire
+	// whichever spelling the caller used — renaming a gated tool must
+	// not silently bypass its gate.
+	canonicalName := call.Name
+	if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
+		canonicalName = spec.Name
+	}
 	// A2A target restriction (ADR-016 D4). Workers may invoke
-	// a2a.invoke only against their parent steward. Stewards are
+	// a2a_invoke only against their parent steward. Stewards are
 	// unrestricted. Skipped for principal tokens (agentID == "").
-	if call.Name == "a2a.invoke" && agentID != "" {
+	if canonicalName == "a2a_invoke" && agentID != "" {
 		var args map[string]any
 		if len(call.Arguments) > 0 {
 			_ = json.Unmarshal(call.Arguments, &args)
@@ -342,10 +351,10 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 			return nil, jerr
 		}
 	}
-	// agents.spawn project-binding gate (ADR-025 W9). General steward
+	// agents_spawn project-binding gate (ADR-025 W9). General steward
 	// blocked outright; project-bound spawns require the caller to be
 	// that project's steward. Principal tokens bypass.
-	if call.Name == "agents.spawn" {
+	if canonicalName == "agents_spawn" {
 		if jerr := s.authorizeAgentsSpawn(agentID, call.Arguments); jerr != nil {
 			return nil, jerr
 		}

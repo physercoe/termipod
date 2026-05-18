@@ -46,6 +46,31 @@ func TestToolRegistry_CatalogIsConsistent(t *testing.T) {
 	}
 }
 
+// Security-relevant (ADR-033 W3). dispatchTool gates agents_spawn and
+// a2a_invoke by their *canonical* name, resolved through the registry.
+// If either tool's canonical name drifts, or its old dotted spelling
+// stops resolving as an alias, a caller using the un-resolved spelling
+// would slip past authorizeAgentsSpawn / authorizeA2ATarget. This test
+// pins the two names and both spellings so any such drift trips CI.
+func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
+	cases := []struct{ called, wantCanonical string }{
+		{"agents_spawn", "agents_spawn"},
+		{"agents.spawn", "agents_spawn"},
+		{"a2a_invoke", "a2a_invoke"},
+		{"a2a.invoke", "a2a_invoke"},
+	}
+	for _, c := range cases {
+		spec, found, _ := hubmcpserver.LookupToolSpec(c.called)
+		if !found {
+			t.Errorf("gated tool %q does not resolve in the registry — dispatchTool gate would not fire", c.called)
+			continue
+		}
+		if spec.Name != c.wantCanonical {
+			t.Errorf("%q resolves to canonical %q, want %q", c.called, spec.Name, c.wantCanonical)
+		}
+	}
+}
+
 // A registry tool resolves under its canonical name and each alias;
 // LookupToolSpec reports alias-ness so deprecation can be surfaced.
 func TestToolRegistry_AliasResolution(t *testing.T) {

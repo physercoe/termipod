@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — six wedges, three phases. **W1–W2 shipped** — the `ToolSpec` registry exists and the `documents`, `projects`, `plans` (+ steps), `runs`, and `artifacts` domains are migrated: 20 tools renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3–W6 not started. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — six wedges, three phases. **W1–W3 shipped** — the `ToolSpec` registry exists and the `documents`, `projects`, `plans` (+ steps), `runs`, `artifacts`, `agents`, `hosts`, `reviews`, `channels`, and `a2a` domains are migrated: 32 tools renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3 also closed the security gotcha — `dispatchTool` now resolves the canonical tool name through the registry before the `agents_spawn` / `a2a_invoke` literal-name gates, so the rename cannot bypass `authorizeAgentsSpawn` / `authorizeA2ATarget`. **W3 scoped to authority-backed tools only** — the switch-dispatched native tools in these domains (`list_agents`, `agents.fanout`, `agents.gather`, `list_channels`) need the native-dispatch path and migrate later. W4–W6 not started. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -145,10 +145,15 @@ The ~25 verb-first `snake_case` tools (`get_task`, `list_agents`,
 `post_message`, …) are reordered to resource-first
 (`tasks_get`, `agents_list`, `messages_post`) in whichever wedge
 owns their domain; the ~50 dotted tools get the mechanical
-`.`→`_`. Bundled engine templates under `hub/templates/` and
-`hub/internal/agentfamilies/` that reference tool names are updated
-to the new names in the same wedge (aliases cover any unrendered or
-external caller).
+`.`→`_`.
+
+**Bundled-template sweep is batched, not per-wedge.** W1–W3 left
+the templates under `hub/templates/` and
+`hub/internal/agentfamilies/` on the dotted names — the deprecated
+aliases keep every template working. Updating templates one wedge
+at a time would leave the corpus in a half-renamed mix; instead a
+single sweep renames every reference once the catalog migration is
+complete (W6, or a dedicated sweep before it).
 
 **Acceptance (each wedge):** every tool in the domain set has a
 `ToolSpec`; old names resolve as aliases; the CI-lock tests still

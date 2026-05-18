@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — six wedges, three phases. **W1–W3 shipped** — the `ToolSpec` registry exists and the `documents`, `projects`, `plans` (+ steps), `runs`, `artifacts`, `agents`, `hosts`, `reviews`, `channels`, and `a2a` domains are migrated: 32 tools renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3 also closed the security gotcha — `dispatchTool` now resolves the canonical tool name through the registry before the `agents_spawn` / `a2a_invoke` literal-name gates, so the rename cannot bypass `authorizeAgentsSpawn` / `authorizeA2ATarget`. **W3 scoped to authority-backed tools only** — the switch-dispatched native tools in these domains (`list_agents`, `agents.fanout`, `agents.gather`, `list_channels`) need the native-dispatch path and migrate later. W4–W6 not started. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split — see below). **W1–W4 shipped** — the `ToolSpec` registry holds 48 authority-backed tools across `documents`, `projects`, `plans` (+ steps), `runs`, `artifacts`, `agents`, `hosts`, `reviews`, `channels`, `a2a`, `tasks`, `schedules`, and the authority-backed misc tools: all renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3 also closed the security gotcha — `dispatchTool` resolves the canonical tool name through the registry before the `agents_spawn` / `a2a_invoke` literal-name gates, so the rename cannot bypass `authorizeAgentsSpawn` / `authorizeA2ATarget`. **W1–W4 covered authority-backed tools only.** The remaining ~28 switch-dispatched native tools migrate in **W4n** (native-dispatch path — not started); W5–W6 follow. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -39,14 +39,23 @@ W2 never runs as a separate pass. See §1.5.
 | 1 | W1 | `ToolSpec` type + registry + derivation + dispatch CI-lock; `documents` domain migrated as proof | ~400 LOC | — |
 | 2 | W2 | Migrate `projects` / `plans` / `runs` / `artifacts` | ~250 LOC (high-churn) | W1 |
 | 2 | W3 | Migrate `agents` / `hosts` / `reviews` / `channels` / `a2a` | ~250 LOC (high-churn) | W1 |
-| 2 | W4 | Migrate `tasks` / `schedules` / `templates` / messaging / lifecycle / misc | ~250 LOC (high-churn) | W1 |
-| 3 | W5 | D-4 — consolidate the three duplicate pairs | ~200 LOC | W2, W3 |
+| 2 | W4 | Migrate the authority-backed `tasks` / `schedules` / misc tools (`audit.read`, `policy.read`, `mobile.navigate`, channel-creation) | ~200 LOC | W1 |
+| 2 | W4n | **Native-dispatch path** + migrate the ~28 switch-dispatched native tools (messaging, lifecycle, attention, `templates.propose`, `get_task`, `list_agents`, `agents.fanout/gather`, …) | ~350 LOC (structural) | W1 |
+| 3 | W5 | D-4 — consolidate the three duplicate pairs | ~200 LOC | W2, W3, W4n |
 | 3 | W6 | Delete the legacy four-source assembly + dispatch `switch`; settle the standalone daemon | ~250 LOC (mostly deletion) | W2–W5 |
 
-Order: **W1 → W2/W3/W4 (parallelisable, each a disjoint domain set)
-→ W5 → W6**. The whole catalog keeps working throughout — old
+Order: **W1 → W2/W3/W4/W4n (parallelisable, each a disjoint tool
+set) → W5 → W6**. The whole catalog keeps working throughout — old
 names resolve as aliases (D-2), and the legacy assembly is removed
 only in W6, after every tool has a `ToolSpec`.
+
+**W4 was split.** W1–W4 migrated only *authority-backed* tools —
+those with a `buildTools()` REST adapter, dispatched via
+`dispatchAuthorityToolRaw`. The remaining native tools are
+switch-dispatched `(*Server)` methods; the registry has no native
+handler path (`ToolSpec.Backend=""` cannot dispatch). Building that
+path — the `map[string]handler` W1 described but deferred — is its
+own structural wedge, **W4n**, on which W5 now depends.
 
 ---
 
@@ -137,15 +146,35 @@ can land in parallel:
 
 - **W2 — `projects` / `plans` / `runs` / `artifacts`.**
 - **W3 — `agents` / `hosts` / `reviews` / `channels` / `a2a`.**
-- **W4 — `tasks` / `schedules` / `templates` / messaging
-  (`post_message`, `post_excerpt`) / lifecycle (`pause_self`,
-  `shutdown_self`) / misc.**
+- **W4 — authority-backed `tasks` / `schedules` + misc
+  (`audit.read`, `policy.read`, `mobile.navigate`,
+  `project_channels.create`, `team_channels.create`).**
+- **W4n — the native switch-dispatched tools:** messaging
+  (`post_message`, `post_excerpt`), lifecycle (`pause_self`,
+  `shutdown_self`), attention (`request_approval`, `request_select`,
+  `request_help`, `get_attention`), `templates.*`, `get_task`,
+  `update_own_task_status`, `get_feed`, `search`, `journal_*`,
+  `delegate`, `attach`, `get_event`, `get_parent_thread`,
+  `permission_prompt`, `reports.post`, and the W3-leftover natives
+  `list_agents` / `agents.fanout` / `agents.gather` /
+  `list_channels`.
+
+**W4n is structural, not just churn.** A native tool's handler is a
+`(*Server)` method; the `ToolSpec` lives in `hubmcpserver`, which
+`server` imports (not the reverse), so the handler cannot live in
+the spec. W4n adds a `server`-side `map[string]nativeHandler` keyed
+by canonical name, built at init; `dispatchTool`'s `default` case
+resolves a native spec and calls its handler. Two CI-lock tests
+(`TestEveryNativeSpecHasHandler` / `TestEveryNativeHandlerHasSpec`)
+make the map and the spec list mutually exhaustive. The native
+specs' `Description` + `InputSchema` are pulled from the existing
+`mcpToolDefsBase/Extra/orchestration` maps at registry-build time
+so the migration introduces no schema drift.
 
 The ~25 verb-first `snake_case` tools (`get_task`, `list_agents`,
 `post_message`, …) are reordered to resource-first
-(`tasks_get`, `agents_list`, `messages_post`) in whichever wedge
-owns their domain; the ~50 dotted tools get the mechanical
-`.`→`_`.
+(`tasks_get`, `agents_list`, `messages_post`) in W4n; the dotted
+tools got the mechanical `.`→`_` in W2–W4.
 
 **Bundled-template sweep is batched, not per-wedge.** W1–W3 left
 the templates under `hub/templates/` and

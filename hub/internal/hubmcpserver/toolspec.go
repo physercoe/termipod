@@ -59,6 +59,11 @@ func deprecatedPrefix(canonical string) string {
 //        tools only; the native switch-dispatched tools in these
 //        domains — list_agents, agents.fanout/gather, list_channels —
 //        await the native-dispatch path and migrate in a later wedge).
+//   W4 — tasks / schedules + the authority-backed misc tools
+//        (audit.read, policy.read, mobile.navigate, the two channel-
+//        creation tools). The native W4 tools (post_message,
+//        pause_self, templates.propose, …) await the native-dispatch
+//        path too.
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
 	// spec builds one ToolSpec for an authority-backed tool.
@@ -182,6 +187,57 @@ func toolRegistry() []ToolSpec {
 		spec("a2a_cards_list", "a2a.cards.list",
 			"List A2A agent cards in the team — the directory a2a_invoke resolves handles against. Optional: handle (scope to one).",
 			tierTrivial, true),
+		// --- tasks (W4) ---
+		spec("tasks_list", "tasks.list",
+			"List tasks for a project. Required: project_id. Optional: status, priority, sort.",
+			tierTrivial, true),
+		spec("tasks_get", "tasks.get",
+			"Get one task by id. Required: project_id, task.",
+			tierTrivial, true),
+		spec("tasks_create", "tasks.create",
+			"Create a task under a project. Required: project_id, title.",
+			tierRoutine, true),
+		spec("tasks_update", "tasks.update",
+			"Patch a task's fields (title, body_md, status, priority, …). Required: project_id, task.",
+			tierRoutine, true),
+		spec("tasks_complete", "tasks.complete",
+			"Close out an assigned task — bundles status=done + result_summary. Required: project_id, task.",
+			tierRoutine, false),
+		spec("tasks_delete", "tasks.delete",
+			"Delete a task. Required: project_id, task. Use tasks_update status=cancelled to keep it for the audit trail.",
+			tierRoutine, false),
+		// --- schedules (W4) ---
+		spec("schedules_list", "schedules.list",
+			"List schedules for the team. Optional: project (id).",
+			tierTrivial, true),
+		spec("schedules_create", "schedules.create",
+			"Create a schedule that fires a plan from a template. Required: project_id, template_id, trigger_kind.",
+			tierSignificant, false),
+		spec("schedules_update", "schedules.update",
+			"Patch a schedule (enabled, cron_expr, parameters_json). Required: schedule (id).",
+			tierRoutine, false),
+		spec("schedules_delete", "schedules.delete",
+			"Delete a schedule. Required: schedule (id).",
+			tierRoutine, false),
+		spec("schedules_run", "schedules.run",
+			"Manually fire a schedule, returning the new plan_id. Required: schedule (id).",
+			tierSignificant, false),
+		// --- misc authority-backed (W4) ---
+		spec("audit_read", "audit.read",
+			"List audit events for the team. Optional: limit, since.",
+			tierTrivial, true),
+		spec("policy_read", "policy.read",
+			"Read the team policy document (STUB — returns placeholder rules). No arguments.",
+			tierTrivial, true),
+		spec("mobile_navigate", "mobile.navigate",
+			"Navigate the user's mobile app to a termipod:// URI.",
+			tierTrivial, false),
+		spec("project_channels_create", "project_channels.create",
+			"Create a channel scoped to one project. Required: project_id, name.",
+			tierRoutine, false),
+		spec("team_channels_create", "team_channels.create",
+			"Create a team-scope channel. Required: name.",
+			tierRoutine, false),
 	}
 }
 

@@ -44,15 +44,17 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 ## Demo
 
 <p align="center">
-  <video src="https://github.com/physercoe/termipod/raw/main/docs/screens/termipod-demo.mp4" controls width="280"></video>
+  <a href="docs/screens/termipod-demo.mp4">
+    <img src="docs/screens/demo.jpg" width="300" alt="TermiPod Me tab on a foldable — General Steward, active session, attention queue. Click to play the demo video">
+  </a>
 </p>
 
-> **⚠️ Preliminary preview — partial.** A short walkthrough recorded
-> before the Candidate-A hardware demo's final UX polish. It covers
-> only part of the app and is not a full feature tour — shared for
-> eager readers who want an early feel ahead of the proper demo. If
-> the player above doesn't load, watch it here:
-> [docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4).
+> **⚠️ Preliminary preview — partial.** Captured on a real foldable
+> device, before the Candidate-A hardware demo's final UX polish. It
+> covers only part of the app and is not a full feature tour — shared
+> for eager readers who want an early feel ahead of the proper demo.
+> **Click the screenshot above to play the demo video**
+> ([docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4)).
 > A complete, CI-captured walkthrough is planned; design in
 > [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md).
 

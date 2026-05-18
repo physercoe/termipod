@@ -44,14 +44,16 @@
 ## 演示
 
 <p align="center">
-  <video src="https://github.com/physercoe/termipod/raw/main/docs/screens/termipod-demo.mp4" controls width="280"></video>
+  <a href="docs/screens/termipod-demo.mp4">
+    <img src="docs/screens/demo.jpg" width="300" alt="TermiPod Me 标签页(折叠屏)—— General Steward、活跃会话、待办队列。点击播放演示视频">
+  </a>
 </p>
 
-> **⚠️ 初步预览 — 仅为片段。** 这是在 Candidate-A 硬件 demo 最终 UX
-> 打磨前录制的一段简短演示,只覆盖了应用的一部分,并非完整功能展示
-> —— 提供给希望在正式 demo 之前先一睹为快的读者。如果上方播放器无法
-> 加载,可在此查看:
-> [docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4)。
+> **⚠️ 初步预览 — 仅为片段。** 这是在真实折叠屏设备上、于 Candidate-A
+> 硬件 demo 最终 UX 打磨前录制的演示,只覆盖了应用的一部分,并非完整
+> 功能展示 —— 提供给希望在正式 demo 之前先一睹为快的读者。
+> **点击上方截图即可播放演示视频**
+> ([docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4))。
 > 完整的、由 CI 自动录制的演练计划见
 > [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md)。
 

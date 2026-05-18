@@ -27,9 +27,13 @@ var _ = tierStrategic // reserved; no W1/W2 tool is strategic-tier yet
 
 // ToolSpec is the single declaration for one MCP tool (ADR-033 D-3).
 // It is metadata only — the dispatch handler is bound by name on the
-// server side. Fields beyond the W1 set (examples, failure_modes,
-// see_also, safety flags) are added by the migration wedges as the
-// ADR-031 D-1 payload is authored.
+// server side.
+//
+// The ADR-031 D-1 structured-payload fields (ReadOnly, SeeAlso,
+// Examples, FailureModes) ride on the spec and surface via tools_get.
+// ReadOnly / SeeAlso are populated for every tool by the toolMeta
+// overlay (W2.b); Examples / FailureModes are authored per tool by
+// W2.b.2 and stay nil until then.
 type ToolSpec struct {
 	Name           string          // snake_case, resource-first (ADR-033 D-1)
 	Aliases        []string        // deprecated old names, still resolve (D-2)
@@ -39,6 +43,39 @@ type ToolSpec struct {
 	Tier           string          // permission tier — replaces tiers.go toolTiers
 	WorkerEligible bool            // default role eligibility (D-3); stewards always allowed
 	Backend        string          // authority dispatch: the buildTools() name carrying the REST adapter
+
+	// --- ADR-031 D-1 structured payload (W2.b) ---
+
+	// ReadOnly: the tool observes, never mutates. The catalog derives
+	// the D-1 pair from it — concurrency_safe == ReadOnly,
+	// side_effecting == !ReadOnly. The zero value (false) is the
+	// fail-closed reading D-1 mandates: an un-tagged tool is treated
+	// as side-effecting and unsafe to batch. (Across the catalog the
+	// two D-1 flags always move together; a tool that needs them to
+	// diverge would split this into two fields.)
+	ReadOnly bool
+	// SeeAlso names sibling tools an agent reaching for this one may
+	// have actually wanted — the discovery payload (D-1).
+	SeeAlso []string
+	// Examples / FailureModes — D-1's worked-example and enumerated-
+	// failure payload. Authored per tool by W2.b.2; nil until then.
+	Examples     []ToolExample
+	FailureModes []ToolFailureMode
+}
+
+// ToolExample is one worked invocation of a tool (ADR-031 D-1).
+type ToolExample struct {
+	Description string         `json:"description"`
+	Args        map[string]any `json:"args"`
+}
+
+// ToolFailureMode is one enumerated 4xx outcome of a tool, with the
+// recovery hint an agent should act on (ADR-031 D-1; the hint shape
+// mirrors the D-3 error envelope).
+type ToolFailureMode struct {
+	Code string `json:"code"`
+	When string `json:"when"`
+	Hint string `json:"hint"`
 }
 
 // deprecatedPrefix marks an alias entry in the catalog so a client
@@ -54,16 +91,16 @@ func deprecatedPrefix(canonical string) string {
 // introduces no copy drift. WorkerEligible mirrors what roles.yaml
 // grants today (verified per tool) so authz behaviour is preserved.
 //
-//   W1 — documents.   W2 — projects / plans / runs / artifacts.
-//   W3 — agents / hosts / reviews / channels / a2a (authority-backed
-//        tools only; the native switch-dispatched tools in these
-//        domains — list_agents, agents.fanout/gather, list_channels —
-//        await the native-dispatch path and migrate in a later wedge).
-//   W4 — tasks / schedules + the authority-backed misc tools
-//        (audit.read, policy.read, mobile.navigate, the two channel-
-//        creation tools). The native W4 tools (post_message,
-//        pause_self, templates.propose, …) await the native-dispatch
-//        path too.
+//	W1 — documents.   W2 — projects / plans / runs / artifacts.
+//	W3 — agents / hosts / reviews / channels / a2a (authority-backed
+//	     tools only; the native switch-dispatched tools in these
+//	     domains — list_agents, agents.fanout/gather, list_channels —
+//	     await the native-dispatch path and migrate in a later wedge).
+//	W4 — tasks / schedules + the authority-backed misc tools
+//	     (audit.read, policy.read, mobile.navigate, the two channel-
+//	     creation tools). The native W4 tools (post_message,
+//	     pause_self, templates.propose, …) await the native-dispatch
+//	     path too.
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
 	// spec builds one ToolSpec for an authority-backed tool. backend
@@ -84,7 +121,7 @@ func toolRegistry() []ToolSpec {
 			Backend:        backend,
 		}
 	}
-	return []ToolSpec{
+	specs := []ToolSpec{
 		// --- documents (W1) ---
 		spec("documents_list", "documents.list",
 			"List documents in the team (rows, not bodies). Optional: project (id).",
@@ -308,6 +345,103 @@ func toolRegistry() []ToolSpec {
 			"Return an empty plan-template skeleton to customise.",
 			tierTrivial, false),
 	}
+	applyToolMeta(specs)
+	return specs
+}
+
+// toolMetaEntry is one row of the ADR-031 D-1 operational/discovery
+// overlay. readOnly drives ToolSpec.ReadOnly (and the derived
+// concurrency_safe / side_effecting catalog pair); seeAlso drives
+// ToolSpec.SeeAlso.
+type toolMetaEntry struct {
+	readOnly bool
+	seeAlso  []string
+}
+
+// toolMeta is the W2.b overlay: ADR-031 D-1's ReadOnly + SeeAlso for
+// every authority tool, keyed by canonical name. Kept as a table
+// rather than spec() arguments so the 66 spec() call sites stay
+// readable. Examples / FailureModes are authored separately (W2.b.2).
+var toolMeta = map[string]toolMetaEntry{
+	"documents_list":            {true, []string{"documents_get", "documents_create"}},
+	"documents_get":             {true, []string{"documents_list", "get_project_doc"}},
+	"documents_create":          {false, []string{"documents_list", "reviews_create"}},
+	"projects_list":             {true, []string{"projects_get", "projects_create"}},
+	"projects_get":              {true, []string{"projects_list", "projects_update"}},
+	"projects_create":           {false, []string{"projects_update", "templates_plan_create"}},
+	"projects_update":           {false, []string{"projects_get", "projects_create"}},
+	"plans_list":                {true, []string{"plans_get", "plans_create"}},
+	"plans_get":                 {true, []string{"plans_list", "plan_steps_list"}},
+	"plans_create":              {false, []string{"plan_steps_create", "projects_create"}},
+	"plan_steps_create":         {false, []string{"plan_steps_list", "plans_create"}},
+	"plan_steps_list":           {true, []string{"plan_steps_update", "plans_get"}},
+	"plan_steps_update":         {false, []string{"plan_steps_list"}},
+	"runs_list":                 {true, []string{"runs_get", "runs_create"}},
+	"runs_get":                  {true, []string{"runs_list", "artifacts_list"}},
+	"runs_create":               {false, []string{"runs_attach_artifact", "runs_list"}},
+	"runs_attach_artifact":      {false, []string{"runs_get", "artifacts_create"}},
+	"artifacts_list":            {true, []string{"artifacts_get", "artifacts_create"}},
+	"artifacts_get":             {true, []string{"artifacts_list", "runs_get"}},
+	"artifacts_create":          {false, []string{"artifacts_list", "runs_attach_artifact"}},
+	"agents_list":               {true, []string{"agents_get", "agents_spawn"}},
+	"agents_get":                {true, []string{"agents_list", "get_parent_thread"}},
+	"agents_spawn":              {false, []string{"agents_fanout", "agents_list"}},
+	"agents_terminate":          {false, []string{"agents_list", "pause_self"}},
+	"hosts_list":                {true, []string{"hosts_get", "hosts_update_ssh_hint"}},
+	"hosts_get":                 {true, []string{"hosts_list"}},
+	"hosts_update_ssh_hint":     {false, []string{"hosts_get"}},
+	"reviews_list":              {true, []string{"reviews_create", "documents_get"}},
+	"reviews_create":            {false, []string{"documents_get", "reviews_list"}},
+	"channels_post_event":       {false, []string{"list_channels", "project_channels_create"}},
+	"a2a_invoke":                {false, []string{"a2a_cards_list", "request_help"}},
+	"a2a_cards_list":            {true, []string{"a2a_invoke", "agents_list"}},
+	"tasks_list":                {true, []string{"tasks_get", "tasks_create"}},
+	"tasks_get":                 {true, []string{"tasks_list", "tasks_update"}},
+	"tasks_create":              {false, []string{"tasks_update", "tasks_list"}},
+	"tasks_update":              {false, []string{"tasks_complete", "tasks_get"}},
+	"tasks_complete":            {false, []string{"tasks_update", "reports_post"}},
+	"tasks_delete":              {false, []string{"tasks_update"}},
+	"schedules_list":            {true, []string{"schedules_create", "schedules_run"}},
+	"schedules_create":          {false, []string{"schedules_update", "schedules_run"}},
+	"schedules_update":          {false, []string{"schedules_list", "schedules_delete"}},
+	"schedules_delete":          {false, []string{"schedules_list"}},
+	"schedules_run":             {false, []string{"schedules_list", "schedules_create"}},
+	"audit_read":                {true, []string{"policy_read", "get_feed"}},
+	"policy_read":               {true, []string{"audit_read"}},
+	"mobile_navigate":           {false, []string{"get_feed"}},
+	"project_channels_create":   {false, []string{"channels_post_event", "team_channels_create"}},
+	"team_channels_create":      {false, []string{"channels_post_event", "project_channels_create"}},
+	"templates_agent_create":    {false, []string{"templates_agent_scaffold", "templates_agent_get"}},
+	"templates_agent_update":    {false, []string{"templates_agent_get", "templates_agent_list"}},
+	"templates_agent_delete":    {false, []string{"templates_agent_list"}},
+	"templates_agent_list":      {true, []string{"templates_agent_get", "templates_agent_scaffold"}},
+	"templates_agent_get":       {true, []string{"templates_agent_list", "templates_agent_scaffold"}},
+	"templates_agent_scaffold":  {true, []string{"templates_agent_create", "templates_agent_get"}},
+	"templates_prompt_create":   {false, []string{"templates_prompt_scaffold", "templates_prompt_get"}},
+	"templates_prompt_update":   {false, []string{"templates_prompt_get", "templates_prompt_list"}},
+	"templates_prompt_delete":   {false, []string{"templates_prompt_list"}},
+	"templates_prompt_list":     {true, []string{"templates_prompt_get", "templates_prompt_scaffold"}},
+	"templates_prompt_get":      {true, []string{"templates_prompt_list", "templates_prompt_scaffold"}},
+	"templates_prompt_scaffold": {true, []string{"templates_prompt_create", "templates_prompt_get"}},
+	"templates_plan_create":     {false, []string{"templates_plan_scaffold", "templates_plan_get"}},
+	"templates_plan_update":     {false, []string{"templates_plan_get", "templates_plan_list"}},
+	"templates_plan_delete":     {false, []string{"templates_plan_list"}},
+	"templates_plan_list":       {true, []string{"templates_plan_get", "templates_plan_scaffold"}},
+	"templates_plan_get":        {true, []string{"templates_plan_list", "templates_plan_scaffold"}},
+	"templates_plan_scaffold":   {true, []string{"templates_plan_create", "templates_plan_get"}},
+}
+
+// applyToolMeta overlays the W2.b ReadOnly + SeeAlso fields onto each
+// spec. A spec with no toolMeta row keeps ReadOnly false — the
+// fail-closed default D-1 mandates; TestToolMeta_EveryToolCovered
+// guards against a tool silently missing its row.
+func applyToolMeta(specs []ToolSpec) {
+	for i := range specs {
+		if m, ok := toolMeta[specs[i].Name]; ok {
+			specs[i].ReadOnly = m.readOnly
+			specs[i].SeeAlso = m.seeAlso
+		}
+	}
 }
 
 // ToolRegistry returns the unified ToolSpec list (ADR-033).
@@ -330,33 +464,51 @@ func LookupToolSpec(name string) (spec ToolSpec, found bool, viaAlias bool) {
 	return ToolSpec{}, false, false
 }
 
+// CatalogEntry projects a ToolSpec to the `map[string]any` catalog
+// shape mcp.go composes. `short` is the one-line contract (W2.a);
+// `description` is the long body; the ADR-031 D-1 structured-payload
+// fields (`concurrency_safe` / `side_effecting` / `see_also` and, when
+// authored, `examples` / `failure_modes`) ride alongside. tools/list
+// projects this down to `short`; tools_get serves it whole.
+func CatalogEntry(name, short, description string, schema any, s ToolSpec) map[string]any {
+	e := map[string]any{
+		"name":        name,
+		"short":       short,
+		"description": description,
+		"inputSchema": schema,
+		// D-1 fail-closed: a non-ReadOnly tool is side-effecting and
+		// not safe to batch.
+		"concurrency_safe": s.ReadOnly,
+		"side_effecting":   !s.ReadOnly,
+	}
+	if len(s.SeeAlso) > 0 {
+		e["see_also"] = s.SeeAlso
+	}
+	if len(s.Examples) > 0 {
+		e["examples"] = s.Examples
+	}
+	if len(s.FailureModes) > 0 {
+		e["failure_modes"] = s.FailureModes
+	}
+	return e
+}
+
 // RegistryCatalogDefs returns the registry as catalog entries in the
 // `[]map[string]any` shape mcp.go composes. Each spec yields its
 // canonical entry plus one entry per deprecated alias — the rename
 // stays visible to a client listing tools (ADR-033 D-2).
-//
-// Each entry carries both `short` (the one-line contract, ADR-031 D-1)
-// and the long `description` body. tools/list serves `short`; the long
-// body is fetched per-tool via tools_get (ADR-031 W2.a).
 func RegistryCatalogDefs() []map[string]any {
 	specs := toolRegistry()
 	out := make([]map[string]any, 0, len(specs)*2)
 	for _, s := range specs {
 		var schemaObj any
 		_ = json.Unmarshal(s.InputSchema, &schemaObj)
-		out = append(out, map[string]any{
-			"name":        s.Name,
-			"short":       s.Short,
-			"description": s.Description,
-			"inputSchema": schemaObj,
-		})
+		out = append(out, CatalogEntry(s.Name, s.Short, s.Description, schemaObj, s))
 		for _, a := range s.Aliases {
-			out = append(out, map[string]any{
-				"name":        a,
-				"short":       deprecatedPrefix(s.Name) + s.Short,
-				"description": deprecatedPrefix(s.Name) + s.Description,
-				"inputSchema": schemaObj,
-			})
+			out = append(out, CatalogEntry(a,
+				deprecatedPrefix(s.Name)+s.Short,
+				deprecatedPrefix(s.Name)+s.Description,
+				schemaObj, s))
 		}
 	}
 	return out

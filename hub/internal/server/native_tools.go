@@ -575,10 +575,47 @@ var nativeHandlers = func() map[string]nativeHandler {
 	return m
 }()
 
+// nativeToolMeta is the W2.b overlay for the native registry — the
+// ADR-031 D-1 ReadOnly + SeeAlso fields, keyed by canonical name. It
+// mirrors hubmcpserver.toolMeta for the authority side. {readOnly,
+// seeAlso}; Examples / FailureModes are authored by W2.b.2.
+var nativeToolMeta = map[string]struct {
+	readOnly bool
+	seeAlso  []string
+}{
+	"post_message":            {false, []string{"post_excerpt", "channels_post_event"}},
+	"get_feed":                {true, []string{"search", "get_event"}},
+	"list_channels":           {true, []string{"channels_post_event", "get_feed"}},
+	"search":                  {true, []string{"get_feed", "documents_list"}},
+	"journal_append":          {false, []string{"journal_read"}},
+	"journal_read":            {true, []string{"journal_append", "get_feed"}},
+	"get_project_doc":         {true, []string{"documents_get"}},
+	"get_attention":           {true, []string{"request_help", "request_approval"}},
+	"post_excerpt":            {false, []string{"post_message"}},
+	"delegate":                {false, []string{"a2a_invoke", "request_help"}},
+	"request_approval":        {false, []string{"request_select", "request_help"}},
+	"request_select":          {false, []string{"request_approval", "request_help"}},
+	"request_help":            {false, []string{"request_select", "get_attention"}},
+	"request_project_steward": {false, []string{"agents_spawn", "delegate"}},
+	"attach":                  {false, []string{"artifacts_create", "documents_create"}},
+	"get_event":               {true, []string{"get_feed", "search"}},
+	"get_parent_thread":       {true, []string{"a2a_invoke", "agents_get"}},
+	"update_own_task_status":  {false, []string{"tasks_update", "tasks_complete"}},
+	"templates_propose":       {false, []string{"templates_agent_scaffold", "templates_agent_create"}},
+	"pause_self":              {false, []string{"shutdown_self", "agents_terminate"}},
+	"shutdown_self":           {false, []string{"pause_self"}},
+	"permission_prompt":       {false, []string{"request_approval"}},
+	"agents_fanout":           {false, []string{"agents_gather", "agents_spawn"}},
+	"agents_gather":           {true, []string{"agents_fanout", "reports_post"}},
+	"reports_post":            {false, []string{"tasks_complete", "agents_gather"}},
+	"tools_get":               {true, nil},
+}
+
 // nativeToolRegistry returns the ToolSpecs for the native tools,
 // derived from buildNativeTools(). InputSchema is marshalled to the
 // registry's json.RawMessage form; Backend is "" — the marker for
-// native dispatch.
+// native dispatch. The ADR-031 D-1 ReadOnly / SeeAlso fields are
+// overlaid from nativeToolMeta.
 func nativeToolRegistry() []hubmcpserver.ToolSpec {
 	tools := buildNativeTools()
 	out := make([]hubmcpserver.ToolSpec, 0, len(tools))
@@ -587,7 +624,7 @@ func nativeToolRegistry() []hubmcpserver.ToolSpec {
 		if t.InputSchema != nil {
 			raw, _ = json.Marshal(t.InputSchema)
 		}
-		out = append(out, hubmcpserver.ToolSpec{
+		s := hubmcpserver.ToolSpec{
 			Name:           t.Name,
 			Aliases:        t.Aliases,
 			Short:          t.Short,
@@ -596,7 +633,12 @@ func nativeToolRegistry() []hubmcpserver.ToolSpec {
 			Tier:           t.Tier,
 			WorkerEligible: t.WorkerEligible,
 			Backend:        "",
-		})
+		}
+		if m, ok := nativeToolMeta[t.Name]; ok {
+			s.ReadOnly = m.readOnly
+			s.SeeAlso = m.seeAlso
+		}
+		out = append(out, s)
 	}
 	return out
 }
@@ -642,28 +684,20 @@ func nativeHandlerFor(name string) (nativeHandler, bool) {
 // nativeRegistryCatalogDefs renders the native registry as catalog
 // entries in the []map[string]any shape mcpToolDefs() composes — the
 // canonical entry plus one [DEPRECATED] entry per alias. Each entry
-// carries both `short` (one-line contract) and the long `description`
-// body; tools/list serves `short` (ADR-031 W2.a).
+// carries `short`, the long `description`, and the ADR-031 D-1
+// structured payload — via hubmcpserver.CatalogEntry, the same
+// projection the authority registry uses.
 func nativeRegistryCatalogDefs() []map[string]any {
 	specs := nativeToolRegistry()
 	out := make([]map[string]any, 0, len(specs))
 	for _, s := range specs {
 		var schemaObj any
 		_ = json.Unmarshal(s.InputSchema, &schemaObj)
-		out = append(out, map[string]any{
-			"name":        s.Name,
-			"short":       s.Short,
-			"description": s.Description,
-			"inputSchema": schemaObj,
-		})
+		out = append(out, hubmcpserver.CatalogEntry(s.Name, s.Short, s.Description, schemaObj, s))
 		for _, a := range s.Aliases {
 			depPrefix := "[DEPRECATED — use " + s.Name + "] "
-			out = append(out, map[string]any{
-				"name":        a,
-				"short":       depPrefix + s.Short,
-				"description": depPrefix + s.Description,
-				"inputSchema": schemaObj,
-			})
+			out = append(out, hubmcpserver.CatalogEntry(a,
+				depPrefix+s.Short, depPrefix+s.Description, schemaObj, s))
 		}
 	}
 	return out

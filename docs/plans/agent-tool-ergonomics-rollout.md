@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, eight wedges total (W1, W2.a, W2.b, W3, W4, W5, W6.a, W6.b). **W1 + W2.a + W3 + W4 + W6.a shipped — MVP (phases 1 + 2) is complete bar W2.b.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced; **W6.a** (the clean renames) shipped, **W6.b** (the genuine gaps + drift-lock lint) is post-MVP. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, nine wedges total (W1, W2.a, W2.b, W2.b.2, W3, W4, W5, W6.a, W6.b). **W1 + W2.a + W2.b + W3 + W4 + W6.a shipped — the MVP (phases 1 + 2) is complete.** Post-MVP polish remaining: W5, W6.b, W2.b.2. W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). W2.b — `ToolSpec` gained the D-1 structured-payload fields; `ReadOnly` (→ the fail-closed `concurrency_safe`/`side_effecting` pair) and `see_also` are populated for all 92 tools via two overlay tables and surface in `tools_get`. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). W2.b shipped the structural half of D-1's payload; **W2.b.2** — the per-tool `examples` + `failure_modes` authoring — is post-MVP and fuses with W5's hint work. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced; **W6.a** (the clean renames) shipped, **W6.b** (the genuine gaps + drift-lock lint) is post-MVP. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** W1 + W2.a + W3 + W4 shipped; ADR-033 W6 teardown complete
+> **Last verified vs code:** W1 + W2.a + W2.b + W3 + W4 + W6.a shipped; ADR-033 W6 teardown complete
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -40,7 +40,8 @@ tail.
 |---|---|---|---|---|
 | 1 | W1 | `tools.get` meta-tool | ~80 LOC | — — **✓ shipped** |
 | 1 | W2.a | `tools/list` serves `short` | ~60 LOC | W1 — **✓ shipped** |
-| 1 | W2.b | D-1 structured payload | ~150 LOC | W1, W4 |
+| 1 | W2.b | D-1 structured payload — data model + operational metadata + see_also | ~200 LOC | W1 — **✓ shipped** |
+| 1 | W2.b.2 | D-1 `examples` + `failure_modes` per-tool authoring | ~92 tools prose | W2.b |
 | 1 | W3 | Hint-bearing errors — top paths | ~90 LOC | — — **✓ shipped** |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2.a — **✓ shipped** |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
@@ -48,9 +49,9 @@ tail.
 | 3 | W6.b | Dangling-ref genuine gaps + drift-lock lint | ~80 LOC | W6.a |
 
 Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ → W4 ✓ → W6.a ✓ →
-W2.b (after W4) → W5 ‖ W6.b (post-MVP polish)**. MVP (phases 1 + 2)
-is now complete bar W2.b; W5 and W6.b are the post-MVP polish and are
-independent of each other.
+W2.b ✓ → W5 ‖ W6.b ‖ W2.b.2 (post-MVP polish)**. **MVP (phases 1 + 2)
+is complete** — W1, W2.a, W2.b, W3, W4 all shipped. The post-MVP
+polish — W5, W6.b, W2.b.2 — is three independent wedges.
 
 ---
 
@@ -175,18 +176,38 @@ names required params + canonical input type; ≤ 200 chars (the
 widest in the catalog today is 181). Example:
 `Fetch a document by id. Required: document_id (ULID).`
 
-**W2.b — D-1 structured payload.** D-1 specifies `tools.get` returns
-more than short + long: `examples`, `failure_modes`, `see_also`, and
-the operational metadata `concurrency_safe` / `side_effecting`
-(`permission_tier` is already covered by `ToolSpec.Tier`). This adds
-these as `ToolSpec` fields and populates them per tool (~92 tools of
-authoring — large).
+**W2.b — D-1 structured payload — ✓ shipped (structural half).**
+D-1 specifies `tools_get` returns more than short + long: `examples`,
+`failure_modes`, `see_also`, and the operational metadata
+`concurrency_safe` / `side_effecting` (`permission_tier` is already
+covered by `ToolSpec.Tier`). Shipped in two halves:
+
+> **W2.b (structural) — shipped.** `ToolSpec` (+ the native registry)
+> gained `ReadOnly`, `SeeAlso`, `Examples`, `FailureModes` and the
+> types `ToolExample` / `ToolFailureMode`. The D-1 pair is *derived*
+> from one field: `concurrency_safe == ReadOnly`,
+> `side_effecting == !ReadOnly` — across the catalog the two flags
+> always move together, and the zero value (`ReadOnly:false`) is
+> exactly D-1's fail-closed reading. `ReadOnly` + `SeeAlso` are
+> populated for **all 92 tools** via two overlay tables (`toolMeta`
+> in `hubmcpserver`, `nativeToolMeta` in `server`) — kept as tables
+> so the 66 `spec()` call sites stay readable. `tools_get` emits the
+> structured payload via `hubmcpserver.CatalogEntry`; `tools/list`
+> still projects to `short` only (W2.a), so the new fields ride only
+> in `tools_get`. Tests: `TestToolMeta_*`, `TestNativeToolMeta_*`,
+> `TestMCP_ToolsGet_StructuredPayload`, `TestMCP_ToolListDefs_OmitsStructuredPayload`.
+
+> **W2.b.2 — `examples` + `failure_modes` per-tool authoring —
+> deferred.** The fields + emit are in place; the per-tool *content*
+> (one worked example + the enumerated 4xx outcomes for each of ~92
+> tools) is the prose-heavy half. Sequenced with W5: `failure_modes`
+> shares the `{hint_text, see_tool}` shape with the W3/W5 hint work,
+> so authoring them together avoids writing the same recovery text
+> twice.
 
 **Sequenced after W4** (the split, taken at W2.a ship time): the
 per-persona index (W4) is the higher-leverage discovery fix and does
-not depend on the structured payload, and W2.b's `failure_modes`
-authoring naturally fuses with the W3 / W5 hint work (same
-`{hint_text, see_tool}` shape).
+not depend on the structured payload.
 
 **Acceptance (W2.a) — met:**
 - `tools/list` carries `short` (≤ 200 chars) in place of the long

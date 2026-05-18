@@ -130,10 +130,15 @@ YAML file, not Go code.
   well-grounded practice; when a fact isn't certain, confirm it
   against the codebase, the docs, or the web before acting on it or
   writing it down.
+- **Choose terms precisely.** Use the most accurate word for a
+  concept; avoid coining or reusing one that collides with an
+  existing term. `docs/reference/glossary.md` is canonical for
+  collision-prone terms (`lint-glossary.sh` enforces it). When a term
+  is ambiguous, or a needed concept has no clear name, raise the gap
+  for discussion — don't settle for a vague or overloaded word.
 - **English only** — all code, comments, and docs.
 - **Docs** follow `docs/doc-spec.md`; read `docs/README.md` first.
-  Reorgs go in their own `docs:`-prefixed commits. `glossary.md` is
-  canonical for collision-prone terms.
+  Reorgs go in their own `docs:`-prefixed commits.
 - **ADRs** are append-only and numbered; the **changelog** has one
   section per tagged release.
 - Doc-only changes do not bump the app version; release tags are cut

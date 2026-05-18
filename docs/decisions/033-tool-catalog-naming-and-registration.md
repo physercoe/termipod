@@ -210,10 +210,12 @@ every catalog entry to add the `short` field.** A naming migration
 **resolved before ADR-031 W2 runs, or fused into it** — otherwise
 all ~75 entries are edited twice (discussion §6, Q5).
 
-Companion rollout plan: TBD. Sketch — (W1) introduce the `toolSpec`
-type and migrate one domain end-to-end as proof; (W2) migrate the
-remaining domains into the single registry + apply the D-1 naming;
-(W3) D-4 deduplication; (W4, optional) the D-1 delimiter eval.
+Companion rollout plan:
+[`../plans/tool-catalog-rollout.md`](../plans/tool-catalog-rollout.md)
+— six wedges in three phases (foundation + proof / domain migration /
+consolidate + teardown). It also records that ADR-031 W2 is subsumed:
+the `ToolSpec` type carries the ADR-031 D-1 structured payload, so
+converting a domain to `ToolSpec` *is* doing W2 for that domain.
 
 ## 6. References
 

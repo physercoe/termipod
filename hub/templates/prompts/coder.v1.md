@@ -22,7 +22,7 @@ The steward's spawn task carries:
   "implement nanoGPT training loop with optimizer A/B and
   configurable model size")
 
-Read the lit-review first via `documents.read`. Then plan.
+Read the lit-review first via `documents_get`. Then plan.
 
 ## Procedure
 

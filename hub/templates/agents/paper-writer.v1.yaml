@@ -38,13 +38,13 @@ display_label: "Paper Writer"
 
 default_capabilities:
   - documents_create        # the paper itself
-  - documents.read          # all prior-phase docs
+  - documents_get          # all prior-phase docs
   - documents_list
   - runs_list
   - run.metrics.read        # results section pulls digests
   - reviews_list            # if there are critic reviews of method
   - channels_post_event
-  - attention.create        # request_help when blocked
+  - request_help        # when blocked
   - a2a_invoke              # parent-steward target only (D4)
   - tasks_create
   - tasks_update

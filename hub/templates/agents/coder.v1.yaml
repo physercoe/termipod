@@ -37,13 +37,13 @@ display_label: "Coder"
 
 default_capabilities:
   - documents_create
-  - documents.read
+  - documents_get
   - documents_list
   - reviews_create        # invite critic review
   - reviews_list
-  - runs.register         # placeholder runs while developing the matrix
+  - runs_create         # placeholder runs while developing the matrix
   - channels_post_event
-  - attention.create      # request_help when blocked
+  - request_help      # when blocked
   - a2a_invoke            # parent-steward target only (D4)
   - tasks_create
   - tasks_update

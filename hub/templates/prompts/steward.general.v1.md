@@ -42,7 +42,7 @@ the director taps to review and approve**. The attention surfaces:
      packages from PyPI signed/well-known maintainers, apt official
      repos, official binary releases only. **No** `curl <random> |
      bash`.
-   - `paper-writer.v1.yaml` — read-side only (documents.read,
+   - `paper-writer.v1.yaml` — read-side only (documents_get,
      run.metrics.read, runs_list). Produces a 6-section paper
      (Abstract, Intro, Method, Results, Discussion, Limitations,
      References). Cites only the lit-review's findings — no
@@ -117,7 +117,7 @@ the director taps to review and approve**. The attention surfaces:
    yourself — the director picks the template from the mobile UI and
    confirms.
 9. Surface for review:
-   `attention.create(kind=request_approval, payload={project_template_id, plan_template_id, agent_template_ids})`.
+   `request_approval(payload={project_template_id, plan_template_id, agent_template_ids})`.
    The director taps it, reviews the bundle, then creates a concrete
    project from the project template via the mobile create-project
    sheet.
@@ -297,7 +297,7 @@ don't recall; `tools/list` enumerates the whole surface.
 - You can spawn agents (`agents_spawn`); use it for the bootstrap
   handoff and concierge ad-hoc tasks. Workers cannot multiply
   themselves; you have to spawn for them.
-- You can `agents.archive` peers, but use it sparingly — typically
+- You can `agents_terminate` peers, but use it sparingly — typically
   only when cleaning up after an aborted project.
 
 ## Project work — delegate to the project steward (ADR-025)
@@ -429,13 +429,13 @@ input: `Task '<title>' done|blocked|cancelled. Result|Reason:
 <summary>. Decide next step.`
 
 For each outcome:
-- **done**: read the artifact via `documents.read` (the summary
+- **done**: read the artifact via `documents_get` (the summary
   usually carries `doc_id=...`). Accept and move on, or spawn
   `critic.v1` to review.
 - **blocked**: read the reason. Either (a) handle it yourself,
   (b) reassign with scope adjusted so the worker can complete,
   or (c) escalate to {{principal.handle}} via
-  `attention.create(kind=request_help, ...)`.
+  `request_help(...)`.
 - **cancelled**: usually a worker-initiated abort. Read the
   reason, then proceed or escalate.
 

@@ -6,7 +6,7 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, seven wedges total (W1, W2.a, W2.b, W3, W4, W5, W6). **W1 + W2.a + W3 + W4 shipped — MVP (phases 1 + 2) is complete bar W2.b.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, eight wedges total (W1, W2.a, W2.b, W3, W4, W5, W6.a, W6.b). **W1 + W2.a + W3 + W4 + W6.a shipped — MVP (phases 1 + 2) is complete bar W2.b.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. **W6** (sweep the dangling non-tool refs from the persona prompt bodies) was added to Phase 3 from a finding W4 surfaced; **W6.a** (the clean renames) shipped, **W6.b** (the genuine gaps + drift-lock lint) is post-MVP. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
 > **Last verified vs code:** W1 + W2.a + W3 + W4 shipped; ADR-033 W6 teardown complete
 
@@ -21,12 +21,12 @@ the right tool to read a doc by ULID). Three phases:
 - **Phase 2 — Index (MVP, 1 wedge):** add "intent → tool" table
   to each of the 10 main persona prompts. ~250 lines prose, no
   code.
-- **Phase 3 — Polish (post-MVP, 2 wedges):** hint-pass on the
-  remaining ~25 4xx error paths, CI lint asserting every
-  registered tool has both short + long descriptions and
-  matching schema; plus a sweep of the dangling non-tool
-  references in the persona prompt bodies. ~200 LOC + tests +
-  ~80 lines prose.
+- **Phase 3 — Polish (post-MVP):** hint-pass on the remaining
+  ~25 4xx error paths, CI lint asserting every registered tool
+  has both short + long descriptions and matching schema (W5);
+  plus a sweep of the dangling non-tool references in the
+  persona prompts — clean renames done (W6.a), genuine gaps +
+  drift-lock lint remaining (W6.b). ~200 LOC + tests + prose.
 
 The MVP phases (1 + 2) are the minimum for the agent's
 discovery experience to feel solid. Phase 3 closes the long
@@ -44,11 +44,12 @@ tail.
 | 1 | W3 | Hint-bearing errors — top paths | ~90 LOC | — — **✓ shipped** |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2.a — **✓ shipped** |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
-| 3 | W6 | Sweep dangling non-tool refs from persona bodies | ~80 prose + lint | W4 |
+| 3 | W6.a | Sweep dangling non-tool refs — clean renames | ~50 prose | W4 — **✓ shipped** |
+| 3 | W6.b | Dangling-ref genuine gaps + drift-lock lint | ~80 LOC | W6.a |
 
-Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ → W4 ✓ →
-W2.b (after W4) → W5 ‖ W6 (post-MVP polish)**. MVP (phases 1 + 2)
-is now complete bar W2.b; W5 and W6 are the post-MVP polish and are
+Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ → W4 ✓ → W6.a ✓ →
+W2.b (after W4) → W5 ‖ W6.b (post-MVP polish)**. MVP (phases 1 + 2)
+is now complete bar W2.b; W5 and W6.b are the post-MVP polish and are
 independent of each other.
 
 ---
@@ -394,32 +395,47 @@ tests to verify each rule catches violations.
 
 #### W6 — Sweep dangling non-tool refs from persona bodies
 
-W4 surfaced it: the persona prompt *bodies* cite tool-shaped names
-that resolve to **nothing** — neither a canonical tool nor a
-deprecated alias. `TestBundledTemplatesUseCanonicalNames` only
-catches deprecated *aliases*, so a dangling name sails through; an
-agent that calls it gets `unknown tool` mid-task. This wedge sweeps
-the bodies and drift-locks the result.
+W4 surfaced it: the persona prompt *bodies* (and the agent-template
+`default_capabilities` lists) cite tool-shaped names that resolve to
+**nothing** — neither a canonical tool nor a deprecated alias.
+`TestBundledTemplatesUseCanonicalNames` only catches deprecated
+*aliases*, so a dangling name sails through; an agent that calls it
+gets `unknown tool` mid-task. Split in two: W6.a clears the
+mechanical renames, W6.b resolves the genuine gaps and adds the lint.
 
-**The known dangling refs** (audit at W6 time for the full set):
+#### W6.a — Clean renames — ✓ shipped
 
-| In the prompt body | Resolves to | Fix |
-|---|---|---|
-| `documents.read` (×~15) | nothing | → `documents_get` |
-| `agents.archive` | nothing | → `agents_terminate` |
-| `attention.create(kind=request_help\|…)` | nothing | → the matching `request_help` / `request_select` / `request_approval` tool |
-| `runs.register` | nothing | → `runs_create` |
-| `runs.attach_metric_uri` | nothing | verify against the runs surface — likely `runs_attach_artifact`, or a genuine missing tool |
-| `runs.complete` | nothing | no run-status-update tool exists — **genuine gap** |
-| `plan.advance` | nothing | no plan-advance tool exists — `plan_steps_update` is the nearest — **genuine gap** |
+> **Shipped.** `documents.read`, `agents.archive`, `runs.register`,
+> and `attention.create(kind=…)` swept across `templates/prompts/*.md`
+> + `templates/agents/*.yaml`. Drift-lock + var-ref tests stay green.
 
-Clean renames are mechanical. The two **genuine gaps** (`runs.complete`,
-`plan.advance`) name an operation with no tool behind it — do not
-paper over them with a near-miss tool. Surface each as a discussion
-note or a glossary/ADR gap (per the CLAUDE.md "choose terms
-precisely / surface the gap" conventions); the prompt body should
-either name the real recovery path or be reworded so it does not
-imply a tool that does not exist.
+Refs with an unambiguous canonical target — a pure rename:
+
+| In the bundled prompt | → Canonical |
+|---|---|
+| `documents.read` | `documents_get` |
+| `agents.archive` | `agents_terminate` |
+| `runs.register` | `runs_create` |
+| `attention.create(kind=request_help\|request_select\|request_approval)` | `request_help` / `request_select` / `request_approval` (the `kind=` arg is dropped — the kind *is* the tool) |
+
+#### W6.b — Genuine gaps + drift-lock lint — post-MVP
+
+The refs left after W6.a name an operation with **no tool behind it**
+— do not paper over them with a near-miss tool:
+
+| Ref | Why it's a gap |
+|---|---|
+| `runs.complete` | no run-status-update MCP tool exists |
+| `plan.advance` / `plan.instantiate` | no plan-lifecycle MCP tool — `plan_steps_update` is only the nearest |
+| `runs.attach_metric_uri` | a REST endpoint (`POST …/metric_uri`, `handleAttachMetricURI`) exists but is **not** exposed as an MCP tool — agents can't call it |
+| `run.metrics.read` | listed in `roles.yaml worker.allow` but not in the 92-tool catalog — a dead manifest entry or an unregistered tool |
+| `templates.read` | ambiguous — the real tools are per-kind (`templates_agent_get`, …) |
+
+Each names a real workflow need with no MCP surface. Per the
+CLAUDE.md "choose terms precisely / surface the gap" conventions,
+W6.b resolves each as a discussion note or ADR gap (register the
+missing tool, or reword the prompt to name the real recovery path) —
+not a silent map to a near-miss tool.
 
 **Lint — drift-lock the sweep.** Extend the bundled-template check
 (or add a sibling) so it flags any backticked, tool-shaped token in
@@ -427,18 +443,14 @@ imply a tool that does not exist.
 canonical name nor a deprecated alias. "Tool-shaped" needs a precise
 rule to avoid false positives on ordinary identifiers — scope it to
 backticked tokens matching the `verb_noun` / `noun.verb` tool-naming
-shapes, and keep a small explicit allowlist for engine-native tools
-that are legitimately not in the hub catalog (`WebSearch`,
-`WebFetch`, `Bash`, `Read`, `Edit`, `git`).
+shapes, with a small explicit allowlist for engine-native tools
+legitimately outside the hub catalog (`WebSearch`, `WebFetch`,
+`Bash`, `Read`, `Edit`, `git`) and for the W6.b gap tokens until
+they are resolved.
 
-**Implementation site:** `hub/templates/prompts/*.md` (+ a sweep of
-`templates/agents/*.yaml` for the same class) and a new/extended
-test in `hub/internal/server`.
-
-**Acceptance:** no dangling tool-shaped ref remains in the bundled
-prompts; the lint fails if one is reintroduced; the two genuine
-gaps are recorded (discussion note / ADR) rather than silently
-mapped to a near-miss tool.
+**Acceptance (W6.b):** every gap token is resolved or explicitly
+allowlisted with a tracking pointer; the lint fails if a *new*
+dangling ref is introduced.
 
 **Tests:** the lint is the test; a negative case proving it catches
 a planted dangling ref.

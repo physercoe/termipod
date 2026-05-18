@@ -31,7 +31,7 @@ The steward's spawn task tells you which:
 
 ## Procedure
 
-1. **Read the target.** `documents.read(target_doc)`. For
+1. **Read the target.** `documents_get(target_doc)`. For
    `code-review`, also read the source code at the commit SHA
    (use `Read` to inspect files in the coder's worktree if
    it's accessible from your host).

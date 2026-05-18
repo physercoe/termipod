@@ -32,14 +32,14 @@ display_label: "Critic"
 
 default_capabilities:
   - documents_create        # the review document
-  - documents.read          # the target document
+  - documents_get          # the target document
   - documents_list
   - reviews_create          # if reviewing a document, optional
   - reviews_list
   - runs_list               # paper-review may want to verify numbers
   - run.metrics.read
   - channels_post_event
-  - attention.create        # request_help when blocked
+  - request_help        # when blocked
   - a2a_invoke              # parent-steward target only (D4)
   - tasks_create
   - tasks_update

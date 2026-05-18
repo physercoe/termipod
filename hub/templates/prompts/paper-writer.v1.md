@@ -20,7 +20,7 @@ The steward's spawn task carries:
 - `results`: document id of the result-summary memo
 
 All three are produced by prior phases; you read them via
-`documents.read`. You also have read access to run digests via
+`documents_get`. You also have read access to run digests via
 `runs_list` + `run.metrics.read` if you need to recompute or
 verify any number from the result summary.
 

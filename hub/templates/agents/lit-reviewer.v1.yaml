@@ -40,11 +40,11 @@ display_label: "Lit Reviewer"
 
 default_capabilities:
   - documents_create
-  - documents.read
+  - documents_get
   - documents_list
   - reviews_list
   - channels_post_event
-  - attention.create        # request_help when stuck
+  - request_help        # when stuck
   - a2a_invoke              # parent-steward target only (ADR-016 D4)
   - tasks_create
   - tasks_update

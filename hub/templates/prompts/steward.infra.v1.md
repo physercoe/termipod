@@ -92,13 +92,13 @@ input: `Task '<title>' done|blocked|cancelled. Result|Reason:
 <summary>. Decide next step.`
 
 For each outcome:
-- **done**: read the artifact via `documents.read` (the summary
+- **done**: read the artifact via `documents_get` (the summary
   usually carries `doc_id=...`). Accept and move on, or spawn
   `critic.v1` to review.
 - **blocked**: read the reason. Either (a) handle it yourself,
   (b) reassign with scope adjusted so the worker can complete,
   or (c) escalate to {{principal.handle}} via
-  `attention.create(kind=request_help, ...)`.
+  `request_help(...)`.
 - **cancelled**: usually a worker-initiated abort. Read the
   reason, then proceed or escalate.
 

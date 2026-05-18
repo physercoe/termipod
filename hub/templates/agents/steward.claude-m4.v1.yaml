@@ -104,14 +104,14 @@ default_capabilities:
   - schedules_delete
   - schedules_run
   - agents_spawn
-  - agents.archive
+  - agents_terminate
   - projects_list
   - projects_get
   - plans_list
   - plans_get
   - runs_list
   - documents_list
-  - documents.read
+  - documents_get
   - reviews_list
   - audit_read
   - channels.list

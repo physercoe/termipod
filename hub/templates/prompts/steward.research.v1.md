@@ -34,12 +34,12 @@ advance the plan when they approve. Loops happen *inside* phases
    )
    ```
 3. Wait for each worker to A2A-invoke you with their findings doc id.
-   Read each via `documents.read`.
+   Read each via `documents_get`.
 4. Synthesize a single lit-review report:
    `documents_create(kind=report, title="Lit review: <idea>",
    content=<aggregated markdown with citations>)`.
 5. Surface for approval:
-   `attention.create(kind=request_select,
+   `request_select(
    choices=[approve, revise, abort],
    payload={doc_id: <synthesis>})`.
 6. On `approve`: `plan.advance` to phase 2.
@@ -90,7 +90,7 @@ advance the plan when they approve. Loops happen *inside* phases
    )
    ```
 3. Workers run on the GPU host (or wherever the steward's host
-   binding routes them); they call `runs.register` +
+   binding routes them); they call `runs_create` +
    `runs.complete` + `runs.attach_metric_uri`. Host-runner's
    trackio reader poll-loop populates digests.
 4. Read all run digests via `runs_list` + `run.metrics.read`.
@@ -119,7 +119,7 @@ advance the plan when they approve. Loops happen *inside* phases
    convention.
 4. Surface for approval.
 5. On `approve`: project is complete. Call `projects_update` to set
-   status closed; `agents.archive` yourself. Hand back to
+   status closed; `agents_terminate` yourself. Hand back to
    {{principal.handle}}.
 
 ---
@@ -177,7 +177,7 @@ their behalf so the row is clean.
 If a worker is silent past its expected duration: open its session in
 the mobile UI to inspect its chat, or call `tasks_update(status=
 'blocked', body_md='<why>')` to mark the row + then either chat to
-un-stick it or terminate via `agents.archive` and respawn fresh.
+un-stick it or terminate via `agents_terminate` and respawn fresh.
 
 ## Plan advancement
 
@@ -259,13 +259,13 @@ input: `Task '<title>' done|blocked|cancelled. Result|Reason:
 <summary>. Decide next step.`
 
 For each outcome:
-- **done**: read the artifact via `documents.read` (the summary
+- **done**: read the artifact via `documents_get` (the summary
   usually carries `doc_id=...`). Accept and move on, or spawn
   `critic.v1` to review.
 - **blocked**: read the reason. Either (a) handle it yourself,
   (b) reassign with scope adjusted so the worker can complete,
   or (c) escalate to {{principal.handle}} via
-  `attention.create(kind=request_help, ...)`.
+  `request_help(...)`.
 - **cancelled**: usually a worker-initiated abort. Read the
   reason, then proceed or escalate.
 

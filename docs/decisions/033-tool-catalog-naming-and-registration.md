@@ -1,12 +1,12 @@
 ---
 name: Tool catalog — one naming convention + single registration point
-description: Lock the foundation under the MCP tool catalog. Five decisions. D-1 — one naming convention, resource-namespaced, lint-enforced; the delimiter is chosen by a tool-use eval across the four engines, defaulting to snake_case (Anthropic's own form, the only format every MCP client accepts) absent the eval. D-2 — migrate the non-conforming minority via grandfathered aliases, no hard cutover. D-3 — one toolSpec declaration per tool; catalog, dispatch, tier, and role-eligibility are derived from it or CI-locked, retiring the four-place lockstep defect class structurally. D-4 — consolidate the three verified duplicate pairs (list_agents/agents.list, get_task/tasks.get, get_audit/audit.read). D-5 — the one-tool-one-REST-call relay rule holds as default; consolidation is an explicit ADR-justified exception. Must precede or fuse with ADR-031 W2, which rewrites every catalog entry anyway.
+description: Lock the foundation under the MCP tool catalog. Five decisions. D-1 — one naming convention, resource-first and namespaced, in snake_case (Anthropic's own form, the only name format every MCP client accepts without filtering — load-bearing because termipod is multi-engine); a tool-use eval may revisit the delimiter post-MVP but does not gate the ADR. D-2 — migrate the non-conforming names via grandfathered aliases, no hard cutover. D-3 — one toolSpec declaration per tool; catalog, dispatch, tier, and role-eligibility are derived from it or CI-locked, retiring the four-place lockstep defect class structurally. D-4 — consolidate the three verified duplicate pairs (list_agents/agents.list, get_task/tasks.get, get_audit/audit.read). D-5 — the one-tool-one-REST-call relay rule holds as default; consolidation is an explicit ADR-justified exception. Must precede or fuse with ADR-031 W2, which rewrites every catalog entry anyway.
 ---
 
 # 033. Tool catalog — one naming convention + single registration point
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18) — D-1 through D-5 from the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md), which audits the catalog and re-grounds the naming question against the MCP 2025-11-25 spec and Anthropic's tool-design guidance. The contributor-facing counterpart to [ADR-031](031-agent-tool-ergonomics.md) (agent-facing).
+> **Status:** Proposed (2026-05-18) — D-1 through D-5 from the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md), which audits the catalog and re-grounds the naming question against the MCP 2025-11-25 spec and Anthropic's tool-design guidance. Director review same day: D-3 (single registration point) and the W2-sequencing constraint ratified; D-1's delimiter resolved to `snake_case` (the eval is downgraded to a post-MVP option, not a gate — termipod has no tool-use eval harness and the client-safety case decides it). The contributor-facing counterpart to [ADR-031](031-agent-tool-ergonomics.md) (agent-facing).
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -15,9 +15,9 @@ history, not design: two unreconciled naming conventions, three
 verified duplicate tools, and one tool's identity spread across four
 files with no single registration point (the defect class that
 burned v1.0.591 and v1.0.630). This ADR locks the foundation —
-(D-1) one resource-namespaced naming convention, delimiter chosen by
-eval with a `snake_case` default; (D-2) migrate the minority via
-grandfathered aliases; (D-3) one `toolSpec` declaration per tool,
+(D-1) one resource-first naming convention in `snake_case`; (D-2)
+migrate the non-conforming names via grandfathered aliases; (D-3)
+one `toolSpec` declaration per tool,
 from which catalog / dispatch / tier / role-eligibility are derived
 or CI-locked; (D-4) consolidate the three duplicate pairs; (D-5) the
 relay rule holds as default, consolidation is an ADR-justified
@@ -61,39 +61,50 @@ uses `snake_case` in its own examples.
 
 ## 2. Decisions
 
-### D-1. One naming convention — resource-namespaced; delimiter by eval, `snake_case` default
+### D-1. One naming convention — `snake_case`, resource-first, namespaced
 
-Every MCP tool name is **resource-first and namespaced**:
-`resource[_subresource]_verb` (or `resource.verb` if the dotted
-delimiter wins) — one scheme catalog-wide, lint-enforced. The
-*structure* (resource first, then verb; namespaced by domain) is
-locked.
+Every MCP tool name is **`snake_case`, resource-first, and
+namespaced**: `resource[_subresource]_verb` — one scheme
+catalog-wide, lint-enforced. Examples: `documents_get`,
+`agents_spawn`, `tasks_update`, `project_channels_create`.
 
-The **delimiter** (`_` vs `.`) is settled by a tool-use evaluation
-across the four engines (claude-code, codex, gemini-cli, kimi-code),
-because Anthropic's guidance establishes the namespacing scheme has
-non-trivial, model-dependent eval effects. **Absent or pending that
-eval, the default is `snake_case`** (`documents_get`, `agents_spawn`)
-— it is Anthropic's own form and the only name format every MCP
-client and function-calling API accepts, which is load-bearing
-because termipod is a multi-engine control plane (discussion §3).
-The dotted form is adopted only if the eval shows it wins for the
-engines in use.
+`snake_case` over the dotted `resource.verb` form for three
+grounded reasons (discussion §3): it is the form Anthropic's own
+tool-design guidance uses; it is the only name format every MCP
+client and function-calling API accepts without filtering — which
+is load-bearing because termipod is a multi-engine control plane
+(claude-code, codex, gemini-cli, kimi-code) and a name is only as
+safe as the least-tolerant client; and the dotted delimiter, though
+spec-legal since MCP rev. 2025-11-25, is still filtered
+inconsistently by real clients.
 
-Sub-rules (apply to either delimiter): multi-word resources stay
-within the convention (`project_channels`, not `projectChannels`);
-verbs are single canonical tokens (`get`, `list`, `create`,
-`update`, `delete`); three-level names are flattened unless the
-sub-resource is load-bearing.
+Anthropic's guidance notes the namespacing scheme has measurable,
+model-dependent effects on tool-use evaluations. A tool-use eval
+*could* therefore revisit the delimiter — but it does **not gate
+this ADR**: termipod has no tool-use eval harness today, building
+one is disproportionate to this single decision, and the
+client-safety argument decides it on its own. Revisiting is a
+post-MVP option, not a blocker.
 
-### D-2. Migrate the minority via grandfathered aliases
+Sub-rules: multi-word resources stay `snake_case`
+(`project_channels`, not `projectChannels`); verbs are single
+canonical tokens (`get`, `list`, `create`, `update`, `delete`);
+three-level names are flattened unless the sub-resource is
+load-bearing.
 
-Whichever delimiter D-1 settles on, the non-conforming names keep
-resolving as **deprecated aliases**: the catalog `short` carries a
-`[DEPRECATED, use <new name>]` prefix, and a `failure_modes[]` hint
-points at the canonical name. Aliases are removed at a named version
-boundary. **No hard cutover** — a hard rename would break
-agent templates that have not re-rendered.
+### D-2. Migrate via grandfathered aliases
+
+Two sets of names change under D-1: the ~50 dotted tools
+(`documents.get` → `documents_get` — a mechanical delimiter swap,
+already resource-first) and the ~25 verb-first `snake_case` tools
+(`get_task` → `tasks_get`, `list_agents` → `agents_list` — a
+reorder). Effectively the whole catalog gets a new name.
+
+Every old name keeps resolving as a **deprecated alias**: the
+catalog `short` carries a `[DEPRECATED, use <new name>]` prefix, and
+a `failure_modes[]` hint points at the canonical name. Aliases are
+removed at a named version boundary. **No hard cutover** — a hard
+rename would break agent templates that have not re-rendered.
 
 Precedent: the existing `request_decision` → `request_select` and
 `templates_propose` → `templates.propose` aliases; ADR-032's v1.1.0
@@ -165,10 +176,10 @@ deduplication, not consolidation.
   ADR-031's `tools.get` / two-tier work reads one source.
 
 ### Negative
-- **Migration cost.** Renaming the non-conforming minority (~50
-  toward `snake_case`, ~25 toward dotted) plus the D-3 refactor
-  touching every tool definition. Sizeable; staged in the companion
-  plan.
+- **Migration cost.** Effectively the whole catalog is renamed
+  (D-2: ~50 dotted tools get a mechanical `.`→`_`, ~25 verb-first
+  tools are reordered), plus the D-3 refactor touching every tool
+  definition. Sizeable; staged in the companion plan.
 - D-3 restructures `server/mcp.go`, `mcp_more.go`,
   `mcp_orchestrate.go`, and `hubmcpserver/tools.go` into one
   registry — a real refactor, not a wrapper.
@@ -177,8 +188,9 @@ deduplication, not consolidation.
 ### Neutral / deferred
 - **Code file layout by domain** (discussion O-C) — deferred to a
   follow-on; not a blocker for D-1–D-5.
-- **The D-1 delimiter eval** — if it is not run, `snake_case`
-  stands as the decided default; the ADR does not block on it.
+- **A D-1 delimiter eval** — a post-MVP option to revisit
+  `snake_case` vs dotted once a tool-use eval harness exists; it
+  does not block this ADR or its rollout.
 
 ## 4. Alternatives considered
 

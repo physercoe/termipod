@@ -261,14 +261,12 @@ every entry. Doing them in two separate passes means editing all
 
 ## 7. Open questions
 
-- **Q1 — naming scheme.** The principle (one convention,
-  resource-namespaced) is settled; the delimiter is not.
-  `resource_verb` snake_case vs `resource.verb` dotted — decide by a
-  tool-use eval if feasible, else default to snake_case for
-  multi-engine client safety (§3). Sub-rules either way: multi-word
-  resources (`project_channels`?) and multi-word verbs
-  (`post_event`, `update_ssh_hint`); whether three-level names
-  (`a2a.cards.list`) are allowed or flattened.
+- **Q1 — naming scheme. (Resolved 2026-05-18 — ADR-033 D-1.)**
+  `snake_case`, resource-first (`tasks_get`, `documents_get`). The
+  delimiter eval is downgraded to a post-MVP option, not a gate:
+  termipod has no tool-use eval harness, and the multi-engine
+  client-safety case decides `snake_case` on its own. Sub-rules in
+  D-1.
 - **Q2 — are the §2.2 pairs duplicates? (Resolved 2026-05-18.)** A
   handler audit confirms all three are accidental redundancy; see
   §2.2. The ADR carries the consolidation: deprecate `list_agents`

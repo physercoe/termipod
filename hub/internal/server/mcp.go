@@ -162,28 +162,14 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 // --- Tool catalog ---
 
 func mcpToolDefs() []map[string]any {
-	// ADR-033: the catalog is the two registries plus whatever is left
-	// in the hand-written legacy sources. Every authority tool is now
-	// registered (W1–W6), so authorityToolDefs() is no longer composed
-	// in — TestEveryAuthorityToolRegistered guards that. The base /
-	// extra / orchestration defs survive only as the native registry's
-	// schema source (legacyNativeDefs); a name served by either
-	// registry — canonical or deprecated alias — is dropped here and
-	// re-emitted by RegistryCatalogDefs / nativeRegistryCatalogDefs, so
-	// each tool is listed exactly once. What remains un-dropped is the
-	// handful not yet in a registry — today only `tools.get`.
-	served := registryServedNames()
+	// ADR-033 (W1–W6): every MCP tool is in one of the two ToolSpec
+	// registries — the authority registry in hubmcpserver (REST-adapter
+	// tools) and the native registry in native_tools.go ((*Server)-
+	// method tools). The catalog is their composition: each tool's
+	// canonical entry plus one [DEPRECATED] entry per alias. The
+	// hand-written legacy defs (mcpToolDefsBase/Extra/orchestrationToolDefs)
+	// were retired in W6.2.
 	var all []map[string]any
-	for _, group := range [][]map[string]any{
-		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(),
-	} {
-		for _, def := range group {
-			if name, _ := def["name"].(string); served[name] {
-				continue
-			}
-			all = append(all, def)
-		}
-	}
 	all = append(all, hubmcpserver.RegistryCatalogDefs()...)
 	all = append(all, nativeRegistryCatalogDefs()...)
 	// Annotate each definition with its tier (server-authored,
@@ -198,120 +184,6 @@ func mcpToolDefs() []map[string]any {
 		}
 	}
 	return all
-}
-
-func mcpToolDefsBase() []map[string]any {
-	return []map[string]any{
-		{
-			"name":        "post_message",
-			"description": "Post a message event to a channel. Text goes into a single text part.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{"type": "string"},
-					"text":       map[string]any{"type": "string"},
-				},
-				"required": []string{"channel_id", "text"},
-			},
-		},
-		{
-			"name":        "get_feed",
-			"description": "List recent events in a channel, optionally since a received_ts.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{"type": "string"},
-					"since":      map[string]any{"type": "string"},
-					"limit":      map[string]any{"type": "integer"},
-				},
-				"required": []string{"channel_id"},
-			},
-		},
-		{
-			"name":        "list_channels",
-			"description": "List all channels this agent's team can see for a project.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"project_id": map[string]any{"type": "string"},
-				},
-				"required": []string{"project_id"},
-			},
-		},
-		{
-			"name":        "search",
-			"description": "Full-text search across event contents (FTS5).",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"q":     map[string]any{"type": "string"},
-					"limit": map[string]any{"type": "integer"},
-				},
-				"required": []string{"q"},
-			},
-		},
-		{
-			"name":        "journal_append",
-			"description": "Append an entry to this agent's journal (identity that survives respawns).",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"entry":  map[string]any{"type": "string"},
-					"header": map[string]any{"type": "string"},
-				},
-				"required": []string{"entry"},
-			},
-		},
-		{
-			"name":        "journal_read",
-			"description": "Read this agent's journal.",
-			"inputSchema": map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		},
-		{
-			"name":        "get_project_doc",
-			"description": "Fetch a FILE from the project's `docs_root` (a filesystem directory of shared human-authored context, e.g. `plans/research-plan.md`). `path` is a FILESYSTEM PATH relative to `docs_root` — NOT a document id. Returns the raw file body.\n\nThis is NOT the tool to read documents created via `documents.create` (those live in the database, not the filesystem) — use `documents.get` with the ULID returned by `documents.create` instead.\n\nReturns 404 if `docs_root` is unset, or if the file doesn't exist within it.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"project_id": map[string]any{"type": "string"},
-					"path": map[string]any{
-						"type":        "string",
-						"description": "filesystem path relative to project's docs_root (e.g. 'plans/research.md'); NOT a document ULID",
-					},
-				},
-				"required": []string{"project_id", "path"},
-			},
-		},
-		{
-			"name":        "get_attention",
-			"description": "List open attention items for this team (decisions / approvals pending).",
-			"inputSchema": map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"scope": map[string]any{"type": "string"}},
-			},
-		},
-		{
-			"name": "post_excerpt",
-			"description": "Post an excerpt from this agent's own pane as an event. " +
-				"The agent supplies the captured text; the hub records the " +
-				"line range and a one-line summary so the dashboard can render " +
-				"a compact card with a link back to the source pane.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"channel_id": map[string]any{"type": "string"},
-					"line_from":  map[string]any{"type": "integer"},
-					"line_to":    map[string]any{"type": "integer"},
-					"content":    map[string]any{"type": "string"},
-					"summary":    map[string]any{"type": "string"},
-				},
-				"required": []string{"channel_id", "content"},
-			},
-		},
-	}
 }
 
 // --- Dispatch ---
@@ -376,35 +248,29 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 			}
 		}
 	}
-	switch call.Name {
-	case "tools.get":
-		// The catalog meta-tool (ADR-031 W1) — stays a switch case; it
-		// reads mcpToolDefs() rather than being one of the tools in it.
-		return s.mcpToolsGet(call.Arguments)
-	default:
-		// ADR-033: unified-registry dispatch. Resolve a canonical or a
-		// deprecated-alias name against the two registries.
-		//
-		// Authority registry (W1–W4): the tool has a buildTools() REST
-		// adapter — forward to it under spec.Backend.
-		if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
-			return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, spec.Backend, call.Arguments)
-		}
-		// Native registry (W4n): the tool's handler is a (*Server)
-		// method — invoke it via the native handler map.
-		if h, ok := nativeHandlerFor(call.Name); ok {
-			return h(s, ctx, agentID, scope, call.Arguments)
-		}
-		// Fall through to the rich-authority catalog (the not-yet-
-		// migrated tools) imported from hubmcpserver. Auth runs through
-		// the chi router via chiRouterTransport, so the agent's bearer
-		// authenticates the in-process REST hop just like a real
-		// network call would.
-		if hasAuthorityTool(call.Name) {
-			return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, call.Name, call.Arguments)
-		}
-		return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
+	// ADR-033 (W1–W6): unified-registry dispatch. No tool is routed by
+	// a literal switch case any more — every tool, including the catalog
+	// meta-tool tools_get, resolves through the two ToolSpec registries
+	// under a canonical name or a deprecated alias.
+	//
+	// Authority registry (W1–W4): the tool has a buildTools() REST
+	// adapter — forward to it under spec.Backend.
+	if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
+		return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, spec.Backend, call.Arguments)
 	}
+	// Native registry (W4n + W6.2): the tool's handler is a (*Server)
+	// method — invoke it via the native handler map.
+	if h, ok := nativeHandlerFor(call.Name); ok {
+		return h(s, ctx, agentID, scope, call.Arguments)
+	}
+	// Defensive fall-through to the rich-authority catalog. Every
+	// buildTools() tool is registered (TestEveryAuthorityToolRegistered),
+	// so this is unreachable in practice — kept so an un-registered tool
+	// degrades to a working dispatch rather than a 404.
+	if hasAuthorityTool(call.Name) {
+		return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, call.Name, call.Arguments)
+	}
+	return nil, &jrpcError{Code: -32601, Message: "unknown tool: " + call.Name}
 }
 
 func mcpResultText(text string) map[string]any {
@@ -435,9 +301,9 @@ type toolsGetArgs struct {
 
 // mcpToolsGet returns the full catalog entry — description + input
 // schema — for one tool by name (ADR-031 D-2). It resolves against
-// the composed mcpToolDefs() catalog (base + extra + orchestration +
-// authority — see the rollout plan §0.1), so it can describe any
-// tool an agent can actually call, not just one registry's slice.
+// the composed mcpToolDefs() catalog (both ToolSpec registries), so
+// it can describe any tool an agent can actually call. tools_get is
+// itself a native tool (W6.2); this handler is its dispatch target.
 func (s *Server) mcpToolsGet(raw json.RawMessage) (any, *jrpcError) {
 	var a toolsGetArgs
 	if err := json.Unmarshal(raw, &a); err != nil || a.ToolName == "" {

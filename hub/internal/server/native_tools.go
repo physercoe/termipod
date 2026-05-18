@@ -74,6 +74,14 @@ func teamAgent(fn func(*Server, context.Context, string, string) (any, *jrpcErro
 	}
 }
 
+// rawOnly lifts a handler that takes only the raw arguments — the
+// shape of the catalog meta-tool mcpToolsGet, which reads no scope.
+func rawOnly(fn func(*Server, json.RawMessage) (any, *jrpcError)) nativeHandler {
+	return func(s *Server, _ context.Context, _ string, _ mcpScope, args json.RawMessage) (any, *jrpcError) {
+		return fn(s, args)
+	}
+}
+
 // nativeTool is the single declaration for one native MCP tool —
 // catalog metadata, input schema, and handler in one value
 // (ADR-033 D-3). InputSchema is the JSON-Schema object (the shape the
@@ -536,6 +544,22 @@ func buildNativeTools() []nativeTool {
 			Tier: TierTrivial, WorkerEligible: true,
 			Handler: agentArgs((*Server).mcpReportsPost),
 		},
+		{
+			// The catalog meta-tool (ADR-031 W1). It reads mcpToolDefs()
+			// rather than being dispatched like the others; folding it
+			// here (W6.2) retires the last dispatchTool switch case.
+			Name:        "tools_get",
+			Aliases:     []string{"tools.get"},
+			Short:       "Fetch the full description and input schema for one MCP tool.",
+			Description: "Fetch the full description and input schema for one MCP tool by name. Required: tool_name (string). Call tools/list for the available set.",
+			InputSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"tool_name": map[string]any{"type": "string"}},
+				"required":   []string{"tool_name"},
+			},
+			Tier: TierTrivial, WorkerEligible: true,
+			Handler: rawOnly((*Server).mcpToolsGet),
+		},
 	}
 }
 
@@ -577,89 +601,6 @@ func nativeToolRegistry() []hubmcpserver.ToolSpec {
 	return out
 }
 
-// nativeToolMetaEntry / nativeToolMeta / legacyNativeDefs survive only
-// as the source for the W6.2 verified-move checkpoint
-// (TestNativeDefs_MatchLegacy). They are deleted in W6.2 commit B
-// alongside mcpToolDefsBase/Extra/orchestrationToolDefs.
-type nativeToolMetaEntry struct {
-	name           string
-	legacyName     string
-	aliases        []string
-	short          string
-	tier           string
-	workerEligible bool
-}
-
-var nativeToolMeta = []nativeToolMetaEntry{
-	{"post_message", "post_message", nil,
-		"Post a message to a channel. Required: channel_id, text.", TierSignificant, true},
-	{"get_feed", "get_feed", nil,
-		"Read recent events from a channel feed.", TierTrivial, true},
-	{"list_channels", "list_channels", nil,
-		"List channels visible to the caller.", TierTrivial, true},
-	{"search", "search", nil,
-		"Full-text search across hub content.", TierTrivial, true},
-	{"journal_append", "journal_append", nil,
-		"Append an entry to the caller's working journal.", TierRoutine, true},
-	{"journal_read", "journal_read", nil,
-		"Read the caller's working journal.", TierTrivial, true},
-	{"get_project_doc", "get_project_doc", nil,
-		"Fetch a project document by reference.", TierTrivial, true},
-	{"get_attention", "get_attention", nil,
-		"Fetch an attention item by id.", TierTrivial, true},
-	{"post_excerpt", "post_excerpt", nil,
-		"Post a code/text excerpt to a channel.", TierSignificant, true},
-	{"delegate", "delegate", nil,
-		"Redirect another agent's work (steward-only).", TierSignificant, false},
-	{"request_approval", "request_approval", nil,
-		"Raise an approval attention item for the principal.", TierRoutine, true},
-	{"request_select", "request_select", []string{"request_decision"},
-		"Raise a select/decision attention item for the principal.", TierRoutine, true},
-	{"request_help", "request_help", nil,
-		"Raise a help attention item for the principal.", TierRoutine, true},
-	{"request_project_steward", "request_project_steward", nil,
-		"Ask the director to assign a project steward (general-steward delegation).", TierRoutine, false},
-	{"attach", "attach", nil,
-		"Attach a resource to an entity.", TierRoutine, true},
-	{"get_event", "get_event", nil,
-		"Fetch an event by id.", TierTrivial, true},
-	{"get_parent_thread", "get_parent_thread", nil,
-		"Fetch the caller's parent-steward conversation thread.", TierTrivial, true},
-	{"update_own_task_status", "update_own_task_status", nil,
-		"Update the status of the task assigned to the caller.", TierRoutine, true},
-	{"templates_propose", "templates_propose", []string{"templates.propose"},
-		"Propose a template change for steward review.", TierSignificant, false},
-	{"pause_self", "pause_self", nil,
-		"Pause the calling agent.", TierRoutine, true},
-	{"shutdown_self", "shutdown_self", nil,
-		"Terminate the calling agent.", TierSignificant, true},
-	{"permission_prompt", "permission_prompt", nil,
-		"The tool-call permission gate (used by --permission-prompt-tool).", TierTrivial, true},
-	{"agents_fanout", "agents.fanout", []string{"agents.fanout"},
-		"Spawn N workers in one orchestrator-worker fan-out.", TierSignificant, false},
-	{"agents_gather", "agents.gather", []string{"agents.gather"},
-		"Long-poll for the results of a fan-out's workers.", TierTrivial, true},
-	{"reports_post", "reports.post", []string{"reports.post"},
-		"Post a worker's structured report back to its orchestrator.", TierTrivial, true},
-}
-
-// legacyNativeDefs builds a name-keyed index of the pre-registry
-// catalog entries (base + extra + orchestration). W6.2 commit B
-// deletes this once buildNativeTools() carries the schemas itself.
-func legacyNativeDefs() map[string]map[string]any {
-	out := map[string]map[string]any{}
-	for _, group := range [][]map[string]any{
-		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(),
-	} {
-		for _, d := range group {
-			if name, _ := d["name"].(string); name != "" {
-				out[name] = d
-			}
-		}
-	}
-	return out
-}
-
 // lookupNativeToolSpec resolves a name — canonical or deprecated alias
 // — against the native registry.
 func lookupNativeToolSpec(name string) (spec hubmcpserver.ToolSpec, found bool, viaAlias bool) {
@@ -696,29 +637,6 @@ func nativeHandlerFor(name string) (nativeHandler, bool) {
 	}
 	h, ok := nativeHandlers[canonical]
 	return h, ok
-}
-
-// registryServedNames returns every tool name served by either
-// ADR-033 registry — canonical names and deprecated aliases, authority
-// and native. mcpToolDefs() drops these from the hand-written legacy
-// defs so a migrated tool is listed exactly once (the registry
-// re-emits it via RegistryCatalogDefs / nativeRegistryCatalogDefs).
-// Covering aliases — not just canonical names — is what lets a D-4
-// consolidation retire a twin: list_agents no longer appears as its
-// own legacy entry once it is an alias of agents_list.
-func registryServedNames() map[string]bool {
-	out := map[string]bool{}
-	add := func(specs []hubmcpserver.ToolSpec) {
-		for _, s := range specs {
-			out[s.Name] = true
-			for _, a := range s.Aliases {
-				out[a] = true
-			}
-		}
-	}
-	add(hubmcpserver.ToolRegistry())
-	add(nativeToolRegistry())
-	return out
 }
 
 // nativeRegistryCatalogDefs renders the native registry as catalog

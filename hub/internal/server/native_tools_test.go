@@ -29,19 +29,25 @@ func TestNativeRegistry_EveryHandlerHasSpec(t *testing.T) {
 	}
 }
 
-// Every nativeToolMeta.legacyName must name a real pre-registry
-// catalog entry — otherwise the spec ships with an empty Description
-// and InputSchema.
-func TestNativeRegistry_LegacyDefsResolve(t *testing.T) {
-	legacy := legacyNativeDefs()
-	for _, m := range nativeToolMeta {
-		d, ok := legacy[m.legacyName]
-		if !ok {
-			t.Errorf("native tool %q: legacyName %q is not a catalog entry", m.name, m.legacyName)
-			continue
+// Every native tool carries a non-empty Description and InputSchema.
+// W6.2 made buildNativeTools() the sole declaration, so an empty field
+// is a bug in that table — not, as before, a stale legacyName.
+func TestNativeRegistry_ToolsFullyDeclared(t *testing.T) {
+	for _, nt := range buildNativeTools() {
+		if nt.Name == "" {
+			t.Error("native tool with empty Name")
 		}
-		if desc, _ := d["description"].(string); desc == "" {
-			t.Errorf("native tool %q: legacy def %q has no description", m.name, m.legacyName)
+		if nt.Description == "" {
+			t.Errorf("native tool %q: empty Description", nt.Name)
+		}
+		if nt.InputSchema == nil {
+			t.Errorf("native tool %q: nil InputSchema", nt.Name)
+		}
+		if nt.Handler == nil {
+			t.Errorf("native tool %q: nil Handler", nt.Name)
+		}
+		if nt.Tier == "" {
+			t.Errorf("native tool %q: empty Tier", nt.Name)
 		}
 	}
 }

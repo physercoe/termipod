@@ -115,16 +115,18 @@ func TestEveryCatalogEntryHasTier(t *testing.T) {
 	}
 }
 
-// Every case in dispatchTool's switch must appear in mcpToolDefs(),
-// otherwise the agent's MCP client sees "no such tool". The bug that
-// caught us was request_project_steward — dispatcher case + handler
-// both shipped (ADR-025 W4) but the tools/list entry was missed, so
-// claude-code reported "No such tool available". The list below
-// mirrors dispatchTool in mcp.go; aliases are documented separately.
+// Every native tool the dispatcher can route must appear in
+// mcpToolDefs(), otherwise the agent's MCP client sees "no such tool".
+// The bug that caught us was request_project_steward — handler shipped
+// (ADR-025 W4) but the tools/list entry was missed, so claude-code
+// reported "No such tool available". Post-ADR-033 the catalog is the
+// ToolSpec registries; this pins the native-tool names explicitly so a
+// regression in that composition trips here too.
 func TestEveryDispatcherCaseAdvertised(t *testing.T) {
-	// Canonical names: every entry must appear in mcpToolDefs().
+	// Every entry must appear in mcpToolDefs() — under its canonical
+	// name or, for a retired twin, as a [DEPRECATED] alias entry.
 	dispatcherCases := []string{
-		// mcpToolDefsBase
+		// channel / journal / lookup tools
 		"post_message",
 		"get_feed",
 		"list_channels",
@@ -134,7 +136,7 @@ func TestEveryDispatcherCaseAdvertised(t *testing.T) {
 		"get_project_doc",
 		"get_attention",
 		"post_excerpt",
-		// mcpToolDefsExtra
+		// delegation / attention / self-state tools
 		"delegate",
 		"request_approval",
 		"request_select",
@@ -151,7 +153,7 @@ func TestEveryDispatcherCaseAdvertised(t *testing.T) {
 		"shutdown_self",
 		"get_audit",
 		"permission_prompt",
-		// orchestrationToolDefs
+		// orchestrator-worker primitives
 		"agents.fanout",
 		"agents.gather",
 		"reports.post",
@@ -174,7 +176,7 @@ func TestEveryDispatcherCaseAdvertised(t *testing.T) {
 	for _, name := range dispatcherCases {
 		if _, ok := advertised[name]; !ok {
 			t.Errorf("dispatcher routes %q but tools/list does not advertise it "+
-				"(add an entry in mcp.go / mcp_more.go / mcp_orchestrate.go)", name)
+				"(add a ToolSpec to toolspec.go or buildNativeTools())", name)
 		}
 		if _, isAlias := knownAliases[name]; isAlias {
 			t.Errorf("alias %q listed as canonical — move it to knownAliases", name)

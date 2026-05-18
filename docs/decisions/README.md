@@ -51,6 +51,7 @@ next sequential number — don't reserve, don't skip.
 | [030](030-governed-actions-and-propose-verb.md) | Governed actions + `propose` verb (apply-on-approve generalisation, 4-tier ladder) | Proposed 2026-05-17 | — |
 | [031](031-agent-tool-ergonomics.md) | Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism | Proposed 2026-05-18 | — |
 | [032](032-message-routing-envelope.md) | Message routing — envelope metadata on `input.text` (4-role taxonomy, hub-side compose) | Proposed 2026-05-18 | — |
+| [033](033-tool-catalog-naming-and-registration.md) | Tool catalog — one naming convention + single registration point | Proposed 2026-05-18 | — |
 
 ---
 

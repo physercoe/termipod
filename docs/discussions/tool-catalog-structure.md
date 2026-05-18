@@ -6,7 +6,7 @@ description: ADR-031 asked whether an agent can *find* the right MCP tool. This 
 # Tool catalog structure and naming
 
 > **Type:** discussion
-> **Status:** Open (2026-05-18) — raised while implementing ADR-031 W1, when verifying the catalog topology surfaced a deeper structural question. Revised the same day: the naming recommendation was re-grounded against the MCP 2025-11-25 spec and Anthropic's tool-design guidance after the first draft picked a delimiter by REST analogy (§3). Companion to the [agent-tool-ergonomics discussion](agent-tool-ergonomics.md) — that doc is agent-facing, this one is contributor-facing.
+> **Status:** Open (2026-05-18) — raised while implementing ADR-031 W1, when verifying the catalog topology surfaced a deeper structural question. Revised the same day: the naming recommendation was re-grounded against the MCP 2025-11-25 spec and Anthropic's tool-design guidance after the first draft picked a delimiter by REST analogy (§3). [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) was drafted from this doc the same day (D-1–D-5); this doc remains the durable framing. Companion to the [agent-tool-ergonomics discussion](agent-tool-ergonomics.md) — that doc is agent-facing, this one is contributor-facing.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`, landed unreleased)
 > **Last verified vs practice:** MCP spec rev. 2025-11-25; Anthropic tool-design guidance, retrieved 2026-05-18
@@ -81,22 +81,25 @@ sometimes itself `snake_case` (`channels.post_event`,
 (`project_channels.create`, `team_channels.create`), and depth
 varies (`a2a.cards.list` is three levels).
 
-### 2.2 Apparent duplicate tools across the split
+### 2.2 Duplicate tools across the split
 
-Because the two conventions grew independently, the catalog appears
-to expose the **same operation twice under two names**:
+Because the two conventions grew independently, the catalog exposes
+the **same operation twice under two names**. A handler-level audit
+(2026-05-18, resolving Q2) confirms all three pairs are accidental
+redundancy — not deliberate distinctions — and that two have
+*drifted*, so the twins now return different fields:
 
-| `snake_case` | `noun.verb` | Same operation? |
-|---|---|---|
-| `list_agents` | `agents.list` | Apparently — both list team agents |
-| `get_task` | `tasks.get` | Apparently — both fetch one task by id |
-| `get_audit` | `audit.read` | Apparently — both read audit events |
+| Pair | Verdict |
+|---|---|
+| `list_agents` / `agents.list` | **Redundant.** `agents.list` is a near-strict superset — richer filters (host / status / live / terminated / project / archived) and richer rows (`pause_state`, `parent_agent_id`, `project_id`, `last_event_at`). `list_agents` is the legacy thin version: team-scoped only, no filters, a dead `project_id` param — and it uniquely returns `pane_id`, which `agents.list` omits. |
+| `get_task` / `tasks.get` | **Redundant, drifted.** Different *input* — `get_task` takes a bare `id`; `tasks.get` requires `project_id` + `task` — **and** different *output*: `get_task` returns `milestone_id` / `parent_id` / `assignee_id` / `created_by`; `tasks.get` returns `priority` / `plan_step_id` / `source`. Neither returns the union; a caller cannot get `priority` and `milestone_id` from one call. |
+| `get_audit` / `audit.read` | **Redundant.** Same data. `get_audit` adds an `action` filter and caps `limit` at 500; `audit.read` has no `action` filter and caps at 1000. |
 
-Whether these pairs are intentional (different scopes / shapes) or
-accidental redundancy is **itself unclear from the catalog** — and
-that unclarity is the point. An agent picking between `list_agents`
-and `agents.list` has no signal; a contributor adding a fourth
-agent tool has no precedent to follow.
+The cost is not just untidiness: where the twins have drifted, an
+agent that picks the "wrong" one silently gets a smaller result.
+This is the §2.1 naming split producing real defects, and it
+matches Anthropic's "more tools don't always lead to better
+outcomes" (§3). Consolidation is part of O-A's pass.
 
 ### 2.3 Categorization by chronology, not domain
 
@@ -266,10 +269,12 @@ every entry. Doing them in two separate passes means editing all
   resources (`project_channels`?) and multi-word verbs
   (`post_event`, `update_ssh_hint`); whether three-level names
   (`a2a.cards.list`) are allowed or flattened.
-- **Q2 — are the §2.2 pairs duplicates?** Audit `list_agents` vs
-  `agents.list`, `get_task` vs `tasks.get`, `get_audit` vs
-  `audit.read`. Each pair is either a deliberate distinction (then
-  document it) or redundancy (then deprecate one).
+- **Q2 — are the §2.2 pairs duplicates? (Resolved 2026-05-18.)** A
+  handler audit confirms all three are accidental redundancy; see
+  §2.2. The ADR carries the consolidation: deprecate `list_agents`
+  (port `pane_id` onto `agents.list` first), merge `get_task` into
+  `tasks.get` returning the field union, deprecate `get_audit`
+  (fold its `action` filter into `audit.read`).
 - **Q3 — migration shape.** Grandfathered aliases (soft, agents'
   in-flight templates keep working) vs hard cutover at a version
   boundary (clean, breaks unrendered templates). ADR-032's v1.1.0
@@ -290,6 +295,12 @@ every entry. Doing them in two separate passes means editing all
   consolidation for specific agent-facing tools.
 
 ## 8. Recommendation
+
+→ **Done:** drafted as [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md)
+(Proposed) — D-1 naming convention, D-2 alias migration, D-3 single
+registration point, D-4 duplicate-pair consolidation, D-5 the relay
+rule. The recommendation that produced it is kept below for the
+record.
 
 Promote this to an ADR once Q1–Q6 resolve — provisionally *"tool
 catalog: one naming convention + single registration point."* Scope
@@ -312,6 +323,8 @@ paying the double edit.
 
 ## 9. See also
 
+- [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md)
+  — the decision drafted from this doc.
 - [agent-tool-ergonomics discussion](agent-tool-ergonomics.md) — the
   agent-facing companion.
 - [ADR-031](../decisions/031-agent-tool-ergonomics.md) +

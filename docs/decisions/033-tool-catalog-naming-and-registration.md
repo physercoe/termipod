@@ -6,9 +6,9 @@ description: Lock the foundation under the MCP tool catalog. Five decisions. D-1
 # 033. Tool catalog — one naming convention + single registration point
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18) — D-1 through D-5 from the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md), which audits the catalog and re-grounds the naming question against the MCP 2025-11-25 spec and Anthropic's tool-design guidance. Director review same day: D-3 (single registration point) and the W2-sequencing constraint ratified; D-1's delimiter resolved to `snake_case` (the eval is downgraded to a post-MVP option, not a gate — termipod has no tool-use eval harness and the client-safety case decides it). The contributor-facing counterpart to [ADR-031](031-agent-tool-ergonomics.md) (agent-facing).
+> **Status:** Accepted (2026-05-18) — D-1 through D-5 from the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md), which audits the catalog and re-grounds the naming question against the MCP 2025-11-25 spec and Anthropic's tool-design guidance. Director review same day: D-3 (single registration point) and the W2-sequencing constraint ratified; D-1's delimiter resolved to `snake_case` (the eval is downgraded to a post-MVP option, not a gate — termipod has no tool-use eval harness and the client-safety case decides it). **Rollout complete** — all seven wedges of the [tool-catalog-rollout](../plans/tool-catalog-rollout.md) plus the four-wedge [W6 teardown](../plans/tool-catalog-w6-teardown.md) shipped: every tool is in one of two `ToolSpec` registries (66 authority + 26 native), the three duplicate pairs are consolidated, and `dispatchTool` routes no tool by a literal `case`. The contributor-facing counterpart to [ADR-031](031-agent-tool-ergonomics.md) (agent-facing).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
+> **Last verified vs code:** ADR-033 rollout + W6 teardown complete (HEAD `4fd811a`)
 
 **TL;DR.** The MCP tool catalog works but is grounded in accretion
 history, not design: two unreconciled naming conventions, three

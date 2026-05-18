@@ -6,14 +6,20 @@ description: The W6 tail of the ADR-033 tool-catalog rollout — four wedges tha
 # Tool catalog W6 teardown
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — four wedges. Not started. The
-> W6 tail of [tool-catalog-rollout](tool-catalog-rollout.md); W6.1
-> (templates migration + `authorityToolDefs()` removal) shipped at
-> `d7956e3`.
+> **Status:** Done (2026-05-18) — all four wedges shipped. The W6 tail
+> of [tool-catalog-rollout](tool-catalog-rollout.md); W6.1 (templates
+> migration + `authorityToolDefs()` removal) shipped at `d7956e3`.
+> Landings: **W6.3** dead-handler deletion `b9f26a3`; **W6.2** native
+> definition unification — commit A (`buildNativeTools()` + verified
+> move) `524b67f`, commit B (legacy-def deletion + `tools_get` fold)
+> `e89fb6d`; **W6.4** template tool-name sweep + drift-lock `da85dd7`;
+> **W6.5** standalone-daemon catalog alignment `4fd811a`. ADR-033 is
+> now functionally and structurally complete.
 > **Audience:** contributors · QA
-> **Last verified vs code:** HEAD `d7956e3` — 66 authority tools in
-> `hubmcpserver.toolRegistry()`, 25 native tools in
-> `server.nativeToolRegistry()`.
+> **Last verified vs code:** HEAD `4fd811a` — `buildNativeTools()` is
+> the sole native-tool declaration (26 tools incl. `tools_get`); the
+> legacy `mcpToolDefsBase/Extra/orchestrationToolDefs` are gone;
+> `dispatchTool` routes no tool by literal `case`.
 
 **TL;DR.** ADR-033 is functionally done — every MCP tool is in one
 of the two `ToolSpec` registries, all three duplicate pairs are

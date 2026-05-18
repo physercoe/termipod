@@ -14,6 +14,17 @@ package hubmcpserver
 
 import "encoding/json"
 
+// Tier vocabulary (mirrors server/tiers.go). A registry tool carries
+// its tier here; tierFor() reads it instead of the toolTiers table.
+const (
+	tierTrivial     = "trivial"
+	tierRoutine     = "routine"
+	tierSignificant = "significant"
+	tierStrategic   = "strategic"
+)
+
+var _ = tierStrategic // reserved; no W1/W2 tool is strategic-tier yet
+
 // ToolSpec is the single declaration for one MCP tool (ADR-033 D-3).
 // It is metadata only — the dispatch handler is bound by name on the
 // server side. Fields beyond the W1 set (examples, failure_modes,
@@ -36,51 +47,96 @@ func deprecatedPrefix(canonical string) string {
 	return "[DEPRECATED — use " + canonical + "] "
 }
 
-// toolRegistry is the W1 registry: the `documents` domain, migrated
-// as the ADR-033 proof. documents.* were authority tools; their REST
-// adapters stay in buildTools() under the dotted names, named here by
-// Backend. Short/Description/InputSchema reuse the existing authored
-// catalog so W1 is a pure restructuring with no copy drift.
+// toolRegistry is the unified registry. Migrated authority tools
+// keep their REST adapters in buildTools() under the dotted names;
+// each ToolSpec names that adapter as both Backend and deprecated
+// alias, and reuses its Description + InputSchema so the migration
+// introduces no copy drift. WorkerEligible mirrors what roles.yaml
+// grants today (verified per tool) so authz behaviour is preserved.
+//
+//   W1 — documents.   W2 — projects / plans / runs / artifacts.
 func toolRegistry() []ToolSpec {
 	tools := buildTools()
-	def := func(name string) toolDef {
-		t, _ := findTool(tools, name)
-		return t
+	// spec builds one ToolSpec for an authority-backed tool.
+	spec := func(name, backend, short, tier string, workerEligible bool) ToolSpec {
+		d, _ := findTool(tools, backend)
+		return ToolSpec{
+			Name:           name,
+			Aliases:        []string{backend},
+			Short:          short,
+			Description:    d.Description,
+			InputSchema:    d.InputSchema,
+			Tier:           tier,
+			WorkerEligible: workerEligible,
+			Backend:        backend,
+		}
 	}
-	docList := def("documents.list")
-	docGet := def("documents.get")
-	docCreate := def("documents.create")
 	return []ToolSpec{
-		{
-			Name:           "documents_list",
-			Aliases:        []string{"documents.list"},
-			Short:          "List documents in the team (rows, not bodies). Optional: project (id).",
-			Description:    docList.Description,
-			InputSchema:    docList.InputSchema,
-			Tier:           "trivial", // tier vocabulary: trivial|routine|significant|strategic
-			WorkerEligible: true,
-			Backend:        "documents.list",
-		},
-		{
-			Name:           "documents_get",
-			Aliases:        []string{"documents.get"},
-			Short:          "Fetch one document by id, with its full body. Required: document_id (ULID).",
-			Description:    docGet.Description,
-			InputSchema:    docGet.InputSchema,
-			Tier:           "trivial", // tier vocabulary: trivial|routine|significant|strategic
-			WorkerEligible: true,
-			Backend:        "documents.get",
-		},
-		{
-			Name:           "documents_create",
-			Aliases:        []string{"documents.create"},
-			Short:          "Create a document. Required: project_id, kind, title, and one of content_inline | artifact_id.",
-			Description:    docCreate.Description,
-			InputSchema:    docCreate.InputSchema,
-			Tier:           "routine",
-			WorkerEligible: true,
-			Backend:        "documents.create",
-		},
+		// --- documents (W1) ---
+		spec("documents_list", "documents.list",
+			"List documents in the team (rows, not bodies). Optional: project (id).",
+			tierTrivial, true),
+		spec("documents_get", "documents.get",
+			"Fetch one document by id, with its full body. Required: document_id (ULID).",
+			tierTrivial, true),
+		spec("documents_create", "documents.create",
+			"Create a document. Required: project_id, kind, title, and one of content_inline | artifact_id.",
+			tierRoutine, true),
+		// --- projects (W2) ---
+		spec("projects_list", "projects.list",
+			"List projects in the team. Optional: kind (goal|standing).",
+			tierTrivial, true),
+		spec("projects_get", "projects.get",
+			"Fetch one project by id. Required: project.",
+			tierTrivial, true),
+		spec("projects_create", "projects.create",
+			"Create a project or project template. Required: name, kind (goal|standing).",
+			tierSignificant, false),
+		spec("projects_update", "projects.update",
+			"Update a project's editable fields (goal, budget, steward, …). Required: project.",
+			tierRoutine, false),
+		// --- plans + steps (W2) ---
+		spec("plans_list", "plans.list",
+			"List plans, optionally filtered to one project.",
+			tierTrivial, true),
+		spec("plans_get", "plans.get",
+			"Fetch one plan by id. Required: plan.",
+			tierTrivial, true),
+		spec("plans_create", "plans.create",
+			"Create a plan for a project. Required: project, title.",
+			tierRoutine, false),
+		spec("plan_steps_create", "plans.steps.create",
+			"Add a step to a plan. Required: plan, phase_idx, step_idx, kind.",
+			tierRoutine, false),
+		spec("plan_steps_list", "plans.steps.list",
+			"List the steps of a plan. Required: plan.",
+			tierTrivial, true),
+		spec("plan_steps_update", "plans.steps.update",
+			"Update a plan step's status or refs. Required: plan, step.",
+			tierRoutine, false),
+		// --- runs (W2) ---
+		spec("runs_list", "runs.list",
+			"List runs, optionally filtered to one project.",
+			tierTrivial, true),
+		spec("runs_get", "runs.get",
+			"Fetch one run by id. Required: run.",
+			tierTrivial, true),
+		spec("runs_create", "runs.create",
+			"Create a run under a project. Required: project_id.",
+			tierRoutine, true),
+		spec("runs_attach_artifact", "runs.attach_artifact",
+			"Attach an artifact to a run. Required: run, project_id, kind, name, uri.",
+			tierRoutine, true),
+		// --- artifacts (W2) ---
+		spec("artifacts_list", "artifacts.list",
+			"List artifacts, optionally filtered by project, run, or kind.",
+			tierTrivial, true),
+		spec("artifacts_get", "artifacts.get",
+			"Fetch one artifact by id. Required: artifact.",
+			tierTrivial, true),
+		spec("artifacts_create", "artifacts.create",
+			"Create an artifact record. Required: project_id, kind, name, uri.",
+			tierRoutine, false),
 	}
 }
 

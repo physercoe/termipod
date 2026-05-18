@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — six wedges, three phases. **W1 shipped** — the `ToolSpec` registry exists and the `documents` domain is migrated (3 tools renamed to `snake_case`, dotted names kept as deprecated aliases); the catalog, tier, and role-eligibility for those three now derive from the spec, and two CI-lock tests guard the registry. W2–W6 not started. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — six wedges, three phases. **W1–W2 shipped** — the `ToolSpec` registry exists and the `documents`, `projects`, `plans` (+ steps), `runs`, and `artifacts` domains are migrated: 20 tools renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3–W6 not started. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 

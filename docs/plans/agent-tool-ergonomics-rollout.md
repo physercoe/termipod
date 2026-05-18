@@ -1,6 +1,6 @@
 ---
 name: Agent tool ergonomics rollout
-description: Phased rollout of the agent-tool-ergonomics design — two-tier descriptions (catalog short + tools.describe long), per-persona intent → tool index in each persona prompt, hint-bearing errors on every 4xx, and a CI lint that asserts catalog × dispatcher × describe stay in lockstep. Five wedges across hub server + hubmcpserver + bundled prompts + CI; ~600 LOC + ~400 lines prose. Three-phase plan (foundation → index → polish); MVP is phases 1 + 2 (foundation + index). Companion discussion at agent-tool-ergonomics.md.
+description: Phased rollout of the agent-tool-ergonomics design — two-tier descriptions (catalog short + tools.get long), per-persona intent → tool index in each persona prompt, hint-bearing errors on every 4xx, and a CI lint that asserts catalog × dispatcher × describe stay in lockstep. Five wedges across hub server + hubmcpserver + bundled prompts + CI; ~600 LOC + ~400 lines prose. Three-phase plan (foundation → index → polish); MVP is phases 1 + 2 (foundation + index). Companion discussion at agent-tool-ergonomics.md.
 ---
 
 # Agent tool ergonomics rollout
@@ -14,7 +14,7 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 revealed by the 2026-05-18 steward incident (6 turns guessing
 the right tool to read a doc by ULID). Three phases:
 
-- **Phase 1 — Foundation (MVP, 3 wedges):** add `tools.describe`
+- **Phase 1 — Foundation (MVP, 3 wedges):** add `tools.get`
   meta-tool, split every tool's description into short + long,
   rewrite the worst 5 error paths to carry `hint` fields. ~350
   LOC + ~150 lines prose.
@@ -36,7 +36,7 @@ tail.
 
 | Phase | # | Wedge | Approx | Depends on |
 |---|---|---|---|---|
-| 1 | W1 | `tools.describe` meta-tool | ~80 LOC | — |
+| 1 | W1 | `tools.get` meta-tool | ~80 LOC | — |
 | 1 | W2 | Two-tier descriptions across catalog | ~250 LOC | W1 |
 | 1 | W3 | Hint-bearing errors — top 5 paths | ~80 LOC | — |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2 |
@@ -51,17 +51,17 @@ W4 (depends W2) → W5 (depends all)**.
 
 ### Phase 1 — Foundation
 
-#### W1 — `tools.describe` meta-tool
+#### W1 — `tools.get` meta-tool
 
 A new MCP tool: given a name, return the full description body.
 Mirrors `tools/list` in shape; the difference is that
 `tools/list` returns short descriptions (~1 line each) per W2,
-while `tools.describe` returns the full body (shape, examples,
+while `tools.get` returns the full body (shape, examples,
 failure modes, see-also).
 
 **Surface (MCP tool definition):**
 
-- Name: `tools.describe`
+- Name: `tools.get`
 - Input schema: `{tool_name: string}` (required)
 - Returns: `{name, short, long, schema, examples, see_also}`
 
@@ -71,20 +71,20 @@ name in the in-memory catalog and returns the long description.
 Catalog needs a new field for long body (see W2).
 
 **Acceptance:**
-- `mcp__termipod__tools.describe(tool_name="documents.get")`
+- `mcp__termipod__tools.get(tool_name="documents.get")`
   returns the full v1.0.630 description body.
 - Unknown name returns `is_error: true` with body `"unknown tool
   'X'; call tools/list for the available set"`.
 
-**Tests:** `TestToolsCall_ToolsDescribe_Known`,
-`TestToolsCall_ToolsDescribe_Unknown`.
+**Tests:** `TestToolsCall_ToolsGet_Known`,
+`TestToolsCall_ToolsGet_Unknown`.
 
 #### W2 — Two-tier descriptions across catalog
 
 Every tool entry in `hub/internal/hubmcpserver/tools.go` and
 `hub/internal/server/mcp.go` (both registries) gains a `short`
 field. The existing `description` field becomes the `long`
-form. `tools/list` returns short; `tools.describe` returns long.
+form. `tools/list` returns short; `tools.get` returns long.
 
 **Convention for short:**
 - One sentence, present tense, contract only.
@@ -93,7 +93,7 @@ form. `tools/list` returns short; `tools.describe` returns long.
 
 **Implementation site:** every `Tool` struct definition. Add a
 `Short` field; populate. The MCP `tools/list` response uses
-Short; `tools.describe` uses Description (existing long).
+Short; `tools.get` uses Description (existing long).
 
 **Acceptance:**
 - `tools/list` response is ≤ 5KB across all tools (down from
@@ -122,7 +122,7 @@ Add a `hint` field to the 5 worst error paths surfaced by the
    escalate, call request_help(target='@parent_handle',
    question=...)".
 5. `agents.spawn` 422 missing field → already names the field
-   (v1.0.620 W4); add hint: "see tools.describe('agents.spawn')
+   (v1.0.620 W4); add hint: "see tools.get('agents.spawn')
    for the full spec or use spawn_spec_yaml: 'template:
    agents.coder' as a starting shape".
 
@@ -162,7 +162,7 @@ section, listing 10-20 (intent, tool) pairs.
 ```markdown
 ## Tools at a glance
 
-Quick map from intent → tool. Call `tools.describe(name)` for
+Quick map from intent → tool. Call `tools.get(name)` for
 shape + examples before invoking a tool you don't recall.
 
 | Intent | Tool |
@@ -244,11 +244,11 @@ tests to verify each rule catches violations.
 - **Backward-incompat catalog change.** This plan ships both
   fields (`short` and `description`). Clients that only read
   `description` keep working.
-- **Engine-side prompt rules** for using `tools.describe`. The
-  index in W4 implicitly teaches "call tools.describe before
+- **Engine-side prompt rules** for using `tools.get`. The
+  index in W4 implicitly teaches "call tools.get before
   invoking unfamiliar tools"; an explicit rule is left for the
   persona's discretion. (If on-device testing shows agents
-  don't reach for tools.describe naturally, follow-up to make
+  don't reach for tools.get naturally, follow-up to make
   the index header bolder.)
 
 ---
@@ -266,7 +266,7 @@ tests to verify each rule catches violations.
   index is automatically updated. Acceptable — the indexes are
   curated for the persona's needs, not exhaustive. Audit pass
   during big catalog changes.
-- **The `tools.describe` round-trip cost** — one extra MCP call
+- **The `tools.get` round-trip cost** — one extra MCP call
   per unfamiliar tool. Bounded; agents typically use 5-10 tools
   per task, ~1-2 unfamiliar. Net win vs ~30KB every dispatch.
 

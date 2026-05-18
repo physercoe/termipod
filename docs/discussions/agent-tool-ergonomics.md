@@ -119,7 +119,7 @@ Tradeoff:
 - **Inline-everything** (current): agent always has full detail;
   no extra round-trip. Costs every dispatch.
 - **Lean catalog + meta-detail tool**: catalog has 1-line summary
-  per tool; `tools.describe(name)` returns full description +
+  per tool; `tools.get(name)` returns full description +
   examples. Agent pays one extra call only when invoking. Cost:
   one extra round-trip per "first use of unfamiliar tool"; saves
   ~30KB × every turn for the 99% case where the agent is
@@ -219,13 +219,13 @@ where the leverage is.
 
 - **Catalog (every dispatch):** 1 line summary + required params.
   Example: `documents.get — Fetch a document by id. Required: document_id (ULID).`
-- **`tools.describe(name)` (on-demand):** full body + examples + failure modes + cross-refs.
+- **`tools.get(name)` (on-demand):** full body + examples + failure modes + cross-refs.
 
 The catalog stays under ~5KB total (50 tools × 100 bytes). The
 detail loads only when the agent commits to a call.
 
 Implementation: each tool ships two strings. `tools/list`
-returns the short; new meta-tool `tools.describe` returns the long.
+returns the short; new meta-tool `tools.get` returns the long.
 
 ### 4.2 Per-persona intent → tool index
 
@@ -244,9 +244,9 @@ compact "intent → tool" table. Example for a steward:
 | Look up an agent by handle | `list_agents` then filter |
 
 ~15 lines per persona. The agent uses the index to pick the
-tool, then calls `tools.describe(name)` if it doesn't recall
+tool, then calls `tools.get(name)` if it doesn't recall
 the shape. The persona prompt does NOT enumerate full
-descriptions — that's `tools.describe`'s job.
+descriptions — that's `tools.get`'s job.
 
 ### 4.3 Hint-bearing errors
 
@@ -297,7 +297,7 @@ description, not as a long-term contract.
   project"), the per-persona index helps the agent pick, but
   the underlying name confusion remains. Renaming is a separate
   wedge.
-- **Catalog drift.** A `tools.describe` response that lags behind
+- **Catalog drift.** A `tools.get` response that lags behind
   the actual handler is a new failure mode. Same defect class
   as MCP catalog × dispatcher discipline; needs the same
   enforcement (test that every tool registered has both
@@ -315,7 +315,7 @@ description, not as a long-term contract.
 2. **Does the meta-tool register as a tool, or as a built-in MCP
    protocol verb?** MCP spec has `tools/list` and `tools/call`;
    `tools/describe` would be a sibling but isn't part of the
-   spec. Termipod-specific MCP tool `tools.describe` is the
+   spec. Termipod-specific MCP tool `tools.get` is the
    simpler path.
 3. **How aggressive should the hint engine be?** Cheap path:
    per-handler hint strings (manually written). Aggressive path:

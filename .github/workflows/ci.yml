@@ -14,6 +14,30 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  hub:
+    name: Hub (Go) build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: hub/go.sum
+
+      - name: Build
+        working-directory: hub
+        run: go build ./...
+
+      - name: Test
+        working-directory: hub
+        run: go test ./...
+
+      - name: Vet
+        working-directory: hub
+        run: go vet ./...
+
   analyze:
     name: Analyze & Test
     runs-on: ubuntu-latest

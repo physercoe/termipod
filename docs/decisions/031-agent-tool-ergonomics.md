@@ -67,7 +67,7 @@ The two-tier split (D-1) + `tools.get` (D-2) is the same **`ToolSearchTool` / de
 
 The meta-lookup tool is named **`tools.get(name)`** — not `tools.describe` or `tools.help`. Surface-area consistency with the rest of the termipod catalog (`agents.get`, `documents.get`, `projects.get`, `tasks.get`, ...) wins over UNIX-style `help`.
 
-`tools.list` continues to return the catalog (short only); `tools.get` returns the structured payload from D-1. Behavior parallels `documents.list` + `documents.get`.
+The protocol-level `tools/list` continues to return the catalog (short only); the `tools.get` MCP tool returns the structured payload from D-1. Behavior parallels `documents.list` + `documents.get`.
 
 Rationale: agents learn one verb shape and apply it across the catalog. The MCP spec already has `tools/list` and `tools/call` as protocol-level verbs; `tools.get` is a termipod-specific MCP tool that doesn't conflict.
 

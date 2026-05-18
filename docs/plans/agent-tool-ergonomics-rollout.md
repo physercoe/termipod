@@ -6,7 +6,7 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total, no work started. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. Reconciled against v1.0.630 code the same day (§0.1 catalog topology added; W1/W2/W4/W5 implementation sites corrected; W3 hint envelope aligned to ADR-031 D-3). W1 in progress. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
 > **Last verified vs code:** v1.0.630-alpha
 
@@ -47,6 +47,42 @@ W4 (depends W2) → W5 (depends all)**.
 
 ---
 
+## 0.1 Catalog topology — read before W1 / W2
+
+The agent-facing MCP catalog is **composed**, not single.
+`mcpToolDefs()` in `hub/internal/server/mcp.go` concatenates four
+sources:
+
+| Source | Shape | Where |
+|---|---|---|
+| `mcpToolDefsBase()` | `[]map[string]any` literals | `server/mcp.go` |
+| `mcpToolDefsExtra()` | `[]map[string]any` literals | `server/mcp_more.go` |
+| `orchestrationToolDefs()` | `[]map[string]any` literals | `server/mcp_orchestrate.go` |
+| `authorityToolDefs()` | typed `toolDef` → `[]map[string]any` via `hubmcpserver.ToolCatalog()` | `hubmcpserver/tools.go` (48 tools) |
+
+Consequences for the wedges:
+
+- **W1** — `tools.get` must resolve a name across the *composed*
+  catalog. It is registered **server-side** (an `extra` def in
+  `mcp_more.go` plus a `dispatchTool` case in `mcp.go`) so its
+  handler can enumerate `mcpToolDefs()`. A `tools.get` registered
+  inside `hubmcpserver` would see only the 48 authority tools and
+  miss base / extra / orchestration.
+- **W2** — the `short` field must be added in **two shapes**: a
+  `Short` struct field on `hubmcpserver`'s `toolDef` (projected into
+  the map by `ToolCatalog()`), and a `"short"` key on every
+  `map[string]any` literal in `mcp.go` / `mcp_more.go` /
+  `mcp_orchestrate.go`. Once both sources populate `short`, the W1
+  handler reads them uniformly off the composed catalog.
+- The standalone `hubmcpserver` daemon (`run.go` `tools/list`) serves
+  only its own 48 tools — a pre-existing thinner surface. Agents
+  reach the hub through the in-process server catalog (the
+  host-runner relay), so the composed catalog is the real agent
+  surface; the standalone daemon is the dev/debug path and is out of
+  scope for W1.
+
+---
+
 ## 1. Wedges in detail
 
 ### Phase 1 — Foundation
@@ -65,10 +101,12 @@ failure modes, see-also).
 - Input schema: `{tool_name: string}` (required)
 - Returns: `{name, short, long, schema, examples, see_also}`
 
-**Implementation site:** `hub/internal/hubmcpserver/tools.go`
-add a new `Tool` entry whose handler looks up the requested
-name in the in-memory catalog and returns the long description.
-Catalog needs a new field for long body (see W2).
+**Implementation site:** register `tools.get` **server-side** (see
+§0.1) — an entry in `mcpToolDefsExtra()` (`server/mcp_more.go`) plus
+a `case "tools.get"` in `dispatchTool` (`server/mcp.go`). The handler
+enumerates the composed `mcpToolDefs()`, finds the named entry, and
+returns its description body. Until W2 lands the `short` / `long`
+split, `tools.get` returns the single existing `description` field.
 
 **Acceptance:**
 - `mcp__termipod__tools.get(tool_name="documents.get")`
@@ -76,14 +114,13 @@ Catalog needs a new field for long body (see W2).
 - Unknown name returns `is_error: true` with body `"unknown tool
   'X'; call tools/list for the available set"`.
 
-**Tests:** `TestToolsCall_ToolsGet_Known`,
-`TestToolsCall_ToolsGet_Unknown`.
+**Tests:** `TestDispatchTool_ToolsGet_Known`,
+`TestDispatchTool_ToolsGet_Unknown` in `internal/server`.
 
 #### W2 — Two-tier descriptions across catalog
 
-Every tool entry in `hub/internal/hubmcpserver/tools.go` and
-`hub/internal/server/mcp.go` (both registries) gains a `short`
-field. The existing `description` field becomes the `long`
+Every tool entry across the four catalog sources (§0.1) gains a
+`short` field. The existing `description` field becomes the `long`
 form. `tools/list` returns short; `tools.get` returns long.
 
 **Convention for short:**
@@ -91,9 +128,12 @@ form. `tools/list` returns short; `tools.get` returns long.
 - Names required params + canonical input type.
 - Example: `documents.get — Fetch a document by id. Required: document_id (ULID).`
 
-**Implementation site:** every `Tool` struct definition. Add a
-`Short` field; populate. The MCP `tools/list` response uses
-Short; `tools.get` uses Description (existing long).
+**Implementation site:** two shapes (§0.1). (a) `hubmcpserver`'s
+`toolDef` struct gains a `Short string` field; `ToolCatalog()`
+projects it into the `"short"` map key. (b) every `map[string]any`
+literal in `mcp.go` / `mcp_more.go` / `mcp_orchestrate.go` gains a
+`"short"` key. The MCP `tools/list` response then emits `short`;
+`tools.get` emits `description` (the existing long body).
 
 **Acceptance:**
 - `tools/list` response is ≤ 5KB across all tools (down from
@@ -130,12 +170,21 @@ Add a `hint` field to the 5 worst error paths surfaced by the
 `hub/internal/server/handlers_*.go`. Each adds a `hint` field
 to its 4xx return shape.
 
-**Hint envelope (extending `writeErr` or paralleling it):**
+**Hint envelope (extending `writeErr` in `server/server.go`, or
+paralleling it).** Per ADR-031 D-3 the hint is a *nested* structured
+object, not flat fields:
 
 ```go
-writeErrHint(w, status, message, hint, seeTool)
-// → {"error": "...", "hint": "...", "see_tool": "..."}
+writeErrHint(w, status, message, Hint{HintText: "...", SeeTool: "..."})
+// Hint{HintText string `json:"hint_text"`;
+//      SeeTool  string `json:"see_tool,omitempty"`;
+//      SeeDoc   string `json:"see_doc,omitempty"`}
+// → {"error": "...", "hint": {"hint_text": "...", "see_tool": "..."}}
 ```
+
+`hint_text` is required when `hint` is present; `see_tool` / `see_doc`
+are optional but at least one of the three must carry actionable
+signal.
 
 **Acceptance:** each of the 5 cases above returns the named
 hint when reproduced via test.
@@ -150,12 +199,24 @@ present and names the suggested tool.
 Each of the 10 main persona prompts gains an "Intent → tool"
 section, listing 10-20 (intent, tool) pairs.
 
-**Persona prompts in scope:**
+**Persona prompts in scope** — `hub/templates/prompts/` holds 15
+files; the 10 *main* personas get the full index:
 - `steward.v1.md`, `steward.general.v1.md`,
   `steward.research.v1.md`, `steward.infra.v1.md` (4 stewards).
 - `coder.v1.md`, `critic.v1.md`, `lit-reviewer.v1.md`,
   `ml-worker.v1.md`, `paper-writer.v1.md`, `briefing.v1.md`
   (6 workers).
+
+**Not full-index personas (5 files):**
+- `steward.codex.v1.md`, `steward.gemini.v1.md`,
+  `steward.kimi.v1.md`, `steward.claude-m4.v1.md` — thin
+  (~90-line) per-engine steward overlays. **To confirm at W4 time:**
+  inspect `hub/internal/agentfamilies` to see whether they compose
+  on top of `steward.v1.md` (then the index is inherited — no edit)
+  or are used standalone (then each gets a one-line pointer to
+  `tools.get`, not the full table).
+- `worker_report.v1.md` — a report template, not a persona;
+  excluded.
 
 **Section template (steward example):**
 
@@ -223,7 +284,9 @@ asserts:
 finally lands.)
 
 **Implementation site:** new test file
-`hub/internal/hubmcpserver/tool_catalog_lint_test.go`.
+`hub/internal/server/tool_catalog_lint_test.go` — it walks the
+composed `mcpToolDefs()` (§0.1), so it sees every registered tool
+across all four sources, not just `hubmcpserver`'s 48.
 
 **Acceptance:** lint fails on any tool that violates one of
 the rules; passes for all bundled tools after the hint pass.

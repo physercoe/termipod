@@ -1,9 +1,9 @@
 # Decisions (ADRs)
 
 > **Type:** axiom
-> **Status:** Current (2026-05-16)
+> **Status:** Current (2026-05-18)
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.610
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** The decision log. Each numbered file records one
 architectural choice, why we made it, and what followed. Append-only:
@@ -48,6 +48,9 @@ next sequential number — don't reserve, don't skip.
 | [027](027-local-log-tail-driver.md) | LocalLogTailDriver replaces agent-mode M4 (claude-code first) | Accepted 2026-05-15 | — |
 | [028](028-host-control-via-tunnel-and-cli.md) | Host control via the tunnel + a CLI ops surface | Proposed 2026-05-16 | — |
 | [029](029-tasks-as-first-class-primitive.md) | Tasks as the first-class primitive for steward-dispatched work | Proposed 2026-05-16 (Phase 1 shipped v1.0.610-alpha) | — |
+| [030](030-governed-actions-and-propose-verb.md) | Governed actions + `propose` verb (apply-on-approve generalisation, 4-tier ladder) | Proposed 2026-05-17 | — |
+| [031](031-agent-tool-ergonomics.md) | Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism | Proposed 2026-05-18 | — |
+| [032](032-message-routing-envelope.md) | Message routing — envelope metadata on `input.text` (4-role taxonomy, hub-side compose) | Proposed 2026-05-18 | — |
 
 ---
 

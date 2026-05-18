@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-16)
+> **Status:** Current (2026-05-18)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.610
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,143 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.630-alpha — 2026-05-18
+
+### Added
+
+- **`documents.get` MCP tool.** The catalog had `documents.list`
+  (no body) and `documents.create`, but no way to fetch a single
+  doc's full body. Steward in the field tried `get_project_doc`
+  (filesystem, 404), `documents_get` (wrong delimiter, no tool),
+  `search` (separate bug) — couldn't read back a memo by ULID.
+  HTTP endpoint already existed (`handleGetDocument`); only MCP
+  catalog entry missing — same defect class as v1.0.591
+  (request_project_steward). Commit `095fe6d`.
+- **A2A sender attribution in relay body.** Hub-side
+  `tunnel_a2a.go handleRelay` now decorates the JSON-RPC
+  envelope's text parts with `[A2A from @<sender>]` prefix +
+  `To reply: a2a.invoke(handle=..., text=...)` hint when caller
+  forwarded bearer. Receiver knows the source + reply mechanism.
+  Replaces v1.0.626's body unification (which left no A2A
+  attribution). Best-effort: non-message/send methods + unauthed
+  peer relays pass through unchanged.
+
+### Changed
+
+- **`get_project_doc` description** rewritten to disambiguate
+  filesystem files vs document-table rows by id. Names the
+  alternative (`documents.get`) for the wrong-tool case.
+
+## v1.0.629-alpha — 2026-05-18
+
+### Added
+
+- **Mobile archive agent gets Feed tab.** `ArchivedAgentDetailScreen`
+  previously showed only Summary + Spawn spec + Journal. Operators
+  investigating a failed worker had to bounce out to Me → Sessions
+  to read the transcript. Body restructured into
+  `DefaultTabController` with Feed (default) / Summary / Journal
+  tabs, mirroring the live agent sheet pattern. Reuses
+  `AgentFeed(agentId)` widget; `agent_events` rows preserved on
+  archive. Commit `7dc0491`.
+
+## v1.0.628-alpha — 2026-05-18
+
+### Fixed
+
+- **Preserve worker's blocked verdict on manual stop.**
+  `deriveTaskStatusFromAgent` only protected `cancelled` from
+  overwrite. Manual stop on a blocked worker flipped task to
+  `cancelled` (no result_summary) or `done` (if any summary),
+  erasing the worker's verdict + posting a misleading wake to the
+  steward. Skip list extended to `{cancelled, blocked}` — operator
+  cleanup is cleanup; worker verdict is task outcome. Commit
+  `f308391`.
+
+## v1.0.627-alpha — 2026-05-17
+
+### Added
+
+- **Worker prompts gain "When you're blocked" reflex.** 6 worker
+  prompts (briefing/coder/critic/lit-reviewer/ml-worker/paper-writer)
+  get identical section: on non-recoverable tool failure,
+  `tasks.update(blocked)` + `a2a.invoke(parent_steward)` + stop.
+  Explicit that "printing 'blocked' in chat does NOT notify anyone."
+- **Steward prompts gain "Validate before delegating" + "Reacting
+  to worker outcomes" sections.** 4 main steward prompts (.v1,
+  .general, .research, .infra) get capability table (project /
+  plan / template / schedule mutations are steward-only — workers
+  hit 403) + per-outcome reaction (done → read artifact / blocked
+  → handle or reassign / cancelled → reason then proceed).
+- Engine-variant stewards (codex/gemini/kimi/claude-m4) NOT
+  edited — follow-up if device testing shows the gap matters.
+
+Commit `0ed0f6c`.
+
+## v1.0.626-alpha — 2026-05-17
+
+### Fixed
+
+- **Steward wake never reached engine for task.notify.** v1.0.611
+  W5 emitted `input.task_completed` kind to wake the steward after
+  worker terminal task transition. InputRouter allowlist accepted
+  it — but **no driver had a case for `task_completed`** (every
+  driver's switch fell through to `default: unsupported input
+  kind`). Card on feed appeared; steward's compose box stayed
+  idle. Broken since v1.0.611. Same single-boundary validation
+  failure as v1.0.619.
+- Corrective fix: unify on `input.text` with canonical `body`
+  payload field (every driver's text branch handles). Renamed
+  `taskCompletedInputBody` → `taskOutcomeInputBody`; body verb now
+  matches `toStatus` (done/blocked/cancelled — pre-bundle always
+  said "completed"). Added `TestInputRouter_DispatchesSystemInputText`
+  to lock the host-runner dispatch boundary the W5 wedge missed.
+
+Commit `5277f4d`.
+
+## v1.0.625-alpha — 2026-05-17
+
+### Fixed
+
+- **`{{project_id}}` unbound in steward.research.v1.md.** v1.0.622
+  prompt rewrite added 5 references in `spawn_spec_yaml` examples;
+  the var was never in `buildSpawnVars` map → expanded to ""
+  → steward's persona contained literal `project_id: ` (empty).
+  Bound from `in.ProjectID`.
+- **`{{parent.handle}}` (dotted) unbound in 4 worker prompts.**
+  coder/critic/lit-reviewer/paper-writer .v1.md used `@{{parent.handle}}`;
+  bound key was `parent_handle` (underscore) only → dotted form
+  expanded to "@". Workers never learned their steward's handle.
+  Bound both forms.
+
+### Added
+
+- **Layer-4 startup audit `auditBundledTemplateVarRefs`** — scans
+  every bundled `templates/agents/*.yaml` + `templates/prompts/*`
+  at hub start; refuses to boot if any `{{var}}` reference isn't
+  in the canonical allowlist (`boundSpawnVarNames` +
+  `boundSpawnVarNamesConditional`). Worker prompts whitelisted via
+  `promptAlwaysParented` for parent-context vars.
+
+Commit `ca68d99`.
+
+## v1.0.624-alpha — 2026-05-17
+
+### Fixed
+
+- **`buildSpawnVars` sibling-boundary fix.** A project steward
+  called `agents.spawn` with `spawn_spec_yaml: "template: agents.coder"`.
+  Worker got "400 API Error … passed --print" as model name.
+  `renderSpawnSpec` correctly merged the template ref; the sibling
+  `buildSpawnVars` re-read `backendVarsFromSpec(in.SpawnSpec, …)`
+  from the **un-merged** input. `{{model}}` and `{{permission_flag}}`
+  expanded to "" → cmd became `claude --model --print …` → claude
+  CLI consumed `--print` as the model value. Pushed merge into
+  `buildSpawnVars` so var extraction sees the same backend block
+  `renderSpawnSpec` does.
+
+Commit `91cef92`.
 
 ## v1.0.610-alpha — 2026-05-16
 

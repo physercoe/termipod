@@ -1,9 +1,9 @@
 # Roadmap
 
 > **Type:** vision
-> **Status:** Current (2026-05-16)
+> **Status:** Current (2026-05-18)
 > **Audience:** principal, contributors, reviewers
-> **Last verified vs code:** v1.0.610
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** The MVP target is the research demo from `blueprint.md` §9
 Phase 4: a user writes a directive on phone → steward decomposes →
@@ -117,6 +117,7 @@ working list — what's actually moving this week or next.
 | Item | Why | Where |
 |---|---|---|
 | **Reliability hardening from device walkthroughs** | Hardware-demo gate is "two consecutive walkthroughs without principal-blocking bugs" | per-version commits as device tests surface issues |
+| **On-device verification of v1.0.624-630** | Seven follow-on releases closing spawn / wake / routing / UX gaps surfaced by 2026-05-18 smoke test. Each wedge unit-tested at its boundary; end-to-end on-device pass pending (especially the `search` MCP SQL error needs exact error string to diagnose). | Pending: device walkthrough with smoke task |
 | **ADR-029 Phase 1 device verification (v1.0.610-alpha)** | Hub-side tasks-first-class just landed: spawn↔task linkage, flip-on-spawn, terminal auto-derive, `tasks.delete` MCP, `cancelled` sticky terminal status, audit at six sites, `NoteKind.todo`→`reminder` rename. Phase 2 (mobile triad rendering) is queued behind device verification. (`decisions/029-tasks-as-first-class-primitive.md`, `docs/how-to/test-steward-lifecycle.md` Scenario 30) | v1.0.610 release builds; tester walkthrough next |
 | **ADR-027 §11 on-device verification** | LocalLogTailDriver shipped v1.0.592 and is the M4 default for claude-code, but plan §11 verification scenarios (21-24 in the lifecycle test doc — idle/streaming pill, hook delivery, AskUserQuestion picker, /compact compaction card) still need a hardware pass with claude 2.1.x. (`decisions/027-local-log-tail-driver.md`, `plans/local-log-tail-driver.md` §11) | Pending: tester device with claude 2.1.x installed |
 | **Kimi steward routing follow-up** | ADR-026 wedges W1-W7c shipped engine integration; the project-steward-routing fixes (Bug A in `projects.steward_agent_id` + Bug B in `openStewardSession`) are documented but not yet wired — workdir fix landed v1.0.595, UI routing held pending design review | Deferred pending design review |
@@ -125,8 +126,11 @@ working list — what's actually moving this week or next.
 
 | Item | Why | Trigger |
 |---|---|---|
+| **ADR-031 agent tool ergonomics — Phases 1+2 (MVP)** | Steward took 6 turns to read back a doc by ULID on 2026-05-18; root cause was no `documents.get` (fixed v1.0.630) + no discovery / depth / hint design. Locks in two-tier descriptions + `tools.get` meta-tool + structured hints + per-persona intent index. (`decisions/031-agent-tool-ergonomics.md`, `plans/agent-tool-ergonomics-rollout.md`) | After ADR-028/029 phase work or whenever the agent-side UX wedge is prioritized |
+| **ADR-032 message routing envelope — Phases 1+2 (MVP)** | v1.0.626 (input.text unification for system wakes) and v1.0.630 (body-prefix decoration for A2A) are band-aids; envelope metadata at the hub-write boundary + driver-side rendering gives the engine first-class source awareness. Locks in 4-role taxonomy + reply_via enum + v1.1.0 cutoff shim. (`decisions/032-message-routing-envelope.md`, `plans/message-routing-rollout.md`) | After ADR-031 lands OR in parallel (independent wedges) |
 | **ADR-028 host control CLI — Phase 1 `shutdown-all`** | Hands-off binary upgrades need a way to drain stewards on host-runners + restart hosts from the principal's seat. (`decisions/028-host-control-via-tunnel-and-cli.md`, `plans/hub-host-control-cli.md`) | Whenever the next host-runner upgrade is queued |
 | **ADR-029 tasks Phase 2 — mobile triad rendering** | Phase 1 shipped the hub-side spawn↔task linkage; the mobile Tasks tab still renders without assignee + assigner + relative time. (`decisions/029-tasks-as-first-class-primitive.md`, `plans/tasks-first-class-rollout.md` §3) | After v1.0.610 device verification |
+| **ADR-030 governed actions + `propose` verb** | Apply-on-approve generalisation across deliverable / phase / task / worker-tool-call. (`decisions/030-governed-actions-and-propose-verb.md`, `plans/governed-actions-mvp-rollout.md`) | After current device-walkthrough cadence stabilizes |
 | **Hardware run of Candidate-A demo** | The actual MVP milestone (`decisions/001-locked-candidate-a.md`) | Two consecutive walkthrough-clean device tests |
 | **Cross-vendor integration smoke (slice 7 × 2)** | `request_help` end-to-end against a live codex binary AND a live gemini binary on a real test host — validates the vendor-neutral attention surface for both ADR-012 and ADR-013. Tests today use fakes for both protocols (JSON-RPC for codex, exec-per-turn JSONL for gemini); slice 7 closes the loop on real upstream binaries | Real codex + gemini binaries available in a test host |
 | **Briefing agent overnight schedule** | Demo path needs the steward to schedule the briefing autonomously | After hardware run smoke-tests the worker path |
@@ -173,6 +177,8 @@ Most recent first. Major work units only — bug-fix releases roll up.
 
 | Version | What |
 |---|---|
+| v1.0.624-630 | Seven-release follow-on series after the v1.0.620-623 spawn-robustness bundle: buildSpawnVars sibling-boundary fix (un-merged read); unbound `{{project_id}}` + `{{parent.handle}}` prompt refs + Layer-4 startup audit; steward wake never reached engine (unhandled `input.task_completed` kind across all drivers) → unified on `input.text`; worker/steward prompt blocked-protocol + validate-before-delegate; preserve blocked verdict on manual stop; mobile archive agent gets Feed tab; `documents.get` MCP tool + A2A sender attribution in relay body. Plus design landings: discussions + plans + ADRs 031/032 (Proposed) for the agent-tool-ergonomics and message-routing-envelope work the band-aids in this series motivated |
+| v1.0.620-623 | ADR-030 governed actions + spawn-robustness bundle. coder.v1 spawn incident class closed structurally: typed validators for 7 HIGH-severity free-form fields; agent-template naming spec + filename↔internal-id audit; steward prompt rewrite; MCP description hygiene rule; sync-wait three-state return for `agents.spawn`. ADR-030 Proposed (governed actions + propose verb) |
 | v1.0.610-alpha | ADR-029 Phase 1 — tasks first-class. `agents.spawn` accepts `task_id` or inline `task`; flip-on-spawn + most-recent-spawn auto-derive on agent terminal status; `tasks.delete` MCP wrapper; `cancelled` terminal status (sticky against auto-derive); audit at six task-mutation sites; `NoteKind.todo` → `NoteKind.reminder` rename with on-device migration; glossary entries for task/note/todo |
 | v1.0.609-alpha | Cross-scope session guard — three-layer fix to the StewardStrip-tap-creates-phantom-project-session bug (mobile route guard + hub 400 + scope-preferred lookup). Plus offline host chip color on the Hosts screen |
 | v1.0.600-608 | Library polish + project-steward UX + A2A audit + Sessions categories — Library tab clone-from-existing + project-templates + collapsible sections + search; Me-page `template_proposal` preview + inline project-steward action; `agents.spawn` MCP auto-injects `parent_agent_id`; pull-to-refresh on Agents tab; `a2a.message_sent` row in `audit_events` (sender attribution + 200-char body preview); Sessions screen grouped by general/project/domain stewards + detached; lifecycle test scenarios 17-24 |

@@ -1,205 +1,152 @@
 # TermiPod
 
 TermiPod is a **mobile-first control plane for a fleet of AI agents**
-distributed across multiple machines. A single human acts as
-*director*; a *steward* agent coordinates the work on their behalf.
-Formerly MuxPod — an Android SSH/tmux client — TermiPod has since
-diverged into a multi-agent, multi-host system; the SSH/tmux client
-survives as a breakglass layer, not the product.
+across multiple machines. A human acts as *director*; a *steward*
+agent coordinates the work on their behalf. Formerly MuxPod (an
+Android SSH/tmux client) — that client now survives only as a
+breakglass layer.
 
 ## Architecture
 
-Three layers, each resisting a specific failure mode (see
-`docs/spine/blueprint.md`):
+Three layers (see `docs/spine/blueprint.md`):
 
 - **Hub** — a Go daemon. The authority layer: owns names, policies,
-  events, and references. Stores metadata, *not bytes*. Exposes a
-  REST API and an MCP tool surface for agents.
-- **Host-runner** — a deterministic Go deputy on each host. Spawns
-  agents, owns their tmux panes, enforces budget/policy, and relays
-  agent↔hub calls through an MCP gateway.
+  events, references — metadata, *not bytes*. Exposes a REST API and
+  an MCP tool surface for agents.
+- **Host-runner** — a Go deputy on each host. Spawns agents, owns
+  their tmux panes, enforces policy, relays agent↔hub MCP calls.
 - **Agent** — the stochastic executor: Claude Code, Codex, Gemini
-  CLI, or Kimi Code, driven by a per-engine driver.
+  CLI, or Kimi Code.
 
-An **A2A** (agent-to-agent) protocol tunnels through the hub via a
-reverse-tunnel relay, so a steward on a VPS can delegate work to a
-worker on a NAT'd GPU box.
-
-The **mobile app** (Flutter) is the director's cockpit over this
-stack. Its five-tab IA is **Projects · Activity · Me · Hosts ·
-Settings**. The phone is opened in glances, not sessions — the
-director ratifies and reviews, the steward operates.
+**A2A** (agent-to-agent) tunnels through the hub via a reverse-tunnel
+relay, so a steward on a VPS can drive a worker on a NAT'd GPU box.
+The **mobile app** (Flutter) is the director's cockpit — five tabs:
+Projects · Activity · Me · Hosts · Settings.
 
 ## Repository layout
 
-This is a monorepo:
+Monorepo:
 
 ```
-termipod/
-├── lib/                Flutter mobile app (Dart)
-├── hub/                Go — hub daemon, host-runner, MCP bridges
-├── hub-tui/            terminal UI for the hub
-├── android/ ios/ linux/ macos/ web/ windows/   platform shells
-├── assets/             bundled app assets
-├── docs/               project documentation (see doc-spec.md)
-├── scripts/            lint + tooling (lint-docs.sh, lint-glossary.sh, …)
-└── test/               Flutter widget/unit tests
+lib/        Flutter mobile app (Dart)
+hub/        Go — hub daemon, host-runner, MCP bridges
+hub-tui/    terminal UI for the hub
+docs/       documentation (start at docs/README.md)
+scripts/    lint + tooling
+test/       Flutter tests
+android/ ios/ linux/ macos/ web/ windows/   platform shells
 ```
+
+`lib/screens/` has one folder per surface — projects, me, hosts,
+sessions, activity, insights, team, settings, plus the SSH/tmux ones
+(connections, terminal, keys, vault). `lib/services/` holds the hub
+client, SSH, tmux, voice, etc.; `lib/providers/` holds Riverpod
+providers.
+
+`hub/internal/server` is the REST API; `hub/internal/hostrunner`
+spawns agents; `hub/internal/hubmcpserver` is the MCP catalog +
+dispatcher; `hub/internal/drivers` holds engine drivers;
+`hub/migrations` holds numbered SQL migrations; `hub/templates` and
+`hub/internal/agentfamilies` hold bundled YAML.
 
 ## Tech stack
 
-**Mobile app** — Flutter 3.24+ / Dart 3.10+:
-- `flutter_riverpod` 3.x — state management
-- `dartssh2` — SSH; `xterm` — terminal rendering
-- `flutter_secure_storage` — SSH keys / tokens; `local_auth` —
-  biometric unlock
-- `sqflite` — offline snapshot cache; `shared_preferences` — config
-- `flutter_markdown` / `flutter_math_fork` / `flutter_highlight` /
-  `pdfrx` / `webview_flutter` — artifact rendering
-- `record` + `web_socket_channel` — streaming voice input
-- `flutter_local_notifications` / `flutter_foreground_task` —
-  background + notifications
-
-**Hub + host-runner** — Go 1.23:
-- `modernc.org/sqlite` — pure-Go SQLite (no cgo)
-- numbered SQL migrations under `hub/migrations/`
-- MCP server + UDS/stdio bridges for the agent tool surface
+- **Mobile** — Flutter 3.24+ / Dart 3.10+; `flutter_riverpod` 3.x
+  (state); `dartssh2` + `xterm` (SSH/terminal); `flutter_secure_storage`
+  (keys/tokens); `sqflite` (offline snapshot cache); `record` +
+  `web_socket_channel` (streaming voice input).
+- **Hub** — Go 1.23; `modernc.org/sqlite` (pure-Go, no cgo); numbered
+  SQL migrations; MCP server + UDS/stdio bridges.
 
 ## Development commands
 
-**Mobile app:**
 ```bash
-flutter run             # dev run
-flutter analyze         # static analysis
-flutter test            # tests
-flutter build apk       # Android release
-```
+# Mobile app
+flutter run / flutter analyze / flutter test / flutter build apk
 
-**Hub (Go):**
-```bash
-cd hub
-go build ./...
-go test ./...
+# Hub (Go)
+cd hub && go build ./... && go test ./...
 go run ./cmd/hub-server     # run the hub daemon
 ```
 
-Doc-only changes do not bump the app version. Release tags are cut
-only on explicit request.
-
 ## Documentation
 
-Read `@/docs/README.md` first — it's the index. Doc structure
-follows `@/docs/doc-spec.md` (seven primitives: axiom / vision /
-plan / decision / reference / how-to / discussion, plus
-tutorial/archive adjuncts).
+Read `@/docs/README.md` first — the index. Doc structure follows
+`@/docs/doc-spec.md` (seven primitives: axiom / vision / plan /
+decision / reference / how-to / discussion).
 
-- `@/docs/README.md` — index, where to start
-- `@/docs/roadmap.md` — vision + phases + Now/Next/Later
-- `@/docs/changelog.md` — what shipped, per release
-- `@/docs/doc-spec.md` — contract every doc honors
+- `@/docs/roadmap.md` — Now/Next/Later; `@/docs/changelog.md` — per release
 - `@/docs/spine/` — architecture (blueprint, information-architecture,
-  agent-lifecycle, sessions)
-- `@/docs/decisions/` — append-only ADRs (numbered)
+  agent-lifecycle, sessions, protocols)
+- `@/docs/decisions/` — append-only numbered ADRs
 - `@/docs/reference/glossary.md` — canonical definitions for
-  collision-prone terms (session, fork, kind, transcript, …)
-- `@/docs/reference/coding-conventions.md` — code style for the
-  Flutter app + Go hub (project-specific deltas only)
-- `@/docs/reference/ui-guidelines.md` — UI/UX guidelines
-- `@/docs/archive/tmux-mobile-design-v2.md` — legacy MuxPod design,
-  archived
-
-## Mobile directory structure
-
-```
-lib/
-├── main.dart            entry point
-├── models/              UI config models (action bar, snippets, …)
-├── providers/           Riverpod providers (hub state, sessions, …)
-├── screens/
-│   ├── projects/        project inventory + detail (tasks/plans/runs/…)
-│   ├── activity/        team-wide audit feed
-│   ├── me/              director triage — approvals, tasks, digest
-│   ├── hosts/           host-runner check-ins
-│   ├── sessions/        agent/steward conversations
-│   ├── insights/        observability dashboards
-│   ├── team/            members, policies, templates, schedules
-│   ├── connections/     SSH connection management (breakglass)
-│   ├── terminal/        tmux terminal surface
-│   ├── keys/  vault/    SSH key + snippet management
-│   ├── documents/ deliverables/ artifacts/   agent outputs
-│   ├── hub/             hub bootstrap + profile setup
-│   └── settings/        settings
-├── services/            ssh, tmux, terminal, keychain, hub client,
-│                        sftp, voice, notifications, deep links, …
-├── theme/  widgets/  l10n/
-```
-
-## Hub directory structure
-
-```
-hub/
-├── hub.go               package entry
-├── cmd/                 hub-server, host-runner, hub-mcp-server,
-│                        hub-mcp-bridge, mock-trainer, probe-* tools
-├── internal/
-│   ├── server/          REST API + handlers + event log
-│   ├── hostrunner/      agent spawn + pane ownership + MCP gateway
-│   ├── hubmcpserver/    MCP tool catalog + dispatcher
-│   ├── mcp/ mcpbridge/ mcpudsbridge/   MCP transport bridges
-│   ├── drivers/         engine drivers (e.g. local_log_tail)
-│   ├── agentfamilies/   engine family registry (YAML frame profiles)
-│   ├── modes/  policy/  scheduler/  auth/  events/  tmux/  templates/
-├── migrations/          numbered SQL schema migrations
-└── templates/           bundled agents / prompts / plans / policies / projects
-```
+  collision-prone terms
+- `@/docs/reference/coding-conventions.md` — code style (Flutter + Go)
 
 ## Domain model
 
-The hub owns these primitives; the mobile app reads them as JSON
-maps (the hub holds names + events, hosts hold bytes — see the
-blueprint's data-ownership law). Canonical definitions are in
-`docs/reference/glossary.md`.
+The hub owns these primitives; the mobile app reads them as JSON maps
+(the hub holds names + events, hosts hold bytes). Canonical
+definitions are in `docs/reference/glossary.md`.
 
-| Concept | What it is |
-|---|---|
-| **Project** | A unit of directed work — owns plans, tasks, runs, documents, deliverables, channels. |
-| **Agent** | A spawned engine instance. `kind` = the engine. Lifecycle: pending → running → terminated/crashed/failed → archived. |
-| **Steward** | A coordinating agent (`kind` starts with `steward.`). General steward = frozen, persistent concierge; domain/project stewards are scoped overlays. |
-| **Task** | The first-class unit of steward-dispatched work (ADR-029). Status: todo / in_progress / blocked / done / cancelled. |
-| **Session** | The conversational primitive that survives agent respawn. |
-| **Host** | A machine running a host-runner. |
-| **Run** | A tracked execution (e.g. a training run) with streamed metrics. |
-| **attention_items** | The director's inbox — approvals, selects, help requests. |
-| **audit_events** | Append-only activity log; backs the Activity feed. |
-| **Plan / PlanStep** | A steward-authored decomposition of a project goal. |
-| **A2A message** | Agent-to-agent traffic, relayed through the hub. |
-| **Document / Deliverable / Artifact** | Agent-produced outputs surfaced for review. |
-| **Connection / TmuxSession / TmuxWindow / TmuxPane** | The SSH/tmux breakglass layer. |
+- **Project** — a unit of directed work; owns plans, tasks, runs,
+  documents, channels.
+- **Agent** — a spawned engine instance. `kind` = the engine.
+  Lifecycle: pending → running → terminated/crashed/failed → archived.
+- **Steward** — a coordinating agent (`kind` starts with `steward.`).
+  General steward = frozen concierge; project/domain stewards are
+  scoped overlays.
+- **Task** — the first-class unit of steward-dispatched work
+  (ADR-029). Status: todo / in_progress / blocked / done / cancelled.
+- **Session** — the conversational primitive that survives respawn.
+- **Host / Run / attention_items / audit_events / Plan / A2A message
+  / Document / Deliverable / Artifact** — see the glossary.
 
-## Engines & drivers
+## Engines & driving modes
 
-Four engines, driven by per-engine drivers across three modes:
+Four engines: claude-code, codex, gemini-cli, kimi-code. Each agent
+runs in one **driving mode** (the `agents.driving_mode` column) — the
+control channel differs, governance is identical. Authoritative
+source: `docs/spine/protocols.md` §5.
 
-- **claude-code** — default driver is **M4** (`LocalLogTailDriver`,
-  tails the engine's JSONL transcript).
-- **codex** — **M2** ACP driver (`codex app-server` JSON-RPC).
-- **gemini-cli** — exec-per-turn-with-resume.
-- **kimi-code** — M2 ACP driver.
-- **M1** (`PaneDriver`) — keystroke-pumps a tmux pane; the generic
-  fallback.
+- **M1 — ACP.** JSON-RPC over stdio via an ACP adapter. Used by
+  Codex, Gemini CLI, Kimi Code.
+- **M2 — structured stdio.** An agent-native JSON-line protocol
+  (e.g. `claude --output-format stream-json`).
+- **M4 — per-engine local-stream tap.** claude-code uses
+  `LocalLogTailDriver` — tails the on-disk session JSONL and routes
+  input via `tmux send-keys` (ADR-027). Other engines retain the
+  legacy tmux-pane PTY scrape until their adapters ship.
 
-Engine frame profiles are data (`hub/templates/` + `agentfamilies/`
-YAML), not Go — a new engine is a YAML file, not a code change.
+(M3 is not a mode — it's a one-shot `llm_call` plan step.)
+
+Engine frame profiles are **data** — YAML under
+`hub/internal/agentfamilies/` and `hub/templates/`. A new engine is a
+YAML file, not Go code.
 
 ## Conventions
 
+- **Verify, don't guess.** Reason from first principles and
+  well-grounded practice; when a fact isn't certain, confirm it
+  against the codebase, the docs, or the web before acting on it or
+  writing it down.
 - **English only** — all code, comments, and docs.
 - **Docs** follow `docs/doc-spec.md`; read `docs/README.md` first.
-  Reorgs go in their own `docs:`-prefixed commits.
-- **Glossary first** — `docs/reference/glossary.md` is canonical for
-  every collision-prone term; `scripts/lint-glossary.sh` enforces it.
-- **ADRs** are append-only and numbered (`docs/decisions/NNN-*.md`).
-- **Changelog** — one section per tagged release, Keep-a-Changelog
-  format (`docs/changelog.md`).
-- Behaviour is data: project/agent/prompt/plan/policy templates are
-  editable YAML — no code change to add a new agent kind.
+  Reorgs go in their own `docs:`-prefixed commits. `glossary.md` is
+  canonical for collision-prone terms.
+- **ADRs** are append-only and numbered; the **changelog** has one
+  section per tagged release.
+- Doc-only changes do not bump the app version; release tags are cut
+  only on explicit request.
+
+### Easy to get wrong
+
+- **MCP tools need three things in lockstep** — a `tools/list`
+  catalog entry, a dispatcher case, and a handler. A handler without
+  the catalog entry is invisible to agents.
+- **Behaviour is data.** Agent kinds, prompts, plans, and policies
+  are editable YAML templates — adding one is not a code change.
+- **`driving_mode` (M1/M2/M4) ≠ permission mode** (auto-allow vs
+  prompt) — different columns, different concerns.
+- The Flutter app has **no typed Dart classes** for hub entities —
+  it reads them as `Map<String, dynamic>` JSON.

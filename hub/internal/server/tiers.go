@@ -1,6 +1,10 @@
 package server
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/termipod/hub/internal/hubmcpserver"
+)
 
 // Tier vocabulary for tool-call gating, per
 // `docs/steward-sessions.md` §6.5. Stored as the property of the
@@ -180,6 +184,11 @@ var toolTiers = map[string]string{
 func tierFor(toolName string) string {
 	if t, ok := toolTiers[toolName]; ok {
 		return t
+	}
+	// ADR-033: unified-registry tools carry their tier on the
+	// ToolSpec, not in toolTiers.
+	if spec, ok, _ := hubmcpserver.LookupToolSpec(toolName); ok && spec.Tier != "" {
+		return spec.Tier
 	}
 	// Defensive: handle a few common case-insensitive misspellings
 	// without enumerating every variant. claude/codex/etc. converge

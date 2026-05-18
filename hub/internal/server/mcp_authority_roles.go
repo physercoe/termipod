@@ -26,6 +26,8 @@ import (
 	"sync"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/termipod/hub/internal/hubmcpserver"
 )
 
 //go:embed roles.yaml
@@ -326,6 +328,16 @@ func (s *Server) authorizeMCPCall(ctx interface{}, agentID, scopeRole, tool stri
 		return nil // principal token bypass.
 	}
 	role := s.resolveAgentRole(agentID, scopeRole)
+	// ADR-033 D-3: unified-registry tools declare role-eligibility on
+	// the ToolSpec. Stewards keep allow-all; a worker is allowed when
+	// the spec is WorkerEligible. Pre-registry tools fall through to
+	// the roles.yaml manifest below.
+	if spec, ok, _ := hubmcpserver.LookupToolSpec(tool); ok {
+		if role == "steward" || spec.WorkerEligible {
+			return nil
+		}
+		return &jrpcError{Code: -32601, Message: "tool not permitted for role: " + role}
+	}
 	r := activeRoles()
 	if r == nil {
 		// Manifest not loaded — fail-closed, but log the unexpected

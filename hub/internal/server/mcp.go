@@ -17,6 +17,7 @@ import (
 
 	"github.com/termipod/hub/internal/auth"
 	"github.com/termipod/hub/internal/events"
+	"github.com/termipod/hub/internal/hubmcpserver"
 )
 
 // mcp.go implements a minimal MCP-over-HTTP server mounted at
@@ -169,7 +170,18 @@ func mcpToolDefs() []map[string]any {
 	// hubmcpserver package — same catalog the standalone daemon
 	// exposes, served in-process so spawned agents only need the
 	// single bridge entry in .mcp.json.
-	all = append(all, authorityToolDefs()...)
+	//
+	// ADR-033 W1: tools migrated to the unified ToolSpec registry are
+	// served from it, not from the authority catalog — drop them here
+	// so a migrated tool is not listed twice.
+	migrated := hubmcpserver.RegistryBackends()
+	for _, def := range authorityToolDefs() {
+		if name, _ := def["name"].(string); migrated[name] {
+			continue
+		}
+		all = append(all, def)
+	}
+	all = append(all, hubmcpserver.RegistryCatalogDefs()...)
 	// Annotate each definition with its tier (server-authored,
 	// per tiers.go). Custom field; MCP clients ignore unknown
 	// keys, so this is purely informational over the wire.
@@ -418,6 +430,12 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 	case "tools.get":
 		return s.mcpToolsGet(call.Arguments)
 	default:
+		// ADR-033: unified-registry tools. Resolve a canonical or a
+		// deprecated-alias name; W1's registry is all authority-backed,
+		// so dispatch forwards to the REST adapter under spec.Backend.
+		if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
+			return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, spec.Backend, call.Arguments)
+		}
 		// Fall through to the rich-authority catalog (projects,
 		// plans, runs, agents.spawn, schedules, channels, …)
 		// imported from hubmcpserver. Auth runs through the chi

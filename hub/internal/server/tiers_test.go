@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/termipod/hub/internal/hubmcpserver"
+)
 
 // Anchor the tier vocabulary so a future PR that bumps a tool's
 // tier has to also update this test — preventing silent
@@ -92,8 +96,16 @@ func TestEveryCatalogEntryHasTier(t *testing.T) {
 		// Read the table directly — bypass the TierRoutine fallback.
 		tier, present := toolTiers[name]
 		if !present {
+			// ADR-033: a unified-registry tool carries its tier on the
+			// ToolSpec, not in toolTiers — that counts as classified.
+			if spec, ok, _ := hubmcpserver.LookupToolSpec(name); ok && spec.Tier != "" {
+				tier, present = spec.Tier, true
+			}
+		}
+		if !present {
 			t.Errorf("tool %q registered in tools/list but missing from "+
-				"toolTiers (add an explicit row to tiers.go)", name)
+				"toolTiers (add an explicit row to tiers.go) or the "+
+				"ToolSpec registry", name)
 			continue
 		}
 		switch tier {

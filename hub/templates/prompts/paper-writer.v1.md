@@ -21,7 +21,7 @@ The steward's spawn task carries:
 
 All three are produced by prior phases; you read them via
 `documents.read`. You also have read access to run digests via
-`runs.list` + `run.metrics.read` if you need to recompute or
+`runs_list` + `run.metrics.read` if you need to recompute or
 verify any number from the result summary.
 
 ## Procedure
@@ -42,19 +42,19 @@ verify any number from the result summary.
    tightening for clarity. Don't re-research; you're done.
 5. **Publish + close out:**
    ```
-   doc_id = documents.create(
+   doc_id = documents_create(
      kind="report",
      title="<concise paper title>",
      content=<paper as markdown, 6 sections>
    )
-   tasks.complete(
+   tasks_complete(
      project_id="<your project id>",
      task="<your task id>",
      summary="Paper draft ready. doc_id=<doc_id>"
    )
    ```
    The hub auto-pushes a `task.notify` event into the steward's
-   session on close-out. Use `a2a.invoke` mid-flight only if you
+   session on close-out. Use `a2a_invoke` mid-flight only if you
    need the steward's input before you finish.
 6. **Stop.** If the steward later spawns `critic.v1` and you
    receive a revise message, address the critic's points and
@@ -200,12 +200,12 @@ If a tool call returns an error you can't recover from yourself —
 permission denied, a required field you can't legitimately supply,
 work outside your role — do all three in order, then stop:
 
-1. `tasks.update(status="blocked", body_md="<what I tried + what
+1. `tasks_update(status="blocked", body_md="<what I tried + what
    the hub returned + what's needed>")` — this fires `task.notify`
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a.invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

@@ -3,11 +3,11 @@
 # Spawned by a research steward in phase 1. Each instance investigates
 # one sub-area of the project's idea using engine-native WebSearch +
 # WebFetch against a constrained set of authoritative sources. Output
-# is a single document via `documents.create(kind=memo)` plus an A2A
+# is a single document via `documents_create(kind=memo)` plus an A2A
 # message back to the parent steward when done.
 #
 # Operation scope: worker tier per ADR-016 — documents.* (write own
-# findings), reviews/runs/channels (worker surface), a2a.invoke
+# findings), reviews/runs/channels (worker surface), a2a_invoke
 # restricted to the parent steward only (D4). Cannot spawn agents,
 # cannot author templates, cannot mutate projects.
 #
@@ -39,16 +39,16 @@ default_role: worker.lit-reviewer
 display_label: "Lit Reviewer"
 
 default_capabilities:
-  - documents.create
+  - documents_create
   - documents.read
-  - documents.list
-  - reviews.list
-  - channels.post_event
+  - documents_list
+  - reviews_list
+  - channels_post_event
   - attention.create        # request_help when stuck
-  - a2a.invoke              # parent-steward target only (ADR-016 D4)
-  - tasks.create
-  - tasks.update
-  - tasks.complete           # ADR-029 W2.8 close-out verb
+  - a2a_invoke              # parent-steward target only (ADR-016 D4)
+  - tasks_create
+  - tasks_update
+  - tasks_complete           # ADR-029 W2.8 close-out verb
   - journal_append
   - journal_read
   # Reads (broad — worker can observe).

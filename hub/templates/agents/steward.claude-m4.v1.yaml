@@ -79,51 +79,51 @@ display_label: "Steward (claude · M4 test)"
 # tool kind whose approval prompt format the adapter is supposed to
 # handle.
 default_capabilities:
-  - templates.agent.create
-  - templates.agent.update
-  - templates.agent.delete
-  - templates.agent.list
-  - templates.agent.get
-  - templates.prompt.create
-  - templates.prompt.update
-  - templates.prompt.delete
-  - templates.prompt.list
-  - templates.prompt.get
-  - templates.plan.create
-  - templates.plan.update
-  - templates.plan.delete
-  - templates.plan.list
-  - templates.plan.get
+  - templates_agent_create
+  - templates_agent_update
+  - templates_agent_delete
+  - templates_agent_list
+  - templates_agent_get
+  - templates_prompt_create
+  - templates_prompt_update
+  - templates_prompt_delete
+  - templates_prompt_list
+  - templates_prompt_get
+  - templates_plan_create
+  - templates_plan_update
+  - templates_plan_delete
+  - templates_plan_list
+  - templates_plan_get
   - plan.instantiate
   - plan.advance
-  - plans.steps.create
-  - plans.steps.update
-  - projects.update
-  - schedules.create
-  - schedules.update
-  - schedules.delete
-  - schedules.run
-  - agents.spawn
+  - plan_steps_create
+  - plan_steps_update
+  - projects_update
+  - schedules_create
+  - schedules_update
+  - schedules_delete
+  - schedules_run
+  - agents_spawn
   - agents.archive
-  - projects.list
-  - projects.get
-  - plans.list
-  - plans.get
-  - runs.list
-  - documents.list
+  - projects_list
+  - projects_get
+  - plans_list
+  - plans_get
+  - runs_list
+  - documents_list
   - documents.read
-  - reviews.list
-  - audit.read
+  - reviews_list
+  - audit_read
   - channels.list
   - get_attention
-  - channels.post_event
+  - channels_post_event
   - post_message
   - delegate
   - request_approval
   - request_select
   - request_help
   - decision.vote: significant
-  - mobile.navigate
+  - mobile_navigate
   - journal_append
   - journal_read
 

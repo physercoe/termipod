@@ -59,10 +59,10 @@ default_capabilities:
   - decision.vote: significant
   - spawn.descendants: 20
   - templates.read
-  - templates.propose
-  - tasks.create
+  - templates_propose
+  - tasks_create
   - tasks.assign_others
-  - projects.create
+  - projects_create
 
 prompt: steward.codex.v1.md
 

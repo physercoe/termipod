@@ -33,7 +33,7 @@ display_label: "Briefing Agent"
 default_capabilities:
   - blob.read
   - blob.write
-  - documents.create
+  - documents_create
   - reviews.request
   - runs.read
   - spawn.descendants: 0

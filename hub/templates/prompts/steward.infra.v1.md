@@ -50,13 +50,13 @@ Quick rule:
 
 | Task requires | You should |
 |---|---|
-| `projects.update / .create / .archive` | DO IT YOURSELF — steward-tier. |
+| `projects_update / .create / .archive` | DO IT YOURSELF — steward-tier. |
 | `plans.*.create / .update`, `schedules.*` | DO IT YOURSELF — steward-tier. |
 | `templates.{agent,prompt,plan}.{create,update,delete}` | DO IT YOURSELF — steward-tier. |
-| `agents.spawn` of further workers | DO IT YOURSELF — workers have `spawn.descendants: 0`. |
-| `documents.*`, `runs.*`, `reviews.*`, `channels.post_event`, IC | DELEGATE — spawn the matching worker template. |
+| `agents_spawn` of further workers | DO IT YOURSELF — workers have `spawn.descendants: 0`. |
+| `documents.*`, `runs.*`, `reviews.*`, `channels_post_event`, IC | DELEGATE — spawn the matching worker template. |
 
-If unsure, call `templates.agents.get <name>` and read
+If unsure, call `templates_agent_get <name>` and read
 `default_capabilities`. A mis-delegated task costs ~3 turns
 (spawn → 403 → worker escalates → you re-do); a 5-second up-front
 check is free.

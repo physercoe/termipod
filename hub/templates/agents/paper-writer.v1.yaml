@@ -7,7 +7,7 @@
 #
 # Operation scope: worker tier per ADR-016, but with a
 # deliberately narrow surface — read-side only on hub state, write
-# only via documents.create. No code execution, no shell, no
+# only via documents_create. No code execution, no shell, no
 # package installs (those happen in phase 2's coder worker).
 #
 # Safety stance: explicitly NO novelty claims. The paper-writer
@@ -37,18 +37,18 @@ default_role: worker.paper-writer
 display_label: "Paper Writer"
 
 default_capabilities:
-  - documents.create        # the paper itself
+  - documents_create        # the paper itself
   - documents.read          # all prior-phase docs
-  - documents.list
-  - runs.list
+  - documents_list
+  - runs_list
   - run.metrics.read        # results section pulls digests
-  - reviews.list            # if there are critic reviews of method
-  - channels.post_event
+  - reviews_list            # if there are critic reviews of method
+  - channels_post_event
   - attention.create        # request_help when blocked
-  - a2a.invoke              # parent-steward target only (D4)
-  - tasks.create
-  - tasks.update
-  - tasks.complete           # ADR-029 W2.8 close-out verb
+  - a2a_invoke              # parent-steward target only (D4)
+  - tasks_create
+  - tasks_update
+  - tasks_complete           # ADR-029 W2.8 close-out verb
   - journal_append
   - journal_read
   - get_attention

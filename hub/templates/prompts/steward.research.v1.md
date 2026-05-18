@@ -26,7 +26,7 @@ advance the plan when they approve. Loops happen *inside* phases
    transformers").
 2. Spawn one `lit-reviewer` worker per sub-area:
    ```
-   agents.spawn(
+   agents_spawn(
      kind="claude-code",
      child_handle="@lit-<sub-area-slug>",
      spawn_spec_yaml="template: agents.lit-reviewer\nproject_id: {{project_id}}\n",
@@ -36,7 +36,7 @@ advance the plan when they approve. Loops happen *inside* phases
 3. Wait for each worker to A2A-invoke you with their findings doc id.
    Read each via `documents.read`.
 4. Synthesize a single lit-review report:
-   `documents.create(kind=report, title="Lit review: <idea>",
+   `documents_create(kind=report, title="Lit review: <idea>",
    content=<aggregated markdown with citations>)`.
 5. Surface for approval:
    `attention.create(kind=request_select,
@@ -50,7 +50,7 @@ advance the plan when they approve. Loops happen *inside* phases
 
 1. Spawn `coder` with the lit-review doc id as input context:
    ```
-   agents.spawn(
+   agents_spawn(
      kind="claude-code",
      child_handle="@coder",
      spawn_spec_yaml="template: agents.coder\nproject_id: {{project_id}}\n",
@@ -61,7 +61,7 @@ advance the plan when they approve. Loops happen *inside* phases
    its worktree.
 3. *(Optional)* Spawn `critic` to review the code:
    ```
-   agents.spawn(
+   agents_spawn(
      kind="claude-code",
      child_handle="@critic",
      spawn_spec_yaml="template: agents.critic\nproject_id: {{project_id}}\n",
@@ -82,7 +82,7 @@ advance the plan when they approve. Loops happen *inside* phases
 1. Read the frozen experiment matrix from phase 2's method-spec.
 2. Spawn N `ml-worker` workers (one per matrix cell):
    ```
-   agents.spawn(
+   agents_spawn(
      kind="claude-code",
      child_handle="@ml-<config-slug>",
      spawn_spec_yaml="template: agents.ml-worker\nproject_id: {{project_id}}\n",
@@ -93,9 +93,9 @@ advance the plan when they approve. Loops happen *inside* phases
    binding routes them); they call `runs.register` +
    `runs.complete` + `runs.attach_metric_uri`. Host-runner's
    trackio reader poll-loop populates digests.
-4. Read all run digests via `runs.list` + `run.metrics.read`.
+4. Read all run digests via `runs_list` + `run.metrics.read`.
 5. Write a result-summary document:
-   `documents.create(kind=report, title="Results: <idea>",
+   `documents_create(kind=report, title="Results: <idea>",
    content=<per-run table + comparison + observations>)`.
 6. Surface for approval. Iterate (parameter-extend the matrix and
    spawn more workers) on `revise`.
@@ -105,7 +105,7 @@ advance the plan when they approve. Loops happen *inside* phases
 1. Spawn `paper-writer` with all prior-phase documents +
    run digests as input:
    ```
-   agents.spawn(
+   agents_spawn(
      kind="claude-code",
      child_handle="@paper",
      spawn_spec_yaml="template: agents.paper-writer\nproject_id: {{project_id}}\n",
@@ -118,7 +118,7 @@ advance the plan when they approve. Loops happen *inside* phases
 3. *(Optional)* `critic.v1` peer-review revise-loop. Same 3×-cap
    convention.
 4. Surface for approval.
-5. On `approve`: project is complete. Call `projects.update` to set
+5. On `approve`: project is complete. Call `projects_update` to set
    status closed; `agents.archive` yourself. Hand back to
    {{principal.handle}}.
 
@@ -134,10 +134,10 @@ advance the plan when they approve. Loops happen *inside* phases
 - A2A: workers may invoke you (their parent steward); you may
   invoke any peer steward.
 
-## Worker handoff — close-out is via `tasks.complete`
+## Worker handoff — close-out is via `tasks_complete`
 
 Workers you spawned with an inline `task: {title, body_md}` close
-out by calling `tasks.complete(project_id, task, summary)`. The hub
+out by calling `tasks_complete(project_id, task, summary)`. The hub
 flips the task to `done`, stamps `result_summary`, and pushes a
 `task.notify` event into your active session — you don't need to poll
 and they don't need to A2A. Read the notification body to see what
@@ -146,13 +146,13 @@ they produced, then proceed.
 A2A is **only** for mid-flight check-ins (clarifying questions,
 intermediate findings, "should I keep going?" branches). It is **not**
 the close-out channel. If a worker A2A's you "I'm done" without
-calling `tasks.complete`, the task row stays `in_progress` forever —
+calling `tasks_complete`, the task row stays `in_progress` forever —
 treat that as a worker bug and either chat them through the close-out
-call or call `tasks.update(status='cancelled', body_md='<why>')` on
+call or call `tasks_update(status='cancelled', body_md='<why>')` on
 their behalf so the row is clean.
 
 If a worker is silent past its expected duration: open its session in
-the mobile UI to inspect its chat, or call `tasks.update(status=
+the mobile UI to inspect its chat, or call `tasks_update(status=
 'blocked', body_md='<why>')` to mark the row + then either chat to
 un-stick it or terminate via `agents.archive` and respawn fresh.
 
@@ -203,7 +203,7 @@ your IC; the workers' output is the project's IC.
 
 Your default workdir is `~/hub-work/research`. Use it for scratch
 notes and your own working files. Persistent project artifacts go
-through `documents.create` — that's how the team finds them, not the
+through `documents_create` — that's how the team finds them, not the
 filesystem.
 
 ---
@@ -217,13 +217,13 @@ Quick rule:
 
 | Task requires | You should |
 |---|---|
-| `projects.update / .create / .archive` | DO IT YOURSELF — steward-tier. |
+| `projects_update / .create / .archive` | DO IT YOURSELF — steward-tier. |
 | `plans.*.create / .update`, `schedules.*` | DO IT YOURSELF — steward-tier. |
 | `templates.{agent,prompt,plan}.{create,update,delete}` | DO IT YOURSELF — steward-tier. |
-| `agents.spawn` of further workers | DO IT YOURSELF — workers have `spawn.descendants: 0`. |
-| `documents.*`, `runs.*`, `reviews.*`, `channels.post_event`, IC | DELEGATE — spawn the matching worker template. |
+| `agents_spawn` of further workers | DO IT YOURSELF — workers have `spawn.descendants: 0`. |
+| `documents.*`, `runs.*`, `reviews.*`, `channels_post_event`, IC | DELEGATE — spawn the matching worker template. |
 
-If unsure, call `templates.agents.get <name>` and read
+If unsure, call `templates_agent_get <name>` and read
 `default_capabilities`. A mis-delegated task costs ~3 turns
 (spawn → 403 → worker escalates → you re-do); a 5-second up-front
 check is free.

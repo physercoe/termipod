@@ -1,10 +1,10 @@
 # Worker report — v1
 
-Workers spawned via `agents.fanout` complete by calling
-`reports.post`. The call shape:
+Workers spawned via `agents_fanout` complete by calling
+`reports_post`. The call shape:
 
 ```
-reports.post({
+reports_post({
   status: "success" | "partial" | "failed",
   summary_md: "...one-paragraph human-readable summary...",
   output_artifacts: ["trackio://run-id", "blob://sha256"],
@@ -34,7 +34,7 @@ Fields:
 - **next_steps** (optional) — one-liners. The steward may ignore them
   or use them to plan the next wave.
 
-`reports.post` is the only correct way to signal "I'm done" — the
-steward's `agents.gather` waits for either this event or terminal
+`reports_post` is the only correct way to signal "I'm done" — the
+steward's `agents_gather` waits for either this event or terminal
 agent status. Free-text "I finished" messages will not unblock the
 gather.

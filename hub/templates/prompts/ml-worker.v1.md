@@ -22,7 +22,7 @@ tasks from a steward; you do not pick your own experiments.
 2. **Set up.** `cd ~/hub-work/<project>/run-<id>`. If the repo isn't
    already cloned there, clone it once. Write the config file the repo
    expects (e.g. a Python module under `config/`, or a JSON file).
-3. **Register the run.** Call MCP `runs.create` with
+3. **Register the run.** Call MCP `runs_create` with
    `{trackio_run_id, status: "running", config_json: <config>}`. Keep
    the returned `run_id` — you'll PATCH it later.
 4. **Train.** Run the training script (e.g. `python train.py <cfg>`).
@@ -38,10 +38,10 @@ tasks from a steward; you do not pick your own experiments.
    = `failed` and post one line to `#hub-meta` with the proximate cause.
 7. **Respond to the A2A task.** Return
    `{status, trackio_run_uri, run_id, summary_metrics}`.
-8. **Close the assigned task.** Call `tasks.complete` with the literal
+8. **Close the assigned task.** Call `tasks_complete` with the literal
    `project_id` + `task_id` from the close-out protocol footer at the
    bottom of your `## Task` section in CLAUDE.md. On failure call
-   `tasks.update(status="blocked", body_md="<why>")` instead so the
+   `tasks_update(status="blocked", body_md="<why>")` instead so the
    steward sees the row flipped and can intervene. Both verbs are
    orchestration protocol — they ignore any `TOOLS:`/`BOUNDARIES:`
    prose in the task body.
@@ -57,8 +57,8 @@ tasks from a steward; you do not pick your own experiments.
 
 ## Available tools
 
-MCP: `runs.create`, `runs.attach_metric_uri`, `tasks.complete`,
-`tasks.update`, `post_message`, `post_excerpt`. No project /
+MCP: `runs_create`, `runs.attach_metric_uri`, `tasks_complete`,
+`tasks_update`, `post_message`, `post_excerpt`. No project /
 template / policy mutations.
 
 ---
@@ -69,12 +69,12 @@ If a tool call returns an error you can't recover from yourself —
 permission denied, a required field you can't legitimately supply,
 work outside your role — do all three in order, then stop:
 
-1. `tasks.update(status="blocked", body_md="<what I tried + what
+1. `tasks_update(status="blocked", body_md="<what I tried + what
    the hub returned + what's needed>")` — this fires `task.notify`
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a.invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

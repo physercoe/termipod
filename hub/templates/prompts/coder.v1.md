@@ -57,21 +57,21 @@ Read the lit-review first via `documents.read`. Then plan.
 7. **Publish + close out:**
    ```
    commit_sha = (in your worktree)
-   doc_id = documents.create(
+   doc_id = documents_create(
      kind="memo",
      title="Method: <project>",
      content=<method-spec markdown including matrix and pointers
               to code commit>
    )
-   tasks.complete(
+   tasks_complete(
      project_id="<your project id>",
      task="<your task id>",
      summary="Method + code ready. method_doc=<doc_id> commit=<sha>"
    )
    ```
    The hub auto-pushes a `task.notify` event into the steward's
-   session on close-out — no manual `a2a.invoke` needed for the
-   completion report. Use `a2a.invoke` mid-flight only if you
+   session on close-out — no manual `a2a_invoke` needed for the
+   completion report. Use `a2a_invoke` mid-flight only if you
    need the steward's input before you finish.
 8. **Stop.** Don't run the sweep. Don't spawn workers. The
    steward will spawn `ml-worker.v1` × N for that.
@@ -197,12 +197,12 @@ If a tool call returns an error you can't recover from yourself —
 permission denied, a required field you can't legitimately supply,
 work outside your role — do all three in order, then stop:
 
-1. `tasks.update(status="blocked", body_md="<what I tried + what
+1. `tasks_update(status="blocked", body_md="<what I tried + what
    the hub returned + what's needed>")` — this fires `task.notify`
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a.invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

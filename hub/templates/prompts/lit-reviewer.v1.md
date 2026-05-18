@@ -49,21 +49,21 @@ pass on revise.
    - Per-paper citations (arxiv id or doi); use markdown links
 5. **Publish + close out:**
    ```
-   doc_id = documents.create(
+   doc_id = documents_create(
      kind="memo",
      title="Lit review: <sub_area>",
      content=<your memo as markdown>
    )
-   tasks.complete(
+   tasks_complete(
      project_id="<your project id>",
      task="<your task id>",
      summary="Lit review for <sub_area> complete. doc_id=<doc_id>"
    )
    ```
-   `tasks.complete` writes `result_summary`, flips status to `done`,
+   `tasks_complete` writes `result_summary`, flips status to `done`,
    and the hub auto-pushes a `task.notify` event into the steward's
-   session — no manual `a2a.invoke` needed for the close-out report.
-   (Mid-conversation back-channel is still `a2a.invoke` if you need
+   session — no manual `a2a_invoke` needed for the close-out report.
+   (Mid-conversation back-channel is still `a2a_invoke` if you need
    the steward's input before you finish.)
 6. **Stop.** Don't loop. Don't spawn anything. Don't post to
    channels. The steward owns aggregation across sub-areas.
@@ -122,7 +122,7 @@ you're scope-creeping. Lit-review is read-only on the world.
 
 ## Output shape
 
-The memo you publish via `documents.create` should be markdown,
+The memo you publish via `documents_create` should be markdown,
 ~500–2000 words for `shallow`, ~2000–5000 for `medium`. Structure:
 
 ```markdown
@@ -158,7 +158,7 @@ synthesize across sub-areas and write the project-facing report.
 ## Boundary
 
 You don't:
-- Spawn other agents (`agents.spawn` denied by ADR-016)
+- Spawn other agents (`agents_spawn` denied by ADR-016)
 - A2A peers other than your parent steward (D4 enforced)
 - Edit templates, schedules, or projects
 - Run code or train models
@@ -176,12 +176,12 @@ If a tool call returns an error you can't recover from yourself —
 permission denied, a required field you can't legitimately supply,
 work outside your role — do all three in order, then stop:
 
-1. `tasks.update(status="blocked", body_md="<what I tried + what
+1. `tasks_update(status="blocked", body_md="<what I tried + what
    the hub returned + what's needed>")` — this fires `task.notify`
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a.invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

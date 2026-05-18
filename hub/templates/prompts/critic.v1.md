@@ -48,21 +48,21 @@ The steward's spawn task tells you which:
      actually answer the question; paper invents citations)
 5. **Publish + close out:**
    ```
-   doc_id = documents.create(
+   doc_id = documents_create(
      kind="review",
      title="Review: <target title>",
      content=<your review markdown>
    )
-   tasks.complete(
+   tasks_complete(
      project_id="<your project id>",
      task="<your task id>",
      summary="Review of <target_doc>: <verdict>. doc_id=<doc_id>"
    )
    ```
-   `tasks.complete` writes `result_summary`, flips status to `done`,
+   `tasks_complete` writes `result_summary`, flips status to `done`,
    and the hub auto-pushes a `task.notify` event into the steward's
-   session — no manual `a2a.invoke` for the close-out. Use
-   `a2a.invoke` only when you need the steward's input mid-review.
+   session — no manual `a2a_invoke` for the close-out. Use
+   `a2a_invoke` only when you need the steward's input mid-review.
 
 ---
 
@@ -179,12 +179,12 @@ If a tool call returns an error you can't recover from yourself —
 permission denied, a required field you can't legitimately supply,
 work outside your role — do all three in order, then stop:
 
-1. `tasks.update(status="blocked", body_md="<what I tried + what
+1. `tasks_update(status="blocked", body_md="<what I tried + what
    the hub returned + what's needed>")` — this fires `task.notify`
    so your parent steward (`@{{parent.handle}}`) is actually
    woken. Printing "blocked" in chat does NOT notify anyone — the
    steward only sees your tool calls and task transitions.
-2. `a2a.invoke(target="@{{parent.handle}}", body="<the same
+2. `a2a_invoke(target="@{{parent.handle}}", body="<the same
    summary, plus the specific ask>")` — direct ping in case the
    steward isn't watching the task feed.
 3. Stop. Don't loop, don't retry the same tool, don't switch to

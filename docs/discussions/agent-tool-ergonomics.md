@@ -331,7 +331,72 @@ description, not as a long-term contract.
 
 ---
 
-## 7. References
+## 7. Prior art — Claude Code's tool system
+
+The CLAUDE.md analogy in §2.2 understates the overlap.
+《御舆 — 解码 Agent Harness》 chapter 3 ("工具系统 — Agent 的双手"
+— `github.com/lintsinghua/claude-code-book`) describes Claude
+Code's tool system, and termipod's recommended design (§4) is
+largely a re-derivation of it.
+
+**The two-tier design is `ToolSearchTool`.** Claude Code's
+"deferred capability exposure": only tool *names* are sent
+up-front; the model loads a full schema on demand when it
+commits to a call — explicitly to conserve prompt tokens "when
+MCP servers provide dozens of tools." That is §4.1 + the
+meta-tool, arrived at independently from the same pressure. The
+design is not speculative — it is what the Claude Code harness
+ships, and what this discussion's own authoring session ran on.
+
+**Validated outright:**
+
+- §3's rejection of input polymorphism = chapter 3's
+  "**specialization over universality**" — a dedicated
+  `FileEditTool` beats a universal Bash `sed`; the universal
+  hammer is the named anti-pattern.
+- §4.4's legacy-alias handling = Claude Code's naming rule:
+  renaming is "**append-only**", old names survive as aliases.
+  Note the parallel split — Claude Code keeps *name* aliases but
+  never *input* polymorphism, exactly §3 vs §4.4.
+- Hint-bearing errors (§4.3) sit naturally on chapter 3's
+  ordered "input validation → permission → concurrency" check
+  tiers: a hint that names *which tier* failed is a precise hint.
+
+**Where chapter 3 goes further — three borrows for the design:**
+
+1. **The schema is the parameter documentation.** Claude Code's
+   Zod input schemas "define parameter constraints *and*
+   descriptions simultaneously." §4.1's catalog summary states
+   required params in prose; the per-parameter detail should
+   live *inside* `input_schema` instead. The schema then
+   self-documents, the prose surface shrinks, and the
+   description ↔ schema lint (validate-at-every-boundary §3
+   Layer 4) becomes trivial — there is no separate prose to drift.
+2. **Operational metadata, fail-closed.** Claude Code's
+   `Tool<Input,Output,Progress>` type *forces* every tool to
+   declare permission tier, concurrency-safety and
+   side-effecting, with the safety flags defaulting closed. The
+   two-tier payload should carry the same fields
+   (`concurrency_safe`, `side_effecting`, `permission_tier`) —
+   description metadata alone leaves authority implicit.
+3. **Deterministic catalog ordering.** Claude Code dedups and
+   sorts tools alphabetically so the prompt prefix is
+   cache-stable. `tools/list` must return a deterministic order,
+   or every catalog reshuffle silently breaks prompt-cache hits.
+
+**One question chapter 3 surfaces.** Claude Code has *two*
+discovery tiers (name → full schema via `ToolSearchTool`);
+termipod's §4 has *three* (per-persona index → catalog `short` →
+`tools.get`). The middle `short` tier earns its place only if it
+saves a round-trip the index does not already save. Worth a
+deliberate check before building all three.
+
+Borrows 1–3 are folded into [ADR-031](../decisions/031-agent-tool-ergonomics.md)
+D-1.
+
+---
+
+## 8. References
 
 - [validate-at-every-boundary.md](validate-at-every-boundary.md) —
   prior framing on every-boundary discipline, esp. §3 Layer 4

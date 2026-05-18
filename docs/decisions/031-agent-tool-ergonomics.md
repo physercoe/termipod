@@ -6,7 +6,7 @@ description: Lock in the four design picks from the agent-tool-ergonomics discus
 # 031. Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md). Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
+> **Status:** Proposed (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md); D-1 enriched the same day with Claude Code chapter-3 prior art (self-documenting schema + fail-closed operational metadata + deterministic ordering). Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.630-alpha
 
@@ -41,16 +41,27 @@ Every tool's catalog entry carries **two description fields**:
   "name": "documents.get",
   "short": "Fetch a document by id. Required: document_id (ULID).",
   "long": "...the full description body...",
-  "input_schema": {...},
+  "input_schema": {...},          // per-parameter descriptions live IN the schema
   "examples": [{"description": "...", "args": {...}}],
   "failure_modes": [{"code": "not_found", "when": "...", "hint": "..."}],
-  "see_also": ["documents.list", "get_project_doc"]
+  "see_also": ["documents.list", "get_project_doc"],
+  "concurrency_safe": true,        // read-only — safe to batch
+  "side_effecting": false,
+  "permission_tier": "worker"      // ties the catalog to roles.yaml / ADR-030
 }
 ```
 
 Rationale: structure constrains description authoring (every tool's failure modes get enumerated explicitly, not buried in prose); makes the catalog programmatically diff-able (CI lint over `failure_modes[].hint.see_tool` references); allows future agentic clients to act on structure (auto-retry with `see_tool`).
 
-Cost: every tool authoring grows from "write a description string" to "fill out 5 named fields." Worth it: descriptions become a contract surface with a schema, not free prose.
+Cost: every tool authoring grows from "write a description string" to "fill out the named fields." Worth it: descriptions become a contract surface with a schema, not free prose.
+
+**Three refinements borrowed from Claude Code's tool system** (《御舆 — 解码 Agent Harness》 ch. 3 "工具系统"; full analysis in [discussion §7](../discussions/agent-tool-ergonomics.md)):
+
+- **The schema self-documents.** Per-parameter descriptions live *inside* `input_schema` — the way Zod schemas carry the constraint and the doc together — not restated in prose. This shrinks the authoring surface and makes the description ↔ schema lint (plan W5) trivial: there is no parallel prose to drift.
+- **Operational metadata, fail-closed.** The payload carries `concurrency_safe`, `side_effecting`, and `permission_tier`. The safety flags default *closed* — an entry that omits them is read as `concurrency_safe:false, side_effecting:true`. This makes authority explicit in the catalog and gives [ADR-030](030-governed-actions-and-propose-verb.md) (governed actions) and roles.yaml a single declared source to check against, instead of leaving authority implicit in handler code.
+- **Deterministic ordering.** `tools/list` returns the catalog in a stable (alphabetical) order so the prompt prefix stays cache-stable; a non-deterministic catalog silently kills prompt-cache hits on every dispatch.
+
+The two-tier split (D-1) + `tools.get` (D-2) is the same **`ToolSearchTool` / deferred-capability** pattern the Claude Code harness already ships — independent re-derivation from the same prompt-token pressure, which is strong external validation of the direction.
 
 ### D-2. Meta-lookup tool named `tools.get`
 
@@ -108,7 +119,7 @@ Rationale: UNIX (`ls` vs `find`), REST (one resource shape per endpoint), GraphQ
 - New contributors authoring a tool fill out 5 named fields, not free prose — the schema is the spec.
 
 ### Negative
-- Migration cost: every existing tool (~50) needs a `short` field added. Mostly mechanical pass.
+- Migration cost: every existing tool (~50) needs a `short` field plus the three operational fields (`concurrency_safe` / `side_effecting` / `permission_tier`). The `short` split is mechanical; the operational flags need a per-tool judgement call.
 - Description authoring overhead: structured `failure_modes[]` is more work than a sentence in the long prose. Acceptable cost — the structure is what makes hints checkable.
 - Backward-incompat risk: clients reading only the `description` field from `tools/list` get nothing (`short` is the new field). Mitigation: ship both (`description` keeps the long body during deprecation window) until clients update.
 

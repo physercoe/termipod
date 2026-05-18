@@ -1,9 +1,9 @@
 # Tasks as first-class — phased rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-16) — two phases, no work started; ADR-029 captures the locked decisions
+> **Status:** Done (2026-05-18) — all wedges shipped. Phase 1 (W1–W7) v1.0.610-alpha; Phase 1.5 (W2.6–W2.11) v1.0.611-alpha; Phase 2 (W8–W12) v1.0.611-alpha. ADR-029 is Accepted.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.609-alpha
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** Close the four gaps that make the Tasks tab empty
 when the project steward spawns a worker: spawn↔task linkage,

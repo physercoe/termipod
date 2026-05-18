@@ -1,9 +1,9 @@
 # 029. Tasks as the first-class primitive for steward-dispatched work
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-16) — D-1 through D-8 locked in the 2026-05-16 design conversation; Phase 1 (D-1 through D-7) shipped v1.0.610-alpha; Phase 1.5 (D-8) shipped post-v1.0.610-alpha
+> **Status:** Accepted (2026-05-18) — D-1 through D-8 locked in the 2026-05-16 design conversation and fully shipped: Phase 1 (D-1 through D-7) v1.0.610-alpha; Phase 1.5 (D-8) v1.0.611-alpha; Phase 2 (mobile triad + task detail + denormalized list joins, W8–W12) v1.0.611-alpha
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.610-alpha
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** Promote `tasks` from "kanban side-table the principal
 can use" to the canonical surface for any steward-dispatched

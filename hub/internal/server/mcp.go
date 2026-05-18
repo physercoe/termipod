@@ -162,18 +162,31 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 // --- Tool catalog ---
 
 func mcpToolDefs() []map[string]any {
-	base := mcpToolDefsBase()
-	all := append(base, mcpToolDefsExtra()...)
-	all = append(all, orchestrationToolDefs()...)
+	// ADR-033 W4n: native-registry tools (the switch-dispatched
+	// (*Server)-method tools) are served from the native registry,
+	// not from the base/extra/orchestration defs — drop them here so
+	// a migrated tool is not listed twice.
+	nativeMigrated := nativeRegistryBackends()
+	var all []map[string]any
+	for _, group := range [][]map[string]any{
+		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(),
+	} {
+		for _, def := range group {
+			if name, _ := def["name"].(string); nativeMigrated[name] {
+				continue
+			}
+			all = append(all, def)
+		}
+	}
 	// Rich-authority surface (projects, plans, runs, agents.spawn,
 	// schedules, channels, a2a.invoke, …) imported from the
 	// hubmcpserver package — same catalog the standalone daemon
 	// exposes, served in-process so spawned agents only need the
 	// single bridge entry in .mcp.json.
 	//
-	// ADR-033 W1: tools migrated to the unified ToolSpec registry are
-	// served from it, not from the authority catalog — drop them here
-	// so a migrated tool is not listed twice.
+	// ADR-033 W1–W4: tools migrated to the unified ToolSpec registry
+	// are served from it, not from the authority catalog — drop them
+	// here so a migrated tool is not listed twice.
 	migrated := hubmcpserver.RegistryBackends()
 	for _, def := range authorityToolDefs() {
 		if name, _ := def["name"].(string); migrated[name] {
@@ -182,6 +195,7 @@ func mcpToolDefs() []map[string]any {
 		all = append(all, def)
 	}
 	all = append(all, hubmcpserver.RegistryCatalogDefs()...)
+	all = append(all, nativeRegistryCatalogDefs()...)
 	// Annotate each definition with its tier (server-authored,
 	// per tiers.go). Custom field; MCP clients ignore unknown
 	// keys, so this is purely informational over the wire.
@@ -373,82 +387,27 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 		}
 	}
 	switch call.Name {
-	case "post_message":
-		return s.mcpPostMessage(ctx, agentID, call.Arguments)
-	case "get_feed":
-		return s.mcpGetFeed(ctx, call.Arguments)
-	case "list_channels":
-		return s.mcpListChannels(ctx, scope.Team, call.Arguments)
-	case "search":
-		return s.mcpSearch(ctx, call.Arguments)
-	case "journal_append":
-		return s.mcpJournalAppend(ctx, scope.Team, agentID, call.Arguments)
-	case "journal_read":
-		return s.mcpJournalRead(ctx, scope.Team, agentID)
-	case "get_project_doc":
-		return s.mcpGetProjectDoc(ctx, scope.Team, call.Arguments)
-	case "get_attention":
-		return s.mcpGetAttention(ctx, call.Arguments)
-	case "post_excerpt":
-		return s.mcpPostExcerpt(ctx, agentID, call.Arguments)
-	case "delegate":
-		return s.mcpDelegate(ctx, agentID, call.Arguments)
-	case "request_approval":
-		return s.mcpRequestApproval(ctx, scope.Team, agentID, call.Arguments)
-	case "request_select", "request_decision":
-		// `request_decision` is the back-compat alias — the tool was
-		// renamed to match the attention-kind it produces (`select`)
-		// in v1.0.295. Templates with the old name keep working until
-		// they re-render.
-		return s.mcpRequestSelect(ctx, scope.Team, agentID, call.Arguments)
-	case "request_help":
-		return s.mcpRequestHelp(ctx, scope.Team, agentID, call.Arguments)
-	case "request_project_steward":
-		// ADR-025 W4: general-steward delegation channel. The tool
-		// raises a `project_steward_request` attention item the
-		// director acts on via the host-picker sheet (W7).
-		return s.mcpRequestProjectSteward(ctx, scope.Team, agentID, call.Arguments)
-	case "attach":
-		return s.mcpAttach(ctx, call.Arguments)
-	case "get_event":
-		return s.mcpGetEvent(ctx, call.Arguments)
-	case "get_task":
-		return s.mcpGetTask(ctx, call.Arguments)
-	case "get_parent_thread":
-		return s.mcpGetParentThread(ctx, agentID, call.Arguments)
-	case "list_agents":
-		return s.mcpListAgents(ctx, scope.Team, call.Arguments)
-	case "update_own_task_status":
-		return s.mcpUpdateOwnTaskStatus(ctx, agentID, call.Arguments)
-	case "templates_propose", "templates.propose":
-		return s.mcpTemplatesPropose(ctx, scope.Team, agentID, call.Arguments)
-	case "pause_self":
-		return s.mcpPauseSelf(ctx, agentID, call.Arguments)
-	case "shutdown_self":
-		return s.mcpShutdownSelf(ctx, agentID, call.Arguments)
-	case "get_audit":
-		return s.mcpGetAudit(ctx, scope.Team, call.Arguments)
-	case "permission_prompt":
-		return s.mcpPermissionPrompt(ctx, scope.Team, agentID, call.Arguments)
-	case "agents.fanout":
-		return s.mcpAgentsFanout(ctx, scope.Team, call.Arguments)
-	case "agents.gather":
-		return s.mcpAgentsGather(ctx, scope.Team, call.Arguments)
-	case "reports.post":
-		return s.mcpReportsPost(ctx, agentID, call.Arguments)
 	case "tools.get":
+		// The catalog meta-tool (ADR-031 W1) — stays a switch case; it
+		// reads mcpToolDefs() rather than being one of the tools in it.
 		return s.mcpToolsGet(call.Arguments)
 	default:
-		// ADR-033: unified-registry tools. Resolve a canonical or a
-		// deprecated-alias name; W1's registry is all authority-backed,
-		// so dispatch forwards to the REST adapter under spec.Backend.
+		// ADR-033: unified-registry dispatch. Resolve a canonical or a
+		// deprecated-alias name against the two registries.
+		//
+		// Authority registry (W1–W4): the tool has a buildTools() REST
+		// adapter — forward to it under spec.Backend.
 		if spec, ok, _ := hubmcpserver.LookupToolSpec(call.Name); ok {
 			return s.dispatchAuthorityToolRaw(ctx, agentToken, scope.Team, spec.Backend, call.Arguments)
 		}
-		// Fall through to the rich-authority catalog (projects,
-		// plans, runs, agents.spawn, schedules, channels, …)
-		// imported from hubmcpserver. Auth runs through the chi
-		// router via chiRouterTransport, so the agent's bearer
+		// Native registry (W4n): the tool's handler is a (*Server)
+		// method — invoke it via the native handler map.
+		if h, ok := nativeHandlerFor(call.Name); ok {
+			return h(s, ctx, agentID, scope, call.Arguments)
+		}
+		// Fall through to the rich-authority catalog (the not-yet-
+		// migrated tools) imported from hubmcpserver. Auth runs through
+		// the chi router via chiRouterTransport, so the agent's bearer
 		// authenticates the in-process REST hop just like a real
 		// network call would.
 		if hasAuthorityTool(call.Name) {

@@ -2,8 +2,6 @@ package server
 
 import (
 	"strings"
-
-	"github.com/termipod/hub/internal/hubmcpserver"
 )
 
 // Tier vocabulary for tool-call gating, per
@@ -186,8 +184,8 @@ func tierFor(toolName string) string {
 		return t
 	}
 	// ADR-033: unified-registry tools carry their tier on the
-	// ToolSpec, not in toolTiers.
-	if spec, ok, _ := hubmcpserver.LookupToolSpec(toolName); ok && spec.Tier != "" {
+	// ToolSpec, not in toolTiers — consult both registries.
+	if spec, ok, _ := lookupToolSpec(toolName); ok && spec.Tier != "" {
 		return spec.Tier
 	}
 	// Defensive: handle a few common case-insensitive misspellings

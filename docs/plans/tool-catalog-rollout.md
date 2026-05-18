@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split — see below). **W1–W4 shipped** — the `ToolSpec` registry holds 48 authority-backed tools across `documents`, `projects`, `plans` (+ steps), `runs`, `artifacts`, `agents`, `hosts`, `reviews`, `channels`, `a2a`, `tasks`, `schedules`, and the authority-backed misc tools: all renamed to `snake_case` resource-first, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard the registry. W3 also closed the security gotcha — `dispatchTool` resolves the canonical tool name through the registry before the `agents_spawn` / `a2a_invoke` literal-name gates, so the rename cannot bypass `authorizeAgentsSpawn` / `authorizeA2ATarget`. **W1–W4 covered authority-backed tools only.** The remaining ~28 switch-dispatched native tools migrate in **W4n** (native-dispatch path — not started); W5–W6 follow. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split). **W1–W4 + W4n shipped** — every MVP tool is now in the unified `ToolSpec` registry: 48 authority-backed tools (`hubmcpserver`'s registry) + 28 native switch-dispatched tools (the `server`-side native registry, W4n). All carry `snake_case` names, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard both registries. W3 closed the security gotcha — `dispatchTool` resolves the canonical name before the `agents_spawn` / `a2a_invoke` literal-name gates. W4n built the native-dispatch path: a `server`-side `nativeHandlers` map keyed by canonical name, CI-locked mutually exhaustive with the native `ToolSpec` list; the `dispatchTool` switch shrank to the protocol cases + `tools.get`. **Remaining: W5** (D-4 dedup of the three duplicate pairs) and **W6** (delete the legacy four-source assembly). Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -159,22 +159,31 @@ can land in parallel:
   `list_agents` / `agents.fanout` / `agents.gather` /
   `list_channels`.
 
-**W4n is structural, not just churn.** A native tool's handler is a
-`(*Server)` method; the `ToolSpec` lives in `hubmcpserver`, which
-`server` imports (not the reverse), so the handler cannot live in
-the spec. W4n adds a `server`-side `map[string]nativeHandler` keyed
-by canonical name, built at init; `dispatchTool`'s `default` case
-resolves a native spec and calls its handler. Two CI-lock tests
-(`TestEveryNativeSpecHasHandler` / `TestEveryNativeHandlerHasSpec`)
-make the map and the spec list mutually exhaustive. The native
-specs' `Description` + `InputSchema` are pulled from the existing
-`mcpToolDefsBase/Extra/orchestration` maps at registry-build time
-so the migration introduces no schema drift.
+**W4n is structural, not just churn — SHIPPED.** A native tool's
+handler is a `(*Server)` method; the `ToolSpec` lives in
+`hubmcpserver`, which `server` imports (not the reverse), so the
+handler cannot live in the spec. W4n added `server/native_tools.go`:
+a `nativeHandlers` `map[string]nativeHandler` keyed by canonical
+name (the data form of the old switch), the `nativeToolRegistry()`
+spec list (with `Description` + `InputSchema` pulled from the
+existing `mcpToolDefsBase/Extra/orchestration` maps so no schema
+drift), and `lookupToolSpec` — the combined lookup over both
+registries that `tierFor` / `authorizeMCPCall` / the catalog now
+use. `dispatchTool`'s `default` resolves a native spec and calls
+its handler; the switch shrank to the protocol cases + `tools.get`.
+CI-lock: `TestNativeRegistry_EverySpecHasHandler` /
+`_EveryHandlerHasSpec` make the map and the spec list mutually
+exhaustive.
 
-The ~25 verb-first `snake_case` tools (`get_task`, `list_agents`,
-`post_message`, …) are reordered to resource-first
-(`tasks_get`, `agents_list`, `messages_post`) in W4n; the dotted
-tools got the mechanical `.`→`_` in W2–W4.
+**Naming deferral.** W4n kept each native tool's current name as
+canonical and only flattened the three dotted names
+(`agents.fanout`→`agents_fanout`, `agents.gather`→`agents_gather`,
+`reports.post`→`reports_post`). A resource-first pass over the
+verb-first names (`get_feed`→`feed_get`, …) is deferred until after
+W5: flipping `get_task`→`tasks_get`, `list_agents`→`agents_list`,
+`get_audit`→`audit_read` now would collide with the W4 authority
+tools of those exact names — W5's D-4 dedup resolves the collision
+first.
 
 **Bundled-template sweep is batched, not per-wedge.** W1–W3 left
 the templates under `hub/templates/` and

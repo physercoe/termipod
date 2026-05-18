@@ -2,8 +2,6 @@ package server
 
 import (
 	"testing"
-
-	"github.com/termipod/hub/internal/hubmcpserver"
 )
 
 // Anchor the tier vocabulary so a future PR that bumps a tool's
@@ -98,7 +96,8 @@ func TestEveryCatalogEntryHasTier(t *testing.T) {
 		if !present {
 			// ADR-033: a unified-registry tool carries its tier on the
 			// ToolSpec, not in toolTiers — that counts as classified.
-			if spec, ok, _ := hubmcpserver.LookupToolSpec(name); ok && spec.Tier != "" {
+			// Consult both registries (authority + native).
+			if spec, ok, _ := lookupToolSpec(name); ok && spec.Tier != "" {
 				tier, present = spec.Tier, true
 			}
 		}

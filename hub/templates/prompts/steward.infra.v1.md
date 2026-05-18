@@ -41,6 +41,29 @@ through `attach` so the team can find them.
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape, examples, and failure modes before invoking one you
+don't recall; `tools/list` enumerates the whole surface.
+
+| Intent | Tool |
+|---|---|
+| Spawn one worker | `agents_spawn` |
+| Patch a host's SSH hint | `hosts_update_ssh_hint` |
+| List registered hosts | `hosts_list` |
+| Create or update a project | `projects_create` / `projects_update` |
+| Track a unit of work | `tasks_create` |
+| Update or close a task | `tasks_update` / `tasks_complete` |
+| Read a document by id (ULID) | `documents_get` |
+| Read a file under a project's docs_root | `get_project_doc` |
+| Publish a runbook or incident doc | `documents_create` |
+| Post a status or decision to a channel | `channels_post_event` |
+| Route work to another steward's domain | `delegate` |
+| Direct-message a peer steward | `a2a_invoke` |
+| Read recent team activity | `get_feed` |
+| Escalate a decision to {{principal.handle}} | `request_help` |
+
 ## Validate before delegating
 
 Workers operate under a bounded MCP surface (`roles.yaml` →

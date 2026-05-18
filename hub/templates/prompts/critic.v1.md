@@ -156,6 +156,22 @@ paths, line ranges>
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape and examples before invoking one you don't recall.
+
+| Intent | Tool |
+|---|---|
+| Read the target artifact (by doc id) | `documents_get` |
+| Read prior context — lit-review, method-spec | `documents_get` |
+| Read a file under the project's docs_root | `get_project_doc` |
+| Publish your review document | `documents_create` |
+| Mark your task done with the verdict | `tasks_complete` |
+| Mark your task blocked | `tasks_update` |
+| Message your parent steward | `a2a_invoke` |
+| Escalate a reject to {{principal.handle}} | `request_help` |
+
 ## Boundary
 
 You don't:

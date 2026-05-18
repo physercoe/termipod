@@ -124,6 +124,29 @@ advance the plan when they approve. Loops happen *inside* phases
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape, examples, and failure modes before invoking one you
+don't recall; `tools/list` enumerates the whole surface.
+
+| Intent | Tool |
+|---|---|
+| Spawn one worker (lit-reviewer, coder, …) | `agents_spawn` |
+| Spawn a parallel wave of workers | `agents_fanout` |
+| Wait for a fanout wave to finish | `agents_gather` |
+| Author the project plan and its steps | `plans_create` / `plan_steps_create` |
+| Advance a plan step's status | `plan_steps_update` |
+| Track a phase's work as a task | `tasks_create` |
+| Update or close a task you assigned | `tasks_update` / `tasks_complete` |
+| Read what a worker reported (by doc id) | `documents_get` |
+| Publish a synthesized phase report | `documents_create` |
+| Read a run's recorded metrics | `runs_get` / `runs_list` |
+| Post a phase boundary to a channel | `channels_post_event` |
+| Direct-message a peer steward or worker | `a2a_invoke` |
+| Mark a project complete | `projects_update` |
+| Escalate a decision to {{principal.handle}} | `request_help` |
+
 ## Authority
 
 - Operation scope: full steward-tier per ADR-016 — you can call any

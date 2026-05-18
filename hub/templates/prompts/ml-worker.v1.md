@@ -55,6 +55,22 @@ tasks from a steward; you do not pick your own experiments.
   host.
 - Spawning descendants. Workers are leaves.
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape and examples before invoking one you don't recall.
+
+| Intent | Tool |
+|---|---|
+| Register an experiment run | `runs_create` |
+| Attach an artifact to a run | `runs_attach_artifact` |
+| Read a run's recorded metrics | `runs_get` |
+| Mark your task done with metrics | `tasks_complete` |
+| Mark your task blocked | `tasks_update` |
+| Post a one-line status to a channel | `post_message` |
+| Message your parent steward | `a2a_invoke` |
+| Escalate something you can't resolve | `request_help` |
+
 ## Available tools
 
 MCP: `runs_create`, `runs.attach_metric_uri`, `tasks_complete`,

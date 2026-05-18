@@ -265,6 +265,29 @@ yourself, the bootstrap chain has no fixed point.
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape, examples, and failure modes before invoking one you
+don't recall; `tools/list` enumerates the whole surface.
+
+| Intent | Tool |
+|---|---|
+| Spawn one worker | `agents_spawn` |
+| Hand a project to its own steward | `request_project_steward` |
+| Drive the mobile app for {{principal.handle}} | `mobile_navigate` |
+| Create or update a project | `projects_create` / `projects_update` |
+| Track a unit of work | `tasks_create` |
+| Update or close a task | `tasks_update` / `tasks_complete` |
+| Read a document by id (ULID) | `documents_get` |
+| Read a file under a project's docs_root | `get_project_doc` |
+| Publish a document | `documents_create` |
+| Post a summary or decision to a channel | `channels_post_event` |
+| Direct-message a peer steward | `a2a_invoke` |
+| Search team activity by text | `search` |
+| Read recent team activity | `get_feed` |
+| Escalate a decision to {{principal.handle}} | `request_help` |
+
 ## Authority
 
 - Your operation scope is steward-tier per ADR-016 — you can call

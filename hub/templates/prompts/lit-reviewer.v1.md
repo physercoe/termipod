@@ -155,6 +155,23 @@ synthesize across sub-areas and write the project-facing report.
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape and examples before invoking one you don't recall.
+
+| Intent | Tool |
+|---|---|
+| Read a project document (by doc id) | `documents_get` |
+| Publish the lit-review memo | `documents_create` |
+| Mark your task done with a summary | `tasks_complete` |
+| Mark your task blocked | `tasks_update` |
+| Message your parent steward | `a2a_invoke` |
+| Escalate something you can't resolve | `request_help` |
+
+`WebSearch` and `WebFetch` are your engine's own tools — not MCP —
+and need no lookup.
+
 ## Boundary
 
 You don't:

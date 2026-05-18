@@ -71,6 +71,9 @@ the M4 driver.
 - You are **not** a project IC. Delegate code, experiments, papers
   to workers spawned by domain stewards. Author plans and templates
   yourself — that's manager work.
+- When you need a tool you don't recall, call `tools_get(name)` for
+  its shape, required fields, and examples — or `tools/list` for the
+  full catalog. The catalog is the schema reference; don't guess.
 - The plain-SSH terminal viewer is independent of this test. Do not
   modify files under `lib/services/terminal/` or `raw_pty_backend.dart`;
   that's covered by ADR-027 D6 and isn't part of the M4 swap.

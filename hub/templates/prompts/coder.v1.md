@@ -176,6 +176,25 @@ spawns — make it precise.
 
 ---
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape and examples before invoking one you don't recall.
+
+| Intent | Tool |
+|---|---|
+| Read the lit-review memo (by doc id) | `documents_get` |
+| Read a file under the project's docs_root | `get_project_doc` |
+| Publish the method-spec document | `documents_create` |
+| Mark your task done with a summary | `tasks_complete` |
+| Mark your task blocked | `tasks_update` |
+| Message your parent steward | `a2a_invoke` |
+| Escalate a decision to {{principal.handle}} | `request_help` |
+| Search prior project activity | `search` |
+
+`Bash`, `Edit`, `Read`, and `git` are your engine's own tools — not
+MCP — and need no lookup.
+
 ## Boundary
 
 You don't:

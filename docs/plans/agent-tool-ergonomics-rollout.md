@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 + W2.a + W3 shipped.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 + W2.a + W3 + W4 shipped — MVP (phases 1 + 2) is complete bar W2.b.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). W4 — all 14 persona prompts gained a `## Tools at a glance` index (10 main: full table; 4 per-engine stewards: one-line `tools_get` pointer). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** W1 + W2.a + W3 shipped; ADR-033 W6 teardown complete
+> **Last verified vs code:** W1 + W2.a + W3 + W4 shipped; ADR-033 W6 teardown complete
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -40,11 +40,12 @@ tail.
 | 1 | W2.a | `tools/list` serves `short` | ~60 LOC | W1 — **✓ shipped** |
 | 1 | W2.b | D-1 structured payload | ~150 LOC | W1, W4 |
 | 1 | W3 | Hint-bearing errors — top paths | ~90 LOC | — — **✓ shipped** |
-| 2 | W4 | Per-persona intent → tool index | ~250 prose | W2 |
+| 2 | W4 | Per-persona intent → tool index | ~250 prose | W2.a — **✓ shipped** |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
 
-Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ →
-W4 → W2.b (after W4) → W5 (depends all)**.
+Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ → W4 ✓ →
+W2.b (after W4) → W5 (depends all)**. MVP (phases 1 + 2) is now
+complete bar W2.b; W5 is the post-MVP polish.
 
 ---
 
@@ -256,10 +257,19 @@ assertion added to `TestDoSpawn_FailFast_NoBackendBlock`.
 
 ### Phase 2 — Index
 
-#### W4 — Per-persona intent → tool index
+#### W4 — Per-persona intent → tool index — ✓ shipped
+
+> **Shipped.** All 14 persona prompts under `hub/templates/prompts/`
+> were updated: the 10 main personas gained a full `## Tools at a
+> glance` table; the 4 per-engine stewards gained the one-line
+> `tools_get` pointer (see the standalone finding below). Names are
+> ADR-033 canonical — `TestBundledTemplatesUseCanonicalNames` and
+> `TestAuditBundledTemplateVarRefs` stay green.
 
 Each of the 10 main persona prompts gains an "Intent → tool"
-section, listing 10-20 (intent, tool) pairs.
+section, listing 8-16 (intent, tool) pairs tailored to that
+persona's actual surface (stewards: spawn / plan / delegate;
+workers: docs / runs / report-up).
 
 **Persona prompts in scope** — `hub/templates/prompts/` holds 15
 files; the 10 *main* personas get the full index:
@@ -271,12 +281,16 @@ files; the 10 *main* personas get the full index:
 
 **Not full-index personas (5 files):**
 - `steward.codex.v1.md`, `steward.gemini.v1.md`,
-  `steward.kimi.v1.md`, `steward.claude-m4.v1.md` — thin
-  (~90-line) per-engine steward overlays. **To confirm at W4 time:**
-  inspect `hub/internal/agentfamilies` to see whether they compose
-  on top of `steward.v1.md` (then the index is inherited — no edit)
-  or are used standalone (then each gets a one-line pointer to
-  `tools.get`, not the full table).
+  `steward.kimi.v1.md`, `steward.claude-m4.v1.md` — per-engine
+  stewards. **Confirmed at W4 time:** each agent template carries a
+  single `prompt:` field (no `context_files` stacking), so these are
+  **standalone full prompts**, not thin overlays composing on
+  `steward.v1.md` — they do *not* inherit the index. Per the plan's
+  standalone branch, each got the one-line `tools_get` pointer rather
+  than the full table: the engine-specific prompts already carry
+  their own tool listing, and the pointer ("call `tools_get` /
+  `tools/list`, don't guess") is the load-bearing teaching; a fourth
+  hand-curated copy of the steward table would just drift.
 - `worker_report.v1.md` — a report template, not a persona;
   excluded.
 
@@ -326,6 +340,19 @@ plain markdown, no `{{var}}` refs introduced).
 
 **Tests:** the existing `TestAuditBundledTemplateVarRefs`
 suite must continue to pass.
+
+**Finding — dangling non-tool refs in the prompt bodies.** Authoring
+the index surfaced that the persona *bodies* still cite names that
+are neither canonical tools nor deprecated aliases — `documents.read`
+(should be `documents_get`), `runs.attach_metric_uri`,
+`attention.create`, `plan.advance`, `agents.archive`,
+`runs.register` / `runs.complete`. The drift-lock only catches
+*deprecated aliases*, so these slip past it; a worker that calls
+`documents.read` gets `unknown tool`. The W4 indexes use the correct
+canonical names, but the surrounding prose was **not** swept — that
+is a separate correctness wedge (judgement-heavy: some refs have no
+clean canonical target). Tracked outside this plan; do not conflate
+with W4.
 
 ### Phase 3 — Polish (post-MVP)
 

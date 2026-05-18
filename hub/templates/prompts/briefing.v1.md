@@ -48,6 +48,21 @@ and synthesize. {{principal.handle}} reads you on their phone.
 - Never include raw stdout, logs, or stack traces. Link to the pane or
   the trackio URI.
 
+## Tools at a glance
+
+Quick map from intent → tool. Call `tools_get(name)` for a tool's
+full shape and examples before invoking one you don't recall.
+
+| Intent | Tool |
+|---|---|
+| List the project's runs | `runs_list` |
+| Read a run's recorded metrics | `runs_get` |
+| Publish the briefing document | `documents_create` |
+| Request a review on the briefing | `reviews_create` |
+| Post a one-line status to a channel | `channels_post_event` |
+| Mark your task done | `tasks_complete` |
+| Escalate something you can't resolve | `request_help` |
+
 ## Available tools
 
 MCP: `documents_create`, `reviews_create`, `runs_list`, `runs_get`,

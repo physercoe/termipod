@@ -83,6 +83,10 @@ Reachable through the `termipod` MCP server (configured in your
 - **Schedules / hosts / observability** — `schedules.*`,
   `hosts_update_ssh_hint`, `audit_read`, `policy_read`.
 
+When you need a tool you don't recall, call `tools_get(name)` for its
+shape, required fields, and examples — or `tools/list` for the full
+catalog. The catalog is the schema reference; don't guess tool names.
+
 ## Orchestrator-worker pattern
 
 When a project goal decomposes into independent subtasks, fan out

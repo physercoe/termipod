@@ -41,40 +41,20 @@ See [docs/discussions/positioning.md](docs/discussions/positioning.md) for the f
 
 ---
 
-## Screenshots
+## Demo
 
-> **⚠️ Outdated — pre-IA-redesign, tmux-era screens.** These predate
-> the v1.0.175–182 IA redesign (Projects · Activity · Me · Hosts ·
-> Settings) and the v1.0.281+ steward chat work. They still show the
-> SSH/tmux side accurately, but don't reflect the hub workflow which
-> is now the primary surface. **Refresh deferred until after the
-> Candidate-A hardware demo lands** — capturing screenshots before
-> the demo's final UX polish would just need re-doing. The refresh
-> itself is planned to be CI-automated; design captured in
+<p align="center">
+  <video src="https://github.com/physercoe/termipod/raw/main/docs/screens/termipod-demo.mp4" controls width="280"></video>
+</p>
+
+> **⚠️ Preliminary preview — partial.** A short walkthrough recorded
+> before the Candidate-A hardware demo's final UX polish. It covers
+> only part of the app and is not a full feature tour — shared for
+> eager readers who want an early feel ahead of the proper demo. If
+> the player above doesn't load, watch it here:
+> [docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4).
+> A complete, CI-captured walkthrough is planned; design in
 > [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md).
-
-<table>
-<tr>
-<td align="center"><b>Dashboard</b></td>
-<td align="center"><b>Agent Commands</b></td>
-<td align="center"><b>Key Palette</b></td>
-</tr>
-<tr>
-<td><img src="docs/screens/dashboard_dark.png" width="240" alt="Dashboard — recent sessions, one-tap reconnect"></td>
-<td><img src="docs/screens/bolt_menu_dark.png" width="240" alt="Claude Code slash commands with dropdowns"></td>
-<td><img src="docs/screens/key_palette_dark.png" width="240" alt="Profile sheet with key group grid"></td>
-</tr>
-<tr>
-<td align="center"><b>Terminal</b></td>
-<td align="center"><b>Vault (Keys & Snippets)</b></td>
-<td align="center"><b>Insert Menu</b></td>
-</tr>
-<tr>
-<td><img src="docs/screens/terminal_dark.png" width="240" alt="Terminal with action bar and compose bar"></td>
-<td><img src="docs/screens/vault_dark.png" width="240" alt="SSH keys, snippets, command history"></td>
-<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="Insert menu — file transfer, image, direct input"></td>
-</tr>
-</table>
 
 ---
 

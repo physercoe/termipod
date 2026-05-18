@@ -41,38 +41,19 @@
 
 ---
 
-## 截图
+## 演示
 
-> **⚠️ 已过时 — IA 重设计前的 tmux 时代截图。** 这些截图早于 v1.0.175–182
-> 的 IA 重设计(Projects · Activity · Me · Hosts · Settings)和
-> v1.0.281+ 的 Steward 聊天工作。SSH/tmux 部分仍然准确,但不能反映
-> 已成为主界面的 Hub 工作流。**截图刷新推迟到 Candidate-A 硬件 demo
-> 落地之后** — 在 demo 最终 UX 打磨前截图,落地后还得重做。截图自身
-> 计划用 CI 自动生成,设计见
+<p align="center">
+  <video src="https://github.com/physercoe/termipod/raw/main/docs/screens/termipod-demo.mp4" controls width="280"></video>
+</p>
+
+> **⚠️ 初步预览 — 仅为片段。** 这是在 Candidate-A 硬件 demo 最终 UX
+> 打磨前录制的一段简短演示,只覆盖了应用的一部分,并非完整功能展示
+> —— 提供给希望在正式 demo 之前先一睹为快的读者。如果上方播放器无法
+> 加载,可在此查看:
+> [docs/screens/termipod-demo.mp4](docs/screens/termipod-demo.mp4)。
+> 完整的、由 CI 自动录制的演练计划见
 > [docs/discussions/screenshot-automation.md](docs/discussions/screenshot-automation.md)。
-
-<table>
-<tr>
-<td align="center"><b>仪表盘</b></td>
-<td align="center"><b>代理命令</b></td>
-<td align="center"><b>按键面板</b></td>
-</tr>
-<tr>
-<td><img src="docs/screens/dashboard_dark.png" width="240" alt="仪表盘"></td>
-<td><img src="docs/screens/bolt_menu_dark.png" width="240" alt="Claude Code 斜杠命令"></td>
-<td><img src="docs/screens/key_palette_dark.png" width="240" alt="配置文件面板"></td>
-</tr>
-<tr>
-<td align="center"><b>终端</b></td>
-<td align="center"><b>保险库（密钥和片段）</b></td>
-<td align="center"><b>插入菜单</b></td>
-</tr>
-<tr>
-<td><img src="docs/screens/terminal_dark.png" width="240" alt="操作栏终端"></td>
-<td><img src="docs/screens/vault_dark.png" width="240" alt="SSH 密钥、代码片段、命令历史"></td>
-<td><img src="docs/screens/insert_menu_dark.png" width="240" alt="插入菜单"></td>
-</tr>
-</table>
 
 ---
 

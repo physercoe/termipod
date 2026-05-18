@@ -18,9 +18,10 @@ func newTestHub(t *testing.T, handler http.HandlerFunc) *hubClient {
 	return newHubClient(srv.URL, "test-token", "team-alpha")
 }
 
-// TestToolsList_RoundTrip: sending a well-formed tools/list request must
-// yield a result containing every tool name from buildTools(). This guards
-// against a refactor that forgets to add a new tool to the dispatch table.
+// TestToolsList_RoundTrip: a well-formed tools/list request yields the
+// ToolSpec registry catalog (ADR-033 W6.5) — canonical snake_case names
+// plus one [DEPRECATED] entry per old alias. This guards against a
+// refactor that drops the registry composition.
 func TestToolsList_RoundTrip(t *testing.T) {
 	// No hub calls happen for tools/list, but dispatch still needs a client
 	// instance; we point it at an unreachable URL to assert that fact.
@@ -46,15 +47,18 @@ func TestToolsList_RoundTrip(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
-	if len(resp.Result.Tools) != len(tools) {
-		t.Fatalf("got %d tools, want %d", len(resp.Result.Tools), len(tools))
+	if want := len(RegistryCatalogDefs()); len(resp.Result.Tools) != want {
+		t.Fatalf("got %d tools, want %d (RegistryCatalogDefs)", len(resp.Result.Tools), want)
 	}
-	// Sanity: a couple of well-known names should always be present.
+	// Both the canonical name and its deprecated dotted alias appear.
 	names := map[string]bool{}
 	for _, t := range resp.Result.Tools {
 		names[t.Name] = true
 	}
-	for _, want := range []string{"projects.list", "plans.create", "audit.read", "policy.read"} {
+	for _, want := range []string{
+		"projects_list", "projects.list", // canonical + deprecated alias
+		"plans_create", "audit_read", "policy_read",
+	} {
 		if !names[want] {
 			t.Errorf("missing tool %q in tools/list response", want)
 		}

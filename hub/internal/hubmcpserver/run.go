@@ -19,16 +19,24 @@
 // Configuration is all env-driven (HUB_URL, HUB_TOKEN, HUB_TEAM). Exit
 // codes: 0 normal stdin EOF, 2 bad configuration.
 //
-// Reused from two places:
-//   - `cmd/hub-mcp-server/main.go` is a thin wrapper that exits with
-//     `Run(os.Args[1:])`. Kept so external scripts that exec
-//     `hub-mcp-server` as a standalone binary keep working.
-//   - `cmd/host-runner/main.go` checks the basename and routes to
-//     `Run` when the symlink name is `hub-mcp-server`. The host's
-//     install symlinks both `hub-mcp-bridge` and `hub-mcp-server` at
-//     /usr/local/bin onto the host-runner binary, so spawned agents'
-//     `.mcp.json` (which references both server names) Just Works
-//     without a second installable.
+// Status (ADR-033 W6.5). The in-process MCP catalog the hub serves at
+// /mcp/<token> now covers the full surface — narrow + rich-authority +
+// native — so host-runner writes only the `hub-mcp-bridge` entry into
+// every spawned agent's `.mcp.json` (writeMCPConfig, internal/
+// hostrunner). This standalone daemon is therefore on no live spawn
+// path. It is retained for two reasons:
+//   - `cmd/hub-mcp-server/main.go` keeps it executable as a standalone
+//     binary, so an external script that still execs `hub-mcp-server`
+//     keeps working;
+//   - handleLine / dispatch are the in-process harness the authority
+//     tool-adapter tests drive (main_test.go).
+//
+// Its `tools/list` advertises the ToolSpec registry catalog
+// (RegistryCatalogDefs — canonical snake_case + one [DEPRECATED] entry
+// per old alias) so the authority names match the in-process surface;
+// `tools/call` resolves either spelling. Native tools are unreachable
+// here by construction — their handlers live in package server, which
+// this package cannot import — so the daemon is authority-only.
 package hubmcpserver
 
 import (
@@ -204,7 +212,10 @@ func dispatch(c *hubClient, tools []toolDef, req jsonrpcReq) (any, *jsonrpcError
 		return nil, nil
 
 	case "tools/list":
-		return map[string]any{"tools": tools}, nil
+		// ADR-033 W6.5: advertise the ToolSpec registry catalog so the
+		// daemon's authority names match the in-process /mcp/{token}
+		// surface. `tools` remains the dispatch table for tools/call.
+		return map[string]any{"tools": RegistryCatalogDefs()}, nil
 
 	case "tools/call":
 		return handleToolsCall(c, tools, req.Params)
@@ -239,7 +250,15 @@ func handleToolsCall(c *hubClient, tools []toolDef, raw json.RawMessage) (any, *
 	if p.Name == "" {
 		return nil, &jsonrpcError{Code: errInvalidParams, Message: "tool name required"}
 	}
-	tool, ok := findTool(tools, p.Name)
+	// ADR-033: resolve a canonical or deprecated-alias name to the
+	// buildTools() backend that carries the call closure. The old
+	// dotted spelling still works — it is the backend name and also a
+	// registry alias — so pre-registry callers are unaffected.
+	backend := p.Name
+	if spec, ok, _ := LookupToolSpec(p.Name); ok {
+		backend = spec.Backend
+	}
+	tool, ok := findTool(tools, backend)
 	if !ok {
 		return nil, &jsonrpcError{Code: errMethodNotFound, Message: "unknown tool: " + p.Name}
 	}

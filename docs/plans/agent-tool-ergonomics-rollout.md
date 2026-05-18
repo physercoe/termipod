@@ -6,7 +6,7 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total. Reconciled against v1.0.630 code the same day (§0.1 catalog topology added; W1/W2/W4/W5 implementation sites corrected; W3 hint envelope aligned to ADR-031 D-3). W1 in progress. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. Reconciled against v1.0.630 code the same day (§0.1 catalog topology added; W1/W2/W4/W5 implementation sites corrected; W3 hint envelope aligned to ADR-031 D-3). **W1 shipped** — `tools.get` meta-tool added server-side over the composed catalog; the pre-existing `documents.get` missing-tier gap (a v1.0.630 catalog-lockstep miss) was closed alongside. W2 next. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
 > **Last verified vs code:** v1.0.630-alpha
 
@@ -114,8 +114,9 @@ split, `tools.get` returns the single existing `description` field.
 - Unknown name returns `is_error: true` with body `"unknown tool
   'X'; call tools/list for the available set"`.
 
-**Tests:** `TestDispatchTool_ToolsGet_Known`,
-`TestDispatchTool_ToolsGet_Unknown` in `internal/server`.
+**Tests:** `TestMCP_ToolsGet_Known`,
+`TestMCP_ToolsGet_Unknown` in `internal/server`
+(`mcp_tools_get_test.go`).
 
 #### W2 — Two-tier descriptions across catalog
 

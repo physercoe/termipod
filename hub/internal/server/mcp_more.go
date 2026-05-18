@@ -262,6 +262,15 @@ func mcpToolDefsExtra() []map[string]any {
 				"required": []string{"tool_name", "input"},
 			},
 		},
+		{
+			"name":        "tools.get",
+			"description": "Fetch the full description and input schema for one MCP tool by name. Required: tool_name (string). Call tools/list for the available set.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"tool_name": map[string]any{"type": "string"}},
+				"required":   []string{"tool_name"},
+			},
+		},
 	}
 }
 

@@ -415,6 +415,8 @@ func (s *Server) dispatchTool(ctx context.Context, agentID, agentToken string, s
 		return s.mcpAgentsGather(ctx, scope.Team, call.Arguments)
 	case "reports.post":
 		return s.mcpReportsPost(ctx, agentID, call.Arguments)
+	case "tools.get":
+		return s.mcpToolsGet(call.Arguments)
 	default:
 		// Fall through to the rich-authority catalog (projects,
 		// plans, runs, agents.spawn, schedules, channels, …)
@@ -440,7 +442,42 @@ func mcpResultJSON(v any) map[string]any {
 	return mcpResultText(string(b))
 }
 
+// mcpResultError builds a tool result flagged isError. Used for
+// recoverable, agent-visible failures — the agent sees the message
+// inline and can retry — as opposed to a *jrpcError protocol fault.
+func mcpResultError(text string) map[string]any {
+	r := mcpResultText(text)
+	r["isError"] = true
+	return r
+}
+
 // --- Tool impls ---
+
+type toolsGetArgs struct {
+	ToolName string `json:"tool_name"`
+}
+
+// mcpToolsGet returns the full catalog entry — description + input
+// schema — for one tool by name (ADR-031 D-2). It resolves against
+// the composed mcpToolDefs() catalog (base + extra + orchestration +
+// authority — see the rollout plan §0.1), so it can describe any
+// tool an agent can actually call, not just one registry's slice.
+func (s *Server) mcpToolsGet(raw json.RawMessage) (any, *jrpcError) {
+	var a toolsGetArgs
+	if err := json.Unmarshal(raw, &a); err != nil || a.ToolName == "" {
+		return nil, &jrpcError{Code: -32602, Message: "tool_name required"}
+	}
+	for _, def := range mcpToolDefs() {
+		if name, _ := def["name"].(string); name == a.ToolName {
+			return mcpResultJSON(def), nil
+		}
+	}
+	// An unknown name is a recoverable, agent-visible failure — not a
+	// protocol fault — so return an isError content block: the agent
+	// sees the message inline and can retry against tools/list.
+	return mcpResultError(fmt.Sprintf(
+		"unknown tool %q; call tools/list for the available set", a.ToolName)), nil
+}
 
 type postMessageArgs struct {
 	ChannelID string `json:"channel_id"`

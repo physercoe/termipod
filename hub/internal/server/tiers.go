@@ -70,6 +70,7 @@ var toolTiers = map[string]string{
 	"shutdown_self":          TierSignificant, // irreversible self-terminate
 	"get_audit":              TierTrivial,
 	"permission_prompt":      TierTrivial, // the gate itself, not the gated action
+	"tools.get":              TierTrivial, // read-only catalog lookup (ADR-031)
 	// --- orchestrator-worker primitives (mcp_orchestrate.go) ---
 	"agents.fanout": TierSignificant, // spawns N workers; budget impact
 	"agents.gather": TierTrivial,     // long-poll read; safe
@@ -91,6 +92,7 @@ var toolTiers = map[string]string{
 	"runs.create":             TierRoutine,
 	"runs.attach_artifact":    TierRoutine,
 	"documents.list":          TierTrivial,
+	"documents.get":           TierTrivial,
 	"documents.create":        TierRoutine,
 	"reviews.list":            TierTrivial,
 	"reviews.create":          TierRoutine,

@@ -288,6 +288,12 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 				r.Post("/input", s.handlePostAgentInput)
 			})
 		})
+		// Team-scoped task-by-id lookup (ADR-033 W5). Tasks otherwise
+		// live under /projects/{project}/tasks; this resolves one by
+		// its ULID alone (team-scoped via a projects join) so the
+		// tasks_get MCP tool works without project_id — which lets the
+		// deprecated get_task (bare id) keep working as an alias.
+		r.Get("/tasks/{task}", s.handleGetTaskByID)
 		r.Route("/sessions", func(r chi.Router) {
 			r.Post("/", s.handleOpenSession)
 			r.Get("/", s.handleListSessions)

@@ -788,16 +788,23 @@ func buildTools() []toolDef {
 		},
 		{
 			Name:        "tasks.get",
-			Description: "Get one task by id. Requires `project_id` and `task`. Response includes `priority` (low|med|high|urgent), `plan_step_id` (empty for ad-hoc tasks) and `source` (`ad_hoc` | `plan`) so callers can tell plan-materialized tasks from user-created ones.",
-			InputSchema: schema(`{"type":"object","required":["project_id","task"],"properties":{"project_id":{"type":"string"},"task":{"type":"string"}}}`),
+			Description: "Get one task by id. Provide `task` (the task ULID); `id` is accepted as a synonym. `project_id` is optional — when omitted a team-scoped lookup is used. Response includes `priority` (low|med|high|urgent), `plan_step_id` (empty for ad-hoc tasks), `source` (`ad_hoc` | `plan`), `milestone_id`, `parent_task_id`, `assignee_id`, and `created_by_id`.",
+			InputSchema: schema(`{"type":"object","properties":{"task":{"type":"string","description":"task ULID"},"id":{"type":"string","description":"synonym for task"},"project_id":{"type":"string","description":"optional — scopes the lookup to one project"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
-				p, _ := args["project_id"].(string)
 				id, _ := args["task"].(string)
-				if p == "" || id == "" {
-					return nil, fmt.Errorf("project_id and task are required")
+				if id == "" {
+					id, _ = args["id"].(string) // get_task alias compatibility (ADR-033 W5)
+				}
+				if id == "" {
+					return nil, fmt.Errorf("task (id) is required")
+				}
+				p, _ := args["project_id"].(string)
+				path := c.teamPath("/tasks/" + url.PathEscape(id))
+				if p != "" {
+					path = c.teamPath("/projects/" + url.PathEscape(p) + "/tasks/" + url.PathEscape(id))
 				}
 				var out json.RawMessage
-				if err := c.do("GET", c.teamPath("/projects/"+url.PathEscape(p)+"/tasks/"+url.PathEscape(id)), nil, nil, &out); err != nil {
+				if err := c.do("GET", path, nil, nil, &out); err != nil {
 					return nil, err
 				}
 				return out, nil

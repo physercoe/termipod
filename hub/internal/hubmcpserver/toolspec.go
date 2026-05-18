@@ -198,9 +198,13 @@ func toolRegistry() []ToolSpec {
 		spec("tasks_list", "tasks.list",
 			"List tasks for a project. Required: project_id. Optional: status, priority, sort.",
 			tierTrivial, true),
+		// tasks_get absorbs the legacy native `get_task` (ADR-033 D-4).
+		// tasks_get already returns the full field union; the adapter
+		// now also accepts a bare task id (no project_id) so get_task's
+		// input contract survives the alias.
 		spec("tasks_get", "tasks.get",
-			"Get one task by id. Required: project_id, task.",
-			tierTrivial, true),
+			"Get one task by id. Required: task (ULID). Optional: project_id.",
+			tierTrivial, true, "get_task"),
 		spec("tasks_create", "tasks.create",
 			"Create a task under a project. Required: project_id, title.",
 			tierRoutine, true),

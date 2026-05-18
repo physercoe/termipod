@@ -415,30 +415,46 @@ func (s *Server) handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
-	proj := chi.URLParam(r, "project")
-	id := chi.URLParam(r, "task")
+// taskSelectSQL is the column list + LEFT JOINs shared by the
+// project-scoped and team-scoped task-get handlers. Append a WHERE
+// clause (and, for the team-scoped path, the projects JOIN).
+const taskSelectSQL = `
+	SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status, t.priority,
+	       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
+	       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
+	       COALESCE(ps.plan_id, ''),
+	       t.created_at, t.updated_at,
+	       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
+	       COALESCE(t.result_summary, ''),
+	       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
+	       COALESCE(ar.handle, '')
+	FROM tasks t
+	LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
+	LEFT JOIN agents ae ON ae.id = t.assignee_id
+	LEFT JOIN agents ar ON ar.id = t.created_by_id`
+
+// scanTask reads one taskOut from a taskSelectSQL row and fills the
+// derived Source field.
+func scanTask(row *sql.Row) (taskOut, error) {
 	var t taskOut
-	err := s.db.QueryRowContext(r.Context(), `
-		SELECT t.id, t.project_id, COALESCE(t.parent_task_id, ''), t.title, t.body_md, t.status, t.priority,
-		       COALESCE(t.assignee_id, ''), COALESCE(t.created_by_id, ''),
-		       COALESCE(t.milestone_id, ''), COALESCE(t.plan_step_id, ''),
-		       COALESCE(ps.plan_id, ''),
-		       t.created_at, t.updated_at,
-		       COALESCE(t.started_at, ''), COALESCE(t.completed_at, ''),
-		       COALESCE(t.result_summary, ''),
-		       COALESCE(ae.handle, ''), COALESCE(ae.status, ''),
-		       COALESCE(ar.handle, '')
-		FROM tasks t
-		LEFT JOIN plan_steps ps ON ps.id = t.plan_step_id
-		LEFT JOIN agents ae ON ae.id = t.assignee_id
-		LEFT JOIN agents ar ON ar.id = t.created_by_id
-		WHERE t.project_id = ? AND t.id = ?`, proj, id).Scan(
+	err := row.Scan(
 		&t.ID, &t.ProjectID, &t.ParentTaskID, &t.Title, &t.BodyMD,
 		&t.Status, &t.Priority, &t.AssigneeID, &t.CreatedByID, &t.MilestoneID,
 		&t.PlanStepID, &t.PlanID, &t.CreatedAt, &t.UpdatedAt,
 		&t.StartedAt, &t.CompletedAt, &t.ResultSummary,
 		&t.AssigneeHandle, &t.AssigneeStatus, &t.AssignerHandle)
+	if err != nil {
+		return t, err
+	}
+	t.Source = taskSourceFor(t.PlanStepID)
+	return t, nil
+}
+
+func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
+	proj := chi.URLParam(r, "project")
+	id := chi.URLParam(r, "task")
+	t, err := scanTask(s.db.QueryRowContext(r.Context(),
+		taskSelectSQL+` WHERE t.project_id = ? AND t.id = ?`, proj, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		writeErr(w, http.StatusNotFound, "task not found")
 		return
@@ -447,7 +463,29 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	t.Source = taskSourceFor(t.PlanStepID)
+	writeJSON(w, http.StatusOK, t)
+}
+
+// handleGetTaskByID resolves a task by its ULID alone, scoped to the
+// team (via the projects join — a bare WHERE t.id would leak across
+// teams). It backs the `tasks_get` MCP tool's project_id-less form,
+// which in turn lets the deprecated `get_task` (bare id) keep working
+// as an alias (ADR-033 W5 / D-4).
+func (s *Server) handleGetTaskByID(w http.ResponseWriter, r *http.Request) {
+	team := chi.URLParam(r, "team")
+	id := chi.URLParam(r, "task")
+	t, err := scanTask(s.db.QueryRowContext(r.Context(),
+		taskSelectSQL+`
+		JOIN projects pj ON pj.id = t.project_id
+		WHERE t.id = ? AND pj.team_id = ?`, id, team))
+	if errors.Is(err, sql.ErrNoRows) {
+		writeErr(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 

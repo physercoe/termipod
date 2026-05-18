@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split). **W1–W4 + W4n shipped** — every MVP tool is now in the unified `ToolSpec` registry: 48 authority-backed tools (`hubmcpserver`'s registry) + 28 native switch-dispatched tools (the `server`-side native registry, W4n). All carry `snake_case` names, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard both registries. W3 closed the security gotcha — `dispatchTool` resolves the canonical name before the `agents_spawn` / `a2a_invoke` literal-name gates. W4n built the native-dispatch path: a `server`-side `nativeHandlers` map keyed by canonical name, CI-locked mutually exhaustive with the native `ToolSpec` list; the `dispatchTool` switch shrank to the protocol cases + `tools.get`. **W5 partly shipped** — D-4 consolidated two of the three duplicate pairs: `list_agents`→`agents_list` and `get_audit`→`audit_read` are now deprecated aliases (re-verified against code: the authority tool already supersedes its native twin, so no field-union merge was needed). The third pair, `get_task`/`tasks_get`, is deferred — it needs a team-scoped task-by-id endpoint so the bare-`id` input contract survives the alias. **Remaining: W5's `get_task` slice + W6** (delete the legacy four-source assembly). Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split). **W1–W4 + W4n shipped** — every MVP tool is now in the unified `ToolSpec` registry: 48 authority-backed tools (`hubmcpserver`'s registry) + 28 native switch-dispatched tools (the `server`-side native registry, W4n). All carry `snake_case` names, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard both registries. W3 closed the security gotcha — `dispatchTool` resolves the canonical name before the `agents_spawn` / `a2a_invoke` literal-name gates. W4n built the native-dispatch path: a `server`-side `nativeHandlers` map keyed by canonical name, CI-locked mutually exhaustive with the native `ToolSpec` list; the `dispatchTool` switch shrank to the protocol cases + `tools.get`. **W1–W5 shipped** — D-4 consolidated all three duplicate pairs: `list_agents`→`agents_list`, `get_audit`→`audit_read`, `get_task`→`tasks_get` are now deprecated aliases (re-verified against code: each authority tool already supersedes its native twin, so no field-union merge was needed). `get_task`'s bare-`id` contract is preserved by a new team-scoped `GET /teams/{team}/tasks/{id}` endpoint that `tasks_get` falls back to when `project_id` is omitted. **Remaining: W6** — delete the legacy four-source assembly, the dead native handlers, and migrate the 18 `templates.*` authority tools. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -216,21 +216,23 @@ twin, so **no field-union merge is needed**.
   gained `action` forwarding (it had only passed `limit`/`since`)
   and its schema cap was corrected 1000→500. `get_audit` is now a
   deprecated alias of `audit_read`.
-- **`tasks_get`** ← `get_task` *(deferred).* `handleGetTask`
-  already returns the full union (`priority`, `plan_step_id`,
-  `source`, `milestone_id`, `parent_task_id`, `assignee_id`,
-  `created_by_id`, …) — no output merge needed. But the *input*
-  differs irreconcilably without new surface: `get_task` takes a
-  bare task `id`; `tasks_get` resolves `GET /projects/{p}/tasks/{t}`
-  and requires `project_id`. Making `get_task` a true D-2 alias
-  needs a team-scoped task-by-id lookup (`GET /teams/{team}/tasks/
-  {id}`) so the bare-`id` contract survives. That endpoint addition
-  is W5's remaining slice.
+- **`tasks_get`** ← `get_task` *(shipped).* `handleGetTask` already
+  returns the full union (`priority`, `plan_step_id`, `source`,
+  `milestone_id`, `parent_task_id`, `assignee_id`, `created_by_id`,
+  …) — no output merge needed. The *input* differed: `get_task`
+  takes a bare task `id`; `tasks_get` resolved
+  `GET /projects/{p}/tasks/{t}` and required `project_id`. W5 added
+  a team-scoped `GET /teams/{team}/tasks/{id}` endpoint (scoped via
+  a `projects` join — a bare `WHERE id` would leak across teams);
+  the `tasks.get` adapter falls back to it when `project_id` is
+  omitted and accepts `id` as a synonym for `task`, so `get_task`'s
+  bare-`id` contract survives the alias. `get_task` is now a
+  deprecated alias of `tasks_get`.
 
 **Acceptance:** each consolidated operation resolves to one tool;
 no field lost; old names alias. The native twins' handlers
-(`mcpListAgents`, `mcpGetAudit`) are left as dead code for W6 to
-delete with the rest of the legacy assembly.
+(`mcpListAgents`, `mcpGetAudit`, `mcpGetTask`) are left as dead
+code for W6 to delete with the rest of the legacy assembly.
 
 #### W6 — Delete the legacy assembly
 

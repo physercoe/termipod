@@ -71,16 +71,15 @@ func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
 	}
 }
 
-// ADR-033 W5 / D-4. The duplicate-pair twins list_agents and
-// get_audit are consolidated: each resolves — via alias — to the
-// authority tool that supersedes it, and no longer exists as a
-// standalone native-registry tool. (get_task / tasks_get is the third
-// pair; it is deferred — see the rollout plan — because tasks_get's
-// project-scoped input cannot yet accept get_task's bare id.)
+// ADR-033 W5 / D-4. All three duplicate-pair twins — list_agents,
+// get_audit, get_task — are consolidated: each resolves, via alias,
+// to the authority tool that supersedes it, and no longer exists as
+// a standalone native-registry tool.
 func TestDuplicatePairsConsolidated(t *testing.T) {
 	cases := []struct{ retired, canonical string }{
 		{"list_agents", "agents_list"},
 		{"get_audit", "audit_read"},
+		{"get_task", "tasks_get"},
 	}
 	for _, c := range cases {
 		spec, found, viaAlias := lookupToolSpec(c.retired)

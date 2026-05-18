@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -505,8 +506,11 @@ func previewA2ABody(raw []byte) string {
 	}
 	for _, p := range env.Params.Message.Parts {
 		if p.Kind == "text" && p.Text != "" {
-			if len(p.Text) > 200 {
-				return p.Text[:200] + "…"
+			// Truncate by runes, not bytes — a byte slice could split
+			// a multi-byte rune mid-way and emit invalid UTF-8 into
+			// the audit row for a non-ASCII A2A body.
+			if utf8.RuneCountInString(p.Text) > 200 {
+				return string([]rune(p.Text)[:200]) + "…"
 			}
 			return p.Text
 		}

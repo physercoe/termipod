@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestTunnel_RelayRoundTrip(t *testing.T) {
@@ -291,8 +292,10 @@ func TestPreviewA2ABody(t *testing.T) {
 	long := strings.Repeat("a", 250)
 	env2 := []byte(`{"params":{"message":{"parts":[{"kind":"text","text":"` + long + `"}]}}}`)
 	got := previewA2ABody(env2)
-	if len(got) != 201 || !strings.HasSuffix(got, "…") {
-		t.Errorf("truncation: len=%d suffix=%q", len(got), got[max(0, len(got)-5):])
+	// 200 truncated runes + the ellipsis rune — count runes, not
+	// bytes ("…" is 3 UTF-8 bytes).
+	if utf8.RuneCountInString(got) != 201 || !strings.HasSuffix(got, "…") {
+		t.Errorf("truncation: runes=%d suffix=%q", utf8.RuneCountInString(got), got[max(0, len(got)-5):])
 	}
 	// Empty / malformed inputs return "".
 	if previewA2ABody(nil) != "" {

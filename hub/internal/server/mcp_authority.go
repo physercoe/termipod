@@ -39,12 +39,6 @@ func (t chiRouterTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return rec.Result(), nil
 }
 
-// authorityToolDefs returns the rich-authority MCP catalog. Appended to
-// mcpToolDefs() in mcp.go.
-func authorityToolDefs() []map[string]any {
-	return hubmcpserver.ToolCatalog()
-}
-
 // hasAuthorityTool reports whether the named tool is part of the
 // rich-authority catalog. Used by dispatchTool to decide whether to
 // fall through after the in-process switch misses.

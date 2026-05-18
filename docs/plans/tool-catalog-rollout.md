@@ -6,7 +6,7 @@ description: Phased rollout of ADR-033 — collapse the MCP tool catalog's four 
 # Tool catalog rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split). **W1–W4 + W4n shipped** — every MVP tool is now in the unified `ToolSpec` registry: 48 authority-backed tools (`hubmcpserver`'s registry) + 28 native switch-dispatched tools (the `server`-side native registry, W4n). All carry `snake_case` names, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard both registries. W3 closed the security gotcha — `dispatchTool` resolves the canonical name before the `agents_spawn` / `a2a_invoke` literal-name gates. W4n built the native-dispatch path: a `server`-side `nativeHandlers` map keyed by canonical name, CI-locked mutually exhaustive with the native `ToolSpec` list; the `dispatchTool` switch shrank to the protocol cases + `tools.get`. **W1–W5 shipped** — D-4 consolidated all three duplicate pairs: `list_agents`→`agents_list`, `get_audit`→`audit_read`, `get_task`→`tasks_get` are now deprecated aliases (re-verified against code: each authority tool already supersedes its native twin, so no field-union merge was needed). `get_task`'s bare-`id` contract is preserved by a new team-scoped `GET /teams/{team}/tasks/{id}` endpoint that `tasks_get` falls back to when `project_id` is omitted. **Remaining: W6** — delete the legacy four-source assembly, the dead native handlers, and migrate the 18 `templates.*` authority tools. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
+> **Status:** Proposed (2026-05-18) — seven wedges, three phases (W4 split). **W1–W4 + W4n shipped** — every MVP tool is now in the unified `ToolSpec` registry: 48 authority-backed tools (`hubmcpserver`'s registry) + 28 native switch-dispatched tools (the `server`-side native registry, W4n). All carry `snake_case` names, dotted names kept as deprecated aliases; catalog, tier, and worker role-eligibility derive from the spec; CI-lock tests guard both registries. W3 closed the security gotcha — `dispatchTool` resolves the canonical name before the `agents_spawn` / `a2a_invoke` literal-name gates. W4n built the native-dispatch path: a `server`-side `nativeHandlers` map keyed by canonical name, CI-locked mutually exhaustive with the native `ToolSpec` list; the `dispatchTool` switch shrank to the protocol cases + `tools.get`. **W1–W5 shipped + W6 partly.** D-4 consolidated all three duplicate pairs (`list_agents`→`agents_list`, `get_audit`→`audit_read`, `get_task`→`tasks_get` — now deprecated aliases; `get_task`'s bare-`id` contract preserved by a new team-scoped `GET /teams/{team}/tasks/{id}` endpoint). W6 then migrated the 18 `templates.*` authority tools — **every authority tool is now registered** (66 authority + 26 native) — and removed the `authorityToolDefs()` composition from `mcpToolDefs()`, CI-locked. **Remaining (W6 tail):** the `mcpToolDefsBase/Extra/orchestrationToolDefs` functions survive only as the native registry's schema source — fully retiring them needs the native schemas authored inline; plus dead-handler deletion, the template-file sweep, and settling the standalone daemon. Implements [ADR-033](../decisions/033-tool-catalog-naming-and-registration.md); the decision rationale and the catalog audit are there and in the [tool-catalog-structure discussion](../discussions/tool-catalog-structure.md).
 > **Audience:** contributors · QA
 > **Last verified vs code:** v1.0.630-alpha (+ ADR-031 W1 `tools.get`)
 
@@ -236,17 +236,29 @@ code for W6 to delete with the rest of the legacy assembly.
 
 #### W6 — Delete the legacy assembly
 
-Remove `mcpToolDefsBase()`, `mcpToolDefsExtra()`,
-`orchestrationToolDefs()`, the `authorityToolDefs()` composition,
-and the explicit `switch` in `dispatchTool` — all now dead, every
-tool served and dispatched through the registry. Settle the
-standalone `hubmcpserver` daemon: either point its `tools/list` at
-the shared registry or scope it down explicitly (it is the
-dev/debug path — discussion §0.1).
+*Partly shipped.* The explicit `dispatchTool` switch is already
+gone (W4n cut it to the protocol cases + `tools.get`). W6's first
+slice migrated the **18 `templates.*` authority tools** — every
+authority tool is now registered — and removed the
+`authorityToolDefs()` composition from `mcpToolDefs()`, CI-locked
+by `TestEveryAuthorityToolRegistered`.
 
-**Acceptance:** one registry is the only source of catalog,
-dispatch, tier, and role-eligibility; `grep` finds no second tool
-list; `go test ./...` green.
+**Remaining.** `mcpToolDefsBase/Extra/orchestrationToolDefs` cannot
+simply be deleted: `nativeToolRegistry()` pulls its
+`Description`/`InputSchema` from them via `legacyNativeDefs()` (no
+schema drift — W4n's design). Fully retiring them means authoring
+each native `ToolSpec`'s schema inline; until then they survive as
+the native registry's schema source, no longer composed as a
+catalog. Also remaining: delete the dead native handlers
+(`mcpListAgents`, `mcpGetAudit`, `mcpGetTask`) and their tests; the
+batched `hub/templates/` + `agentfamilies/` tool-name sweep; and
+settling the standalone `hubmcpserver` daemon (point its
+`tools/list` at the shared registry, or scope it down — discussion
+§0.1).
+
+**Acceptance:** one registry is the source of catalog, dispatch,
+tier, and role-eligibility; no second hand-written tool list is
+composed into `tools/list`; `go test ./...` green.
 
 ### 1.5 Relationship to ADR-031 — W2 is subsumed
 

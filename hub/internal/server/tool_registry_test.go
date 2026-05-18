@@ -71,6 +71,23 @@ func TestDispatchGate_GatedToolNamesResolve(t *testing.T) {
 	}
 }
 
+// ADR-033 W6. mcpToolDefs() no longer composes in authorityToolDefs()
+// — every authority tool must be in the ToolSpec registry, or it
+// silently vanishes from the catalog. This locks that invariant: a
+// new buildTools() tool added without a registry entry trips CI.
+func TestEveryAuthorityToolRegistered(t *testing.T) {
+	for _, d := range hubmcpserver.ToolCatalog() {
+		name, _ := d["name"].(string)
+		if name == "" {
+			continue
+		}
+		if _, ok, _ := hubmcpserver.LookupToolSpec(name); !ok {
+			t.Errorf("authority tool %q is not in the ToolSpec registry — "+
+				"it would be invisible in tools/list (add a spec to toolspec.go)", name)
+		}
+	}
+}
+
 // ADR-033 W5 / D-4. All three duplicate-pair twins — list_agents,
 // get_audit, get_task — are consolidated: each resolves, via alias,
 // to the authority tool that supersedes it, and no longer exists as

@@ -162,20 +162,20 @@ func writeJRPC(w http.ResponseWriter, resp jrpcResp) {
 // --- Tool catalog ---
 
 func mcpToolDefs() []map[string]any {
-	// ADR-033: the catalog is the four hand-written legacy sources
-	// (base / extra / orchestration / authority) minus every tool that
-	// has moved to a registry, plus the registries' own entries. A
-	// name served by either registry — under its canonical name or any
-	// deprecated alias — is dropped from the legacy sources here and
+	// ADR-033: the catalog is the two registries plus whatever is left
+	// in the hand-written legacy sources. Every authority tool is now
+	// registered (W1–W6), so authorityToolDefs() is no longer composed
+	// in — TestEveryAuthorityToolRegistered guards that. The base /
+	// extra / orchestration defs survive only as the native registry's
+	// schema source (legacyNativeDefs); a name served by either
+	// registry — canonical or deprecated alias — is dropped here and
 	// re-emitted by RegistryCatalogDefs / nativeRegistryCatalogDefs, so
-	// each tool is listed exactly once. authorityToolDefs() is the
-	// rich-authority surface imported from hubmcpserver — the same
-	// catalog the standalone daemon exposes, served in-process so
-	// spawned agents need only the single bridge entry in .mcp.json.
+	// each tool is listed exactly once. What remains un-dropped is the
+	// handful not yet in a registry — today only `tools.get`.
 	served := registryServedNames()
 	var all []map[string]any
 	for _, group := range [][]map[string]any{
-		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(), authorityToolDefs(),
+		mcpToolDefsBase(), mcpToolDefsExtra(), orchestrationToolDefs(),
 	} {
 		for _, def := range group {
 			if name, _ := def["name"].(string); served[name] {

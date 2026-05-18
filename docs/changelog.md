@@ -160,6 +160,235 @@ Commit `ca68d99`.
 
 Commit `91cef92`.
 
+## v1.0.623-alpha — 2026-05-17
+
+### Fixed
+
+- **5 HIGH-severity free-form field validators.** Closes the
+  remaining gaps from the v1.0.620 audit — `projects.create`
+  `config_yaml` (template requires non-empty `phases:`),
+  `documents.create.content_inline` (non-empty after trim),
+  `channels.post_event.parts` (non-empty + per-kind required
+  payload), `artifacts.create` / `runs.attach_artifact`
+  `lineage_json` (must be a JSON object), `projects`
+  `policy_overrides_json` (JSON object only). Each rejects
+  malformed payloads with HTTP 422 + structured error instead of
+  writing them silently and stalling downstream consumers.
+
+### Changed
+
+- **MCP description rewrites** for the validated verbs — shape +
+  minimal example + failure mode, per the v1.0.621 hygiene rule.
+
+Commit `544716a`.
+
+## v1.0.622-alpha — 2026-05-17
+
+### Changed
+
+- **Steward prompt spawn examples use the canonical `agents.<name>`
+  form.** `steward.research.v1.md`'s 5 spawn examples used a
+  `<load …>` placeholder an LLM could short-circuit into
+  `template: lit-reviewer.v1` shorthand — which post-v1.0.621
+  returns 422. Rewritten to the explicit
+  `template: agents.lit-reviewer` form. Prompt-only.
+
+Commit `5617132`.
+
+## v1.0.621-alpha — 2026-05-17
+
+### Changed
+
+- **Agent-template naming formalised.** New reference
+  `docs/reference/agent-template-naming.md`: file
+  `<basename>.v<N>.yaml` declares internal
+  `template: agents.<basename>`; the `agents.` prefix is a
+  load-bearing category namespace for string-only contexts.
+  `template_audit.go` enforces filename↔internal-id match at hub
+  start. The v1.0.620 dual-form lookup band-aid is removed —
+  `agents.<basename>` is now the only accepted reference.
+- **MCP description hygiene rule.** `agents.spawn` +
+  `plans.steps.create` descriptions stripped of version markers
+  and `docs/discussions/*` references — the agent only sees
+  current behavior and cannot fetch repo files.
+
+Commit `9745e46`.
+
+## v1.0.620-alpha — 2026-05-17
+
+### Fixed
+
+- **Spawn robustness — 10-wedge bundle closing the coder.v1
+  incident.** A steward sent `spawn_spec_yaml: "template:
+  coder.v1"`; the hub passed it through unchecked, the hostrunner
+  fell to the interactive-bash placeholder, the PaneDriver pumped
+  the task prompt into bash, and the agent entered an unbounded
+  respawn loop. Every layer was permissive; only 1 of 10
+  fail-fasted. Fix validates at every boundary: `renderSpawnSpec`
+  template merge, `launchOne` respawn-loop dedup, hub `DoSpawn`
+  fail-fast on empty `backend.cmd` (HTTP 422), InputRouter
+  system-producer allowlist, plus validators on 7 HIGH-severity
+  free-form fields. See `discussions/validate-at-every-boundary.md`.
+
+Commit `f420bc9`.
+
+## v1.0.619-alpha — 2026-05-17
+
+### Fixed
+
+- **Abandoned tasks auto-derive to `cancelled`, not `done`.**
+  ADR-029 D-3 refined: a `terminated` worker with an empty
+  `result_summary` was abandoned, not finished — flipping it to
+  `done` was a lie. New rule: terminated + summary → `done`;
+  terminated + no summary → `cancelled`; crashed/failed →
+  `blocked`. Audit meta carries `abandoned: true`.
+
+### Changed
+
+- **Project-scoped agent history.** The Agents-tab "Archived"
+  button is now a project-scoped history view (icon → `history`):
+  broadens the filter from archived-only to
+  terminated/crashed/failed-or-archived for that project,
+  most-recent first, so a freshly terminated worker is visible
+  without a separate Archive step.
+
+Commit `cc9a1bd`.
+
+## v1.0.618-alpha — 2026-05-17
+
+### Changed
+
+- **Host-runner logs agent terminate symmetric with spawn.**
+  Added INFO lines `stopping agent driver` / `agent driver
+  stopped` / `agent terminated` so operators see kill evidence in
+  journalctl, matching the existing `agent pane created` spawn
+  line. Log volume only; no behavior change.
+
+Commit `9c80843`.
+
+## v1.0.617-alpha — 2026-05-17
+
+### Fixed
+
+- **`permission_mode` default on MCP spawn.** `agents.spawn`'s MCP
+  schema lacked `permission_mode`, so MCP-spawned workers got an
+  empty `{{permission_flag}}` — claude in `--print` mode then
+  denied Write/Edit/Bash and the worker stalled with no attention
+  item. `backendVarsFromSpec` now rewrites empty mode → `skip`;
+  the schema adds an explicit `permission_mode: {enum: skip,
+  prompt}`.
+
+### Added
+
+- **Library reset menu.** New `POST .../templates/reset` and
+  `.../agent-families/reset` endpoints + a Library AppBar overflow
+  menu let operators pick up fixed bundled templates after a hub
+  upgrade (boot-time write is no-overwrite). User-only files
+  preserved; custom agent-families deleted (dialog flags this).
+
+Commit `eb78e6a`.
+
+## v1.0.616-alpha — 2026-05-17
+
+### Changed
+
+- **Task detail screen collapsed from seven sections to three.**
+  Status×5 + priority×4 chip grids → two compact
+  `PopupMenuButton` pickers in a `_StateRow`; `_SourceSection` +
+  `_TaskAttributionBlock` + `_LinkedWorkSection` folded into one
+  `_AttributionCard`. Fixes the ad_hoc mislabel — spawn-created
+  tasks with an assigner now read "assigned by @…" instead of
+  "Created manually".
+
+Commit `221c658`.
+
+## v1.0.615-alpha — 2026-05-17
+
+### Fixed
+
+- **Per-engine context file (CLAUDE/AGENTS/GEMINI.md).**
+  `resolveContextFiles` hardcoded the rendered prompt into
+  `CLAUDE.md` regardless of backend — but only claude-code reads
+  CLAUDE.md; codex + kimi-code read AGENTS.md, gemini-cli reads
+  GEMINI.md. Every codex/kimi/gemini spawn had shipped a CLAUDE.md
+  the engine never opened, so those stewards ran without their
+  persona + task body. New `contextFileNameForKind` lookup picks
+  the right filename for both the emit and operator-override
+  paths. Expect codex/kimi/gemini stewards to suddenly read their
+  full prompt.
+
+Commit `f73bd32`.
+
+## v1.0.614-alpha — 2026-05-17
+
+### Fixed
+
+- **Task close-out protocol footer.** A coder.v1 worker received a
+  task body saying "do not modify files / create documents /
+  spawn agents", followed it literally, and never called
+  `tasks.complete` — the task sat `in_progress` forever.
+  `renderTaskInstructions` now appends a system-rendered footer
+  with the literal `tasks.complete(...)` /
+  `tasks.update(status='blocked')` calls and the worker's own IDs
+  baked in; footer prose states close-out verbs are orchestration
+  protocol, exempt from task-body `TOOLS:` / `BOUNDARIES:`
+  restrictions. `ml-worker.v1` gains the close-out capability;
+  steward prompts get a BOUNDARIES warning + template-selection
+  guidance.
+
+Commit `6c9ce67`.
+
+## v1.0.613-alpha — 2026-05-17
+
+### Fixed
+
+- **A2A notification flipped to the sender side (`a2a.sent`).**
+  W2.11 originally pushed `a2a.received` into the receiver's
+  session — duplicate content, since the host-runner already
+  delivers the body as `input.text producer='a2a'`. Now the
+  *sender's* session gets a `kind='a2a.sent' producer='system'`
+  event (`→ A2A to @<receiver>: <preview>`) so the sender has an
+  in-chat trace of what it dispatched. Receiver unchanged.
+
+Commit `db928d1`.
+
+## v1.0.612-alpha — 2026-05-17
+
+### Fixed
+
+- **`project_steward_request` resolution fans back to the general
+  steward.** The `/decide` attention-reply allowlist excluded
+  `project_steward_request`, so approving a general steward's
+  delegation resolved the attention but inserted no
+  `input.attention_reply` event — the general steward parked
+  forever. Approve now delivers the spawned project-steward agent
+  id (for A2A); reject delivers `decision=reject` + reason.
+
+Commit `5d237e0`.
+
+## v1.0.611-alpha — 2026-05-16
+
+### Added
+
+- **ADR-029 Phase 1.5 — task delivery + notification edges
+  (D-8).** Worker delivery: task body inlined into the CLAUDE.md
+  `## Task` section + a `producer='user'` event posted after
+  spawn so the worker's first turn fires automatically. Worker
+  close-out: `tasks.complete` MCP verb bundling `status='done'` +
+  `completed_at` + `result_summary`. Assigner notification:
+  `task.notify` system event into the assigner's session on every
+  terminal flip; generalised to `run.notify` (run terminal
+  transitions) and `a2a.sent` (outbound peer message).
+- **ADR-029 Phase 2 — mobile task surfaces.** `_TaskTile` renders
+  the triad (assignee chip + status pip, assigner attribution,
+  relative time; `cancelled` strikethrough + muted).
+  `TaskDetailScreen` gains an attribution block, a linked-work
+  section, and a per-action audit timeline. `handleListTasks` /
+  `handleGetTask` denormalize assignee/assigner via LEFT JOIN.
+  Pull-to-refresh works in the empty state.
+
+Commit `5c26710`.
+
 ## v1.0.610-alpha — 2026-05-16
 
 ### Added

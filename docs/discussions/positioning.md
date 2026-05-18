@@ -1,9 +1,9 @@
 # Positioning & business analysis
 
 > **Type:** discussion
-> **Status:** Open (extended 2026-05-01 — added §1.5 strategic frame)
+> **Status:** Open (extended 2026-05-01 §1.5 strategic frame; reconciled 2026-05-18 — §5 multi-tenant contradiction fixed, §7 README-refresh marked shipped)
 > **Audience:** principal, reviewers, partners
-> **Last verified vs code:** v1.0.350-alpha
+> **Last verified vs code:** v1.0.630
 
 **TL;DR.** Business-side framing. Answers seven positioning
 questions (what is termipod / buyer / differentiator / competitive
@@ -275,7 +275,7 @@ Claude Code, Codex, and Aider write code ten times faster than you can review. T
 
 TermiPod is built on a different axiom: the user is the director, not the operator. You write a natural-language goal on your phone — "ablation sweep on nanoGPT, tell me which optimizer scales better." A steward agent running on your VPS decomposes it into a 6-step plan. You tap Approve. The steward delegates training runs via A2A to your GPU box, even if it's behind NAT. Three hours later, your Inbox has one attention item: a briefing with loss curves and a recommendation. You ratify and go back to dinner.
 
-Everything stays on your infrastructure — the hub is a Go daemon you host, agents run where compute lives, the mobile app is open-source Flutter. Every action is audit-logged, every budget is policy-enforced, and when you're offline the SQLite snapshot cache still shows you the last-known-good dashboard. Agent-agnostic, multi-host, multi-tenant, offline-first, Apache 2.0.
+Everything stays on your infrastructure — the hub is a Go daemon you host, agents run where compute lives, the mobile app is open-source Flutter. Every action is audit-logged, every budget is policy-enforced, and when you're offline the SQLite snapshot cache still shows you the last-known-good dashboard. Agent-agnostic, multi-host, offline-first, Apache 2.0.
 
 ### 90-second elevator demo
 
@@ -308,11 +308,20 @@ These non-goals are a feature, not an omission. They keep TermiPod's scope hones
 
 ## 7. Distribution & SEO
 
-### Current state (diagnosis)
+### Current state (diagnosis) — addressed
 
-- README leads with "Mobile SSH terminal — built for tmux and AI agents." This was true a year ago; today it understates the product by one layer. A reader searching for "mobile agent control plane" bounces; a reader searching for "mobile ssh tmux" arrives but doesn't see the hub story until line 121.
-- Comparison table benchmarks against Termux / JuiceSSH / Termius / ConnectBot — all SSH clients. None of these are the real competitors in 2026. Claude Code Remote Control / Happy / Tactic Remote should be the table.
-- No positioning on the landing page for "multi-agent," "director," "steward," "fleet," "governance." These are the terms the ICP searches for.
+The diagnosis below drove the README rewrite, which has **since
+shipped** (see "README refresh — shipped"). Original diagnosis,
+kept for the record:
+
+- README led with "Mobile SSH terminal — built for tmux and AI
+  agents" — understated the product by one architectural layer.
+- The comparison table benchmarked only SSH clients (Termux /
+  JuiceSSH / Termius / ConnectBot), not the real 2026 competitors.
+- No landing-page positioning for "multi-agent," "director,"
+  "steward," "fleet," "governance" — the terms the ICP searches.
+
+All three are now addressed in `README.md`.
 
 ### SEO terrain (April 2026)
 
@@ -330,14 +339,27 @@ Open territory (low competition, high ICP relevance):
 - *"self-hosted AI coding agent dashboard"* — lightly contested (OpenHands web UI, no mobile).
 - *"mobile SSH tmux AI agents"* — TermiPod already ranks.
 
-### Recommended README changes
+### README refresh — shipped
 
-1. **Replace the one-line pitch.** Stop leading with "Mobile SSH terminal." Lead with: *"Mobile control plane for fleets of AI agents — direct from your phone, a steward coordinates the work, you ratify and review."*
-2. **Add a "What makes it different" section above the screenshots.** 3 bullets: multi-agent fleet, multi-host via A2A, self-hosted Apache 2.0. Link to the elevator demo.
-3. **Add the real 2026 comparison table.** Keep the SSH table as a secondary section for users arriving from SSH queries.
-4. **Put the Termipod Hub section second, not inside "Features".** It's the headline, not a sub-feature.
-5. **Add a "30-second demo" block near the top** — the phone-in-restaurant story from §5, abbreviated.
-6. **Add meta keywords / repo topics**: `claude-code-mobile`, `codex-mobile`, `multi-agent-mobile`, `ai-agent-governance`, `self-hosted-ai-agents`, `director-agent-fleet`.
+All six recommendations below shipped in the README rewrite:
+
+1. Lead pitch replaced — `README.md` now leads with **"Mobile
+   control plane for a fleet of AI agents."**
+2. A **"What makes it different"** section sits above the
+   screenshots (multi-agent / multi-host / director / governance /
+   offline / self-hosted).
+3. The 2026 competitor tables ship in three tiers — session-bridge
+   (Remote Control / Happy / Tactic), messenger-bridge (OpenClaw /
+   Hermes / Channels), and the legacy SSH-client table kept as a
+   secondary section.
+4. The Hub story is promoted out of a "Features" sub-bullet.
+5. A **30-second demo** block runs near the top.
+6. Repo topics + meta keywords are set.
+
+The one item still open is the **screenshot refresh** — the README
+flags its screenshots "outdated, pre-IA-redesign," deferred until
+after the Candidate-A hardware demo
+([screenshot-automation.md](screenshot-automation.md)).
 
 ### Distribution channels ranked by ICP reach
 

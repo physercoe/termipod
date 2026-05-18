@@ -334,6 +334,10 @@ func LookupToolSpec(name string) (spec ToolSpec, found bool, viaAlias bool) {
 // `[]map[string]any` shape mcp.go composes. Each spec yields its
 // canonical entry plus one entry per deprecated alias — the rename
 // stays visible to a client listing tools (ADR-033 D-2).
+//
+// Each entry carries both `short` (the one-line contract, ADR-031 D-1)
+// and the long `description` body. tools/list serves `short`; the long
+// body is fetched per-tool via tools_get (ADR-031 W2.a).
 func RegistryCatalogDefs() []map[string]any {
 	specs := toolRegistry()
 	out := make([]map[string]any, 0, len(specs)*2)
@@ -342,12 +346,14 @@ func RegistryCatalogDefs() []map[string]any {
 		_ = json.Unmarshal(s.InputSchema, &schemaObj)
 		out = append(out, map[string]any{
 			"name":        s.Name,
+			"short":       s.Short,
 			"description": s.Description,
 			"inputSchema": schemaObj,
 		})
 		for _, a := range s.Aliases {
 			out = append(out, map[string]any{
 				"name":        a,
+				"short":       deprecatedPrefix(s.Name) + s.Short,
 				"description": deprecatedPrefix(s.Name) + s.Description,
 				"inputSchema": schemaObj,
 			})

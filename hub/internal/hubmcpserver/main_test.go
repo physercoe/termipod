@@ -36,7 +36,8 @@ func TestToolsList_RoundTrip(t *testing.T) {
 	var resp struct {
 		Result struct {
 			Tools []struct {
-				Name string `json:"name"`
+				Name  string `json:"name"`
+				Short string `json:"short"`
 			} `json:"tools"`
 		} `json:"result"`
 		Error *jsonrpcError `json:"error"`
@@ -50,10 +51,14 @@ func TestToolsList_RoundTrip(t *testing.T) {
 	if want := len(RegistryCatalogDefs()); len(resp.Result.Tools) != want {
 		t.Fatalf("got %d tools, want %d (RegistryCatalogDefs)", len(resp.Result.Tools), want)
 	}
-	// Both the canonical name and its deprecated dotted alias appear.
+	// Both the canonical name and its deprecated dotted alias appear,
+	// and every entry carries a one-line `short` contract (ADR-031 W2.a).
 	names := map[string]bool{}
-	for _, t := range resp.Result.Tools {
-		names[t.Name] = true
+	for _, tl := range resp.Result.Tools {
+		names[tl.Name] = true
+		if tl.Short == "" {
+			t.Errorf("tool %q has an empty short", tl.Name)
+		}
 	}
 	for _, want := range []string{
 		"projects_list", "projects.list", // canonical + deprecated alias

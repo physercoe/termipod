@@ -102,7 +102,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	case "tools/list":
 		writeJRPC(w, jrpcResp{
 			JSONRPC: "2.0", ID: req.ID,
-			Result: map[string]any{"tools": mcpToolDefs()},
+			Result: map[string]any{"tools": mcpToolListDefs()},
 		})
 	case "tools/call":
 		// Pass the path token through to dispatchTool so the
@@ -184,6 +184,32 @@ func mcpToolDefs() []map[string]any {
 		}
 	}
 	return all
+}
+
+// mcpToolListDefs is the slim projection of the catalog served over the
+// wire by tools/list (ADR-031 W2.a). It substitutes each tool's
+// one-line `short` into the MCP-standard `description` field and drops
+// the long body — that body ships in every dispatch's context if left
+// in the catalog (~30KB), so it is fetched per-tool via tools_get
+// instead (~5KB catalog). `description` stays present and meaningful,
+// so a client that reads only `description` keeps working.
+func mcpToolListDefs() []map[string]any {
+	defs := mcpToolDefs()
+	out := make([]map[string]any, 0, len(defs))
+	for _, def := range defs {
+		short, _ := def["short"].(string)
+		entry := map[string]any{
+			"name":        def["name"],
+			"short":       short,
+			"description": short,
+			"inputSchema": def["inputSchema"],
+		}
+		if tier, ok := def["tier"]; ok {
+			entry["tier"] = tier
+		}
+		out = append(out, entry)
+	}
+	return out
 }
 
 // --- Dispatch ---

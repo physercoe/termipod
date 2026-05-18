@@ -641,7 +641,9 @@ func nativeHandlerFor(name string) (nativeHandler, bool) {
 
 // nativeRegistryCatalogDefs renders the native registry as catalog
 // entries in the []map[string]any shape mcpToolDefs() composes — the
-// canonical entry plus one [DEPRECATED] entry per alias.
+// canonical entry plus one [DEPRECATED] entry per alias. Each entry
+// carries both `short` (one-line contract) and the long `description`
+// body; tools/list serves `short` (ADR-031 W2.a).
 func nativeRegistryCatalogDefs() []map[string]any {
 	specs := nativeToolRegistry()
 	out := make([]map[string]any, 0, len(specs))
@@ -650,13 +652,16 @@ func nativeRegistryCatalogDefs() []map[string]any {
 		_ = json.Unmarshal(s.InputSchema, &schemaObj)
 		out = append(out, map[string]any{
 			"name":        s.Name,
+			"short":       s.Short,
 			"description": s.Description,
 			"inputSchema": schemaObj,
 		})
 		for _, a := range s.Aliases {
+			depPrefix := "[DEPRECATED — use " + s.Name + "] "
 			out = append(out, map[string]any{
 				"name":        a,
-				"description": "[DEPRECATED — use " + s.Name + "] " + s.Description,
+				"short":       depPrefix + s.Short,
+				"description": depPrefix + s.Description,
 				"inputSchema": schemaObj,
 			})
 		}

@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 shipped** — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is now done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is small — emit `short` from the catalog functions, and add D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 + W2.a shipped.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** ADR-033 W6 teardown complete (HEAD `4a6e2ce`)
+> **Last verified vs code:** W2.a shipped; ADR-033 W6 teardown complete
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -37,13 +37,14 @@ tail.
 | Phase | # | Wedge | Approx | Depends on |
 |---|---|---|---|---|
 | 1 | W1 | `tools.get` meta-tool | ~80 LOC | — — **✓ shipped** |
-| 1 | W2 | Two-tier descriptions + D-1 structured payload | ~150 LOC (data model done; see W2) | W1 |
+| 1 | W2.a | `tools/list` serves `short` | ~60 LOC | W1 — **✓ shipped** |
+| 1 | W2.b | D-1 structured payload | ~150 LOC | W1, W4 |
 | 1 | W3 | Hint-bearing errors — top 5 paths | ~80 LOC | — |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2 |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
 
-Implementation order is **W1 ✓ → W2 → W3 (parallel) →
-W4 (depends W2) → W5 (depends all)**.
+Implementation order is **W1 ✓ → W2.a ✓ → W3 (parallel) →
+W4 → W2.b (after W4) → W5 (depends all)**.
 
 ---
 
@@ -73,10 +74,12 @@ Consequences for the wedges:
   registry as `tools_get` (canonical) with `tools.get` a deprecated
   alias; the handler `mcpToolsGet` (`server/mcp.go`) still reads the
   composed catalog.
-- **W2** — the `Short` field already exists on `ToolSpec` and is
-  populated for all 92 tools. The work left is (a) make
-  `RegistryCatalogDefs()` / `nativeRegistryCatalogDefs()` emit
-  `short` (today they emit only the long `Description`), and (b) add
+- **W2.a (shipped)** — `RegistryCatalogDefs()` /
+  `nativeRegistryCatalogDefs()` now emit a `short` key alongside the
+  long `description`; the new `mcpToolListDefs()` projection serves
+  `short` (in both the `short` and MCP-standard `description` keys)
+  over `tools/list`, while `mcpToolsGet` keeps reading the full
+  `mcpToolDefs()` so `tools_get` returns the long body. **W2.b** —
   D-1's structured-payload fields — see W2 below.
 - **W5** — the catalog lint walks the composed `mcpToolDefs()`, now
   exactly the two registries. ADR-033's CI-locks (`TestToolRegistry_*`,
@@ -138,41 +141,61 @@ field and it is populated for all 92 tools — the short ↔ long data
 model D-1 specifies exists. What is *not* done is emitting `short`
 and the rest of D-1's structured payload.
 
-**W2.a — emit `short` so `tools/list` shrinks.** Today
-`RegistryCatalogDefs()` / `nativeRegistryCatalogDefs()` emit only the
-long `Description` into the catalog map. Change them to emit a
-`"short"` key (from `ToolSpec.Short`); the MCP `tools/list` response
-returns `short`, while `tools.get` (`mcpToolsGet`) keeps returning
-the long `Description`. This is the ~30KB → ~5KB win. Small — two
-functions, ~20 LOC.
+**W2.a — `tools/list` serves `short` — ✓ shipped.**
+`RegistryCatalogDefs()` / `nativeRegistryCatalogDefs()` now emit a
+`"short"` key (from `ToolSpec.Short`) alongside the long
+`description`. A new projection `mcpToolListDefs()` (`server/mcp.go`)
+substitutes `short` into the MCP-standard `description` field and
+drops the long body; `tools/list` serves that. `tools_get`
+(`mcpToolsGet`) keeps reading the full `mcpToolDefs()`, so it still
+returns the long `Description`. `description` stays present and
+meaningful in `tools/list`, so a client that reads only `description`
+keeps working (no backward-incompat break).
+
+**Verified sizes — the win is the description bytes, not the wire
+total.** Measured across 167 catalog entries: the summed long
+descriptions are **63.5 KB**; the summed `short`s are **13.7 KB** —
+that ~50 KB is what no longer ships in every dispatch's context. The
+*whole* `tools/list` wire only drops 129 KB → 78 KB, because
+`inputSchema` (~52 KB) is the real bulk and the MCP `tools/list` spec
+**requires** it — clients need each schema to construct calls, so it
+cannot be projected out. (The plan's earlier "~30KB → ~5KB" figure
+ignored `inputSchema`; corrected here. Shrinking the schema payload
+is a separate concern, out of scope for ADR-031.)
 
 Convention for `short` (already followed by the populated fields,
 restated for new tools): one present-tense sentence, contract only,
-names required params + canonical input type; ≤ 200 chars. Example:
+names required params + canonical input type; ≤ 200 chars (the
+widest in the catalog today is 181). Example:
 `Fetch a document by id. Required: document_id (ULID).`
 
 **W2.b — D-1 structured payload.** D-1 specifies `tools.get` returns
 more than short + long: `examples`, `failure_modes`, `see_also`, and
 the operational metadata `concurrency_safe` / `side_effecting`
-(`permission_tier` is already covered by `ToolSpec.Tier`). Decide at
-W2 time whether to:
-  - add these as `ToolSpec` fields and populate per tool (full D-1,
-    but ~92 tools of authoring — large), or
-  - ship W2.a now and split the structured-payload authoring into its
-    own wedge sequenced after W4, since the per-persona index (W4) is
-    the higher-leverage discovery fix and does not depend on it.
+(`permission_tier` is already covered by `ToolSpec.Tier`). This adds
+these as `ToolSpec` fields and populates them per tool (~92 tools of
+authoring — large).
 
-Recommendation: the split. W2.a is the cheap catalog-size win;
-W2.b's `failure_modes` authoring naturally fuses with the W3 / W5
-hint work (same `{hint_text, see_tool}` shape).
+**Sequenced after W4** (the split, taken at W2.a ship time): the
+per-persona index (W4) is the higher-leverage discovery fix and does
+not depend on the structured payload, and W2.b's `failure_modes`
+authoring naturally fuses with the W3 / W5 hint work (same
+`{hint_text, see_tool}` shape).
 
-**Acceptance (W2.a):**
-- `tools/list` response is ≤ 5KB across all tools (down from ~30KB).
-- `tools.get` still returns the full long body.
-- No `Short` exceeds 200 chars (W5 lint enforces; spot-check here).
+**Acceptance (W2.a) — met:**
+- `tools/list` carries `short` (≤ 200 chars) in place of the long
+  `description`; the long-body bytes (~50 KB) no longer ship in the
+  catalog. ✓
+- `tools_get` still returns the full long body. ✓
+- No `Short` exceeds 200 chars. ✓ (widest 181)
 
-**Tests:** a payload-size assertion on `tools/list`; `hubmcpserver`'s
-`TestToolsList_RoundTrip` updated for the `short` key.
+**Tests (shipped):** `TestMCP_ToolListDefs_ServesShort`
+(`mcp_tools_get_test.go`) — asserts every `tools/list` entry's
+`description` equals its `short`, the projection drops no tools, the
+summed list descriptions are smaller than the full catalog's, and
+`tools_get` returns a longer body than `short` for the widest tool.
+`hubmcpserver`'s `TestToolsList_RoundTrip` updated to assert each
+entry carries a non-empty `short`.
 
 #### W3 — Hint-bearing errors — top 5 paths
 
@@ -381,7 +404,9 @@ one release; phase 3 in a follow-up):
 - A steward who tries `get_project_doc(path=<ULID>)` gets an
   error naming `documents.get` as the right tool, recovers
   next turn.
-- `tools/list` payload is ≤ 5KB total.
+- `tools/list` carries one-line `short`s, not the long bodies —
+  the ~50 KB of long-description text no longer ships in every
+  dispatch's context.
 - The persona "Tools at a glance" section is present in all 10
   main prompts.
 - The CI lint passes for all tools.

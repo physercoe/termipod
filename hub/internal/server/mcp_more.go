@@ -667,7 +667,7 @@ func (s *Server) mcpAttach(ctx context.Context, raw json.RawMessage) (any, *jrpc
 }
 
 // ---------------------------------------------------------------------
-// get_event / get_task — single-record lookups
+// get_event — single-record lookup
 // ---------------------------------------------------------------------
 
 type idArg struct {
@@ -693,59 +693,6 @@ func (s *Server) mcpGetEvent(ctx context.Context, raw json.RawMessage) (any, *jr
 		return nil, &jrpcError{Code: -32000, Message: err.Error()}
 	}
 	return mcpResultJSON(m), nil
-}
-
-func (s *Server) mcpGetTask(ctx context.Context, raw json.RawMessage) (any, *jrpcError) {
-	var a idArg
-	if err := json.Unmarshal(raw, &a); err != nil || a.ID == "" {
-		return nil, &jrpcError{Code: -32602, Message: "id required"}
-	}
-	var out struct {
-		ID          string         `json:"id"`
-		ProjectID   string         `json:"project_id"`
-		ParentID    sql.NullString `json:"-"`
-		Title       string         `json:"title"`
-		Body        string         `json:"body_md"`
-		Status      string         `json:"status"`
-		AssigneeID  sql.NullString `json:"-"`
-		CreatedByID sql.NullString `json:"-"`
-		MilestoneID sql.NullString `json:"-"`
-		CreatedAt   string         `json:"created_at"`
-		UpdatedAt   string         `json:"updated_at"`
-	}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, project_id, parent_task_id, title, COALESCE(body_md, ''), status,
-		       assignee_id, created_by_id, milestone_id, created_at, updated_at
-		FROM tasks WHERE id = ?`, a.ID).Scan(
-		&out.ID, &out.ProjectID, &out.ParentID, &out.Title, &out.Body, &out.Status,
-		&out.AssigneeID, &out.CreatedByID, &out.MilestoneID, &out.CreatedAt, &out.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, &jrpcError{Code: -32000, Message: "task not found"}
-	}
-	if err != nil {
-		return nil, &jrpcError{Code: -32000, Message: err.Error()}
-	}
-	result := map[string]any{
-		"id":           out.ID,
-		"project_id":   out.ProjectID,
-		"title":        out.Title,
-		"body_md":      out.Body,
-		"status":       out.Status,
-		"created_at":   out.CreatedAt,
-		"updated_at":   out.UpdatedAt,
-		"parent_id":    nullStringOrEmpty(out.ParentID),
-		"assignee_id":  nullStringOrEmpty(out.AssigneeID),
-		"created_by":   nullStringOrEmpty(out.CreatedByID),
-		"milestone_id": nullStringOrEmpty(out.MilestoneID),
-	}
-	return mcpResultJSON(result), nil
-}
-
-func nullStringOrEmpty(s sql.NullString) string {
-	if s.Valid {
-		return s.String
-	}
-	return ""
 }
 
 // ---------------------------------------------------------------------
@@ -796,45 +743,6 @@ func (s *Server) mcpGetParentThread(ctx context.Context, agentID string, raw jso
 		"parent_agent_id": parentID.String,
 		"events":          evts,
 	}), nil
-}
-
-// ---------------------------------------------------------------------
-// list_agents
-// ---------------------------------------------------------------------
-
-type listAgentsArgs struct {
-	ProjectID string `json:"project_id"`
-}
-
-func (s *Server) mcpListAgents(ctx context.Context, team string, raw json.RawMessage) (any, *jrpcError) {
-	var a listAgentsArgs
-	_ = json.Unmarshal(raw, &a)
-	// project_id is accepted but currently ignored — agents are team-scoped
-	// in the schema; we keep the param so future per-project agent scoping
-	// doesn't need a tool-signature change.
-	_ = a.ProjectID
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, handle, kind, status,
-		       COALESCE(host_id, ''), COALESCE(pane_id, ''), created_at
-		FROM agents WHERE team_id = ?
-		ORDER BY created_at DESC`, team)
-	if err != nil {
-		return nil, &jrpcError{Code: -32000, Message: err.Error()}
-	}
-	defer rows.Close()
-	out := []map[string]any{}
-	for rows.Next() {
-		var id, handle, kind, status, hostID, paneID, createdAt string
-		if err := rows.Scan(&id, &handle, &kind, &status, &hostID, &paneID, &createdAt); err != nil {
-			return nil, &jrpcError{Code: -32000, Message: err.Error()}
-		}
-		out = append(out, map[string]any{
-			"id": id, "handle": handle, "kind": kind,
-			"status": status, "host_id": hostID, "pane_id": paneID,
-			"created_at": createdAt,
-		})
-	}
-	return mcpResultJSON(out), nil
 }
 
 // ---------------------------------------------------------------------
@@ -999,36 +907,6 @@ func (s *Server) enqueueSelfLifecycle(ctx context.Context, agentID, cmd string, 
 		"command_id": cmdID,
 		"agent_id":   agentID,
 	}), nil
-}
-
-// ---------------------------------------------------------------------
-// get_audit — unified activity timeline
-// ---------------------------------------------------------------------
-
-type getAuditArgs struct {
-	Action string `json:"action"`
-	Since  string `json:"since"`
-	Limit  int    `json:"limit"`
-}
-
-func (s *Server) mcpGetAudit(ctx context.Context, team string, raw json.RawMessage) (any, *jrpcError) {
-	var a getAuditArgs
-	_ = json.Unmarshal(raw, &a)
-	if team == "" {
-		return nil, &jrpcError{Code: -32602, Message: "team scope required"}
-	}
-	limit := a.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	rows, err := s.listAuditEvents(ctx, team, a.Action, a.Since, "", limit)
-	if err != nil {
-		return nil, &jrpcError{Code: -32000, Message: err.Error()}
-	}
-	if rows == nil {
-		rows = []AuditRow{}
-	}
-	return mcpResultJSON(rows), nil
 }
 
 // ---------------------------------------------------------------------

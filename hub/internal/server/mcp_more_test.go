@@ -385,20 +385,6 @@ func TestMCP_ShutdownSelf_EnqueuesTerminate(t *testing.T) {
 	}
 }
 
-// list_agents returns the seeded agent for the team.
-func TestMCP_ListAgents_ReturnsTeamAgents(t *testing.T) {
-	s, _ := newTestServer(t)
-	_, agentID := seedChannelAndAgent(t, s, "", "")
-	out, jerr := s.mcpListAgents(context.Background(), defaultTeamID, json.RawMessage(`{}`))
-	if jerr != nil {
-		t.Fatalf("list_agents: %+v", jerr)
-	}
-	body := mcpResultTextBody(t, out)
-	if !strings.Contains(body, agentID) {
-		t.Errorf("agent id %q not in result: %s", agentID, body)
-	}
-}
-
 // firstFieldFromMCPResult pulls a top-level string field out of the JSON-
 // serialized MCP tool result (result.content[0].text is a JSON blob).
 func firstFieldFromMCPResult(t *testing.T, out any, key string) string {

@@ -355,16 +355,3 @@ func RegistryCatalogDefs() []map[string]any {
 	}
 	return out
 }
-
-// RegistryBackends returns the set of buildTools() names the registry
-// has taken over — mcp.go excludes these from the authority catalog
-// so a migrated tool is not listed twice.
-func RegistryBackends() map[string]bool {
-	out := map[string]bool{}
-	for _, s := range toolRegistry() {
-		if s.Backend != "" {
-			out[s.Backend] = true
-		}
-	}
-	return out
-}

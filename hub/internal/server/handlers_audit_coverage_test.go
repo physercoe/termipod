@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"testing"
 )
 
@@ -160,13 +159,14 @@ func TestAuditCoverage_RunDocumentReview(t *testing.T) {
 	}
 }
 
-// TestMCPGetAudit_ReturnsTeamScopedRows verifies the MCP get_audit tool
-// returns the same rows as the HTTP handler for the current team, with
-// filter + limit applied.
-func TestMCPGetAudit_ReturnsTeamScopedRows(t *testing.T) {
+// TestListAudit_ActionFilterAndTeamScope verifies listAuditEvents — the
+// query behind the audit_read tool and GET /teams/{team}/audit — returns
+// only the scoped team's rows and honours the action filter. (The MCP
+// get_audit twin was retired in ADR-033 W5; audit_read supersedes it.)
+func TestListAudit_ActionFilterAndTeamScope(t *testing.T) {
 	s, _ := newA2ATestServer(t)
-	// Seed two audit rows directly: one for our team, one for a different team.
-	if _, err := s.db.ExecContext(context.Background(),
+	ctx := context.Background()
+	if _, err := s.db.ExecContext(ctx,
 		`INSERT INTO teams (id, name, created_at) VALUES ('other', 'other', ?)`,
 		NowUTC()); err != nil {
 		t.Fatalf("seed team: %v", err)
@@ -176,7 +176,7 @@ func TestMCPGetAudit_ReturnsTeamScopedRows(t *testing.T) {
 		{defaultTeamID, "document.create"},
 		{"other", "run.create"},
 	} {
-		if _, err := s.db.ExecContext(context.Background(), `
+		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO audit_events (
 				id, team_id, ts, actor_kind, action, summary, meta_json
 			) VALUES (?, ?, ?, 'system', ?, 's', '{}')`,
@@ -185,30 +185,22 @@ func TestMCPGetAudit_ReturnsTeamScopedRows(t *testing.T) {
 		}
 	}
 
-	// No filter — returns our team's rows only.
-	res, jErr := s.mcpGetAudit(context.Background(), defaultTeamID, json.RawMessage(`{}`))
-	if jErr != nil {
-		t.Fatalf("get_audit: %+v", jErr)
+	// No filter — the scoped team's rows only, never the "other" team's.
+	rows, err := s.listAuditEvents(ctx, defaultTeamID, "", "", "", 100)
+	if err != nil {
+		t.Fatalf("list: %v", err)
 	}
-	text := mcpResultJSONText(t, res)
-	if !containsAllStrings(text, "run.create", "document.create") {
-		t.Errorf("expected both actions in result; got %s", text)
-	}
-
-	// action=run.create — filters down.
-	res, jErr = s.mcpGetAudit(context.Background(), defaultTeamID,
-		json.RawMessage(`{"action":"run.create"}`))
-	if jErr != nil {
-		t.Fatalf("get_audit filtered: %+v", jErr)
-	}
-	text = mcpResultJSONText(t, res)
-	if !containsAllStrings(text, "run.create") || containsAllStrings(text, "document.create") {
-		t.Errorf("expected only run.create; got %s", text)
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows for the team, got %d: %+v", len(rows), rows)
 	}
 
-	// Empty team scope — refuses.
-	if _, jErr := s.mcpGetAudit(context.Background(), "", json.RawMessage(`{}`)); jErr == nil {
-		t.Errorf("expected error for empty team scope")
+	// action=run.create — filters down to the one matching row.
+	rows, err = s.listAuditEvents(ctx, defaultTeamID, "run.create", "", "", 100)
+	if err != nil {
+		t.Fatalf("list filtered: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Action != "run.create" {
+		t.Errorf("expected only run.create; got %+v", rows)
 	}
 }
 
@@ -260,30 +252,3 @@ func TestListAudit_FiltersByProjectID(t *testing.T) {
 	}
 }
 
-// mcpResultJSONText pulls the text content out of an mcpResultJSON wrapper.
-func mcpResultJSONText(t *testing.T, res any) string {
-	t.Helper()
-	m, ok := res.(map[string]any)
-	if !ok {
-		t.Fatalf("result not a map: %T", res)
-	}
-	content, ok := m["content"].([]any)
-	if !ok || len(content) == 0 {
-		t.Fatalf("no content: %+v", m)
-	}
-	first, ok := content[0].(map[string]any)
-	if !ok {
-		t.Fatalf("content[0] not a map: %T", content[0])
-	}
-	s, _ := first["text"].(string)
-	return s
-}
-
-func containsAllStrings(haystack string, needles ...string) bool {
-	for _, n := range needles {
-		if !strings.Contains(haystack, n) {
-			return false
-		}
-	}
-	return true
-}

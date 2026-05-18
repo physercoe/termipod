@@ -36,17 +36,6 @@ func ToolCatalog() []map[string]any {
 	return out
 }
 
-// ToolNames returns just the names from buildTools() — useful for tier
-// annotations, schema audits, and feature-flag tables on the hub side.
-func ToolNames() []string {
-	tools := buildTools()
-	out := make([]string, 0, len(tools))
-	for _, t := range tools {
-		out = append(out, t.Name)
-	}
-	return out
-}
-
 // HasTool reports whether the named tool exists in this package's catalog.
 // The hub's MCP dispatcher uses this to decide whether to fall through to
 // Dispatch() before returning "unknown tool".

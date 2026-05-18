@@ -243,18 +243,11 @@ authority tool is now registered — and removed the
 `authorityToolDefs()` composition from `mcpToolDefs()`, CI-locked
 by `TestEveryAuthorityToolRegistered`.
 
-**Remaining.** `mcpToolDefsBase/Extra/orchestrationToolDefs` cannot
-simply be deleted: `nativeToolRegistry()` pulls its
-`Description`/`InputSchema` from them via `legacyNativeDefs()` (no
-schema drift — W4n's design). Fully retiring them means authoring
-each native `ToolSpec`'s schema inline; until then they survive as
-the native registry's schema source, no longer composed as a
-catalog. Also remaining: delete the dead native handlers
-(`mcpListAgents`, `mcpGetAudit`, `mcpGetTask`) and their tests; the
-batched `hub/templates/` + `agentfamilies/` tool-name sweep; and
-settling the standalone `hubmcpserver` daemon (point its
-`tools/list` at the shared registry, or scope it down — discussion
-§0.1).
+**Remaining — planned separately.** The W6 tail (native definition
+unification + legacy-def deletion, dead-handler deletion, the
+template-name sweep, settling the standalone daemon) is laid out as
+its own four-wedge plan:
+[tool-catalog-w6-teardown](tool-catalog-w6-teardown.md).
 
 **Acceptance:** one registry is the source of catalog, dispatch,
 tier, and role-eligibility; no second hand-written tool list is

@@ -6,9 +6,9 @@ description: Lock in the four design picks from the agent-tool-ergonomics discus
 # 031. Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md); D-1 enriched the same day with Claude Code chapter-3 prior art (self-documenting schema + fail-closed operational metadata + deterministic ordering). Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
+> **Status:** Accepted (2026-05-18) — D-1 through D-4 locked in the 2026-05-18 design conversation following the [agent-tool-ergonomics discussion](../discussions/agent-tool-ergonomics.md); D-1 enriched the same day with Claude Code chapter-3 prior art (self-documenting schema + fail-closed operational metadata + deterministic ordering). **Flipped to Accepted v1.0.631-alpha** — the MVP (rollout plan phases 1 + 2: W1, W2.a, W2.b, W3, W4) shipped. Post-MVP polish (W5, W6.b, W2.b.2) tracked in the rollout plan. Companion rollout plan at [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics-rollout.md).
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.630-alpha
+> **Last verified vs code:** v1.0.631-alpha
 
 **TL;DR.** Close the discovery + documentation-depth + error-recovery gap revealed by the 2026-05-18 steward incident (6 turns guessing the right tool to read a doc by ULID) by locking in four design picks: (D-1) every MCP tool ships a **two-tier description** with a structured payload (short + long + schema + examples + failure_modes + see_also), (D-2) the meta-lookup tool is named **`tools.get`** for consistency with `agents.get` / `documents.get` / etc, (D-3) error responses include a **structured `hint` envelope** `{hint_text, see_tool?, see_doc?}` on every 4xx path, and (D-4) **no new input polymorphism** — each tool keeps one canonical input shape; the two existing legacy aliases (`request_decision` → `request_select`, `templates_propose` → `templates.propose`) are grandfathered with a deprecation hint, and no new aliases are added. MVP enables a steward to read a doc by ULID via `documents.get` in one tool call without guessing across `get_project_doc` / `documents_get` / `search` / `journal_read` / etc.
 
@@ -147,7 +147,12 @@ See [`../plans/agent-tool-ergonomics-rollout.md`](../plans/agent-tool-ergonomics
 - **Phase 2 (MVP, 1 wedge):** per-persona intent → tool index in 10 main prompts.
 - **Phase 3 (post-MVP, 1 wedge):** hint pass for remaining 4xx paths + CI catalog lint.
 
-Status flips to `Accepted` when Phase 1 + Phase 2 ship.
+Status flipped to `Accepted` at v1.0.631-alpha — Phase 1 (W1
+`tools.get`, W2.a/W2.b two-tier split + structured payload, W3
+hint-bearing errors) and Phase 2 (W4 per-persona index) shipped.
+Phase 3 polish — W5 (hint pass + catalog lint), W6.b (dangling-ref
+gaps), W2.b.2 (`examples`/`failure_modes` authoring) — remains, and
+does not gate acceptance.
 
 ## 6. References
 

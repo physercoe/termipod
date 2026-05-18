@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-18)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.630
+> **Last verified vs code:** v1.0.631
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,39 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.631-alpha — 2026-05-18
+
+ADR-031 (agent tool ergonomics) — rollout-plan phases 1 + 2, the MVP.
+[ADR-031](decisions/031-agent-tool-ergonomics.md) flipped to Accepted.
+
+### Added
+
+- **Two-tier tool catalog (ADR-031 W2.a + W2.b).** `tools/list` now
+  serves each tool's one-line `short`; the long body is fetched
+  per-tool via `tools_get`. Measured: the long descriptions dropped
+  ~50 KB out of the always-loaded catalog. `tools_get` also returns
+  the D-1 structured payload — `see_also` discovery pointers and the
+  fail-closed `concurrency_safe` / `side_effecting` operational pair,
+  populated for all 92 tools. Commits `51f0b8f`, `df09631`.
+- **Per-persona `## Tools at a glance` index (W4).** All 14 bundled
+  persona prompts gained an intent → tool map — 10 main personas get
+  a full table, the 4 per-engine stewards a one-line `tools_get`
+  pointer. Commit `08b6972`.
+- **Structured recovery hints on 4xx errors (W3).** New `Hint`
+  envelope + `writeErrHint`: a `documents_get` / `get_project_doc`
+  404 names the sibling tool, a role-gate denial names `request_help`,
+  an `agents_spawn` 422 points at `tools_get`. Commit `ce6d58f`.
+
+### Fixed
+
+- **Dangling tool references in bundled persona prompts (W6.a).**
+  Prompts cited names that resolve to no tool — an agent calling them
+  got `unknown tool`. Clean-renamed across `templates/prompts` +
+  `templates/agents`: `documents.read` → `documents_get`,
+  `agents.archive` → `agents_terminate`, `runs.register` →
+  `runs_create`, `attention.create(kind=…)` → `request_help` /
+  `request_select` / `request_approval`. Commit `bc0dd9e`.
 
 ## v1.0.630-alpha — 2026-05-18
 

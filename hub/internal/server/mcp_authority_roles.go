@@ -335,7 +335,7 @@ func (s *Server) authorizeMCPCall(ctx interface{}, agentID, scopeRole, tool stri
 		if role == "steward" || spec.WorkerEligible {
 			return nil
 		}
-		return &jrpcError{Code: -32601, Message: "tool not permitted for role: " + role}
+		return roleDeniedErr(role, tool)
 	}
 	r := activeRoles()
 	if r == nil {
@@ -347,7 +347,22 @@ func (s *Server) authorizeMCPCall(ctx interface{}, agentID, scopeRole, tool stri
 	if r.Allows(role, tool) {
 		return nil
 	}
-	return &jrpcError{Code: -32601, Message: "tool not permitted for role: " + role}
+	return roleDeniedErr(role, tool)
+}
+
+// roleDeniedErr builds the role-gate denial. Unlike an HTTP 4xx body,
+// a JSON-RPC error reaches the agent only as `message` — the `data`
+// field is not reliably surfaced to the model — so the ADR-031 D-3
+// recovery hint is folded into the message text rather than a nested
+// envelope: name the tool, and name the escalation path.
+func roleDeniedErr(role, tool string) *jrpcError {
+	return &jrpcError{
+		Code: -32601,
+		Message: "tool " + tool + " not permitted for role: " + role +
+			" — your role's allow set does not include it. To escalate, " +
+			"call request_help(target='@<parent_handle>', question=...) " +
+			"so a steward can act or widen the grant.",
+	}
 }
 
 // authorizeA2ATarget enforces ADR-016 D4: workers may invoke

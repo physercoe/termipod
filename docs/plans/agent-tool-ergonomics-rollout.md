@@ -6,9 +6,9 @@ description: Phased rollout of the agent-tool-ergonomics design — two-tier des
 # Agent tool ergonomics rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 + W2.a shipped.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
+> **Status:** Proposed (2026-05-18) — three phases, five wedges total. **W1 + W2.a + W3 shipped.** W1 — `tools.get` meta-tool added server-side; the pre-existing `documents.get` missing-tier gap was closed alongside. W2.a — `tools/list` now serves the one-line `short`; the long body is fetched per-tool via `tools_get`. W3 — `Hint` envelope + `writeErrHint`; four discovery-confusable 4xx paths now carry a structured recovery hint (`search` no-results deferred — its `200`-array success shape can't carry a hint without a breaking change). **Reconciled against post-[ADR-033](../decisions/033-tool-catalog-naming-and-registration.md) code** (the W6-teardown landing): ADR-033 is complete — the catalog is now the two `ToolSpec` registries, not the old four `mcpToolDefs*` sources — so §0.1, W1, W2 and W5 are rewritten to that topology. **W2's data model is done**: every `ToolSpec` carries a populated `Short` field (it rode in with the ADR-033 migration, which ADR-033's plan flagged as subsuming ADR-031 W2's per-tool work). Remaining W2 is W2.b — D-1's structured-payload fields. Companion discussion at [`../discussions/agent-tool-ergonomics.md`](../discussions/agent-tool-ergonomics.md); the failure-mode taxonomy + recommendation are there.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** W2.a shipped; ADR-033 W6 teardown complete
+> **Last verified vs code:** W1 + W2.a + W3 shipped; ADR-033 W6 teardown complete
 
 **TL;DR.** Close the discovery / depth / error-recovery gap
 revealed by the 2026-05-18 steward incident (6 turns guessing
@@ -39,11 +39,11 @@ tail.
 | 1 | W1 | `tools.get` meta-tool | ~80 LOC | — — **✓ shipped** |
 | 1 | W2.a | `tools/list` serves `short` | ~60 LOC | W1 — **✓ shipped** |
 | 1 | W2.b | D-1 structured payload | ~150 LOC | W1, W4 |
-| 1 | W3 | Hint-bearing errors — top 5 paths | ~80 LOC | — |
+| 1 | W3 | Hint-bearing errors — top paths | ~90 LOC | — — **✓ shipped** |
 | 2 | W4 | Per-persona intent → tool index | ~250 prose | W2 |
 | 3 | W5 | Hint pass + CI lint | ~150 LOC | W1, W2, W3 |
 
-Implementation order is **W1 ✓ → W2.a ✓ → W3 (parallel) →
+Implementation order is **W1 ✓ → W2.a ✓ → W3 ✓ →
 W4 → W2.b (after W4) → W5 (depends all)**.
 
 ---
@@ -197,35 +197,38 @@ summed list descriptions are smaller than the full catalog's, and
 `hubmcpserver`'s `TestToolsList_RoundTrip` updated to assert each
 entry carries a non-empty `short`.
 
-#### W3 — Hint-bearing errors — top 5 paths
+#### W3 — Hint-bearing errors — top paths — ✓ shipped
 
-Add a `hint` field to the 5 worst error paths surfaced by the
-2026-05-18 incident and similar:
+> **Shipped.** The `Hint` envelope + `writeErrHint` helper landed in
+> `server/server.go`; four of the five paths below carry a hint. Path 3
+> (`search` no-results) is **deferred** — see the note under it.
 
-1. `get_project_doc` 404 with ULID-shaped path → "this tool
-   reads filesystem files; for document ULIDs use
-   documents.get".
-2. `documents.get` 404 → "this tool reads docs from the
-   documents table; for filesystem files under docs_root use
-   get_project_doc".
-3. `search` no-results → "try a shorter query; or list via
-   get_feed / documents.list for full enumeration".
-4. Any permission_denied (403) on a worker-called tool → "your
-   role lacks this capability (see roles.yaml worker.allow). To
-   escalate, call request_help(target='@parent_handle',
-   question=...)".
-5. `agents.spawn` 422 missing field → already names the field
-   (v1.0.620 W4); add hint: "see tools.get('agents.spawn')
-   for the full spec or use spawn_spec_yaml: 'template:
-   agents.coder' as a starting shape".
+Add a structured recovery `hint` to the worst error paths surfaced by
+the 2026-05-18 incident and similar:
 
-**Implementation site:** the relevant handlers in
-`hub/internal/server/handlers_*.go`. Each adds a `hint` field
-to its 4xx return shape.
+1. **✓** `get_project_doc` 404 (`handleGetProjectDoc`, file not found) →
+   hint names `documents_get`: a ULID is not a filesystem path, fetch
+   it by id instead.
+2. **✓** `documents_get` 404 (`handleGetDocument`, no such row) → hint
+   names `get_project_doc`: for a file under the project's `docs_root`,
+   use the filesystem-path tool.
+3. **deferred** `search` no-results → "try a shorter query; or list via
+   `get_feed` / `documents_list`". **Why deferred:** `GET /v1/search`
+   returns a JSON *array* on success, and a zero-result search is a
+   `200`, not a `4xx`. Attaching a `hint` means changing the success
+   shape to an object (`{results: [...], hint: {...}}`) — a breaking
+   change to a list endpoint, inconsistent with every other list tool.
+   Out of scope for a hint-on-4xx wedge; revisit if/when `search`'s
+   response shape is reworked, or surface it as its own decision.
+4. **✓** Role-gate denial on a worker-called tool (`authorizeMCPCall`,
+   `roleDeniedErr`) → the message names the tool and the escalation
+   path: `request_help(target='@<parent_handle>', question=...)`.
+5. **✓** `agents_spawn` 422 (missing `backend.cmd`) → the existing
+   error (which already names the field, v1.0.620 W4) gained a tail:
+   "Call `tools_get('agents_spawn')` for the full input shape."
 
-**Hint envelope (extending `writeErr` in `server/server.go`, or
-paralleling it).** Per ADR-031 D-3 the hint is a *nested* structured
-object, not flat fields:
+**Hint envelope.** Per ADR-031 D-3 the hint is a *nested* structured
+object on the 4xx body:
 
 ```go
 writeErrHint(w, status, message, Hint{HintText: "...", SeeTool: "..."})
@@ -236,14 +239,20 @@ writeErrHint(w, status, message, Hint{HintText: "...", SeeTool: "..."})
 ```
 
 `hint_text` is required when `hint` is present; `see_tool` / `see_doc`
-are optional but at least one of the three must carry actionable
-signal.
+are optional but at least one of the three carries actionable signal.
+A client that ignores `hint` still reads `error` exactly as before.
 
-**Acceptance:** each of the 5 cases above returns the named
-hint when reproduced via test.
+**Exception — the role gate (path 4).** A JSON-RPC error reaches the
+agent only as `message`; the `data` field is not reliably surfaced to
+the model. So the role-gate hint is folded into the `jrpcError.Message`
+text rather than a nested `Hint` envelope — the envelope is an
+HTTP-body construct. `roleDeniedErr(role, tool)` builds the message.
 
-**Tests:** per-handler test that asserts the hint string is
-present and names the suggested tool.
+**Tests (shipped):** `mcp_error_hints_test.go` —
+`TestErrorHint_GetDocument_NotFound`,
+`TestErrorHint_GetProjectDoc_NotFound`,
+`TestErrorHint_RoleDenied_NamesEscalation`; plus a `tools_get`
+assertion added to `TestDoSpawn_FailFast_NoBackendBlock`.
 
 ### Phase 2 — Index
 

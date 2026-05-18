@@ -120,7 +120,16 @@ func (s *Server) handleGetProjectDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := os.ReadFile(target)
 	if errors.Is(err, os.ErrNotExist) {
-		writeErr(w, http.StatusNotFound, "doc not found")
+		// get_project_doc reads files on disk under the project's
+		// docs_root; documents_get reads rows from the documents
+		// table. A ULID passed here is the classic confusion (the
+		// 2026-05-18 steward incident) — name the sibling tool.
+		writeErrHint(w, http.StatusNotFound, "doc not found", Hint{
+			HintText: "No file at this path under the project's docs_root. " +
+				"If you have a document id (a 26-char ULID), it is not a " +
+				"filesystem path — fetch it with documents_get instead.",
+			SeeTool: "documents_get",
+		})
 		return
 	}
 	if err != nil {

@@ -552,6 +552,26 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// Hint is the structured recovery envelope carried on a 4xx error
+// (ADR-031 D-3). HintText is required; SeeTool / SeeDoc are optional
+// but at least one of the three should carry actionable signal — the
+// point of a hint is to tell the caller what to do next.
+type Hint struct {
+	HintText string `json:"hint_text"`
+	SeeTool  string `json:"see_tool,omitempty"`
+	SeeDoc   string `json:"see_doc,omitempty"`
+}
+
+// writeErrHint writes a 4xx error with a structured recovery hint:
+//
+//	{"error": msg, "hint": {"hint_text": ..., "see_tool": ...}}
+//
+// It is the hint-bearing sibling of writeErr (ADR-031 W3). A client
+// that ignores the hint key still reads `error` exactly as before.
+func writeErrHint(w http.ResponseWriter, status int, msg string, hint Hint) {
+	writeJSON(w, status, map[string]any{"error": msg, "hint": hint})
+}
+
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"server_version":            ServerVersion,

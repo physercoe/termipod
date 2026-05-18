@@ -49,6 +49,11 @@ func TestDoSpawn_FailFast_NoBackendBlock(t *testing.T) {
 	if !strings.Contains(err.Error(), "backend.cmd") {
 		t.Errorf("error = %q; should name backend.cmd", err.Error())
 	}
+	// W3 (ADR-031): the 422 also points at tools_get for the full
+	// input shape, so a steward can recover without guessing.
+	if !strings.Contains(err.Error(), "tools_get") {
+		t.Errorf("error = %q; should point at tools_get('agents_spawn')", err.Error())
+	}
 }
 
 func TestDoSpawn_FailFast_BackendBlockNoCmd(t *testing.T) {

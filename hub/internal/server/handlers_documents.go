@@ -231,7 +231,16 @@ func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 		&d.ID, &d.ProjectID, &d.Kind, &schemaID, &d.Title, &d.Version,
 		&prev, &inline, &artifact, &author, &d.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeErr(w, http.StatusNotFound, "document not found")
+		// documents_get reads the documents table; get_project_doc
+		// reads files under the project's docs_root. If the id was
+		// actually a filesystem path, name the sibling tool.
+		writeErrHint(w, http.StatusNotFound, "document not found", Hint{
+			HintText: "No document row with that id. The id must be a " +
+				"document ULID (e.g. from a documents_list row or a " +
+				"tasks_complete summary). For a file path under the " +
+				"project's docs_root, use get_project_doc instead.",
+			SeeTool: "get_project_doc",
+		})
 		return
 	}
 	if err != nil {

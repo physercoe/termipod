@@ -136,6 +136,11 @@ YAML file, not Go code.
   collision-prone terms (`lint-glossary.sh` enforces it). When a term
   is ambiguous, or a needed concept has no clear name, raise the gap
   for discussion — don't settle for a vague or overloaded word.
+- **Fix the root cause, not the symptom.** When fixing a bug, reflect
+  on *why* it happened and what class of bug it belongs to; fix the
+  class, not just the instance. When the cause is a system-wide gap
+  or a load-bearing design issue, surface it for discussion (a
+  discussion doc or an ADR) instead of patching locally.
 - **English only** — all code, comments, and docs.
 - **Docs** follow `docs/doc-spec.md`; read `docs/README.md` first.
   Reorgs go in their own `docs:`-prefixed commits.

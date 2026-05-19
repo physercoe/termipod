@@ -1659,6 +1659,71 @@ Scenario 25 (exit 0, stay down) and Scenario 26 (exit 75, new binary).
 
 ---
 
+## Scenario 29 — Mobile Admin pane drives the fleet (ADR-028 Phase 5)
+
+**Goal:** confirm the owner can drive Phases 1-4 from the mobile app —
+the Admin pane lists the fleet, the long-press-slide gesture gates
+every destructive action, and each action lands in the audit log with
+the operator's identity.
+
+**Pre-conditions:** the smoke-test fleet has at least **one host**
+running under systemd, each with an active steward session. The mobile
+app is connected with an **owner-scope** token. Have a **member-scope**
+token ready for the negative check.
+
+**Steps:**
+
+1. Open the **Hosts** tab → tap the hub identity row → **Hub** detail
+   screen. Confirm the AppBar shows three actions: **Hub config**,
+   **Admin** (`admin_panel_settings` icon), **Refresh**.
+2. Tap **Admin**. The pane loads three bands: FLEET actions, a per-host
+   card list (each host with live/version/ping), and a RECENT ADMIN
+   ACTIONS strip.
+3. **Plain tap** any action tile (e.g. "Shutdown all hosts"). Nothing
+   fires — a SnackBar shows the gesture hint. This is the W24
+   accidental-tap guard.
+4. **Long-press + slide right** on a per-host "Restart" tile. The
+   progress bar fills as you slide; release past the end and the verb
+   fires. The SnackBar reports `restart acked`; the host respawns
+   (Scenario 28's exit-75 contract).
+5. The RECENT ADMIN ACTIONS strip refreshes with the new `host.restart`
+   row. Tap the strip header → the **Audit log** screen opens.
+6. In the Audit log, set the **action** filter to `host` and the
+   **window** to `24h` — the list narrows to the host verbs. The actor
+   column shows the owner handle.
+7. **Negative check:** reconnect the app with the member-scope token,
+   reopen the Admin pane. It loads but shows
+   *"The Admin pane requires an owner-kind token."* — the hub's own 403
+   surfaced, no pre-probe.
+
+**Expected:**
+
+- No destructive action fires on a plain tap — only the long-press +
+  slide commit gesture does.
+- Per-host buttons are disabled (dimmed) for offline hosts.
+- Every action writes an `audit_events` row attributed to the owner;
+  the row is visible in both the Admin strip and the Audit log screen.
+- A member token gets a clear owner-required message, never a fleet
+  action.
+
+**Failure modes:**
+
+- **A tap fires the action** → `ConfirmActionTile` is wired as a button;
+  destructive actions must route through the long-press-slide gesture.
+- **Admin pane is a sixth bottom-nav tab** → wrong surface; it must be
+  an AppBar action on `HubDetailScreen` (the five-tab IA is fixed).
+- **Member token can shutdown the fleet** → `requireOwner` is missing
+  on an `/v1/admin/*` route — re-audit `server.go` route registration.
+- **Audit row missing** → the per-host handler bypassed
+  `stopOneHost` / `updateOneHost`; those own the audit write.
+
+**Why this scenario:** Phase 5 is the only ADR-028 phase a non-CLI
+operator can reach. It proves the owner gate, the deliberate-commit
+gesture, and the audit trail all hold on the surface most exposed to a
+fat-finger.
+
+---
+
 ## Scenario 30 — Spawn-with-task surfaces on the Tasks tab (ADR-029)
 
 **Goal:** confirm that asking a project steward to spawn a worker

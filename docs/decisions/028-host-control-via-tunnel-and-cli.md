@@ -1,9 +1,9 @@
 # 028. Host control via the tunnel + a CLI ops surface
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-19) — D-1 through D-6 locked 2026-05-16; Phases 1-4 shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha); Phase 5 (mobile Admin pane) outstanding. See [Implementation status](#implementation-status).
+> **Status:** Accepted (2026-05-19) — D-1 through D-6 locked 2026-05-16; all five phases shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha, v1.0.636-alpha). See [Implementation status](#implementation-status).
 > **Audience:** contributors · operators
-> **Last verified vs code:** v1.0.635-alpha
+> **Last verified vs code:** v1.0.636-alpha
 
 **TL;DR.** Promote the A2A long-poll tunnel
 (`/v1/teams/{team}/a2a/tunnel/next`+`/responses`) into a host RPC
@@ -382,7 +382,7 @@ trust model.
 | 2 — `self-update` + `update-all` | **Shipped v1.0.634-alpha** (W5.5–W10) | below |
 | 3 — `restart-all` | **Shipped v1.0.634-alpha** (W11–W12) | below |
 | 4 — ops fleet (doctor/version/hosts/logs/agents/db/tokens) | **Shipped v1.0.635-alpha** (W13–W21) | [plan §5](../plans/hub-host-control-cli.md) |
-| 5 — mobile Admin pane | Not started | — |
+| 5 — mobile Admin pane | **Shipped v1.0.636-alpha** (W22–W26) | [plan §6](../plans/hub-host-control-cli.md) |
 
 **Phase 1 landed slightly differently from the plan's W1/W3
 sketch — what actually shipped:**
@@ -402,9 +402,10 @@ sketch — what actually shipped:**
   endpoint — so Phase 5's mobile pane reuses the same hub logic
   rather than reimplementing it. Hub-side, `enqueueHostVerb`
   (`tunnel_a2a.go`) pushes the verb onto the host's tunnel queue.
-- Only `/v1/admin/fleet/shutdown` exists today; the per-host
-  `/v1/admin/host/{id}/*` routes the plan's W22 anticipates are
-  still Phase 5.
+- Phase 1 shipped only `/v1/admin/fleet/shutdown`; the per-host
+  control routes followed in Phase 5 W22 as
+  `/v1/admin/hosts/{host}/{shutdown,restart,update}` (plural
+  prefix, matching the Phase 4 `hosts/{host}/ping` route).
 - W2.5's `stopSessionInternal` extract landed in
   `server/handlers_agents.go`; W4's exit-code contract is
   documented atop both `main.go` files; W5's Scenario 25 is in

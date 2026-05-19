@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-19)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.635
+> **Last verified vs code:** v1.0.636
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,49 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.636-alpha — 2026-05-19
+
+The mobile Admin pane — [ADR-028](decisions/028-host-control-via-tunnel-and-cli.md)
+Phase 5, the last phase. The hub owner can now drive the fleet
+(shutdown / update / restart / token-rotate / db-vacuum) from the
+phone, not just the CLI. ADR-028 is now fully shipped.
+
+### Added
+
+- **Mobile Admin pane (ADR-028 W23).** New `lib/screens/admin/`
+  surface, reached from a new **Admin** AppBar action on the Hub
+  detail screen — beside the existing "Hub config" button, *not* a
+  sixth bottom-nav tab. Three bands: fleet-wide actions, a per-host
+  card list (live / version / ping), and a recent-admin-actions audit
+  strip. Owner-scope: a member token sees an "owner token required"
+  message — the screen surfaces the hub's 403, it does not pre-probe.
+- **`ConfirmActionTile` gesture widget (W24).** Every destructive
+  admin action requires a deliberate **long-press + slide** — a
+  progress fill grows under the tile during the slide; release early
+  and nothing fires. A plain tap only shows the gesture hint. Guards
+  the fat-finger fleet shutdown.
+- **Audit-log query screen (W25).** `admin_audit_screen.dart` —
+  filterable cross-team view of `audit_events` by action prefix,
+  target kind, time window, and actor handle.
+- **Phase 5 admin REST endpoints (W22).** Per-host control routes
+  `POST /v1/admin/hosts/{host}/{shutdown,restart,update}`,
+  `POST /v1/admin/db/vacuum` (VACUUMs the live database), and
+  `GET /v1/admin/audit` (owner-scope cross-team audit query with
+  left-anchored action-prefix match). All owner-gated; member tokens
+  get 403.
+- **Scenario 29** in `test-steward-lifecycle.md` — the mobile-admin
+  happy path, the plain-tap guard, offline-host disable, the audit
+  trail, and the member-token 403 negative check.
+
+### Changed
+
+- The fleet shutdown/restart and update orchestrators were refactored
+  around shared `stopOneHost` / `updateOneHost` helpers, so a per-host
+  action produces the identical session-stop + `audit_events` trail as
+  the fleet-wide path.
 
 ---
 

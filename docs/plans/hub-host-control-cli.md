@@ -1,9 +1,9 @@
 # Hub + host control CLI — phased rollout
 
 > **Type:** plan
-> **Status:** Active (2026-05-19) — Phases 1-4 shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha); Phase 5 outstanding. ADR-028 captures the locked decisions.
+> **Status:** Complete (2026-05-19) — all five phases shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha, v1.0.636-alpha). ADR-028 captures the locked decisions; §7 lists the out-of-scope follow-ups.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.635-alpha
+> **Last verified vs code:** v1.0.636-alpha
 
 **TL;DR.** Add ops subcommands to `hub-server` and `host-runner`
 so the operator can take the whole fleet down, push a new
@@ -27,7 +27,7 @@ the locked decisions are in
 | 2 | ✅ shipped v1.0.634 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
 | 3 | ✅ shipped v1.0.634 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
 | 4 | ✅ shipped v1.0.635 | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~9 wedges | independent |
-| 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
+| 5 | ✅ shipped v1.0.636 | Mobile Admin pane (Flutter) — AppBar action on `HubDetailScreen` + `ConfirmActionTile` + audit query screen + per-host/db/audit admin endpoints | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
 5 is gated on the REST endpoints being stable.
@@ -450,21 +450,35 @@ The hub owner can drive Phases 1-4 from the mobile app.
 
 ### 6.2 Wedges
 
-**W22. Admin REST endpoints (~120 LOC).**
-- `fleet/shutdown` already shipped in Phase 1
-  (`POST /v1/admin/fleet/shutdown`, `handleAdminFleetShutdown`).
-  W22 adds the rest under `/v1/admin/`: `host/{id}/shutdown`,
-  `host/{id}/update`, `host/{id}/restart`, `fleet/update`,
-  `fleet/restart`, `db/vacuum`, `tokens/rotate`.
+**W22. Admin REST endpoints (~120 LOC).** ✅ shipped v1.0.636.
+- `fleet/shutdown`/`update`/`restart` and `tokens/rotate` already
+  shipped in Phases 1-4. W22 added the remaining routes under
+  `/v1/admin/`: `hosts/{host}/shutdown`, `hosts/{host}/restart`,
+  `hosts/{host}/update`, `db/vacuum`, and a cross-team audit query
+  `GET /v1/admin/audit` (action-prefix match — the team-scoped
+  `/v1/teams/{team}/audit` only matches `action` exactly).
+- *Divergence from the sketch:* route prefix is `hosts/{host}/…`
+  (plural, `{host}` param) to match the Phase 4
+  `hosts/{host}/ping` route, not the `host/{id}/…` of the sketch.
+- The per-host shutdown/restart/update handlers delegate to the
+  refactored `stopOneHost` / `updateOneHost` helpers extracted
+  from the fleet handlers — so a per-host action produces the
+  identical session-stop + `audit_events` trail as the fleet path.
 - All owner-scope (`requireOwner`, the Phase 1 gate). Member
   tokens get 403.
-- All write `audit_events` rows.
 
-**W23. Mobile Admin tab (~400 LOC Flutter).**
+**W23. Mobile Admin pane (~400 LOC Flutter).** ✅ shipped v1.0.636.
 - New `lib/screens/admin/admin_screen.dart` and supporting
   widgets.
-- Visible only when bearer is owner-scope (probe via
-  `/v1/auth/whoami` → `scope:"owner"`).
+- **Reached from a second AppBar action on `HubDetailScreen`**
+  (`lib/screens/hosts/hub_detail_screen.dart`), sitting next to
+  the existing "Hub config (owner)" `Icons.tune` button — *not*
+  a sixth bottom-nav tab (the five-tab IA is fixed) and *not* a
+  whoami pre-probe. This matches the established owner-action
+  idiom: the button shows unconditionally and the `AdminScreen`
+  itself surfaces the 403 ("requires an owner-kind token"), the
+  same way `HubRolesConfigScreen` does. Governance config and
+  fleet admin share one owner audience and one entry surface.
 - Per-host status row pulling from `/v1/admin/hosts` (extends
   Phase 4 W15 endpoint).
 - Buttons per row + fleet-wide buttons. **Long-press + slide**
@@ -473,23 +487,28 @@ The hub owner can drive Phases 1-4 from the mobile app.
 - Audit-log strip at the bottom listing the last 50 admin
   actions pulled from `audit_events?action=host.*`.
 
-**W24. Confirmation gesture widget (~80 LOC Flutter).**
-- Reusable `ConfirmActionTile` that requires long-press +
-  horizontal slide to fire. Visual progress bar fills during the
-  slide.
-- Used for "Shutdown all", "Update all", "Restart all",
-  "Rotate tokens".
+**W24. Confirmation gesture widget (~80 LOC Flutter).** ✅ shipped v1.0.636.
+- `lib/screens/admin/confirm_action_tile.dart` —
+  `ConfirmActionTile` requires long-press + horizontal slide to
+  fire. A progress fill grows under the tile during the slide;
+  release before the threshold and nothing happens. A plain tap
+  surfaces the gesture hint via SnackBar — it never fires.
+- Used for every fleet-wide and per-host action in W23.
 
-**W25. Audit-log query screen (~100 LOC Flutter).**
-- Filterable view of `audit_events` from mobile.
-- Filters: action prefix, target_kind, time range, actor.
-- Useful beyond the Admin pane; surfaces from the Activity tab
-  too.
+**W25. Audit-log query screen (~100 LOC Flutter).** ✅ shipped v1.0.636.
+- `lib/screens/admin/admin_audit_screen.dart` — filterable view
+  of `audit_events` over `GET /v1/admin/audit`.
+- Filters: action prefix, target_kind, time window, actor handle.
+- Reached from the Admin pane's AppBar and its audit strip.
+- *Divergence:* the "surfaces from the Activity tab too" idea is
+  deferred — the Activity tab is team-scoped and member-visible,
+  whereas this screen is the owner-scope cross-team query. Wiring
+  it into Activity would need a scope split; left as a follow-up.
 
-**W26. Lifecycle test scenario.**
-- Scenario 29: mobile admin happy path — owner taps "Update
-  all", confirms via long-press, verifies fleet upgrade and audit
-  trail.
+**W26. Lifecycle test scenario.** ✅ shipped v1.0.636.
+- Scenario 29 in `test-steward-lifecycle.md`: the mobile admin
+  happy path plus the plain-tap guard, the offline-host disable,
+  the audit trail, and the member-token 403 negative check.
 
 ### 6.3 Acceptance
 
@@ -513,6 +532,11 @@ The hub owner can drive Phases 1-4 from the mobile app.
 - **Cross-host log streaming** — `logs tail --host <id>` over a
   streaming tunnel verb. W16 shipped local-only; this needs the
   request/response tunnel to gain a streaming/chunked mode.
+- **Audit screen on the Activity tab** — W25's audit query screen
+  is owner-scope and cross-team; surfacing it from the
+  (team-scoped, member-visible) Activity tab needs a scope split.
+- **`serve --no-migrate`** — the Phase 4 W19 opt-out, still
+  deferred (would need a `server.New` refactor).
 
 ## 8. Status forward-links
 

@@ -96,6 +96,13 @@ func New(cfg Config) (*Server, error) {
 	if err := writeBuiltinTemplates(cfg.DataRoot); err != nil {
 		cfg.Logger.Warn("seed builtin templates", "err", err)
 	}
+	// Seed + load the editable loop-hooks overlay (ADR-034 §7). The
+	// bundled default is the seed; an operator edits
+	// <dataRoot>/loop-hooks.yaml and SIGHUP hot-reloads it.
+	if err := writeLoopHooksDefault(cfg.DataRoot); err != nil {
+		cfg.Logger.Warn("seed loop-hooks.yaml", "err", err)
+	}
+	loopHooksConfig.Store(loadLoopHooks(cfg.DataRoot))
 	s := &Server{cfg: cfg, db: db, log: cfg.Logger, bus: newEventBus()}
 	// Operation-scope manifest (ADR-016) — load embedded + overlay so
 	// dispatchTool's role-gating middleware has a manifest to consult.
@@ -156,6 +163,8 @@ func (s *Server) Serve(ctx context.Context) error {
 					s.policy.reload()
 					s.log.Info("policy reloaded")
 				}
+				loopHooksConfig.Store(loadLoopHooks(s.cfg.DataRoot))
+				s.log.Info("loop-hooks reloaded")
 			}
 		}
 	}()

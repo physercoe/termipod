@@ -2,9 +2,55 @@ package server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestLoadLoopHooks_Overlay(t *testing.T) {
+	// No overlay → the bundled default (both hooks enabled).
+	def := loadLoopHooks("")
+	if !def.PreAgentIdle.Enabled || !def.PostDirectiveOutcome.Enabled {
+		t.Fatalf("the bundled default should enable both hooks: %+v", def)
+	}
+
+	// An on-disk overlay overrides the default without a rebuild.
+	dir := t.TempDir()
+	overlay := "pre_agent_idle:\n  enabled: false\n" +
+		"post_directive_outcome:\n  enabled: true\n  min_synthesis_chars: 99\n"
+	if err := os.WriteFile(filepath.Join(dir, "loop-hooks.yaml"),
+		[]byte(overlay), 0o644); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
+	got := loadLoopHooks(dir)
+	if got.PreAgentIdle.Enabled {
+		t.Error("the overlay should have disabled PreAgentIdle")
+	}
+	if got.PostDirectiveOutcome.MinSynthesisChars != 99 {
+		t.Errorf("overlay min_synthesis_chars = %d, want 99",
+			got.PostDirectiveOutcome.MinSynthesisChars)
+	}
+
+	// writeLoopHooksDefault seeds the file when absent and never
+	// overwrites an operator edit.
+	seedDir := t.TempDir()
+	if err := writeLoopHooksDefault(seedDir); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	p := filepath.Join(seedDir, "loop-hooks.yaml")
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("loop-hooks.yaml was not seeded: %v", err)
+	}
+	_ = os.WriteFile(p, []byte("pre_agent_idle:\n  enabled: false\n"), 0o644)
+	if err := writeLoopHooksDefault(seedDir); err != nil {
+		t.Fatalf("re-seed: %v", err)
+	}
+	b, _ := os.ReadFile(p)
+	if strings.Contains(string(b), "enabled: true") {
+		t.Error("writeLoopHooksDefault overwrote an operator edit")
+	}
+}
 
 func systemInputCount(t *testing.T, s *Server, agentID string) int {
 	t.Helper()

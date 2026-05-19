@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,11 +16,12 @@ import (
 // Orchestration lifecycle hooks (ADR-034 D-5).
 //
 // The loop-closure runtime runs two hub-side hooks at orchestration
-// events. Per CLAUDE.md "behaviour is data" they are configured by
-// bundled YAML (loop_hooks_defaults.yaml), not Go constants — a new
-// closure policy is a change to that file. The hooks are loop-lifecycle
-// only; message-level admission is ADR-032 D-7's deterministic pipeline,
-// not a hook.
+// events. Per CLAUDE.md "behaviour is data" they are configured by YAML,
+// not Go constants. The bundled `loop_hooks_defaults.yaml` is the
+// default; an operator may override it without a rebuild by editing the
+// on-disk `<dataRoot>/loop-hooks.yaml`, which Server.New() seeds and
+// SIGHUP hot-reloads. The hooks are loop-lifecycle only; message-level
+// admission is ADR-032 D-7's deterministic pipeline, not a hook.
 
 //go:embed loop_hooks_defaults.yaml
 var loopHooksDefaultYAML []byte
@@ -32,17 +36,55 @@ type loopHookConfig struct {
 	} `yaml:"post_directive_outcome"`
 }
 
-// loopHooks is the parsed hook configuration, loaded once from the
-// bundled YAML. A parse failure leaves both hooks disabled (fail-safe —
-// a broken config never silently changes orchestration behaviour).
-var loopHooks = loadLoopHooks()
+// loopHooksConfig holds the live hook configuration. It is replaced
+// atomically — at Server.New() (applying the disk overlay) and on
+// SIGHUP — so the sweep / request goroutines that read it never race
+// the reload.
+var loopHooksConfig atomic.Value
 
-func loadLoopHooks() loopHookConfig {
+func init() { loopHooksConfig.Store(loadLoopHooks("")) }
+
+// currentLoopHooks returns the live hook configuration.
+func currentLoopHooks() loopHookConfig {
+	return loopHooksConfig.Load().(loopHookConfig)
+}
+
+// loopHooksOverlayPath is the on-disk config an operator edits to change
+// the hooks without a rebuild — <dataRoot>/loop-hooks.yaml.
+func loopHooksOverlayPath(dataRoot string) string {
+	return filepath.Join(dataRoot, "loop-hooks.yaml")
+}
+
+// loadLoopHooks parses the hook configuration: the on-disk overlay when
+// present, else the bundled default. A broken overlay falls back to the
+// embedded default — fail-safe, so a bad edit never silently changes
+// orchestration behaviour.
+func loadLoopHooks(dataRoot string) loopHookConfig {
+	raw := loopHooksDefaultYAML
+	if dataRoot != "" {
+		if b, err := os.ReadFile(loopHooksOverlayPath(dataRoot)); err == nil {
+			raw = b
+		}
+	}
 	var c loopHookConfig
-	if err := yaml.Unmarshal(loopHooksDefaultYAML, &c); err != nil {
-		return loopHookConfig{}
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		_ = yaml.Unmarshal(loopHooksDefaultYAML, &c)
 	}
 	return c
+}
+
+// writeLoopHooksDefault seeds <dataRoot>/loop-hooks.yaml from the bundled
+// default when it is absent, so an operator has a file to edit. Never
+// overwrites an existing file — operator edits stay.
+func writeLoopHooksDefault(dataRoot string) error {
+	if dataRoot == "" {
+		return nil
+	}
+	path := loopHooksOverlayPath(dataRoot)
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	return os.WriteFile(path, loopHooksDefaultYAML, 0o644)
 }
 
 // lifecycleIsIdle reports whether a lifecycle event's payload carries an
@@ -61,7 +103,7 @@ func lifecycleIsIdle(payloadJSON string) bool {
 // loop-entities, the hook re-wakes it with the open set — it cannot rest
 // while it owns unclosed work (ADR-034 D-5). Best-effort.
 func (s *Server) onPreAgentIdle(ctx context.Context, agentID string) {
-	if !loopHooks.PreAgentIdle.Enabled || agentID == "" {
+	if !currentLoopHooks().PreAgentIdle.Enabled || agentID == "" {
 		return
 	}
 	rows, err := s.db.QueryContext(ctx, `
@@ -92,7 +134,8 @@ func (s *Server) onPreAgentIdle(ctx context.Context, agentID string) {
 // bare relay rather than a genuine synthesis (ADR-034 D-5; "synthesis is
 // not relay"). Best-effort; the flag is an audit row, not a block.
 func (s *Server) onPostDirectiveOutcome(ctx context.Context, taskID, resultSummary string) {
-	if !loopHooks.PostDirectiveOutcome.Enabled || taskID == "" {
+	hooks := currentLoopHooks()
+	if !hooks.PostDirectiveOutcome.Enabled || taskID == "" {
 		return
 	}
 	var parent sql.NullString
@@ -105,7 +148,7 @@ func (s *Server) onPostDirectiveOutcome(ctx context.Context, taskID, resultSumma
 	if parent.Valid && parent.String != "" {
 		return // not a root directive — a child task's outcome isn't gated.
 	}
-	if len(strings.TrimSpace(resultSummary)) >= loopHooks.PostDirectiveOutcome.MinSynthesisChars {
+	if len(strings.TrimSpace(resultSummary)) >= hooks.PostDirectiveOutcome.MinSynthesisChars {
 		return // looks synthesised.
 	}
 	var team string

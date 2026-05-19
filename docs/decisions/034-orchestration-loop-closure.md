@@ -355,18 +355,33 @@ engine reads. Dedicated columns keep the value typed end to end (int
 minutes, no JSON merge on the mobile side) and keep loop-closure
 config separate from policy-engine config.
 
-**Still not configurable** (and intentionally so for MVP) — the
-remaining loop-closure enforcement knobs:
+### 2026-05-19 — lifecycle-hook config disk overlay
+
+D-5's hooks shipped configured by `loop_hooks_defaults.yaml`, but
+bundled via `//go:embed` — changing a hook needed a rebuild. This
+amendment gives the hook config a disk overlay, mirroring the
+agent-family-YAML pattern:
+
+- `Server.New()` seeds `<dataRoot>/loop-hooks.yaml` from the embedded
+  default when absent (never overwriting an operator edit), then loads
+  it; the embedded YAML stays the fallback for a missing / unparseable
+  overlay (fail-safe).
+- SIGHUP hot-reloads the overlay — a hook can be toggled without even
+  a restart, alongside `policy.yaml`.
+- The live config is held in an `atomic.Value` so the sweep / request
+  goroutines never race the reload.
+
+### Still not configurable
+
+Intentionally so for MVP — the remaining loop-closure enforcement
+knobs:
 
 - the **sweep interval** (`loopSweepInterval`, 45 s) — a daemon-level
   operational constant, not a per-project concern;
 - the **escalation-target policy** (always one level up the chain) —
   §3 already records this as post-MVP config;
-- the **lifecycle-hook config** (`loop_hooks_defaults.yaml`) — bundled
-  via `//go:embed`, so changing it needs a rebuild; it has no disk
-  overlay (unlike agent-family YAML) and no runtime/mobile surface;
 - the **question-kind set** (`questionAttentionKinds`) — a structural
   Go constant, not a tunable.
 
-A disk overlay for the hook YAML, and surfacing the escalation-target
-policy, are the natural next configurability steps.
+Surfacing the escalation-target policy is the natural next
+configurability step.

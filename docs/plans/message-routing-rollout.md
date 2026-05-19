@@ -255,6 +255,10 @@ checks a closing `report` is a synthesis, not a bare relay.
 - **Acceptance:** an agent with an open directive is re-woken on idle;
   a relay-only closing report is flagged. **Tests:** `TestHook_PreAgentIdle_*`,
   `TestHook_PostDirectiveOutcome_*`.
+- **Amended 2026-05-19:** the hook config gained a disk overlay —
+  `<dataRoot>/loop-hooks.yaml`, seeded from the embedded default,
+  SIGHUP-hot-reloaded — so a hook is editable without a rebuild (see
+  [ADR-034](../decisions/034-orchestration-loop-closure.md) §7).
 
 #### B4 — The directive-trace query endpoint
 

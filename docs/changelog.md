@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-19)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.633
+> **Last verified vs code:** v1.0.634
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,45 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.634-alpha — 2026-05-19
+
+Fleet ops — [ADR-028](decisions/028-host-control-via-tunnel-and-cli.md)
+Phases 2 and 3: `self-update`, `update-all`, and `restart-all`. An
+operator now moves the whole fleet a version, or bounces it, without
+SSHing to each host. (The reconciliation that found Phase 1 had
+already shipped in v1.0.611 also flipped ADR-028 → Accepted.)
+
+### Added
+
+- **`self-update` (ADR-028 Phase 2).** New `hub/internal/selfupdate`
+  package resolves a GitHub release (explicit `--version` or
+  `--channel stable|alpha`), downloads the per-binary tarball, verifies
+  it against the release `SHA256SUMS`, and atomically replaces the
+  running binary — verify-before-extract, so a bad download never
+  lands. `host-runner self-update` and `hub-server self-update` are
+  thin wrappers; both exit 75 on success so systemd respawns the new
+  binary, exit 1 on failure with the old binary left untouched.
+  Commits `b68636e`, `40a2f60`.
+- **`host.update` verb + `update-all` orchestrator.** The
+  `host.update` control verb runs self-update inside the host-runner
+  daemon. `POST /v1/admin/fleet/update` (owner-scope) and the
+  `hub-server update-all` CLI fan the verb across every live host,
+  then bounce the hub last; flags `--target hosts|hub|both`,
+  `--dry-run`, `--upstream-repo`. A host error skips the hub bounce.
+  Commits `21aa328`, `c0a3cef`.
+- **`restart-all` + `host.restart` verb (ADR-028 Phase 3).**
+  `POST /v1/admin/fleet/restart` and the `hub-server restart-all` CLI
+  bounce every host-runner — each exits 75, systemd respawns it with
+  the *same* binary (clear bad state, no upgrade). Commit `9d4f919`.
+
+### Changed
+
+- **`release.yml` ships per-binary tarballs.** The release pipeline
+  now produces eight tarballs per tag — `termipod-{hub-server,
+  host-runner}-<tag>-<os>-<arch>.tar.gz`, each a single bare binary —
+  plus one `SHA256SUMS` over all eight, so `self-update` fetches only
+  the binary it needs. Commit `5b44c31`.
 
 ## v1.0.633-alpha — 2026-05-19
 

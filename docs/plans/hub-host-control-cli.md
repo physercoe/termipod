@@ -1,9 +1,9 @@
 # Hub + host control CLI — phased rollout
 
 > **Type:** plan
-> **Status:** Active (2026-05-19) — Phase 1 shipped (v1.0.611-alpha, commit `83170b0`); Phases 2-5 outstanding. ADR-028 captures the locked decisions.
+> **Status:** Active (2026-05-19) — Phases 1-3 shipped (v1.0.611-alpha, v1.0.634-alpha); Phases 4-5 outstanding. ADR-028 captures the locked decisions.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.633-alpha
+> **Last verified vs code:** v1.0.634-alpha
 
 **TL;DR.** Add ops subcommands to `hub-server` and `host-runner`
 so the operator can take the whole fleet down, push a new
@@ -24,8 +24,8 @@ the locked decisions are in
 | Phase | Status | Ship | Exit code | Approx LOC | Depends on |
 |---|---|---|---|---|---|
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
-| 2 | ✅ code complete (untagged) | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
-| 3 | ✅ code complete (untagged) | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
+| 2 | ✅ shipped v1.0.634 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
+| 3 | ✅ shipped v1.0.634 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
 | 4 | ⬜ next | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
@@ -180,8 +180,8 @@ Operator runs `hub-server shutdown-all`. Result:
 
 ## 3. Phase 2 — self-update + update-all
 
-> **Status: code complete, untagged** (2026-05-19). W5.5–W10 all
-> landed on `main`; a release tag picks them up. What shipped:
+> **Status: shipped v1.0.634-alpha** (2026-05-19). W5.5–W10. What
+> shipped:
 >
 > - **W5.5** — `release.yml` now emits 8 per-binary tarballs +
 >   `SHA256SUMS` (commit `5b44c31`).
@@ -308,8 +308,8 @@ Operator runs `hub-server update-all --version vX.Y.Z` (or
 
 ## 4. Phase 3 — restart-all
 
-> **Status: code complete, untagged** (2026-05-19). W11–W12 landed on
-> `main`. `host.shutdown` and `host.restart` share `handleHostExit`
+> **Status: shipped v1.0.634-alpha** (2026-05-19). W11–W12.
+> `host.shutdown` and `host.restart` share `handleHostExit`
 > (the exit code is the only difference); `handleAdminFleetShutdown`
 > and `handleAdminFleetRestart` share `fleetStopVerb`; the
 > `shutdown-all` / `restart-all` CLIs share `runFleetStop`. Scenario

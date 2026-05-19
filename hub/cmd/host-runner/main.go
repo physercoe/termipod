@@ -25,11 +25,11 @@
 // callers rely on this split:
 //
 //   - exit 0   — true shutdown (`host.shutdown` verb). Systemd does
-//                NOT respawn. Operator brings the host back manually
-//                with `systemctl start termipod-host@<id>`.
+//     NOT respawn. Operator brings the host back manually
+//     with `systemctl start termipod-host@<id>`.
 //   - exit 75  — bounce (EX_TEMPFAIL). Systemd respawns with whatever
-//                binary is now at the install path (used by Phase 2
-//                `host.update` and Phase 3 `host.restart`).
+//     binary is now at the install path (used by Phase 2
+//     `host.update` and Phase 3 `host.restart`).
 //   - exit 1+  — failure path. Systemd respawns the same binary.
 //
 // Keep these contracts stable: the orchestrator (`hub-server
@@ -51,6 +51,7 @@ import (
 	"github.com/termipod/hub/internal/hostrunner"
 	"github.com/termipod/hub/internal/mcpbridge"
 	"github.com/termipod/hub/internal/mcpudsbridge"
+	"github.com/termipod/hub/internal/selfupdate"
 )
 
 func main() {
@@ -82,6 +83,8 @@ func main() {
 		os.Exit(mcpbridge.Run(os.Args[2:]))
 	case "mcp-uds-stdio":
 		os.Exit(mcpudsbridge.Run(os.Args[2:]))
+	case "self-update":
+		runSelfUpdate(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	case "-v", "--version", "version":
@@ -119,7 +122,51 @@ Commands:
   mcp-uds-stdio  stdio↔UDS shim into the per-spawn host-runner MCP gateway.
                  Used by claude-code M4 LocalLogTail spawns to reach the
                  mcp__termipod-host__hook_* tools (ADR-027). Reads
-                 --socket / MCP_UDS_SOCKET.`)
+                 --socket / MCP_UDS_SOCKET.
+  self-update    Fetch a release from GitHub, verify SHA256, replace this
+                 binary, and exit 75 so the supervisor respawns it
+                 (ADR-028). Flags: --version / --channel / --upstream-repo
+                 / --install-path / --dry-run.`)
+}
+
+// runSelfUpdate fetches a release of host-runner from GitHub, verifies
+// it against the release SHA256SUMS, and atomically replaces this
+// binary on disk (ADR-028 D-4 / plan W6). On success it exits 75 so
+// the systemd supervisor respawns with the new binary; on any failure
+// it exits 1 — a generic failure that still respawns the SAME binary,
+// so the host never goes dark.
+func runSelfUpdate(args []string) {
+	fs := flag.NewFlagSet("self-update", flag.ExitOnError)
+	version := fs.String("version", "", "explicit release tag to install (e.g. v1.0.634-alpha); overrides --channel")
+	channel := fs.String("channel", "stable", "release channel when --version is unset: stable|alpha")
+	repo := fs.String("upstream-repo", selfupdate.DefaultRepo, "GitHub owner/name to fetch releases from")
+	installPath := fs.String("install-path", "", "file to replace (default: this binary's resolved path)")
+	dryRun := fs.Bool("dry-run", false, "resolve and report the target release without downloading or replacing")
+	_ = fs.Parse(args)
+
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	res, err := selfupdate.Run(context.Background(), selfupdate.Options{
+		Binary:      "host-runner",
+		Repo:        *repo,
+		Channel:     *channel,
+		Version:     *version,
+		InstallPath: *installPath,
+		DryRun:      *dryRun,
+		Log:         log,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
+		os.Exit(1)
+	}
+	if *dryRun {
+		fmt.Printf("self-update (dry run): host-runner %s -> %s [no changes made]\n",
+			res.FromVersion, res.ToVersion)
+		return
+	}
+	fmt.Printf("self-update: host-runner %s -> %s installed at %s\n",
+		res.FromVersion, res.ToVersion, res.InstallPath)
+	fmt.Println("exiting 75 so the supervisor respawns with the new binary")
+	os.Exit(75)
 }
 
 func runRegister(args []string) {

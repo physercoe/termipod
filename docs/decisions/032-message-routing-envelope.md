@@ -12,8 +12,9 @@ description: The L3 message contract. Every message between agents, and between 
 > The ADR is still Proposed (never Accepted), so revision in place is
 > sound. Companion runtime ADR: [ADR-034](034-orchestration-loop-closure.md)
 > (loop closure / liveness). Companion rollout plan:
-> [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-> (to be re-wedged). Flips to `Accepted` after on-device verification
+> [`message-routing-rollout.md`](../plans/message-routing-rollout.md) —
+> **implemented 2026-05-19** (all 10 wedges on `main`, build + hub test
+> suite green). Flips to `Accepted` after on-device verification
 > confirms engines read the rendered envelope reliably.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.631-alpha
@@ -241,11 +242,17 @@ appendix).
 
 ## 5. Implementation
 
-See [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-(to be re-wedged against this revised scope). The MVP ships this ADR's
-envelope + admission pipeline **and** [ADR-034](034-orchestration-loop-closure.md)'s
-loop-closure runtime together. Flips to `Accepted` after on-device
-verification.
+**Implemented 2026-05-19** — see
+[`message-routing-rollout.md`](../plans/message-routing-rollout.md),
+re-wedged to this revised scope and shipped as 10 wedges on `main`
+(commits `eb12a09`…`2a498df`). Phase A (this ADR — A1 envelope schema,
+A2 hub-side composition, A3 driver render, A4 the admission pipeline)
+and [ADR-034](034-orchestration-loop-closure.md)'s loop-closure runtime
+landed together as the one MVP. The hub build and full Go test suite
+are green; the mobile changes are CI-verified. The ADR stays `Proposed`
+until the on-device verification gate (the rollout plan §4) confirms
+engines read the rendered envelope reliably — then it flips to
+`Accepted`.
 
 ## 6. References
 

@@ -11,7 +11,10 @@ description: The Layer-B half of the orchestration contract — the runtime that
 > (the message envelope). Rationale in [`orchestration-contract.md`](../discussions/orchestration-contract.md)
 > and [`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md).
 > Ships in the same MVP rollout as ADR-032 — loop closure is MVP, not
-> deferred (2026-05-19 decision). Flips to `Accepted` with ADR-032.
+> deferred (2026-05-19 decision). **Implemented 2026-05-19** (all 10
+> wedges on `main`, build + hub test suite green); stays `Proposed`
+> until the on-device verification gate, then flips to `Accepted` with
+> ADR-032.
 > **Audience:** contributors
 > **Last verified vs code:** v1.0.631-alpha
 
@@ -303,13 +306,16 @@ the steward chain) are config, refined post-MVP.
 
 ## 5. Implementation
 
-Ships in the same MVP rollout as [ADR-032](032-message-routing-envelope.md)
-— see [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-(re-wedged 2026-05-19 to cover both ADRs). Build order: D-8 + D-6 +
-D-1 (extend `tasks` + `attention_items` — deadline columns,
-`terminal_reason`, the open-set) → D-2/D-3 deadlines + sweep → D-4
-escalation → D-5 hooks → D-7 trace. Flips to `Accepted` with
-ADR-032 after on-device verification.
+**Implemented 2026-05-19** in the same MVP rollout as
+[ADR-032](032-message-routing-envelope.md) — see
+[`message-routing-rollout.md`](../plans/message-routing-rollout.md)
+(re-wedged 2026-05-19 to cover both ADRs), shipped as 10 wedges on
+`main` (commits `eb12a09`…`2a498df`). This ADR is Phase B: B1 extends
+`tasks` + `attention_items` (migration `0042` — deadline columns,
+`terminal_reason`, the open-set) → B2 the deadlines + reconcile sweep +
+escalation → B3 the lifecycle hooks → B4 the directive trace. The hub
+build and full Go test suite are green. Flips to `Accepted` with
+ADR-032 once the on-device verification gate passes.
 
 ## 6. References
 

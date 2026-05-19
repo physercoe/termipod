@@ -520,9 +520,15 @@ The form / type / schema / contract / protocol ladder is enunciated in
 
 ## 10. What this means for the in-flight work
 
-The next session was set to start [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-W1. **Do not start W1 as scoped** — the plan is right for a delivery
-mechanism and under-scoped for a contract. The re-scope:
+> **Shipped.** The re-scope below was carried out:
+> [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
+> was widened to 10 wedges and **implemented 2026-05-19** — ADR-032 and
+> ADR-034, both `Proposed` pending on-device verification. This section
+> is kept as the decision record.
+
+The plan as originally scoped (`message-routing-rollout.md` W1) was
+right for a delivery mechanism and under-scoped for a contract. The
+re-scope that was applied:
 
 1. **The envelope is `{from,to,kind,text,cause,thread}` from W1** —
    bidirectional, lineage-bearing. ADR-032 D-1 is revised to §6.1.

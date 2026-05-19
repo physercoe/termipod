@@ -6,15 +6,16 @@ description: Phased rollout of the orchestration contract — ADR-032 (the messa
 # Message routing rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18; **re-wedged 2026-05-19**) — widened
-> from the original forward-only envelope (6 wedges) to the full
-> orchestration contract (10 wedges), per the
-> [orchestration-contract discussion](../discussions/orchestration-contract.md).
-> No work started. Implements [ADR-032](../decisions/032-message-routing-envelope.md)
-> (the message envelope) and [ADR-034](../decisions/034-orchestration-loop-closure.md)
-> (loop closure). The whole rollout is MVP.
+> **Status:** Implemented (2026-05-19) — all 10 wedges landed on `main`
+> (commits `eb12a09`…`2a498df`); hub build + full Go test suite green,
+> mobile (C2) CI-verified. Implements
+> [ADR-032](../decisions/032-message-routing-envelope.md) and
+> [ADR-034](../decisions/034-orchestration-loop-closure.md) — both stay
+> `Proposed` until the on-device verification gate (§4) flips them to
+> `Accepted`. Re-wedged 2026-05-19 to the full 10-wedge orchestration
+> contract; the whole rollout is MVP.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** v1.0.631-alpha
+> **Last verified vs code:** v1.0.631-alpha (+ the rollout commits)
 
 **TL;DR.** Replace the v1.0.626 / v1.0.630 band-aids with the
 orchestration layer's real type system. Three phases, ten wedges,

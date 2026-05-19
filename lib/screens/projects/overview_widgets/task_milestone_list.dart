@@ -155,6 +155,11 @@ class _TaskRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = (row['title'] ?? '(untitled)').toString();
     final status = (row['status'] ?? 'todo').toString();
+    // ADR-034 D-6: terminal_reason is additive close-detail on a closed
+    // task — rendered as "cancelled — timed_out" alongside the status.
+    final terminalReason = (row['terminal_reason'] ?? '').toString();
+    final statusLabel =
+        terminalReason.isEmpty ? status : '$status — $terminalReason';
     final priority = parseTaskPriority(row['priority']);
     final projectId = (row['project_id'] ?? '').toString();
     final taskId = (row['id'] ?? '').toString();
@@ -187,7 +192,7 @@ class _TaskRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              status,
+              statusLabel,
               style: GoogleFonts.jetBrainsMono(
                 fontSize: 10,
                 color: DesignColors.textMuted,

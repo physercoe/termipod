@@ -308,8 +308,15 @@ classes — CLAUDE.md), so this is rendering code: `lib/widgets/agent_feed.dart`
 also carry `terminal_reason`.
 
 - **Acceptance:** an A2A message in the transcript shows its sender; a
-  `timed_out` task renders a styled chip, not a blank.
+  `timed_out` task renders its reason, not a blank.
 - **Tests:** widget tests; CI-verified — there is no local Flutter SDK.
+- **Shipped surfaces:** `agent_feed.dart` (the `from`/`kind` envelope
+  header on `input.text`), `overview_widgets/task_milestone_list.dart`
+  and `task_detail_screen.dart` (`terminal_reason` detail). The
+  `project_detail_screen.dart` tasks-tab tile and the attention
+  surfaces (`me_screen.dart`, `approval_detail_screen.dart`) carry the
+  same one-line additive `terminal_reason` pattern and are a small
+  follow-up.
 - This is **parity only.** The directive-trace *screen* and the
   Layer-A surfaces remain out of scope (§2).
 

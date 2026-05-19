@@ -148,6 +148,23 @@ Map<String, dynamic>? modeModelStateFromEvents(List<Map<String, dynamic>> events
   };
 }
 
+/// Maps an ADR-032 envelope endpoint role to a human label for the
+/// transcript header.
+String _envelopeRoleLabel(String role) {
+  switch (role) {
+    case 'principal':
+      return 'the principal';
+    case 'system':
+      return 'the system';
+    case 'peer_steward':
+      return 'peer steward';
+    case 'peer_worker':
+      return 'peer worker';
+    default:
+      return role;
+  }
+}
+
 /// Dart port of `formatAttentionReplyText` (Go: driver_stdio.go).
 /// Renders the structured payload of an `input.attention_reply` event
 /// into the literal text the agent sees on its user turn — so the
@@ -2666,11 +2683,35 @@ class AgentEventCard extends StatefulWidget {
   }
 
   Widget _inputTextBody(BuildContext ctx, Map<String, dynamic> p) {
-    // InputRouter strips the "input." prefix before dispatch; the
-    // persisted event still has a body field matching AgentCompose's
-    // postAgentInput payload.
-    final body = (p['body'] ?? p['text'] ?? '').toString();
-    return _mono(ctx, body.isEmpty ? '(empty)' : body);
+    // ADR-032: an input.text payload is the message envelope —
+    // {from,to,kind,text,cause,thread} at the top level. The body
+    // resolves via `text` (legacy `body` kept as a fallback). When the
+    // envelope carries a sender / kind, surface them: an A2A message
+    // would otherwise render with no visible sender.
+    final body = (p['text'] ?? p['body'] ?? '').toString();
+    final from = p['from'];
+    final kind = (p['kind'] ?? '').toString();
+    final rows = <Widget>[];
+    if (from is Map) {
+      final role = (from['role'] ?? '').toString();
+      final handle = (from['handle'] ?? '').toString();
+      final label = handle.isNotEmpty
+          ? '@$handle (${_envelopeRoleLabel(role)})'
+          : _envelopeRoleLabel(role);
+      if (label.isNotEmpty) rows.add(_kv(ctx, 'from', label));
+    }
+    if (kind.isNotEmpty) rows.add(_kv(ctx, 'kind', kind));
+    if (rows.isEmpty) {
+      return _mono(ctx, body.isEmpty ? '(empty)' : body);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...rows,
+        const SizedBox(height: 4),
+        _mono(ctx, body.isEmpty ? '(empty)' : body),
+      ],
+    );
   }
 
   Widget _inputCancelBody(BuildContext ctx, Map<String, dynamic> p) {

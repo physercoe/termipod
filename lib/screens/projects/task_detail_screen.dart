@@ -450,6 +450,10 @@ class _AttributionCard extends ConsumerWidget {
     final updatedRaw = (task['updated_at'] ?? '').toString();
     final status = (task['status'] ?? '').toString();
     final summary = (task['result_summary'] ?? '').toString();
+    // ADR-034 D-6: terminal_reason is the additive close-classification
+    // on a closed task (completed / failed / killed / timed_out /
+    // superseded) — shown alongside, not replacing, the status.
+    final terminalReason = (task['terminal_reason'] ?? '').toString();
     final started = DateTime.tryParse(startedRaw);
     final completed = DateTime.tryParse(completedRaw);
     final cancelled = status == 'cancelled'
@@ -533,6 +537,15 @@ class _AttributionCard extends ConsumerWidget {
               icon: Icons.schedule,
               child: Text(
                 _timeLine(started, completed, cancelled, status),
+                style: GoogleFonts.spaceGrotesk(fontSize: 12),
+              ),
+              muted: muted,
+            ),
+          if (terminalReason.isNotEmpty)
+            _iconRow(
+              icon: Icons.flag_outlined,
+              child: Text(
+                'Closed: $terminalReason',
                 style: GoogleFonts.spaceGrotesk(fontSize: 12),
               ),
               muted: muted,

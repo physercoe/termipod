@@ -47,6 +47,11 @@ type Message struct {
 	MessageID string          `json:"messageId"`
 	Role      string          `json:"role"` // "user" | "agent"
 	Parts     json.RawMessage `json:"parts"`
+	// Metadata is the A2A-spec message metadata bag. termipod stamps the
+	// orchestration-envelope provenance under key "termipod" (kind, cause,
+	// from_role, from_handle) so the recipient host-runner can compose the
+	// message envelope (ADR-032).
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 // TaskStatus is the A2A status wrapper.

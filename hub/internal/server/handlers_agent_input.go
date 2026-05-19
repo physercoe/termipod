@@ -236,6 +236,13 @@ type agentInputIn struct {
 	Pdfs   []attachmentInput `json:"pdfs,omitempty"`
 	Audios []attachmentInput `json:"audios,omitempty"`
 	Videos []attachmentInput `json:"videos,omitempty"`
+	// Envelope provenance (ADR-032). Set only by the A2A post-back path
+	// (a2a_dispatcher), so handlePostAgentInput can compose the message
+	// envelope for a peer-originated text turn. Ignored for producer=user.
+	FromRole   string `json:"from_role,omitempty"`
+	FromHandle string `json:"from_handle,omitempty"`
+	Cause      string `json:"cause,omitempty"`
+	A2AKind    string `json:"a2a_kind,omitempty"`
 }
 
 func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
@@ -279,9 +286,9 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		if in.Body != "" {
-			payloadMap["body"] = in.Body
-		}
+		// `text` is carried by the message envelope, composed below once
+		// the session is resolved (ADR-032). Only the attachment sidecars
+		// are stamped here.
 		if len(in.Images) > 0 {
 			payloadMap["images"] = in.Images
 		}
@@ -487,6 +494,18 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	sessionID := s.lookupSessionForAgent(r.Context(), agent)
+
+	// ADR-032: an input.text event carries the message envelope as its
+	// flat payload top level — {from,to,kind,text,cause,thread} — composed
+	// hub-side. Attachment sidecars (images, …) ride alongside it.
+	if in.Kind == "text" {
+		env := s.composeTextInputEnvelope(r.Context(), &in, producer, agent, sessionID)
+		for k, v := range env.PayloadMap() {
+			payloadMap[k] = v
+		}
+	}
+
 	payloadBytes, err := json.Marshal(payloadMap)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -497,7 +516,6 @@ func (s *Server) handlePostAgentInput(w http.ResponseWriter, r *http.Request) {
 	kind := "input." + in.Kind
 	id := NewID()
 	ts := NowUTC()
-	sessionID := s.lookupSessionForAgent(r.Context(), agent)
 	var seq int64
 	// Same COALESCE(MAX)+1 idiom as handlePostAgentEvent — SQLite
 	// serializes writes and UNIQUE(agent_id, seq) backstops any race.

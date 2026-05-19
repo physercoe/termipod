@@ -82,11 +82,29 @@ func (d *a2aHubDispatcher) Dispatch(ctx context.Context, agentID string, msg a2a
 	if text == "" {
 		return fmt.Errorf("%w: message has no text parts", a2a.ErrDispatch)
 	}
-	if err := d.poster.PostAgentInput(ctx, agentID, map[string]any{
+	fields := map[string]any{
 		"kind":     "text",
 		"body":     text,
 		"producer": "a2a",
-	}); err != nil {
+	}
+	// ADR-032: the hub relay stamped the orchestration-envelope provenance
+	// into message.metadata.termipod; forward it as input fields so the
+	// hub composes the envelope (handlePostAgentInput).
+	if tp := parseTermipodMeta(msg.Metadata); tp != nil {
+		if v, _ := tp["from_role"].(string); v != "" {
+			fields["from_role"] = v
+		}
+		if v, _ := tp["from_handle"].(string); v != "" {
+			fields["from_handle"] = v
+		}
+		if v, _ := tp["kind"].(string); v != "" {
+			fields["a2a_kind"] = v
+		}
+		if v, _ := tp["cause"].(string); v != "" {
+			fields["cause"] = v
+		}
+	}
+	if err := d.poster.PostAgentInput(ctx, agentID, fields); err != nil {
 		return fmt.Errorf("%w: post input: %v", a2a.ErrDispatch, err)
 	}
 	d.registerTask(agentID, taskID, store)
@@ -213,6 +231,23 @@ func extractLifecyclePhase(payload any) string {
 	}
 	s, _ := m["phase"].(string)
 	return s
+}
+
+// parseTermipodMeta extracts the `termipod` orchestration-envelope bag
+// from an A2A message's metadata — the hub relay stamps it with kind,
+// cause, from_role, from_handle (ADR-032). Returns nil when absent or
+// unparseable, so a legacy peer's message still dispatches.
+func parseTermipodMeta(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var meta struct {
+		Termipod map[string]any `json:"termipod"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil
+	}
+	return meta.Termipod
 }
 
 // extractTextParts folds A2A Parts into a single string. A2A v0.3 allows

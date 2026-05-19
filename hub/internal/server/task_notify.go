@@ -130,15 +130,21 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 	// steward feed. The `input.text` event is purely the wake
 	// mechanism; producer=system + the sidecar fields preserve the
 	// origin for debug/audit.
+	// ADR-032: the wake event carries the message envelope as its flat
+	// payload — a system-from notification, caused by the task. The status
+	// sidecars are renamed from/to → from_status/to_status so they don't
+	// collide with the envelope's from/to endpoint objects.
 	inputBody := taskOutcomeInputBody(title, summary.String, toStatus)
-	inputPayload := map[string]any{
-		"body":           inputBody,
-		"task_id":        taskID,
-		"task_title":     title,
-		"result_summary": summary.String,
-		"from":           fromStatus,
-		"to":             toStatus,
-	}
+	env := composeMessage(
+		systemEndpoint(), s.endpointForAgent(ctx, assignerID.String),
+		KindNotification, inputBody, taskID,
+		MessageThread{Transport: TransportSession, ID: sessionID})
+	inputPayload := env.PayloadMap()
+	inputPayload["task_id"] = taskID
+	inputPayload["task_title"] = title
+	inputPayload["result_summary"] = summary.String
+	inputPayload["from_status"] = fromStatus
+	inputPayload["to_status"] = toStatus
 	inputBytes, _ := json.Marshal(inputPayload)
 	inputID := NewID()
 	inputTS := NowUTC()

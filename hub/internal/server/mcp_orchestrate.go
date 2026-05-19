@@ -159,10 +159,15 @@ func (s *Server) postSyntheticUserInput(ctx context.Context, agentID, body strin
 	if body == "" {
 		return errors.New("empty task body")
 	}
-	payload, _ := json.Marshal(map[string]any{"body": body})
+	sessionID := s.lookupSessionForAgent(ctx, agentID)
+	// ADR-032: deliver the synthetic turn as a message envelope — a
+	// hub-injected directive (the steward's task body) to the worker.
+	env := composeMessage(systemEndpoint(), s.endpointForAgent(ctx, agentID),
+		KindDirective, body, "",
+		MessageThread{Transport: TransportSession, ID: sessionID})
+	payload, _ := json.Marshal(env.PayloadMap())
 	id := NewID()
 	ts := NowUTC()
-	sessionID := s.lookupSessionForAgent(ctx, agentID)
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO agent_events (id, agent_id, seq, ts, kind, producer, payload_json, session_id)
 		SELECT ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, NULLIF(?, '')

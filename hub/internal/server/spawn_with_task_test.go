@@ -76,16 +76,16 @@ func TestDoSpawn_WithInlineTask_PostsFirstUserInput(t *testing.T) {
 		t.Errorf("event producer = %q, want user", producer)
 	}
 	var payload struct {
-		Body string `json:"body"`
+		Text string `json:"text"` // ADR-032 envelope text
 	}
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if !strings.Contains(payload.Body, "Investigate 502 spike") {
-		t.Errorf("body missing title: %q", payload.Body)
+	if !strings.Contains(payload.Text, "Investigate 502 spike") {
+		t.Errorf("text missing title: %q", payload.Text)
 	}
-	if !strings.Contains(payload.Body, "last hour of logs") {
-		t.Errorf("body missing body_md: %q", payload.Body)
+	if !strings.Contains(payload.Text, "last hour of logs") {
+		t.Errorf("text missing body_md: %q", payload.Text)
 	}
 }
 
@@ -166,8 +166,7 @@ func TestDoSpawn_WithTaskID_PostsFirstUserInput(t *testing.T) {
 
 	// Task flipped from todo to in_progress.
 	var taskStatus string
-	if err := s.db.QueryRow(`SELECT status FROM tasks WHERE id = ?`, taskID,
-	).Scan(&taskStatus); err != nil {
+	if err := s.db.QueryRow(`SELECT status FROM tasks WHERE id = ?`, taskID).Scan(&taskStatus); err != nil {
 		t.Fatalf("query task status: %v", err)
 	}
 	if taskStatus != "in_progress" {
@@ -185,16 +184,16 @@ func TestDoSpawn_WithTaskID_PostsFirstUserInput(t *testing.T) {
 		t.Fatalf("query input.text event: %v", err)
 	}
 	var payload struct {
-		Body string `json:"body"`
+		Text string `json:"text"` // ADR-032 envelope text
 	}
 	if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if !strings.Contains(payload.Body, "Backfill seq column") {
-		t.Errorf("body missing existing-task title: %q", payload.Body)
+	if !strings.Contains(payload.Text, "Backfill seq column") {
+		t.Errorf("text missing existing-task title: %q", payload.Text)
 	}
-	if !strings.Contains(payload.Body, "migrate-0042") {
-		t.Errorf("body missing existing-task body_md: %q", payload.Body)
+	if !strings.Contains(payload.Text, "migrate-0042") {
+		t.Errorf("text missing existing-task body_md: %q", payload.Text)
 	}
 }
 

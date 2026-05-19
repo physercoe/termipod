@@ -311,54 +311,70 @@ func TestPreviewA2ABody(t *testing.T) {
 	}
 }
 
-// v1.0.630: A2A message bodies are decorated with sender attribution
-// before being forwarded to the recipient's host-runner, so the
-// receiving worker knows (a) the message came from another agent,
-// (b) who sent it, and (c) the right reply mechanism is a2a.invoke
-// back. Pre-bundle, the receiver got an undifferentiated text part
-// and treated A2A messages as direct user prompts — communication
-// stuck because workers replied "to the user" instead of back to
-// the sending steward.
-func TestDecorateA2ABodyWithSender(t *testing.T) {
-	body := []byte(`{"jsonrpc":"2.0","id":"x","method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"please review the memo"}]}}}`)
-	out := decorateA2ABodyWithSender(body, "research-steward")
-	got := string(out)
-	if !strings.Contains(got, "[A2A from @research-steward]") {
-		t.Errorf("decorated body missing sender prefix: %s", got)
+// ADR-032: the A2A relay stamps the orchestration-envelope provenance
+// into the body's message.metadata.termipod bag before forwarding, so
+// the recipient host-runner composes the message envelope. This replaces
+// the v1.0.630 `[A2A from @sender]` text-prefix decoration.
+
+// termipodMetaBag parses the stamped termipod bag out of a relayed
+// message/send body for assertion.
+func termipodMetaBag(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var env struct {
+		Params struct {
+			Message struct {
+				Metadata struct {
+					Termipod map[string]any `json:"termipod"`
+				} `json:"metadata"`
+			} `json:"message"`
+		} `json:"params"`
 	}
-	if !strings.Contains(got, "please review the memo") {
-		t.Errorf("decorated body lost original text: %s", got)
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("parse stamped body: %v", err)
 	}
-	if !strings.Contains(got, "a2a.invoke(handle=\\\"research-steward\\\"") {
-		t.Errorf("decorated body missing reply hint: %s", got)
+	return env.Params.Message.Metadata.Termipod
+}
+
+func TestStampA2AEnvelopeMeta(t *testing.T) {
+	// Body already carries the sender-declared kind (from a2a.invoke);
+	// the relay must add the resolved sender and preserve the kind.
+	body := []byte(`{"jsonrpc":"2.0","id":"x","method":"message/send","params":{"message":{"messageId":"m1","role":"user","parts":[{"kind":"text","text":"please review the memo"}],"metadata":{"termipod":{"kind":"directive"}}}}}`)
+	out := stampA2AEnvelopeMeta(body, "research-steward", RolePeerSteward)
+	tp := termipodMetaBag(t, out)
+	if tp["from_handle"] != "research-steward" {
+		t.Errorf("from_handle = %v, want research-steward", tp["from_handle"])
+	}
+	if tp["from_role"] != RolePeerSteward {
+		t.Errorf("from_role = %v, want %s", tp["from_role"], RolePeerSteward)
+	}
+	if tp["kind"] != "directive" {
+		t.Errorf("kind = %v, want directive (sender-declared, preserved)", tp["kind"])
+	}
+	if !strings.Contains(string(out), "please review the memo") {
+		t.Errorf("stamped body lost original text: %s", out)
 	}
 }
 
-// Non-message/send methods (tasks/get, tasks/cancel, etc) must pass
-// through unchanged — only the user-text payload gets decorated.
-func TestDecorateA2ABodyWithSender_OtherMethods(t *testing.T) {
+// Non-message/send methods (tasks/get, …) pass through unchanged.
+func TestStampA2AEnvelopeMeta_OtherMethods(t *testing.T) {
 	body := []byte(`{"jsonrpc":"2.0","id":"x","method":"tasks/get","params":{"id":"t1"}}`)
-	out := decorateA2ABodyWithSender(body, "steward")
-	if string(out) != string(body) {
-		t.Errorf("tasks/get body must pass through unchanged; got %s", string(out))
+	if out := stampA2AEnvelopeMeta(body, "steward", RolePeerSteward); string(out) != string(body) {
+		t.Errorf("tasks/get body must pass through unchanged; got %s", out)
 	}
 }
 
-// Empty sender handle = no decoration (legacy unauthed peer path).
-func TestDecorateA2ABodyWithSender_EmptyHandle(t *testing.T) {
+// Empty sender handle = no stamp (legacy unauthed peer path).
+func TestStampA2AEnvelopeMeta_EmptyHandle(t *testing.T) {
 	body := []byte(`{"method":"message/send","params":{"message":{"parts":[{"kind":"text","text":"hi"}]}}}`)
-	out := decorateA2ABodyWithSender(body, "")
-	if string(out) != string(body) {
-		t.Errorf("empty handle must pass through; got %s", string(out))
+	if out := stampA2AEnvelopeMeta(body, "", RolePeerWorker); string(out) != string(body) {
+		t.Errorf("empty handle must pass through; got %s", out)
 	}
 }
 
-// Malformed envelope: pass through unchanged so a legacy peer with a
-// non-JSON-RPC body still relays (best-effort).
-func TestDecorateA2ABodyWithSender_Malformed(t *testing.T) {
+// Malformed envelope: pass through unchanged (best-effort).
+func TestStampA2AEnvelopeMeta_Malformed(t *testing.T) {
 	body := []byte(`not valid json`)
-	out := decorateA2ABodyWithSender(body, "steward")
-	if string(out) != string(body) {
-		t.Errorf("malformed body must pass through; got %s", string(out))
+	if out := stampA2AEnvelopeMeta(body, "steward", RolePeerSteward); string(out) != string(body) {
+		t.Errorf("malformed body must pass through; got %s", out)
 	}
 }

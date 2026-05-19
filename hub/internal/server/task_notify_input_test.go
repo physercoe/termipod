@@ -65,11 +65,11 @@ func TestNotifyTaskAssigner_EmitsInputTextEvent_OnDone(t *testing.T) {
 		t.Fatalf("fetch payload: %v", err)
 	}
 	var p struct {
-		Body          string `json:"body"`
+		Text          string `json:"text"`
 		TaskID        string `json:"task_id"`
 		TaskTitle     string `json:"task_title"`
 		ResultSummary string `json:"result_summary"`
-		To            string `json:"to"`
+		ToStatus      string `json:"to_status"`
 	}
 	if err := json.Unmarshal([]byte(payload), &p); err != nil {
 		t.Fatalf("decode payload: %v", err)
@@ -80,20 +80,20 @@ func TestNotifyTaskAssigner_EmitsInputTextEvent_OnDone(t *testing.T) {
 	if p.TaskTitle != "Survey citation graph" {
 		t.Errorf("payload task_title = %q", p.TaskTitle)
 	}
-	if !strings.Contains(p.Body, "Survey citation graph") {
-		t.Errorf("body should name the task: %q", p.Body)
+	if !strings.Contains(p.Text, "Survey citation graph") {
+		t.Errorf("body should name the task: %q", p.Text)
 	}
-	if !strings.Contains(p.Body, "completed") {
-		t.Errorf("body should say 'completed' for done transition: %q", p.Body)
+	if !strings.Contains(p.Text, "completed") {
+		t.Errorf("body should say 'completed' for done transition: %q", p.Text)
 	}
-	if !strings.Contains(p.Body, "Found 12 cited") {
-		t.Errorf("body should include result_summary: %q", p.Body)
+	if !strings.Contains(p.Text, "Found 12 cited") {
+		t.Errorf("body should include result_summary: %q", p.Text)
 	}
-	if !strings.Contains(p.Body, "Decide next step") {
-		t.Errorf("body should prompt the steward to act: %q", p.Body)
+	if !strings.Contains(p.Text, "Decide next step") {
+		t.Errorf("body should prompt the steward to act: %q", p.Text)
 	}
-	if p.To != "done" {
-		t.Errorf("payload to = %q; want done", p.To)
+	if p.ToStatus != "done" {
+		t.Errorf("payload to = %q; want done", p.ToStatus)
 	}
 }
 
@@ -123,23 +123,23 @@ func TestNotifyTaskAssigner_BodyUsesCorrectVerb_OnBlocked(t *testing.T) {
 		t.Fatalf("fetch payload: %v", err)
 	}
 	var p struct {
-		Body string `json:"body"`
-		To   string `json:"to"`
+		Text     string `json:"text"`
+		ToStatus string `json:"to_status"`
 	}
 	if err := json.Unmarshal([]byte(payload), &p); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.Contains(p.Body, "blocked") {
-		t.Errorf("body should say 'blocked' for blocked transition, got %q", p.Body)
+	if !strings.Contains(p.Text, "blocked") {
+		t.Errorf("body should say 'blocked' for blocked transition, got %q", p.Text)
 	}
-	if strings.Contains(p.Body, "completed") {
-		t.Errorf("body must not say 'completed' for blocked transition, got %q", p.Body)
+	if strings.Contains(p.Text, "completed") {
+		t.Errorf("body must not say 'completed' for blocked transition, got %q", p.Text)
 	}
-	if !strings.Contains(p.Body, "Reason: ") {
-		t.Errorf("body should label the summary as 'Reason:' for blocked, got %q", p.Body)
+	if !strings.Contains(p.Text, "Reason: ") {
+		t.Errorf("body should label the summary as 'Reason:' for blocked, got %q", p.Text)
 	}
-	if p.To != "blocked" {
-		t.Errorf("payload to = %q; want blocked", p.To)
+	if p.ToStatus != "blocked" {
+		t.Errorf("payload to = %q; want blocked", p.ToStatus)
 	}
 }
 
@@ -160,16 +160,16 @@ func TestNotifyTaskAssigner_BodyUsesCorrectVerb_OnCancelled(t *testing.T) {
 		t.Fatalf("fetch payload: %v", err)
 	}
 	var p struct {
-		Body string `json:"body"`
+		Text string `json:"text"`
 	}
 	if err := json.Unmarshal([]byte(payload), &p); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if !strings.Contains(p.Body, "cancelled") {
-		t.Errorf("body should say 'cancelled' for cancelled transition, got %q", p.Body)
+	if !strings.Contains(p.Text, "cancelled") {
+		t.Errorf("body should say 'cancelled' for cancelled transition, got %q", p.Text)
 	}
-	if strings.Contains(p.Body, "completed") {
-		t.Errorf("body must not say 'completed' for cancelled, got %q", p.Body)
+	if strings.Contains(p.Text, "completed") {
+		t.Errorf("body must not say 'completed' for cancelled, got %q", p.Text)
 	}
 }
 

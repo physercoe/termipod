@@ -187,8 +187,8 @@ var (
 // handleTunnelNext is the host-runner long-poll. Waits up to ~25s for a
 // queued request on this host. Returns the envelope JSON or 204.
 func (s *Server) handleTunnelNext(w http.ResponseWriter, r *http.Request) {
-	team := chi.URLParam(r,"team")
-	host := chi.URLParam(r,"host")
+	team := chi.URLParam(r, "team")
+	host := chi.URLParam(r, "host")
 	if ok, err := s.authorizeHostInTeam(r.Context(), team, host); !ok {
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -225,8 +225,8 @@ func (s *Server) handleTunnelNext(w http.ResponseWriter, r *http.Request) {
 // tunnelResponse with the ReqID that came from /next. Hub routes it to
 // the public-relay request that's still blocked on the waiter channel.
 func (s *Server) handleTunnelResponse(w http.ResponseWriter, r *http.Request) {
-	team := chi.URLParam(r,"team")
-	host := chi.URLParam(r,"host")
+	team := chi.URLParam(r, "team")
+	host := chi.URLParam(r, "host")
 	if ok, err := s.authorizeHostInTeam(r.Context(), team, host); !ok {
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
@@ -258,9 +258,9 @@ func (s *Server) handleTunnelResponse(w http.ResponseWriter, r *http.Request) {
 // the handler forwards /a2a/<agent>/<tail> to the host-runner's local
 // A2A server via the tunnel, which knows how to dispatch that path.
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
-	host := chi.URLParam(r,"host")
-	agent := chi.URLParam(r,"agent")
-	tail := chi.URLParam(r,"*")
+	host := chi.URLParam(r, "host")
+	agent := chi.URLParam(r, "agent")
+	tail := chi.URLParam(r, "*")
 
 	if host == "" || agent == "" {
 		writeErr(w, http.StatusBadRequest, "host and agent required")
@@ -275,18 +275,17 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// v1.0.630: decorate the message body with sender attribution before
-	// forwarding to the recipient's host-runner. Without this, the
-	// receiver gets `{"role":"user","parts":[{"text":"<msg>"}]}` with no
-	// indication that (a) this came from another agent, (b) who sent it,
-	// or (c) that the right reply mechanism is `a2a.invoke` back to
-	// sender. Pre-bundle: workers receiving steward A2A messages
-	// would reply as if to a direct user prompt — communication stuck.
-	// Decoration only fires when the caller forwarded their bearer
-	// (so we can resolve sender via resolveA2ASender); legacy unauthed
+	// ADR-032: stamp the orchestration-envelope provenance into the A2A
+	// body's message.metadata before forwarding. The recipient host-runner
+	// reads it and composes the message envelope, so the receiver knows
+	// who sent the message, its kind, and the directive it serves —
+	// without parsing prose. This replaces the v1.0.630 `[A2A from
+	// @sender]` text-prefix decoration. Only fires when the caller
+	// forwarded their bearer (so the sender resolves); legacy unauthed
 	// peer relays keep the original body unchanged.
-	if senderHandle, _ := s.resolveA2ASender(r); senderHandle != "" {
-		body = decorateA2ABodyWithSender(body, senderHandle)
+	if senderHandle, senderAgentID := s.resolveA2ASender(r); senderHandle != "" {
+		body = stampA2AEnvelopeMeta(body, senderHandle,
+			s.a2aSenderRole(r.Context(), senderAgentID))
 	}
 
 	// Reconstruct the path the host-runner's A2A handler expects:
@@ -518,27 +517,35 @@ func previewA2ABody(raw []byte) string {
 	return ""
 }
 
-// decorateA2ABodyWithSender rewrites a JSON-RPC `message/send` envelope's
-// `params.message.parts[]` to prepend sender attribution to each text
-// part. The receiving worker then sees a body like:
+// a2aSenderRole resolves an A2A caller's agent id to its envelope role
+// (peer_steward / peer_worker). Best-effort — an unknown / empty id
+// defaults to peer_worker.
+func (s *Server) a2aSenderRole(ctx context.Context, agentID string) string {
+	if agentID == "" {
+		return RolePeerWorker
+	}
+	var kind string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(kind,'') FROM agents WHERE id = ?`, agentID).Scan(&kind); err != nil {
+		return RolePeerWorker
+	}
+	return roleForKind(kind)
+}
+
+// stampA2AEnvelopeMeta records the A2A relay's orchestration-envelope
+// provenance into the JSON-RPC `message/send` body's
+// params.message.metadata.termipod bag — from_role and from_handle (the
+// resolved sender), merged with any kind/cause the sender's a2a.invoke
+// handler already placed there. The recipient host-runner reads this bag
+// and composes the message envelope (ADR-032 D-6). This replaces the
+// v1.0.630 `[A2A from @sender]` text-prefix decoration: provenance now
+// travels as structure, not prose the receiver must parse.
 //
-//	[A2A from @research-steward]
-//	<original message>
-//
-//	To reply: a2a.invoke(handle="research-steward", text=...)
-//
-// Without this the receiver gets parts=[{text:"<msg>"}] with role="user"
-// and has no way to know (a) this came from another agent, (b) who sent
-// it, or (c) that the right reply mechanism is `a2a.invoke` back to
-// sender rather than typing into the chat surface.
-//
-// Best-effort: any parse failure returns the raw body unchanged so the
-// relay still works (a legacy peer with a non-JSON-RPC body, or a
-// non-message/send method like tasks/get, must keep flowing). The
-// audit row still records the ORIGINAL body via the audit path's
-// own decode at recordA2ARelayAudit, so the sender's audit shows
-// what they actually typed; only the receiver's view is decorated.
-func decorateA2ABodyWithSender(raw []byte, senderHandle string) []byte {
+// Best-effort: any parse failure returns the raw body unchanged so a
+// legacy / non-message-send peer (tasks/get, a non-JSON-RPC body) keeps
+// flowing. The audit row still records the ORIGINAL body via
+// recordA2ARelayAudit's own decode.
+func stampA2AEnvelopeMeta(raw []byte, senderHandle, senderRole string) []byte {
 	if len(raw) == 0 || senderHandle == "" {
 		return raw
 	}
@@ -546,9 +553,8 @@ func decorateA2ABodyWithSender(raw []byte, senderHandle string) []byte {
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return raw
 	}
-	method, _ := env["method"].(string)
-	if method != "message/send" {
-		return raw // tasks/get and similar pass through untouched
+	if method, _ := env["method"].(string); method != "message/send" {
+		return raw
 	}
 	params, _ := env["params"].(map[string]any)
 	if params == nil {
@@ -558,31 +564,18 @@ func decorateA2ABodyWithSender(raw []byte, senderHandle string) []byte {
 	if msg == nil {
 		return raw
 	}
-	partsAny, ok := msg["parts"].([]any)
-	if !ok {
-		return raw
+	meta, _ := msg["metadata"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
 	}
-	changed := false
-	for i, partAny := range partsAny {
-		part, _ := partAny.(map[string]any)
-		if part == nil {
-			continue
-		}
-		kind, _ := part["kind"].(string)
-		text, _ := part["text"].(string)
-		if kind != "text" || text == "" {
-			continue
-		}
-		part["text"] = "[A2A from @" + senderHandle + "]\n" +
-			text +
-			"\n\nTo reply: a2a.invoke(handle=\"" + senderHandle + "\", text=...)"
-		partsAny[i] = part
-		changed = true
+	tp, _ := meta["termipod"].(map[string]any)
+	if tp == nil {
+		tp = map[string]any{}
 	}
-	if !changed {
-		return raw
-	}
-	msg["parts"] = partsAny
+	tp["from_role"] = senderRole
+	tp["from_handle"] = senderHandle
+	meta["termipod"] = tp
+	msg["metadata"] = meta
 	params["message"] = msg
 	env["params"] = params
 	out, err := json.Marshal(env)
@@ -645,4 +638,3 @@ func readAllCapped(r *http.Request) ([]byte, error) {
 		}
 	}
 }
-

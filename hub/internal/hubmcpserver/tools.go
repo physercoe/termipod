@@ -484,7 +484,7 @@ func buildTools() []toolDef {
 		{
 			Name:        "a2a.invoke",
 			Description: "Send an A2A message to another agent by handle. Looks up the agent card in the team directory, then POSTs a JSON-RPC `message/send` envelope to the card's relay URL. Returns the JSON-RPC response envelope (typically a Task).",
-			InputSchema: schema(`{"type":"object","required":["handle","text"],"properties":{"handle":{"type":"string","description":"target agent handle (e.g. \"worker.ml\")"},"text":{"type":"string","description":"message body as plain text"},"task_id":{"type":"string","description":"optional existing task id to continue"},"message_id":{"type":"string","description":"optional message id; auto-generated when omitted"}}}`),
+			InputSchema: schema(`{"type":"object","required":["handle","text"],"properties":{"handle":{"type":"string","description":"target agent handle (e.g. \"worker.ml\")"},"text":{"type":"string","description":"message body as plain text"},"kind":{"type":"string","enum":["directive","question","report"],"description":"the message's force: directive opens work, question asks a blocking question, report returns a result. Defaults to directive."},"cause":{"type":"string","description":"optional id of the directive/task this message serves (lineage)"},"task_id":{"type":"string","description":"optional existing task id to continue"},"message_id":{"type":"string","description":"optional message id; auto-generated when omitted"}}}`),
 			call: func(c *hubClient, args map[string]any) (any, error) {
 				handle, _ := args["handle"].(string)
 				text, _ := args["text"].(string)
@@ -521,6 +521,19 @@ func buildTools() []toolDef {
 					"messageId": msgID,
 					"role":      "user",
 					"parts":     []map[string]any{{"kind": "text", "text": text}},
+				}
+				// ADR-032: declare the message's envelope kind/cause in the
+				// termipod metadata bag; the hub relay adds the resolved
+				// sender and the recipient composes the envelope.
+				tp := map[string]any{}
+				if k, _ := args["kind"].(string); k != "" {
+					tp["kind"] = k
+				}
+				if cause, _ := args["cause"].(string); cause != "" {
+					tp["cause"] = cause
+				}
+				if len(tp) > 0 {
+					msg["metadata"] = map[string]any{"termipod": tp}
 				}
 				params := map[string]any{"message": msg}
 				if tid, ok := args["task_id"].(string); ok && tid != "" {

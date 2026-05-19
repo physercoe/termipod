@@ -505,7 +505,7 @@ func TestPostAgentInput_ImagesHappyPath(t *testing.T) {
 		t.Fatalf("select payload: %v", err)
 	}
 	var payload struct {
-		Body   string `json:"body"`
+		Text   string `json:"text"` // ADR-032: envelope text, was payload.body
 		Images []struct {
 			MimeType string `json:"mime_type"`
 			Data     string `json:"data"`
@@ -514,8 +514,8 @@ func TestPostAgentInput_ImagesHappyPath(t *testing.T) {
 	if err := json.Unmarshal([]byte(payloadRaw), &payload); err != nil {
 		t.Fatalf("payload decode: %v", err)
 	}
-	if payload.Body != "describe these" {
-		t.Errorf("body = %q", payload.Body)
+	if payload.Text != "describe these" {
+		t.Errorf("text = %q", payload.Text)
 	}
 	if len(payload.Images) != 2 {
 		t.Fatalf("images = %d, want 2", len(payload.Images))
@@ -557,9 +557,9 @@ func TestPostAgentInput_ImagesValidation(t *testing.T) {
 	agentID := seedAgentForInput(t, s)
 
 	cases := []struct {
-		name    string
-		images  []map[string]string
-		marker  string // substring expected in error body
+		name   string
+		images []map[string]string
+		marker string // substring expected in error body
 	}{
 		{
 			name: "bad_mime",

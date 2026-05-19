@@ -94,35 +94,51 @@ type MessageThread struct {
 - **Payload layout.** The envelope is marshaled **as the
   `agent_events` payload itself** — `{from,to,kind,text,cause,thread}`
   at the payload top level, *not* nested under
-  `payload['body']` / `payload['envelope']`. This keeps
-  `payload['text']` resolving for every existing consumer (the driver
-  text branch; the mobile feed — C2), so the envelope is additive,
-  not a breaking change.
+  `payload['body']` / `payload['envelope']`. The envelope's `text`
+  field **replaces** the legacy `payload['body']` an `input.text` row
+  carries today: the driver text branch reads `payload['body']`, so it
+  is updated to the envelope in A3, and mobile's `input.text` path
+  already falls back to `text`. This is a coordinated A1→A2→A3 change
+  cut over on a drained hub (ADR-032 D-8) — not a silent additive.
 - **Acceptance:** round-trips cleanly; every `kind`/`role` combination
   composes. **Tests:** `TestComposeMessage_*`.
 
 #### A2 — Hub callers compose envelopes + explicit `kind` param
 
-The three `agent_events` write sites compose the envelope via A1's
-helper:
+Every `input.text` `agent_events` row carries the envelope as its flat
+payload, composed via A1's helper. The hub-server write sites
+(verified against the code — *not* the three originally drafted):
 
-1. **`handlers_agent_input.go`** (principal input) — `from.role=principal`,
-   `kind=directive`.
-2. **`tunnel_a2a.go`** (A2A relay) — `from.role=peer_steward|peer_worker`,
-   `kind` from the call's explicit parameter; drop the v1.0.630
-   `[A2A from @sender]` prefix.
-3. **`task_notify.go`** (system wakes) — `from.role=system`,
-   `kind=notification` (or `directive` for a schedule fire).
+1. **`handlers_agent_input.go`** (`handlePostAgentInput`) — writes the
+   `input.text` row for **both** principal direct input
+   (`producer=user` → `from.role=principal`, `kind=directive`) **and**
+   the A2A post-back (`producer=a2a` → `from.role=peer_steward|
+   peer_worker`, envelope `kind` from the relayed metadata). This is
+   the single A2A `input.text` write site — the host-runner's
+   `a2a_dispatcher` POSTs the relayed message back here.
+2. **`task_notify.go`** (system task-outcome wakes) — `from.role=system`,
+   `kind=notification`, `cause` = the task.
+3. **`mcp_orchestrate.go`** (`postSyntheticUserInput` — fanout /
+   spawn-with-task first turn) — `from.role=system`, `kind=directive`.
 
-And: `a2a_invoke` / `delegate` gain an explicit **`kind` parameter**
-(`directive|question|report`) — catalog entry, dispatcher, handler
-(ADR-032 D-6). The hub reads it, validates it (A4), stamps the
-envelope.
+`tunnel_a2a.go` is **not** an `agent_events` write site — it is the
+relay. It stamps envelope provenance (`from_role`, `from_handle`, plus
+the sender-declared `kind`/`cause`) into the A2A body's
+`message.metadata.termipod` bag, replacing the v1.0.630 `[A2A from
+@sender]` text prefix; the recipient host-runner's `a2a_dispatcher`
+forwards that bag to `handlePostAgentInput`.
+
+And: `a2a_invoke` gains an explicit **`kind` parameter**
+(`directive|question|report`) plus an optional `cause` — catalog entry
++ handler (ADR-032 D-6); the hub stamps them into the relay metadata.
+(`delegate`, listed in the original draft, is a `channels`-row tool
+unrelated to the message envelope — out of scope.)
 
 - **Acceptance:** every post-A2 `input.text` row carries the envelope;
   the prefix decoration is gone. **Tests:** updated assertions in
   `task_notify_input_test.go`, `tunnel_a2a_test.go`,
-  `handlers_agent_input_test.go`; `a2a_invoke` kind-param tests.
+  `handlers_agent_input_test.go`, `spawn_with_task_test.go`;
+  `stampA2AEnvelopeMeta` tests.
 
 #### A3 — Driver-side unwrap + render
 

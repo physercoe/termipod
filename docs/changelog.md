@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-19)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.632
+> **Last verified vs code:** v1.0.633
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,31 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.633-alpha — 2026-05-19
+
+Loop-closure configurability — two [ADR-034](decisions/034-orchestration-loop-closure.md)
+§7 amendments that make the runtime's enforcement knobs editable
+rather than hardcoded.
+
+### Added
+
+- **Per-project loop-closure deadline override.** Migration `0043`
+  adds `loop_inactivity_minutes` + `loop_absolute_cap_minutes` to
+  `projects` (nullable — `NULL` keeps the hub default). `loopBudgets`
+  resolves them, and the sweep applies them everywhere it sets a
+  deadline — lazy-stamp, the escalation push, and the per-task
+  progress bump (now resolved per task, so a multi-project agent's
+  tasks each take their own project's budget). Settable from the
+  mobile project-edit sheet and over the `projects.update` REST / MCP
+  path. Commit `0e9cae5`.
+- **Loop-hooks config disk overlay.** The lifecycle-hook config
+  (`PreAgentIdle` / `PostDirectiveOutcome`) was `//go:embed`'d —
+  rebuild-only. It now has a disk overlay: `Server.New()` seeds
+  `<dataRoot>/loop-hooks.yaml` from the bundled default (never
+  overwriting an operator edit) and loads it; SIGHUP hot-reloads it;
+  the live config sits in an `atomic.Value` so the sweep never races
+  the reload. Commit `357e056`.
 
 ## v1.0.632-alpha — 2026-05-19
 

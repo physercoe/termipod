@@ -585,8 +585,11 @@ Genuinely still open:
 - **Deadline-default tuning.** ADR-034 sets per-hop deadlines from the
   agent family / template; the default *values* want on-device
   calibration — post-MVP.
-- **The `spine/` axiom** is gated on ADR-032 + ADR-034 acceptance
-  (Appendix) — sequencing, not open design.
+- **Layer-A awareness surfaces** — the principal's inbox, read-state,
+  and the Requests/Messages/Agents reframe (`feedback-loop-closure.md`
+  §5). A separate mobile/IA track: it *consumes* ADR-034's runtime but
+  is not yet designed or ADR'd. `feedback-loop-closure.md` §9 Q2/Q6
+  (read-state granularity, notification budget) live here.
 
 ## 12. Recommendation
 

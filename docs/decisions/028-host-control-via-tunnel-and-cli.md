@@ -1,9 +1,9 @@
 # 028. Host control via the tunnel + a CLI ops surface
 
 > **Type:** decision
-> **Status:** Proposed (2026-05-16) — D-1 through D-6 locked in the 2026-05-16 design conversation; awaiting Phase 1 implementation
+> **Status:** Accepted (2026-05-19) — D-1 through D-6 locked 2026-05-16; Phase 1 (`shutdown-all`) implemented in v1.0.611-alpha; Phases 2-5 outstanding. See [Implementation status](#implementation-status).
 > **Audience:** contributors · operators
-> **Last verified vs code:** v1.0.608-alpha
+> **Last verified vs code:** v1.0.633-alpha
 
 **TL;DR.** Promote the A2A long-poll tunnel
 (`/v1/teams/{team}/a2a/tunnel/next`+`/responses`) into a host RPC
@@ -82,7 +82,8 @@ we need it. Single channel for now; revisit if metrics show
 contention.
 
 **Auth.** A2A relay is mounted outside the auth middleware
-(per `server.go:172-173`) because A2A v0.3 declares the URL path
+(`server.go:205-209`, before `r.Use(auth.Middleware)` at
+`server.go:212`) because A2A v0.3 declares the URL path
 as the capability. Control verbs are different — they're
 hub-internal and must be owner-gated. Authentication leans on the
 existing transport: host-runner's long-poll already authenticates
@@ -373,6 +374,49 @@ trust model.
   systemd users on `shutdown-all`. Documented; opt-in helper
   script provided.
 
+## Implementation status
+
+| Phase | State | Where |
+|---|---|---|
+| 1 — `shutdown-all` | **Shipped v1.0.611-alpha** (commit `83170b0`) | below |
+| 2 — `self-update` + `update-all` | Not started | — |
+| 3 — `restart-all` | Not started | — |
+| 4 — ops fleet (doctor/version/hosts/logs/…) | Not started | — |
+| 5 — mobile Admin pane | Not started | — |
+
+**Phase 1 landed slightly differently from the plan's W1/W3
+sketch — what actually shipped:**
+
+- The `kind` discriminator (D-1) lives in the `hostrunner/a2a`
+  package, not `runner.go`: `a2a/tunnel.go`'s `RunTunnel` switches
+  on `TunnelEnvelope.Kind` and routes `host.*` through a
+  `HostVerbHandler`. The per-verb dispatcher is
+  `hostrunner/host_verbs.go` (`handleHostVerb` — a `switch verb`
+  with `case "shutdown"`; `host.update`/`host.restart` are added
+  per-wedge in Phases 2-3). Unknown verbs return the typed
+  `unknown_verb` envelope with `host_version` stamped.
+- The per-host orchestration (D-2) runs **hub-side** in
+  `handleAdminFleetShutdown` (`POST /v1/admin/fleet/shutdown`,
+  owner-gated via `requireOwner`), not in the CLI subcommand.
+  `cmd/hub-server/shutdown_all.go` is a thin REST client over that
+  endpoint — so Phase 5's mobile pane reuses the same hub logic
+  rather than reimplementing it. Hub-side, `enqueueHostVerb`
+  (`tunnel_a2a.go`) pushes the verb onto the host's tunnel queue.
+- Only `/v1/admin/fleet/shutdown` exists today; the per-host
+  `/v1/admin/host/{id}/*` routes the plan's W22 anticipates are
+  still Phase 5.
+- W2.5's `stopSessionInternal` extract landed in
+  `server/handlers_agents.go`; W4's exit-code contract is
+  documented atop both `main.go` files; W5's Scenario 25 is in
+  `docs/how-to/test-steward-lifecycle.md`.
+
+**Carry-forward for Phase 2.** The release pipeline still ships
+**one tarball per platform bundling both binaries** (`release.yml`
+— `termipod-hub-<ver>-<os>-<arch>.tar.gz`, 4 tarballs, no
+`SHA256SUMS`). The per-binary 8-tarball split (D-4, plan W5.5) is
+a hard prerequisite for self-update and is the first Phase 2
+wedge.
+
 ## Open follow-ups
 
 - Cosign signing of release artifacts (upgrade path from D-4).
@@ -400,9 +444,16 @@ trust model.
   [discussions/host-control-and-cli-surface.md](../discussions/host-control-and-cli-surface.md)
 - Execution plan:
   [plans/hub-host-control-cli.md](../plans/hub-host-control-cli.md)
-- Tunnel endpoints today:
-  `hub/internal/server/server.go:220-221`,
-  `hub/internal/hostrunner/client.go:404-447` (`NextTunnelRequest`)
+- Tunnel endpoints:
+  `hub/internal/server/server.go:262-263`
+  (`handleTunnelNext` / `handleTunnelResponse`),
+  `hub/internal/hostrunner/client.go:408` (`NextTunnelRequest`)
+- Phase 1 implementation:
+  `hub/internal/hostrunner/a2a/tunnel.go` (`RunTunnel` +
+  `HostVerbHandler`), `hub/internal/hostrunner/host_verbs.go`
+  (`handleHostVerb`), `hub/internal/server/tunnel_a2a.go`
+  (`enqueueHostVerb`), `hub/internal/server/handlers_admin.go`
+  (`handleAdminFleetShutdown`), `hub/cmd/hub-server/shutdown_all.go`
 - Existing systemd units:
   `hub/deploy/systemd/termipod-hub.service`,
   `hub/deploy/systemd/termipod-host@.service`

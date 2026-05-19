@@ -1,9 +1,9 @@
 # Hub + host control CLI — phased rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-16) — five phases, no work started; ADR-028 captures the locked decisions
+> **Status:** Active (2026-05-19) — Phase 1 shipped (v1.0.611-alpha, commit `83170b0`); Phases 2-5 outstanding. ADR-028 captures the locked decisions.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.608-alpha
+> **Last verified vs code:** v1.0.633-alpha
 
 **TL;DR.** Add ops subcommands to `hub-server` and `host-runner`
 so the operator can take the whole fleet down, push a new
@@ -21,13 +21,13 @@ the locked decisions are in
 
 ## 1. Phase order, summarized
 
-| Phase | Ship | Exit code | Approx LOC | Depends on |
-|---|---|---|---|---|
-| 1 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
-| 2 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
-| 3 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
-| 4 | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
-| 5 | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
+| Phase | Status | Ship | Exit code | Approx LOC | Depends on |
+|---|---|---|---|---|---|
+| 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
+| 2 | ⬜ next | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
+| 3 | ⬜ | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
+| 4 | ⬜ | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
+| 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
 5 is gated on the REST endpoints being stable.
@@ -35,6 +35,26 @@ Phases 1-4 are CLI-only and can ship in any order after 1. Phase
 ---
 
 ## 2. Phase 1 — shutdown-all
+
+> **Status: shipped v1.0.611-alpha** (commit `83170b0`). W1-W5 all
+> landed. The wedge text below is kept as the historical spec —
+> three things shipped differently from the W1/W3 sketch:
+>
+> - **W1 — the `kind` switch is in the `hostrunner/a2a` package,
+>   not `runner.go`.** `a2a/tunnel.go`'s `RunTunnel` switches on
+>   `TunnelEnvelope.Kind`; `host.*` routes through a
+>   `HostVerbHandler`. The per-verb dispatcher is
+>   `hostrunner/host_verbs.go` `handleHostVerb` (`switch verb` →
+>   `case "shutdown"`).
+> - **W3 — the per-host orchestration is hub-side, not in the CLI.**
+>   It lives in `handleAdminFleetShutdown`
+>   (`POST /v1/admin/fleet/shutdown`, owner-gated via
+>   `requireOwner`); `cmd/hub-server/shutdown_all.go` is a thin REST
+>   client over that endpoint. This is deliberate — Phase 5's
+>   mobile pane reuses the same hub logic. `enqueueHostVerb`
+>   (`tunnel_a2a.go`) pushes the verb onto the host's tunnel queue.
+> - Only `/v1/admin/fleet/shutdown` exists; the per-host
+>   `/v1/admin/host/{id}/*` routes are still Phase 5 (W22).
 
 ### 2.1 Goal
 
@@ -371,10 +391,13 @@ The hub owner can drive Phases 1-4 from the mobile app.
 ### 6.2 Wedges
 
 **W22. Admin REST endpoints (~120 LOC).**
-- New routes under `/v1/admin/`: `host/{id}/shutdown`,
-  `host/{id}/update`, `host/{id}/restart`, `fleet/shutdown`,
-  `fleet/update`, `fleet/restart`, `db/vacuum`, `tokens/rotate`.
-- All owner-scope. Member tokens get 403.
+- `fleet/shutdown` already shipped in Phase 1
+  (`POST /v1/admin/fleet/shutdown`, `handleAdminFleetShutdown`).
+  W22 adds the rest under `/v1/admin/`: `host/{id}/shutdown`,
+  `host/{id}/update`, `host/{id}/restart`, `fleet/update`,
+  `fleet/restart`, `db/vacuum`, `tokens/rotate`.
+- All owner-scope (`requireOwner`, the Phase 1 gate). Member
+  tokens get 403.
 - All write `audit_events` rows.
 
 **W23. Mobile Admin tab (~400 LOC Flutter).**

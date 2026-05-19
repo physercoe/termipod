@@ -498,6 +498,17 @@ Commit `5d237e0`.
 
 ### Added
 
+- **ADR-028 Phase 1 — `hub-server shutdown-all`.** Promotes the
+  A2A tunnel into a host RPC bus: `TunnelEnvelope` gains a `kind`
+  discriminator (`a2a` | `host.<verb>`); `RunTunnel` routes
+  `host.*` through a `HostVerbHandler`; unknown verbs return a
+  typed `unknown_verb` envelope. New `host.shutdown` verb logs the
+  reason, runs a cleanup pass, and exits 0 (systemd does not
+  respawn). `POST /v1/admin/fleet/shutdown` (owner-scope) stops
+  every active session on every live host via the new
+  `stopSessionInternal` helper — shared with the mobile Stop
+  path — then fires the verb; `cmd/hub-server/shutdown-all` is a
+  thin client over it. Hub-server stays up. Commit `83170b0`.
 - **ADR-029 Phase 1.5 — task delivery + notification edges
   (D-8).** Worker delivery: task body inlined into the CLAUDE.md
   `## Task` section + a `producer='user'` event posted after

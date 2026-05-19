@@ -45,7 +45,7 @@ a drained hub.
 | A | A2 | Hub callers compose envelopes + explicit `kind` param | ~190 LOC | A1 |
 | A | A3 | Driver-side unwrap + render (incl. self-echo drop) | ~150 LOC | A1 |
 | A | A4 | The message-admission pipeline | ~150 LOC | A1, A2 |
-| B | B1 | Terminal-reason taxonomy + loop-entity open-set | ~150 LOC | — |
+| B | B1 | Loop-entity data model — extend `tasks` + `attention_items` | ~120 LOC | — |
 | B | B2 | Per-hop deadlines + the reconcile sweep + escalation | ~220 LOC | B1 |
 | B | B3 | Lifecycle hooks — `PreAgentIdle`, `PostDirectiveOutcome` | ~150 LOC | B1 |
 | B | B4 | The directive-trace query endpoint | ~110 LOC | A1, B1 |
@@ -154,19 +154,26 @@ agent can retry. Never crash, never silently drop.
 
 ### Phase B — Loop closure
 
-#### B1 — Terminal-reason taxonomy + loop-entity open-set
+#### B1 — Loop-entity data model: extend `tasks` + `attention_items`
 
-Replace the thin `done/blocked/cancelled` with the enumerated
-terminal-reason set `completed | blocked | failed | killed |
-timed_out | superseded` (ADR-034 D-6), and add the hub-tracked **open
-set** of loop-entities (directives / tasks / questions) — the basis
-of the loop-closure invariant (ADR-034 D-1).
+The loop-entity is a **role over two existing tables, not a new
+table** (ADR-034 D-8). A directive is a root `tasks` row, a task is a
+child `tasks` row (`tasks.parent_task_id` already gives the tree); a
+question is an `attention_item` row.
 
-- A numbered SQL migration: terminal-reason column, loop-entity
-  open/closed state, `parent` pointer for the `cause` tree.
-- **Acceptance:** every loop-entity has exactly one terminal reason on
-  close; the open set is queryable. **Tests:** `TestLoopEntity_*`,
-  taxonomy migration test.
+- An **additive** numbered migration: `tasks` and `attention_items`
+  each gain the per-hop deadline columns (`inactivity_deadline`,
+  `last_progress_at`, `opened_at`, `absolute_cap`, `escalation_state`)
+  and a `terminal_reason` column (the enum `completed | blocked |
+  failed | killed | timed_out | superseded`, ADR-034 D-6), distinct
+  from the live `status`; `attention_items` also gains a `cause`
+  pointer to its enclosing task.
+- A Go `LoopEntity` interface both tables satisfy; the open-set is a
+  `UNION` over open `tasks` and open question-kind `attention_items`
+  (ADR-034 D-1).
+- **Acceptance:** every loop-entity closes with exactly one
+  `terminal_reason`; the open-set query returns both kinds; no new
+  table. **Tests:** `TestLoopEntity_*`, the additive-migration test.
 
 #### B2 — Per-hop deadlines + the reconcile sweep + escalation
 

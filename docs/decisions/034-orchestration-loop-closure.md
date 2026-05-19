@@ -1,6 +1,6 @@
 ---
 name: Orchestration loop-closure runtime
-description: The Layer-B half of the orchestration contract — the runtime that guarantees a principal directive's loop closes rather than silently stalling. Establishes the loop-closure invariant (a directive is not done until a terminal report carrying its cause reaches the issuer's inbox); per-hop deadlines that localize stalls to a node; a hub-server periodic sweep as the deadline clock; stall escalation one level up the chain as the no-silent-sink guarantee; orchestration lifecycle hooks (PreAgentIdle, PostDirectiveOutcome) as YAML data; an enumerated terminal-reason taxonomy replacing thin done/blocked/cancelled; and a directive-trace view reconstructed from events by walking the cause chain. Companion to ADR-032 (the message envelope); together they are the orchestration contract.
+description: The Layer-B half of the orchestration contract — the runtime that guarantees a principal directive's loop closes rather than silently stalling. Establishes the loop-closure invariant (a directive is not done until a terminal report carrying its cause reaches the issuer's inbox); per-hop deadlines that localize stalls to a node; a hub-server periodic sweep as the deadline clock; stall escalation one level up the chain as the no-silent-sink guarantee; orchestration lifecycle hooks (PreAgentIdle, PostDirectiveOutcome) as YAML data; an enumerated terminal-reason taxonomy replacing thin done/blocked/cancelled; a directive-trace view reconstructed from events by walking the cause chain; and the loop-entity modelled as a role over the existing tasks and attention_items tables — no new table. Companion to ADR-032 (the message envelope); together they are the orchestration contract.
 ---
 
 # 034. Orchestration loop-closure runtime
@@ -18,7 +18,7 @@ description: The Layer-B half of the orchestration contract — the runtime that
 **TL;DR.** [ADR-032](032-message-routing-envelope.md) types the
 *messages* of the orchestration layer. This ADR types its *loop*: the
 runtime that guarantees a principal's directive reaches an observable
-terminal state rather than silently stalling at some hop. Seven
+terminal state rather than silently stalling at some hop. Eight
 decisions: (D-1) the **loop-closure invariant** — a directive is not
 `done` until a terminal `report` carrying its `cause` reaches the
 issuer's inbox; (D-2) **per-hop deadlines** that localize a stall to a
@@ -29,8 +29,10 @@ escalation** one level up the chain — the "no silent sink" guarantee;
 `PostDirectiveOutcome`) as YAML data; (D-6) an enumerated
 **terminal-reason taxonomy** replacing thin `done/blocked/cancelled`;
 (D-7) a **directive-trace** view reconstructed from events by walking
-the `cause` chain — no new event stream. Together with ADR-032 this is
-the orchestration contract; both ship in one MVP rollout.
+the `cause` chain — no new event stream; (D-8) the loop-entity is a
+**role over the existing `tasks` and `attention_items` tables**, not a
+new table. Together with ADR-032 this is the orchestration contract;
+both ship in one MVP rollout.
 
 ---
 
@@ -197,6 +199,57 @@ new plumbing. The trace is the principal's single screen for "which
 node is holding the ball." Rationale:
 [`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md) §6.5.
 
+### D-8. The loop-entity data model — a role over two existing tables
+
+The loop-entity (D-1's open-set, D-2's deadlines, D-6's terminal
+reasons, D-7's trace) is **not a new table.** It is a *role* that two
+existing primitives satisfy:
+
+- A **directive** and a **task** are both `tasks` rows. `tasks`
+  already carries `parent_task_id` (self-referential), `status`,
+  `assignee_id`, and `created_by_id` — it is already a tree of
+  addressed work. A directive is simply a **root task**
+  (`parent_task_id` NULL, `assignee_id` = a steward); a task is a
+  child task. The directive/task distinction is *positional* — it is
+  already encoded by `parent_task_id`.
+- A **question** is an `attention_item` row — a pending ask, not a
+  unit of work. `attention_items` already carries the question-shaped
+  kinds (help / select / approval / elicit) and a resolved/unresolved
+  lifecycle.
+
+The loop-closure runtime operates over a Go `LoopEntity` interface
+that both tables satisfy; the open-set (D-1) is a `UNION` over open
+`tasks` and open question-kind `attention_items`; `cause`
+([ADR-032](032-message-routing-envelope.md) D-3) is a single ULID
+resolving to a `tasks` *or* an `attention_items` row, validated by the
+admission pipeline against both.
+
+The migration is **additive — no new table:**
+
+- `tasks` gains the D-2 deadline columns (`inactivity_deadline`,
+  `last_progress_at`, `opened_at`, `absolute_cap`, `escalation_state`)
+  and a `terminal_reason` column (the D-6 enum), distinct from the
+  live `status`.
+- `attention_items` gains the same deadline columns and a `cause`
+  pointer to its enclosing task.
+
+Rejected: a new `directives` table (a near-clone of `tasks` for a
+distinction `parent_task_id` already records); a unified
+`loop_entities` table (collapsing `tasks` + `attention_items` is a
+rearchitecture, and conflates a unit of work with a pending ask — the
+system rightly separates the task surface from the attention queue).
+
+**Consequence for [ADR-029](029-tasks-as-first-class-primitive.md).**
+Its Task is "the first-class unit of *steward-dispatched* work"; a
+root task — a principal directive — is *principal*-dispatched.
+ADR-029's scope broadens to "the first-class unit of *directed
+work*": a wording refinement, not a structural change. The glossary
+`Task` entry follows when this ADR is Accepted.
+
+Rationale: orchestration-contract discussion §6.3; verified against
+`migrations/0001_initial.up.sql` (`tasks` already has
+`parent_task_id`, `status`, `assignee_id`).
+
 ## 3. Consequences
 
 **Positive.** A principal directive cannot silently vanish — every
@@ -231,9 +284,10 @@ the steward chain) are config, refined post-MVP.
 
 Ships in the same MVP rollout as [ADR-032](032-message-routing-envelope.md)
 — see [`message-routing-rollout.md`](../plans/message-routing-rollout.md)
-(to be re-wedged to cover both ADRs). Build order: D-6 taxonomy + D-1
-open-set tracking (data model) → D-2/D-3 deadlines + sweep → D-4
-escalation → D-5 hooks → D-7 trace view. Flips to `Accepted` with
+(re-wedged 2026-05-19 to cover both ADRs). Build order: D-8 + D-6 +
+D-1 (extend `tasks` + `attention_items` — deadline columns,
+`terminal_reason`, the open-set) → D-2/D-3 deadlines + sweep → D-4
+escalation → D-5 hooks → D-7 trace. Flips to `Accepted` with
 ADR-032 after on-device verification.
 
 ## 6. References

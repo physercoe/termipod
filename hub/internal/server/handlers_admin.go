@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
+
+	"github.com/termipod/hub/internal/selfupdate"
 )
 
 // Admin endpoints back the ops CLI (`hub-server shutdown-all`,
@@ -59,7 +63,7 @@ func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request
 		in.Reason = "shutdown-all"
 	}
 
-	hosts, err := s.listLiveHostsForShutdown(r.Context())
+	hosts, err := s.listLiveHosts(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -138,12 +142,12 @@ type hostRow struct {
 	id, teamID, name string
 }
 
-// listLiveHostsForShutdown returns the hosts that have heartbeated in
-// the last 5 minutes. Hosts that are already down (or have never
-// registered) get filtered out — there's nothing to send the verb to.
-// The order is stable (team, name) so the CLI's per-host progress
-// output is reproducible.
-func (s *Server) listLiveHostsForShutdown(ctx context.Context) ([]hostRow, error) {
+// listLiveHosts returns the hosts that have heartbeated in the last 5
+// minutes. Hosts that are already down (or have never registered) get
+// filtered out — there's nothing to send a verb to. The order is
+// stable (team, name) so the CLI's per-host progress output is
+// reproducible. Shared by shutdown-all and update-all.
+func (s *Server) listLiveHosts(ctx context.Context) ([]hostRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, team_id, COALESCE(name, '')
 		  FROM hosts
@@ -191,3 +195,206 @@ func (s *Server) listActiveSessionIDsOnHost(ctx context.Context, teamID, hostID 
 	return ids, rows.Err()
 }
 
+// hubExit and hubSelfUpdateDelay are package-level seams for the
+// scheduled hub self-update so tests can drive it without terminating
+// the test process.
+var (
+	hubExit            = os.Exit
+	hubSelfUpdateDelay = 500 * time.Millisecond
+)
+
+// AdminFleetUpdateRequest is the wire shape for the update-all
+// orchestrator (ADR-028 D-2 / plan W9). JSON-only.
+type AdminFleetUpdateRequest struct {
+	Target       string `json:"target,omitempty"`        // hosts | hub | both; default both
+	Version      string `json:"version,omitempty"`       // explicit release tag; overrides Channel
+	Channel      string `json:"channel,omitempty"`       // stable | alpha
+	UpstreamRepo string `json:"upstream_repo,omitempty"` // owner/name; default physercoe/termipod
+	DryRun       bool   `json:"dry_run,omitempty"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+// AdminFleetUpdateHostResult is the per-host update outcome row.
+type AdminFleetUpdateHostResult struct {
+	HostID      string `json:"host_id"`
+	TeamID      string `json:"team_id"`
+	HostName    string `json:"host_name,omitempty"`
+	FromVersion string `json:"from_version,omitempty"`
+	ToVersion   string `json:"to_version,omitempty"`
+	Acked       bool   `json:"acked"`
+	WouldUpdate bool   `json:"would_update,omitempty"` // dry-run only
+	Error       string `json:"error,omitempty"`
+}
+
+// AdminFleetUpdateResponse is the synchronous summary the CLI prints.
+type AdminFleetUpdateResponse struct {
+	Target  string                       `json:"target"`
+	DryRun  bool                         `json:"dry_run"`
+	Hosts   []AdminFleetUpdateHostResult `json:"hosts"`
+	HubNote string                       `json:"hub_note,omitempty"`
+}
+
+// handleAdminFleetUpdate is the POST /v1/admin/fleet/update handler.
+// Owner-scope. Fans the host.update verb out to every live host, then
+// — when the host phase is clean and the hub is in scope — schedules
+// the hub's own self-update (ADR-028 D-2 / plan W9).
+//
+// The hub self-update runs on a delayed goroutine so this HTTP
+// response posts before the daemon replaces its binary and exits 75;
+// the CLI therefore reports the host outcomes but not the hub's — the
+// operator confirms the hub with `hub-server version` once it respawns.
+func (s *Server) handleAdminFleetUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.requireOwner(w, r) {
+		return
+	}
+	var in AdminFleetUpdateRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&in)
+	}
+	switch in.Target {
+	case "":
+		in.Target = "both"
+	case "hosts", "hub", "both":
+		// ok
+	default:
+		writeErr(w, http.StatusBadRequest, "target must be hosts|hub|both")
+		return
+	}
+	if in.Reason == "" {
+		in.Reason = "update-all"
+	}
+
+	out := AdminFleetUpdateResponse{
+		Target: in.Target,
+		DryRun: in.DryRun,
+		Hosts:  []AdminFleetUpdateHostResult{},
+	}
+
+	hostErrors := 0
+	if in.Target == "hosts" || in.Target == "both" {
+		hosts, err := s.listLiveHosts(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, h := range hosts {
+			res := AdminFleetUpdateHostResult{HostID: h.id, TeamID: h.teamID, HostName: h.name}
+			if in.DryRun {
+				res.WouldUpdate = true
+				out.Hosts = append(out.Hosts, res)
+				continue
+			}
+			payload, _ := json.Marshal(map[string]any{
+				"version":       in.Version,
+				"channel":       in.Channel,
+				"upstream_repo": in.UpstreamRepo,
+				"reason":        in.Reason,
+			})
+			// host.update blocks for the length of a download; allow a
+			// generous ack window before giving up on the host.
+			ackCtx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+			resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, "host.update", payload)
+			cancel()
+			switch {
+			case verbErr != nil:
+				res.Error = "verb: " + verbErr.Error()
+			case resp == nil:
+				res.Error = "verb: no response"
+			case resp.Status >= 200 && resp.Status < 300:
+				res.Acked = true
+				res.FromVersion, res.ToVersion = parseUpdateAck(resp.BodyB64)
+			default:
+				res.Error = fmt.Sprintf("verb: status %d — %s",
+					resp.Status, updateAckError(resp.BodyB64))
+			}
+			if res.Error != "" {
+				hostErrors++
+			}
+			s.recordAudit(r.Context(), h.teamID, "host.update", "host", h.id,
+				"update host "+firstNonEmpty(h.name, h.id),
+				map[string]any{
+					"reason":       in.Reason,
+					"acked":        res.Acked,
+					"from_version": res.FromVersion,
+					"to_version":   res.ToVersion,
+					"error":        res.Error,
+				})
+			out.Hosts = append(out.Hosts, res)
+		}
+	}
+
+	// Hub self-update. Skipped on dry-run, and skipped when a host
+	// errored — don't bounce the hub onto a new version while part of
+	// the fleet is stuck on the old one (plan W9: "after all hosts
+	// succeed").
+	wantHub := in.Target == "hub" || in.Target == "both"
+	switch {
+	case !wantHub:
+		// host-only run; nothing to note.
+	case in.DryRun:
+		out.HubNote = "dry run: hub-server would self-update and exit 75 (systemd respawn)"
+	case hostErrors > 0:
+		out.HubNote = fmt.Sprintf("hub self-update SKIPPED: %d host(s) errored — "+
+			"re-run once the fleet is consistent", hostErrors)
+	default:
+		out.HubNote = "hub self-update scheduled: the daemon will download, verify, " +
+			"and exit 75 to respawn on the new binary — confirm with " +
+			"`hub-server version` after it comes back"
+		s.scheduleHubSelfUpdate(in)
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+// scheduleHubSelfUpdate runs the hub-server self-update on a detached
+// goroutine after a short delay, so the update-all HTTP response posts
+// before the daemon replaces its binary and exits 75. A failed
+// self-update logs and leaves the hub running on the current binary.
+func (s *Server) scheduleHubSelfUpdate(in AdminFleetUpdateRequest) {
+	go func() {
+		time.Sleep(hubSelfUpdateDelay)
+		res, err := selfupdate.Run(context.Background(), selfupdate.Options{
+			Binary:  "hub-server",
+			Repo:    in.UpstreamRepo,
+			Channel: in.Channel,
+			Version: in.Version,
+			Log:     s.log,
+		})
+		if err != nil {
+			s.log.Error("hub self-update failed; staying on the current binary", "err", err)
+			return
+		}
+		s.log.Info("hub self-update installed; exiting 75 for respawn",
+			"from", res.FromVersion, "to", res.ToVersion)
+		hubExit(75)
+	}()
+}
+
+// parseUpdateAck pulls the from/to version out of a host.update ack
+// body (base64-encoded JSON). Missing fields yield empty strings.
+func parseUpdateAck(bodyB64 string) (from, to string) {
+	raw, err := base64.StdEncoding.DecodeString(bodyB64)
+	if err != nil {
+		return "", ""
+	}
+	var b struct {
+		FromVersion string `json:"from_version"`
+		ToVersion   string `json:"to_version"`
+	}
+	_ = json.Unmarshal(raw, &b)
+	return b.FromVersion, b.ToVersion
+}
+
+// updateAckError pulls the error string out of a non-2xx host.update
+// response body.
+func updateAckError(bodyB64 string) string {
+	raw, err := base64.StdEncoding.DecodeString(bodyB64)
+	if err != nil {
+		return ""
+	}
+	var b struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(raw, &b)
+	return b.Error
+}

@@ -241,3 +241,162 @@ func TestAdminFleetShutdown_NonOwnerGets403(t *testing.T) {
 		t.Errorf("body=%s, expected mention of owner gate", body)
 	}
 }
+
+// TestAdminFleetUpdate_FiresHostVerb wires update-all end-to-end for
+// the host phase: one live host, a fake host-runner that acks
+// host.update with from/to versions. target=hosts keeps the hub
+// self-update bounce out of play.
+func TestAdminFleetUpdate_FiresHostVerb(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-live", "live-1")
+	if _, err := s.db.ExecContext(context.Background(),
+		`UPDATE hosts SET last_seen_at = datetime('now') WHERE id = ?`,
+		"host-live"); err != nil {
+		t.Fatalf("set last_seen: %v", err)
+	}
+
+	ts := httptest.NewServer(s.router)
+	defer ts.Close()
+	pollCtx, pollCancel := context.WithCancel(context.Background())
+	defer pollCancel()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			if pollCtx.Err() != nil {
+				return
+			}
+			pollReq, _ := http.NewRequestWithContext(pollCtx, http.MethodGet,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/host-live/a2a/tunnel/next?wait_ms=3000",
+				nil)
+			pollReq.Header.Set("Authorization", "Bearer "+token)
+			resp, err := http.DefaultClient.Do(pollReq)
+			if err != nil {
+				return
+			}
+			if resp.StatusCode == http.StatusNoContent {
+				resp.Body.Close()
+				continue
+			}
+			var env tunnelRequest
+			_ = json.NewDecoder(resp.Body).Decode(&env)
+			resp.Body.Close()
+			if env.Kind != "host.update" {
+				continue
+			}
+			ack, _ := json.Marshal(map[string]any{
+				"acked": true, "ok": true,
+				"from_version": "v1.0.0-alpha", "to_version": "v1.0.1-alpha",
+			})
+			reply := tunnelResponse{
+				ReqID:   env.ReqID,
+				Status:  http.StatusOK,
+				Headers: map[string]string{"Content-Type": "application/json"},
+				BodyB64: base64.StdEncoding.EncodeToString(ack),
+			}
+			body, _ := json.Marshal(reply)
+			pr, _ := http.NewRequestWithContext(pollCtx, http.MethodPost,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/host-live/a2a/tunnel/responses",
+				bytes.NewReader(body))
+			pr.Header.Set("Authorization", "Bearer "+token)
+			pr.Header.Set("Content-Type", "application/json")
+			pResp, _ := http.DefaultClient.Do(pr)
+			if pResp != nil {
+				pResp.Body.Close()
+			}
+			return
+		}
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	status, body := doReq(t, s, token, http.MethodPost, "/v1/admin/fleet/update",
+		map[string]any{"target": "hosts", "version": "v1.0.1-alpha"})
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var out AdminFleetUpdateResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d (%v)", len(out.Hosts), out.Hosts)
+	}
+	got := out.Hosts[0]
+	if !got.Acked {
+		t.Errorf("acked = false (err=%q)", got.Error)
+	}
+	if got.ToVersion != "v1.0.1-alpha" {
+		t.Errorf("to_version = %q, want v1.0.1-alpha", got.ToVersion)
+	}
+	if out.HubNote != "" {
+		t.Errorf("hub_note should be empty for target=hosts, got %q", out.HubNote)
+	}
+	// Audit row for the update.
+	var n int
+	_ = s.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM audit_events WHERE action = 'host.update'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("host.update audit rows = %d, want 1", n)
+	}
+
+	pollCancel()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+}
+
+// TestAdminFleetUpdate_DryRunFiresNothing asserts dry-run enumerates
+// the host as would-update, notes the hub, and fires no verb.
+func TestAdminFleetUpdate_DryRunFiresNothing(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-live", "live-1")
+	if _, err := s.db.ExecContext(context.Background(),
+		`UPDATE hosts SET last_seen_at = datetime('now') WHERE id = ?`,
+		"host-live"); err != nil {
+		t.Fatalf("set last_seen: %v", err)
+	}
+
+	status, body := doReq(t, s, token, http.MethodPost, "/v1/admin/fleet/update",
+		map[string]any{"target": "both", "dry_run": true})
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var out AdminFleetUpdateResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Hosts) != 1 || !out.Hosts[0].WouldUpdate {
+		t.Errorf("hosts = %v, want one would-update host", out.Hosts)
+	}
+	if out.Hosts[0].Acked {
+		t.Errorf("dry run must not ack a host")
+	}
+	if !strings.Contains(out.HubNote, "dry run") {
+		t.Errorf("hub_note = %q, want a dry-run note", out.HubNote)
+	}
+}
+
+// TestAdminFleetUpdate_NonOwnerGets403 locks the owner-scope gate.
+func TestAdminFleetUpdate_NonOwnerGets403(t *testing.T) {
+	s, _ := newA2ATestServer(t)
+	memberToken := mintNonOwnerToken(t, s, defaultTeamID)
+	status, body := doReq(t, s, memberToken, http.MethodPost,
+		"/v1/admin/fleet/update", map[string]any{})
+	if status != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", status, body)
+	}
+}
+
+// TestAdminFleetUpdate_BadTarget rejects an unknown --target value.
+func TestAdminFleetUpdate_BadTarget(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	status, body := doReq(t, s, token, http.MethodPost,
+		"/v1/admin/fleet/update", map[string]any{"target": "bogus"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", status, body)
+	}
+}

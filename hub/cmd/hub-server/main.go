@@ -13,6 +13,8 @@
 //	shutdown-all        Stop every active session on every live host and
 //	                    fire the host.shutdown verb so each runner exits 0.
 //	                    Hub-server itself stays up (ADR-028 D-2).
+//	update-all          Fan the host.update verb across the fleet, then
+//	                    self-update the hub (ADR-028 D-2).
 //	self-update         Fetch a release from GitHub, verify SHA256, replace
 //	                    this binary, and exit 75 so systemd respawns it.
 //
@@ -66,6 +68,8 @@ func main() {
 		runSeedDemo(os.Args[2:], log)
 	case "shutdown-all":
 		runShutdownAll(os.Args[2:], log)
+	case "update-all":
+		runUpdateAll(os.Args[2:], log)
 	case "self-update":
 		runSelfUpdate(os.Args[2:], log)
 	case "-h", "--help", "help":
@@ -90,6 +94,7 @@ Commands:
   restore           Rehydrate a fresh data root from a backup archive.
   seed-demo         Insert the lifecycle research-demo portfolio for no-GPU reviewer flow.
   shutdown-all      Fleet shutdown: stop sessions, fire host.shutdown verb, hosts exit 0.
+  update-all        Fleet update: fan host.update across hosts, then self-update the hub.
   self-update       Fetch a release from GitHub, verify SHA256, replace this binary, exit 75.
 
 Run "hub-server <command> -h" for flags.`)

@@ -380,7 +380,7 @@ trust model.
 |---|---|---|
 | 1 — `shutdown-all` | **Shipped v1.0.611-alpha** (commit `83170b0`) | below |
 | 2 — `self-update` + `update-all` | **Code complete, untagged** (W5.5–W10 on `main`) | below |
-| 3 — `restart-all` | Not started | — |
+| 3 — `restart-all` | **Code complete, untagged** (W11–W12 on `main`) | below |
 | 4 — ops fleet (doctor/version/hosts/logs/…) | Not started | — |
 | 5 — mobile Admin pane | Not started | — |
 
@@ -423,6 +423,14 @@ implementation note: the hub's own self-update during
 handler — the HTTP response posts before the daemon replaces its
 binary and exits 75, so the CLI reports host outcomes but not the
 hub's (the operator confirms with `hub-server version`).
+
+**Phase 3 — what landed.** `restart-all` is `shutdown-all` with the
+verb swapped: `host.shutdown` and `host.restart` share
+`handleHostExit` (exit 0 vs 75 is the only difference),
+`handleAdminFleetShutdown`/`handleAdminFleetRestart` share
+`fleetStopVerb`, and the two CLIs share `runFleetStop`. The exit-75
+contract — systemd respawns the *same* binary — is what makes it a
+"bounce to clear bad state" rather than an upgrade.
 
 ## Open follow-ups
 

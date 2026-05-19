@@ -1601,6 +1601,64 @@ proves the gate fails closed.
 
 ---
 
+## Scenario 28 — Fleet restart via `hub-server restart-all` (ADR-028 Phase 3)
+
+**Goal:** confirm `hub-server restart-all` bounces every host-runner —
+each exits 75, systemd respawns it with the **same** binary within
+seconds, and the prior sessions are resumable. It is `shutdown-all`'s
+twin: same orchestration, opposite exit-code intent.
+
+**Pre-conditions:** the smoke-test fleet has at least **two hosts**
+running under systemd (Track B per
+[`install-host-runner.md`](install-host-runner.md)), each with an
+active steward session. `HUB_TOKEN` holds an owner-scope bearer.
+
+**Steps:**
+
+1. Run:
+
+   ```
+   hub-server restart-all --reason "lifecycle-scenario-28"
+   ```
+
+2. The per-host table shows `acked=yes` with an empty error column.
+3. On each host (`journalctl -fu termipod-host@<user>`):
+   - `host.restart received reason=lifecycle-scenario-28`
+   - `host.restart exiting code=75`
+   - systemd respawns the unit — with `RestartSec=3s` the unit is
+     back `active (running)` within ~5s, on the **same** binary
+     (`host-runner version` unchanged).
+4. In mobile (or `GET /v1/teams/{team}/sessions`), each prior active
+   session shows `status=paused`; tapping **Resume** re-spawns a
+   fresh agent on the same `engine_session_id`.
+5. Audit log: `GET /v1/teams/{team}/audit?action=host.restart` — one
+   row per host.
+
+**Expected:**
+
+- Every host-runner is back `active` within ~5s of the verb — no
+  operator action needed (contrast Scenario 25, where exit 0 leaves
+  hosts DOWN until `systemctl start`).
+- `hub-server` itself stays up across the flow (ADR-028 D-2).
+- Sessions resume cleanly; no binary changed (contrast Scenario 26).
+
+**Failure modes:**
+
+- **Host stays DOWN after the verb** → the unit exited non-75, or
+  `Restart=` isn't `on-failure`. `host.restart` must exit 75; re-read
+  `handleHostExit` in `hub/internal/hostrunner/host_verbs.go`.
+- **Host crash-loops after respawn** → unrelated to restart-all; the
+  installed binary itself is broken. Roll back the binary and retry.
+- **Audit row says `host.shutdown`** → the wrong verb was wired;
+  `fleetStopVerb` must be called with `"host.restart"`.
+
+**Why this scenario:** restart-all is the "bounce to clear bad state"
+lever. It proves the exit-75 → systemd-respawns-**same**-binary
+contract — the third corner of the exit-code matrix alongside
+Scenario 25 (exit 0, stay down) and Scenario 26 (exit 75, new binary).
+
+---
+
 ## Scenario 30 — Spawn-with-task surfaces on the Tasks tab (ADR-029)
 
 **Goal:** confirm that asking a project steward to spawn a worker

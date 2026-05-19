@@ -25,8 +25,8 @@ the locked decisions are in
 |---|---|---|---|---|---|
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
 | 2 | ✅ code complete (untagged) | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
-| 3 | ⬜ next | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
-| 4 | ⬜ | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
+| 3 | ✅ code complete (untagged) | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
+| 4 | ⬜ next | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
@@ -307,6 +307,13 @@ Operator runs `hub-server update-all --version vX.Y.Z` (or
 ---
 
 ## 4. Phase 3 — restart-all
+
+> **Status: code complete, untagged** (2026-05-19). W11–W12 landed on
+> `main`. `host.shutdown` and `host.restart` share `handleHostExit`
+> (the exit code is the only difference); `handleAdminFleetShutdown`
+> and `handleAdminFleetRestart` share `fleetStopVerb`; the
+> `shutdown-all` / `restart-all` CLIs share `runFleetStop`. Scenario
+> 28 is in `test-steward-lifecycle.md`.
 
 ### 4.1 Goal
 

@@ -351,13 +351,14 @@ implied).
 Each wedge is independent; ship in any order based on operator
 demand.
 
-> **Status (2026-05-19):** in progress. The three standalone diagnostic
-> wedges — **W13** (`hub-server doctor`), **W14** local half
-> (`hub-server version`), **W21** (`host-runner doctor`) — are
-> code-complete on `main` and ship in the next release tag. They needed
-> no new tunnel verb, admin endpoint, or migration. Outstanding: W14's
-> `--remote` fan-out and W15 (`hosts ls`/`ping`) — both ride a new
-> read-side `host.ping` verb — plus W16-W20.
+> **Status (2026-05-19):** in progress. **W13** (`hub-server doctor`),
+> **W14** (`hub-server version`, incl. `--remote`), **W15** (`hub-server
+> hosts ls`/`ping`), and **W21** (`host-runner doctor`) are
+> code-complete on `main` and ship in the next release tag. W14/W15
+> added a read-side `host.ping` tunnel verb and the owner-gated
+> `GET /v1/admin/hosts` + `POST /v1/admin/hosts/{id}/ping` endpoints.
+> Outstanding: W16 (`logs tail`), W17 (`agents kill`), W18 (`db
+> vacuum`), W19 (`db migrate`), W20 (`tokens rotate`).
 
 **✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
@@ -365,13 +366,13 @@ demand.
   forwarding configured.
 - Output: green/red per check + remediation hint.
 
-**W14. `hub-server version [--remote]` (~30 LOC).** *(local half ✅)*
+**✅ W14. `hub-server version [--remote]` (~30 LOC).**
 - Embed git SHA + build date via `-ldflags`.
 - `--remote` fans out to each host and reports the version
   string they're running. Use a new lightweight verb
   `host.version` (or piggyback on `hosts ping`).
 
-**W15. `hub-server hosts ls` + `hosts ping <id>` (~80 LOC).**
+**✅ W15. `hub-server hosts ls` + `hosts ping <id>` (~80 LOC).**
 - `ls`: live reachability + last-seen-poll + version. Plain text
   + `--json` for scripting.
 - `ping`: round-trip a `host.ping` verb (returns timestamp);

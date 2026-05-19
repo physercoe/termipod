@@ -12,9 +12,41 @@ import (
 	"testing"
 	"time"
 
+	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/selfupdate"
 )
+
+// TestHandleHostPing_ReportsBuildInfo confirms the read-side host.ping
+// verb reflects this binary's build identity and never schedules an
+// exit (no verbExit override needed — it would fail the test if hit).
+func TestHandleHostPing_ReportsBuildInfo(t *testing.T) {
+	r := &Runner{Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r-ping", Kind: "host.ping",
+	})
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("resp = %+v, want 200", resp)
+	}
+	body, _ := base64.StdEncoding.DecodeString(resp.BodyB64)
+	var parsed struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+		TS      string `json:"ts"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("parse body %q: %v", string(body), err)
+	}
+	if !parsed.OK {
+		t.Error("ok = false")
+	}
+	if parsed.Version != buildinfo.Version {
+		t.Errorf("version = %q, want %q", parsed.Version, buildinfo.Version)
+	}
+	if parsed.TS == "" {
+		t.Error("ts is empty")
+	}
+}
 
 // TestHandleHostVerb_UnknownVerb_ReturnsNil pins the contract that
 // unrecognised host.* verbs short-circuit with nil so the tunnel loop

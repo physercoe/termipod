@@ -19,7 +19,9 @@
 //	self-update         Fetch a release from GitHub, verify SHA256, replace
 //	                    this binary, and exit 75 so systemd respawns it.
 //	doctor              Preflight checks (data root, DB, disk, listen addr).
-//	version             Print the release tag + git revision + build time.
+//	version             Print the release tag + git revision; --remote
+//	                    fans the host.ping verb across the fleet.
+//	hosts               ls / ping — read-side fleet inspection.
 //
 // Exit-code contract (ADR-028 D-2):
 //   - exit 0  — clean shutdown; systemd's Restart=on-failure leaves the
@@ -81,6 +83,8 @@ func main() {
 		runDoctor(os.Args[2:], log)
 	case "version", "-v", "--version":
 		runVersion(os.Args[2:])
+	case "hosts":
+		runHosts(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -107,7 +111,9 @@ Commands:
   restart-all       Fleet restart: bounce every host-runner (exit 75, same binary).
   self-update       Fetch a release from GitHub, verify SHA256, replace this binary, exit 75.
   doctor            Preflight: data root writable, DB reachable, disk space, listen address.
-  version           Print the release tag + embedded git revision and build time.
+  version           Print the release tag + git revision; --remote fans across the fleet.
+  hosts ls          List the registered fleet (--ping for each host's live version).
+  hosts ping        Round-trip the host.ping verb at one host.
 
 Run "hub-server <command> -h" for flags.`)
 }

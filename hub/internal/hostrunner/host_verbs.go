@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/termipod/hub/internal/buildinfo"
 	"github.com/termipod/hub/internal/hostrunner/a2a"
 	"github.com/termipod/hub/internal/selfupdate"
 )
@@ -42,6 +43,8 @@ func (r *Runner) handleHostVerb(ctx context.Context, env *a2a.TunnelEnvelope) *a
 		return r.handleHostExit(env, 75, "host.restart")
 	case "update":
 		return r.handleHostUpdate(ctx, env)
+	case "ping":
+		return r.handleHostPing(env)
 	default:
 		// Unknown verb. Returning nil makes the tunnel loop emit the
 		// canonical unknown_verb envelope with host_version stamped.
@@ -106,6 +109,28 @@ func (r *Runner) handleHostExit(env *a2a.TunnelEnvelope, exitCode int, verb stri
 		"acked":              true,
 		"stragglers_stopped": len(agentIDs),
 		"reason":             p.Reason,
+	})
+	return &a2a.TunnelResponseEnvelope{
+		ReqID:   env.ReqID,
+		Status:  http.StatusOK,
+		Headers: map[string]string{"Content-Type": "application/json"},
+		BodyB64: base64.StdEncoding.EncodeToString(body),
+	}
+}
+
+// handleHostPing runs the host.ping verb (ADR-028 plan W14/W15): a
+// read-side liveness + version probe. It writes nothing and never
+// exits — it just reflects this host-runner's build identity back
+// through the tunnel so `hub-server version --remote` and
+// `hub-server hosts ls/ping` can report what each host is running.
+func (r *Runner) handleHostPing(env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
+	body, _ := json.Marshal(map[string]any{
+		"ok":         true,
+		"version":    buildinfo.Version,
+		"commit":     buildinfo.Commit,
+		"build_time": buildinfo.BuildTime,
+		"modified":   buildinfo.Modified,
+		"ts":         time.Now().UTC().Format(time.RFC3339),
 	})
 	return &a2a.TunnelResponseEnvelope{
 		ReqID:   env.ReqID,

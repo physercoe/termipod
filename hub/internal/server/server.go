@@ -234,12 +234,13 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 	r.Delete("/v1/hub/config/roles", s.handleResetRolesConfig)
 
 	// /v1/admin/* — hub-wide ops endpoints (ADR-028). Owner-scope is
-	// enforced inside each handler (requireOwner). Phase 1 wired fleet
-	// shutdown; Phase 2 W9 adds fleet update; restart-all / per-host
-	// targets follow in Phases 3-5 (plans/hub-host-control-cli.md).
+	// enforced inside each handler (requireOwner). Phases 1-3 wired the
+	// fleet control verbs; Phase 4 adds read-side host inspection.
 	r.Post("/v1/admin/fleet/shutdown", s.handleAdminFleetShutdown)
 	r.Post("/v1/admin/fleet/update", s.handleAdminFleetUpdate)
 	r.Post("/v1/admin/fleet/restart", s.handleAdminFleetRestart)
+	r.Get("/v1/admin/hosts", s.handleAdminListHosts)
+	r.Post("/v1/admin/hosts/{host}/ping", s.handleAdminHostPing)
 
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:

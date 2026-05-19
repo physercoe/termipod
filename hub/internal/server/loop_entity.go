@@ -55,6 +55,7 @@ type LoopEntity struct {
 	ProjectID          string
 	ParentID           string
 	AssigneeID         string
+	CreatedByID        string
 	State              string
 	InactivityDeadline string
 	LastProgressAt     string
@@ -76,14 +77,15 @@ func (s *Server) openLoopEntities(ctx context.Context) ([]LoopEntity, error) {
 	}
 	q := `
 		SELECT id, 'task' AS source, project_id,
-		       COALESCE(parent_task_id, ''), COALESCE(assignee_id, ''), status,
+		       COALESCE(parent_task_id, ''), COALESCE(assignee_id, ''),
+		       COALESCE(created_by_id, ''), status,
 		       COALESCE(inactivity_deadline, ''), COALESCE(last_progress_at, ''),
 		       COALESCE(opened_at, ''), COALESCE(absolute_cap, ''), escalation_state
 		  FROM tasks
 		 WHERE status NOT IN ('done', 'cancelled')
 		UNION ALL
 		SELECT id, 'question' AS source, COALESCE(project_id, ''),
-		       COALESCE(cause, ''), '', status,
+		       COALESCE(cause, ''), '', '', status,
 		       COALESCE(inactivity_deadline, ''), COALESCE(last_progress_at, ''),
 		       COALESCE(opened_at, ''), COALESCE(absolute_cap, ''), escalation_state
 		  FROM attention_items
@@ -98,8 +100,8 @@ func (s *Server) openLoopEntities(ctx context.Context) ([]LoopEntity, error) {
 	for rows.Next() {
 		var e LoopEntity
 		if err := rows.Scan(&e.ID, &e.Source, &e.ProjectID, &e.ParentID,
-			&e.AssigneeID, &e.State, &e.InactivityDeadline, &e.LastProgressAt,
-			&e.OpenedAt, &e.AbsoluteCap, &e.EscalationState); err != nil {
+			&e.AssigneeID, &e.CreatedByID, &e.State, &e.InactivityDeadline,
+			&e.LastProgressAt, &e.OpenedAt, &e.AbsoluteCap, &e.EscalationState); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

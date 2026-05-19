@@ -224,6 +224,14 @@ deadline → a stall `notification` one level up (ADR-034 D-4), advancing
 `timed_out` termination.
 
 - New `hub/internal/server/loop_sweep.go`, modelled on `host_sweep.go`.
+- **Deadline population.** Deadlines are stamped *lazily* — the sweep
+  stamps `opened_at` + the two deadlines on first sight of an unstamped
+  open entity, so no task-create site needs to know about deadlines.
+  Progress slides the inactivity deadline: `bumpLoopProgress` (wired
+  into the agent-events append) resets it whenever the entity's
+  assignee emits an event. Escalation pushes the deadline forward a
+  budget so the next level fires after another window, not next tick.
+  Budget calibration stays post-MVP (§2).
 - **Acceptance:** a stalled hop escalates to the steward, then the
   principal, exactly once per level; a parked hop does not escalate.
   **Tests:** `TestLoopSweep_{Stall,Escalate,ParkedSkipped,AbsoluteCap}`.

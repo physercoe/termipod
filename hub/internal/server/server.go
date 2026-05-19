@@ -43,15 +43,15 @@ type Config struct {
 }
 
 type Server struct {
-	cfg          Config
-	db           *sql.DB
-	router       chi.Router
-	log          *slog.Logger
-	bus          *eventBus
-	sched        *Scheduler
-	policy       *policyStore
-	escalator    *Escalator
-	tunnel       *TunnelManager
+	cfg           Config
+	db            *sql.DB
+	router        chi.Router
+	log           *slog.Logger
+	bus           *eventBus
+	sched         *Scheduler
+	policy        *policyStore
+	escalator     *Escalator
+	tunnel        *TunnelManager
 	agentFamilies *agentfamilies.Registry
 }
 
@@ -137,6 +137,9 @@ func (s *Server) Serve(ctx context.Context) error {
 	// Host-liveness sweep: flip hosts to 'offline' when heartbeats stop.
 	// Runs until ctx is cancelled, no Stop handle needed.
 	go s.runHostSweep(ctx)
+	// Loop-closure reconcile sweep: detect stalled loop-entities and
+	// escalate / time them out (ADR-034). Same ctx lifetime.
+	go s.runLoopSweep(ctx)
 
 	// SIGHUP → hot-reload policy.yaml. Lets an operator edit the file and
 	// signal the daemon without restarting and losing in-flight connections.

@@ -400,3 +400,102 @@ func TestAdminFleetUpdate_BadTarget(t *testing.T) {
 		t.Fatalf("status = %d, want 400; body=%s", status, body)
 	}
 }
+
+// TestAdminFleetRestart_FiresHostRestartVerb confirms restart-all
+// reaches handleAdminFleetRestart, fires the host.restart verb (not
+// host.shutdown), and audits it as host.restart.
+func TestAdminFleetRestart_FiresHostRestartVerb(t *testing.T) {
+	s, token := newA2ATestServer(t)
+	seedTestHost(t, s, defaultTeamID, "host-live", "live-1")
+	if _, err := s.db.ExecContext(context.Background(),
+		`UPDATE hosts SET last_seen_at = datetime('now') WHERE id = ?`,
+		"host-live"); err != nil {
+		t.Fatalf("set last_seen: %v", err)
+	}
+
+	ts := httptest.NewServer(s.router)
+	defer ts.Close()
+	pollCtx, pollCancel := context.WithCancel(context.Background())
+	defer pollCancel()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	gotKind := make(chan string, 1)
+	go func() {
+		defer wg.Done()
+		for {
+			if pollCtx.Err() != nil {
+				return
+			}
+			pollReq, _ := http.NewRequestWithContext(pollCtx, http.MethodGet,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/host-live/a2a/tunnel/next?wait_ms=3000",
+				nil)
+			pollReq.Header.Set("Authorization", "Bearer "+token)
+			resp, err := http.DefaultClient.Do(pollReq)
+			if err != nil {
+				return
+			}
+			if resp.StatusCode == http.StatusNoContent {
+				resp.Body.Close()
+				continue
+			}
+			var env tunnelRequest
+			_ = json.NewDecoder(resp.Body).Decode(&env)
+			resp.Body.Close()
+			gotKind <- env.Kind
+			ack, _ := json.Marshal(map[string]any{"acked": true})
+			reply := tunnelResponse{
+				ReqID:   env.ReqID,
+				Status:  http.StatusOK,
+				Headers: map[string]string{"Content-Type": "application/json"},
+				BodyB64: base64.StdEncoding.EncodeToString(ack),
+			}
+			b, _ := json.Marshal(reply)
+			pr, _ := http.NewRequestWithContext(pollCtx, http.MethodPost,
+				ts.URL+"/v1/teams/"+defaultTeamID+"/hosts/host-live/a2a/tunnel/responses",
+				bytes.NewReader(b))
+			pr.Header.Set("Authorization", "Bearer "+token)
+			pr.Header.Set("Content-Type", "application/json")
+			pResp, _ := http.DefaultClient.Do(pr)
+			if pResp != nil {
+				pResp.Body.Close()
+			}
+			return
+		}
+	}()
+	time.Sleep(50 * time.Millisecond)
+
+	status, body := doReq(t, s, token, http.MethodPost, "/v1/admin/fleet/restart",
+		map[string]any{"reason": "test-restart"})
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	var out AdminFleetShutdownResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Hosts) != 1 || !out.Hosts[0].Acked {
+		t.Fatalf("hosts = %v, want one acked host", out.Hosts)
+	}
+	select {
+	case k := <-gotKind:
+		if k != "host.restart" {
+			t.Errorf("verb kind = %q, want host.restart", k)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("host never received a verb")
+	}
+	var n int
+	_ = s.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM audit_events WHERE action = 'host.restart'`).Scan(&n)
+	if n != 1 {
+		t.Errorf("host.restart audit rows = %d, want 1", n)
+	}
+
+	pollCancel()
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+}

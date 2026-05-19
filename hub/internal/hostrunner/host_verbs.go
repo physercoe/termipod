@@ -37,7 +37,9 @@ func (r *Runner) handleHostVerb(ctx context.Context, env *a2a.TunnelEnvelope) *a
 	verb := strings.TrimPrefix(env.Kind, "host.")
 	switch verb {
 	case "shutdown":
-		return r.handleHostShutdown(ctx, env)
+		return r.handleHostExit(env, 0, "host.shutdown")
+	case "restart":
+		return r.handleHostExit(env, 75, "host.restart")
 	case "update":
 		return r.handleHostUpdate(ctx, env)
 	default:
@@ -47,39 +49,39 @@ func (r *Runner) handleHostVerb(ctx context.Context, env *a2a.TunnelEnvelope) *a
 	}
 }
 
-// hostShutdownPayload is the verb-args schema for host.shutdown
-// (ADR-028 D-1 / D-2). MVP keeps the payload minimal — the operator's
-// intent ("update" vs "manual stop") is recorded in reason, and
-// force_kill is informational at the verb level: hub-side W2.5 already
-// propagated SIGKILL through stopSessionInternal before this verb
-// arrives. We log it here for journald correlation.
-type hostShutdownPayload struct {
+// hostExitPayload is the verb-args schema shared by host.shutdown and
+// host.restart (ADR-028 D-1 / D-2). MVP keeps it minimal — the
+// operator's intent is recorded in reason, and force_kill is
+// informational at the verb level: hub-side W2.5 already propagated
+// SIGKILL through stopSessionInternal before the verb arrives. We log
+// it here for journald correlation.
+type hostExitPayload struct {
 	Reason    string `json:"reason,omitempty"`
 	ForceKill bool   `json:"force_kill,omitempty"`
 }
 
-// handleHostShutdown runs the per-ADR-028 host.shutdown verb: log the
-// reason, tear down any drivers still registered (defensive — hub-side
-// session stops already fired before this verb landed), ack via the
-// tunnel response, and exit 0 so systemd's Restart=on-failure leaves
-// us DOWN.
+// handleHostExit is the shared body of host.shutdown and host.restart:
+// log the reason, tear down any drivers still registered (defensive —
+// hub-side session stops already fired before the verb landed), ack
+// via the tunnel response, and schedule a process exit on a delayed
+// goroutine so the response posts first.
 //
-// The os.Exit fires on a delayed goroutine so the response envelope
-// has a chance to post back to the hub before the process disappears.
-func (r *Runner) handleHostShutdown(ctx context.Context, env *a2a.TunnelEnvelope) *a2a.TunnelResponseEnvelope {
-	_ = ctx
-	var p hostShutdownPayload
+// The exit code is the only difference between the two verbs, and it
+// encodes operator intent to systemd (ADR-028 D-2): 0 = true shutdown
+// (Restart=on-failure does NOT respawn), 75 = bounce (systemd respawns
+// with whatever binary is at the install path).
+func (r *Runner) handleHostExit(env *a2a.TunnelEnvelope, exitCode int, verb string) *a2a.TunnelResponseEnvelope {
+	var p hostExitPayload
 	if len(env.Payload) > 0 {
 		_ = json.Unmarshal(env.Payload, &p)
 	}
-	r.Log.Info("host.shutdown received",
-		"reason", p.Reason, "force_kill", p.ForceKill)
+	r.Log.Info(verb+" received", "reason", p.Reason, "force_kill", p.ForceKill)
 
-	// Cleanup pass over any drivers still registered. Hub-side W3
-	// terminates each agent's driver through the existing host-command
-	// path before firing this verb, so in steady state this loop is a
-	// no-op — but if a stop command was racing or a driver outlived its
-	// agent record, this catches the stragglers.
+	// Cleanup pass over any drivers still registered. Hub-side
+	// orchestration terminates each agent's driver through the existing
+	// host-command path before firing this verb, so in steady state
+	// this loop is a no-op — but if a stop command was racing or a
+	// driver outlived its agent record, this catches the stragglers.
 	agentIDs := make([]string, 0, len(r.drivers))
 	for id := range r.drivers {
 		agentIDs = append(agentIDs, id)
@@ -88,18 +90,16 @@ func (r *Runner) handleHostShutdown(ctx context.Context, env *a2a.TunnelEnvelope
 		r.stopDriver(id)
 	}
 	if len(agentIDs) > 0 {
-		r.Log.Info("host.shutdown cleanup pass",
-			"stragglers_stopped", len(agentIDs))
+		r.Log.Info(verb+" cleanup pass", "stragglers_stopped", len(agentIDs))
 	}
 
-	// Schedule the exit so the response posts first. 200ms is comfortably
-	// longer than the local tunnel round-trip (~ms) but short enough that
-	// the operator sees the host go down promptly.
+	// Schedule the exit so the response posts first. 200ms is
+	// comfortably longer than the local tunnel round-trip (~ms) but
+	// short enough that the operator sees the host react promptly.
 	go func() {
 		time.Sleep(verbExitDelay)
-		r.Log.Info("host.shutdown exiting",
-			"code", 0, "reason", p.Reason)
-		verbExit(0)
+		r.Log.Info(verb+" exiting", "code", exitCode, "reason", p.Reason)
+		verbExit(exitCode)
 	}()
 
 	body, _ := json.Marshal(map[string]any{

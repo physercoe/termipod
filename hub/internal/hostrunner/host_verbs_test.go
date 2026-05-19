@@ -98,6 +98,36 @@ func TestHandleHostShutdown_AcksAndExits(t *testing.T) {
 	}
 }
 
+// TestHandleHostRestart_AcksAndExits75 confirms host.restart shares the
+// host.shutdown body but exits 75 (bounce) instead of 0 (true down).
+func TestHandleHostRestart_AcksAndExits75(t *testing.T) {
+	prevExit, prevDelay := verbExit, verbExitDelay
+	t.Cleanup(func() { verbExit, verbExitDelay = prevExit, prevDelay })
+	exitCh := make(chan int, 1)
+	verbExit = func(code int) { exitCh <- code }
+	verbExitDelay = 1 * time.Millisecond
+
+	r := &Runner{
+		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		drivers: map[string]Driver{},
+	}
+	payload, _ := json.Marshal(map[string]any{"reason": "bounce"})
+	resp := r.handleHostVerb(context.Background(), &a2a.TunnelEnvelope{
+		ReqID: "r-restart", Kind: "host.restart", Payload: payload,
+	})
+	if resp == nil || resp.Status != http.StatusOK {
+		t.Fatalf("resp = %+v, want 200", resp)
+	}
+	select {
+	case code := <-exitCh:
+		if code != 75 {
+			t.Errorf("exit code = %d, want 75", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("verbExit was not called")
+	}
+}
+
 // TestHandleHostUpdate_SuccessExits75 stubs the self-update routine to
 // succeed and asserts the verb acks ok and schedules exit 75 so the
 // supervisor respawns with the new binary.

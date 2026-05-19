@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/termipod/hub/internal/selfupdate"
@@ -41,26 +42,41 @@ type AdminFleetShutdownResponse struct {
 	Hosts []AdminFleetHostResult `json:"hosts"`
 }
 
-// handleAdminFleetShutdown is the POST /v1/admin/fleet/shutdown handler.
+// handleAdminFleetShutdown is POST /v1/admin/fleet/shutdown — fires
+// host.shutdown (exit 0) so each host-runner stays DOWN per ADR-028
+// D-2. handleAdminFleetRestart is POST /v1/admin/fleet/restart —
+// fires host.restart (exit 75) so systemd respawns each host-runner
+// with the same binary (plan W11). Both share fleetStopVerb.
+func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request) {
+	s.fleetStopVerb(w, r, "host.shutdown")
+}
+
+func (s *Server) handleAdminFleetRestart(w http.ResponseWriter, r *http.Request) {
+	s.fleetStopVerb(w, r, "host.restart")
+}
+
+// fleetStopVerb is the shared shutdown-all / restart-all orchestrator.
 // Owner-scope. Enumerates live hosts, stops every active session on
 // each (sharing stopSessionInternal with the mobile-Stop path), then
-// fires the host.shutdown verb so each host-runner exits 0 — systemd's
-// Restart=on-failure leaves them DOWN per ADR-028 D-2.
+// fires the given control verb. The verb is the only difference:
+// host.shutdown makes the runner exit 0 (systemd leaves it DOWN),
+// host.restart makes it exit 75 (systemd respawns it).
 //
-// Hub-server stays up after this returns. Resuming a fleet means
-// `systemctl start termipod-host@<id>` per host; the sessions left at
-// status=paused are then resumable via the existing
-// POST /v1/teams/{team}/sessions/{id}/resume route.
-func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request) {
+// Hub-server stays up after this returns either way. Sessions are left
+// at status=paused and remain resumable via the existing
+// POST /v1/teams/{team}/sessions/{id}/resume route — once the host is
+// back (manually for shutdown, automatically for restart).
+func (s *Server) fleetStopVerb(w http.ResponseWriter, r *http.Request, verb string) {
 	if !s.requireOwner(w, r) {
 		return
 	}
+	action := strings.TrimPrefix(verb, "host.") // "shutdown" | "restart"
 	var in AdminFleetShutdownRequest
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&in)
 	}
 	if in.Reason == "" {
-		in.Reason = "shutdown-all"
+		in.Reason = action + "-all"
 	}
 
 	hosts, err := s.listLiveHosts(r.Context())
@@ -78,7 +94,7 @@ func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request
 		// for each session matches what a manual mobile-Stop would
 		// produce: session.stop + agent.terminate audits, MCP revoke,
 		// terminate host-command enqueued (the host runner will see it
-		// before the host.shutdown verb fires the exit).
+		// before the verb fires the exit).
 		sessionIDs, err := s.listActiveSessionIDsOnHost(r.Context(), h.teamID, h.id)
 		if err != nil {
 			res.Error = "list sessions: " + err.Error()
@@ -93,10 +109,10 @@ func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request
 		}
 		res.SessionsStopped = len(sessionIDs)
 
-		// 2. Fire host.shutdown verb via the tunnel queue. The verb
-		// posts an ack BEFORE exiting (host-runner schedules os.Exit
-		// on a delayed goroutine), so a non-error response here means
-		// "the host has accepted the verb and will exit imminently".
+		// 2. Fire the control verb via the tunnel queue. The verb posts
+		// an ack BEFORE exiting (host-runner schedules os.Exit on a
+		// delayed goroutine), so a non-error response here means "the
+		// host has accepted the verb and will exit imminently".
 		payload, _ := json.Marshal(map[string]any{
 			"reason":     in.Reason,
 			"force_kill": in.ForceKill,
@@ -106,7 +122,7 @@ func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request
 			ackTimeout = 1 * time.Second
 		}
 		ackCtx, cancel := context.WithTimeout(r.Context(), ackTimeout)
-		resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, "host.shutdown", payload)
+		resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, verb, payload)
 		cancel()
 		switch {
 		case verbErr != nil:
@@ -120,10 +136,10 @@ func (s *Server) handleAdminFleetShutdown(w http.ResponseWriter, r *http.Request
 		}
 
 		// 3. Per-host audit row. Survives even when the verb timed out
-		// because the operator intent ("shutdown was requested") is
-		// what auditors care about, not just successful acks.
-		s.recordAudit(r.Context(), h.teamID, "host.shutdown", "host", h.id,
-			"shutdown host "+firstNonEmpty(h.name, h.id),
+		// because the operator intent is what auditors care about, not
+		// just successful acks.
+		s.recordAudit(r.Context(), h.teamID, verb, "host", h.id,
+			action+" host "+firstNonEmpty(h.name, h.id),
 			map[string]any{
 				"reason":           in.Reason,
 				"force_kill":       in.ForceKill,

@@ -15,6 +15,7 @@
 //	                    Hub-server itself stays up (ADR-028 D-2).
 //	update-all          Fan the host.update verb across the fleet, then
 //	                    self-update the hub (ADR-028 D-2).
+//	restart-all         Bounce every host-runner (exit 75, same binary).
 //	self-update         Fetch a release from GitHub, verify SHA256, replace
 //	                    this binary, and exit 75 so systemd respawns it.
 //
@@ -70,6 +71,8 @@ func main() {
 		runShutdownAll(os.Args[2:], log)
 	case "update-all":
 		runUpdateAll(os.Args[2:], log)
+	case "restart-all":
+		runRestartAll(os.Args[2:], log)
 	case "self-update":
 		runSelfUpdate(os.Args[2:], log)
 	case "-h", "--help", "help":
@@ -95,6 +98,7 @@ Commands:
   seed-demo         Insert the lifecycle research-demo portfolio for no-GPU reviewer flow.
   shutdown-all      Fleet shutdown: stop sessions, fire host.shutdown verb, hosts exit 0.
   update-all        Fleet update: fan host.update across hosts, then self-update the hub.
+  restart-all       Fleet restart: bounce every host-runner (exit 75, same binary).
   self-update       Fetch a release from GitHub, verify SHA256, replace this binary, exit 75.
 
 Run "hub-server <command> -h" for flags.`)

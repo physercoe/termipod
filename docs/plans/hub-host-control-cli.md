@@ -357,8 +357,9 @@ demand.
 > code-complete on `main` and ship in the next release tag. W14/W15
 > added a read-side `host.ping` tunnel verb and the owner-gated
 > `GET /v1/admin/hosts` + `POST /v1/admin/hosts/{id}/ping` endpoints.
-> Outstanding: W16 (`logs tail`), W17 (`agents kill`), W18 (`db
-> vacuum`), W19 (`db migrate`), W20 (`tokens rotate`).
+> **W18** (`db vacuum`) and **W19** (`db migrate`) are also code-complete
+> — offline sqlite maintenance, no hub process needed. Outstanding:
+> W16 (`logs tail`), W17 (`agents kill`), W20 (`tokens rotate`).
 
 **✅ W13. `hub-server doctor` (~80 LOC).**
 - Preflight: DB writable, listen port free, certs valid,
@@ -388,15 +389,18 @@ demand.
 - Thin wrapper over existing `agents.terminate` REST call.
 - `--all` iterates `agents.list live=true`.
 
-**W18. `hub-server db vacuum` (~30 LOC).**
-- Wraps `VACUUM` against `events` and `audit_events`.
-- Reports before/after row count + size.
+**✅ W18. `hub-server db vacuum` (~30 LOC).**
+- Runs sqlite `VACUUM` (a whole-database rebuild — sqlite has no
+  per-table form) and reports the `events` / `audit_events` row
+  counts plus the file size before and after.
 
-**W19. `hub-server db migrate` (~50 LOC).**
-- Promotes the migration step out of `serve` so it's an explicit
-  preflight call.
-- `serve` still auto-migrates by default; `--no-migrate` opts
-  out.
+**✅ W19. `hub-server db migrate` (~50 LOC).**
+- Promotes the migration step into an explicit preflight call:
+  `db migrate` applies pending migrations and reports the
+  golang-migrate version (dirty state exits 1).
+- *Divergence:* `serve` keeps auto-migrating (it always has, via
+  `OpenDB`); the `--no-migrate` opt-out was dropped — it would
+  need a `server.New` refactor and the value is marginal.
 
 **W20. `hub-server tokens rotate` (~100 LOC).**
 - Issues a new install token, broadcasts via tunnel verb

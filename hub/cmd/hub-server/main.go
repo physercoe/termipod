@@ -22,6 +22,7 @@
 //	version             Print the release tag + git revision; --remote
 //	                    fans the host.ping verb across the fleet.
 //	hosts               ls / ping — read-side fleet inspection.
+//	db                  vacuum / migrate — offline sqlite maintenance.
 //
 // Exit-code contract (ADR-028 D-2):
 //   - exit 0  — clean shutdown; systemd's Restart=on-failure leaves the
@@ -85,6 +86,8 @@ func main() {
 		runVersion(os.Args[2:])
 	case "hosts":
 		runHosts(os.Args[2:], log)
+	case "db":
+		runDB(os.Args[2:], log)
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -114,6 +117,8 @@ Commands:
   version           Print the release tag + git revision; --remote fans across the fleet.
   hosts ls          List the registered fleet (--ping for each host's live version).
   hosts ping        Round-trip the host.ping verb at one host.
+  db vacuum         Rebuild the sqlite file to reclaim space; report before/after.
+  db migrate        Apply pending schema migrations explicitly; report the version.
 
 Run "hub-server <command> -h" for flags.`)
 }

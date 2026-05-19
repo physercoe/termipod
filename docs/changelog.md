@@ -3,7 +3,7 @@
 > **Type:** reference
 > **Status:** Current (2026-05-19)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.634
+> **Last verified vs code:** v1.0.635
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -20,6 +20,67 @@ History before v1.0.280 lives in git log only. The active-development
 arc starts at v1.0.280 (steward sessions soft-delete + agent-identity
 binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
+
+---
+
+## v1.0.635-alpha — 2026-05-19
+
+Fleet ops, the inspect-and-maintain half — [ADR-028](decisions/028-host-control-via-tunnel-and-cli.md)
+Phase 4. Nine independent ops subcommands so an operator can diagnose,
+inspect, and maintain the fleet without SSHing to a host.
+
+### Added
+
+- **`doctor` preflight (ADR-028 W13 / W21).** `hub-server doctor`
+  checks the data root, DB, disk space, and listen address;
+  `host-runner doctor` checks HOME, hub reachability, the host token,
+  engines on PATH, and the scratch dir. Both print green/red per check
+  with a remediation hint, honour `--json`, and exit 1 on any red.
+  Commit `e85755d`.
+- **`hub-server version [--remote]` (W14).** Prints the release tag +
+  git revision; `--remote` fans the new read-side `host.ping` verb
+  across the fleet and flags any host whose version differs from the
+  hub. Commit `89cc4f6`.
+- **`hub-server hosts ls` / `hosts ping` (W15).** Lists the registered
+  fleet with heartbeat liveness + runner build info (`--ping` for each
+  host's live version); `hosts ping <id>` round-trips the verb.
+  Backed by `host.ping` and the owner-gated `GET /v1/admin/hosts` +
+  `POST /v1/admin/hosts/{id}/ping`. Commit `89cc4f6`.
+- **`hub-server db vacuum` / `db migrate` (W18 / W19).** Offline
+  sqlite maintenance — `vacuum` rebuilds the file and reports reclaimed
+  space; `migrate` applies pending schema migrations as an explicit
+  preflight and reports the version. Commit `db5375f`.
+- **`hub-server agents ls` / `agents kill` (W17).** Lists live agents
+  fleet-wide and terminates one (`kill <id>`) or all (`kill --all`)
+  via the owner-gated `GET /v1/admin/agents` +
+  `POST /v1/admin/agents/{id}/kill`. The kill path shares
+  `applyAgentTerminationEffects` with the mobile Stop, so the audit
+  trail is identical. Commit `04d68d3`.
+- **`hub-server logs tail` (W16).** Tails this hub's local journald
+  unit — `--lines` / `--follow` / `--unit`. Local-only by design: no
+  per-host fan-out. Commit `94ad964`.
+- **`hub-server tokens rotate` (W20).** Issues a new host token,
+  broadcasts it to every live host via the new `host.token_rotate`
+  verb, and revokes the old host tokens — but only once every live
+  host has acked, so an un-acked host keeps working (`--force-revoke`
+  for recovery). `POST /v1/admin/tokens/rotate`, owner-scope.
+  Commit `d14af3b`.
+
+### Changed
+
+- **host-runner persists a rotated bearer token.** The
+  `host.token_rotate` verb writes the new token to the host-runner
+  state dir (`host-runner.json`); the runner prefers it over the
+  `--token` flag on startup, so a rotation survives a restart. The
+  in-memory `Client` bearer is swapped under a lock so a rotation also
+  takes effect live, without a restart. Commit `d14af3b`.
+
+### Notes
+
+- ADR-028 Phase 4 is complete; Phase 5 (the mobile Admin pane)
+  remains. Deferred follow-ups — `serve --no-migrate` and cross-host
+  log streaming over the tunnel — are tracked in
+  `plans/hub-host-control-cli.md` §7.
 
 ---
 

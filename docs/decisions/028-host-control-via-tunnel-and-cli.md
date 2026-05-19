@@ -1,9 +1,9 @@
 # 028. Host control via the tunnel + a CLI ops surface
 
 > **Type:** decision
-> **Status:** Accepted (2026-05-19) — D-1 through D-6 locked 2026-05-16; Phases 1-3 shipped (v1.0.611-alpha, v1.0.634-alpha); Phases 4-5 outstanding. See [Implementation status](#implementation-status).
+> **Status:** Accepted (2026-05-19) — D-1 through D-6 locked 2026-05-16; Phases 1-4 shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha); Phase 5 (mobile Admin pane) outstanding. See [Implementation status](#implementation-status).
 > **Audience:** contributors · operators
-> **Last verified vs code:** v1.0.634-alpha
+> **Last verified vs code:** v1.0.635-alpha
 
 **TL;DR.** Promote the A2A long-poll tunnel
 (`/v1/teams/{team}/a2a/tunnel/next`+`/responses`) into a host RPC
@@ -381,7 +381,7 @@ trust model.
 | 1 — `shutdown-all` | **Shipped v1.0.611-alpha** (commit `83170b0`) | below |
 | 2 — `self-update` + `update-all` | **Shipped v1.0.634-alpha** (W5.5–W10) | below |
 | 3 — `restart-all` | **Shipped v1.0.634-alpha** (W11–W12) | below |
-| 4 — ops fleet (doctor/version/hosts/logs/…) | Not started | — |
+| 4 — ops fleet (doctor/version/hosts/logs/agents/db/tokens) | **Shipped v1.0.635-alpha** (W13–W21) | [plan §5](../plans/hub-host-control-cli.md) |
 | 5 — mobile Admin pane | Not started | — |
 
 **Phase 1 landed slightly differently from the plan's W1/W3

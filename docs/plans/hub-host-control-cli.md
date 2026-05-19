@@ -1,9 +1,9 @@
 # Hub + host control CLI — phased rollout
 
 > **Type:** plan
-> **Status:** Active (2026-05-19) — Phases 1-3 shipped (v1.0.611-alpha, v1.0.634-alpha); Phases 4-5 outstanding. ADR-028 captures the locked decisions.
+> **Status:** Active (2026-05-19) — Phases 1-4 shipped (v1.0.611-alpha, v1.0.634-alpha, v1.0.635-alpha); Phase 5 outstanding. ADR-028 captures the locked decisions.
 > **Audience:** contributors
-> **Last verified vs code:** v1.0.634-alpha
+> **Last verified vs code:** v1.0.635-alpha
 
 **TL;DR.** Add ops subcommands to `hub-server` and `host-runner`
 so the operator can take the whole fleet down, push a new
@@ -26,7 +26,7 @@ the locked decisions are in
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
 | 2 | ✅ shipped v1.0.634 | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
 | 3 | ✅ shipped v1.0.634 | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
-| 4 | ✅ code-complete (untagged) | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~9 wedges | independent |
+| 4 | ✅ shipped v1.0.635 | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
 Phases 1-4 are CLI-only and can ship in any order after 1. Phase
@@ -351,8 +351,8 @@ implied).
 Each wedge is independent; ship in any order based on operator
 demand.
 
-> **Status (2026-05-19):** all 9 wedges code-complete on `main`,
-> **awaiting a release tag**. New surface added by the phase: a
+> **Status (2026-05-19):** all 9 wedges shipped as **v1.0.635-alpha**.
+> New surface added by the phase: a
 > read-side `host.ping` tunnel verb + a `host.token_rotate` verb; the
 > owner-gated `/v1/admin/hosts`, `/v1/admin/agents`,
 > `/v1/admin/agents/{id}/kill`, `/v1/admin/hosts/{id}/ping`, and

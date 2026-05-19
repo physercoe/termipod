@@ -1,36 +1,39 @@
 ---
 name: Message routing rollout
-description: Phased rollout of the envelope-metadata design (option 2 from message-routing-to-agents.md) for routing source-distinguished messages to agents. Phase 1 promotes producer column into an envelope `from` field on input.text events; Phase 2 teaches per-persona prompts to read the envelope; Phase 3 closes the should-route audit gaps (schedule fires, sibling outcomes) and the self-echo filter. Six wedges across hub + hostrunner + prompts; ~700 LOC + ~250 lines prose. MVP is phases 1 + 2.
+description: Phased rollout of the orchestration contract — ADR-032 (the message envelope {from,to,kind,text,cause,thread} + the message-admission pipeline) and ADR-034 (the loop-closure runtime — terminal-reason taxonomy, per-hop deadlines, the deadline sweep, stall escalation, lifecycle hooks, the directive trace). Nine wedges across hub-server, host-runner, and persona prompts; the whole rollout is MVP — loop closure is not deferred. Re-wedged 2026-05-19 from the original forward-only envelope plan per the orchestration-contract discussion.
 ---
 
 # Message routing rollout
 
 > **Type:** plan
-> **Status:** Proposed (2026-05-18) — three phases, six wedges, no work started. Companion discussion at [`../discussions/message-routing-to-agents.md`](../discussions/message-routing-to-agents.md); the four design alternatives + recommendation (option 2, envelope metadata) are there.
+> **Status:** Proposed (2026-05-18; **re-wedged 2026-05-19**) — widened
+> from the original forward-only envelope (6 wedges) to the full
+> orchestration contract (9 wedges), per the
+> [orchestration-contract discussion](../discussions/orchestration-contract.md).
+> No work started. Implements [ADR-032](../decisions/032-message-routing-envelope.md)
+> (the message envelope) and [ADR-034](../decisions/034-orchestration-loop-closure.md)
+> (loop closure). The whole rollout is MVP.
 > **Audience:** contributors · principal · QA
-> **Last verified vs code:** v1.0.630-alpha
+> **Last verified vs code:** v1.0.631-alpha
 
-**TL;DR.** Replace the v1.0.626 + v1.0.630 body-prefix
-band-aids with first-class envelope metadata so the engine
-knows the source of every input. Three phases:
+**TL;DR.** Replace the v1.0.626 / v1.0.630 band-aids with the
+orchestration layer's real type system. Three phases, nine wedges,
+**all MVP** — loop closure is not deferred (2026-05-19 decision):
 
-- **Phase 1 — Envelope (MVP, 3 wedges):** every `input.text`
-  body gains a structured envelope (`from.role`, `from.handle`,
-  `reply_via`, `thread`); hub composes it on write; drivers
-  unwrap to LLM-friendly text turn. Backward-compat shim for
-  legacy plain-string bodies. ~350 LOC + tests.
-- **Phase 2 — Prompts (MVP, 1 wedge):** every persona prompt
-  gains a "How messages are addressed" section teaching the
-  per-role reply mechanism. ~150 lines prose.
-- **Phase 3 — Route the unrouted + filter the over-routed
-  (post-MVP, 2 wedges):** wire schedule fires + sibling
-  outcomes as envelope-bearing events; filter self-emitted
-  echoes from the per-agent feed. ~200 LOC.
+- **Phase A — The envelope ([ADR-032](../decisions/032-message-routing-envelope.md), 4 wedges).**
+  The envelope `{from,to,kind,text,cause,thread}`; hub-server composes
+  it; drivers render it; the message-admission pipeline validates
+  every envelope fail-safe.
+- **Phase B — Loop closure ([ADR-034](../decisions/034-orchestration-loop-closure.md), 4 wedges).**
+  The terminal-reason taxonomy + open-set tracking; per-hop deadlines
+  and the sweep; stall escalation; lifecycle hooks; the directive
+  trace.
+- **Phase C — Agent-facing (1 wedge).** Per-persona prompts teaching
+  the envelope and the loop.
 
-The MVP phases (1 + 2) are the minimum to retire the
-v1.0.626/630 band-aids and give the engine structural source
-awareness. Phase 3 closes the audit gaps surfaced in the
-discussion §8.
+There is **no backward-compat shim** — the envelope is the only
+accepted body shape from the rollout commit (ADR-032 D-8); cut over on
+a drained hub.
 
 ---
 
@@ -38,340 +41,257 @@ discussion §8.
 
 | Phase | # | Wedge | Approx | Depends on |
 |---|---|---|---|---|
-| 1 | W1 | Define envelope schema + writer-side compose | ~120 LOC | — |
-| 1 | W2 | Hub callers post envelope (notifyTaskAssigner, a2a relay, /input handler) | ~120 LOC | W1 |
-| 1 | W3 | Driver-side unwrap to LLM text turn | ~110 LOC | W1, W2 |
-| 2 | W4 | Per-persona "How messages are addressed" section | ~150 prose | W1-W3 |
-| 3 | W5 | Route schedule fires + sibling outcomes through envelope | ~120 LOC | W1-W4 |
-| 3 | W6 | Filter self-emitted echoes + verbose lifecycle | ~80 LOC | W1 |
+| A | A1 | Envelope schema + writer-side compose helper | ~120 LOC | — |
+| A | A2 | Hub callers compose envelopes + explicit `kind` param | ~190 LOC | A1 |
+| A | A3 | Driver-side unwrap + render (incl. self-echo drop) | ~150 LOC | A1 |
+| A | A4 | The message-admission pipeline | ~150 LOC | A1, A2 |
+| B | B1 | Terminal-reason taxonomy + loop-entity open-set | ~150 LOC | — |
+| B | B2 | Per-hop deadlines + the reconcile sweep + escalation | ~220 LOC | B1 |
+| B | B3 | Lifecycle hooks — `PreAgentIdle`, `PostDirectiveOutcome` | ~150 LOC | B1 |
+| B | B4 | The directive-trace query endpoint | ~110 LOC | A1, B1 |
+| C | C1 | Per-persona prompts — the envelope + the loop | ~200 prose | A1–A3, B1–B2 |
 
-Implementation order is **W1 → W2 (depends W1) → W3 (depends
-W2) → W4 (depends W3) → W5 (depends W1-W4) → W6 (depends W1)**.
+Order: **A1 → {A2, A3} → A4 → B1 → {B2, B3, B4} → C1.** Phase A and
+Phase B's B1 are independent and may proceed in parallel.
 
 ---
 
 ## 1. Wedges in detail
 
-### Phase 1 — Envelope
+### Phase A — The envelope
 
-#### W1 — Envelope schema + writer-side compose
+#### A1 — Envelope schema + writer-side compose helper
 
-Define the envelope Go struct + JSON shape. Add a hub-side
-helper that composes the envelope from (producer, sender info,
-target thread).
-
-**Schema (Go + JSON):**
+The envelope Go struct + JSON shape per [ADR-032](../decisions/032-message-routing-envelope.md)
+D-1, and a hub-server helper that composes it.
 
 ```go
-type InputMessageEnvelope struct {
-    From     InputMessageFrom    `json:"from"`
-    Text     string              `json:"text"`
-    ReplyVia string              `json:"reply_via"` // "chat" | "a2a" | "attention_reply" | "none"
-    Thread   InputMessageThread  `json:"thread,omitempty"`
+type MessageEnvelope struct {
+    From   MessageEndpoint `json:"from"`
+    To     MessageEndpoint `json:"to"`
+    Kind   string          `json:"kind"`   // directive|question|report|notification
+    Text   string          `json:"text"`
+    Cause  string          `json:"cause,omitempty"`  // ULID; "" = untied
+    Thread MessageThread   `json:"thread"`
 }
-
-type InputMessageFrom struct {
-    Role    string `json:"role"` // "principal" | "peer_steward" | "peer_worker" | "system"
-    Handle  string `json:"handle,omitempty"`   // "@research-steward" for peer; empty for system
-    AgentID string `json:"agent_id,omitempty"` // for audit cross-ref
+type MessageEndpoint struct {
+    Role    string `json:"role"`    // principal|peer_steward|peer_worker|system
+    Handle  string `json:"handle,omitempty"`
+    AgentID string `json:"agent_id,omitempty"`
 }
-
-type InputMessageThread struct {
-    SessionID        string `json:"session_id,omitempty"`
-    A2ATaskID        string `json:"a2a_task_id,omitempty"`
-    AttentionReqID   string `json:"attention_request_id,omitempty"`
+type MessageThread struct {
+    Transport string `json:"transport"` // session|a2a|attention
+    ID        string `json:"id"`
 }
 ```
 
-**Helper (hub/internal/server/input_envelope.go new file):**
+- New file `hub/internal/server/input_envelope.go`; helper
+  `composeMessage(...)` — the single authoring point (ADR-032 D-6).
+- `reply_via` is **not** a struct field — A3 derives + renders it.
+- **Acceptance:** round-trips cleanly; every `kind`/`role` combination
+  composes. **Tests:** `TestComposeMessage_*`.
 
-```go
-// composeInputMessage assembles the envelope from a source context.
-// Falls back to from.role="system" with empty handle when the source
-// can't be resolved (audit-only path).
-func composeInputMessage(role, handle, agentID, text, replyVia string, thread InputMessageThread) string { ... }
-```
+#### A2 — Hub callers compose envelopes + explicit `kind` param
 
-**Implementation site:** new file `hub/internal/server/input_envelope.go`.
+The three `agent_events` write sites compose the envelope via A1's
+helper:
 
-**Acceptance:**
-- Envelope serializes / deserializes round-trip cleanly.
-- Helper produces canonical JSON the consumer can parse.
+1. **`handlers_agent_input.go`** (principal input) — `from.role=principal`,
+   `kind=directive`.
+2. **`tunnel_a2a.go`** (A2A relay) — `from.role=peer_steward|peer_worker`,
+   `kind` from the call's explicit parameter; drop the v1.0.630
+   `[A2A from @sender]` prefix.
+3. **`task_notify.go`** (system wakes) — `from.role=system`,
+   `kind=notification` (or `directive` for a schedule fire).
 
-**Tests:** `TestComposeInputMessage_*`, structured assertions
-on each role + reply_via combo.
+And: `a2a_invoke` / `delegate` gain an explicit **`kind` parameter**
+(`directive|question|report`) — catalog entry, dispatcher, handler
+(ADR-032 D-6). The hub reads it, validates it (A4), stamps the
+envelope.
 
-#### W2 — Hub callers post envelope
+- **Acceptance:** every post-A2 `input.text` row carries the envelope;
+  the prefix decoration is gone. **Tests:** updated assertions in
+  `task_notify_input_test.go`, `tunnel_a2a_test.go`,
+  `handlers_agent_input_test.go`; `a2a_invoke` kind-param tests.
 
-Three call sites today post `input.text` bodies. Each gets
-rewritten to compose the envelope via the W1 helper:
+#### A3 — Driver-side unwrap + render
 
-1. **`notifyTaskAssigner`** (`hub/internal/server/task_notify.go`):
-   currently posts `{body: <text>, ...}` for system task-outcome
-   wakes. Replace body string with envelope where
-   `from.role="system"`, `reply_via="none"`, `thread.session_id=<steward's>`.
-2. **A2A relay decoration** (`hub/internal/server/tunnel_a2a.go`):
-   v1.0.630 decorates body with `[A2A from @sender]` prefix.
-   Replace with envelope where `from.role="peer_steward"` (or
-   `peer_worker`), `from.handle=<sender>`, `reply_via="a2a"`,
-   `thread.a2a_task_id=<task>`. Drop the prefix decoration —
-   driver-side W3 renders.
-3. **Principal direct input** (`hub/internal/server/handlers_agents.go`
-   `handlePostAgentInput`): currently posts `{body: <text>, ...}`
-   for `kind=text` producer=user. Replace with envelope where
-   `from.role="principal"`, `from.handle=<principal handle>`,
-   `reply_via="chat"`.
+A host-runner helper unwraps the envelope and renders an
+engine-facing text turn — `from`, `kind`, and a derived **`reply_via`**
+instruction (ADR-032 D-5). A `notification` renders the *kind's
+contract* ("informational re directive X; no reply routed; act if it
+concerns work you own"), never a bald "no reply expected."
+Self-echo (`from == to`) is dropped here.
 
-**Backward-compat shim:** during the rollout window, the
-driver-side W3 accepts BOTH the new envelope shape AND legacy
-plain-string bodies. Legacy bodies are treated as
-`{from: {role: "principal"}, text: <body>, reply_via: "chat"}`.
-After one release cycle, the shim can drop.
+- New helper `hub/internal/hostrunner/input_envelope.go`; called from
+  each driver's `case "text":` branch (claude-code sendkeys,
+  `driver_appserver.go`, `driver_exec_resume.go`, `driver_pane.go`).
+- **Acceptance:** envelope → rendered turn with the right reply
+  instruction per `kind`/`role`; self-echo dropped. **Tests:**
+  `TestEnvelopeRender_*`, `TestInputRouter_SkipsSelfEcho`.
 
-**Implementation site:** the three named files. Each call
-site swaps its body-string composition for a
-`composeInputMessage(...)` call.
+#### A4 — The message-admission pipeline
 
-**Acceptance:**
-- Every `input.text` row written post-W2 has the envelope shape.
-- Existing tests for these three call sites pass after
-  updating their assertions (envelope shape instead of plain
-  body).
+A deterministic pipeline at the hub-server compose boundary, run
+before the `agent_events` row is written (ADR-032 D-7):
 
-**Tests:** updated assertions in `task_notify_input_test.go`,
-`tunnel_a2a_test.go`, `handlers_agents_test.go`.
+1. `validateEnvelope` — schema-valid; `cause` resolves to a live
+   entity if set.
+2. routing-legality — `from` permitted to address `to`; `deny > allow`;
+   reuse [ADR-016](../decisions/016-subagent-scope-manifest.md)'s
+   worker→non-parent A2A block as a deny rule.
+3. context — an agent-declared `report` must reference an entity
+   assigned to that agent / an open `question` to `to`.
 
-#### W3 — Driver-side unwrap to LLM text turn
+Fail-safe: a malformed envelope from a hub writer site fails fast (a
+programming error); a bad envelope from an agent is rejected with an
+[ADR-031](../decisions/031-agent-tool-ergonomics.md) `hint` so the
+agent can retry. Never crash, never silently drop.
 
-Drivers receive `input.text` payloads. Add an unwrapping helper
-that:
-1. Detects envelope shape (presence of `from` field).
-2. If envelope, renders a structured text turn for the engine:
+- **Acceptance:** malformed/illegal envelopes are rejected with the
+  classified outcome; valid ones admit. **Tests:**
+  `TestAdmission_{Validate,RoutingLegality,Context}_*`.
 
-```
-[from @research-steward (peer_steward)] please review the memo
+### Phase B — Loop closure
 
-Reply via: a2a.invoke(handle="research-steward", text=...)
-```
+#### B1 — Terminal-reason taxonomy + loop-entity open-set
 
-3. If legacy plain string, treat as
-   `{from: {role: "principal"}, text: <body>, reply_via: "chat"}`
-   (backward-compat).
-4. Pass the rendered text to the existing driver text path
-   (unchanged).
+Replace the thin `done/blocked/cancelled` with the enumerated
+terminal-reason set `completed | blocked | failed | killed |
+timed_out | superseded` (ADR-034 D-6), and add the hub-tracked **open
+set** of loop-entities (directives / tasks / questions) — the basis
+of the loop-closure invariant (ADR-034 D-1).
 
-The structural rendering preserves what v1.0.630's body
-prefix gave us, but now driven by canonical envelope fields,
-not free-form text. The engine sees identical-looking text;
-the underlying source-of-truth is structured.
+- A numbered SQL migration: terminal-reason column, loop-entity
+  open/closed state, `parent` pointer for the `cause` tree.
+- **Acceptance:** every loop-entity has exactly one terminal reason on
+  close; the open set is queryable. **Tests:** `TestLoopEntity_*`,
+  taxonomy migration test.
 
-**Implementation site:** new helper
-`hub/internal/hostrunner/input_envelope.go`. Called from each
-driver's text branch:
-- `hub/internal/drivers/local_log_tail/claude_code/sendkeys.go`
-- `hub/internal/hostrunner/driver_appserver.go`
-- `hub/internal/hostrunner/driver_exec_resume.go`
-- `hub/internal/hostrunner/driver_pane.go`
+#### B2 — Per-hop deadlines + the reconcile sweep + escalation
 
-Each driver's `case "text":` branch first runs the body
-through the unwrap helper to get the rendered text turn.
+Per-hop deadline columns (`inactivity_deadline`, `last_progress_at`,
+`opened_at`, `absolute_cap`, `escalation_state`) and the `loop_sweep`
+goroutine — a periodic hub-server reconcile sweep (ADR-034 D-2/D-3).
+Each tick: for every non-parked open entity, breach of the inactivity
+deadline → a stall `notification` one level up (ADR-034 D-4), advancing
+`escalation_state` idempotently; breach of the absolute cap →
+`timed_out` termination.
 
-**Acceptance:**
-- Envelope body → renders to LLM text with `[from @X (role)]`
-  prefix + `Reply via: …` hint.
-- Legacy plain string → renders to the bare text (backward
-  compat).
-- Driver's existing behavior unchanged for the rendered text.
+- New `hub/internal/server/loop_sweep.go`, modelled on `host_sweep.go`.
+- **Acceptance:** a stalled hop escalates to the steward, then the
+  principal, exactly once per level; a parked hop does not escalate.
+  **Tests:** `TestLoopSweep_{Stall,Escalate,ParkedSkipped,AbsoluteCap}`.
 
-**Tests:** `TestInputEnvelopeUnwrap_*` per driver case.
+#### B3 — Lifecycle hooks
 
-### Phase 2 — Prompts
+Hub-side orchestration hooks, YAML-configured (ADR-034 D-5):
+`PreAgentIdle` blocks an agent going idle while it owns open
+loop-entities and re-wakes it with the open set; `PostDirectiveOutcome`
+checks a closing `report` is a synthesis, not a bare relay.
 
-#### W4 — Per-persona "How messages are addressed" section
+- Hook dispatch surface + the two hook points; bundled YAML defaults.
+- **Acceptance:** an agent with an open directive cannot idle; a
+  relay-only closing report is flagged. **Tests:** `TestHook_PreAgentIdle_*`,
+  `TestHook_PostDirectiveOutcome_*`.
 
-Every persona prompt gains an "Inbox" section explaining the
-envelope. Section template:
+#### B4 — The directive-trace query endpoint
 
-```markdown
-## How messages are addressed
+A hub endpoint reconstructing a directive's timeline by walking the
+`cause` chain over `agent_events` + `attention_items` + `audit_events`
+(ADR-034 D-7) — a query, no new event stream.
 
-Messages you receive carry a `from` field naming the sender's
-role and a `reply_via` field naming the right reply mechanism.
-Check both before responding:
+- **Acceptance:** the trace for a directive shows every hop in order,
+  including a `[STALL]` marker. **Tests:** `TestDirectiveTrace_*`.
+- The mobile *screen* that renders this endpoint is sequenced
+  separately with the Layer-A surfaces (see §2).
 
-| from.role | What it means | Reply via |
-|---|---|---|
-| `principal` | The human (`@{{principal.handle}}`) typed into chat | Default chat output (your text turn appears in the principal's session) |
-| `peer_steward` | A peer or parent steward (e.g. `@{{parent.handle}}`) sent A2A | `a2a.invoke(handle=from.handle, text=...)` — NOT chat (the principal isn't watching this conversation) |
-| `peer_worker` | A peer worker spawned by another steward | `a2a.invoke(handle=from.handle, text=...)` |
-| `system` | The hub auto-pushed a wake (task transition, schedule fire) | No reply needed — act on the information (e.g. read the named artifact, decide next step) |
+### Phase C — Agent-facing
 
-The text part already includes a parenthetical hint when the
-reply isn't chat; the structured fields are the canonical
-source.
-```
+#### C1 — Per-persona prompts: the envelope + the loop
 
-**Persona prompts in scope:** all 10 main prompts (4 stewards
-+ 6 workers, same set as agent-tool-ergonomics W4).
+Each of the 10 main persona prompts (4 stewards + 6 workers) gains two
+sections: **"How messages are addressed"** (the `kind` set, the `from`
+roles, the reply mechanism per `kind`/`role`) and **"Closing the
+loop"** (you own the directives addressed to you; emit a terminal
+`report`; do not go idle with open work — `PreAgentIdle` will refuse
+it anyway, but the prompt installs the disposition).
 
-**Implementation site:** each `hub/templates/prompts/*.md`. The
-section goes near the top (after the persona intro) so the
-agent reads the inbox protocol before encountering any
-specific tool guidance.
-
-**Acceptance:**
-- Every main persona prompt has the section.
-- Audit lint (`auditBundledTemplateVarRefs`) passes — the
-  section uses only `{{parent.handle}}` and `{{principal.handle}}`
-  which are bound.
-
-**Tests:** existing audit lint must continue to pass.
-
-### Phase 3 — Polish (post-MVP)
-
-#### W5 — Route schedule fires + sibling outcomes through envelope
-
-Two new sources gain first-class routing:
-
-1. **Schedule fires.** When a cron-triggered template
-   activates (e.g. nightly briefing), wake the existing
-   steward (if running) via `input.text` with
-   `from.role="system"`, `from.handle="schedule:<name>"`,
-   `reply_via="none"`, `text="Schedule '<name>' fired. Run
-   the scheduled work."`. Falls back to spawn-fresh if no
-   steward is running.
-
-2. **Sibling worker outcomes.** When a worker spawned by peer
-   steward A completes, peer steward B (same project, working
-   on a related task) may want to know. Today this is silent.
-   The envelope makes it cheap to route: post `input.text`
-   with `from.role="system"`, `from.handle="sibling:<worker
-   handle>"`, `reply_via="none"`, `text="Sibling worker '<X>'
-   completed task '<Y>': <summary>"`.
-
-   This is opt-in per steward via a new
-   `notify_on_sibling_outcomes` flag on the steward template
-   to avoid noise.
-
-**Implementation site:** new `hub/internal/server/schedule_wake.go`
-+ extension to `hub/internal/server/task_notify.go` for
-sibling fan-out.
-
-**Acceptance:**
-- Cron fire on a project with an active steward wakes the
-  steward with the named envelope.
-- Sibling outcome events fan out to opted-in stewards in the
-  same project.
-
-**Tests:** `TestScheduleWake_*`, `TestSiblingOutcomeFanout_*`.
-
-#### W6 — Filter self-emitted echoes + verbose lifecycle
-
-Two filter rules:
-
-1. **Self-echo:** if `from.agent_id == receiving_agent_id`,
-   skip dispatch. (Agents shouldn't see their own
-   journal_append echoes, channel posts, etc.)
-
-2. **Verbose lifecycle:** `lifecycle.*` events with
-   `from.role="system"` and `phase in {started, ready}` are
-   render-only — don't dispatch to the engine. The parent
-   already knows it spawned. Only `phase in {failed, crashed,
-   terminated_unexpectedly}` route.
-
-**Implementation site:** filter in
-`hub/internal/hostrunner/input_router.go` (the existing
-allowlist gets two new conditions).
-
-**Acceptance:**
-- A steward calling `journal_append` doesn't see the resulting
-  event in its own input stream.
-- A steward spawning 5 workers doesn't see 5 wake events for
-  the started phase.
-
-**Tests:** `TestInputRouter_SkipsSelfEcho`,
-`TestInputRouter_FiltersVerboseLifecycle`.
+- Each `hub/templates/prompts/*.md`; near the top, before tool guidance.
+- **Acceptance:** every main prompt has both sections; the bundled
+  template var-ref audit passes. **Tests:** existing audit lint.
 
 ---
 
 ## 2. Out of scope for this plan
 
-- **Replacing kind taxonomy** — `input.text` stays;
-  `input.attention_reply` / `input.cancel` keep their distinct
-  kinds (they have different payloads, not just different
-  sources). Discussion §5 option 1 (per-source kind explosion)
-  is explicitly rejected.
-- **First-class MCP roles beyond user/assistant** — would
-  deviate from MCP spec; not in scope.
-- **Engine-side prompt patching** for engines that don't
-  follow envelope reply hints — handled by per-engine adapters
-  if/when needed.
-- **Threading model overhaul** — the envelope's `thread` field
-  is enough to correlate; full threading semantics
-  (turn-of-turn, branching) are a separate design.
-- **Backpressure / rate limiting** for high-volume sources —
-  the envelope is metadata, not a rate limiter; that's a
-  separate concern.
+- **Layer-A awareness surfaces** — the principal's inbox, read-state,
+  the Requests/Messages/Agents reframe (`feedback-loop-closure.md`
+  §5). Mobile/IA work; sequenced separately; reconciles into
+  `information-architecture.md`.
+- **The directive-trace mobile screen** — B4 ships the hub endpoint;
+  the Flutter screen rides with the Layer-A surfaces.
+- **Sibling-outcome fan-out** — routing a worker's outcome to a
+  *peer* steward in the same project. A routing-policy add-on, not the
+  contract; post-MVP.
+- **Per-engine adapter rendering** — engine-specific envelope text
+  templates if engines diverge; one rendering for MVP.
+- **Deadline-default calibration** — B2 ships configurable defaults;
+  tuning the values is post-MVP on-device work.
 
 ---
 
 ## 3. Risks
 
-- **LLM doesn't read envelope reliably.** Mitigation: the
-  driver-side W3 renders a clear text representation. The
-  envelope is structural; the rendering is what the LLM sees.
-  If the LLM ignores it, the text representation is still
-  unambiguous.
-- **Backward-compat shim becomes permanent.** Mitigation:
-  enforce a deprecation window (one release cycle) and add a
-  warning log when the legacy path is hit. Plan a follow-up
-  wedge to drop the shim.
-- **Sibling outcomes flood stewards.** Mitigation: opt-in flag
-  on steward template (W5); default off.
-- **Schedule wake races with new spawn.** Mitigation: W5
-  checks if a steward is running before deciding wake-vs-spawn;
-  no concurrent both.
+- **Engines ignore the rendered envelope.** Mitigation: A3 renders an
+  unambiguous text turn (the v1.0.630 prefix already worked); the
+  hard tiers (A4, B2/B3) do not depend on the LLM reading anything.
+- **The MVP is large** (9 wedges, ~1.4k LOC). Mitigation: Phase A and
+  B1 parallelize; the rollout ships as one or two releases. Loop
+  closure is in MVP by explicit 2026-05-19 decision — a forward-only
+  contract that only hopes the loop closes is the half-duplex problem
+  again.
+- **The sweep escalates noisily.** Mitigation: idempotent
+  `escalation_state` (B2) — one notification per level; parked hops
+  skipped.
+- **Cutover orphans an in-flight plain-string event.** Mitigation:
+  cut over on a drained hub (ADR-032 D-8).
 
 ---
 
 ## 4. Acceptance for the bundle
 
-The plan ships as one or two releases (MVP = phases 1 + 2;
-phase 3 in a follow-up). Acceptance:
+The rollout ships ADR-032 + ADR-034 as one MVP (one or two releases).
+Acceptance:
 
-- A worker receiving an A2A message reads `from.handle` and
-  replies via `a2a.invoke(handle=from.handle, ...)` without
-  needing to parse a body prefix.
-- A steward woken by `task.notify` sees `from.role="system"`
-  and reasons "I should act, not reply."
-- The principal's direct input shows up with
-  `from.role="principal"` — the engine knows it's talking to
-  the human.
-- Legacy plain-string bodies still work (backward-compat shim
-  in W3).
-- v1.0.630's body-prefix decoration can be removed from
-  `tunnel_a2a.go decorateA2ABodyWithSender` (replaced by
-  envelope + driver-side rendering).
+- A worker receiving an A2A message reads `from`/`kind` from the
+  rendered envelope and replies via the stated mechanism — no body
+  prefix to parse.
+- A steward woken by a system `notification` sees it must *act*, not
+  reply.
+- A directive's loop is tracked: a stalled hop escalates to the
+  principal with the stalled node named; the directive trace shows it.
+- An agent cannot go idle with an open directive.
+- The v1.0.630 prefix decoration is removed from `tunnel_a2a.go`.
 
-Verification on-device with the same smoke task from
-2026-05-18: steward sends A2A to worker; worker replies via
-`a2a.invoke` back to steward; steward wakes on task.notify and
-reads the doc.
+On-device verification: principal directs a mission; steward dispatches
+a worker; worker reports back and the loop closes; a deliberately
+stalled worker escalates to the principal within one sweep interval.
+This is the gate that flips [ADR-032](../decisions/032-message-routing-envelope.md)
+and [ADR-034](../decisions/034-orchestration-loop-closure.md) to
+`Accepted`.
 
 ---
 
 ## 5. References
 
-- [`../discussions/message-routing-to-agents.md`](../discussions/message-routing-to-agents.md)
-  — the framing this plan implements. Discussion §6 is the
-  recommended option (envelope metadata).
+- [ADR-032](../decisions/032-message-routing-envelope.md) — the message envelope (Phase A).
+- [ADR-034](../decisions/034-orchestration-loop-closure.md) — the loop-closure runtime (Phase B).
+- [`../discussions/orchestration-contract.md`](../discussions/orchestration-contract.md)
+  — the design rationale; §6 is the envelope, §8 the lifecycle walkthrough.
+- [`../discussions/feedback-loop-closure.md`](../discussions/feedback-loop-closure.md)
+  — the half-duplex diagnosis; its Layer A is the deferred surface track (§2).
+- [`../spine/orchestration-layer.md`](../spine/orchestration-layer.md)
+  — the spine axiom this rollout implements.
 - [`../discussions/validate-at-every-boundary.md`](../discussions/validate-at-every-boundary.md)
-  — the "test-the-end-of-the-pipe corollary" was distilled
-  from the v1.0.626 wake-delivery failure that motivated
-  this plan.
-- [`../discussions/auto-notification-coverage.md`](../discussions/auto-notification-coverage.md)
-  — adjacent discussion on which events should auto-notify;
-  W5/W6 here partially address it.
-- [`../decisions/030-governed-actions-and-propose-verb.md`](../decisions/030-governed-actions-and-propose-verb.md)
-  — the envelope could carry an ADR-030 `commit_id` field as
-  a future extension.
+  — the principle behind A4's fail-safe admission.

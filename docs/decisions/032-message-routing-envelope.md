@@ -188,10 +188,19 @@ discussion §10; [`validate-at-every-boundary.md`](../discussions/validate-at-ev
 
 There is **no** plain-string compatibility shim and **no** v1.1.0
 cutoff (this deletes the original D-4). Termipod is in solo use with
-no legacy `agent_events` data to migrate; the envelope is the only
-accepted body shape from the rollout commit. A plain-string body is
-malformed input → rejected (D-7). Cut over on a drained hub. Rationale:
-discussion §10 item 5.
+no persisted `agent_events` message data to migrate; the envelope is
+the only accepted body shape from the rollout commit. A plain-string
+body is malformed input → rejected (D-7). Cut over on a drained hub.
+
+**What this does not break.** "No shim" concerns *persisted runtime
+data*, not first-party code. `seed-demo` writes only static state
+(projects, tasks, documents, runs, `attention_items`) — it never
+writes `input.text` / `agent_events` message rows — so it is
+unaffected. Test fixtures that build plain-string bodies are *code*,
+updated in lockstep with the rollout wedges that change the
+compose/unwrap path — coordinated change, not a shim. The shim D-8
+declines is specifically a *data-migration* shim, and there is no
+persisted message data to migrate. Rationale: discussion §10 item 5.
 
 ## 3. Consequences
 

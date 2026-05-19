@@ -548,11 +548,12 @@ mechanism and under-scoped for a contract. The re-scope:
    legacy data. ADR-032 D-4 is *deleted*: no backward-compat shim, no
    v1.1.0 cutoff. The envelope is the only accepted body shape from the
    rollout commit; cut over on a drained hub.
-6. **The contract lands as a `spine/` axiom** (2026-05-19 decision,
-   Q5) — it serves blueprint axiom A1 (*Human attention ≪ agent
-   output*). The prerequisite **spine-synthesis pass** is done (see
-   the Appendix); the axiom itself is written once ADR-032 + ADR-034
-   are Accepted.
+6. **The contract is stated as a `spine/` axiom** —
+   [`spine/orchestration-layer.md`](../spine/orchestration-layer.md),
+   written 2026-05-19 (Q5). It serves blueprint axioms A1 and A3. The
+   axiom states the *invariants*; ADR-032 and ADR-034 hold the
+   revisable schema and runtime. The synthesis pass behind it is the
+   Appendix.
 7. **Re-wedge `message-routing-rollout.md`** against this scope.
 
 This **resolves `feedback-loop-closure.md` §9 Q1** ("one ADR or
@@ -659,5 +660,8 @@ axiom for the message + loop contract fits that precedent.
    present it explicitly as a lens, not as a competing component
    model.
 
-The synthesis pass is **done**; writing the `spine/` axiom is gated on
-ADR acceptance.
+The synthesis pass is **done**, and the axiom —
+[`spine/orchestration-layer.md`](../spine/orchestration-layer.md) —
+was written 2026-05-19: it states the invariants of the orchestration
+layer, while ADR-032 and ADR-034 (Proposed) hold the revisable schema
+and runtime.

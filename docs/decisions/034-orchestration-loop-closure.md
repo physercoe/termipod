@@ -69,30 +69,71 @@ agent abandoning an open loop, D-6 enumerates the legal terminal
 states, D-7 makes the open set inspectable. Rationale:
 [`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md) §6.8.
 
-### D-2. Per-hop deadlines
+### D-2. Per-hop deadlines — two kinds
 
-Each open loop-entity carries an **expected-response deadline per
-hop** — the time by which the node currently holding it must produce
-its next signal (a dispatch, a `report`, a `question`). Deadlines are
-**per-hop, not per-mission**: a global mission timeout tells you the
-mission is late but not *where*; a per-hop deadline localizes the
-stall to a specific node ("the steward received the directive 20 min
-ago and has not dispatched"). Defaults come from the agent family /
+Each open loop-entity carries deadlines **per hop** — bound to the
+node currently holding it, not to the whole mission. A global mission
+timeout tells you the mission is late but not *where*; a per-hop
+deadline localizes the stall ("the steward received the directive 20
+min ago and has not dispatched"). Two kinds, both checked by D-3:
+
+- An **inactivity deadline** (sliding) — the entity is stalled if
+  `now − last_progress_at > inactivity_deadline`. `last_progress_at`
+  is bumped by *any* event on the entity (a child `report`, a tool
+  call, a turn). This is the primary detector: a hop still producing
+  output is alive even if slow.
+- An optional **absolute cap** — `now − opened_at > absolute_cap`
+  terminates the entity `timed_out` (D-6). It bounds a hop that emits
+  noise forever without real progress.
+
+Both **pause** while the entity is legitimately parked awaiting a
+human decision (the permission-aware-deadline pattern, v1.0.448) — a
+parked hop is not a stalled hop. Defaults come from the agent family /
 template; a directive may override. Rationale:
 [`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md) §6.2.
 
-### D-3. The deadline clock is a hub-server periodic sweep
+### D-3. The deadline clock is a periodic reconcile sweep
 
-The clock that fires on a missed deadline is a **periodic hub-server
-sweep** over open loop-entities (`now − last_progress_at > deadline`),
-following the existing `host_sweep.go` pattern.
+The clock is a single hub-server **reconcile sweep** — a `loop_sweep`
+goroutine ticking every ~30–60s (configurable; must be ≪ the smallest
+deadline). Each tick scans the open loop-entities and, for every
+non-parked one, compares elapsed time to its D-2 deadlines — emitting
+a stall escalation (D-4) or a `timed_out` termination (D-6). It
+follows termipod's existing `host_sweep.go` pattern.
 
-Rejected: **per-hop timer goroutines** — one goroutine per open hop
-does not scale and complicates cancellation. **Derived-on-read** —
-computing staleness only when something queries cannot fire when the
-principal is *not* looking, which is precisely the silent-sink failure
-this ADR exists to kill. The sweep runs unconditionally on the hub,
-which is the loop's terminal observer of last resort.
+Reasoned from first principles:
+
+- **Crash-recoverable for free.** Deadline state is persisted columns
+  (`deadline`, `last_progress_at`, `opened_at`, `escalation_state`); a
+  hub restart loses nothing — the next tick re-derives. In-memory
+  per-entity timers would not survive a restart.
+- **No timer churn.** With a sweep, a progress event or a deadline
+  change is one column write. With per-entity timers, every progress
+  event forces a cancel-and-reschedule; at fleet scale (hundreds of
+  open entities, frequent progress) that churn dominates.
+- **Fires unobserved.** A periodic sweep runs unconditionally — it
+  detects a stall whether or not anyone is looking. Derived-on-read
+  (computing staleness only on query) structurally *cannot* fire when
+  nobody queries — precisely the silent-sink failure this ADR exists
+  to kill ([`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md) §3).
+- **Coarse granularity suffices.** Hop deadlines are minutes; a
+  30–60s sweep gives ≤ one-tick detection lag, negligible against a
+  minutes-scale deadline. Sub-second precision (timer wheels) is
+  unwarranted machinery.
+
+It is the **reconcile-loop pattern** — the shape of Kubernetes
+controllers, lease / visibility-timeout reapers, and job-queue
+sweepers — not an invention.
+
+**Idempotent escalation.** Each entity carries an `escalation_state`
+(`none → escalated_steward → escalated_principal`); the sweep advances
+it one level per breach and never re-fires a level already escalated.
+This bounds notification volume — the sweep cannot spam.
+
+Rejected: **per-hop timer goroutines** (not crash-recoverable; timer
+churn). **Derived-on-read** (cannot fire unobserved — the silent-sink
+bug itself). **Hierarchical timing wheels** (high-precision machinery
+unwarranted for minutes-scale deadlines).
 
 ### D-4. Stall escalation — the no-silent-sink guarantee
 

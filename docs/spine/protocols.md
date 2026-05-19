@@ -286,6 +286,10 @@ are the same thing — one internal model, one external standard.
   — C4 view referencing this matrix
 - [`system-flows.md`](system-flows.md) — sequence diagrams showing
   these protocols in action
+- [`orchestration-layer.md`](orchestration-layer.md) — the message
+  contract + directive loop that ride the **P** (peer) and input
+  edges this matrix defines; protocols.md types the *edges*, the
+  orchestration layer types the *payload* on them
 - [`../decisions/002-mcp-consolidation.md`](../decisions/002-mcp-consolidation.md)
   — single MCP service decision
 - [`../decisions/003-a2a-relay-required.md`](../decisions/003-a2a-relay-required.md)

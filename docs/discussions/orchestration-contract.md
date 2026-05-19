@@ -12,8 +12,9 @@ description: Frames termipod's multi-agent layer as the top of a stack of typing
 > Sits above [`message-routing-to-agents.md`](message-routing-to-agents.md),
 > [ADR-032](../decisions/032-message-routing-envelope.md), and
 > [`feedback-loop-closure.md`](feedback-loop-closure.md) — it does not
-> replace them; it frames them as one contract and specifies it. No
-> ADR locked.
+> replace them; it frames them as one contract and specifies it.
+> ADR-032 was revised and ADR-034 drafted from this discussion
+> (2026-05-19); both Proposed.
 > **Audience:** contributors · principal
 > **Last verified vs code:** v1.0.631-alpha
 
@@ -402,15 +403,20 @@ against both tool registries, no tool schema carries an explicit
 | affordance | → `kind` |
 |---|---|
 | principal `/input` | `directive` (MVP: always) |
-| `a2a_invoke` / `delegate` | `directive`; `report` if it answers an open question |
+| `a2a_invoke` / `delegate` | declared by the call's explicit `kind` parameter |
 | `request_help` / `request_select` / `request_approval` | `question` |
 | `tasks_update(status=…)` / `tasks_complete` / turn-completion | `report` |
 | hub-originated | `directive` (schedule fire) · `notification` (escalation, operator, infra) |
 
-The one genuine inference gap is `a2a_invoke` directive-vs-report,
-closed by reply-detection (does this A2A answer an open question whose
-asker is the recipient?). An explicit `kind`/`intent` parameter on
-`a2a_invoke` is a possible post-MVP tightening — §11.
+`a2a_invoke` and `delegate` carry an **explicit `kind` parameter**
+(`directive | question | report`; `notification` is system-only). The
+agent declares intent; the hub validates it against the admission
+pipeline (§10) and stamps the envelope — [ADR-032](../decisions/032-message-routing-envelope.md)
+D-6. This replaces inferring A2A directive-vs-report by reply-detection
+heuristics: an explicit, hub-validated declaration is the tighter
+design (2026-05-19 decision). It is still consistent with §6.5's
+authorship rule — the agent picks a typed tool with a typed argument;
+the hub composes and validates.
 
 ## 7. Realization efficiency is the design metric
 
@@ -535,17 +541,18 @@ mechanism and under-scoped for a contract. The re-scope:
      Claude Code's hook system): `PreMessageDeliver`, `PreAgentIdle`
      (refuse idle while open directives exist — the loop-closure
      invariant), `PostDirectiveOutcome` (synthesis-not-relay check).
-4. **The L2 affordances must encode `kind`** — §6.6. The hub's
-   `tool → kind` map is part of the rollout; the `a2a_invoke`
-   reply-detection too.
+4. **The L2 affordances encode `kind`** — §6.6. `a2a_invoke` and
+   `delegate` gain an explicit `kind` parameter (2026-05-19 decision);
+   the remaining tools map to a `kind` by identity.
 5. **Drop the legacy shim** (2026-05-19 decision, Q4) — solo use, no
    legacy data. ADR-032 D-4 is *deleted*: no backward-compat shim, no
    v1.1.0 cutoff. The envelope is the only accepted body shape from the
    rollout commit; cut over on a drained hub.
 6. **The contract lands as a `spine/` axiom** (2026-05-19 decision,
-   Q5) — it serves blueprint axiom 1 (*Human attention ≪ agent
-   output*). Prerequisite: a **spine-synthesis pass** reconciling it
-   against `spine/protocols.md` and `spine/information-architecture.md`.
+   Q5) — it serves blueprint axiom A1 (*Human attention ≪ agent
+   output*). The prerequisite **spine-synthesis pass** is done (see
+   the Appendix); the axiom itself is written once ADR-032 + ADR-034
+   are Accepted.
 7. **Re-wedge `message-routing-rollout.md`** against this scope.
 
 This **resolves `feedback-loop-closure.md` §9 Q1** ("one ADR or
@@ -555,27 +562,30 @@ it ships in the same MVP rollout, not after it.
 
 ## 11. Open questions
 
-Resolved in the 2026-05-18/19 discussion: lineage as a single parent
-pointer (Q1); hub-stamped composition (Q2); drop the shim (Q4); the
-`spine/` axiom + synthesis-pass prerequisite (Q5); the W1 schema
-revision (Q6 → §6.1); Layer-B closure enforcement in MVP (Q7 → §10).
-The self-echo question is resolved by the closure rule (§6.5).
+The 2026-05-18/19 discussion resolved the design; the decisions are
+now recorded in **[ADR-032](../decisions/032-message-routing-envelope.md)**
+(revised — the envelope + admission pipeline) and
+**[ADR-034](../decisions/034-orchestration-loop-closure.md)** (drafted
+— the loop-closure runtime). Resolved: lineage as a single parent
+pointer (Q1); hub-server composition (Q2); the W1 schema (Q6 → §6.1);
+drop the shim (Q4); Layer-B closure enforcement in MVP (Q7); the
+self-echo case (the closure rule, §6.5); A2A `kind` — an explicit
+`kind` parameter on `a2a_invoke`/`delegate`, not heuristic
+reply-detection (ADR-032 D-6); the deadline clock — a hub-server sweep
+(ADR-034 D-3); escalation — one level up the chain, reaching the
+principal (ADR-034 D-4). The spine-synthesis pass (Q5) is done — see
+the Appendix.
 
-Still open:
+Genuinely still open:
 
-- **A2A `kind` inference.** Reply-detection covers `a2a_invoke`
-  directive-vs-report for MVP; is it reliable enough, or does
-  `a2a_invoke` need an explicit `kind`/`intent` parameter? (Lean:
-  reply-detection for MVP, explicit parameter post-MVP.)
 - **`cause` for incidental messages.** Is trivial principal chatter
   modelled as a degenerate `directive` (closes instantly) or as
-  `cause = null`? Minor; deferred.
-- **Deadline ownership and escalation target.** `feedback-loop-closure.md`
-  §9 Q3/Q4 — who owns the per-hop deadline clock, and does a stall
-  escalate up the steward chain or straight to the principal. Belongs
-  to the Layer-B ADR.
-- **The spine-synthesis pass** (§10 item 6) is a prerequisite task,
-  not yet done.
+  `cause = null`? Minor; deferred to implementation.
+- **Deadline-default tuning.** ADR-034 sets per-hop deadlines from the
+  agent family / template; the default *values* want on-device
+  calibration — post-MVP.
+- **The `spine/` axiom** is gated on ADR-032 + ADR-034 acceptance
+  (Appendix) — sequencing, not open design.
 
 ## 12. Recommendation
 
@@ -591,7 +601,63 @@ Still open:
 4. Adopt **realization efficiency** (loop latency + loop fidelity) as
    the design-quality metric; design the envelope as an instrumentation
    surface so the metric is computable.
-5. **Hold `message-routing-rollout.md` W1**; revise
-   [ADR-032](../decisions/032-message-routing-envelope.md) to §6 + the
-   admission pipeline; draft the companion Layer-B ADR; run the
-   spine-synthesis pass; then lock and re-wedge.
+5. **Hold `message-routing-rollout.md` W1** until it is re-wedged
+   against [ADR-032](../decisions/032-message-routing-envelope.md)
+   (revised) + [ADR-034](../decisions/034-orchestration-loop-closure.md);
+   lock both ADRs after on-device verification.
+
+---
+
+## Appendix — Spine placement (synthesis pass)
+
+The 2026-05-19 spine-synthesis pass, reconciling the orchestration
+contract against the existing `spine/` axiom docs — the Q5
+prerequisite.
+
+**Finding: no collision; one gap.**
+
+- **`spine/protocols.md`** types every *inter-component edge* by
+  relationship type (control / supervision / RPC / peer / observation)
+  and names the protocol per edge (A2A on the agent↔agent peer edge,
+  MCP on the agent↔hub RPC edge, …). It says *which protocol on which
+  edge*. The orchestration contract says *what a message carries* —
+  the payload schema and the loop protocol riding those edges.
+  Complementary, not colliding: protocols.md is the edge layer, the
+  orchestration contract is the message layer on top. protocols.md §1
+  (relationship types) and §8 (A2A topology) gain a one-line
+  forward-reference; no rewrite.
+- **`spine/information-architecture.md`** is mobile surfaces and
+  attention tiers; it has no message/envelope concept (verified). No
+  collision. The return path's *Layer A* (inbox, read-state, the
+  Requests/Messages/Agents reframe — `feedback-loop-closure.md` §5)
+  *is* IA work and reconciles into information-architecture.md when
+  Layer A is built — deferred, flagged.
+- **`spine/blueprint.md`** axioms are unchanged. The orchestration
+  contract derives from **A1** (filtering — realization efficiency
+  economizes scarce attention) and **A3** (governance — the admission
+  pipeline and loop closure bound stochastic agents). The new axiom
+  cites them; it does not amend them.
+
+**Recommendation: a new `spine/` axiom doc**, written once
+[ADR-032](../decisions/032-message-routing-envelope.md) and
+[ADR-034](../decisions/034-orchestration-loop-closure.md) are Accepted
+(an axiom states *decided* architecture; the ADRs are Proposed).
+protocols.md was itself extracted from `blueprint.md` §5; a sibling
+axiom for the message + loop contract fits that precedent.
+
+**Two cautions for that axiom:**
+
+1. **Naming.** "Orchestration" is already used informally — the
+   steward is "manager / orchestrator" (blueprint §3.3), and ADR-008
+   is the orchestrator-worker pattern. The axiom must define "the
+   orchestration contract" / "orchestration layer" precisely against
+   that usage, or pick a distinct term (candidates: *the message
+   contract*, *the directive loop*). Resolve in `glossary.md` first.
+2. **The L0–L3 typing stack is a lens, not an ontology.** blueprint's
+   component ontology is Hub / Host-runner / Agent. The L0–L3 stack
+   (§1) is an orthogonal *typing* decomposition. The axiom must
+   present it explicitly as a lens, not as a competing component
+   model.
+
+The synthesis pass is **done**; writing the `spine/` axiom is gated on
+ADR acceptance.

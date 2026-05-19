@@ -50,8 +50,9 @@ next sequential number — don't reserve, don't skip.
 | [029](029-tasks-as-first-class-primitive.md) | Tasks as the first-class primitive for steward-dispatched work | Accepted 2026-05-18 (all phases shipped v1.0.610–611-alpha) | — |
 | [030](030-governed-actions-and-propose-verb.md) | Governed actions + `propose` verb (apply-on-approve generalisation, 4-tier ladder) | Proposed 2026-05-17 | — |
 | [031](031-agent-tool-ergonomics.md) | Agent tool ergonomics — two-tier descriptions, `tools.get`, structured hints, no polymorphism | Proposed 2026-05-18 | — |
-| [032](032-message-routing-envelope.md) | Message routing — envelope metadata on `input.text` (4-role taxonomy, hub-side compose) | Proposed 2026-05-18 | — |
+| [032](032-message-routing-envelope.md) | Message routing — the orchestration message envelope `{from,to,kind,text,cause,thread}` + admission pipeline | Proposed 2026-05-18 (revised 2026-05-19) | — |
 | [033](033-tool-catalog-naming-and-registration.md) | Tool catalog — one naming convention + single registration point | Proposed 2026-05-18 | — |
+| [034](034-orchestration-loop-closure.md) | Orchestration loop-closure runtime — closure invariant, per-hop deadlines, stall escalation, lifecycle hooks | Proposed 2026-05-19 | — |
 
 ---
 

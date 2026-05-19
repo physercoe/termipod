@@ -97,10 +97,13 @@ the loop machinery must decide (open / close / advance / neutral):
 
 Two openers, one closer, one neutral. The set is closed and ratified
 against the project lifecycle (discussion §8); an unknown `kind` falls
-back to `notification`, never `directive`. **Closure rule:** a
-directive/task entity E is closed by a `report` whose `cause = E` from
-E's assignee — `report` is the universal closer; a `question`'s answer
-is a `report` whose `cause` is the question. Abnormal closes (timeout,
+back to `notification`, never `directive`. **Closure rule:** a `report`
+whose `cause = E` from E's assignee closes E **when it carries a
+terminal outcome** (it sets E's `terminal_reason` —
+[ADR-034](034-orchestration-loop-closure.md) D-6); a `report` carrying
+a non-terminal outcome (`blocked`, interim progress) *advances* E
+without closing it. A `question`'s answer is always terminal — a
+`report` whose `cause` is the question closes it. Abnormal closes (timeout,
 cancel) are Layer-B terminal events surfaced as `notification`s
 ([ADR-034](034-orchestration-loop-closure.md) D-6). Rationale:
 discussion §6.2, §6.5.

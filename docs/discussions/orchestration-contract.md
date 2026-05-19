@@ -356,10 +356,12 @@ carries none.**
 
 ### 6.5 Three rules: closure, derivation, authorship
 
-**Closure.** A directive/task entity **E** is closed by a `report`
-whose `cause = E` sent by **E's assignee** (the agent E was addressed
-to). `report` is the *universal* closer — `directive` and `question`
-open loops, `report` closes them, `notification` touches none. A
+**Closure.** A `report` whose `cause = E` from **E's assignee** closes
+E **when it carries a terminal outcome** (it sets E's
+`terminal_reason`); a `report` carrying a non-terminal outcome —
+`blocked`, interim progress — *advances* E without closing it.
+`directive` and `question` open loops; a terminal `report` closes
+them; `notification` touches none. A
 `question` is closed the same way: its answer is a `report` with
 `cause` = the question entity. Abnormal closes (timeout, cancel) are
 not `report`s — the Layer-B runtime terminates the loop with a reason
@@ -472,10 +474,11 @@ for the variants.
 
 **Variant scenarios**, each still `{from,to,kind,cause,thread}`:
 
-- **Worker blocked.** Msg 3 is a `report` with a blocked terminal
-  status (still `kind=report`, `cause=T1`) — T1 closes blocked. The
-  steward then either re-dispatches (a new `directive`) or escalates
-  (`report` to principal, `cause=D1`, blocked).
+- **Worker blocked.** Msg 3 is a `report` (`kind=report`, `cause=T1`)
+  carrying a `blocked` outcome — it *advances* T1 to `status=blocked`,
+  which is **still open** (`blocked` is a live status, not a terminal
+  reason). The steward then re-dispatches a new `directive` or
+  escalates to the principal (`report`, `cause=D1`).
 - **Worker needs a decision mid-task.** worker→steward `question`
   (`cause=T1`) opens sub-entity Q1 (parent=T1); steward→worker `report`
   (`cause=Q1`) closes Q1; the worker resumes T1. The steward's answer

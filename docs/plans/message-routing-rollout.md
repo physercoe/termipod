@@ -171,13 +171,15 @@ table** (ADR-034 D-8). A directive is a root `tasks` row, a task is a
 child `tasks` row (`tasks.parent_task_id` already gives the tree); a
 question is an `attention_item` row.
 
-- An **additive** numbered migration: `tasks` and `attention_items`
-  each gain the per-hop deadline columns (`inactivity_deadline`,
-  `last_progress_at`, `opened_at`, `absolute_cap`, `escalation_state`)
-  and a `terminal_reason` column (the enum `completed | blocked |
-  failed | killed | timed_out | superseded`, ADR-034 D-6), distinct
-  from the live `status`; `attention_items` also gains a `cause`
-  pointer to its enclosing task.
+- An **additive** numbered migration — **no backfill, `status`
+  unchanged**: `tasks` and `attention_items` each gain the per-hop
+  deadline columns (`inactivity_deadline`, `last_progress_at`,
+  `opened_at`, `absolute_cap`, `escalation_state`) and a
+  `terminal_reason` column (the 5-value enum `completed | failed |
+  killed | timed_out | superseded`, ADR-034 D-6), set on close
+  alongside the unchanged human-facing `status`; `attention_items`
+  also gains a `cause` pointer to its enclosing task. seed-demo's
+  task fixtures are unaffected — their `status` values stay valid.
 - A Go `LoopEntity` interface both tables satisfy; the open-set is a
   `UNION` over open `tasks` and open question-kind `attention_items`
   (ADR-034 D-1).
@@ -249,15 +251,20 @@ change:
    reads `from` — a sender chip — and `kind` — a badge. This replaces
    what v1.0.630's `[A2A from @sender]` text prefix carried: without
    it, an A2A message would render with no visible sender.
-2. **Terminal reasons.** Task / attention status rendering gains the
-   new `terminal_reason` values (`timed_out`, `killed`, `superseded`)
-   as styled chips and labels, so a closed loop-entity does not show
-   as a blank or unknown state.
+2. **Terminal reasons.** `status` is **unchanged** (ADR-034 D-6 keeps
+   it), so the ~10 hardcoded status sites and the status pickers in
+   `task_detail_screen.dart` / `project_detail_screen.dart` keep
+   working as-is. `terminal_reason` is rendered as *additive detail*
+   on a closed task — e.g. "Cancelled — timed out" — on the task and
+   attention surfaces.
 
 The app reads hub entities as `Map<String, dynamic>` (no typed Dart
 classes — CLAUDE.md), so this is rendering code: `lib/widgets/agent_feed.dart`
-for the feed, and the task / steward status chips
-(`lib/widgets/steward_strip.dart` and siblings).
+(the feed `from`/`kind`); the task surfaces — `task_detail_screen.dart`,
+`project_detail_screen.dart`, `overview_widgets/task_milestone_list.dart`
+— for `terminal_reason` detail; and the attention surfaces
+(`me_screen.dart`, `approval_detail_screen.dart`), since `attention_items`
+also carry `terminal_reason`.
 
 - **Acceptance:** an A2A message in the transcript shows its sender; a
   `timed_out` task renders a styled chip, not a blank.

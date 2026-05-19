@@ -1,6 +1,6 @@
 ---
 name: Orchestration loop-closure runtime
-description: The Layer-B half of the orchestration contract — the runtime that guarantees a principal directive's loop closes rather than silently stalling. Establishes the loop-closure invariant (a directive is not done until a terminal report carrying its cause reaches the issuer's inbox); per-hop deadlines that localize stalls to a node; a hub-server periodic sweep as the deadline clock; stall escalation one level up the chain as the no-silent-sink guarantee; orchestration lifecycle hooks (PreAgentIdle, PostDirectiveOutcome) as YAML data; an enumerated terminal-reason taxonomy replacing thin done/blocked/cancelled; a directive-trace view reconstructed from events by walking the cause chain; and the loop-entity modelled as a role over the existing tasks and attention_items tables — no new table. Companion to ADR-032 (the message envelope); together they are the orchestration contract.
+description: The Layer-B half of the orchestration contract — the runtime that guarantees a principal directive's loop closes rather than silently stalling. Establishes the loop-closure invariant (a directive is not done until a terminal report carrying its cause reaches the issuer's inbox); per-hop deadlines that localize stalls to a node; a hub-server periodic sweep as the deadline clock; stall escalation one level up the chain as the no-silent-sink guarantee; orchestration lifecycle hooks (PreAgentIdle, PostDirectiveOutcome) as YAML data; an additive terminal-reason column that augments (not replaces) the human-facing task status; a directive-trace view reconstructed from events by walking the cause chain; and the loop-entity modelled as a role over the existing tasks and attention_items tables — no new table. Companion to ADR-032 (the message envelope); together they are the orchestration contract.
 ---
 
 # 034. Orchestration loop-closure runtime
@@ -27,7 +27,7 @@ sweep**, not per-hop timers and not derived-on-read; (D-4) **stall
 escalation** one level up the chain — the "no silent sink" guarantee;
 (D-5) **orchestration lifecycle hooks** (`PreAgentIdle`,
 `PostDirectiveOutcome`) as YAML data; (D-6) an enumerated
-**terminal-reason taxonomy** replacing thin `done/blocked/cancelled`;
+**terminal-reason column** augmenting the human-facing `status`;
 (D-7) a **directive-trace** view reconstructed from events by walking
 the `cause` chain — no new event stream; (D-8) the loop-entity is a
 **role over the existing `tasks` and `attention_items` tables**, not a
@@ -172,21 +172,41 @@ Hooks are an extensibility surface: a new closure policy is a YAML
 file, not Go code. Message-level admission is **not** a hook — that is
 ADR-032 D-7's deterministic pipeline; hooks here are loop-*lifecycle*.
 
-### D-6. The terminal-reason taxonomy
+### D-6. The terminal-reason taxonomy — additive, not a replacement
 
-A loop-entity terminates with exactly one **enumerated reason**, each
-with defined cleanup and a defined inbox consequence, replacing the
-thin `done / blocked / cancelled`:
+The human-facing lifecycle `status` (`todo / in_progress / blocked /
+done / cancelled`) is **kept unchanged**. A new **`terminal_reason`**
+column is added — set when a loop-entity closes — with five values:
 
-`completed · blocked · failed · killed · timed_out · superseded`
+`completed · failed · killed · timed_out · superseded`
 
-A normal close is `completed` via a terminal `report` (ADR-032 D-2).
-`timed_out` is raised by the D-3 sweep; `killed` is operator
-termination (distinct from `failed` — the v1.0.628 fix already cracked
-the thin model); `superseded` is a directive replaced by a newer one.
-Each terminal reason is delivered to the issuer as a `report` (normal)
-or a `notification` (abnormal — `timed_out`, `killed`). Rationale:
-[`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md) §9 Q-T.
+`status` and `terminal_reason` serve two consumers: `status` is the
+task-management lifecycle the human UI renders (load-bearing across
+~10 mobile sites, including status pickers); `terminal_reason` is the
+close-classification the loop-closure runtime needs (the sweep,
+escalation, the trace, realization-efficiency). They are additive,
+not redundant — `done` + `completed` is a workflow state plus a close
+reason. `terminal_reason` refines the outcome: `done` → `completed`;
+`cancelled` → `failed | killed | timed_out | superseded` — so a
+*failed* task has a clean home (`cancelled` is the umbrella, the
+reason says why). `timed_out` is raised by the D-3 sweep; `killed` is
+operator termination (distinct from `failed`); `superseded` is a task
+replaced by a newer one. A close is delivered to the issuer as a
+`report` (normal) or a `notification` (abnormal — `timed_out`,
+`killed`).
+
+**`blocked` is a live `status`, never a terminal reason.** A blocked
+task is *open*, awaiting intervention (v1.0.628's "preserve blocked on
+manual stop" treats it as a live state). A `report` carrying a
+`blocked` outcome *advances* the entity; only a *terminal* `report`
+closes it (ADR-032 D-2).
+
+This **augments** the thin model rather than replacing it: the
+inability of `done/blocked/cancelled` to express *why* a task ended is
+cured by the new column, without churning the human-facing `status`
+set. Rationale: [`feedback-loop-closure.md`](../discussions/feedback-loop-closure.md)
+§9 Q-T; orchestration-contract discussion (2026-05-19 `lib/`
+verification).
 
 ### D-7. The directive trace — reconstructed, not a new stream
 
@@ -228,8 +248,8 @@ The migration is **additive — no new table:**
 
 - `tasks` gains the D-2 deadline columns (`inactivity_deadline`,
   `last_progress_at`, `opened_at`, `absolute_cap`, `escalation_state`)
-  and a `terminal_reason` column (the D-6 enum), distinct from the
-  live `status`.
+  and a `terminal_reason` column (the D-6 enum) — additive, set on
+  close; the human-facing `status` set is unchanged.
 - `attention_items` gains the same deadline columns and a `cause`
   pointer to its enclosing task.
 
@@ -278,7 +298,8 @@ the steward chain) are config, refined post-MVP.
 | Derived-on-read staleness | Cannot fire when nobody is looking — the silent-sink bug itself. D-3. |
 | A dedicated directive-trace event stream | New plumbing; `cause` already makes the trace a query. D-7. |
 | Defer Layer B to post-MVP | A forward-only contract that only hopes the loop closes is half-duplex. Discussion §10. |
-| Keep thin `done/blocked/cancelled` | No defined cleanup or inbox consequence per reason; v1.0.628 already cracked it. D-6. |
+| Keep `status` thin, no `terminal_reason` | `done/blocked/cancelled` cannot express *why* a task ended; D-6 augments it with an additive column. |
+| Make `status` lifecycle-only (drop `done`/`cancelled`) | Churns ~10 mobile sites + the status pickers + a data backfill; D-6 keeps `status` and adds alongside. |
 
 ## 5. Implementation
 

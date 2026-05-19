@@ -24,8 +24,8 @@ the locked decisions are in
 | Phase | Status | Ship | Exit code | Approx LOC | Depends on |
 |---|---|---|---|---|---|
 | 1 | ✅ shipped v1.0.611 | `shutdown-all` + tunnel `kind` field + `host.shutdown` verb + `stopSessionInternal` helper (shared with mobile-Stop) | 0 (stays down) | ~360 | — |
-| 2 | ⬜ next | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
-| 3 | ⬜ | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
+| 2 | ✅ code complete (untagged) | Per-binary release split (W5.5) + `self-update` (both binaries, default `physercoe/termipod`) + `update-all` + `host.update` verb | 75 (respawn new binary) | ~420 | Phase 1 verb schema |
+| 3 | ⬜ next | `restart-all` + `host.restart` verb | 75 (respawn same binary) | ~80 | Phase 1 |
 | 4 | ⬜ | doctor / version / hosts ls/ping / logs tail / agents kill / db vacuum / db migrate / tokens rotate; host-runner doctor | — | ~600 across ~9 wedges | independent |
 | 5 | ⬜ | Mobile Admin pane (Flutter) | — | ~700 | Phases 1-4 endpoints |
 
@@ -179,6 +179,27 @@ Operator runs `hub-server shutdown-all`. Result:
 ---
 
 ## 3. Phase 2 — self-update + update-all
+
+> **Status: code complete, untagged** (2026-05-19). W5.5–W10 all
+> landed on `main`; a release tag picks them up. What shipped:
+>
+> - **W5.5** — `release.yml` now emits 8 per-binary tarballs +
+>   `SHA256SUMS` (commit `5b44c31`).
+> - **W6** — `hub/internal/selfupdate` package + `host-runner
+>   self-update` (`b68636e`).
+> - **W7** — `hub-server self-update` (`40a2f60`).
+> - **W8** — the `host.update` verb (`21aa328`).
+> - **W9** — `POST /v1/admin/fleet/update` + `update-all` CLI
+>   (`c0a3cef`).
+> - **W10** — Scenarios 26–27 in `test-steward-lifecycle.md`.
+>
+> Two notes vs the W6–W9 sketch below: the GitHub fetch +
+> verify + atomic-replace primitive lives in one shared
+> `selfupdate` package (W6/W7 are thin wrappers, as W7 planned);
+> and the hub's own self-update during `update-all` runs on a
+> delayed goroutine inside the `fleet/update` handler so the HTTP
+> response posts before the daemon exits 75 — there is no separate
+> hub-exit RPC.
 
 ### 3.1 Goal
 

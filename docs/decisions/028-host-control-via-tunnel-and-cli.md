@@ -379,7 +379,7 @@ trust model.
 | Phase | State | Where |
 |---|---|---|
 | 1 — `shutdown-all` | **Shipped v1.0.611-alpha** (commit `83170b0`) | below |
-| 2 — `self-update` + `update-all` | Not started | — |
+| 2 — `self-update` + `update-all` | **Code complete, untagged** (W5.5–W10 on `main`) | below |
 | 3 — `restart-all` | Not started | — |
 | 4 — ops fleet (doctor/version/hosts/logs/…) | Not started | — |
 | 5 — mobile Admin pane | Not started | — |
@@ -410,12 +410,19 @@ sketch — what actually shipped:**
   documented atop both `main.go` files; W5's Scenario 25 is in
   `docs/how-to/test-steward-lifecycle.md`.
 
-**Carry-forward for Phase 2.** The release pipeline still ships
-**one tarball per platform bundling both binaries** (`release.yml`
-— `termipod-hub-<ver>-<os>-<arch>.tar.gz`, 4 tarballs, no
-`SHA256SUMS`). The per-binary 8-tarball split (D-4, plan W5.5) is
-a hard prerequisite for self-update and is the first Phase 2
-wedge.
+**Phase 2 — what landed.** `release.yml` now emits the per-binary
+8-tarball layout + `SHA256SUMS` (D-4 / W5.5). The
+`hub/internal/selfupdate` package is the shared GitHub-fetch →
+SHA256-verify → atomic-replace primitive; `host-runner
+self-update` and `hub-server self-update` are thin wrappers, the
+`host.update` tunnel verb invokes it inside the daemon, and
+`POST /v1/admin/fleet/update` (+ the `update-all` CLI) fans
+`host.update` across the fleet then bounces the hub last. One
+implementation note: the hub's own self-update during
+`update-all` runs on a delayed goroutine inside the `fleet/update`
+handler — the HTTP response posts before the daemon replaces its
+binary and exits 75, so the CLI reports host outcomes but not the
+hub's (the operator confirms with `hub-server version`).
 
 ## Open follow-ups
 

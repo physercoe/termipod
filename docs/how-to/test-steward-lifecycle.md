@@ -1470,6 +1470,137 @@ the new binary). Verifying the contract here catches the cliff
 
 ---
 
+## Scenario 26 — Fleet update via `hub-server update-all` (ADR-028 Phase 2)
+
+**Goal:** confirm `hub-server update-all` fans the `host.update` verb
+across every live host, each host-runner self-updates and exits 75 so
+systemd respawns it on the new binary, and the hub then self-updates
+last — the whole fleet moves a version with no SSH.
+
+**Pre-conditions:** the smoke-test fleet has at least **two hosts**
+running under systemd (Track B per
+[`install-host-runner.md`](install-host-runner.md)), all binaries at
+version vN. A newer release vN+1 is published on the upstream repo
+(`physercoe/termipod` by default) **with the per-binary tarball
+layout** — `termipod-{hub-server,host-runner}-vN+1-<os>-<arch>.tar.gz`
+plus `SHA256SUMS` (the W5.5 release split; releases before it lack
+these assets and `self-update` refuses them with a clear message).
+`HUB_TOKEN` holds an owner-scope bearer.
+
+**Steps:**
+
+1. From the hub host (or a third box), dry-run first:
+
+   ```
+   hub-server update-all --version vN+1 --dry-run
+   ```
+
+   Expect a per-host table with `acked=would` and a `hub:` note that
+   the hub *would* self-update — nothing is fired.
+2. Run it for real:
+
+   ```
+   hub-server update-all --version vN+1
+   ```
+
+3. Watch the per-host table: each row shows `from`/`to` versions and
+   `acked=yes`. The final `hub:` line reports the hub self-update was
+   scheduled.
+4. On each host (`journalctl -fu termipod-host@<user>`):
+   - `host.update received version=vN+1`
+   - `self-update checksum verified`
+   - `host.update exiting for respawn code=75`
+   - systemd respawns the unit; `host-runner version` now reports vN+1.
+5. On the hub (`journalctl -fu termipod-hub`):
+   - `hub self-update installed; exiting 75 for respawn`
+   - systemd respawns `termipod-hub.service`; `hub-server version`
+     now reports vN+1.
+6. Inspect the audit log:
+   ```
+   GET /v1/teams/{team}/audit?action=host.update
+   ```
+   Each host gets one row with meta `from_version` / `to_version`.
+
+**Expected:**
+
+- Every host and the hub end on vN+1; no operator SSH was needed.
+- Sessions that were active resume cleanly after their host respawns
+  (engine_session_id preserved where the engine supports it).
+- A re-run of `update-all --version vN+1` is a near-no-op: each host
+  self-update resolves the same release and rewrites the same bytes.
+
+**Failure modes:**
+
+- **`verb: status 500` for a host** → the host's self-update failed
+  (network, or the release lacks the per-binary asset). The host
+  stayed up on vN — `update-all` skips the hub bounce when any host
+  errors. Fix the host and re-run.
+- **A host reports `predates the per-binary release split`** → vN+1
+  was cut before W5.5; only releases with the eight-tarball layout +
+  `SHA256SUMS` are self-updatable.
+- **Hub never respawns on vN+1** → the hub self-update goroutine
+  failed; check the hub journald for `hub self-update failed`. The
+  hub stays up on vN. Re-run `update-all --target hub`.
+
+**Why this scenario:** it's the end-to-end smoke test for Phase 2.
+The exit-75 → systemd-respawns-new-binary contract is the inverse of
+Scenario 25's exit-0 contract; both must hold for the fleet to be
+operable without SSH.
+
+---
+
+## Scenario 27 — `update-all` SHA256 mismatch leaves the binary untouched
+
+**Goal:** confirm a corrupted or tampered release artifact is
+rejected by the checksum gate — the host stays up on its current
+binary and the failure is audited.
+
+**Pre-conditions:** a test release whose `SHA256SUMS` carries a digest
+that does **not** match the actual `termipod-host-runner-*` tarball
+(publish one deliberately, or point `--upstream-repo` at a fork with a
+mangled checksum file). One live host on vN.
+
+**Steps:**
+
+1. Run, targeting the bad release:
+
+   ```
+   hub-server update-all --target hosts --version vBAD \
+     --upstream-repo <fork-with-bad-sums>
+   ```
+
+2. The per-host row shows `acked=no` and an error column containing
+   `verb: status 500`.
+3. On the host's journald, expect:
+   - `self-update failed` / `host.update failed; staying on the
+     current binary`
+   - the error names a `sha256 mismatch`.
+4. `host-runner version` on that host still reports vN — unchanged.
+5. The audit `host.update` row carries the error string in its meta.
+
+**Expected:**
+
+- The on-disk binary is byte-identical to before the run (verify with
+  `sha256sum $(command -v host-runner)`).
+- The host-runner process keeps running — a failed update never
+  exits the daemon (only a *successful* one exits 75).
+- `update-all` skips the hub self-update because a host errored.
+
+**Failure modes:**
+
+- **Binary was replaced despite the mismatch** → the verify step ran
+  *after* the rename, or was skipped. `selfupdate` must verify the
+  downloaded tarball's SHA256 **before** extracting; re-read
+  `hub/internal/selfupdate/selfupdate.go`.
+- **Host exited / went down** → a failed self-update incorrectly
+  exited non-75-non-1; the verb handler must return 500 and not exit.
+
+**Why this scenario:** the checksum gate is the entire trust model of
+self-update (ADR-028 D-4) until cosign signing lands. This scenario
+proves the gate fails closed.
+
+---
+
 ## Scenario 30 — Spawn-with-task surfaces on the Tasks tab (ADR-029)
 
 **Goal:** confirm that asking a project steward to spawn a worker

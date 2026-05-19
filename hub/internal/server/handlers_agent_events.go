@@ -122,6 +122,11 @@ func (s *Server) handlePostAgentEvent(w http.ResponseWriter, r *http.Request) {
 	// ADR-034 D-2: an event from this agent is progress on any open task
 	// it owns — slide that task's inactivity deadline forward.
 	s.bumpLoopProgress(r.Context(), agent)
+	// ADR-034 D-5: an agent going idle while it still owns open
+	// loop-entities is re-woken with the open set (the PreAgentIdle hook).
+	if in.Kind == "lifecycle" && lifecycleIsIdle(payload) {
+		s.onPreAgentIdle(r.Context(), agent)
+	}
 
 	evt := map[string]any{
 		"id":         id,

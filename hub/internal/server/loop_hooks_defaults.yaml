@@ -1,0 +1,20 @@
+# Orchestration lifecycle hooks (ADR-034 D-5).
+#
+# Behaviour is data: the loop-closure runtime runs hub-side hooks at
+# orchestration events, configured here rather than in Go. A new closure
+# policy is a change to this file.
+
+# PreAgentIdle — fires when an agent goes idle. If the agent still owns
+# open loop-entities, the hook re-wakes it with the open set so it cannot
+# rest while it owns unclosed work (the distributed analog of Claude
+# Code's Stop hook).
+pre_agent_idle:
+  enabled: true
+
+# PostDirectiveOutcome — fires when a report closes a root directive.
+# Flags a closing report that is a bare relay rather than a genuine
+# synthesis (min_synthesis_chars is the crude floor for "looks
+# synthesised").
+post_directive_outcome:
+  enabled: true
+  min_synthesis_chars: 40

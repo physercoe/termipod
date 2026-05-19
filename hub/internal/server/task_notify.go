@@ -48,6 +48,13 @@ func (s *Server) notifyTaskAssigner(ctx context.Context, team, taskID, fromStatu
 			"task_id", taskID, "err", err)
 		return
 	}
+	// ADR-034 D-5: the PostDirectiveOutcome hook gates a directive's
+	// close — it flags a bare-relay close on a root task. Runs before
+	// the assigner-delivery short-circuit so a principal-direct directive
+	// is checked too.
+	if toStatus == "done" {
+		s.onPostDirectiveOutcome(ctx, taskID, summary.String)
+	}
 	if !assignerID.Valid || assignerID.String == "" {
 		return // principal-direct task; nothing to push.
 	}

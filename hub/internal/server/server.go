@@ -297,6 +297,10 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 		// tasks_get MCP tool works without project_id — which lets the
 		// deprecated get_task (bare id) keep working as an alias.
 		r.Get("/tasks/{task}", s.handleGetTaskByID)
+		// Directive trace (ADR-034 D-7) — the per-directive timeline,
+		// reconstructed by walking the cause/parent chain. A query, no
+		// new event stream.
+		r.Get("/directives/{task}/trace", s.handleDirectiveTrace)
 		r.Route("/sessions", func(r chi.Router) {
 			r.Post("/", s.handleOpenSession)
 			r.Get("/", s.handleListSessions)

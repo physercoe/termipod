@@ -243,9 +243,16 @@ Hub-side orchestration hooks, YAML-configured (ADR-034 D-5):
 loop-entities and re-wakes it with the open set; `PostDirectiveOutcome`
 checks a closing `report` is a synthesis, not a bare relay.
 
-- Hook dispatch surface + the two hook points; bundled YAML defaults.
-- **Acceptance:** an agent with an open directive cannot idle; a
-  relay-only closing report is flagged. **Tests:** `TestHook_PreAgentIdle_*`,
+- `loop_hooks.go` + the embedded `loop_hooks_defaults.yaml` config.
+  `PreAgentIdle` fires on a `lifecycle` idle/stopped event in the
+  agent-events append path; since a hub-side hook cannot hard-block the
+  engine, it realises "block" as an immediate **re-wake** carrying the
+  open set — functionally the same: the agent does not get to rest
+  while it owns open work. `PostDirectiveOutcome` fires when a root
+  task closes `done` (in `notifyTaskAssigner`) and records a
+  `loop.relay_not_synthesis` audit flag on a bare-relay close.
+- **Acceptance:** an agent with an open directive is re-woken on idle;
+  a relay-only closing report is flagged. **Tests:** `TestHook_PreAgentIdle_*`,
   `TestHook_PostDirectiveOutcome_*`.
 
 #### B4 — The directive-trace query endpoint

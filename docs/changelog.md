@@ -1,9 +1,9 @@
 # Changelog
 
 > **Type:** reference
-> **Status:** Current (2026-05-18)
+> **Status:** Current (2026-05-19)
 > **Audience:** contributors, operators
-> **Last verified vs code:** v1.0.631
+> **Last verified vs code:** v1.0.632
 
 **TL;DR.** Append-only record of what shipped in each tagged release.
 One section per version, newest first. Format follows
@@ -22,6 +22,76 @@ binding). Seed entries prior to that are in
 [`#earlier-history`](#earlier-history) below.
 
 ---
+
+## v1.0.632-alpha — 2026-05-19
+
+The **orchestration contract** — [ADR-032](decisions/032-message-routing-envelope.md)
+(the message envelope) + [ADR-034](decisions/034-orchestration-loop-closure.md)
+(the loop-closure runtime), shipped together as the 10-wedge
+[message-routing rollout](plans/message-routing-rollout.md). Replaces
+the v1.0.626 / v1.0.630 A2A band-aids with a typed message contract and
+a runtime that guarantees a directive's loop reaches an observable
+terminal state. Both ADRs stay `Proposed` until on-device verification.
+
+### Added
+
+- **The message envelope (ADR-032).** Every message crossing an agent
+  boundary — principal→agent, agent→agent (A2A), system→agent — is a
+  structured `{from,to,kind,text,cause,thread}` envelope, composed
+  entirely by hub-server and marshaled as the `input.text` payload
+  itself. `kind` is a closed four-value enum (`directive` / `question`
+  / `report` / `notification`); `composeMessage` is the single
+  authoring point. Commits `eb12a09`, `91ef11d`.
+- **Driver-side envelope render.** `input_router.go` renders the
+  envelope into an unambiguous engine-facing turn — sender, kind, and a
+  derived `reply_via` instruction — and drops a self-echo; the drivers
+  stay envelope-agnostic. Commit `91ef11d`.
+- **The message-admission pipeline.** `validateEnvelope →
+  routing-legality → context` runs at the compose boundary, fail-safe,
+  `deny > allow` — an agent-declared bad envelope is rejected with an
+  ADR-031 hint, a hub-composed one fails fast as a programming error.
+  Commit `91ef11d`.
+- **The loop-entity data model.** Migration `0042` adds per-hop
+  deadline columns, `escalation_state`, and an additive
+  `terminal_reason` (`completed` / `failed` / `killed` / `timed_out` /
+  `superseded`) to `tasks` + `attention_items`. The loop-entity is a
+  role over the two existing tables — no new table; the human-facing
+  `status` set is unchanged. Commit `91ef11d`.
+- **The loop-closure reconcile sweep.** A periodic hub-server sweep
+  reconciles every open loop-entity against its per-hop deadlines: an
+  inactivity breach escalates the stall one level up the chain
+  (idempotent — never re-fires past the principal), an absolute-cap
+  breach terminates the entity `timed_out`. Commit `73a1197`.
+- **Orchestration lifecycle hooks.** `PreAgentIdle` re-wakes an agent
+  that goes idle while it still owns open loop-entities;
+  `PostDirectiveOutcome` flags a bare-relay directive close. Configured
+  by bundled YAML. Commit `0dac034`.
+- **The directive trace.** `GET /v1/teams/{team}/directives/{task}/trace`
+  reconstructs a directive's timeline by walking the parent/cause chain
+  — a query, no new event stream; stall escalations carry a `[STALL]`
+  marker. Commit `0dac034`.
+- **Per-persona orchestration prose.** All 10 main persona prompts
+  gained "How messages are addressed" + "Closing the loop" sections.
+  Commit `908ba89`.
+- **Mobile envelope rendering.** The transcript shows an A2A message's
+  sender + kind; closed tasks render `terminal_reason` as additive
+  detail alongside the unchanged status. Commit `2a498df`.
+
+### Changed
+
+- **A2A relay provenance travels as structure, not prose.**
+  `tunnel_a2a.go`'s `decorateA2ABodyWithSender` became
+  `stampA2AEnvelopeMeta` — sender / kind / cause are stamped into the
+  A2A body's `message.metadata.termipod` bag, and the recipient
+  host-runner composes the envelope. Commit `eb12a09`.
+- **`a2a_invoke` gained `kind` + `cause` parameters** so an agent
+  declares a message's illocutionary force and lineage explicitly.
+  Commit `eb12a09`.
+
+### Removed
+
+- **The v1.0.630 `[A2A from @sender]` text-prefix decoration** — the
+  envelope carries provenance as structure now. Commit `eb12a09`.
 
 ## v1.0.631-alpha — 2026-05-18
 

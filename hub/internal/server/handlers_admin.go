@@ -87,70 +87,79 @@ func (s *Server) fleetStopVerb(w http.ResponseWriter, r *http.Request, verb stri
 
 	out := AdminFleetShutdownResponse{Hosts: make([]AdminFleetHostResult, 0, len(hosts))}
 	for _, h := range hosts {
-		res := AdminFleetHostResult{HostID: h.id, TeamID: h.teamID, HostName: h.name}
-
-		// 1. Stop every active session on this host. We share
-		// stopSessionInternal with the mobile path so the audit trail
-		// for each session matches what a manual mobile-Stop would
-		// produce: session.stop + agent.terminate audits, MCP revoke,
-		// terminate host-command enqueued (the host runner will see it
-		// before the verb fires the exit).
-		sessionIDs, err := s.listActiveSessionIDsOnHost(r.Context(), h.teamID, h.id)
-		if err != nil {
-			res.Error = "list sessions: " + err.Error()
-			out.Hosts = append(out.Hosts, res)
-			continue
-		}
-		for _, sid := range sessionIDs {
-			_, _ = s.stopSessionInternal(r.Context(), h.teamID, sid, StopSessionOpts{
-				ForceKill: in.ForceKill,
-				Reason:    in.Reason,
-			})
-		}
-		res.SessionsStopped = len(sessionIDs)
-
-		// 2. Fire the control verb via the tunnel queue. The verb posts
-		// an ack BEFORE exiting (host-runner schedules os.Exit on a
-		// delayed goroutine), so a non-error response here means "the
-		// host has accepted the verb and will exit imminently".
-		payload, _ := json.Marshal(map[string]any{
-			"reason":     in.Reason,
-			"force_kill": in.ForceKill,
-		})
-		ackTimeout := 60 * time.Second
-		if in.NoWait {
-			ackTimeout = 1 * time.Second
-		}
-		ackCtx, cancel := context.WithTimeout(r.Context(), ackTimeout)
-		resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, verb, payload)
-		cancel()
-		switch {
-		case verbErr != nil:
-			res.Error = "verb: " + verbErr.Error()
-		case resp == nil:
-			res.Error = "verb: no response"
-		case resp.Status >= 200 && resp.Status < 300:
-			res.Acked = true
-		default:
-			res.Error = fmt.Sprintf("verb: status %d", resp.Status)
-		}
-
-		// 3. Per-host audit row. Survives even when the verb timed out
-		// because the operator intent is what auditors care about, not
-		// just successful acks.
-		s.recordAudit(r.Context(), h.teamID, verb, "host", h.id,
-			action+" host "+firstNonEmpty(h.name, h.id),
-			map[string]any{
-				"reason":           in.Reason,
-				"force_kill":       in.ForceKill,
-				"sessions_stopped": res.SessionsStopped,
-				"acked":            res.Acked,
-				"no_wait":          in.NoWait,
-			})
-		out.Hosts = append(out.Hosts, res)
+		out.Hosts = append(out.Hosts, s.stopOneHost(r.Context(), verb, h, in))
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// stopOneHost fires one host.shutdown / host.restart verb at a single
+// host: stops its active sessions, sends the verb, records the audit
+// row, and returns the per-host result. Shared by fleetStopVerb (the
+// fleet fan-out) and adminHostStopVerb (the per-host Phase 5 route) so
+// both produce an identical audit trail and result shape.
+func (s *Server) stopOneHost(ctx context.Context, verb string, h hostRow, in AdminFleetShutdownRequest) AdminFleetHostResult {
+	action := strings.TrimPrefix(verb, "host.") // "shutdown" | "restart"
+	res := AdminFleetHostResult{HostID: h.id, TeamID: h.teamID, HostName: h.name}
+
+	// 1. Stop every active session on this host. We share
+	// stopSessionInternal with the mobile path so the audit trail
+	// for each session matches what a manual mobile-Stop would
+	// produce: session.stop + agent.terminate audits, MCP revoke,
+	// terminate host-command enqueued (the host runner will see it
+	// before the verb fires the exit).
+	sessionIDs, err := s.listActiveSessionIDsOnHost(ctx, h.teamID, h.id)
+	if err != nil {
+		res.Error = "list sessions: " + err.Error()
+		return res
+	}
+	for _, sid := range sessionIDs {
+		_, _ = s.stopSessionInternal(ctx, h.teamID, sid, StopSessionOpts{
+			ForceKill: in.ForceKill,
+			Reason:    in.Reason,
+		})
+	}
+	res.SessionsStopped = len(sessionIDs)
+
+	// 2. Fire the control verb via the tunnel queue. The verb posts
+	// an ack BEFORE exiting (host-runner schedules os.Exit on a
+	// delayed goroutine), so a non-error response here means "the
+	// host has accepted the verb and will exit imminently".
+	payload, _ := json.Marshal(map[string]any{
+		"reason":     in.Reason,
+		"force_kill": in.ForceKill,
+	})
+	ackTimeout := 60 * time.Second
+	if in.NoWait {
+		ackTimeout = 1 * time.Second
+	}
+	ackCtx, cancel := context.WithTimeout(ctx, ackTimeout)
+	resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, verb, payload)
+	cancel()
+	switch {
+	case verbErr != nil:
+		res.Error = "verb: " + verbErr.Error()
+	case resp == nil:
+		res.Error = "verb: no response"
+	case resp.Status >= 200 && resp.Status < 300:
+		res.Acked = true
+	default:
+		res.Error = fmt.Sprintf("verb: status %d", resp.Status)
+	}
+
+	// 3. Per-host audit row. Survives even when the verb timed out
+	// because the operator intent is what auditors care about, not
+	// just successful acks.
+	s.recordAudit(ctx, h.teamID, verb, "host", h.id,
+		action+" host "+firstNonEmpty(h.name, h.id),
+		map[string]any{
+			"reason":           in.Reason,
+			"force_kill":       in.ForceKill,
+			"sessions_stopped": res.SessionsStopped,
+			"acked":            res.Acked,
+			"no_wait":          in.NoWait,
+		})
+	return res
 }
 
 // hostRow is the projection of `hosts` shutdown-all iterates over.
@@ -294,47 +303,10 @@ func (s *Server) handleAdminFleetUpdate(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		for _, h := range hosts {
-			res := AdminFleetUpdateHostResult{HostID: h.id, TeamID: h.teamID, HostName: h.name}
-			if in.DryRun {
-				res.WouldUpdate = true
-				out.Hosts = append(out.Hosts, res)
-				continue
-			}
-			payload, _ := json.Marshal(map[string]any{
-				"version":       in.Version,
-				"channel":       in.Channel,
-				"upstream_repo": in.UpstreamRepo,
-				"reason":        in.Reason,
-			})
-			// host.update blocks for the length of a download; allow a
-			// generous ack window before giving up on the host.
-			ackCtx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
-			resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, "host.update", payload)
-			cancel()
-			switch {
-			case verbErr != nil:
-				res.Error = "verb: " + verbErr.Error()
-			case resp == nil:
-				res.Error = "verb: no response"
-			case resp.Status >= 200 && resp.Status < 300:
-				res.Acked = true
-				res.FromVersion, res.ToVersion = parseUpdateAck(resp.BodyB64)
-			default:
-				res.Error = fmt.Sprintf("verb: status %d — %s",
-					resp.Status, updateAckError(resp.BodyB64))
-			}
+			res := s.updateOneHost(r.Context(), h, in)
 			if res.Error != "" {
 				hostErrors++
 			}
-			s.recordAudit(r.Context(), h.teamID, "host.update", "host", h.id,
-				"update host "+firstNonEmpty(h.name, h.id),
-				map[string]any{
-					"reason":       in.Reason,
-					"acked":        res.Acked,
-					"from_version": res.FromVersion,
-					"to_version":   res.ToVersion,
-					"error":        res.Error,
-				})
 			out.Hosts = append(out.Hosts, res)
 		}
 	}
@@ -384,6 +356,52 @@ func (s *Server) scheduleHubSelfUpdate(in AdminFleetUpdateRequest) {
 			"from", res.FromVersion, "to", res.ToVersion)
 		hubExit(75)
 	}()
+}
+
+// updateOneHost fires one host.update verb at a single host: it
+// fans the verb, decodes the from/to versions, records the audit
+// row, and returns the per-host result. A dry-run skips the verb and
+// just flags WouldUpdate. Shared by handleAdminFleetUpdate (the fleet
+// fan-out) and adminHostUpdate (the per-host Phase 5 route).
+func (s *Server) updateOneHost(ctx context.Context, h hostRow, in AdminFleetUpdateRequest) AdminFleetUpdateHostResult {
+	res := AdminFleetUpdateHostResult{HostID: h.id, TeamID: h.teamID, HostName: h.name}
+	if in.DryRun {
+		res.WouldUpdate = true
+		return res
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"version":       in.Version,
+		"channel":       in.Channel,
+		"upstream_repo": in.UpstreamRepo,
+		"reason":        in.Reason,
+	})
+	// host.update blocks for the length of a download; allow a
+	// generous ack window before giving up on the host.
+	ackCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
+	resp, verbErr := s.tunnel.enqueueHostVerb(ackCtx, h.id, "host.update", payload)
+	cancel()
+	switch {
+	case verbErr != nil:
+		res.Error = "verb: " + verbErr.Error()
+	case resp == nil:
+		res.Error = "verb: no response"
+	case resp.Status >= 200 && resp.Status < 300:
+		res.Acked = true
+		res.FromVersion, res.ToVersion = parseUpdateAck(resp.BodyB64)
+	default:
+		res.Error = fmt.Sprintf("verb: status %d — %s",
+			resp.Status, updateAckError(resp.BodyB64))
+	}
+	s.recordAudit(ctx, h.teamID, "host.update", "host", h.id,
+		"update host "+firstNonEmpty(h.name, h.id),
+		map[string]any{
+			"reason":       in.Reason,
+			"acked":        res.Acked,
+			"from_version": res.FromVersion,
+			"to_version":   res.ToVersion,
+			"error":        res.Error,
+		})
+	return res
 }
 
 // parseUpdateAck pulls the from/to version out of a host.update ack

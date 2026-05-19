@@ -235,15 +235,22 @@ func (s *Server) buildAuthedRoutes(r chi.Router) {
 
 	// /v1/admin/* — hub-wide ops endpoints (ADR-028). Owner-scope is
 	// enforced inside each handler (requireOwner). Phases 1-3 wired the
-	// fleet control verbs; Phase 4 adds read-side host inspection.
+	// fleet control verbs; Phase 4 adds read-side host inspection;
+	// Phase 5 adds the per-host control verbs, db maintenance, and the
+	// cross-team audit query the mobile Admin pane consumes.
 	r.Post("/v1/admin/fleet/shutdown", s.handleAdminFleetShutdown)
 	r.Post("/v1/admin/fleet/update", s.handleAdminFleetUpdate)
 	r.Post("/v1/admin/fleet/restart", s.handleAdminFleetRestart)
 	r.Get("/v1/admin/hosts", s.handleAdminListHosts)
 	r.Post("/v1/admin/hosts/{host}/ping", s.handleAdminHostPing)
+	r.Post("/v1/admin/hosts/{host}/shutdown", s.handleAdminHostShutdown)
+	r.Post("/v1/admin/hosts/{host}/restart", s.handleAdminHostRestart)
+	r.Post("/v1/admin/hosts/{host}/update", s.handleAdminHostUpdate)
 	r.Get("/v1/admin/agents", s.handleAdminListAgents)
 	r.Post("/v1/admin/agents/{agent}/kill", s.handleAdminKillAgent)
 	r.Post("/v1/admin/tokens/rotate", s.handleAdminTokensRotate)
+	r.Post("/v1/admin/db/vacuum", s.handleAdminDBVacuum)
+	r.Get("/v1/admin/audit", s.handleAdminListAudit)
 
 	// /v1/insights — scope-parameterized aggregator (ADR-022 D3).
 	// Phase 1 W2 wires the project scope only:
